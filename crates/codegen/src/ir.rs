@@ -319,18 +319,21 @@ fn c_array_ensure_capacity(
 }
 
 /// flowgraph.c basicblock_next_instr
-fn basicblock_next_instr(block: &mut Block) -> usize {
+fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
     let off = block.instructions.len();
     let new_allocation =
         c_array_ensure_capacity(block.instruction_allocation, off + 1, DEFAULT_BLOCK_SIZE);
     if new_allocation > block.instruction_allocation {
         block.instruction_allocation = new_allocation;
         if new_allocation > block.instructions.capacity() + block.cpython_spare_instr_slots.len() {
-            block.instructions.reserve_exact(
-                new_allocation
-                    - block.instructions.capacity()
-                    - block.cpython_spare_instr_slots.len(),
-            );
+            block
+                .instructions
+                .try_reserve_exact(
+                    new_allocation
+                        - block.instructions.capacity()
+                        - block.cpython_spare_instr_slots.len(),
+                )
+                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         }
     }
     let slot = block
@@ -338,7 +341,7 @@ fn basicblock_next_instr(block: &mut Block) -> usize {
         .pop()
         .unwrap_or_else(empty_instruction_info);
     block.instructions.push(slot);
-    off
+    Ok(off)
 }
 
 /// flowgraph.c basicblock_last_instr
@@ -352,7 +355,7 @@ fn basicblock_last_instr_mut(block: &mut Block) -> Option<&mut InstructionInfo> 
 }
 
 /// flowgraph.c basicblock_addop
-fn basicblock_addop(block: &mut Block, mut info: InstructionInfo) {
+fn basicblock_addop(block: &mut Block, mut info: InstructionInfo) -> crate::InternalResult<()> {
     debug_assert!(!info.instr.is_assembler());
     debug_assert!(
         info.instr.has_arg() || info.instr.has_target() || u32::from(info.arg) == 0,
@@ -362,30 +365,40 @@ fn basicblock_addop(block: &mut Block, mut info: InstructionInfo) {
         u32::from(info.arg) < (1 << 30),
         "CPython basicblock_addop requires 0 <= oparg < (1 << 30)"
     );
-    let off = basicblock_next_instr(block);
+    let off = basicblock_next_instr(block)?;
     let except_handler = block.instructions[off].except_handler;
     info.target = BlockIdx::NULL;
     info.except_handler = except_handler;
     block.instructions[off] = info;
+    Ok(())
 }
 
 /// flowgraph.c basicblock_insert_instruction
-fn basicblock_insert_instruction(block: &mut Block, pos: usize, info: InstructionInfo) {
+fn basicblock_insert_instruction(
+    block: &mut Block,
+    pos: usize,
+    info: InstructionInfo,
+) -> crate::InternalResult<()> {
     let old_len = block.instructions.len();
     debug_assert!(pos <= old_len);
-    basicblock_next_instr(block);
+    basicblock_next_instr(block)?;
     for i in (pos + 1..=old_len).rev() {
         block.instructions[i] = block.instructions[i - 1];
     }
     block.instructions[pos] = info;
+    Ok(())
 }
 
 /// flowgraph.c basicblock_append_instructions
-fn basicblock_append_instructions(to: &mut Block, from: &[InstructionInfo]) {
+fn basicblock_append_instructions(
+    to: &mut Block,
+    from: &[InstructionInfo],
+) -> crate::InternalResult<()> {
     for info in from {
-        let off = basicblock_next_instr(to);
+        let off = basicblock_next_instr(to)?;
         to.instructions[off] = *info;
     }
+    Ok(())
 }
 
 /// flowgraph.c direct `b_iused = 0`
@@ -1712,7 +1725,7 @@ fn optimize_code_unit(
     insert_superinstructions(blocks);
     push_cold_blocks_to_end(blocks)?;
     // CPython resolves line numbers again after cold-block extraction.
-    resolve_line_numbers(blocks, metadata.firstlineno);
+    resolve_line_numbers(blocks, metadata.firstlineno)?;
     Ok(())
 }
 
@@ -1726,7 +1739,7 @@ fn optimize_cfg(
     // SystemError if a jump or scope exit is not the last instruction in
     // its block.
     check_cfg(blocks)?;
-    inline_small_or_no_lineno_blocks(blocks);
+    inline_small_or_no_lineno_blocks(blocks)?;
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
@@ -1734,7 +1747,7 @@ fn optimize_cfg(
     // CPython optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
-    resolve_line_numbers(blocks, firstlineno);
+    resolve_line_numbers(blocks, firstlineno)?;
     // CPython optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
     optimize_load_const(metadata, blocks);
@@ -1761,10 +1774,10 @@ fn optimized_cfg_to_instruction_sequence(
     blocks: &mut Vec<Block>,
 ) -> crate::InternalResult<(u32, usize, InstructionSequence)> {
     // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
-    convert_pseudo_conditional_jumps(blocks);
+    convert_pseudo_conditional_jumps(blocks)?;
     let max_stackdepth = calculate_stackdepth(blocks)?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
-    let nlocalsplus = prepare_localsplus(metadata, blocks, flags);
+    let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
     // Match CPython order: pseudo ops are lowered after stackdepth and
     // localsplus preparation, before normalize_jumps.
     convert_pseudo_ops(blocks)?;
@@ -1886,7 +1899,7 @@ fn insert_prefix_instructions(
     cellfixedoffsets: &[i32],
     nfreevars: usize,
     flags: CodeFlags,
-) {
+) -> crate::InternalResult<()> {
     debug_assert!(!blocks.is_empty());
     let entry = &mut blocks[0];
     let ncellvars = metadata.cellvars.len();
@@ -1910,7 +1923,7 @@ fn insert_prefix_instructions(
                 except_handler: None,
                 lineno_override: Some(LINE_ONLY_LOCATION_OVERRIDE),
             },
-        );
+        )?;
         basicblock_insert_instruction(
             entry,
             1,
@@ -1923,7 +1936,7 @@ fn insert_prefix_instructions(
                 except_handler: None,
                 lineno_override: Some(LINE_ONLY_LOCATION_OVERRIDE),
             },
-        );
+        )?;
     }
 
     if ncellvars > 0 {
@@ -1953,7 +1966,7 @@ fn insert_prefix_instructions(
                     except_handler: None,
                     lineno_override: Some(NO_LOCATION_OVERRIDE),
                 },
-            );
+            )?;
             ncellsused += 1;
         }
     }
@@ -1971,8 +1984,9 @@ fn insert_prefix_instructions(
                 except_handler: None,
                 lineno_override: Some(NO_LOCATION_OVERRIDE),
             },
-        );
+        )?;
     }
+    Ok(())
 }
 
 /// flowgraph.c prepare_localsplus
@@ -1980,7 +1994,7 @@ fn prepare_localsplus(
     metadata: &CodeUnitMetadata,
     blocks: &mut [Block],
     flags: CodeFlags,
-) -> usize {
+) -> crate::InternalResult<usize> {
     let nlocals = metadata.varnames.len();
     let ncellvars = metadata.cellvars.len();
     let nfreevars = metadata.freevars.len();
@@ -2003,11 +2017,11 @@ fn prepare_localsplus(
     let mut cellfixedoffsets = build_cellfixedoffsets(metadata);
 
     // This must be called before fix_cell_offsets().
-    insert_prefix_instructions(metadata, blocks, &cellfixedoffsets, nfreevars, flags);
+    insert_prefix_instructions(metadata, blocks, &cellfixedoffsets, nfreevars, flags)?;
 
     let numdropped = fix_cell_offsets(metadata, blocks, &mut cellfixedoffsets);
     nlocalsplus -= numdropped;
-    nlocalsplus
+    Ok(nlocalsplus)
 }
 
 /// flowgraph.c remove_unreachable
@@ -4274,13 +4288,13 @@ impl CodeInfo {
         ));
         optimize_code_unit_preprocess(&mut self.blocks)?;
         check_cfg(&self.blocks)?;
-        inline_small_or_no_lineno_blocks(&mut self.blocks);
+        inline_small_or_no_lineno_blocks(&mut self.blocks)?;
         trace.push((
             "after_inline_small_or_no_lineno_blocks".to_owned(),
             self.debug_block_dump(),
         ));
         remove_unreachable(&mut self.blocks)?;
-        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno);
+        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
         optimize_load_const(&mut self.metadata, &mut self.blocks);
         trace.push((
             "after_optimize_load_const".to_owned(),
@@ -4315,7 +4329,7 @@ impl CodeInfo {
             "after_push_cold_before_chain_reorder".to_owned(),
             self.debug_block_dump(),
         ));
-        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno);
+        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
         trace.push((
             "after_push_cold_resolve_line_numbers".to_owned(),
             self.debug_block_dump(),
@@ -4326,14 +4340,14 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        convert_pseudo_conditional_jumps(&mut self.blocks);
+        convert_pseudo_conditional_jumps(&mut self.blocks)?;
         trace.push((
             "after_convert_pseudo_conditional_jumps".to_owned(),
             self.debug_block_dump(),
         ));
 
         let _max_stackdepth = calculate_stackdepth(&mut self.blocks)?;
-        let _nlocalsplus = prepare_localsplus(&self.metadata, &mut self.blocks, self.flags);
+        let _nlocalsplus = prepare_localsplus(&self.metadata, &mut self.blocks, self.flags)?;
         convert_pseudo_ops(&mut self.blocks)?;
         trace.push((
             "after_convert_pseudo_ops".to_owned(),
@@ -5042,7 +5056,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
             && next != BlockIdx::NULL
             && blocks[next.idx()].warm
         {
-            let explicit_jump = blocks_new_block(blocks);
+            let explicit_jump = blocks_new_block(blocks)?;
             if !is_label(blocks[next.idx()].cpython_label) {
                 blocks[next.idx()].cpython_label = InstructionSequenceLabel::from_index(next_label);
                 next_label += 1;
@@ -5065,7 +5079,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
                     except_handler: None,
                     lineno_override: Some(NO_LOCATION_OVERRIDE),
                 },
-            );
+            )?;
             blocks[explicit_jump.idx()].cold = true;
             blocks[explicit_jump.idx()].next = next;
             blocks[explicit_jump.idx()].predecessors = 1;
@@ -5199,7 +5213,7 @@ fn basicblock_add_jump(
             except_handler: None,
             lineno_override: loc_source.lineno_override,
         },
-    );
+    )?;
     let last = basicblock_last_instr_mut(block).expect("missing jump");
     debug_assert!(match (last.instr, instr) {
         (AnyInstruction::Real(last), AnyInstruction::Real(opcode)) =>
@@ -5226,7 +5240,7 @@ fn is_conditional_jump_opcode(instr: &AnyInstruction) -> bool {
 }
 
 /// flowgraph.c convert_pseudo_conditional_jumps
-fn convert_pseudo_conditional_jumps(blocks: &mut [Block]) {
+fn convert_pseudo_conditional_jumps(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next = blocks[block_idx.idx()].next;
@@ -5266,7 +5280,7 @@ fn convert_pseudo_conditional_jumps(blocks: &mut [Block]) {
                     except_handler,
                     lineno_override,
                 };
-                basicblock_insert_instruction(block, i, copy);
+                basicblock_insert_instruction(block, i, copy)?;
                 i += 1;
 
                 let to_bool = InstructionInfo {
@@ -5278,13 +5292,14 @@ fn convert_pseudo_conditional_jumps(blocks: &mut [Block]) {
                     except_handler,
                     lineno_override,
                 };
-                basicblock_insert_instruction(block, i, to_bool);
+                basicblock_insert_instruction(block, i, to_bool)?;
                 i += 1;
             }
             i += 1;
         }
         block_idx = next;
     }
+    Ok(())
 }
 
 /// flowgraph.c normalize_jumps_in_block
@@ -5315,7 +5330,7 @@ fn normalize_jumps_in_block(
             except_handler: None,
             lineno_override: last_ins.lineno_override,
         };
-        basicblock_addop(&mut blocks[idx], not_taken);
+        basicblock_addop(&mut blocks[idx], not_taken)?;
         return Ok(());
     }
 
@@ -5333,7 +5348,7 @@ fn normalize_jumps_in_block(
     let end_loc = last_ins.end_location;
 
     let target = last_ins.target;
-    let backwards_jump_idx = blocks_new_block(blocks);
+    let backwards_jump_idx = blocks_new_block(blocks)?;
     basicblock_addop(
         &mut blocks[backwards_jump_idx.idx()],
         InstructionInfo {
@@ -5345,7 +5360,7 @@ fn normalize_jumps_in_block(
             except_handler: None,
             lineno_override: last_ins.lineno_override,
         },
-    );
+    )?;
     basicblock_add_jump(
         blocks,
         backwards_jump_idx,
@@ -5387,12 +5402,15 @@ fn normalize_jumps(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
 }
 
 /// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
-fn basicblock_inline_small_or_no_lineno_blocks(blocks: &mut [Block], block_idx: BlockIdx) -> bool {
+fn basicblock_inline_small_or_no_lineno_blocks(
+    blocks: &mut [Block],
+    block_idx: BlockIdx,
+) -> crate::InternalResult<bool> {
     let Some(last) = basicblock_last_instr(&blocks[block_idx.idx()]).copied() else {
-        return false;
+        return Ok(false);
     };
     if !last.instr.is_unconditional_jump() {
-        return false;
+        return Ok(false);
     }
 
     let target = last.target;
@@ -5408,7 +5426,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(blocks: &mut [Block], block_idx: 
             .expect("non-empty block has last instruction");
         set_to_nop(last);
         let target_instructions = blocks[target.idx()].instructions.clone();
-        basicblock_append_instructions(&mut blocks[block_idx.idx()], &target_instructions);
+        basicblock_append_instructions(&mut blocks[block_idx.idx()], &target_instructions)?;
         if no_lineno_no_fallthrough {
             let last = basicblock_last_instr_mut(&mut blocks[block_idx.idx()]).unwrap();
             if last.instr.is_unconditional_jump()
@@ -5421,19 +5439,19 @@ fn basicblock_inline_small_or_no_lineno_blocks(blocks: &mut [Block], block_idx: 
             }
         }
         blocks[target.idx()].predecessors -= 1;
-        return true;
+        return Ok(true);
     }
-    false
+    Ok(false)
 }
 
 /// flowgraph.c inline_small_or_no_lineno_blocks
-fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
+fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResult<()> {
     loop {
         let mut changes = false;
         let mut current = BlockIdx(0);
         while current != BlockIdx::NULL {
             let next = blocks[current.idx()].next;
-            let res = basicblock_inline_small_or_no_lineno_blocks(blocks, current);
+            let res = basicblock_inline_small_or_no_lineno_blocks(blocks, current)?;
             if res {
                 changes = true;
             }
@@ -5444,6 +5462,7 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) {
             break;
         }
     }
+    Ok(())
 }
 
 /// flowgraph.c basicblock_remove_redundant_nops
@@ -5625,10 +5644,13 @@ fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<Vec<B
     Ok(stack)
 }
 
-fn blocks_new_block(blocks: &mut Vec<Block>) -> BlockIdx {
+fn blocks_new_block(blocks: &mut Vec<Block>) -> crate::InternalResult<BlockIdx> {
+    blocks
+        .try_reserve(1)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     let block_idx = BlockIdx(blocks.len() as u32);
     blocks.push(Block::default());
-    block_idx
+    Ok(block_idx)
 }
 
 /// flowgraph.c struct _PyCfgBuilder
@@ -5641,12 +5663,12 @@ struct CfgBuilder {
 }
 
 /// flowgraph.c cfg_builder_new_block
-fn cfg_builder_new_block(g: &mut CfgBuilder) -> BlockIdx {
-    let block = blocks_new_block(&mut g.blocks);
+fn cfg_builder_new_block(g: &mut CfgBuilder) -> crate::InternalResult<BlockIdx> {
+    let block = blocks_new_block(&mut g.blocks)?;
     g.blocks[block.idx()].allocation_next = g.block_list;
     g.blocks[block.idx()].cpython_label = InstructionSequenceLabel::NO_LABEL;
     g.block_list = block;
-    block
+    Ok(block)
 }
 
 /// flowgraph.c cfg_builder_use_next_block
@@ -5658,16 +5680,17 @@ fn cfg_builder_use_next_block(g: &mut CfgBuilder, block: BlockIdx) -> BlockIdx {
 }
 
 /// flowgraph.c init_cfg_builder
-fn init_cfg_builder(g: &mut CfgBuilder) {
+fn init_cfg_builder(g: &mut CfgBuilder) -> crate::InternalResult<()> {
     g.block_list = BlockIdx::NULL;
-    let block = cfg_builder_new_block(g);
+    let block = cfg_builder_new_block(g)?;
     g.entry = block;
     g.current = block;
     g.current_label = InstructionSequenceLabel::NO_LABEL;
+    Ok(())
 }
 
 /// flowgraph.c _PyCfgBuilder_New
-fn cfg_builder_new() -> CfgBuilder {
+fn cfg_builder_new() -> crate::InternalResult<CfgBuilder> {
     let mut builder = CfgBuilder {
         blocks: Vec::new(),
         entry: BlockIdx::NULL,
@@ -5675,8 +5698,8 @@ fn cfg_builder_new() -> CfgBuilder {
         current: BlockIdx::NULL,
         current_label: InstructionSequenceLabel::NO_LABEL,
     };
-    init_cfg_builder(&mut builder);
-    builder
+    init_cfg_builder(&mut builder)?;
+    Ok(builder)
 }
 
 /// flowgraph.c cfg_builder_current_block_is_terminated
@@ -5697,25 +5720,29 @@ fn cfg_builder_current_block_is_terminated(g: &mut CfgBuilder) -> bool {
 }
 
 /// flowgraph.c cfg_builder_maybe_start_new_block
-fn cfg_builder_maybe_start_new_block(g: &mut CfgBuilder) {
+fn cfg_builder_maybe_start_new_block(g: &mut CfgBuilder) -> crate::InternalResult<()> {
     if cfg_builder_current_block_is_terminated(g) {
-        let block = cfg_builder_new_block(g);
+        let block = cfg_builder_new_block(g)?;
         g.blocks[block.idx()].cpython_label = g.current_label;
         g.current_label = InstructionSequenceLabel::NO_LABEL;
         cfg_builder_use_next_block(g, block);
     }
+    Ok(())
 }
 
 /// flowgraph.c _PyCfgBuilder_UseLabel
-fn cfg_builder_use_label(g: &mut CfgBuilder, label_id: InstructionSequenceLabel) {
+fn cfg_builder_use_label(
+    g: &mut CfgBuilder,
+    label_id: InstructionSequenceLabel,
+) -> crate::InternalResult<()> {
     g.current_label = label_id;
-    cfg_builder_maybe_start_new_block(g);
+    cfg_builder_maybe_start_new_block(g)
 }
 
 /// flowgraph.c _PyCfgBuilder_Addop
-fn cfg_builder_addop(g: &mut CfgBuilder, info: InstructionInfo) {
-    cfg_builder_maybe_start_new_block(g);
-    basicblock_addop(&mut g.blocks[g.current.idx()], info);
+fn cfg_builder_addop(g: &mut CfgBuilder, info: InstructionInfo) -> crate::InternalResult<()> {
+    cfg_builder_maybe_start_new_block(g)?;
+    basicblock_addop(&mut g.blocks[g.current.idx()], info)
 }
 
 /// flowgraph.c cfg_builder_check
@@ -5849,7 +5876,7 @@ fn cfg_from_instruction_sequence(
     } = instr_sequence;
     debug_assert!(label_map.is_none());
 
-    let mut builder = cfg_builder_new();
+    let mut builder = cfg_builder_new()?;
     let mut offset = 0i32;
 
     let mut i = 0;
@@ -5867,7 +5894,7 @@ fn cfg_from_instruction_sequence(
                     debug_assert!(!ann_entry.info.instr.has_target());
                     let mut info = ann_entry.info;
                     info.target = BlockIdx::NULL;
-                    cfg_builder_addop(&mut builder, info);
+                    cfg_builder_addop(&mut builder, info)?;
                 }
                 offset += annotations_code
                     .instrs
@@ -5889,7 +5916,7 @@ fn cfg_from_instruction_sequence(
                 .checked_add(offset)
                 .ok_or(InternalError::MalformedControlFlowGraph)?;
             let label = InstructionSequenceLabel(label_id);
-            cfg_builder_use_label(&mut builder, label);
+            cfg_builder_use_label(&mut builder, label)?;
         }
 
         let opcode = entry.info.instr;
@@ -5908,7 +5935,7 @@ fn cfg_from_instruction_sequence(
         entry.info.instr = opcode;
         entry.info.arg = oparg;
         entry.info.target = BlockIdx::NULL;
-        cfg_builder_addop(&mut builder, entry.info);
+        cfg_builder_addop(&mut builder, entry.info)?;
         i += 1;
     }
 
@@ -6231,14 +6258,17 @@ fn compute_reachable_predecessors(blocks: &mut [Block]) -> crate::InternalResult
 }
 
 /// flowgraph.c copy_basicblock
-fn copy_basicblock(blocks: &mut Vec<Block>, block_idx: BlockIdx) -> BlockIdx {
+fn copy_basicblock(
+    blocks: &mut Vec<Block>,
+    block_idx: BlockIdx,
+) -> crate::InternalResult<BlockIdx> {
     debug_assert!(bb_no_fallthrough(&blocks[block_idx.idx()]));
-    let result = blocks_new_block(blocks);
+    let result = blocks_new_block(blocks)?;
     let result_idx = result.idx();
     let (blocks_before_result, result_block) = blocks.split_at_mut(result_idx);
     let block = &blocks_before_result[block_idx.idx()];
-    basicblock_append_instructions(&mut result_block[0], &block.instructions);
-    result
+    basicblock_append_instructions(&mut result_block[0], &block.instructions)?;
+    Ok(result)
 }
 
 /// flowgraph.c get_max_label
@@ -6254,7 +6284,7 @@ fn get_max_label(blocks: &[Block]) -> i32 {
 }
 
 #[allow(clippy::collapsible_if)]
-fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
+fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
     let mut next_lbl = get_max_label(blocks) + 1;
 
     let entryblock = BlockIdx(0);
@@ -6271,7 +6301,7 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
             if is_exit_or_eval_check_without_lineno(&blocks[target.idx()])
                 && blocks[target.idx()].predecessors > 1
             {
-                let new_target = copy_basicblock(blocks, target);
+                let new_target = copy_basicblock(blocks, target)?;
                 instr_set_location(
                     &mut blocks[new_target.idx()].instructions[0],
                     instr_location(&last),
@@ -6307,6 +6337,7 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) {
         }
         b = blocks[b.idx()].next;
     }
+    Ok(())
 }
 
 #[allow(clippy::collapsible_if)]
@@ -6354,9 +6385,13 @@ fn propagate_line_numbers(blocks: &mut [Block]) {
     }
 }
 
-fn resolve_line_numbers(blocks: &mut Vec<Block>, _firstlineno: OneIndexed) {
-    duplicate_exits_without_lineno(blocks);
+fn resolve_line_numbers(
+    blocks: &mut Vec<Block>,
+    _firstlineno: OneIndexed,
+) -> crate::InternalResult<()> {
+    duplicate_exits_without_lineno(blocks)?;
     propagate_line_numbers(blocks);
+    Ok(())
 }
 
 /// flowgraph.c make_except_stack
@@ -6821,7 +6856,8 @@ mod tests {
         stale.except_handler = Some(handler);
         block.cpython_spare_instr_slots.push(stale);
 
-        basicblock_addop(&mut block, test_instr(Instruction::PopTop, 12));
+        basicblock_addop(&mut block, test_instr(Instruction::PopTop, 12))
+            .expect("basicblock_addop succeeds");
 
         // CPython `basicblock_addop()` writes opcode/oparg/target/location into
         // the reused `b_instr[b_iused]` slot, but does not clear `i_except`.
@@ -6835,13 +6871,15 @@ mod tests {
     fn basicblock_next_instr_tracks_cpython_c_array_allocation() {
         let mut block = Block::default();
         for i in 0..15 {
-            basicblock_addop(&mut block, test_instr(Instruction::PopTop, 10 + i));
+            basicblock_addop(&mut block, test_instr(Instruction::PopTop, 10 + i))
+                .expect("basicblock_addop succeeds");
         }
         assert_eq!(block.instruction_allocation, DEFAULT_BLOCK_SIZE);
 
         // CPython calls `_Py_CArray_EnsureCapacity(b_iused + 1)`, so the 16th
         // instruction expands a 16-slot array to 32 before returning offset 15.
-        basicblock_addop(&mut block, test_instr(Instruction::PopTop, 25));
+        basicblock_addop(&mut block, test_instr(Instruction::PopTop, 25))
+            .expect("basicblock_addop succeeds");
         assert_eq!(block.instruction_allocation, DEFAULT_BLOCK_SIZE * 2);
     }
 
@@ -6857,7 +6895,8 @@ mod tests {
         stale.except_handler = Some(handler);
         block.cpython_spare_instr_slots.push(stale);
 
-        basicblock_insert_instruction(&mut block, 0, test_instr(Instruction::PopTop, 23));
+        basicblock_insert_instruction(&mut block, 0, test_instr(Instruction::PopTop, 23))
+            .expect("basicblock_insert_instruction succeeds");
 
         // CPython `basicblock_insert_instruction()` also obtains a slot with
         // `basicblock_next_instr()`, then overwrites the inserted position with
@@ -6879,7 +6918,8 @@ mod tests {
         block.instructions.push(stale);
 
         basicblock_clear(&mut block);
-        basicblock_addop(&mut block, test_instr(Instruction::Nop, 32));
+        basicblock_addop(&mut block, test_instr(Instruction::Nop, 32))
+            .expect("basicblock_addop succeeds");
 
         // CPython `remove_unreachable()` sets `b_iused = 0` without clearing the
         // backing `b_instr` slot. A later `basicblock_addop()` reuses that slot
@@ -6903,7 +6943,8 @@ mod tests {
 
         basicblock_clear(&mut block);
         for i in 0..3 {
-            basicblock_addop(&mut block, test_instr(Instruction::PopTop, 38 + i));
+            basicblock_addop(&mut block, test_instr(Instruction::PopTop, 38 + i))
+                .expect("basicblock_addop succeeds");
         }
 
         let handlers = block
@@ -6935,7 +6976,8 @@ mod tests {
         to.cpython_spare_instr_slots.push(stale);
 
         let from = [test_instr(Instruction::PopTop, 42)];
-        basicblock_append_instructions(&mut to, &from);
+        basicblock_append_instructions(&mut to, &from)
+            .expect("basicblock_append_instructions succeeds");
 
         // CPython `basicblock_append_instructions()` obtains a slot with
         // `basicblock_next_instr()`, then overwrites it with the copied
@@ -7194,7 +7236,7 @@ mod tests {
         blocks[2].instructions[0].lineno_override = Some(NO_LOCATION_OVERRIDE);
 
         compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
-        resolve_line_numbers(&mut blocks, OneIndexed::MIN);
+        resolve_line_numbers(&mut blocks, OneIndexed::MIN).expect("resolve_line_numbers succeeds");
 
         // CPython `duplicate_exits_without_lineno()` copies a shared exit block
         // reached by jumps so each copy can inherit its sole predecessor's line.
