@@ -380,7 +380,9 @@ fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
 
 /// flowgraph.c basicblock_last_instr
 fn basicblock_last_instr(block: &Block) -> Option<&InstructionInfo> {
+    debug_assert!(block.instruction_allocation >= block.instruction_used);
     if block.instruction_used > 0 {
+        debug_assert!(!block.instructions.is_empty());
         Some(&block.instructions[block.instruction_used - 1])
     } else {
         None
@@ -389,7 +391,9 @@ fn basicblock_last_instr(block: &Block) -> Option<&InstructionInfo> {
 
 /// flowgraph.c basicblock_last_instr
 fn basicblock_last_instr_mut(block: &mut Block) -> Option<&mut InstructionInfo> {
+    debug_assert!(block.instruction_allocation >= block.instruction_used);
     if block.instruction_used > 0 {
+        debug_assert!(!block.instructions.is_empty());
         Some(&mut block.instructions[block.instruction_used - 1])
     } else {
         None
