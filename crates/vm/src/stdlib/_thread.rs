@@ -568,6 +568,10 @@ pub(crate) mod _thread {
     /// stdlib runs on helper threads (e.g. the SSL test server).
     const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
 
+    /// Configure a `thread::Builder` with the stack size to use for a new
+    /// Python thread. Uses the value set via `threading.stack_size(N)` when
+    /// the user has provided one (non-zero) and falls back to
+    /// [`DEFAULT_THREAD_STACK_SIZE`] otherwise.
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
