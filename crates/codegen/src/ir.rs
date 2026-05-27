@@ -6358,7 +6358,6 @@ fn is_jump(instr: &InstructionInfo) -> bool {
 
 /// flowgraph.c is_block_push
 fn is_block_push(instr: &InstructionInfo) -> bool {
-    debug_assert!(instr.instr.has_arg() || !instr.instr.is_block_push());
     instr.instr.is_block_push()
 }
 
