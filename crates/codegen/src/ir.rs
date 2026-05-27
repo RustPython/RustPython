@@ -373,6 +373,7 @@ fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
         }
         block.instruction_allocation = new_allocation;
     }
+    debug_assert!(block.instruction_allocation > off);
     block.instruction_used += 1;
     Ok(off)
 }
@@ -561,6 +562,7 @@ fn instruction_sequence_new() -> InstructionSequence {
 
 /// instruction_sequence.c instr_sequence_next_inst
 fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::InternalResult<usize> {
+    debug_assert!(!seq.instrs.is_empty() || seq.instr_used == 0);
     let idx = seq.instr_used;
     let new_allocation = c_array_ensure_capacity::<InstructionSequenceEntry>(
         seq.instr_allocation,
@@ -592,6 +594,7 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::Inter
         }
         seq.instr_allocation = new_allocation;
     }
+    debug_assert!(seq.instr_allocation > idx);
     seq.instr_used += 1;
     Ok(idx)
 }
