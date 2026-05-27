@@ -5864,13 +5864,8 @@ fn cfg_builder_check_size(g: &CfgBuilder) -> crate::InternalResult<()> {
 /// flowgraph.c translate_jump_labels_to_targets
 fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let max_label = get_max_label(blocks);
-    let label_count = max_label
-        .checked_add(1)
-        .and_then(|count| count.to_usize())
-        .ok_or(InternalError::MalformedControlFlowGraph)?;
-    label_count
-        .checked_mul(core::mem::size_of::<usize>())
-        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    let label_count = (max_label + 1) as usize;
+    let _mapsize = core::mem::size_of::<usize>() * label_count;
     let mut label_to_block = Vec::new();
     vec_try_reserve_exact(&mut label_to_block, label_count)?;
     label_to_block.resize(label_count, BlockIdx::NULL);
