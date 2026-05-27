@@ -4955,7 +4955,7 @@ fn next_linetable_location() -> LineTableLocation {
 fn assemble_emit_exception_table_item(table: &mut Vec<u8>, value: i32, mut msb: u8) {
     debug_assert!((msb | 128) == 128);
     debug_assert!((0..(1 << 30)).contains(&value));
-    let value = u32::try_from(value).expect("exception table item is non-negative");
+    let value = value as u32;
     const CONTINUATION_BIT: u8 = 64;
     if value >= 1 << 24 {
         table.push(((value >> 24) as u8) | CONTINUATION_BIT | msb);
@@ -4989,14 +4989,9 @@ fn assemble_emit_exception_table_entry(
     let size = end - start;
     debug_assert!(end > start);
     let target = handler_offset;
-    let mut depth = handler
-        .start_depth
-        .checked_sub(1)
-        .expect("exception handler start depth includes exception item");
+    let mut depth = handler.start_depth - 1;
     if handler.preserve_lasti > 0 {
-        depth = depth
-            .checked_sub(1)
-            .expect("preserve_lasti handler start depth includes lasti");
+        depth -= 1;
     }
     debug_assert!(depth >= 0);
     let depth_lasti = (depth << 1) | handler.preserve_lasti;
@@ -5024,9 +5019,7 @@ fn assemble_exception_table(
         let instr = &instrs[i];
         if instr.except_handler.h_label != handler.h_label {
             if handler.h_label >= 0 {
-                let handler_label =
-                    usize::try_from(handler.h_label).expect("handler label is non-negative");
-                let handler_offset = instrs[handler_label].i_offset;
+                let handler_offset = instrs[handler.h_label as usize].i_offset;
                 assemble_emit_exception_table_entry(
                     &mut table,
                     start,
@@ -5038,15 +5031,11 @@ fn assemble_exception_table(
             start = ioffset;
             handler = instr.except_handler;
         }
-        ioffset += instr_size(&instr.info)
-            .to_i32()
-            .expect("assembled instruction offset fits in i32");
+        ioffset += instr_size(&instr.info) as i32;
     }
 
     if handler.h_label >= 0 {
-        let handler_label =
-            usize::try_from(handler.h_label).expect("handler label is non-negative");
-        let handler_offset = instrs[handler_label].i_offset;
+        let handler_offset = instrs[handler.h_label as usize].i_offset;
         assemble_emit_exception_table_entry(&mut table, start, ioffset, handler_offset, handler)?;
     }
 
