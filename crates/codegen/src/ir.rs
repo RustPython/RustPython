@@ -678,7 +678,6 @@ fn instruction_sequence_insert_instruction(
     info: InstructionInfo,
 ) -> crate::InternalResult<()> {
     debug_assert!(pos <= seq.instr_used);
-    instruction_sequence_debug_check_addop(&info);
     let last_idx = instruction_sequence_next_inst(seq)?;
     for i in (pos..last_idx).rev() {
         seq.instrs[i + 1] = seq.instrs[i];
