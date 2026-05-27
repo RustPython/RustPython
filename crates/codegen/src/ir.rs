@@ -409,18 +409,6 @@ fn basicblock_insert_instruction(
 }
 
 /// flowgraph.c basicblock_append_instructions
-fn basicblock_append_instructions(
-    to: &mut Block,
-    from: &[InstructionInfo],
-) -> crate::InternalResult<()> {
-    for info in from {
-        let off = basicblock_next_instr(to)?;
-        to.instructions[off] = *info;
-    }
-    Ok(())
-}
-
-/// flowgraph.c basicblock_append_instructions
 fn basicblock_append_block_instructions(
     blocks: &mut [Block],
     to: BlockIdx,
@@ -6493,10 +6481,7 @@ fn copy_basicblock(
 ) -> crate::InternalResult<BlockIdx> {
     debug_assert!(bb_no_fallthrough(&blocks[block_idx.idx()]));
     let result = blocks_new_block(blocks)?;
-    let result_idx = result.idx();
-    let (blocks_before_result, result_block) = blocks.split_at_mut(result_idx);
-    let block = &blocks_before_result[block_idx.idx()];
-    basicblock_append_instructions(&mut result_block[0], &block.instructions)?;
+    basicblock_append_block_instructions(blocks, result, block_idx)?;
     Ok(result)
 }
 
@@ -7205,21 +7190,23 @@ mod tests {
             handler_block: BlockIdx::new(5),
             preserve_lasti: false,
         };
-        let mut to = Block::default();
+        let mut blocks = vec![Block::default(), Block::default()];
         let mut stale = test_instr(Instruction::Nop, 41);
         stale.except_handler = Some(handler);
-        to.cpython_spare_instr_slots.push(stale);
+        blocks[0].cpython_spare_instr_slots.push(stale);
 
-        let from = [test_instr(Instruction::PopTop, 42)];
-        basicblock_append_instructions(&mut to, &from)
-            .expect("basicblock_append_instructions succeeds");
+        blocks[1]
+            .instructions
+            .push(test_instr(Instruction::PopTop, 42));
+        basicblock_append_block_instructions(&mut blocks, BlockIdx::new(0), BlockIdx::new(1))
+            .expect("basicblock_append_block_instructions succeeds");
 
         // CPython `basicblock_append_instructions()` obtains a slot with
         // `basicblock_next_instr()`, then overwrites it with the copied
         // instruction, including `i_except`.
-        assert_eq!(to.cpython_spare_instr_slots.len(), 0);
-        assert_eq!(to.instructions.len(), 1);
-        assert_eq!(to.instructions[0].except_handler, None);
+        assert_eq!(blocks[0].cpython_spare_instr_slots.len(), 0);
+        assert_eq!(blocks[0].instructions.len(), 1);
+        assert_eq!(blocks[0].instructions[0].except_handler, None);
     }
 
     #[test]
