@@ -866,7 +866,7 @@ fn resolve_unconditional_jumps(
 }
 
 /// assemble.c resolve_jump_offsets
-#[allow(clippy::needless_range_loop)]
+#[allow(clippy::needless_range_loop, clippy::unnecessary_wraps)]
 fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::InternalResult<u32> {
     let mut end_offset;
     // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
@@ -887,9 +887,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
             let isize = instr_size(&instr.info);
             totsize += isize as i32;
         }
-        end_offset = totsize
-            .to_u32()
-            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        end_offset = totsize as u32;
 
         extended_arg_recompile = false;
         let mut offset = 0i32;
@@ -901,21 +899,12 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
 
             let opcode = instr_sequence.instrs[i].info.instr.expect_real();
             if opcode.has_jump() {
-                let target_index = usize::try_from(instr_sequence.instrs[i].i_target)
-                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-                let target_offset = instr_sequence
-                    .instrs
-                    .get(target_index)
-                    .ok_or(InternalError::MalformedControlFlowGraph)?
-                    .i_offset;
+                let target = instr_sequence.instrs[i].i_target;
+                let target_offset = instr_sequence.instrs[target as usize].i_offset;
                 let info = &mut instr_sequence.instrs[i].info;
                 let op = opcode;
                 let mut oparg = target_offset;
-                info.arg = OpArg::new(
-                    oparg
-                        .to_u32()
-                        .ok_or(InternalError::MalformedControlFlowGraph)?,
-                );
+                info.arg = OpArg::new(oparg as u32);
                 if matches!(op, Instruction::EndAsyncFor) {
                     oparg = offset - oparg - END_SEND_OFFSET;
                 } else if oparg < offset {
@@ -931,11 +920,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
                     ));
                     oparg -= offset;
                 }
-                info.arg = OpArg::new(
-                    oparg
-                        .to_u32()
-                        .ok_or(InternalError::MalformedControlFlowGraph)?,
-                );
+                info.arg = OpArg::new(oparg as u32);
                 if instr_size(info) != isize {
                     extended_arg_recompile = true;
                 }
