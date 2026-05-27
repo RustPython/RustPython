@@ -3230,7 +3230,7 @@ fn next_swappable_instruction(
 }
 
 /// flowgraph.c swaptimize
-fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) {
+fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::InternalResult<()> {
     debug_assert!(matches!(
         instructions[*ix].instr.real(),
         Some(Instruction::Swap { .. })
@@ -3254,13 +3254,16 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) {
     }
 
     if !more {
-        return;
+        return Ok(());
     }
 
-    let mut stack = vec![0; depth];
+    let mut stack = Vec::new();
+    stack
+        .try_reserve_exact(depth)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     let mut i = 0;
     while i < depth {
-        stack[i] = i as i32;
+        stack.push(i as i32);
         i += 1;
     }
 
@@ -3303,6 +3306,7 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) {
         current -= 1;
     }
     *ix += len - 1;
+    Ok(())
 }
 
 /// flowgraph.c apply_static_swaps
@@ -3365,18 +3369,19 @@ fn apply_static_swaps(instructions: &mut [InstructionInfo], mut i: isize) {
 }
 
 /// flowgraph.c optimize_basic_block swap pass
-fn apply_static_swaps_block(block: &mut Block) {
+fn apply_static_swaps_block(block: &mut Block) -> crate::InternalResult<()> {
     let mut i = 0;
     while i < block.instructions.len() {
         if matches!(
             block.instructions[i].instr.real(),
             Some(Instruction::Swap { .. })
         ) {
-            swaptimize(&mut block.instructions, &mut i);
+            swaptimize(&mut block.instructions, &mut i)?;
             apply_static_swaps(&mut block.instructions, i as isize);
         }
         i += 1;
     }
+    Ok(())
 }
 
 /// flowgraph.c maybe_instr_make_load_smallint
@@ -3809,7 +3814,7 @@ fn optimize_basic_block(
 
         i += 1;
     }
-    apply_static_swaps_block(&mut blocks[block_idx]);
+    apply_static_swaps_block(&mut blocks[block_idx])?;
     Ok(())
 }
 
@@ -7119,7 +7124,7 @@ mod tests {
         pop.lineno_override = Some(NO_LOCATION_OVERRIDE);
         block.instructions.extend([swap, store, pop]);
 
-        apply_static_swaps_block(&mut block);
+        apply_static_swaps_block(&mut block).expect("apply_static_swaps_block succeeds");
 
         // CPython `next_swappable_instruction()` compares `i_loc.lineno`
         // directly, so a following NO_LOCATION swaperand does not match the
@@ -7151,7 +7156,7 @@ mod tests {
         let pop = test_instr(Instruction::PopTop, 71);
         block.instructions.extend([swap, store, pop]);
 
-        apply_static_swaps_block(&mut block);
+        apply_static_swaps_block(&mut block).expect("apply_static_swaps_block succeeds");
 
         // Conversely, when the first swaperand has NO_LOCATION, CPython passes
         // `-1` as the line filter and does not enforce a boundary.
