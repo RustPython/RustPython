@@ -4884,7 +4884,8 @@ fn assemble_exception_table(instrs: &[InstructionSequenceEntry]) -> Box<[u8]> {
 
 /// Mark exception handler target blocks.
 /// flowgraph.c mark_except_handlers
-pub(crate) fn mark_except_handlers(blocks: &mut [Block]) {
+#[allow(clippy::unnecessary_wraps)]
+pub(crate) fn mark_except_handlers(blocks: &mut [Block]) -> crate::InternalResult<()> {
     #[cfg(debug_assertions)]
     {
         let mut block_idx = BlockIdx(0);
@@ -4907,6 +4908,7 @@ pub(crate) fn mark_except_handlers(blocks: &mut [Block]) {
         }
         block_idx = next;
     }
+    Ok(())
 }
 
 /// flowgraph.c mark_cold (two-pass to match CPython).
@@ -5801,8 +5803,8 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
 /// flowgraph.c _PyCfg_OptimizeCodeUnit preprocessing
 fn optimize_code_unit_preprocess(blocks: &mut [Block]) -> crate::InternalResult<()> {
     translate_jump_labels_to_targets(blocks)?;
-    mark_except_handlers(blocks);
-    label_exception_targets(blocks);
+    mark_except_handlers(blocks)?;
+    label_exception_targets(blocks)?;
     Ok(())
 }
 
@@ -6334,13 +6336,21 @@ fn resolve_line_numbers(blocks: &mut Vec<Block>, _firstlineno: OneIndexed) {
 }
 
 /// flowgraph.c make_except_stack
-fn make_except_stack() -> Vec<BlockIdx> {
-    Vec::new()
+fn make_except_stack() -> crate::InternalResult<Vec<BlockIdx>> {
+    let mut stack = Vec::new();
+    stack
+        .try_reserve_exact(CO_MAXBLOCKS + 2)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    Ok(stack)
 }
 
 /// flowgraph.c copy_except_stack
-fn copy_except_stack(stack: &[BlockIdx]) -> Vec<BlockIdx> {
-    stack.to_vec()
+fn copy_except_stack(stack: &[BlockIdx]) -> crate::InternalResult<Vec<BlockIdx>> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(CO_MAXBLOCKS + 2)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    copy.extend_from_slice(stack);
+    Ok(copy)
 }
 
 /// flowgraph.c except_stack_top
@@ -6380,12 +6390,12 @@ fn pop_except_block(stack: &mut Vec<BlockIdx>, blocks: &[Block]) -> Option<Excep
     except_stack_top(stack, blocks)
 }
 
-pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
+pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut todo = make_cfg_traversal_stack(blocks);
 
     todo.push(BlockIdx(0));
     blocks[0].visited = true;
-    blocks[0].except_stack = Some(make_except_stack());
+    blocks[0].except_stack = Some(make_except_stack()?);
 
     while let Some(block_idx) = todo.pop() {
         let bi = block_idx.idx();
@@ -6407,7 +6417,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
             if is_block_push(&info) {
                 debug_assert!(target != BlockIdx::NULL);
                 if !blocks[target.idx()].visited {
-                    blocks[target.idx()].except_stack = Some(copy_except_stack(&stack));
+                    blocks[target.idx()].except_stack = Some(copy_except_stack(&stack)?);
                     todo.push(target);
                     blocks[target.idx()].visited = true;
                 }
@@ -6425,7 +6435,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
                 debug_assert!(target != BlockIdx::NULL);
                 if !blocks[target.idx()].visited {
                     if bb_has_fallthrough(&blocks[bi]) {
-                        blocks[target.idx()].except_stack = Some(copy_except_stack(&stack));
+                        blocks[target.idx()].except_stack = Some(copy_except_stack(&stack)?);
                     } else {
                         blocks[target.idx()].except_stack = Some(core::mem::take(&mut stack));
                     }
@@ -6470,6 +6480,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) {
             block_idx = block.next;
         }
     }
+    Ok(())
 }
 
 /// Convert remaining pseudo ops to real instructions or NOP.
