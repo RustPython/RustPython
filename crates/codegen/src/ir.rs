@@ -5623,7 +5623,11 @@ fn no_redundant_jumps(blocks: &[Block]) -> bool {
                     if instruction_lineno(last)
                         == instruction_lineno(&blocks[next.idx()].instructions[0])
                     {
-                        debug_assert!(false, "redundant jump has same line as fallthrough target");
+                        assert_ne!(
+                            instruction_lineno(last),
+                            instruction_lineno(&blocks[next.idx()].instructions[0]),
+                            "redundant jump has same line as fallthrough target"
+                        );
                         return false;
                     }
                 }
