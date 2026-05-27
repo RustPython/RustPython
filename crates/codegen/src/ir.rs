@@ -701,7 +701,7 @@ fn instruction_sequence_insert_instruction(
 }
 
 /// instruction_sequence.c _PyInstructionSequence_ApplyLabelMap
-#[allow(clippy::needless_range_loop)]
+#[allow(clippy::needless_range_loop, clippy::unnecessary_wraps)]
 fn instruction_sequence_apply_label_map(
     instrs: &mut InstructionSequence,
 ) -> crate::InternalResult<()> {
@@ -712,27 +712,17 @@ fn instruction_sequence_apply_label_map(
         for i in 0..instrs.instr_used {
             let entry = &mut instrs.instrs[i];
             if entry.info.instr.has_target() {
-                let label = usize::try_from(u32::from(entry.info.arg))
-                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-                let target = *label_map
-                    .get(label)
-                    .ok_or(InternalError::MalformedControlFlowGraph)?;
-                if target < 0 {
-                    return Err(InternalError::MalformedControlFlowGraph);
-                }
-                entry.info.arg = OpArg::new(
-                    target
-                        .to_u32()
-                        .ok_or(InternalError::MalformedControlFlowGraph)?,
-                );
+                let label = u32::from(entry.info.arg) as usize;
+                debug_assert!(label < label_map.len());
+                let target = label_map[label];
+                debug_assert!(target >= 0);
+                entry.info.arg = OpArg::new(target as u32);
             }
             let handler = &mut entry.except_handler;
             if handler.h_label >= 0 {
-                let label = usize::try_from(handler.h_label)
-                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-                handler.h_label = *label_map
-                    .get(label)
-                    .ok_or(InternalError::MalformedControlFlowGraph)?;
+                let label = handler.h_label as usize;
+                debug_assert!(label < label_map.len());
+                handler.h_label = label_map[label];
             }
         }
     }
@@ -5944,13 +5934,9 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
             let info = &mut blocks[block_idx.idx()].instructions[i];
             debug_assert_eq!(info.target, BlockIdx::NULL);
             if info.instr.has_target() {
-                let lbl = i32::try_from(u32::from(info.arg))
-                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-                if lbl < 0 || lbl > max_label {
-                    return Err(InternalError::MalformedControlFlowGraph);
-                }
-                let target = label_to_block
-                    [usize::try_from(lbl).map_err(|_| InternalError::MalformedControlFlowGraph)?];
+                let lbl = u32::from(info.arg) as i32;
+                debug_assert!(lbl >= 0 && lbl <= max_label);
+                let target = label_to_block[lbl as usize];
                 debug_assert!(target != BlockIdx::NULL);
                 debug_assert_eq!(
                     blocks[target.idx()].cpython_label,
@@ -5984,8 +5970,7 @@ fn cfg_from_instruction_sequence(
     }
     for i in 0..instr_sequence.instr_used {
         if instr_sequence.instrs[i].info.instr.has_target() {
-            let target_offset = usize::try_from(u32::from(instr_sequence.instrs[i].info.arg))
-                .expect("instruction-sequence target index fits in usize");
+            let target_offset = u32::from(instr_sequence.instrs[i].info.arg) as usize;
             debug_assert!(target_offset < instr_sequence.instr_used);
             instr_sequence.instrs[target_offset].i_target = 1;
         }
@@ -6018,11 +6003,7 @@ fn cfg_from_instruction_sequence(
                     info.target = BlockIdx::NULL;
                     cfg_builder_addop(&mut builder, info)?;
                 }
-                offset += annotations_code
-                    .instr_used
-                    .to_i32()
-                    .ok_or(InternalError::MalformedControlFlowGraph)?
-                    - 1;
+                offset += annotations_code.instr_used as i32 - 1;
             } else {
                 offset -= 1;
             }
@@ -6031,11 +6012,7 @@ fn cfg_from_instruction_sequence(
         }
 
         if entry.i_target != 0 {
-            let label_id = i
-                .to_i32()
-                .ok_or(InternalError::MalformedControlFlowGraph)?
-                .checked_add(offset)
-                .ok_or(InternalError::MalformedControlFlowGraph)?;
+            let label_id = i as i32 + offset;
             let label = InstructionSequenceLabel(label_id);
             cfg_builder_use_label(&mut builder, label)?;
         }
@@ -6043,15 +6020,8 @@ fn cfg_from_instruction_sequence(
         let opcode = entry.info.instr;
         let mut oparg = entry.info.arg;
         if opcode.has_target() {
-            let target_offset = i32::try_from(u32::from(oparg))
-                .map_err(|_| InternalError::MalformedControlFlowGraph)?
-                .checked_add(offset)
-                .ok_or(InternalError::MalformedControlFlowGraph)?;
-            oparg = OpArg::new(
-                target_offset
-                    .to_u32()
-                    .ok_or(InternalError::MalformedControlFlowGraph)?,
-            );
+            let target_offset = u32::from(oparg) as i32 + offset;
+            oparg = OpArg::new(target_offset as u32);
         }
         entry.info.instr = opcode;
         entry.info.arg = oparg;
