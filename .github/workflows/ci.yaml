@@ -519,6 +519,8 @@ jobs:
       security-events: write # for zizmor
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
 
@@ -544,12 +546,35 @@ jobs:
           package-manager-cache: false
           node-version: "24"
 
-      - name: prek
+      - name: install prek
         id: prek
         uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
         with:
           cache: false
           show-verbose-logs: false
+          install-only: true
+
+      - name: prek run
+        run: prek run --show-diff-on-failure --color=always --all-files
+
+      - name: Get target CPython version
+        id: cpython-version
+        run: |
+          version=$(cat .python-version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Clone CPython
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: python/cpython
+          path: cpython
+          ref: "v${{ steps.cpython-version.outputs.version }}"
+          persist-credentials: false
+
+      - name: prek run (manual stage)
+        run: prek run --show-diff-on-failure --color=always --all-files --hook-stage manual
+        env:
+          CPYTHON_ROOT: ${{ github.workspace }}/cpython
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main

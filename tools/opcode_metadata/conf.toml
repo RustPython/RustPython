@@ -1,0 +1,11 @@
+[WithExceptStart]
+stack_effect = { pushed = "7", popped = "6" }
+
+[SetupCleanup]
+stack_effect = { pushed = "0" }
+
+[SetupFinally]
+stack_effect = { pushed = "0" }
+
+[SetupWith]
+stack_effect = { pushed = "0" }
