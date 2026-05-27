@@ -4617,10 +4617,8 @@ fn load_fast_push_block(
     start_depth: usize,
 ) {
     debug_assert!(target != BlockIdx::NULL);
-    debug_assert_eq!(
-        usize::try_from(blocks[target.idx()].start_depth).ok(),
-        Some(start_depth),
-    );
+    debug_assert!(blocks[target.idx()].start_depth >= 0);
+    debug_assert_eq!(blocks[target.idx()].start_depth as usize, start_depth,);
     if !blocks[target.idx()].visited {
         blocks[target.idx()].visited = true;
         worklist.push(target);
