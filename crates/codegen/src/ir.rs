@@ -4239,7 +4239,7 @@ fn calculate_stackdepth(blocks: &mut [Block]) -> crate::InternalResult<u32> {
     }
 
     let stackdepth = maxdepth;
-    u32::try_from(stackdepth).map_err(|_| InternalError::StackUnderflow)
+    Ok(stackdepth as u32)
 }
 
 #[cfg(test)]
