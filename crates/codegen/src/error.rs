@@ -47,8 +47,8 @@ pub enum InternalError {
 impl Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::StackUnderflow => write!(f, "stack underflow"),
-            Self::InconsistentStackDepth => write!(f, "inconsistent stack depth"),
+            Self::StackUnderflow => write!(f, "Invalid CFG, stack underflow"),
+            Self::InconsistentStackDepth => write!(f, "Invalid CFG, inconsistent stackdepth"),
             Self::MalformedControlFlowGraph => write!(f, "malformed control flow graph."),
             Self::MissingSymbol(s) => write!(
                 f,
