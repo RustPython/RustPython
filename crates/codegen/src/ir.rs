@@ -45,10 +45,20 @@ const DEFAULT_CNOTAB_SIZE: usize = 32;
 const DEFAULT_BLOCK_SIZE: usize = 16;
 const INITIAL_INSTR_SEQUENCE_SIZE: usize = 100;
 const INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE: usize = 10;
+const MAX_REAL_OPCODE: u16 = 254;
+const MAX_OPCODE: u16 = 511;
 const MAX_TOTAL_ITEMS: isize = 1024;
 const MAX_STR_SIZE: usize = 4096;
 const MIN_CONST_SEQUENCE_SIZE: usize = 3;
 const STACK_USE_GUIDELINE: usize = 30;
+
+/// pycore_opcode_utils.h IS_WITHIN_OPCODE_RANGE
+fn is_within_opcode_range(opcode: AnyOpcode) -> bool {
+    match opcode {
+        AnyOpcode::Real(opcode) => u16::from(opcode.as_u8()) <= MAX_REAL_OPCODE,
+        AnyOpcode::Pseudo(opcode) => opcode.as_u16() <= MAX_OPCODE,
+    }
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct ConstantPool {
@@ -402,6 +412,8 @@ fn basicblock_last_instr_mut(block: &mut Block) -> Option<&mut InstructionInfo> 
 
 /// flowgraph.c basicblock_addop
 fn basicblock_addop(block: &mut Block, mut info: InstructionInfo) -> crate::InternalResult<()> {
+    let opcode = AnyOpcode::from(info.instr);
+    debug_assert!(is_within_opcode_range(opcode));
     debug_assert!(!info.instr.is_assembler());
     debug_assert!(
         info.instr.has_arg() || info.instr.has_target() || u32::from(info.arg) == 0,
@@ -612,6 +624,7 @@ fn instruction_sequence_new_label(seq: &mut InstructionSequence) -> InstructionS
 /// instruction_sequence.c _PyInstructionSequence_Addop asserts.
 fn instruction_sequence_debug_check_addop(info: &InstructionInfo) {
     let opcode = AnyOpcode::from(info.instr);
+    debug_assert!(is_within_opcode_range(opcode));
     debug_assert!(
         opcode.has_arg() || info.instr.has_target() || u32::from(info.arg) == 0,
         "CPython _PyInstructionSequence_Addop requires either OPCODE_HAS_ARG, HAS_TARGET, or oparg == 0"
