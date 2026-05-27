@@ -4106,8 +4106,6 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
         let start_depth = usize::try_from(blocks[block_i].start_depth)
             .expect("visited block has non-negative start depth");
         ref_stack_clear(&mut refs);
-        refs.try_reserve(instr_count + start_depth + 2)
-            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         for _ in 0..start_depth {
             push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL)?;
         }
@@ -4684,9 +4682,16 @@ type RefStack = Vec<Ref>;
 
 /// flowgraph.c ref_stack_push
 fn ref_stack_push(stack: &mut RefStack, r: Ref) -> crate::InternalResult<()> {
-    stack
-        .try_reserve(1)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    if stack.len() == stack.capacity() {
+        let doubled = stack
+            .capacity()
+            .checked_mul(2)
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        let new_cap = 32.max(doubled);
+        stack
+            .try_reserve_exact(new_cap - stack.capacity())
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    }
     stack.push(r);
     Ok(())
 }
