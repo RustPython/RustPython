@@ -4057,7 +4057,8 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     push_ref(&mut refs, i as isize, local)?;
                 }
                 AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
-                    let (local1, local2) = decode_packed_fast_locals(info.arg);
+                    let local1 = (arg_u32 >> 4) as isize;
+                    let local2 = (arg_u32 & 15) as isize;
                     push_ref(&mut refs, i as isize, local1)?;
                     push_ref(&mut refs, i as isize, local2)?;
                 }
@@ -4071,17 +4072,15 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     );
                 }
                 AnyInstruction::Real(Instruction::StoreFastLoadFast { .. }) => {
-                    let (store_local_idx, load_local_idx) = decode_packed_fast_locals(info.arg);
                     let r = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, store_local_idx, r);
-                    push_ref(&mut refs, i as isize, load_local_idx)?;
+                    store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r);
+                    push_ref(&mut refs, i as isize, (arg_u32 & 15) as isize)?;
                 }
                 AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
-                    let (local1, local2) = decode_packed_fast_locals(info.arg);
                     let r1 = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, local1, r1);
+                    store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r1);
                     let r2 = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, local2, r2);
+                    store_local(&mut instr_flags, &refs, (arg_u32 & 15) as isize, r2);
                 }
                 AnyInstruction::Real(Instruction::Copy { i: _ }) => {
                     let depth = arg_u32 as usize;
@@ -4153,19 +4152,16 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     load_fast_push_block(&mut worklist, blocks, target, refs.len() + 1);
                     push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                 }
-                AnyInstruction::Real(Instruction::LoadAttr { namei }) => {
+                AnyInstruction::Real(
+                    Instruction::LoadAttr { .. } | Instruction::LoadSuperAttr { .. },
+                ) => {
                     let self_ref = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                    if namei.get(info.arg).is_method() {
-                        push_ref(&mut refs, self_ref.instr, self_ref.local)?;
+                    if matches!(instr.real(), Some(Instruction::LoadSuperAttr { .. })) {
+                        let _ = ref_stack_pop(&mut refs);
+                        let _ = ref_stack_pop(&mut refs);
                     }
-                }
-                AnyInstruction::Real(Instruction::LoadSuperAttr { namei }) => {
-                    let self_ref = ref_stack_pop(&mut refs);
-                    let _ = ref_stack_pop(&mut refs);
-                    let _ = ref_stack_pop(&mut refs);
                     push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                    if namei.get(info.arg).is_load_method() {
+                    if arg_u32 & 1 != 0 {
                         push_ref(&mut refs, self_ref.instr, self_ref.local)?;
                     }
                 }
@@ -4647,11 +4643,6 @@ fn store_local(instr_flags: &mut [u8], refs: &RefStack, local: isize, r: Ref) {
     if r.instr != DUMMY_INSTR {
         instr_flags[r.instr as usize] |= LoadFastInstrFlag::StoredAsLocal as u8;
     }
-}
-
-fn decode_packed_fast_locals(arg: OpArg) -> (isize, isize) {
-    let packed = u32::from(arg);
-    (((packed >> 4) & 0xF) as isize, (packed & 0xF) as isize)
 }
 
 fn local_as_ref_local(local: usize) -> isize {
