@@ -2640,10 +2640,22 @@ fn adjusted_slice_indices(len: usize, slice: &[ConstantData; 3]) -> Option<Vec<u
     let start = adjust(start, if step_is_negative { upper } else { lower });
     let stop = adjust(stop, if step_is_negative { lower } else { upper });
 
-    let mut indices = Vec::new();
     let mut index = i128::from(start);
     let stop = i128::from(stop);
     let step = i128::from(step);
+    let slice_len = if step > 0 {
+        if index < stop {
+            usize::try_from((stop - index - 1) / step + 1).ok()?
+        } else {
+            0
+        }
+    } else if index > stop {
+        usize::try_from((index - stop - 1) / -step + 1).ok()?
+    } else {
+        0
+    };
+    let mut indices = Vec::new();
+    indices.try_reserve_exact(slice_len).ok()?;
     if step > 0 {
         while index < stop {
             indices.push(usize::try_from(index).ok()?);
@@ -2684,7 +2696,9 @@ fn eval_const_subscript(container: &ConstantData, index: &ConstantData) -> Optio
             if string.contains(char::REPLACEMENT_CHARACTER) {
                 return None;
             }
-            let chars = string.chars().collect::<Vec<_>>();
+            let mut chars = Vec::new();
+            chars.try_reserve_exact(string.chars().count()).ok()?;
+            chars.extend(string.chars());
             let index = adjusted_const_index(chars.len(), index)?;
             Some(ConstantData::Str {
                 value: chars[index].to_string().into(),
@@ -2695,9 +2709,16 @@ fn eval_const_subscript(container: &ConstantData, index: &ConstantData) -> Optio
             if string.contains(char::REPLACEMENT_CHARACTER) {
                 return None;
             }
-            let chars = string.chars().collect::<Vec<_>>();
+            let mut chars = Vec::new();
+            chars.try_reserve_exact(string.chars().count()).ok()?;
+            chars.extend(string.chars());
+            let indices = adjusted_slice_indices(chars.len(), elements)?;
+            let capacity = indices.iter().try_fold(0usize, |capacity, &index| {
+                capacity.checked_add(chars[index].len_utf8())
+            })?;
             let mut result = String::new();
-            for index in adjusted_slice_indices(chars.len(), elements)? {
+            result.try_reserve_exact(capacity).ok()?;
+            for index in indices {
                 result.push(chars[index]);
             }
             Some(ConstantData::Str {
@@ -2714,8 +2735,10 @@ fn eval_const_subscript(container: &ConstantData, index: &ConstantData) -> Optio
             })
         }
         (ConstantData::Bytes { value }, ConstantData::Slice { elements }) => {
+            let indices = adjusted_slice_indices(value.len(), elements)?;
             let mut result = Vec::new();
-            for index in adjusted_slice_indices(value.len(), elements)? {
+            result.try_reserve_exact(indices.len()).ok()?;
+            for index in indices {
                 result.push(value[index]);
             }
             Some(ConstantData::Bytes { value: result })
@@ -2728,11 +2751,13 @@ fn eval_const_subscript(container: &ConstantData, index: &ConstantData) -> Optio
             Some(elements[index].clone())
         }
         (ConstantData::Tuple { elements }, ConstantData::Slice { elements: slice }) => {
-            let elements = adjusted_slice_indices(elements.len(), slice)?
-                .into_iter()
-                .map(|index| elements[index].clone())
-                .collect();
-            Some(ConstantData::Tuple { elements })
+            let indices = adjusted_slice_indices(elements.len(), slice)?;
+            let mut result = Vec::new();
+            result.try_reserve_exact(indices.len()).ok()?;
+            for index in indices {
+                result.push(elements[index].clone());
+            }
+            Some(ConstantData::Tuple { elements: result })
         }
         _ => None,
     }
