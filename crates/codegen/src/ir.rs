@@ -316,24 +316,28 @@ fn c_array_ensure_capacity(
     allocated_entries: usize,
     idx: usize,
     initial_num_entries: usize,
-) -> usize {
+) -> crate::InternalResult<usize> {
     if allocated_entries == 0 {
-        if idx >= initial_num_entries {
-            idx + initial_num_entries
+        let new_alloc = if idx >= initial_num_entries {
+            idx.checked_add(initial_num_entries)
+                .ok_or(InternalError::MalformedControlFlowGraph)?
         } else {
             initial_num_entries
-        }
+        };
+        Ok(new_alloc)
     } else if idx >= allocated_entries {
         let doubled = allocated_entries
             .checked_mul(2)
-            .expect("CPython C array allocation size overflow");
-        if idx >= doubled {
-            idx + initial_num_entries
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        let new_alloc = if idx >= doubled {
+            idx.checked_add(initial_num_entries)
+                .ok_or(InternalError::MalformedControlFlowGraph)?
         } else {
             doubled
-        }
+        };
+        Ok(new_alloc)
     } else {
-        allocated_entries
+        Ok(allocated_entries)
     }
 }
 
@@ -341,7 +345,7 @@ fn c_array_ensure_capacity(
 fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
     let off = block.instructions.len();
     let new_allocation =
-        c_array_ensure_capacity(block.instruction_allocation, off + 1, DEFAULT_BLOCK_SIZE);
+        c_array_ensure_capacity(block.instruction_allocation, off + 1, DEFAULT_BLOCK_SIZE)?;
     if new_allocation > block.instruction_allocation {
         if new_allocation > block.instructions.capacity() + block.cpython_spare_instr_slots.len() {
             block
@@ -548,7 +552,7 @@ fn instruction_sequence_new() -> InstructionSequence {
 fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::InternalResult<usize> {
     let idx = seq.instrs.len();
     let new_allocation =
-        c_array_ensure_capacity(seq.instr_allocation, idx + 1, INITIAL_INSTR_SEQUENCE_SIZE);
+        c_array_ensure_capacity(seq.instr_allocation, idx + 1, INITIAL_INSTR_SEQUENCE_SIZE)?;
     if new_allocation > seq.instr_allocation {
         if new_allocation > seq.instrs.capacity() {
             seq.instrs
@@ -611,7 +615,7 @@ fn instruction_sequence_use_label(
         seq.label_map_allocation,
         label.idx(),
         INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE,
-    );
+    )?;
     if new_allocation > seq.label_map_allocation {
         if let Some(label_map) = &mut seq.label_map {
             if new_allocation > label_map.capacity() {
