@@ -865,8 +865,7 @@ fn resolve_unconditional_jumps(
 
 /// assemble.c resolve_jump_offsets
 #[allow(clippy::needless_range_loop, clippy::unnecessary_wraps)]
-fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::InternalResult<u32> {
-    let mut end_offset;
+fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::InternalResult<()> {
     // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
     const END_SEND_OFFSET: i32 = 5;
     for i in 0..instr_sequence.instr_used {
@@ -885,8 +884,6 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
             let isize = instr_size(&instr.info);
             totsize += isize as i32;
         }
-        end_offset = totsize as u32;
-
         extended_arg_recompile = false;
         let mut offset = 0i32;
         for i in 0..instr_sequence.instr_used {
@@ -930,7 +927,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
         }
     }
 
-    Ok(end_offset)
+    Ok(())
 }
 
 struct AssembledCode {
@@ -1074,13 +1071,15 @@ fn assemble_location_info(
 /// assemble.c assemble_emit
 fn assemble_emit(
     instr_sequence: &mut InstructionSequence,
-    end_offset: u32,
     first_line: i32,
     debug_ranges: bool,
 ) -> crate::InternalResult<AssembledCode> {
-    let num_instructions = end_offset as usize;
+    const DEFAULT_CODE_SIZE: usize = 128;
     let mut instructions = Vec::new();
-    vec_try_reserve_exact(&mut instructions, num_instructions)?;
+    vec_try_reserve_exact(
+        &mut instructions,
+        DEFAULT_CODE_SIZE / core::mem::size_of::<CodeUnit>(),
+    )?;
 
     for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i].info;
@@ -1791,10 +1790,9 @@ impl CodeInfo {
         } = metadata;
 
         resolve_unconditional_jumps(&mut instr_sequence)?;
-        let end_offset = resolve_jump_offsets(&mut instr_sequence)?;
+        resolve_jump_offsets(&mut instr_sequence)?;
         let assembled = assemble_emit(
             &mut instr_sequence,
-            end_offset,
             first_line_number.get() as i32,
             opts.debug_ranges,
         )?;
