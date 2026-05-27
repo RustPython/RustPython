@@ -5809,9 +5809,9 @@ fn cfg_builder_check_size(g: &CfgBuilder) -> crate::InternalResult<()> {
         block = g.blocks[block.idx()].allocation_next;
     }
     debug_assert_eq!(nblocks, g.blocks.len());
-    nblocks
-        .checked_mul(core::mem::size_of::<usize>())
-        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    if nblocks > usize::MAX / core::mem::size_of::<usize>() {
+        return Err(InternalError::MalformedControlFlowGraph);
+    }
     Ok(())
 }
 
