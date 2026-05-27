@@ -1330,7 +1330,7 @@ const CO_MAXBLOCKS: usize = 20;
 /// flowgraph.c struct _PyCfgExceptStack
 #[derive(Clone, Debug)]
 struct CfgExceptStack {
-    handlers: Vec<BlockIdx>,
+    handlers: [BlockIdx; CO_MAXBLOCKS + 2],
     depth: usize,
 }
 
@@ -6528,26 +6528,19 @@ fn resolve_line_numbers(
 }
 
 /// flowgraph.c make_except_stack
+#[allow(clippy::unnecessary_wraps)]
 fn make_except_stack() -> crate::InternalResult<CfgExceptStack> {
-    let mut handlers = Vec::new();
-    handlers
-        .try_reserve_exact(CO_MAXBLOCKS + 2)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    handlers.resize(CO_MAXBLOCKS + 2, BlockIdx::NULL);
+    let handlers = [BlockIdx::NULL; CO_MAXBLOCKS + 2];
     debug_assert_eq!(handlers[0], BlockIdx::NULL);
     Ok(CfgExceptStack { handlers, depth: 0 })
 }
 
 /// flowgraph.c copy_except_stack
+#[allow(clippy::unnecessary_wraps)]
 fn copy_except_stack(stack: &CfgExceptStack) -> crate::InternalResult<CfgExceptStack> {
     debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
-    let mut handlers = Vec::new();
-    handlers
-        .try_reserve_exact(CO_MAXBLOCKS + 2)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    handlers.extend_from_slice(&stack.handlers);
     Ok(CfgExceptStack {
-        handlers,
+        handlers: stack.handlers,
         depth: stack.depth,
     })
 }
