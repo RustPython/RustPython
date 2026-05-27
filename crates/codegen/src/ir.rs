@@ -1442,7 +1442,7 @@ fn instruction_sequence_label_map_push_unmapped_label(
         map.block_labels
             .len()
             .to_u32()
-            .expect("too many codegen CFG blocks"),
+            .ok_or(InternalError::MalformedControlFlowGraph)?,
     );
     map.cpython_block_by_label[label.idx()] = block;
     map.block_labels
@@ -5780,7 +5780,12 @@ fn blocks_new_block(blocks: &mut Vec<Block>) -> crate::InternalResult<BlockIdx> 
     blocks
         .try_reserve(1)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    let block_idx = BlockIdx(blocks.len() as u32);
+    let block_idx = BlockIdx(
+        blocks
+            .len()
+            .to_u32()
+            .ok_or(InternalError::MalformedControlFlowGraph)?,
+    );
     blocks.push(Block::default());
     Ok(block_idx)
 }
