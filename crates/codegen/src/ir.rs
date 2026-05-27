@@ -1815,7 +1815,7 @@ fn optimize_cfg(
         optimize_basic_block(blocks, metadata, block_idx)?;
         block_idx = next_block;
     }
-    remove_redundant_nops_and_pairs(blocks);
+    remove_redundant_nops_and_pairs(blocks)?;
     // CPython optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
@@ -3921,7 +3921,8 @@ fn optimize_basic_block(
 
 /// flowgraph.c remove_redundant_nops_and_pairs
 #[allow(clippy::if_same_then_else, clippy::useless_let_if_seq)]
-fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) {
+#[allow(clippy::unnecessary_wraps)]
+fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut done = false;
 
     while !done {
@@ -3985,6 +3986,7 @@ fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) {
             block_idx = block.next;
         }
     }
+    Ok(())
 }
 
 /// flowgraph.c remove_unused_consts
@@ -4485,7 +4487,7 @@ impl CodeInfo {
             "after_optimize_basic_block".to_owned(),
             self.debug_block_dump(),
         ));
-        remove_redundant_nops_and_pairs(&mut self.blocks);
+        remove_redundant_nops_and_pairs(&mut self.blocks)?;
         remove_unreachable(&mut self.blocks)?;
         remove_redundant_nops_and_jumps(&mut self.blocks)?;
         #[cfg(debug_assertions)]
