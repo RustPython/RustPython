@@ -6537,13 +6537,11 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
         }
 
         let next = blocks[bi].next;
-        if bb_has_fallthrough(&blocks[bi]) {
-            debug_assert!(next != BlockIdx::NULL);
-            if !blocks[next.idx()].visited {
-                blocks[next.idx()].except_stack = Some(stack);
-                todo.push(next);
-                blocks[next.idx()].visited = true;
-            }
+        if bb_has_fallthrough(&blocks[bi]) && next != BlockIdx::NULL && !blocks[next.idx()].visited
+        {
+            blocks[next.idx()].except_stack = Some(stack);
+            todo.push(next);
+            blocks[next.idx()].visited = true;
         }
     }
     #[cfg(debug_assertions)]
