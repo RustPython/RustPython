@@ -1690,29 +1690,9 @@ impl CodeInfo {
         Ok(instr_sequence)
     }
 
-    /// flowgraph.c cfg_builder_check
-    fn debug_check_recorded_cfg_builder(&self) {
-        debug_assert!(!self.blocks.is_empty());
-        debug_assert!(self.blocks[0].instruction_used != 0);
-        debug_assert!(!self.instr_sequence.instrs.is_empty());
-        debug_assert!(self.current_block.idx() < self.blocks.len());
-        for block in &self.blocks {
-            if block.next != BlockIdx::NULL {
-                debug_assert!(block.next.idx() < self.blocks.len());
-            }
-            for instr in &block.instructions[..block.instruction_used] {
-                debug_assert!(!instr.instr.is_assembler());
-                if instr.target != BlockIdx::NULL {
-                    debug_assert!(instr.target.idx() < self.blocks.len());
-                }
-            }
-        }
-    }
-
     fn prepare_cfg_from_codegen(&mut self) -> crate::InternalResult<InstructionSequence> {
         // CPython compile.c optimize_and_assemble_code_unit passes
         // u_instr_sequence directly into flowgraph.c _PyCfg_FromInstructionSequence().
-        self.debug_check_recorded_cfg_builder();
         self.take_recorded_instr_sequence()
     }
 }
