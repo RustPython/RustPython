@@ -6074,6 +6074,8 @@ fn cfg_from_instruction_sequence(
     mut instr_sequence: InstructionSequence,
 ) -> crate::InternalResult<Vec<Block>> {
     instruction_sequence_apply_label_map(&mut instr_sequence)?;
+    let mut builder = cfg_builder_new()?;
+
     for i in 0..instr_sequence.instrs.len() {
         instr_sequence.instrs[i].i_target = 0;
     }
@@ -6093,7 +6095,6 @@ fn cfg_from_instruction_sequence(
     } = instr_sequence;
     debug_assert!(label_map.is_none());
 
-    let mut builder = cfg_builder_new()?;
     let mut offset = 0i32;
 
     let mut i = 0;
