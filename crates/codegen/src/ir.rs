@@ -1972,9 +1972,45 @@ fn prepare_localsplus(
 
 /// flowgraph.c remove_unreachable
 fn remove_unreachable(blocks: &mut [Block]) -> crate::InternalResult<()> {
-    compute_reachable_predecessors(blocks)?;
-
     let mut block_idx = BlockIdx(0);
+    while block_idx != BlockIdx::NULL {
+        blocks[block_idx.idx()].predecessors = 0;
+        block_idx = blocks[block_idx.idx()].next;
+    }
+
+    let mut stack = make_cfg_traversal_stack(blocks)?;
+    blocks[0].predecessors = 1;
+    stack.push(BlockIdx(0));
+    blocks[0].visited = true;
+    while let Some(current) = stack.pop() {
+        let idx = current.idx();
+        let next = blocks[idx].next;
+        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
+            if !blocks[next.idx()].visited {
+                debug_assert_eq!(blocks[next.idx()].predecessors, 0);
+                stack.push(next);
+                blocks[next.idx()].visited = true;
+            }
+            blocks[next.idx()].predecessors += 1;
+        }
+
+        let instr_count = blocks[idx].instruction_used;
+        for i in 0..instr_count {
+            let instr = blocks[idx].instructions[i];
+            if is_jump(&instr) || is_block_push(&instr) {
+                let target = instr.target;
+                debug_assert!(target != BlockIdx::NULL);
+                let target_idx = target.idx();
+                if !blocks[target_idx].visited {
+                    stack.push(target);
+                    blocks[target_idx].visited = true;
+                }
+                blocks[target_idx].predecessors += 1;
+            }
+        }
+    }
+
+    block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let i = block_idx.idx();
         let next = blocks[i].next;
@@ -6251,49 +6287,6 @@ fn basicblock_has_no_lineno(block: &Block) -> bool {
     true
 }
 
-/// flowgraph.c remove_unreachable computes `b_predecessors` by traversing only
-/// blocks reachable from entry.
-fn compute_reachable_predecessors(blocks: &mut [Block]) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        blocks[block_idx.idx()].predecessors = 0;
-        block_idx = blocks[block_idx.idx()].next;
-    }
-
-    let mut stack = make_cfg_traversal_stack(blocks)?;
-    blocks[0].predecessors = 1;
-    stack.push(BlockIdx(0));
-    blocks[0].visited = true;
-    while let Some(current) = stack.pop() {
-        let idx = current.idx();
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
-            if !blocks[next.idx()].visited {
-                debug_assert_eq!(blocks[next.idx()].predecessors, 0);
-                stack.push(next);
-                blocks[next.idx()].visited = true;
-            }
-            blocks[next.idx()].predecessors += 1;
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) || is_block_push(&instr) {
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                let target_idx = target.idx();
-                if !blocks[target_idx].visited {
-                    stack.push(target);
-                    blocks[target_idx].visited = true;
-                }
-                blocks[target_idx].predecessors += 1;
-            }
-        }
-    }
-    Ok(())
-}
-
 /// flowgraph.c copy_basicblock
 fn copy_basicblock(
     blocks: &mut Vec<Block>,
@@ -7282,7 +7275,7 @@ mod tests {
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
         blocks[2].instructions[0].lineno_override = Some(NO_LOCATION_OVERRIDE);
 
-        compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
+        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
         resolve_line_numbers(&mut blocks, OneIndexed::MIN).expect("resolve_line_numbers succeeds");
 
         // CPython `duplicate_exits_without_lineno()` copies a shared exit block
@@ -7311,7 +7304,7 @@ mod tests {
         block.instructions[2].lineno_override = Some(NO_LOCATION_OVERRIDE);
         let mut blocks = vec![block];
 
-        compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
+        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
         propagate_line_numbers(&mut blocks);
 
         // CPython `propagate_line_numbers()` only copies over NO_LOCATION
@@ -7338,7 +7331,7 @@ mod tests {
         basicblock_clear(&mut blocks[1]);
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
 
-        compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
+        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
         propagate_line_numbers(&mut blocks);
 
         // CPython `propagate_line_numbers()` directly reads `target->b_instr[0]`
