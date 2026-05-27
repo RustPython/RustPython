@@ -4053,6 +4053,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
             let info = blocks[block_i].instructions[i];
             let instr = info.instr;
             let arg_u32 = u32::from(info.arg);
+            debug_assert!(!matches!(instr.real(), Some(Instruction::ExtendedArg)));
 
             match instr {
                 AnyInstruction::Real(Instruction::DeleteFast { var_num }) => {
