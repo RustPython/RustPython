@@ -343,7 +343,6 @@ fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
     let new_allocation =
         c_array_ensure_capacity(block.instruction_allocation, off + 1, DEFAULT_BLOCK_SIZE);
     if new_allocation > block.instruction_allocation {
-        block.instruction_allocation = new_allocation;
         if new_allocation > block.instructions.capacity() + block.cpython_spare_instr_slots.len() {
             block
                 .instructions
@@ -354,6 +353,7 @@ fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
                 )
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         }
+        block.instruction_allocation = new_allocation;
     }
     let slot = block
         .cpython_spare_instr_slots
@@ -543,12 +543,12 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::Inter
     let new_allocation =
         c_array_ensure_capacity(seq.instr_allocation, idx + 1, INITIAL_INSTR_SEQUENCE_SIZE);
     if new_allocation > seq.instr_allocation {
-        seq.instr_allocation = new_allocation;
         if new_allocation > seq.instrs.capacity() {
             seq.instrs
                 .try_reserve_exact(new_allocation - seq.instrs.capacity())
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         }
+        seq.instr_allocation = new_allocation;
     }
     seq.instrs.push(InstructionSequenceEntry::new(
         InstructionInfo {
@@ -599,21 +599,32 @@ fn instruction_sequence_use_label(
     seq: &mut InstructionSequence,
     label: InstructionSequenceLabel,
 ) -> crate::InternalResult<()> {
-    let label_map = seq.label_map.get_or_insert_with(Vec::new);
-    let old_len = label_map.len();
+    let old_len = seq.label_map.as_ref().map_or(0, Vec::len);
     let new_allocation = c_array_ensure_capacity(
         seq.label_map_allocation,
         label.idx(),
         INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE,
     );
     if new_allocation > seq.label_map_allocation {
-        seq.label_map_allocation = new_allocation;
-        if new_allocation > label_map.capacity() {
+        if let Some(label_map) = &mut seq.label_map {
+            if new_allocation > label_map.capacity() {
+                label_map
+                    .try_reserve_exact(new_allocation - label_map.capacity())
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+            }
+        } else {
+            let mut label_map = Vec::new();
             label_map
-                .try_reserve_exact(new_allocation - label_map.capacity())
+                .try_reserve_exact(new_allocation)
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+            seq.label_map = Some(label_map);
         }
+        seq.label_map_allocation = new_allocation;
     }
+    let label_map = seq
+        .label_map
+        .as_mut()
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
     if label_map.len() < seq.label_map_allocation {
         label_map.resize(seq.label_map_allocation, INSTRUCTION_SEQUENCE_UNSET_LABEL);
     }
