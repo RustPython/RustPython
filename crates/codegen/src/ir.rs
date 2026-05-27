@@ -39,6 +39,9 @@ pub(crate) const NO_LOCATION_OVERRIDE: i32 = -1;
 
 const MAX_INT_SIZE: u64 = 128;
 const MAX_COLLECTION_SIZE: usize = 256;
+const DEFAULT_CODE_SIZE: usize = 128;
+const DEFAULT_LNOTAB_SIZE: usize = 16;
+const DEFAULT_CNOTAB_SIZE: usize = 32;
 const DEFAULT_BLOCK_SIZE: usize = 16;
 const INITIAL_INSTR_SEQUENCE_SIZE: usize = 100;
 const INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE: usize = 10;
@@ -1051,6 +1054,7 @@ fn assemble_location_info(
     }
 
     let mut linetable = Vec::new();
+    vec_try_reserve_exact(&mut linetable, DEFAULT_CNOTAB_SIZE)?;
     let mut prev_line = first_line;
     let mut loc = no_linetable_location();
     let mut size = 0;
@@ -1074,7 +1078,6 @@ fn assemble_emit(
     first_line: i32,
     debug_ranges: bool,
 ) -> crate::InternalResult<AssembledCode> {
-    const DEFAULT_CODE_SIZE: usize = 128;
     let mut instructions = Vec::new();
     vec_try_reserve_exact(
         &mut instructions,
@@ -4904,6 +4907,7 @@ fn assemble_exception_table(
     instrs: &[InstructionSequenceEntry],
 ) -> crate::InternalResult<Box<[u8]>> {
     let mut table = Vec::new();
+    vec_try_reserve_exact(&mut table, DEFAULT_LNOTAB_SIZE)?;
     let mut handler = InstructionSequenceExceptHandlerInfo {
         h_label: NO_EXCEPTION_HANDLER_LABEL,
         start_depth: -1,
