@@ -57,6 +57,43 @@ pub unsafe extern "C" fn PyDict_GetItemRef(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyDict_SetDefaultRef(
+    dict: *mut PyObject,
+    key: *mut PyObject,
+    default_value: *mut PyObject,
+    result: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let result = NonNull::new(result);
+        if let Some(result) = result {
+            unsafe {
+                result.write(core::ptr::null_mut());
+            }
+        }
+        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let key = unsafe { &*key };
+
+        if let Some(value) = dict.inner_getitem_opt(key, vm)? {
+            if let Some(result) = result {
+                unsafe {
+                    result.write(value.into_raw().as_ptr());
+                }
+            }
+            Ok(true)
+        } else {
+            let value = unsafe { &*default_value }.to_owned();
+            dict.inner_setitem(key, value.clone(), vm)?;
+            if let Some(result) = result {
+                unsafe {
+                    result.write(value.into_raw().as_ptr());
+                }
+            }
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
