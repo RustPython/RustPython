@@ -4075,7 +4075,10 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
         .try_reserve_exact(max_instrs)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
     instr_flags.resize(max_instrs, 0u8);
-    let mut refs = Vec::new();
+    let mut refs = RefStack {
+        refs: Vec::new(),
+        size: 0,
+    };
     let mut worklist = make_cfg_traversal_stack(blocks)?;
     worklist.push(BlockIdx(0));
     blocks[0].start_depth = 0;
@@ -4147,14 +4150,14 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                 AnyInstruction::Real(Instruction::Copy { i: _ }) => {
                     let depth = arg_u32 as usize;
                     assert!(depth > 0);
-                    assert!(refs.len() >= depth);
-                    let r = ref_stack_at(&refs, refs.len() - depth);
+                    assert!(refs.size >= depth);
+                    let r = ref_stack_at(&refs, refs.size - depth);
                     push_ref(&mut refs, r.instr, r.local)?;
                 }
                 AnyInstruction::Real(Instruction::Swap { i: _ }) => {
                     let depth = arg_u32 as usize;
                     assert!(depth >= 2);
-                    assert!(refs.len() >= depth);
+                    assert!(refs.size >= depth);
                     ref_stack_swap_top(&mut refs, depth);
                 }
                 AnyInstruction::Real(
@@ -4211,7 +4214,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                 AnyInstruction::Real(Instruction::ForIter { .. }) => {
                     let target = info.target;
                     debug_assert!(target != BlockIdx::NULL);
-                    load_fast_push_block(&mut worklist, blocks, target, refs.len() + 1);
+                    load_fast_push_block(&mut worklist, blocks, target, refs.size + 1);
                     push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                 }
                 AnyInstruction::Real(
@@ -4237,7 +4240,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                 AnyInstruction::Real(Instruction::Send { .. }) => {
                     let target = info.target;
                     debug_assert!(target != BlockIdx::NULL);
-                    load_fast_push_block(&mut worklist, blocks, target, refs.len());
+                    load_fast_push_block(&mut worklist, blocks, target, refs.size);
                     let _ = ref_stack_pop(&mut refs);
                     push_ref(&mut refs, i as isize, NOT_LOCAL)?;
                 }
@@ -4248,8 +4251,8 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
                     let target = info.target;
                     if instr.has_target() {
                         debug_assert!(target != BlockIdx::NULL);
-                        debug_assert!(refs.len() >= num_popped);
-                        let target_depth = refs.len() - num_popped + num_pushed;
+                        debug_assert!(refs.size >= num_popped);
+                        let target_depth = refs.size - num_popped + num_pushed;
                         load_fast_push_block(&mut worklist, blocks, target, target_depth);
                     }
                     if !is_block_push(&info) {
@@ -4272,10 +4275,10 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
             && !term.instr.is_scope_exit()
         {
             debug_assert!(bb_has_fallthrough(&blocks[block_i]));
-            load_fast_push_block(&mut worklist, blocks, fallthrough, refs.len());
+            load_fast_push_block(&mut worklist, blocks, fallthrough, refs.size);
         }
 
-        for i in 0..refs.len() {
+        for i in 0..refs.size {
             let r = ref_stack_at(&refs, i);
             if r.instr != DUMMY_INSTR {
                 instr_flags[r.instr as usize] |= LoadFastInstrFlag::RefUnconsumed as u8;
@@ -4644,42 +4647,51 @@ struct Ref {
 }
 
 /// flowgraph.c ref_stack
-type RefStack = Vec<Ref>;
+struct RefStack {
+    refs: Vec<Ref>,
+    size: usize,
+}
 
 /// flowgraph.c ref_stack_push
 fn ref_stack_push(stack: &mut RefStack, r: Ref) -> crate::InternalResult<()> {
-    if stack.len() == stack.capacity() {
-        let doubled = stack.capacity() * 2;
+    if stack.size == stack.refs.len() {
+        let doubled = stack.refs.len() * 2;
         let new_cap = 32.max(doubled);
         stack
-            .try_reserve_exact(new_cap - stack.capacity())
+            .refs
+            .try_reserve_exact(new_cap - stack.refs.len())
             .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        stack.refs.resize(new_cap, Ref { instr: 0, local: 0 });
     }
-    stack.push(r);
+    stack.refs[stack.size] = r;
+    stack.size += 1;
     Ok(())
 }
 
 /// flowgraph.c ref_stack_pop
 fn ref_stack_pop(stack: &mut RefStack) -> Ref {
-    stack.pop().expect("ref stack underflow")
+    assert!(stack.size > 0);
+    stack.size -= 1;
+    stack.refs[stack.size]
 }
 
 /// flowgraph.c ref_stack_swap_top
 fn ref_stack_swap_top(stack: &mut RefStack, off: usize) {
-    assert!(off >= 2 && stack.len() >= off);
-    let top = stack.len() - 1;
-    let other = stack.len() - off;
-    stack.swap(top, other);
+    assert!(off >= 2 && stack.size >= off);
+    let top = stack.size - 1;
+    let other = stack.size - off;
+    stack.refs.swap(top, other);
 }
 
 /// flowgraph.c ref_stack_at
 fn ref_stack_at(stack: &RefStack, idx: usize) -> Ref {
-    stack.get(idx).copied().expect("ref stack index in bounds")
+    assert!(idx < stack.size);
+    stack.refs[idx]
 }
 
 /// flowgraph.c ref_stack_clear
 fn ref_stack_clear(stack: &mut RefStack) {
-    stack.clear();
+    stack.size = 0;
 }
 
 /// flowgraph.c optimize_load_fast PUSH_REF
@@ -4689,7 +4701,7 @@ fn push_ref(stack: &mut RefStack, instr: isize, local: isize) -> crate::Internal
 
 /// flowgraph.c kill_local
 fn kill_local(instr_flags: &mut [u8], refs: &RefStack, local: isize) {
-    for i in 0..refs.len() {
+    for i in 0..refs.size {
         let r = ref_stack_at(refs, i);
         if r.local != local {
             continue;
@@ -6939,6 +6951,35 @@ mod tests {
 
         assert!(pop_except_block(&mut stack, &blocks).is_none());
         assert_eq!(stack.depth, 0);
+    }
+
+    #[test]
+    fn ref_stack_tracks_cpython_size_and_allocated_refs() {
+        let mut stack = RefStack {
+            refs: Vec::new(),
+            size: 0,
+        };
+        ref_stack_push(&mut stack, Ref { instr: 7, local: 3 }).unwrap();
+        assert_eq!(stack.size, 1);
+        assert_eq!(stack.refs.len(), 32);
+        assert_eq!(ref_stack_at(&stack, 0).instr, 7);
+        assert_eq!(ref_stack_at(&stack, 0).local, 3);
+
+        ref_stack_clear(&mut stack);
+        assert_eq!(stack.size, 0);
+        assert_eq!(stack.refs.len(), 32);
+
+        ref_stack_push(
+            &mut stack,
+            Ref {
+                instr: DUMMY_INSTR,
+                local: NOT_LOCAL,
+            },
+        )
+        .unwrap();
+        assert_eq!(stack.size, 1);
+        assert_eq!(ref_stack_pop(&mut stack).instr, DUMMY_INSTR);
+        assert_eq!(stack.size, 0);
     }
 
     #[test]
