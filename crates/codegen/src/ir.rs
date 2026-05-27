@@ -609,7 +609,7 @@ fn instruction_sequence_use_label(
     seq: &mut InstructionSequence,
     label: InstructionSequenceLabel,
 ) -> crate::InternalResult<()> {
-    let old_len = seq.label_map.as_ref().map_or(0, Vec::len);
+    let old_size = seq.label_map_allocation;
     let new_allocation = c_array_ensure_capacity(
         seq.label_map_allocation,
         label.idx(),
@@ -638,7 +638,7 @@ fn instruction_sequence_use_label(
     if label_map.len() < seq.label_map_allocation {
         label_map.resize(seq.label_map_allocation, INSTRUCTION_SEQUENCE_UNSET_LABEL);
     }
-    for i in old_len..label_map.len() {
+    for i in old_size..seq.label_map_allocation {
         label_map[i] = INSTRUCTION_SEQUENCE_UNSET_LABEL;
     }
     label_map[label.idx()] = seq.instr_used as i32;
