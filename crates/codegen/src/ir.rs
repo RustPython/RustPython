@@ -1670,7 +1670,9 @@ fn optimize_code_unit(
 ) -> crate::InternalResult<()> {
     // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
     *blocks = cfg_from_instruction_sequence(instr_sequence)?;
-    optimize_code_unit_preprocess(blocks)?;
+    translate_jump_labels_to_targets(blocks)?;
+    mark_except_handlers(blocks)?;
+    label_exception_targets(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     remove_unused_consts(blocks, &mut metadata.consts)?;
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
@@ -4355,7 +4357,9 @@ impl CodeInfo {
             "after_cfg_from_instruction_sequence".to_owned(),
             self.debug_block_dump(),
         ));
-        optimize_code_unit_preprocess(&mut self.blocks)?;
+        translate_jump_labels_to_targets(&mut self.blocks)?;
+        mark_except_handlers(&mut self.blocks)?;
+        label_exception_targets(&mut self.blocks)?;
         check_cfg(&self.blocks)?;
         inline_small_or_no_lineno_blocks(&mut self.blocks)?;
         trace.push((
@@ -5922,14 +5926,6 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
         }
         block_idx = next;
     }
-    Ok(())
-}
-
-/// flowgraph.c _PyCfg_OptimizeCodeUnit preprocessing
-fn optimize_code_unit_preprocess(blocks: &mut [Block]) -> crate::InternalResult<()> {
-    translate_jump_labels_to_targets(blocks)?;
-    mark_except_handlers(blocks)?;
-    label_exception_targets(blocks)?;
     Ok(())
 }
 
