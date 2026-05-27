@@ -1702,7 +1702,7 @@ fn optimize_code_unit(
 ) -> crate::InternalResult<()> {
     // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
     *blocks = cfg_from_instruction_sequence(instr_sequence)?;
-    optimize_code_unit_preprocess(blocks);
+    optimize_code_unit_preprocess(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     remove_unused_consts(blocks, &mut metadata.consts);
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams);
@@ -4265,7 +4265,7 @@ impl CodeInfo {
             "after_cfg_from_instruction_sequence".to_owned(),
             self.debug_block_dump(),
         ));
-        optimize_code_unit_preprocess(&mut self.blocks);
+        optimize_code_unit_preprocess(&mut self.blocks)?;
         check_cfg(&self.blocks)?;
         inline_small_or_no_lineno_blocks(&mut self.blocks);
         trace.push((
@@ -5749,17 +5749,23 @@ fn cfg_builder_check_size(g: &CfgBuilder) -> crate::InternalResult<()> {
 }
 
 /// flowgraph.c translate_jump_labels_to_targets
-fn translate_jump_labels_to_targets(blocks: &mut [Block]) {
+fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let max_label = get_max_label(blocks);
-    let mapsize = (max_label + 1) as usize;
-    let mut label_to_block = vec![BlockIdx::NULL; mapsize];
+    let label_count = max_label
+        .checked_add(1)
+        .and_then(|count| count.to_usize())
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    label_count
+        .checked_mul(core::mem::size_of::<usize>())
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    let mut label_to_block = vec![BlockIdx::NULL; label_count];
 
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let block = &blocks[block_idx.idx()];
         if is_label(block.cpython_label) {
             let label_id = block.cpython_label;
-            debug_assert!(label_id.idx() <= max_label as usize);
+            debug_assert!(label_id.0 <= max_label);
             label_to_block[label_id.idx()] = block_idx;
         }
         block_idx = block.next;
@@ -5772,27 +5778,32 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) {
             let info = &mut blocks[block_idx.idx()].instructions[i];
             debug_assert_eq!(info.target, BlockIdx::NULL);
             if info.instr.has_target() {
-                let lbl = u32::from(info.arg) as usize;
-                debug_assert!(max_label >= 0);
-                debug_assert!(lbl <= max_label as usize);
-                let target = label_to_block[lbl];
+                let lbl = i32::try_from(u32::from(info.arg))
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                if lbl < 0 || lbl > max_label {
+                    return Err(InternalError::MalformedControlFlowGraph);
+                }
+                let target = label_to_block
+                    [usize::try_from(lbl).map_err(|_| InternalError::MalformedControlFlowGraph)?];
                 debug_assert!(target != BlockIdx::NULL);
                 debug_assert_eq!(
                     blocks[target.idx()].cpython_label,
-                    InstructionSequenceLabel::from_index(lbl)
+                    InstructionSequenceLabel(lbl)
                 );
                 info.target = target;
             }
         }
         block_idx = next;
     }
+    Ok(())
 }
 
 /// flowgraph.c _PyCfg_OptimizeCodeUnit preprocessing
-fn optimize_code_unit_preprocess(blocks: &mut [Block]) {
-    translate_jump_labels_to_targets(blocks);
+fn optimize_code_unit_preprocess(blocks: &mut [Block]) -> crate::InternalResult<()> {
+    translate_jump_labels_to_targets(blocks)?;
     mark_except_handlers(blocks);
     label_exception_targets(blocks);
+    Ok(())
 }
 
 /// flowgraph.c _PyCfg_FromInstructionSequence
