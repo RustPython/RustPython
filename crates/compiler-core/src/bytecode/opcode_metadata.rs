@@ -282,6 +282,36 @@ impl super::Opcode {
         )
     }
 
+    /// Does this opcode have 'HAS_EVAL_BREAK_FLAG' set.
+    #[must_use]
+    pub const fn has_eval_break(self) -> bool {
+        matches!(
+            self,
+            Self::CallFunctionEx
+                | Self::Call
+                | Self::JumpBackward
+                | Self::Resume
+                | Self::CallBuiltinClass
+                | Self::CallBuiltinFast
+                | Self::CallBuiltinFastWithKeywords
+                | Self::CallBuiltinO
+                | Self::CallKwNonPy
+                | Self::CallMethodDescriptorFast
+                | Self::CallMethodDescriptorFastWithKeywords
+                | Self::CallMethodDescriptorNoargs
+                | Self::CallMethodDescriptorO
+                | Self::CallNonPyGeneral
+                | Self::CallStr1
+                | Self::CallTuple1
+                | Self::JumpBackwardJit
+                | Self::JumpBackwardNoJit
+                | Self::InstrumentedResume
+                | Self::InstrumentedCall
+                | Self::InstrumentedCallFunctionEx
+                | Self::InstrumentedJumpBackward
+        )
+    }
+
     /// Does this opcode have 'HAS_FREE_FLAG' set.
     #[must_use]
     pub const fn has_free(self) -> bool {
@@ -725,6 +755,12 @@ impl super::PseudoOpcode {
     #[must_use]
     pub const fn has_const(self) -> bool {
         false
+    }
+
+    /// Does this opcode have 'HAS_EVAL_BREAK_FLAG' set.
+    #[must_use]
+    pub const fn has_eval_break(self) -> bool {
+        matches!(self, Self::Jump)
     }
 
     /// Does this opcode have 'HAS_FREE_FLAG' set.

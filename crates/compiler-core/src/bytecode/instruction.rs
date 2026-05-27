@@ -172,6 +172,16 @@ macro_rules! define_opcodes {
             }
 
             #[must_use]
+            $instr_vis const fn has_arg(&self) -> bool {
+                self.as_opcode().has_arg()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_const(&self) -> bool {
+                self.as_opcode().has_const()
+            }
+
+            #[must_use]
             $instr_vis const fn has_eval_break(&self) -> bool {
                 self.as_opcode().has_eval_break()
             }
@@ -730,36 +740,6 @@ impl Opcode {
         self.has_jump() || self.is_block_push()
     }
 
-    /// Does this opcode have CPython's `HAS_EVAL_BREAK_FLAG` set.
-    #[must_use]
-    pub const fn has_eval_break(&self) -> bool {
-        matches!(
-            self,
-            Self::Call
-                | Self::CallBuiltinClass
-                | Self::CallBuiltinFast
-                | Self::CallBuiltinFastWithKeywords
-                | Self::CallBuiltinO
-                | Self::CallFunctionEx
-                | Self::CallKwNonPy
-                | Self::CallMethodDescriptorFast
-                | Self::CallMethodDescriptorFastWithKeywords
-                | Self::CallMethodDescriptorNoargs
-                | Self::CallMethodDescriptorO
-                | Self::CallNonPyGeneral
-                | Self::CallStr1
-                | Self::CallTuple1
-                | Self::InstrumentedCall
-                | Self::InstrumentedCallFunctionEx
-                | Self::InstrumentedJumpBackward
-                | Self::InstrumentedResume
-                | Self::JumpBackward
-                | Self::JumpBackwardJit
-                | Self::JumpBackwardNoJit
-                | Self::Resume
-        )
-    }
-
     #[must_use]
     pub const fn is_block_push(&self) -> bool {
         false
@@ -800,12 +780,6 @@ impl PseudoOpcode {
     #[must_use]
     pub const fn is_unconditional_jump(&self) -> bool {
         matches!(self, Self::Jump | Self::JumpNoInterrupt)
-    }
-
-    /// Does this pseudo opcode have CPython's `HAS_EVAL_BREAK_FLAG` set.
-    #[must_use]
-    pub const fn has_eval_break(&self) -> bool {
-        matches!(self, Self::Jump)
     }
 
     #[must_use]
@@ -925,21 +899,15 @@ impl AnyInstruction {
         pub const fn has_jump(&self) -> bool
     );
 
-    #[must_use]
-    pub const fn has_arg(&self) -> bool {
-        match self {
-            Self::Real(instr) => instr.as_opcode().has_arg(),
-            Self::Pseudo(instr) => instr.as_opcode().has_arg(),
-        }
-    }
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_arg(&self) -> bool
+    );
 
-    #[must_use]
-    pub const fn has_const(&self) -> bool {
-        match self {
-            Self::Real(instr) => instr.as_opcode().has_const(),
-            Self::Pseudo(instr) => instr.as_opcode().has_const(),
-        }
-    }
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_const(&self) -> bool
+    );
 
     either_real_pseudo!(
         #[must_use]
