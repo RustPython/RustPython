@@ -441,10 +441,7 @@ impl super::Opcode {
             Self::UnaryInvert => (1, 1),
             Self::UnaryNegative => (1, 1),
             Self::UnaryNot => (1, 1),
-            Self::WithExceptStart => (
-                7, // TODO: Differs from CPython `6`
-                6, // TODO: Differs from CPython `5`
-            ),
+            Self::WithExceptStart => (6, 5),
             Self::BinaryOp => (1, 2),
             Self::BuildInterpolation => (1, 2 + (oparg & 1)),
             Self::BuildList => (1, oparg),
@@ -775,18 +772,9 @@ impl super::PseudoOpcode {
             Self::JumpNoInterrupt => (0, 0),
             Self::LoadClosure => (1, 0),
             Self::PopBlock => (0, 0),
-            Self::SetupCleanup => (
-                0, // TODO: Differs from CPython `2`
-                0,
-            ),
-            Self::SetupFinally => (
-                0, // TODO: Differs from CPython `1`
-                0,
-            ),
-            Self::SetupWith => (
-                0, // TODO: Differs from CPython `1`
-                0,
-            ),
+            Self::SetupCleanup => (2, 0),
+            Self::SetupFinally => (1, 0),
+            Self::SetupWith => (1, 0),
             Self::StoreFastMaybeNull => (0, 1),
         };
 

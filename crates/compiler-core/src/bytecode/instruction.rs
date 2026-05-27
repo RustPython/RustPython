@@ -63,11 +63,6 @@ macro_rules! define_opcodes {
                     $(Self::$op_name => $op_id,)*
                 }
             }
-            /// Stack effect of [`Self::stack_effect_info`].
-            #[must_use]
-            $opcode_vis fn stack_effect(&self, oparg: u32) -> i32 {
-                self.stack_effect_info(oparg).effect()
-            }
         }
 
         impl From<$opcode_name> for $instr_name {
@@ -770,6 +765,12 @@ impl Opcode {
         false
     }
 
+    /// Stack effect of [`Self::stack_effect_info`].
+    #[must_use]
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        self.stack_effect_info(oparg).effect()
+    }
+
     /// Stack effect when the instruction takes its branch (jump=true).
     ///
     /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
@@ -828,6 +829,16 @@ impl PseudoOpcode {
     #[must_use]
     pub const fn has_target(&self) -> bool {
         self.has_jump() || self.is_block_push()
+    }
+
+    /// flowgraph.c get_stack_effects block-push non-jump case.
+    #[must_use]
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        if self.is_block_push() {
+            0
+        } else {
+            self.stack_effect_info(oparg).effect()
+        }
     }
 
     /// Handler entry effect for SETUP_* pseudo ops.
