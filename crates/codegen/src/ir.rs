@@ -1358,6 +1358,9 @@ fn instruction_sequence_label_map_register_label(
         }
         map.cpython_block_by_label
             .resize(new_allocation, BlockIdx::NULL);
+        for i in old_size..map.cpython_block_by_label.len() {
+            map.cpython_block_by_label[i] = BlockIdx::NULL;
+        }
     }
     debug_assert!(map.cpython_block_by_label.len() > label.idx());
     Ok(())
