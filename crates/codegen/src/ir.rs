@@ -6780,6 +6780,15 @@ mod tests {
     }
 
     #[test]
+    fn get_stack_effects_rejects_cpython_deopt_opcodes() {
+        match get_stack_effects(Instruction::BinaryOpAddInt.into(), OpArg::new(0), 0) {
+            Err(InternalError::InvalidStackEffect) => {}
+            Err(err) => panic!("unexpected stack-effect error: {err}"),
+            Ok(_) => panic!("CPython get_stack_effects rejects specialized deopt opcodes"),
+        }
+    }
+
+    #[test]
     fn instruction_sequence_label_shadow_preserves_cpython_offset_aliases() {
         let mut seq = instruction_sequence_new();
         let mut labels = InstructionSequenceLabelMap::new();
