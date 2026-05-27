@@ -1,3 +1,4 @@
+pub use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::{LexicalErrorType, ParseErrorType};
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
 use ruff_text_size::TextSlice;
@@ -51,8 +52,6 @@ pub enum CompileError {
 impl CompileError {
     #[must_use]
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
-        dbg!(&error);
-
         let source_code = source_file.to_source_code();
         let source_text = source_file.source_text();
 
@@ -96,6 +95,24 @@ impl CompileError {
                 };
                 (error.error, end_loc, end_loc)
             }
+            ParseErrorType::ExpectedToken { expected, found }
+                if matches!((expected, found), (TokenKind::Comma, TokenKind::Int)) =>
+            {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+                let msg = "invalid syntax. Perhaps you forgot a comma?".into();
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
 
             ParseErrorType::InvalidAssignmentTarget => {
                 let loc =
@@ -115,12 +132,27 @@ impl CompileError {
 
                 let msg = parser::parse_expression(expr_str)
                     .ok()
-                    .map(|parsed| match dbg!(&*parsed.syntax().body) {
+                    .map(|parsed| match *parsed.syntax().body {
                         ast::Expr::Call(_) => "cannot assign to function call".into(),
                         ast::Expr::BinOp(_) => "cannot assign to expression".into(),
+                        ast::Expr::If(_) => "cannot assign to conditional expression".into(),
+                        ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+                        ast::Expr::StringLiteral(_)
+                        | ast::Expr::BytesLiteral(_)
+                        | ast::Expr::NumberLiteral(_) => {
+                            "cannot assign to literal here. Maybe you meant '==' instead of '='?"
+                                .into()
+                        }
+                        ast::Expr::EllipsisLiteral(_) => {
+                            "cannot assign to ellipsis here. Maybe you meant '==' instead of '='?"
+                                .into()
+                        }
                         _ => format!("cannot assign to {expr_str}"),
                     })
-                    .unwrap_or_else(|| format!("cannot assign to {expr_str}"));
+                    .unwrap_or_else(|| match expr_str {
+                        "yield" => "assignment to yield expression not possible".into(),
+                        _ => format!("cannot assign to {expr_str}"),
+                    });
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
 

@@ -79,7 +79,7 @@ SyntaxError: cannot delete __debug__
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
->>> yield = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> yield = 1
 Traceback (most recent call last):
 SyntaxError: assignment to yield expression not possible
 
@@ -91,23 +91,23 @@ SyntaxError: cannot delete function call
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression here. Maybe you meant '==' instead of '='?
 
->>> (x for x in x) = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (x for x in x) = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to generator expression
 
->>> 1 = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 1 = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
 
->>> "abc" = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> "abc" = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
 
->>> b"" = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> b"" = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
 
->>> ... = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ... = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to ellipsis here. Maybe you meant '==' instead of '='?
 
@@ -152,7 +152,7 @@ SyntaxError: cannot assign to expression
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> a if 1 else b = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> a if 1 else b = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to conditional expression
 
@@ -196,7 +196,7 @@ SyntaxError: cannot assign to True
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
->>> x = y = yield = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> x = y = yield = 1
 Traceback (most recent call last):
 SyntaxError: assignment to yield expression not possible
 
@@ -334,19 +334,19 @@ SyntaxError: invalid syntax. Is this intended to be part of the string?
 # produce special error messages regarding missing
 # parentheses, but about missing commas instead
 
->>> [1, 2 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [1, 2 3]
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
->>> {1, 2 3}  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1, 2 3}
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
->>> {1:2, 2:5 3:12}  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1:2, 2:5 3:12}
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
->>> (1, 2 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (1, 2 3)
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
