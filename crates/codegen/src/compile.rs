@@ -133,9 +133,9 @@ enum BuiltinGeneratorCallKind {
 pub struct FBlockInfo {
     pub fb_type: FBlockType,
     // CPython _PyCompile_FBlockInfo stores jump_target_label values here.
-    pub(crate) fb_block: Option<ir::InstructionSequenceLabel>,
+    pub(crate) fb_block: ir::InstructionSequenceLabel,
     // CPython's optional type-specific exit or cleanup jump_target_label.
-    pub(crate) fb_exit: Option<ir::InstructionSequenceLabel>,
+    pub(crate) fb_exit: ir::InstructionSequenceLabel,
     pub fb_range: TextRange,
     // additional data for fblock unwinding
     pub fb_datum: FBlockDatum,
@@ -511,6 +511,7 @@ impl Compiler {
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: 0, // Module is always the first symbol table
+            nparams: 0,
             in_conditional_block: 0,
             next_conditional_annotation_index: 0,
         };
@@ -1206,6 +1207,7 @@ impl Compiler {
 
         // Use varnames from symbol table (already collected in definition order)
         let varname_cache: IndexSet<String> = ste.varnames.iter().cloned().collect();
+        let nparams = ste.varnames.len();
 
         // Build cellvars using dictbytype (CELL scope or COMP_CELL flag, sorted)
         let mut cellvar_cache = IndexSet::default();
@@ -1393,6 +1395,7 @@ impl Compiler {
             in_inlined_comp: false,
             fblock: Vec::with_capacity(MAXBLOCKS),
             symbol_table_index: key,
+            nparams,
             in_conditional_block: 0,
             next_conditional_annotation_index: 0,
         };
@@ -1443,7 +1446,6 @@ impl Compiler {
             end_location,
             except_handler,
             lineno_override,
-            cache_entries: 0,
         });
     }
 
@@ -1602,8 +1604,8 @@ impl Compiler {
     fn push_fblock_labels(
         &mut self,
         fb_type: FBlockType,
-        fb_block: Option<ir::InstructionSequenceLabel>,
-        fb_exit: Option<ir::InstructionSequenceLabel>,
+        fb_block: ir::InstructionSequenceLabel,
+        fb_exit: ir::InstructionSequenceLabel,
         fb_datum: FBlockDatum,
     ) -> CompileResult<()> {
         let fb_range = self.current_source_range;
@@ -1627,7 +1629,7 @@ impl Compiler {
     fn pop_fblock_label(
         &mut self,
         expected_type: FBlockType,
-        expected_block: Option<ir::InstructionSequenceLabel>,
+        expected_block: ir::InstructionSequenceLabel,
     ) -> FBlockInfo {
         let code = self.current_code_info();
         let fblock = code.fblock.pop().expect("fblock stack underflow");
@@ -1889,8 +1891,8 @@ impl Compiler {
                     if preserve_tos {
                         self.push_fblock_labels(
                             FBlockType::PopValue,
-                            None,
-                            None,
+                            ir::InstructionSequenceLabel::NO_LABEL,
+                            ir::InstructionSequenceLabel::NO_LABEL,
                             FBlockDatum::None,
                         )?;
                     }
@@ -1899,7 +1901,10 @@ impl Compiler {
                     unwind_loc = None;
 
                     if preserve_tos {
-                        self.pop_fblock_label(FBlockType::PopValue, None);
+                        self.pop_fblock_label(
+                            FBlockType::PopValue,
+                            ir::InstructionSequenceLabel::NO_LABEL,
+                        );
                     }
 
                     // Restore the fblock
@@ -3598,7 +3603,7 @@ impl Compiler {
         self.push_fblock_labels(
             FBlockType::FinallyEnd,
             finally_except_label,
-            None,
+            ir::InstructionSequenceLabel::NO_LABEL,
             FBlockDatum::None,
         )?;
         self.compile_statements(finalbody)?;
@@ -3639,7 +3644,12 @@ impl Compiler {
         let body_label = self
             .current_code_info()
             .instr_sequence_label_for_block(body_block);
-        self.push_fblock_labels(FBlockType::TryExcept, body_label, None, FBlockDatum::None)?;
+        self.push_fblock_labels(
+            FBlockType::TryExcept,
+            body_label,
+            ir::InstructionSequenceLabel::NO_LABEL,
+            FBlockDatum::None,
+        )?;
         self.compile_statements(body)?;
         self.pop_fblock_label(FBlockType::TryExcept, body_label);
         emit!(self, PseudoInstruction::PopBlock);
@@ -3661,7 +3671,12 @@ impl Compiler {
         self.set_no_location();
         emit!(self, Instruction::PushExcInfo);
         self.set_no_location();
-        self.push_fblock_labels(FBlockType::ExceptionHandler, None, None, FBlockDatum::None)?;
+        self.push_fblock_labels(
+            FBlockType::ExceptionHandler,
+            ir::InstructionSequenceLabel::NO_LABEL,
+            ir::InstructionSequenceLabel::NO_LABEL,
+            FBlockDatum::None,
+        )?;
 
         for (i, handler) in handlers.iter().enumerate() {
             let ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
@@ -3705,7 +3720,7 @@ impl Compiler {
                 self.push_fblock_labels(
                     FBlockType::HandlerCleanup,
                     cleanup_body_label,
-                    None,
+                    ir::InstructionSequenceLabel::NO_LABEL,
                     FBlockDatum::ExceptionName(alias.as_str().to_owned()),
                 )?;
 
@@ -3742,7 +3757,7 @@ impl Compiler {
                 self.push_fblock_labels(
                     FBlockType::HandlerCleanup,
                     cleanup_body_label,
-                    None,
+                    ir::InstructionSequenceLabel::NO_LABEL,
                     FBlockDatum::None,
                 )?;
 
@@ -3765,7 +3780,10 @@ impl Compiler {
 
         emit!(self, Instruction::Reraise { depth: 0 });
         self.set_no_location();
-        self.pop_fblock_label(FBlockType::ExceptionHandler, None);
+        self.pop_fblock_label(
+            FBlockType::ExceptionHandler,
+            ir::InstructionSequenceLabel::NO_LABEL,
+        );
 
         self.use_cpython_label_block(cleanup_block);
         emit!(self, Instruction::Copy { i: 3 });
@@ -3854,7 +3872,7 @@ impl Compiler {
         self.push_fblock_labels(
             FBlockType::FinallyEnd,
             finally_except_label,
-            None,
+            ir::InstructionSequenceLabel::NO_LABEL,
             FBlockDatum::None,
         )?;
         self.compile_statements(finalbody)?;
@@ -3901,7 +3919,12 @@ impl Compiler {
         let body_label = self
             .current_code_info()
             .instr_sequence_label_for_block(body_block);
-        self.push_fblock_labels(FBlockType::TryExcept, body_label, None, FBlockDatum::None)?;
+        self.push_fblock_labels(
+            FBlockType::TryExcept,
+            body_label,
+            ir::InstructionSequenceLabel::NO_LABEL,
+            FBlockDatum::None,
+        )?;
         self.compile_statements(body)?;
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
@@ -3932,8 +3955,8 @@ impl Compiler {
         // Push EXCEPTION_GROUP_HANDLER fblock
         self.push_fblock_labels(
             FBlockType::ExceptionGroupHandler,
-            None,
-            None,
+            ir::InstructionSequenceLabel::NO_LABEL,
+            ir::InstructionSequenceLabel::NO_LABEL,
             FBlockDatum::None,
         )?;
 
@@ -4013,7 +4036,7 @@ impl Compiler {
             self.push_fblock_labels(
                 FBlockType::HandlerCleanup,
                 cleanup_body_label,
-                None,
+                ir::InstructionSequenceLabel::NO_LABEL,
                 if let Some(alias) = name {
                     FBlockDatum::ExceptionName(alias.as_str().to_owned())
                 } else {
@@ -4106,7 +4129,10 @@ impl Compiler {
         }
 
         // Pop EXCEPTION_GROUP_HANDLER fblock
-        self.pop_fblock_label(FBlockType::ExceptionGroupHandler, None);
+        self.pop_fblock_label(
+            FBlockType::ExceptionGroupHandler,
+            ir::InstructionSequenceLabel::NO_LABEL,
+        );
         let reraise_block = self.new_block();
 
         // Reraise star block
@@ -4310,8 +4336,8 @@ impl Compiler {
             self.insert_cpython_stopiteration_setup_cleanup(handler_block);
             self.push_fblock_labels(
                 FBlockType::StopIteration,
-                Some(start_label),
-                None,
+                start_label,
+                ir::InstructionSequenceLabel::NO_LABEL,
                 FBlockDatum::None,
             )?;
             Some(handler_block)
@@ -4338,7 +4364,7 @@ impl Compiler {
 
         // Close StopIteration handler and emit handler code
         if let Some(handler_block) = stop_iteration_block {
-            self.pop_fblock_label(FBlockType::StopIteration, Some(start_label));
+            self.pop_fblock_label(FBlockType::StopIteration, start_label);
             self.use_cpython_label_block(handler_block);
             emit!(
                 self,
@@ -4722,7 +4748,7 @@ impl Compiler {
         self.set_source_range(def_source_range);
 
         let is_generic = type_params.is_some();
-        let mut num_typeparam_args = 0;
+        let mut num_typeparam_args = 0u32;
 
         // Save context before entering TypeParams scope
         let saved_ctx = self.ctx;
@@ -4744,7 +4770,7 @@ impl Compiler {
             self.push_output(
                 bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
                 0,
-                num_typeparam_args as u32,
+                num_typeparam_args,
                 0,
                 &type_params_name,
             )?;
@@ -4777,7 +4803,7 @@ impl Compiler {
 
             // Load defaults/kwdefaults with LOAD_FAST
             for i in 0..num_typeparam_args {
-                let var_num = oparg::VarNum::from(i as u32);
+                let var_num = oparg::VarNum::from(i);
                 emit!(self, Instruction::LoadFast { var_num });
             }
         }
@@ -4818,7 +4844,8 @@ impl Compiler {
             emit!(self, Instruction::ReturnValue);
 
             // Set argcount for type params scope
-            self.current_code_info().metadata.argcount = num_typeparam_args as u32;
+            self.current_code_info().metadata.argcount = num_typeparam_args;
+            self.current_code_info().nparams = num_typeparam_args as usize;
 
             // Exit type params scope and create closure
             let type_params_code = self.exit_scope();
@@ -4831,13 +4858,13 @@ impl Compiler {
                 emit!(
                     self,
                     Instruction::Swap {
-                        i: num_typeparam_args as u32 + 1
+                        i: num_typeparam_args + 1
                     }
                 );
                 emit!(
                     self,
                     Instruction::Call {
-                        argc: num_typeparam_args as u32 - 1
+                        argc: num_typeparam_args - 1
                     }
                 );
             } else {
@@ -9468,7 +9495,7 @@ impl Compiler {
                 self.push_fblock_labels(
                     FBlockType::AsyncComprehensionGenerator,
                     loop_label,
-                    None,
+                    ir::InstructionSequenceLabel::NO_LABEL,
                     FBlockDatum::None,
                 )?;
                 emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
@@ -9848,7 +9875,7 @@ impl Compiler {
                     self.push_fblock_labels(
                         FBlockType::AsyncComprehensionGenerator,
                         loop_label,
-                        None,
+                        ir::InstructionSequenceLabel::NO_LABEL,
                         FBlockDatum::None,
                     )?;
                     emit!(self, PseudoInstruction::SetupFinally { delta: after_block });
@@ -10102,7 +10129,6 @@ impl Compiler {
             end_location,
             except_handler,
             lineno_override: None,
-            cache_entries: 0,
         });
     }
 
@@ -10131,7 +10157,7 @@ impl Compiler {
         let end_location = source.source_location(range.end(), PositionEncoding::Utf8);
         let target = self
             .current_code_info()
-            .block_for_instr_sequence_label(Some(target_label));
+            .block_for_instr_sequence_label(target_label);
         self.maybe_start_cpython_cfg_addop_block();
         self.push_emitted_instruction_with_target_label(
             ir::InstructionInfo {
@@ -10142,7 +10168,6 @@ impl Compiler {
                 end_location,
                 except_handler: None,
                 lineno_override: None,
-                cache_entries: 0,
             },
             target_label,
         );
@@ -10931,13 +10956,11 @@ impl Compiler {
 
         // Jump to target
         let target_label = if is_break {
-            loop_fblock
-                .fb_exit
-                .expect("loop fblock must have a CPython exit label")
+            debug_assert!(loop_fblock.fb_exit.is_jump_target_label());
+            loop_fblock.fb_exit
         } else {
-            loop_fblock
-                .fb_block
-                .expect("loop fblock must have a CPython block label")
+            debug_assert!(loop_fblock.fb_block.is_jump_target_label());
+            loop_fblock.fb_block
         };
         if let Some(loc) = unwind_loc {
             self.set_source_range(loc);
@@ -11021,7 +11044,7 @@ impl Compiler {
             let target = &code.blocks[block.idx()];
             debug_assert!(!target.except_handler);
             debug_assert!(!target.preserve_lasti);
-            debug_assert!(target.start_depth.is_none());
+            debug_assert_eq!(target.start_depth, ir::START_DEPTH_UNSET);
             debug_assert!(!target.cold);
         }
         code.mark_cpython_cfg_label(cur);
@@ -11034,7 +11057,7 @@ impl Compiler {
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
-        code.instr_sequence_label_map.push_unmapped_label();
+        code.push_unmapped_instr_sequence_label();
         idx
     }
 
@@ -11042,7 +11065,7 @@ impl Compiler {
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
         code.blocks.push(ir::Block::default());
-        code.instr_sequence_label_map.push_unlabeled_block();
+        code.push_unlabeled_instr_sequence_block();
         idx
     }
 
@@ -12423,8 +12446,8 @@ def f(x, y, z):
             compiler
                 .push_fblock_labels(
                     FBlockType::StopIteration,
-                    Some(start_label),
-                    None,
+                    start_label,
+                    ir::InstructionSequenceLabel::NO_LABEL,
                     FBlockDatum::None,
                 )
                 .unwrap();
@@ -12441,7 +12464,7 @@ def f(x, y, z):
             compiler.arg_constant(ConstantData::None);
         }
         if let Some(handler_block) = stop_iteration_block {
-            compiler.pop_fblock_label(FBlockType::StopIteration, Some(start_label));
+            compiler.pop_fblock_label(FBlockType::StopIteration, start_label);
             compiler.use_cpython_label_block(handler_block);
             emit!(
                 compiler,
