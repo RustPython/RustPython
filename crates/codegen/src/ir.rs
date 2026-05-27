@@ -1334,6 +1334,26 @@ struct CfgExceptStack {
     depth: usize,
 }
 
+/// flowgraph.c `basicblock **stack`
+#[derive(Clone, Debug)]
+struct CfgTraversalStack {
+    stack: Vec<BlockIdx>,
+}
+
+impl CfgTraversalStack {
+    fn push(&mut self, block: BlockIdx) {
+        self.stack.push(block);
+    }
+
+    fn pop(&mut self) -> Option<BlockIdx> {
+        self.stack.pop()
+    }
+
+    fn capacity(&self) -> usize {
+        self.stack.capacity()
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct InstructionSequenceLabelMap {
     block_labels: Vec<InstructionSequenceLabel>,
@@ -4725,7 +4745,7 @@ fn local_as_ref_local(local: usize) -> isize {
 
 /// flowgraph.c load_fast_push_block
 fn load_fast_push_block(
-    worklist: &mut Vec<BlockIdx>,
+    worklist: &mut CfgTraversalStack,
     blocks: &mut [Block],
     target: BlockIdx,
     start_depth: usize,
@@ -4740,7 +4760,7 @@ fn load_fast_push_block(
 }
 
 fn stackdepth_push(
-    stack: &mut Vec<BlockIdx>,
+    stack: &mut CfgTraversalStack,
     blocks: &mut [Block],
     target: BlockIdx,
     depth: i32,
@@ -5801,7 +5821,7 @@ fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) -> crate::InternalResul
 }
 
 /// flowgraph.c make_cfg_traversal_stack
-fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<Vec<BlockIdx>> {
+fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<CfgTraversalStack> {
     debug_assert!(!blocks.is_empty());
     let mut nblocks = 0;
     let mut current = BlockIdx(0);
@@ -5815,6 +5835,7 @@ fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<Vec<B
     stack
         .try_reserve_exact(nblocks)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    let stack = CfgTraversalStack { stack };
     debug_assert!(stack.capacity() >= nblocks);
     Ok(stack)
 }
@@ -6097,7 +6118,7 @@ fn cfg_from_instruction_sequence(
 /// flowgraph.c maybe_push
 fn maybe_push(
     blocks: &mut [Block],
-    worklist: &mut Vec<BlockIdx>,
+    worklist: &mut CfgTraversalStack,
     block: BlockIdx,
     unsafe_mask: u64,
 ) {
@@ -6115,7 +6136,11 @@ fn maybe_push(
 }
 
 /// flowgraph.c scan_block_for_locals
-fn scan_block_for_locals(blocks: &mut [Block], block_idx: BlockIdx, worklist: &mut Vec<BlockIdx>) {
+fn scan_block_for_locals(
+    blocks: &mut [Block],
+    block_idx: BlockIdx,
+    worklist: &mut CfgTraversalStack,
+) {
     let idx = block_idx.idx();
     let mut unsafe_mask = blocks[idx].unsafe_locals_mask;
     let instr_count = blocks[idx].instruction_used;
@@ -6980,6 +7005,26 @@ mod tests {
         assert_eq!(stack.size, 1);
         assert_eq!(ref_stack_pop(&mut stack).instr, DUMMY_INSTR);
         assert_eq!(stack.size, 0);
+    }
+
+    #[test]
+    fn cfg_traversal_stack_resets_visited_and_allocates_for_blocks() {
+        let mut blocks = vec![Block::default(), Block::default()];
+        blocks[0].next = BlockIdx::new(1);
+        blocks[0].visited = true;
+        blocks[1].visited = true;
+
+        let mut stack = make_cfg_traversal_stack(&mut blocks).unwrap();
+        assert!(!blocks[0].visited);
+        assert!(!blocks[1].visited);
+        assert!(stack.capacity() >= 2);
+        assert_eq!(stack.pop(), None);
+
+        stack.push(BlockIdx::new(1));
+        stack.push(BlockIdx::new(0));
+        assert_eq!(stack.pop(), Some(BlockIdx::new(0)));
+        assert_eq!(stack.pop(), Some(BlockIdx::new(1)));
+        assert_eq!(stack.pop(), None);
     }
 
     #[test]
