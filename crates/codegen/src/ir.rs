@@ -6420,13 +6420,15 @@ fn propagate_line_numbers(blocks: &mut [Block]) {
         }
 
         let next = blocks[idx].next;
-        if bb_has_fallthrough(&blocks[idx])
-            && next != BlockIdx::NULL
-            && blocks[next.idx()].predecessors == 1
-            && blocks[next.idx()].instruction_used != 0
-            && instruction_is_no_location(&blocks[next.idx()].instructions[0])
-        {
-            instr_set_location(&mut blocks[next.idx()].instructions[0], prev_location);
+        if bb_has_fallthrough(&blocks[idx]) {
+            debug_assert!(next != BlockIdx::NULL);
+            if next != BlockIdx::NULL
+                && blocks[next.idx()].predecessors == 1
+                && blocks[next.idx()].instruction_used != 0
+                && instruction_is_no_location(&blocks[next.idx()].instructions[0])
+            {
+                instr_set_location(&mut blocks[next.idx()].instructions[0], prev_location);
+            }
         }
 
         if is_jump(&last) {
