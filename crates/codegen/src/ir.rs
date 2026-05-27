@@ -5933,10 +5933,12 @@ fn cfg_from_instruction_sequence(
         instrs,
         instr_used,
         label_map,
+        label_map_allocation,
         annotations_code,
         ..
     } = instr_sequence;
     debug_assert!(label_map.is_none());
+    debug_assert_eq!(label_map_allocation, 0);
 
     let mut offset = 0i32;
 
@@ -5949,6 +5951,7 @@ fn cfg_from_instruction_sequence(
         ) {
             if let Some(annotations_code) = &annotations_code {
                 debug_assert!(annotations_code.label_map.is_none());
+                debug_assert_eq!(annotations_code.label_map_allocation, 0);
                 debug_assert!(annotations_code.annotations_code.is_none());
                 for j in 0..annotations_code.instr_used {
                     let ann_entry = annotations_code.instrs[j];
