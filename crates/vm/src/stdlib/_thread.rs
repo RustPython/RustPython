@@ -560,29 +560,38 @@ pub(crate) mod _thread {
         vm.state.thread_count.fetch_sub(1);
     }
 
-    /// Default stack size for Python threads when the user has not explicitly
-    /// called `threading.stack_size(N)`. Matches CPython's effective default
-    /// on glibc Linux (the pthread default), which is what CPython relies on
-    /// across builds. Rust's `std::thread::Builder` would otherwise default
-    /// to 2 MB, which is too small for the kinds of call chains the Python
-    /// stdlib runs on helper threads (e.g. the SSL test server).
+    /// Default stack size for Python threads in **debug builds only**, where
+    /// Rust stack frames are substantially larger than in release. Rust's
+    /// `std::thread::Builder` otherwise defaults to 2 MB, which is too small
+    /// for the call chains the Python stdlib runs on helper threads in debug
+    /// (e.g. the SSL test server, see #7941). Release builds keep the prior
+    /// behavior — leave the stack size unset and let Rust's std default apply
+    /// — to avoid the multiprocessing slowdown observed when many forked
+    /// children spawn many threads with oversized virtual stack mappings.
+    #[cfg(debug_assertions)]
     const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
 
     /// Configure a `thread::Builder` with the stack size to use for a new
     /// Python thread. Uses the value set via `threading.stack_size(N)` when
-    /// the user has provided one (non-zero) and falls back to
-    /// [`DEFAULT_THREAD_STACK_SIZE`] otherwise.
+    /// the user has provided one (non-zero). Otherwise, debug builds fall
+    /// back to [`DEFAULT_THREAD_STACK_SIZE`] and release builds leave the
+    /// builder unmodified (Rust's std default applies).
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
-        let size = if configured != 0 {
-            configured
-        } else {
-            DEFAULT_THREAD_STACK_SIZE
-        };
-        thread_builder.stack_size(size)
+        if configured != 0 {
+            return thread_builder.stack_size(configured);
+        }
+        #[cfg(debug_assertions)]
+        {
+            thread_builder.stack_size(DEFAULT_THREAD_STACK_SIZE)
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            thread_builder
+        }
     }
 
     /// Clean up thread-local data for the current thread.
