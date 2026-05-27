@@ -560,16 +560,25 @@ pub(crate) mod _thread {
         vm.state.thread_count.fetch_sub(1);
     }
 
+    /// Default stack size for Python threads when the user has not explicitly
+    /// called `threading.stack_size(N)`. Matches CPython's effective default
+    /// on glibc Linux (the pthread default), which is what CPython relies on
+    /// across builds. Rust's `std::thread::Builder` would otherwise default
+    /// to 2 MB, which is too small for the kinds of call chains the Python
+    /// stdlib runs on helper threads (e.g. the SSL test server).
+    const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
+
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
-        if configured != 0 {
-            thread_builder.stack_size(configured)
+        let size = if configured != 0 {
+            configured
         } else {
-            thread_builder
-        }
+            DEFAULT_THREAD_STACK_SIZE
+        };
+        thread_builder.stack_size(size)
     }
 
     /// Clean up thread-local data for the current thread.
