@@ -3018,8 +3018,6 @@ fn fold_constant_intrinsic_list_to_tuple(
             elements
                 .try_reserve_exact(consts_found)
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-            elements.resize_with(consts_found, || None);
-            let mut remaining = consts_found;
             for idx in (pos..i).rev() {
                 if matches!(block.instructions[idx].instr.real(), Some(Instruction::Nop)) {
                     continue;
@@ -3028,17 +3026,12 @@ fn fold_constant_intrinsic_list_to_tuple(
                     let Some(value) = get_const_value(metadata, &block.instructions[idx]) else {
                         return Ok(false);
                     };
-                    debug_assert!(remaining > 0);
-                    remaining -= 1;
-                    elements[remaining] = Some(value);
+                    elements.push(value);
                 }
                 nop_out_no_location(&mut block.instructions[idx]);
             }
-            debug_assert_eq!(remaining, 0);
-            let elements = elements
-                .into_iter()
-                .map(|element| element.expect("constant list item was collected"))
-                .collect();
+            debug_assert_eq!(elements.len(), consts_found);
+            elements.reverse();
             instr_make_load_const(
                 metadata,
                 &mut block.instructions[i],
