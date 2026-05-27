@@ -5654,7 +5654,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
 }
 
 /// flowgraph.c inline_small_or_no_lineno_blocks
-fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResult<bool> {
     loop {
         let mut changes = false;
         let mut current = BlockIdx(0);
@@ -5668,10 +5668,9 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResu
             current = next;
         }
         if !changes {
-            break;
+            return Ok(changes);
         }
     }
-    Ok(())
 }
 
 /// flowgraph.c basicblock_remove_redundant_nops
