@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn test_block_expr_return_function_def() {
+    fn block_expr_return_function_def() {
         interpreter().enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let value =
@@ -220,7 +220,7 @@ mod tests {
     }
 
     #[test]
-    fn test_block_expr_return_class_def() {
+    fn block_expr_return_class_def() {
         interpreter().enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let value =

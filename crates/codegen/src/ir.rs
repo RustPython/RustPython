@@ -7208,7 +7208,7 @@ mod tests {
         for i in 0..3 {
             let mut stale = test_instr(Instruction::Nop, 35 + i);
             stale.except_handler = Some(ExceptHandlerInfo {
-                handler_block: BlockIdx::new(i as u32 + 1),
+                handler_block: BlockIdx::new(i + 1),
                 preserve_lasti: false,
             });
             test_block_push(&mut block, stale);

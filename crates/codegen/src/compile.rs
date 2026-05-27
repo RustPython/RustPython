@@ -33823,7 +33823,7 @@ async def f(self, asyncio, sys, task, timeout_handle, sleep):
     }
 
     #[test]
-    fn test_try_else_attribute_probe_end_allows_following_loads_borrow() {
+    fn try_else_attribute_probe_end_allows_following_loads_borrow() {
         let code = compile_exec(
             "\
 def f(self):
