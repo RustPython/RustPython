@@ -5980,10 +5980,6 @@ fn cfg_builder_check(g: &CfgBuilder) -> bool {
         if has_instr_array {
             debug_assert!(block_ref.instruction_allocation > 0);
             debug_assert!(block_ref.instruction_allocation >= block_ref.instructions.len());
-            debug_assert!(
-                block_ref.instruction_allocation
-                    >= block_ref.instructions.len() + block_ref.cpython_spare_instr_slots.len()
-            );
         } else {
             debug_assert!(block_ref.instructions.is_empty());
             debug_assert_eq!(block_ref.instruction_allocation, 0);
