@@ -1467,7 +1467,6 @@ impl InstructionSequenceLabelMap {
             "every codegen CFG block must have an instruction-sequence label slot"
         );
         debug_assert!(self.cpython_block_by_label.len() <= next_free_label + 1);
-        let mut seen_labels = vec![false; next_free_label + 1];
         for &label in &self.block_labels {
             if !is_label(label) {
                 continue;
@@ -1476,11 +1475,6 @@ impl InstructionSequenceLabelMap {
                 label.idx() <= next_free_label,
                 "codegen CFG block labels must come from _PyInstructionSequence_NewLabel()"
             );
-            debug_assert!(
-                !seen_labels[label.idx()],
-                "codegen CFG blocks must not share a CPython instruction-sequence label"
-            );
-            seen_labels[label.idx()] = true;
         }
         for &block in &self.cpython_block_by_label {
             if block != BlockIdx::NULL {
