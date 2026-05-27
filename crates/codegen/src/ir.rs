@@ -1963,7 +1963,9 @@ fn insert_prefix_instructions(
 
     if ncellvars > 0 {
         let nvars = metadata.varnames.len() + ncellvars;
-        let mut sorted = vec![0i32; nvars];
+        let mut sorted = Vec::new();
+        vec_try_reserve_exact(&mut sorted, nvars)?;
+        sorted.resize(nvars, 0i32);
         for i in 0..ncellvars {
             sorted[usize::try_from(cellfixedoffsets[i])
                 .expect("localsplus offset is non-negative")] = i as i32 + 1;
@@ -2036,7 +2038,7 @@ fn prepare_localsplus(
             .is_some_and(|sum| sum < int_max)
     );
     let mut nlocalsplus = nlocals + ncellvars + nfreevars;
-    let mut cellfixedoffsets = build_cellfixedoffsets(metadata);
+    let mut cellfixedoffsets = build_cellfixedoffsets(metadata)?;
 
     // This must be called before fix_cell_offsets().
     insert_prefix_instructions(metadata, blocks, &cellfixedoffsets, nfreevars, flags)?;
@@ -6743,12 +6745,16 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut [Block]) -> crate::InternalResult<
 
 /// flowgraph.c build_cellfixedoffsets
 #[allow(clippy::needless_range_loop)]
-pub(crate) fn build_cellfixedoffsets(metadata: &CodeUnitMetadata) -> Vec<i32> {
+pub(crate) fn build_cellfixedoffsets(
+    metadata: &CodeUnitMetadata,
+) -> crate::InternalResult<Vec<i32>> {
     let nlocals = metadata.varnames.len();
     let ncellvars = metadata.cellvars.len();
     let nfreevars = metadata.freevars.len();
     let noffsets = ncellvars + nfreevars;
-    let mut fixed = vec![0; noffsets];
+    let mut fixed = Vec::new();
+    vec_try_reserve_exact(&mut fixed, noffsets)?;
+    fixed.resize(noffsets, 0);
     for i in 0..noffsets {
         fixed[i] = (nlocals + i)
             .to_i32()
@@ -6764,7 +6770,7 @@ pub(crate) fn build_cellfixedoffsets(metadata: &CodeUnitMetadata) -> Vec<i32> {
             fixed[oldindex] = argoffset;
         }
     }
-    fixed
+    Ok(fixed)
 }
 
 /// flowgraph.c fix_cell_offsets
