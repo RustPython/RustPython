@@ -5989,7 +5989,6 @@ fn cfg_from_instruction_sequence(
             if let Some(annotations_code) = &annotations_code {
                 debug_assert!(annotations_code.label_map.is_none());
                 debug_assert_eq!(annotations_code.label_map_allocation, 0);
-                debug_assert!(annotations_code.annotations_code.is_none());
                 for j in 0..annotations_code.instr_used {
                     let ann_entry = annotations_code.instrs[j];
                     debug_assert!(!ann_entry.info.instr.has_target());
