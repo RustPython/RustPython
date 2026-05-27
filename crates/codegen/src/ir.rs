@@ -460,8 +460,8 @@ fn is_label(label: InstructionSequenceLabel) -> bool {
 impl InstructionSequenceLabel {
     pub(crate) const NO_LABEL: Self = Self(-1);
 
-    pub(crate) fn from_index(index: usize) -> Self {
-        Self(i32::try_from(index).expect("instruction-sequence label id fits in int"))
+    pub(crate) fn from_index(index: i32) -> Self {
+        Self(index)
     }
 
     pub(crate) fn is_jump_target_label(self) -> bool {
@@ -469,7 +469,8 @@ impl InstructionSequenceLabel {
     }
 
     pub(crate) fn idx(self) -> usize {
-        usize::try_from(self.0).expect("instruction-sequence label id is non-negative")
+        debug_assert!(self.0 >= 0);
+        self.0 as usize
     }
 }
 
@@ -517,7 +518,8 @@ pub(crate) struct InstructionSequence {
     instr_allocation: usize,
     /// CPython `instr_sequence.s_used`, the number of used entries in `s_instrs`.
     instr_used: usize,
-    next_free_label: usize,
+    /// CPython `instr_sequence.s_next_free_label`.
+    next_free_label: i32,
     label_map: Option<Vec<i32>>,
     label_map_allocation: usize,
     annotations_code: Option<Box<Self>>,
@@ -579,7 +581,7 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::Inter
 /// instruction_sequence.c _PyInstructionSequence_NewLabel
 fn instruction_sequence_new_label(seq: &mut InstructionSequence) -> InstructionSequenceLabel {
     seq.next_free_label += 1;
-    InstructionSequenceLabel::from_index(seq.next_free_label)
+    InstructionSequenceLabel(seq.next_free_label)
 }
 
 /// instruction_sequence.c _PyInstructionSequence_Addop asserts.
@@ -5195,7 +5197,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
     }
 
     mark_cold(blocks)?;
-    let mut next_label = (get_max_label(blocks) + 1) as usize;
+    let mut next_label = get_max_label(blocks) + 1;
 
     // If a cold block falls through to a warm block, add an explicit jump
     let mut block_idx = BlockIdx(0);
@@ -7484,7 +7486,7 @@ mod tests {
             Block::default(),
         ];
         for (i, block) in blocks.iter_mut().enumerate() {
-            block.cpython_label = InstructionSequenceLabel::from_index(i);
+            block.cpython_label = InstructionSequenceLabel::from_index(i as i32);
         }
         blocks[0].next = BlockIdx::new(1);
         blocks[1].next = BlockIdx::new(2);
