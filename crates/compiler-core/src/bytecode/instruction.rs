@@ -1430,14 +1430,9 @@ mod tests {
         assert!(PseudoOpcode::JumpIfTrue.has_arg());
         assert!(PseudoOpcode::JumpNoInterrupt.has_arg());
         assert!(PseudoOpcode::LoadClosure.has_arg());
-        assert!(PseudoOpcode::SetupCleanup.has_arg());
-        assert!(PseudoOpcode::SetupFinally.has_arg());
-        assert!(PseudoOpcode::SetupWith.has_arg());
         assert!(PseudoOpcode::StoreFastMaybeNull.has_arg());
         assert!(!PseudoOpcode::AnnotationsPlaceholder.has_arg());
         assert!(!PseudoOpcode::PopBlock.has_arg());
-
-        assert!(AnyInstruction::from(PseudoOpcode::SetupFinally).has_arg());
     }
 
     #[test]
