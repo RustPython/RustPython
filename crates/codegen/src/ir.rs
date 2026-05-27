@@ -4212,13 +4212,7 @@ fn calculate_stackdepth(blocks: &mut [Block]) -> crate::InternalResult<u32> {
             let ins = blocks[idx].instructions[i];
             let instr = &ins.instr;
             let effects = get_stack_effects(*instr, ins.arg, 0)?;
-            let new_depth = depth.checked_add(effects.net).ok_or({
-                if effects.net < 0 {
-                    InternalError::StackUnderflow
-                } else {
-                    InternalError::StackOverflow
-                }
-            })?;
+            let new_depth = depth + effects.net;
             if new_depth < 0 {
                 return Err(InternalError::StackUnderflow);
             }
@@ -4226,13 +4220,7 @@ fn calculate_stackdepth(blocks: &mut [Block]) -> crate::InternalResult<u32> {
             if instr.has_target() && !matches!(instr.real(), Some(Instruction::EndAsyncFor)) {
                 debug_assert!(ins.target != BlockIdx::NULL);
                 let effects = get_stack_effects(*instr, ins.arg, 1)?;
-                let target_depth = depth.checked_add(effects.net).ok_or({
-                    if effects.net < 0 {
-                        InternalError::StackUnderflow
-                    } else {
-                        InternalError::StackOverflow
-                    }
-                })?;
+                let target_depth = depth + effects.net;
                 debug_assert!(target_depth >= 0);
                 maxdepth = maxdepth.max(depth);
                 stackdepth_push(&mut stack, blocks, ins.target, target_depth)?;
