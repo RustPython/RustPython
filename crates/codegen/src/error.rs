@@ -40,6 +40,7 @@ impl fmt::Display for CodegenError {
 pub enum InternalError {
     StackUnderflow,
     InconsistentStackDepth,
+    InvalidStackEffect,
     MalformedControlFlowGraph,
     MissingSymbol(String),
 }
@@ -49,6 +50,7 @@ impl Display for InternalError {
         match self {
             Self::StackUnderflow => write!(f, "Invalid CFG, stack underflow"),
             Self::InconsistentStackDepth => write!(f, "Invalid CFG, inconsistent stackdepth"),
+            Self::InvalidStackEffect => write!(f, "Invalid stack effect"),
             Self::MalformedControlFlowGraph => write!(f, "malformed control flow graph."),
             Self::MissingSymbol(s) => write!(
                 f,

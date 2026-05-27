@@ -4715,7 +4715,7 @@ fn get_stack_effects(
     jump: i32,
 ) -> crate::InternalResult<StackEffects> {
     if instr.real().is_some_and(|op| op.deopt().is_some()) {
-        return Err(InternalError::MalformedControlFlowGraph);
+        return Err(InternalError::InvalidStackEffect);
     }
     let oparg = u32::from(oparg);
     let net = if instr.is_block_push() && jump == 0 {
