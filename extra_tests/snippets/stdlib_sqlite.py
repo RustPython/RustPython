@@ -53,3 +53,20 @@ class AggrText:
 cx.create_aggregate("aggtxt", 1, AggrText)
 cur.execute("select aggtxt(key) from foo")
 assert cur.fetchone()[0] == "341011"
+
+# Blob extended-slice assignment with negative step
+# Guard: CPython 3.11 has a SystemError bug with negative-step Blob slicing;
+# this test only runs on RustPython where the fix is being validated.
+# TODO: remove this once https://github.com/python/cpython/pull/150450 is released and RustPython CI uses it.
+import sys
+
+if sys.implementation.name == "rustpython":
+    cx.execute("CREATE TABLE blobtest(b BLOB)")
+    data = b"this blob data string is exactly fifty bytes long!"
+    cx.execute("INSERT INTO blobtest(b) VALUES (?)", (data,))
+    blob = cx.blobopen("blobtest", "b", 1)
+    blob[9:0:-2] = b"12345"  # writes to indices 9, 7, 5, 3, 1
+    actual = cx.execute("select b from blobtest").fetchone()[0]
+    expected = b"t5i4 3l2b1" + data[10:]
+    assert actual == expected, f"got {actual!r}, expected {expected!r}"
+    blob.close()
