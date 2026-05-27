@@ -130,9 +130,12 @@ impl CompileError {
 
                 let expr_str = source_file.source_text().slice(&error.location);
 
-                let msg = parser::parse_expression(expr_str)
-                    .ok()
-                    .map(|parsed| match *parsed.syntax().body {
+                let msg = parser::parse_expression(expr_str).map_or_else(
+                    |_| match expr_str {
+                        "yield" => "assignment to yield expression not possible".into(),
+                        _ => format!("cannot assign to {expr_str}"),
+                    },
+                    |parsed| match *parsed.syntax().body {
                         ast::Expr::Call(_) => "cannot assign to function call".into(),
                         ast::Expr::BinOp(_) => "cannot assign to expression".into(),
                         ast::Expr::If(_) => "cannot assign to conditional expression".into(),
@@ -148,11 +151,9 @@ impl CompileError {
                                 .into()
                         }
                         _ => format!("cannot assign to {expr_str}"),
-                    })
-                    .unwrap_or_else(|| match expr_str {
-                        "yield" => "assignment to yield expression not possible".into(),
-                        _ => format!("cannot assign to {expr_str}"),
-                    });
+                    },
+                );
+
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
 
