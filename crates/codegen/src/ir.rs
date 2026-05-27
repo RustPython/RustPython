@@ -6513,14 +6513,14 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
             } else if matches!(instr.real(), Some(Instruction::YieldValue { .. })) {
                 blocks[bi].instructions[i].except_handler = handler;
                 last_yield_except_depth = stack.len() as i32;
-            } else if let Some(Instruction::Resume { context }) = instr.real() {
+            } else if let Some(Instruction::Resume { context: _ }) = instr.real() {
                 blocks[bi].instructions[i].except_handler = handler;
-                let location = context.get(arg).location();
-                if !matches!(location, oparg::ResumeLocation::AtFuncStart) {
+                let resume_arg = u32::from(arg);
+                if resume_arg != u32::from(oparg::ResumeLocation::AtFuncStart) {
                     debug_assert!(last_yield_except_depth >= 0);
                     if last_yield_except_depth == 1 {
                         blocks[bi].instructions[i].arg =
-                            OpArg::new(oparg::ResumeContext::new(location, true).as_u32());
+                            OpArg::new(resume_arg | oparg::ResumeContext::DEPTH1_MASK);
                     }
                     last_yield_except_depth = -1;
                 }
