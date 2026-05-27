@@ -813,19 +813,35 @@ fn instr_size(instr: &InstructionInfo) -> usize {
 
 /// pycore_opcode_metadata.h is_pseudo_target
 fn is_pseudo_target(pseudo: PseudoOpcode, target: Opcode) -> bool {
-    matches!(
-        (pseudo, target),
-        (
-            PseudoOpcode::Jump,
-            Opcode::JumpForward | Opcode::JumpBackward
-        ) | (
-            PseudoOpcode::JumpNoInterrupt,
-            Opcode::JumpForward | Opcode::JumpBackwardNoInterrupt
-        ) | (PseudoOpcode::LoadClosure, Opcode::LoadFast)
-            | (PseudoOpcode::StoreFastMaybeNull, Opcode::StoreFast)
-    )
+    match pseudo {
+        PseudoOpcode::LoadClosure => matches!(target, Opcode::LoadFast),
+        PseudoOpcode::StoreFastMaybeNull => matches!(target, Opcode::StoreFast),
+        PseudoOpcode::AnnotationsPlaceholder
+        | PseudoOpcode::SetupFinally
+        | PseudoOpcode::SetupCleanup
+        | PseudoOpcode::SetupWith
+        | PseudoOpcode::PopBlock => matches!(target, Opcode::Nop),
+        PseudoOpcode::Jump => matches!(target, Opcode::JumpForward | Opcode::JumpBackward),
+        PseudoOpcode::JumpNoInterrupt => {
+            matches!(
+                target,
+                Opcode::JumpForward | Opcode::JumpBackwardNoInterrupt
+            )
+        }
+        PseudoOpcode::JumpIfFalse => {
+            matches!(
+                target,
+                Opcode::Copy | Opcode::ToBool | Opcode::PopJumpIfFalse
+            )
+        }
+        PseudoOpcode::JumpIfTrue => {
+            matches!(
+                target,
+                Opcode::Copy | Opcode::ToBool | Opcode::PopJumpIfTrue
+            )
+        }
+    }
 }
-
 /// assemble.c resolve_unconditional_jumps
 #[allow(clippy::unnecessary_wraps)]
 fn resolve_unconditional_jumps(
