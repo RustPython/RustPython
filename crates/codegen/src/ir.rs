@@ -315,7 +315,7 @@ fn empty_instruction_info() -> InstructionInfo {
 }
 
 /// codegen.c _Py_CArray_EnsureCapacity
-fn c_array_ensure_capacity(
+fn c_array_ensure_capacity<T>(
     allocated_entries: usize,
     idx: usize,
     initial_num_entries: usize,
@@ -329,6 +329,9 @@ fn c_array_ensure_capacity(
         };
         Ok(new_alloc)
     } else if idx >= allocated_entries {
+        let oldsize = allocated_entries
+            .checked_mul(core::mem::size_of::<T>())
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
         let doubled = allocated_entries
             .checked_mul(2)
             .ok_or(InternalError::MalformedControlFlowGraph)?;
@@ -338,6 +341,12 @@ fn c_array_ensure_capacity(
         } else {
             doubled
         };
+        let newsize = new_alloc
+            .checked_mul(core::mem::size_of::<T>())
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        if oldsize > usize::MAX >> 1 || newsize == 0 {
+            return Err(InternalError::MalformedControlFlowGraph);
+        }
         Ok(new_alloc)
     } else {
         Ok(allocated_entries)
@@ -347,8 +356,11 @@ fn c_array_ensure_capacity(
 /// flowgraph.c basicblock_next_instr
 fn basicblock_next_instr(block: &mut Block) -> crate::InternalResult<usize> {
     let off = block.instruction_used;
-    let new_allocation =
-        c_array_ensure_capacity(block.instruction_allocation, off + 1, DEFAULT_BLOCK_SIZE)?;
+    let new_allocation = c_array_ensure_capacity::<InstructionInfo>(
+        block.instruction_allocation,
+        off + 1,
+        DEFAULT_BLOCK_SIZE,
+    )?;
     if new_allocation > block.instruction_allocation {
         if new_allocation > block.instructions.len() {
             block
@@ -550,8 +562,11 @@ fn instruction_sequence_new() -> InstructionSequence {
 /// instruction_sequence.c instr_sequence_next_inst
 fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::InternalResult<usize> {
     let idx = seq.instr_used;
-    let new_allocation =
-        c_array_ensure_capacity(seq.instr_allocation, idx + 1, INITIAL_INSTR_SEQUENCE_SIZE)?;
+    let new_allocation = c_array_ensure_capacity::<InstructionSequenceEntry>(
+        seq.instr_allocation,
+        idx + 1,
+        INITIAL_INSTR_SEQUENCE_SIZE,
+    )?;
     if new_allocation > seq.instr_allocation {
         if new_allocation > seq.instrs.capacity() {
             seq.instrs
@@ -616,7 +631,7 @@ fn instruction_sequence_use_label(
     label: InstructionSequenceLabel,
 ) -> crate::InternalResult<()> {
     let old_size = seq.label_map_allocation;
-    let new_allocation = c_array_ensure_capacity(
+    let new_allocation = c_array_ensure_capacity::<i32>(
         seq.label_map_allocation,
         label.idx(),
         INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE,
