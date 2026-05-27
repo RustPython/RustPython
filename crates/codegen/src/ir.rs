@@ -644,10 +644,7 @@ fn instruction_sequence_use_label(
     for i in old_len..label_map.len() {
         label_map[i] = INSTRUCTION_SEQUENCE_UNSET_LABEL;
     }
-    label_map[label.idx()] = seq
-        .instr_used
-        .to_i32()
-        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    label_map[label.idx()] = seq.instr_used as i32;
     Ok(())
 }
 
@@ -688,9 +685,7 @@ fn instruction_sequence_insert_instruction(
     }
     seq.instrs[pos].info = info;
     if let Some(label_map) = &mut seq.label_map {
-        let pos = pos
-            .to_i32()
-            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        let pos = pos as i32;
         for lbl in 0..label_map.len() {
             if label_map[lbl] >= pos {
                 label_map[lbl] += 1;
@@ -757,11 +752,7 @@ fn cfg_to_instruction_sequence(
                 debug_assert!(target_block != BlockIdx::NULL);
                 let lbl = blocks[target_block.idx()].cpython_label;
                 debug_assert!(is_label(lbl));
-                blocks[block_idx.idx()].instructions[i].arg = OpArg::new(
-                    lbl.idx()
-                        .to_u32()
-                        .ok_or(InternalError::MalformedControlFlowGraph)?,
-                );
+                blocks[block_idx.idx()].instructions[i].arg = OpArg::new(lbl.0 as u32);
             }
 
             let mut info = blocks[block_idx.idx()].instructions[i];
@@ -775,8 +766,7 @@ fn cfg_to_instruction_sequence(
                 debug_assert!(is_label(lbl));
                 let start_depth = blocks[handler.handler_block.idx()].start_depth;
                 debug_assert!(start_depth >= 0);
-                hi.h_label = i32::try_from(lbl.idx())
-                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                hi.h_label = lbl.0;
                 hi.start_depth = start_depth;
                 hi.preserve_lasti = i32::from(handler.preserve_lasti);
             } else {
@@ -793,7 +783,7 @@ fn cfg_to_instruction_sequence(
 /// assemble.c instr_size
 fn instr_size(instr: &InstructionInfo) -> usize {
     let opcode = instr.instr.expect_real();
-    let oparg = i32::try_from(u32::from(instr.arg)).expect("oparg fits in int");
+    let oparg = u32::from(instr.arg) as i32;
     debug_assert!(
         instr.instr.has_arg() || oparg == 0,
         "CPython assemble.c instr_size requires OPCODE_HAS_ARG or oparg == 0"
@@ -826,9 +816,7 @@ fn resolve_unconditional_jumps(
 ) -> crate::InternalResult<()> {
     for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i].info;
-        let is_forward = i32::try_from(u32::from(instr.arg))
-            .map_err(|_| InternalError::MalformedControlFlowGraph)?
-            > i.to_i32().ok_or(InternalError::MalformedControlFlowGraph)?;
+        let is_forward = (u32::from(instr.arg) as i32) > i as i32;
         match instr.instr {
             AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }) => {
                 debug_assert!(is_pseudo_target(PseudoOpcode::Jump, Opcode::JumpForward));
@@ -887,8 +875,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
         let instr = &mut instr_sequence.instrs[i];
         let opcode = instr.info.instr.expect_real();
         if opcode.has_jump() {
-            instr.i_target = i32::try_from(u32::from(instr.info.arg))
-                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+            instr.i_target = u32::from(instr.info.arg) as i32;
         }
     }
     let mut extended_arg_recompile;
@@ -898,9 +885,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
             let instr = &mut instr_sequence.instrs[i];
             instr.i_offset = totsize;
             let isize = instr_size(&instr.info);
-            totsize += isize
-                .to_i32()
-                .ok_or(InternalError::MalformedControlFlowGraph)?;
+            totsize += isize as i32;
         }
         end_offset = totsize
             .to_u32()
@@ -912,9 +897,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
             let isize = instr_size(&instr_sequence.instrs[i].info);
             // Jump offsets are computed relative to the instruction pointer
             // after fetching the jump instruction.
-            offset += isize
-                .to_i32()
-                .ok_or(InternalError::MalformedControlFlowGraph)?;
+            offset += isize as i32;
 
             let opcode = instr_sequence.instrs[i].info.instr.expect_real();
             if opcode.has_jump() {
@@ -1016,7 +999,7 @@ fn instruction_linetable_location(info: &InstructionInfo) -> LineTableLocation {
 /// assemble.c write_instr
 fn write_instr(instructions: &mut Vec<CodeUnit>, info: &InstructionInfo, ilen: usize) {
     let opcode = info.instr.expect_real();
-    let oparg = i32::try_from(u32::from(info.arg)).expect("oparg fits in int");
+    let oparg = u32::from(info.arg) as i32;
     debug_assert!(
         info.instr.has_arg() || oparg == 0,
         "CPython assemble.c write_instr requires OPCODE_HAS_ARG or oparg == 0"
