@@ -3789,10 +3789,12 @@ fn optimize_basic_block(
                 if matches!(nextop, Some(Instruction::UnaryNot)) =>
             {
                 set_to_nop(&mut blocks[bi].instructions[i]);
+                let inverted = u32::from(inst.arg) ^ 1;
+                debug_assert!(inverted == 0 || inverted == 1);
                 instr_set_op1(
                     &mut blocks[bi].instructions[i + 1],
                     inst.instr,
-                    OpArg::new(u32::from(inst.arg) ^ 1),
+                    OpArg::new(inverted),
                 );
                 i += 1;
                 continue;
