@@ -420,6 +420,22 @@ fn basicblock_append_instructions(
     Ok(())
 }
 
+/// flowgraph.c basicblock_append_instructions
+fn basicblock_append_block_instructions(
+    blocks: &mut [Block],
+    to: BlockIdx,
+    from: BlockIdx,
+) -> crate::InternalResult<()> {
+    debug_assert_ne!(to, from);
+    let from_len = blocks[from.idx()].instructions.len();
+    for i in 0..from_len {
+        let info = blocks[from.idx()].instructions[i];
+        let off = basicblock_next_instr(&mut blocks[to.idx()])?;
+        blocks[to.idx()].instructions[off] = info;
+    }
+    Ok(())
+}
+
 /// flowgraph.c direct `b_iused = 0`
 fn basicblock_clear(block: &mut Block) {
     let instructions = core::mem::take(&mut block.instructions);
@@ -5633,8 +5649,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
         let last = basicblock_last_instr_mut(&mut blocks[block_idx.idx()])
             .expect("non-empty block has last instruction");
         set_to_nop(last);
-        let target_instructions = blocks[target.idx()].instructions.clone();
-        basicblock_append_instructions(&mut blocks[block_idx.idx()], &target_instructions)?;
+        basicblock_append_block_instructions(blocks, block_idx, target)?;
         if no_lineno_no_fallthrough {
             let last = basicblock_last_instr_mut(&mut blocks[block_idx.idx()]).unwrap();
             if last.instr.is_unconditional_jump()
