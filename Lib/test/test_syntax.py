@@ -43,7 +43,7 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
->>> (True := 1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (True := 1)
 Traceback (most recent call last):
 SyntaxError: cannot use assignment expressions with True
 

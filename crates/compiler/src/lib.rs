@@ -116,6 +116,25 @@ impl CompileError {
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
 
+            ParseErrorType::InvalidNamedAssignmentTarget => {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+
+                let target = source_file.source_text().slice(&error.location);
+                let msg = format!("cannot use assignment expressions with {target}");
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
+
             _ => {
                 let loc =
                     source_code.source_location(error.location.start(), PositionEncoding::Utf8);
