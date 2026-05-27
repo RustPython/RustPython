@@ -312,7 +312,6 @@ fn empty_instruction_info() -> InstructionInfo {
 }
 
 /// codegen.c _Py_CArray_EnsureCapacity
-#[allow(clippy::unnecessary_wraps)]
 fn c_array_ensure_capacity(
     allocated_entries: usize,
     idx: usize,
@@ -320,15 +319,19 @@ fn c_array_ensure_capacity(
 ) -> crate::InternalResult<usize> {
     if allocated_entries == 0 {
         let new_alloc = if idx >= initial_num_entries {
-            idx + initial_num_entries
+            idx.checked_add(initial_num_entries)
+                .ok_or(InternalError::MalformedControlFlowGraph)?
         } else {
             initial_num_entries
         };
         Ok(new_alloc)
     } else if idx >= allocated_entries {
-        let doubled = allocated_entries << 1;
+        let doubled = allocated_entries
+            .checked_mul(2)
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
         let new_alloc = if idx >= doubled {
-            idx + initial_num_entries
+            idx.checked_add(initial_num_entries)
+                .ok_or(InternalError::MalformedControlFlowGraph)?
         } else {
             doubled
         };
@@ -5625,7 +5628,8 @@ fn no_redundant_jumps(blocks: &[Block]) -> bool {
                     if instruction_lineno(last)
                         == instruction_lineno(&blocks[next.idx()].instructions[0])
                     {
-                        panic!("redundant jump has same line as fallthrough target");
+                        debug_assert!(false, "redundant jump has same line as fallthrough target");
+                        return false;
                     }
                 }
             }
