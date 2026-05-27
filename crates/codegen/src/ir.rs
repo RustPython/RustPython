@@ -1907,8 +1907,7 @@ fn insert_prefix_instructions(
         vec_try_reserve_exact(&mut sorted, nvars)?;
         sorted.resize(nvars, 0i32);
         for i in 0..ncellvars {
-            sorted[usize::try_from(cellfixedoffsets[i])
-                .expect("localsplus offset is non-negative")] = i as i32 + 1;
+            sorted[cellfixedoffsets[i] as usize] = i as i32 + 1;
         }
         let mut ncellsused = 0;
         let mut i = 0;
@@ -1923,7 +1922,7 @@ fn insert_prefix_instructions(
                 ncellsused,
                 InstructionInfo {
                     instr: Instruction::MakeCell { i: Arg::marker() }.into(),
-                    arg: OpArg::new(oldindex.to_u32().expect("cell index is non-negative")),
+                    arg: OpArg::new(oldindex as u32),
                     target: BlockIdx::NULL,
                     location: SourceLocation::default(),
                     end_location: SourceLocation::default(),
