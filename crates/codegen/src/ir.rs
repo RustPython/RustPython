@@ -1028,18 +1028,7 @@ fn assemble_emit_instr(
         .checked_add(size)
         .ok_or(InternalError::MalformedControlFlowGraph)?;
     if required >= instructions.capacity() {
-        let additional = instructions
-            .capacity()
-            .checked_mul(core::mem::size_of::<CodeUnit>())
-            .and_then(|len| {
-                if len > usize::MAX / 2 {
-                    None
-                } else {
-                    Some(instructions.capacity())
-                }
-            })
-            .ok_or(InternalError::MalformedControlFlowGraph)?;
-        vec_try_reserve_exact(instructions, additional)?;
+        vec_try_resize_to_double_capacity(instructions)?;
     }
     write_instr(instructions, info, size);
     Ok(())
@@ -4681,6 +4670,19 @@ fn vec_try_reserve_exact<T>(vec: &mut Vec<T>, additional: usize) -> crate::Inter
         .map_err(|_| InternalError::MalformedControlFlowGraph)
 }
 
+fn vec_try_resize_to_double_capacity<T>(vec: &mut Vec<T>) -> crate::InternalResult<()> {
+    let capacity = vec.capacity();
+    debug_assert!(capacity > 0);
+    if capacity == 0 || capacity > usize::MAX / 2 {
+        return Err(InternalError::MalformedControlFlowGraph);
+    }
+    let new_capacity = capacity * 2;
+    let additional = new_capacity
+        .checked_sub(vec.len())
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    vec_try_reserve_exact(vec, additional)
+}
+
 /// assemble.c write_location_first_byte
 fn write_location_first_byte(linetable: &mut Vec<u8>, code: u8, length: usize) {
     linetable.extend(write_location_entry_start(code, length));
@@ -4714,12 +4716,11 @@ fn write_location_info_short_form(
     length: usize,
     column: i32,
     end_column: i32,
-) -> crate::InternalResult<()> {
+) {
     debug_assert!(length > 0 && length <= 8);
     debug_assert!(column < 80);
     debug_assert!(end_column >= column);
     debug_assert!(end_column - column < 16);
-    vec_try_reserve_exact(linetable, 2)?;
     let column_low_bits = column & 7;
     let column_group = column >> 3;
     let code = PyCodeLocationInfoKind::Short0 as u8 + column_group as u8;
@@ -4728,7 +4729,6 @@ fn write_location_info_short_form(
         linetable,
         ((column_low_bits as u8) << 4) | ((end_column - column) as u8),
     );
-    Ok(())
 }
 
 /// assemble.c write_location_info_oneline_form
@@ -4738,17 +4738,15 @@ fn write_location_info_oneline_form(
     line_delta: i32,
     column: i32,
     end_column: i32,
-) -> crate::InternalResult<()> {
+) {
     debug_assert!(length > 0 && length <= 8);
     debug_assert!((0..3).contains(&line_delta));
     debug_assert!(column < 128);
     debug_assert!(end_column < 128);
-    vec_try_reserve_exact(linetable, 3)?;
     let code = PyCodeLocationInfoKind::OneLine0 as u8 + line_delta as u8;
     write_location_first_byte(linetable, code, length);
     write_location_byte(linetable, column as u8);
     write_location_byte(linetable, end_column as u8);
-    Ok(())
 }
 
 /// assemble.c write_location_info_long_form
@@ -4757,9 +4755,8 @@ fn write_location_info_long_form(
     loc: LineTableLocation,
     length: usize,
     line_delta: i32,
-) -> crate::InternalResult<()> {
+) {
     debug_assert!(length > 0 && length <= 8);
-    vec_try_reserve_exact(linetable, 25)?;
     write_location_first_byte(linetable, PyCodeLocationInfoKind::Long as u8, length);
     write_location_signed_varint(linetable, line_delta);
     debug_assert!(loc.end_line >= loc.line);
@@ -4776,26 +4773,17 @@ fn write_location_info_long_form(
             (loc.end_col as u32) + 1
         },
     );
-    Ok(())
 }
 
 /// assemble.c write_location_info_none
-fn write_location_info_none(linetable: &mut Vec<u8>, length: usize) -> crate::InternalResult<()> {
-    vec_try_reserve_exact(linetable, 1)?;
+fn write_location_info_none(linetable: &mut Vec<u8>, length: usize) {
     write_location_first_byte(linetable, PyCodeLocationInfoKind::None as u8, length);
-    Ok(())
 }
 
 /// assemble.c write_location_info_no_column
-fn write_location_info_no_column(
-    linetable: &mut Vec<u8>,
-    length: usize,
-    line_delta: i32,
-) -> crate::InternalResult<()> {
-    vec_try_reserve_exact(linetable, 7)?;
+fn write_location_info_no_column(linetable: &mut Vec<u8>, length: usize, line_delta: i32) {
     write_location_first_byte(linetable, PyCodeLocationInfoKind::NoColumns as u8, length);
     write_location_signed_varint(linetable, line_delta);
-    Ok(())
 }
 
 /// assemble.c write_location_info_entry
@@ -4806,8 +4794,19 @@ fn write_location_info_entry(
     prev_line: &mut i32,
     debug_ranges: bool,
 ) -> crate::InternalResult<()> {
+    const THEORETICAL_MAX_ENTRY_SIZE: usize = 25;
+    if linetable
+        .len()
+        .checked_add(THEORETICAL_MAX_ENTRY_SIZE)
+        .ok_or(InternalError::MalformedControlFlowGraph)?
+        >= linetable.capacity()
+    {
+        debug_assert!(linetable.capacity() > THEORETICAL_MAX_ENTRY_SIZE);
+        vec_try_resize_to_double_capacity(linetable)?;
+    }
     if loc.line == NO_LOCATION_OVERRIDE {
-        return write_location_info_none(linetable, length);
+        write_location_info_none(linetable, length);
+        return Ok(());
     }
 
     let line_delta = loc.line - *prev_line;
@@ -4816,23 +4815,24 @@ fn write_location_info_entry(
     if !debug_ranges
         || ((column < 0 || end_column < 0) && (loc.end_line == loc.line || loc.end_line < 0))
     {
-        write_location_info_no_column(linetable, length, line_delta)?;
+        write_location_info_no_column(linetable, length, line_delta);
         *prev_line = loc.line;
         return Ok(());
     }
 
     if loc.end_line == loc.line {
         if line_delta == 0 && column < 80 && end_column - column < 16 && end_column >= column {
-            return write_location_info_short_form(linetable, length, column, end_column);
+            write_location_info_short_form(linetable, length, column, end_column);
+            return Ok(());
         }
         if (0..3).contains(&line_delta) && column < 128 && end_column < 128 {
-            write_location_info_oneline_form(linetable, length, line_delta, column, end_column)?;
+            write_location_info_oneline_form(linetable, length, line_delta, column, end_column);
             *prev_line = loc.line;
             return Ok(());
         }
     }
 
-    write_location_info_long_form(linetable, loc, length, line_delta)?;
+    write_location_info_long_form(linetable, loc, length, line_delta);
     *prev_line = loc.line;
     Ok(())
 }
@@ -4907,7 +4907,14 @@ fn assemble_emit_exception_table_entry(
     handler: InstructionSequenceExceptHandlerInfo,
 ) -> crate::InternalResult<()> {
     const MAX_SIZE_OF_ENTRY: usize = 20;
-    vec_try_reserve_exact(table, MAX_SIZE_OF_ENTRY)?;
+    if table
+        .len()
+        .checked_add(MAX_SIZE_OF_ENTRY)
+        .ok_or(InternalError::MalformedControlFlowGraph)?
+        >= table.capacity()
+    {
+        vec_try_resize_to_double_capacity(table)?;
+    }
     let size = end - start;
     debug_assert!(end > start);
     let target = handler_offset;
