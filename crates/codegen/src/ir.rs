@@ -5916,6 +5916,7 @@ fn cfg_builder_check(g: &CfgBuilder) -> bool {
         let block_ref = &g.blocks[block.idx()];
         let has_instr_array = block_ref.instruction_allocation > 0;
         if has_instr_array {
+            debug_assert!(block_ref.instruction_allocation > 0);
             debug_assert_eq!(
                 block_ref.instructions.len(),
                 block_ref.instruction_allocation
@@ -5923,6 +5924,7 @@ fn cfg_builder_check(g: &CfgBuilder) -> bool {
             debug_assert!(block_ref.instruction_allocation >= block_ref.instruction_used);
         } else {
             debug_assert_eq!(block_ref.instruction_used, 0);
+            debug_assert_eq!(block_ref.instruction_allocation, 0);
         }
         block = block_ref.allocation_next;
     }
