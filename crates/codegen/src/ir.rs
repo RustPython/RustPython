@@ -538,7 +538,7 @@ fn instruction_sequence_new() -> InstructionSequence {
 }
 
 /// instruction_sequence.c instr_sequence_next_inst
-fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> usize {
+fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::InternalResult<usize> {
     let idx = seq.instrs.len();
     let new_allocation =
         c_array_ensure_capacity(seq.instr_allocation, idx + 1, INITIAL_INSTR_SEQUENCE_SIZE);
@@ -546,7 +546,8 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> usize {
         seq.instr_allocation = new_allocation;
         if new_allocation > seq.instrs.capacity() {
             seq.instrs
-                .reserve_exact(new_allocation - seq.instrs.capacity());
+                .try_reserve_exact(new_allocation - seq.instrs.capacity())
+                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         }
     }
     seq.instrs.push(InstructionSequenceEntry::new(
@@ -561,7 +562,7 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> usize {
         },
         ZERO_EXCEPTION_HANDLER_INFO,
     ));
-    idx
+    Ok(idx)
 }
 
 /// instruction_sequence.c _PyInstructionSequence_NewLabel
@@ -622,12 +623,12 @@ fn instruction_sequence_use_label(seq: &mut InstructionSequence, label: Instruct
 fn instruction_sequence_addop(
     seq: &mut InstructionSequence,
     info: InstructionInfo,
-) -> &mut InstructionSequenceEntry {
+) -> crate::InternalResult<&mut InstructionSequenceEntry> {
     instruction_sequence_debug_check_addop(&info);
-    let idx = instruction_sequence_next_inst(seq);
+    let idx = instruction_sequence_next_inst(seq)?;
     let entry = &mut seq.instrs[idx];
     entry.info = info;
-    entry
+    Ok(entry)
 }
 
 fn instruction_sequence_last_info_mut(
@@ -642,10 +643,10 @@ fn instruction_sequence_insert_instruction(
     seq: &mut InstructionSequence,
     pos: usize,
     info: InstructionInfo,
-) {
+) -> crate::InternalResult<()> {
     debug_assert!(pos <= seq.instrs.len());
     instruction_sequence_debug_check_addop(&info);
-    let last_idx = instruction_sequence_next_inst(seq);
+    let last_idx = instruction_sequence_next_inst(seq)?;
     for i in (pos..last_idx).rev() {
         seq.instrs[i + 1] = seq.instrs[i];
     }
@@ -658,6 +659,7 @@ fn instruction_sequence_insert_instruction(
             }
         }
     }
+    Ok(())
 }
 
 /// instruction_sequence.c _PyInstructionSequence_ApplyLabelMap
@@ -734,7 +736,7 @@ fn cfg_to_instruction_sequence(
             let mut info = blocks[block_idx.idx()].instructions[i];
             info.target = BlockIdx::NULL;
             let except_handler = info.except_handler.take();
-            let entry = instruction_sequence_addop(instr_sequence, info);
+            let entry = instruction_sequence_addop(instr_sequence, info)?;
             let hi = &mut entry.except_handler;
             if let Some(handler) = except_handler {
                 debug_assert!(handler.handler_block != BlockIdx::NULL);
@@ -1559,7 +1561,7 @@ impl CodeInfo {
             );
             info.target = BlockIdx::NULL;
         }
-        instruction_sequence_addop(&mut self.instr_sequence, info);
+        instruction_sequence_addop(&mut self.instr_sequence, info)?;
         Ok(())
     }
 
@@ -1578,7 +1580,7 @@ impl CodeInfo {
                 .ok_or(InternalError::MalformedControlFlowGraph)?,
         );
         info.target = BlockIdx::NULL;
-        instruction_sequence_addop(&mut self.instr_sequence, info);
+        instruction_sequence_addop(&mut self.instr_sequence, info)?;
         Ok(())
     }
 
@@ -1649,7 +1651,10 @@ impl CodeInfo {
         }
     }
 
-    pub(crate) fn insert_start_setup_cleanup(&mut self, handler_block: BlockIdx) {
+    pub(crate) fn insert_start_setup_cleanup(
+        &mut self,
+        handler_block: BlockIdx,
+    ) -> crate::InternalResult<()> {
         let handler_label = instruction_sequence_label_map_ensure_label_for_block(
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
@@ -1670,7 +1675,7 @@ impl CodeInfo {
                 except_handler: None,
                 lineno_override: Some(NO_LOCATION_OVERRIDE),
             },
-        );
+        )
     }
 
     pub(crate) fn push_unmapped_instr_sequence_label(&mut self) {
@@ -6951,12 +6956,13 @@ mod tests {
             preserve_lasti: 1,
         };
         let mut seq = instruction_sequence_new();
-        let entry = instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 11));
+        let entry = instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 11)).unwrap();
         entry.except_handler = handler;
         entry.i_target = 1;
         entry.i_offset = 42;
 
-        instruction_sequence_insert_instruction(&mut seq, 0, test_instr(Instruction::PopTop, 12));
+        instruction_sequence_insert_instruction(&mut seq, 0, test_instr(Instruction::PopTop, 12))
+            .unwrap();
 
         // CPython `_PyInstructionSequence_InsertInstruction()` shifts the
         // backing instruction slots, then overwrites only opcode/oparg/loc.
@@ -6979,13 +6985,13 @@ mod tests {
     fn instruction_sequence_tracks_cpython_c_array_allocation() {
         let mut seq = instruction_sequence_new();
         for i in 0..99 {
-            instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 10 + i));
+            instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 10 + i)).unwrap();
         }
         assert_eq!(seq.instr_allocation, INITIAL_INSTR_SEQUENCE_SIZE);
 
         // CPython calls `_Py_CArray_EnsureCapacity(s_used + 1)`, so the 100th
         // instruction expands a 100-slot array to 200 before returning offset 99.
-        instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 109));
+        instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 109)).unwrap();
         assert_eq!(seq.instr_allocation, INITIAL_INSTR_SEQUENCE_SIZE * 2);
     }
 

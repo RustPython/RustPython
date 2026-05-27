@@ -10224,7 +10224,8 @@ impl Compiler {
             "CPython inserts StopIteration cleanup before CFG prefix instructions"
         );
 
-        code.insert_start_setup_cleanup(handler_block);
+        let result = code.insert_start_setup_cleanup(handler_block);
+        unwrap_internal(self, result);
     }
 
     fn emit_no_arg<I: Into<AnyInstruction>>(&mut self, ins: I) {
