@@ -944,25 +944,19 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
                         .ok_or(InternalError::MalformedControlFlowGraph)?,
                 );
                 if matches!(op, Instruction::EndAsyncFor) {
-                    oparg = offset
-                        .checked_sub(oparg + END_SEND_OFFSET)
-                        .expect("END_ASYNC_FOR target must be before instruction")
+                    oparg = offset - oparg - END_SEND_OFFSET;
                 } else if oparg < offset {
                     debug_assert!(matches!(
                         op.into(),
                         Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
                     ));
-                    oparg = offset
-                        .checked_sub(oparg)
-                        .expect("backward jump target must be before instruction")
+                    oparg = offset - oparg;
                 } else {
                     debug_assert!(!matches!(
                         op.into(),
                         Opcode::JumpBackward | Opcode::JumpBackwardNoInterrupt
                     ));
-                    oparg = oparg
-                        .checked_sub(offset)
-                        .expect("forward jump target must be after instruction")
+                    oparg -= offset;
                 }
                 info.arg = OpArg::new(
                     oparg
