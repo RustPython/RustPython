@@ -5964,7 +5964,9 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
     label_count
         .checked_mul(core::mem::size_of::<usize>())
         .ok_or(InternalError::MalformedControlFlowGraph)?;
-    let mut label_to_block = vec![BlockIdx::NULL; label_count];
+    let mut label_to_block = Vec::new();
+    vec_try_reserve_exact(&mut label_to_block, label_count)?;
+    label_to_block.resize(label_count, BlockIdx::NULL);
 
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
