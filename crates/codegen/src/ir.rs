@@ -691,36 +691,39 @@ fn instruction_sequence_insert_instruction(
 fn instruction_sequence_apply_label_map(
     instrs: &mut InstructionSequence,
 ) -> crate::InternalResult<()> {
-    let Some(label_map) = instrs.label_map.take() else {
-        return Ok(());
-    };
-    instrs.label_map_allocation = 0;
-    for i in 0..instrs.instrs.len() {
-        let entry = &mut instrs.instrs[i];
-        if entry.info.instr.has_target() {
-            let label = usize::try_from(u32::from(entry.info.arg))
-                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-            let target = *label_map
-                .get(label)
-                .ok_or(InternalError::MalformedControlFlowGraph)?;
-            if target < 0 {
-                return Err(InternalError::MalformedControlFlowGraph);
+    {
+        let Some(label_map) = instrs.label_map.as_ref() else {
+            return Ok(());
+        };
+        for i in 0..instrs.instrs.len() {
+            let entry = &mut instrs.instrs[i];
+            if entry.info.instr.has_target() {
+                let label = usize::try_from(u32::from(entry.info.arg))
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                let target = *label_map
+                    .get(label)
+                    .ok_or(InternalError::MalformedControlFlowGraph)?;
+                if target < 0 {
+                    return Err(InternalError::MalformedControlFlowGraph);
+                }
+                entry.info.arg = OpArg::new(
+                    target
+                        .to_u32()
+                        .ok_or(InternalError::MalformedControlFlowGraph)?,
+                );
             }
-            entry.info.arg = OpArg::new(
-                target
-                    .to_u32()
-                    .ok_or(InternalError::MalformedControlFlowGraph)?,
-            );
-        }
-        let handler = &mut entry.except_handler;
-        if handler.h_label >= 0 {
-            let label = usize::try_from(handler.h_label)
-                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-            handler.h_label = *label_map
-                .get(label)
-                .ok_or(InternalError::MalformedControlFlowGraph)?;
+            let handler = &mut entry.except_handler;
+            if handler.h_label >= 0 {
+                let label = usize::try_from(handler.h_label)
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                handler.h_label = *label_map
+                    .get(label)
+                    .ok_or(InternalError::MalformedControlFlowGraph)?;
+            }
         }
     }
+    instrs.label_map = None;
+    instrs.label_map_allocation = 0;
     Ok(())
 }
 
