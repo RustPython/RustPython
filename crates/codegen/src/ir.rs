@@ -1705,7 +1705,7 @@ fn optimize_code_unit(
     optimize_code_unit_preprocess(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     remove_unused_consts(blocks, &mut metadata.consts);
-    add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams);
+    add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
     // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
@@ -1730,7 +1730,7 @@ fn optimize_cfg(
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
-    remove_unreachable(blocks);
+    remove_unreachable(blocks)?;
     // CPython optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
@@ -1748,7 +1748,7 @@ fn optimize_cfg(
     // CPython optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
-    remove_unreachable(blocks);
+    remove_unreachable(blocks)?;
     remove_redundant_nops_and_jumps(blocks)?;
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
@@ -1772,7 +1772,7 @@ fn optimized_cfg_to_instruction_sequence(
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
     // optimize_load_fast: after normalize_jumps
-    optimize_load_fast(blocks);
+    optimize_load_fast(blocks)?;
 
     let mut instr_sequence = instruction_sequence_new();
     cfg_to_instruction_sequence(blocks, &mut instr_sequence)?;
@@ -2011,8 +2011,8 @@ fn prepare_localsplus(
 }
 
 /// flowgraph.c remove_unreachable
-fn remove_unreachable(blocks: &mut [Block]) {
-    compute_reachable_predecessors(blocks);
+fn remove_unreachable(blocks: &mut [Block]) -> crate::InternalResult<()> {
+    compute_reachable_predecessors(blocks)?;
 
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
@@ -2025,6 +2025,7 @@ fn remove_unreachable(blocks: &mut [Block]) {
         }
         block_idx = next;
     }
+    Ok(())
 }
 
 /// flowgraph.c eval_const_unaryop
@@ -3886,7 +3887,7 @@ fn remove_unused_consts(blocks: &mut [Block], consts: &mut ConstantPool) {
     }
 }
 
-fn optimize_load_fast(blocks: &mut [Block]) {
+fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut max_instrs = 0;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -3895,7 +3896,7 @@ fn optimize_load_fast(blocks: &mut [Block]) {
     }
     let mut instr_flags = vec![0u8; max_instrs];
     let mut refs = Vec::new();
-    let mut worklist = make_cfg_traversal_stack(blocks);
+    let mut worklist = make_cfg_traversal_stack(blocks)?;
     worklist.push(BlockIdx(0));
     blocks[0].start_depth = 0;
     blocks[0].visited = true;
@@ -4133,6 +4134,7 @@ fn optimize_load_fast(blocks: &mut [Block]) {
             i += 1;
         }
     }
+    Ok(())
 }
 
 /// flowgraph.c calculate_stackdepth
@@ -4142,7 +4144,7 @@ fn calculate_stackdepth(blocks: &mut [Block]) -> crate::InternalResult<u32> {
         blocks[current.idx()].start_depth = START_DEPTH_UNSET;
         current = blocks[current.idx()].next;
     }
-    let mut stack = make_cfg_traversal_stack(blocks);
+    let mut stack = make_cfg_traversal_stack(blocks)?;
     let mut maxdepth = 0i32;
     stackdepth_push(&mut stack, blocks, BlockIdx(0), 0)?;
     while let Some(block_idx) = stack.pop() {
@@ -4272,7 +4274,7 @@ impl CodeInfo {
             "after_inline_small_or_no_lineno_blocks".to_owned(),
             self.debug_block_dump(),
         ));
-        remove_unreachable(&mut self.blocks);
+        remove_unreachable(&mut self.blocks)?;
         resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno);
         optimize_load_const(&mut self.metadata, &mut self.blocks);
         trace.push((
@@ -4290,7 +4292,7 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
         remove_redundant_nops_and_pairs(&mut self.blocks);
-        remove_unreachable(&mut self.blocks);
+        remove_unreachable(&mut self.blocks)?;
         remove_redundant_nops_and_jumps(&mut self.blocks)?;
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
@@ -4301,7 +4303,7 @@ impl CodeInfo {
         ));
         let nlocals = self.metadata.varnames.len();
         let nparams = self.nparams;
-        add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams);
+        add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams)?;
         insert_superinstructions(&mut self.blocks);
         push_cold_blocks_to_end(&mut self.blocks)?;
         trace.push((
@@ -4337,7 +4339,7 @@ impl CodeInfo {
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
         trace.push(("after_normalize_jumps".to_owned(), self.debug_block_dump()));
-        optimize_load_fast(&mut self.blocks);
+        optimize_load_fast(&mut self.blocks)?;
         trace.push((
             "after_optimize_load_fast".to_owned(),
             self.debug_block_dump(),
@@ -4928,8 +4930,8 @@ pub(crate) fn mark_except_handlers(blocks: &mut [Block]) -> crate::InternalResul
 /// optimize_cfg). This matches CPython's behavior and is necessary for
 /// optimize_load_fast to terminate fall-through at those placeholders.
 /// flowgraph.c mark_warm
-fn mark_warm(blocks: &mut [Block]) {
-    let mut stack = make_cfg_traversal_stack(blocks);
+fn mark_warm(blocks: &mut [Block]) -> crate::InternalResult<()> {
+    let mut stack = make_cfg_traversal_stack(blocks)?;
     stack.push(BlockIdx(0));
     blocks[0].visited = true;
     while let Some(block_idx) = stack.pop() {
@@ -4957,9 +4959,10 @@ fn mark_warm(blocks: &mut [Block]) {
             }
         }
     }
+    Ok(())
 }
 
-fn mark_cold(blocks: &mut [Block]) {
+fn mark_cold(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let block = &mut blocks[block_idx.idx()];
@@ -4968,9 +4971,9 @@ fn mark_cold(blocks: &mut [Block]) {
         block_idx = block.next;
     }
 
-    mark_warm(blocks);
+    mark_warm(blocks)?;
 
-    let mut cold_stack = make_cfg_traversal_stack(blocks);
+    let mut cold_stack = make_cfg_traversal_stack(blocks)?;
     block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let i = block_idx.idx();
@@ -5009,6 +5012,7 @@ fn mark_cold(blocks: &mut [Block]) {
             }
         }
     }
+    Ok(())
 }
 
 /// flowgraph.c push_cold_blocks_to_end
@@ -5017,7 +5021,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
         return Ok(());
     }
 
-    mark_cold(blocks);
+    mark_cold(blocks)?;
     let mut next_label = (get_max_label(blocks) + 1) as usize;
 
     // If a cold block falls through to a warm block, add an explicit jump
@@ -5596,7 +5600,7 @@ fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) -> crate::InternalResul
 }
 
 /// flowgraph.c make_cfg_traversal_stack
-fn make_cfg_traversal_stack(blocks: &mut [Block]) -> Vec<BlockIdx> {
+fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<Vec<BlockIdx>> {
     debug_assert!(!blocks.is_empty());
     let mut nblocks = 0;
     let mut current = BlockIdx(0);
@@ -5605,7 +5609,11 @@ fn make_cfg_traversal_stack(blocks: &mut [Block]) -> Vec<BlockIdx> {
         nblocks += 1;
         current = blocks[current.idx()].next;
     }
-    Vec::with_capacity(nblocks)
+    let mut stack = Vec::new();
+    stack
+        .try_reserve_exact(nblocks)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    Ok(stack)
 }
 
 fn blocks_new_block(blocks: &mut Vec<Block>) -> BlockIdx {
@@ -5988,9 +5996,13 @@ fn scan_block_for_locals(blocks: &mut [Block], block_idx: BlockIdx, worklist: &m
 }
 
 /// flowgraph.c fast_scan_many_locals
-fn fast_scan_many_locals(blocks: &mut [Block], nlocals: usize) {
+fn fast_scan_many_locals(blocks: &mut [Block], nlocals: usize) -> crate::InternalResult<()> {
     debug_assert!(nlocals > LOCAL_UNSAFE_MASK_BITS);
-    let mut states = vec![0usize; nlocals - LOCAL_UNSAFE_MASK_BITS];
+    let mut states = Vec::new();
+    states
+        .try_reserve_exact(nlocals - LOCAL_UNSAFE_MASK_BITS)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    states.resize(nlocals - LOCAL_UNSAFE_MASK_BITS, 0usize);
     let mut blocknum = 0usize;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -6026,6 +6038,7 @@ fn fast_scan_many_locals(blocks: &mut [Block], nlocals: usize) {
         }
         current = blocks[current.idx()].next;
     }
+    Ok(())
 }
 
 /// flowgraph.c add_checks_for_loads_of_uninitialized_variables
@@ -6033,17 +6046,17 @@ fn add_checks_for_loads_of_uninitialized_variables(
     blocks: &mut [Block],
     mut nlocals: usize,
     nparams: usize,
-) {
+) -> crate::InternalResult<()> {
     if nlocals == 0 {
-        return;
+        return Ok(());
     }
 
     if nlocals > LOCAL_UNSAFE_MASK_BITS {
-        fast_scan_many_locals(blocks, nlocals);
+        fast_scan_many_locals(blocks, nlocals)?;
         nlocals = LOCAL_UNSAFE_MASK_BITS;
     }
 
-    let mut worklist = make_cfg_traversal_stack(blocks);
+    let mut worklist = make_cfg_traversal_stack(blocks)?;
     let mut start_mask = 0u64;
     for i in nparams..nlocals {
         start_mask |= 1u64 << i;
@@ -6060,6 +6073,7 @@ fn add_checks_for_loads_of_uninitialized_variables(
         blocks[block_idx.idx()].visited = false;
         scan_block_for_locals(blocks, block_idx, &mut worklist);
     }
+    Ok(())
 }
 
 /// Follow chain of empty blocks to find first non-empty block.
@@ -6166,14 +6180,14 @@ fn basicblock_has_no_lineno(block: &Block) -> bool {
 
 /// flowgraph.c remove_unreachable computes `b_predecessors` by traversing only
 /// blocks reachable from entry.
-fn compute_reachable_predecessors(blocks: &mut [Block]) {
+fn compute_reachable_predecessors(blocks: &mut [Block]) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         blocks[block_idx.idx()].predecessors = 0;
         block_idx = blocks[block_idx.idx()].next;
     }
 
-    let mut stack = make_cfg_traversal_stack(blocks);
+    let mut stack = make_cfg_traversal_stack(blocks)?;
     blocks[0].predecessors = 1;
     stack.push(BlockIdx(0));
     blocks[0].visited = true;
@@ -6204,6 +6218,7 @@ fn compute_reachable_predecessors(blocks: &mut [Block]) {
             }
         }
     }
+    Ok(())
 }
 
 /// flowgraph.c copy_basicblock
@@ -6391,7 +6406,7 @@ fn pop_except_block(stack: &mut Vec<BlockIdx>, blocks: &[Block]) -> Option<Excep
 }
 
 pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalResult<()> {
-    let mut todo = make_cfg_traversal_stack(blocks);
+    let mut todo = make_cfg_traversal_stack(blocks)?;
 
     todo.push(BlockIdx(0));
     blocks[0].visited = true;
@@ -7077,7 +7092,7 @@ mod tests {
         block.instructions.push(test_instr(Instruction::PopTop, 10));
 
         let mut code = test_code_info(block);
-        optimize_load_fast(&mut code.blocks);
+        optimize_load_fast(&mut code.blocks).expect("optimize_load_fast succeeds");
 
         // CPython `optimize_load_fast()` shadows the outer instruction index in
         // the produced-value loop for GET_LEN, so the produced ref is recorded
@@ -7169,7 +7184,7 @@ mod tests {
             .push(test_instr(Instruction::ReturnValue, 30));
         blocks[2].instructions[0].lineno_override = Some(NO_LOCATION_OVERRIDE);
 
-        compute_reachable_predecessors(&mut blocks);
+        compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
         resolve_line_numbers(&mut blocks, OneIndexed::MIN);
 
         // CPython `duplicate_exits_without_lineno()` copies a shared exit block
@@ -7200,7 +7215,7 @@ mod tests {
         block.instructions[2].lineno_override = Some(NO_LOCATION_OVERRIDE);
         let mut blocks = vec![block];
 
-        compute_reachable_predecessors(&mut blocks);
+        compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
         propagate_line_numbers(&mut blocks);
 
         // CPython `propagate_line_numbers()` only copies over NO_LOCATION
@@ -7232,7 +7247,7 @@ mod tests {
             .instructions
             .push(test_instr(Instruction::ReturnValue, 30));
 
-        compute_reachable_predecessors(&mut blocks);
+        compute_reachable_predecessors(&mut blocks).expect("compute predecessors succeeds");
         propagate_line_numbers(&mut blocks);
 
         // CPython `propagate_line_numbers()` directly reads `target->b_instr[0]`
