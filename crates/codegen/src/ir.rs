@@ -1338,19 +1338,26 @@ struct CfgExceptStack {
 #[derive(Clone, Debug)]
 struct CfgTraversalStack {
     stack: Vec<BlockIdx>,
+    sp: usize,
 }
 
 impl CfgTraversalStack {
     fn push(&mut self, block: BlockIdx) {
-        self.stack.push(block);
+        debug_assert!(self.sp < self.stack.len());
+        self.stack[self.sp] = block;
+        self.sp += 1;
     }
 
     fn pop(&mut self) -> Option<BlockIdx> {
-        self.stack.pop()
+        if self.sp == 0 {
+            return None;
+        }
+        self.sp -= 1;
+        Some(self.stack[self.sp])
     }
 
     fn capacity(&self) -> usize {
-        self.stack.capacity()
+        self.stack.len()
     }
 }
 
@@ -5835,8 +5842,9 @@ fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<CfgTr
     stack
         .try_reserve_exact(nblocks)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    let stack = CfgTraversalStack { stack };
-    debug_assert!(stack.capacity() >= nblocks);
+    stack.resize(nblocks, BlockIdx::NULL);
+    let stack = CfgTraversalStack { stack, sp: 0 };
+    debug_assert_eq!(stack.capacity(), nblocks);
     Ok(stack)
 }
 
