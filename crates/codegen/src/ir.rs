@@ -5249,7 +5249,6 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
 }
 
 /// flowgraph.c check_cfg
-#[allow(clippy::collapsible_if)]
 fn check_cfg(blocks: &[Block]) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
@@ -5257,10 +5256,8 @@ fn check_cfg(blocks: &[Block]) -> crate::InternalResult<()> {
         for i in 0..block.instruction_used {
             let opcode = block.instructions[i].instr;
             debug_assert!(!opcode.is_assembler());
-            if opcode.is_terminator() {
-                if i != block.instruction_used - 1 {
-                    return Err(InternalError::MalformedControlFlowGraph);
-                }
+            if opcode.is_terminator() && i != block.instruction_used - 1 {
+                return Err(InternalError::MalformedControlFlowGraph);
             }
         }
         block_idx = block.next;
@@ -5685,27 +5682,26 @@ fn remove_redundant_jumps(blocks: &mut [Block]) -> crate::InternalResult<usize> 
 
 /// flowgraph.c no_redundant_jumps
 #[cfg(debug_assertions)]
-#[allow(clippy::collapsible_if)]
 fn no_redundant_jumps(blocks: &[Block]) -> bool {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
-        if let Some(last) = basicblock_last_instr(block) {
-            if last.instr.is_unconditional_jump() {
-                let next = next_nonempty_block(blocks, block.next);
-                let jump_target = next_nonempty_block(blocks, last.target);
-                if jump_target == next {
-                    assert!(next != BlockIdx::NULL);
-                    if instruction_lineno(last)
-                        == instruction_lineno(&blocks[next.idx()].instructions[0])
-                    {
-                        assert_ne!(
-                            instruction_lineno(last),
-                            instruction_lineno(&blocks[next.idx()].instructions[0]),
-                            "redundant jump has same line as fallthrough target"
-                        );
-                        return false;
-                    }
+        if let Some(last) = basicblock_last_instr(block)
+            && last.instr.is_unconditional_jump()
+        {
+            let next = next_nonempty_block(blocks, block.next);
+            let jump_target = next_nonempty_block(blocks, last.target);
+            if jump_target == next {
+                assert!(next != BlockIdx::NULL);
+                if instruction_lineno(last)
+                    == instruction_lineno(&blocks[next.idx()].instructions[0])
+                {
+                    assert_ne!(
+                        instruction_lineno(last),
+                        instruction_lineno(&blocks[next.idx()].instructions[0]),
+                        "redundant jump has same line as fallthrough target"
+                    );
+                    return false;
                 }
             }
         }
@@ -6038,7 +6034,6 @@ fn maybe_push(
 }
 
 /// flowgraph.c scan_block_for_locals
-#[allow(clippy::collapsible_if)]
 fn scan_block_for_locals(blocks: &mut [Block], block_idx: BlockIdx, worklist: &mut Vec<BlockIdx>) {
     let idx = block_idx.idx();
     let mut unsafe_mask = blocks[idx].unsafe_locals_mask;
@@ -6095,12 +6090,12 @@ fn scan_block_for_locals(blocks: &mut [Block], block_idx: BlockIdx, worklist: &m
     }
 
     let last = basicblock_last_instr(&blocks[idx]).copied();
-    if let Some(last) = last {
-        if is_jump(&last) {
-            let target = last.target;
-            debug_assert!(target != BlockIdx::NULL);
-            maybe_push(blocks, worklist, target, unsafe_mask);
-        }
+    if let Some(last) = last
+        && is_jump(&last)
+    {
+        let target = last.target;
+        debug_assert!(target != BlockIdx::NULL);
+        maybe_push(blocks, worklist, target, unsafe_mask);
     }
 }
 
@@ -6310,7 +6305,6 @@ fn get_max_label(blocks: &[Block]) -> i32 {
     lbl
 }
 
-#[allow(clippy::collapsible_if)]
 fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
     let mut next_lbl = get_max_label(blocks) + 1;
 
@@ -6352,22 +6346,19 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) -> crate::InternalRes
         if bb_has_fallthrough(&blocks[b.idx()])
             && next != BlockIdx::NULL
             && blocks[b.idx()].instruction_used != 0
+            && is_exit_or_eval_check_without_lineno(&blocks[next.idx()])
         {
-            if is_exit_or_eval_check_without_lineno(&blocks[next.idx()]) {
-                let last =
-                    *basicblock_last_instr(&blocks[b.idx()]).expect("block has instructions");
-                instr_set_location(
-                    &mut blocks[next.idx()].instructions[0],
-                    instr_location(&last),
-                );
-            }
+            let last = *basicblock_last_instr(&blocks[b.idx()]).expect("block has instructions");
+            instr_set_location(
+                &mut blocks[next.idx()].instructions[0],
+                instr_location(&last),
+            );
         }
         b = blocks[b.idx()].next;
     }
     Ok(())
 }
 
-#[allow(clippy::collapsible_if)]
 fn propagate_line_numbers(blocks: &mut [Block]) {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -6387,15 +6378,13 @@ fn propagate_line_numbers(blocks: &mut [Block]) {
         }
 
         let next = blocks[idx].next;
-        if bb_has_fallthrough(&blocks[idx]) {
-            debug_assert!(next != BlockIdx::NULL);
-            if next != BlockIdx::NULL && blocks[next.idx()].predecessors == 1 {
-                if blocks[next.idx()].instruction_used != 0 {
-                    if instruction_is_no_location(&blocks[next.idx()].instructions[0]) {
-                        instr_set_location(&mut blocks[next.idx()].instructions[0], prev_location);
-                    }
-                }
-            }
+        if bb_has_fallthrough(&blocks[idx])
+            && next != BlockIdx::NULL
+            && blocks[next.idx()].predecessors == 1
+            && blocks[next.idx()].instruction_used != 0
+            && instruction_is_no_location(&blocks[next.idx()].instructions[0])
+        {
+            instr_set_location(&mut blocks[next.idx()].instructions[0], prev_location);
         }
 
         if is_jump(&last) {
