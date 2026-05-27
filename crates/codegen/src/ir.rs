@@ -5775,10 +5775,12 @@ fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<Vec<B
         nblocks += 1;
         current = blocks[current.idx()].next;
     }
+    debug_assert!(nblocks > 0);
     let mut stack = Vec::new();
     stack
         .try_reserve_exact(nblocks)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    debug_assert!(stack.capacity() >= nblocks);
     Ok(stack)
 }
 
