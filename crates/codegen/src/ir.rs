@@ -3331,10 +3331,6 @@ fn apply_static_swaps(instructions: &mut [InstructionInfo], mut i: isize) {
             _ => return,
         };
 
-        if swap_arg < 2 {
-            return;
-        }
-
         let Some(j) = next_swappable_instruction(instructions, idx, -1) else {
             return;
         };
