@@ -312,6 +312,7 @@ fn empty_instruction_info() -> InstructionInfo {
 }
 
 /// codegen.c _Py_CArray_EnsureCapacity
+#[allow(clippy::unnecessary_wraps)]
 fn c_array_ensure_capacity(
     allocated_entries: usize,
     idx: usize,
@@ -319,19 +320,15 @@ fn c_array_ensure_capacity(
 ) -> crate::InternalResult<usize> {
     if allocated_entries == 0 {
         let new_alloc = if idx >= initial_num_entries {
-            idx.checked_add(initial_num_entries)
-                .ok_or(InternalError::MalformedControlFlowGraph)?
+            idx + initial_num_entries
         } else {
             initial_num_entries
         };
         Ok(new_alloc)
     } else if idx >= allocated_entries {
-        let doubled = allocated_entries
-            .checked_mul(2)
-            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        let doubled = allocated_entries << 1;
         let new_alloc = if idx >= doubled {
-            idx.checked_add(initial_num_entries)
-                .ok_or(InternalError::MalformedControlFlowGraph)?
+            idx + initial_num_entries
         } else {
             doubled
         };
