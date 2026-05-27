@@ -511,8 +511,12 @@ const INSTRUCTION_SEQUENCE_UNSET_LABEL: i32 = -111;
 
 #[derive(Clone)]
 pub(crate) struct InstructionSequence {
+    /// CPython `instr_sequence.s_instrs`, including allocated slots beyond `s_used`.
     instrs: Vec<InstructionSequenceEntry>,
+    /// CPython `instr_sequence.s_allocated`, the allocated size of `s_instrs`.
     instr_allocation: usize,
+    /// CPython `instr_sequence.s_used`, the number of used entries in `s_instrs`.
+    instr_used: usize,
     next_free_label: usize,
     label_map: Option<Vec<i32>>,
     label_map_allocation: usize,
@@ -530,6 +534,7 @@ fn instruction_sequence_new() -> InstructionSequence {
     InstructionSequence {
         instrs: Vec::new(),
         instr_allocation: 0,
+        instr_used: 0,
         next_free_label: 0,
         label_map: None,
         label_map_allocation: 0,
@@ -539,7 +544,7 @@ fn instruction_sequence_new() -> InstructionSequence {
 
 /// instruction_sequence.c instr_sequence_next_inst
 fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::InternalResult<usize> {
-    let idx = seq.instrs.len();
+    let idx = seq.instr_used;
     let new_allocation =
         c_array_ensure_capacity(seq.instr_allocation, idx + 1, INITIAL_INSTR_SEQUENCE_SIZE)?;
     if new_allocation > seq.instr_allocation {
@@ -548,20 +553,26 @@ fn instruction_sequence_next_inst(seq: &mut InstructionSequence) -> crate::Inter
                 .try_reserve_exact(new_allocation - seq.instrs.capacity())
                 .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         }
+        if new_allocation > seq.instrs.len() {
+            seq.instrs.resize(
+                new_allocation,
+                InstructionSequenceEntry::new(
+                    InstructionInfo {
+                        instr: Instruction::Cache.into(),
+                        arg: OpArg::new(0),
+                        target: BlockIdx::NULL,
+                        location: SourceLocation::default(),
+                        end_location: SourceLocation::default(),
+                        except_handler: None,
+                        lineno_override: None,
+                    },
+                    ZERO_EXCEPTION_HANDLER_INFO,
+                ),
+            );
+        }
         seq.instr_allocation = new_allocation;
     }
-    seq.instrs.push(InstructionSequenceEntry::new(
-        InstructionInfo {
-            instr: Instruction::Cache.into(),
-            arg: OpArg::new(0),
-            target: BlockIdx::NULL,
-            location: SourceLocation::default(),
-            end_location: SourceLocation::default(),
-            except_handler: None,
-            lineno_override: None,
-        },
-        ZERO_EXCEPTION_HANDLER_INFO,
-    ));
+    seq.instr_used += 1;
     Ok(idx)
 }
 
@@ -631,8 +642,7 @@ fn instruction_sequence_use_label(
     for i in old_len..label_map.len() {
         label_map[i] = INSTRUCTION_SEQUENCE_UNSET_LABEL;
     }
-    label_map[label.idx()] =
-        i32::try_from(seq.instrs.len()).expect("instruction offset fits in int");
+    label_map[label.idx()] = i32::try_from(seq.instr_used).expect("instruction offset fits in int");
     Ok(())
 }
 
@@ -651,7 +661,11 @@ fn instruction_sequence_addop(
 fn instruction_sequence_last_info_mut(
     seq: &mut InstructionSequence,
 ) -> Option<&mut InstructionInfo> {
-    seq.instrs.last_mut().map(|entry| &mut entry.info)
+    if seq.instr_used == 0 {
+        None
+    } else {
+        Some(&mut seq.instrs[seq.instr_used - 1].info)
+    }
 }
 
 /// instruction_sequence.c _PyInstructionSequence_InsertInstruction
@@ -661,7 +675,7 @@ fn instruction_sequence_insert_instruction(
     pos: usize,
     info: InstructionInfo,
 ) -> crate::InternalResult<()> {
-    debug_assert!(pos <= seq.instrs.len());
+    debug_assert!(pos <= seq.instr_used);
     instruction_sequence_debug_check_addop(&info);
     let last_idx = instruction_sequence_next_inst(seq)?;
     for i in (pos..last_idx).rev() {
@@ -688,7 +702,7 @@ fn instruction_sequence_apply_label_map(
         let Some(label_map) = instrs.label_map.as_ref() else {
             return Ok(());
         };
-        for i in 0..instrs.instrs.len() {
+        for i in 0..instrs.instr_used {
             let entry = &mut instrs.instrs[i];
             if entry.info.instr.has_target() {
                 let label = usize::try_from(u32::from(entry.info.arg))
@@ -813,7 +827,7 @@ fn is_pseudo_target(pseudo: PseudoOpcode, target: Opcode) -> bool {
 fn resolve_unconditional_jumps(
     instr_sequence: &mut InstructionSequence,
 ) -> crate::InternalResult<()> {
-    for i in 0..instr_sequence.instrs.len() {
+    for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i].info;
         let is_forward = i32::try_from(u32::from(instr.arg))
             .map_err(|_| InternalError::MalformedControlFlowGraph)?
@@ -872,7 +886,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
     let mut end_offset;
     // The offset (in code units) of END_SEND from SEND in the yield-from sequence.
     const END_SEND_OFFSET: i32 = 5;
-    for i in 0..instr_sequence.instrs.len() {
+    for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i];
         let opcode = instr.info.instr.expect_real();
         if opcode.has_jump() {
@@ -883,7 +897,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
     let mut extended_arg_recompile;
     loop {
         let mut totsize = 0i32;
-        for i in 0..instr_sequence.instrs.len() {
+        for i in 0..instr_sequence.instr_used {
             let instr = &mut instr_sequence.instrs[i];
             instr.i_offset = totsize;
             let isize = instr_size(&instr.info);
@@ -897,7 +911,7 @@ fn resolve_jump_offsets(instr_sequence: &mut InstructionSequence) -> crate::Inte
 
         extended_arg_recompile = false;
         let mut offset = 0i32;
-        for i in 0..instr_sequence.instrs.len() {
+        for i in 0..instr_sequence.instr_used {
             let isize = instr_size(&instr_sequence.instrs[i].info);
             // Jump offsets are computed relative to the instruction pointer
             // after fetching the jump instruction.
@@ -1059,7 +1073,7 @@ fn assemble_location_info(
     first_line: i32,
     debug_ranges: bool,
 ) -> crate::InternalResult<Box<[u8]>> {
-    for i in (0..instr_sequence.instrs.len()).rev() {
+    for i in (0..instr_sequence.instr_used).rev() {
         let loc = instruction_linetable_location(&instr_sequence.instrs[i].info);
         if same_location(loc, next_linetable_location()) {
             if instr_sequence.instrs[i]
@@ -1070,7 +1084,7 @@ fn assemble_location_info(
             {
                 instr_sequence.instrs[i].info.lineno_override = Some(NO_LOCATION_OVERRIDE);
             } else {
-                debug_assert!(i < instr_sequence.instrs.len() - 1);
+                debug_assert!(i < instr_sequence.instr_used - 1);
                 let next = instr_sequence.instrs[i + 1].info;
                 instr_set_loc(
                     &mut instr_sequence.instrs[i].info,
@@ -1086,7 +1100,7 @@ fn assemble_location_info(
     let mut prev_line = first_line;
     let mut loc = no_linetable_location();
     let mut size = 0;
-    for i in 0..instr_sequence.instrs.len() {
+    for i in 0..instr_sequence.instr_used {
         let entry = &instr_sequence.instrs[i];
         let instr_loc = instruction_linetable_location(&entry.info);
         if !same_location(loc, instr_loc) {
@@ -1112,14 +1126,15 @@ fn assemble_emit(
     let mut instructions = Vec::new();
     vec_try_reserve_exact(&mut instructions, num_instructions)?;
 
-    for i in 0..instr_sequence.instrs.len() {
+    for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i].info;
         assemble_emit_instr(&mut instructions, instr);
     }
 
     let linetable = assemble_location_info(instr_sequence, first_line, debug_ranges)?;
 
-    let exceptiontable = assemble_exception_table(&instr_sequence.instrs)?;
+    let exceptiontable =
+        assemble_exception_table(&instr_sequence.instrs[..instr_sequence.instr_used])?;
 
     Ok(AssembledCode {
         instructions,
@@ -5974,19 +5989,20 @@ fn cfg_from_instruction_sequence(
     instruction_sequence_apply_label_map(&mut instr_sequence)?;
     let mut builder = cfg_builder_new()?;
 
-    for i in 0..instr_sequence.instrs.len() {
+    for i in 0..instr_sequence.instr_used {
         instr_sequence.instrs[i].i_target = 0;
     }
-    for i in 0..instr_sequence.instrs.len() {
+    for i in 0..instr_sequence.instr_used {
         if instr_sequence.instrs[i].info.instr.has_target() {
             let target_offset = usize::try_from(u32::from(instr_sequence.instrs[i].info.arg))
                 .expect("instruction-sequence target index fits in usize");
-            debug_assert!(target_offset < instr_sequence.instrs.len());
+            debug_assert!(target_offset < instr_sequence.instr_used);
             instr_sequence.instrs[target_offset].i_target = 1;
         }
     }
     let InstructionSequence {
         instrs,
+        instr_used,
         label_map,
         annotations_code,
         ..
@@ -5996,7 +6012,7 @@ fn cfg_from_instruction_sequence(
     let mut offset = 0i32;
 
     let mut i = 0;
-    while i < instrs.len() {
+    while i < instr_used {
         let mut entry = instrs[i];
         if matches!(
             entry.info.instr.pseudo(),
@@ -6005,7 +6021,7 @@ fn cfg_from_instruction_sequence(
             if let Some(annotations_code) = &annotations_code {
                 debug_assert!(annotations_code.label_map.is_none());
                 debug_assert!(annotations_code.annotations_code.is_none());
-                for j in 0..annotations_code.instrs.len() {
+                for j in 0..annotations_code.instr_used {
                     let ann_entry = annotations_code.instrs[j];
                     debug_assert!(!ann_entry.info.instr.has_target());
                     let mut info = ann_entry.info;
@@ -6013,8 +6029,7 @@ fn cfg_from_instruction_sequence(
                     cfg_builder_addop(&mut builder, info)?;
                 }
                 offset += annotations_code
-                    .instrs
-                    .len()
+                    .instr_used
                     .to_i32()
                     .ok_or(InternalError::MalformedControlFlowGraph)?
                     - 1;
@@ -6940,11 +6955,15 @@ mod tests {
             instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 10 + i)).unwrap();
         }
         assert_eq!(seq.instr_allocation, INITIAL_INSTR_SEQUENCE_SIZE);
+        assert_eq!(seq.instrs.len(), seq.instr_allocation);
+        assert_eq!(seq.instr_used, 99);
 
         // CPython calls `_Py_CArray_EnsureCapacity(s_used + 1)`, so the 100th
         // instruction expands a 100-slot array to 200 before returning offset 99.
         instruction_sequence_addop(&mut seq, test_instr(Instruction::Nop, 109)).unwrap();
         assert_eq!(seq.instr_allocation, INITIAL_INSTR_SEQUENCE_SIZE * 2);
+        assert_eq!(seq.instrs.len(), seq.instr_allocation);
+        assert_eq!(seq.instr_used, 100);
     }
 
     #[test]
