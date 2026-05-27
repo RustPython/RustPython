@@ -854,10 +854,9 @@ fn resolve_unconditional_jumps(
                 }
             }
             _ => {
-                debug_assert!(
-                    !(instr.instr.has_jump() && matches!(instr.instr, AnyInstruction::Pseudo(_))),
-                    "CPython resolve_unconditional_jumps expects no remaining pseudo jump"
-                );
+                if instr.instr.has_jump() && matches!(instr.instr, AnyInstruction::Pseudo(_)) {
+                    unreachable!("remaining pseudo jump in resolve_unconditional_jumps");
+                }
             }
         }
     }
