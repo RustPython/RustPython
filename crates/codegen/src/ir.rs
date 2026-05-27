@@ -642,7 +642,10 @@ fn instruction_sequence_use_label(
     for i in old_len..label_map.len() {
         label_map[i] = INSTRUCTION_SEQUENCE_UNSET_LABEL;
     }
-    label_map[label.idx()] = i32::try_from(seq.instr_used).expect("instruction offset fits in int");
+    label_map[label.idx()] = seq
+        .instr_used
+        .to_i32()
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
     Ok(())
 }
 
@@ -683,7 +686,9 @@ fn instruction_sequence_insert_instruction(
     }
     seq.instrs[pos].info = info;
     if let Some(label_map) = &mut seq.label_map {
-        let pos = i32::try_from(pos).expect("instruction offset fits in int");
+        let pos = pos
+            .to_i32()
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
         for lbl in 0..label_map.len() {
             if label_map[lbl] >= pos {
                 label_map[lbl] += 1;
