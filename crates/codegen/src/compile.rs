@@ -4676,8 +4676,10 @@ impl Compiler {
             if let Some(not_set_block) = not_set_block {
                 self.use_cpython_label_block(not_set_block);
             } else if let Some(not_set_label) = not_set_label {
-                self.current_code_info()
+                let result = self
+                    .current_code_info()
                     .use_raw_instr_sequence_label(not_set_label);
+                unwrap_internal(self, result);
             }
         }
 
@@ -5913,8 +5915,10 @@ impl Compiler {
             let saved_range = self.current_source_range;
             self.set_source_range(target.range());
             emit!(self, Instruction::Nop);
-            self.current_code_info()
+            let result = self
+                .current_code_info()
                 .use_raw_instr_sequence_label(body_label.expect("sync for must have body label"));
+            unwrap_internal(self, result);
             self.compile_store(target)?;
             self.set_source_range(saved_range);
         };
@@ -8788,13 +8792,17 @@ impl Compiler {
                 // `skip_optimization` for every sync name(genexpr) shape after
                 // loading the function, even when the name is not all/any/tuple.
                 let skip_optimization = self.current_code_info().new_instr_sequence_label();
-                self.current_code_info()
+                let result = self
+                    .current_code_info()
                     .use_raw_instr_sequence_label(skip_optimization);
+                unwrap_internal(self, result);
             }
             emit!(self, Instruction::PushNull);
             self.codegen_call_helper(0, args, call_range, None)?;
-            self.current_code_info()
+            let result = self
+                .current_code_info()
                 .use_raw_instr_sequence_label(skip_normal_call);
+            unwrap_internal(self, result);
         }
         Ok(())
     }
@@ -11012,9 +11020,13 @@ impl Compiler {
     /// instruction-sequence label map, but it does not become a CFG
     /// `basicblock.b_label` unless some emitted instruction targets it.
     fn use_cpython_function_start_label(&mut self) -> ir::InstructionSequenceLabel {
-        let code = self.current_code_info();
-        let label = code.new_instr_sequence_label();
-        code.use_raw_instr_sequence_label(label);
+        let (label, result) = {
+            let code = self.current_code_info();
+            let label = code.new_instr_sequence_label();
+            let result = code.use_raw_instr_sequence_label(label);
+            (label, result)
+        };
+        unwrap_internal(self, result);
         label
     }
 
@@ -11025,8 +11037,9 @@ impl Compiler {
     /// CFG. Reuse an empty current block even if it already carries a label so
     /// codegen CFG path preserves that aliasing.
     fn use_cpython_label_block(&mut self, block: BlockIdx) {
+        let result = self.current_code_info().use_instr_sequence_label(block);
+        unwrap_internal(self, result);
         let code = self.current_code_info();
-        code.use_instr_sequence_label(block);
         let block = code.resolve_instr_sequence_label(block);
         let cur = code.current_block;
         let can_reuse_current = cur != block
@@ -11084,8 +11097,9 @@ impl Compiler {
     }
 
     fn switch_to_block(&mut self, block: BlockIdx) {
+        let result = self.current_code_info().use_instr_sequence_label(block);
+        unwrap_internal(self, result);
         let code = self.current_code_info();
-        code.use_instr_sequence_label(block);
         let block = code.resolve_instr_sequence_label(block);
         let prev = code.current_block;
         assert_ne!(prev, block, "recursive switching {prev:?} -> {block:?}");

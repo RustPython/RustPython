@@ -595,7 +595,10 @@ fn instruction_sequence_set_annotations_code(
 
 /// instruction_sequence.c _PyInstructionSequence_UseLabel
 #[allow(clippy::needless_range_loop)]
-fn instruction_sequence_use_label(seq: &mut InstructionSequence, label: InstructionSequenceLabel) {
+fn instruction_sequence_use_label(
+    seq: &mut InstructionSequence,
+    label: InstructionSequenceLabel,
+) -> crate::InternalResult<()> {
     let label_map = seq.label_map.get_or_insert_with(Vec::new);
     let old_len = label_map.len();
     let new_allocation = c_array_ensure_capacity(
@@ -606,7 +609,9 @@ fn instruction_sequence_use_label(seq: &mut InstructionSequence, label: Instruct
     if new_allocation > seq.label_map_allocation {
         seq.label_map_allocation = new_allocation;
         if new_allocation > label_map.capacity() {
-            label_map.reserve_exact(new_allocation - label_map.capacity());
+            label_map
+                .try_reserve_exact(new_allocation - label_map.capacity())
+                .map_err(|_| InternalError::MalformedControlFlowGraph)?;
         }
     }
     if label_map.len() < seq.label_map_allocation {
@@ -617,6 +622,7 @@ fn instruction_sequence_use_label(seq: &mut InstructionSequence, label: Instruct
     }
     label_map[label.idx()] =
         i32::try_from(seq.instrs.len()).expect("instruction offset fits in int");
+    Ok(())
 }
 
 /// instruction_sequence.c _PyInstructionSequence_Addop
@@ -717,7 +723,7 @@ fn cfg_to_instruction_sequence(
     while block_idx != BlockIdx::NULL {
         let block_label = blocks[block_idx.idx()].cpython_label;
         debug_assert!(is_label(block_label));
-        instruction_sequence_use_label(instr_sequence, block_label);
+        instruction_sequence_use_label(instr_sequence, block_label)?;
 
         let instr_count = blocks[block_idx.idx()].instructions.len();
         for i in 0..instr_count {
@@ -1590,21 +1596,27 @@ impl CodeInfo {
         }
     }
 
-    pub(crate) fn use_instr_sequence_label(&mut self, block: BlockIdx) {
+    pub(crate) fn use_instr_sequence_label(
+        &mut self,
+        block: BlockIdx,
+    ) -> crate::InternalResult<()> {
         let label = instruction_sequence_label_map_ensure_label_for_block(
             &mut self.instr_sequence_label_map,
             &mut self.instr_sequence,
             block,
         );
-        instruction_sequence_use_label(&mut self.instr_sequence, label);
+        instruction_sequence_use_label(&mut self.instr_sequence, label)
     }
 
     pub(crate) fn new_instr_sequence_label(&mut self) -> InstructionSequenceLabel {
         instruction_sequence_new_label(&mut self.instr_sequence)
     }
 
-    pub(crate) fn use_raw_instr_sequence_label(&mut self, label: InstructionSequenceLabel) {
-        instruction_sequence_use_label(&mut self.instr_sequence, label);
+    pub(crate) fn use_raw_instr_sequence_label(
+        &mut self,
+        label: InstructionSequenceLabel,
+    ) -> crate::InternalResult<()> {
+        instruction_sequence_use_label(&mut self.instr_sequence, label)
     }
 
     pub(crate) fn mark_cpython_cfg_label(&mut self, block: BlockIdx) {
@@ -6998,7 +7010,7 @@ mod tests {
     #[test]
     fn instruction_sequence_label_map_tracks_cpython_c_array_allocation() {
         let mut seq = instruction_sequence_new();
-        instruction_sequence_use_label(&mut seq, InstructionSequenceLabel::from_index(1));
+        instruction_sequence_use_label(&mut seq, InstructionSequenceLabel::from_index(1)).unwrap();
         assert_eq!(
             seq.label_map_allocation,
             INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE
@@ -7010,7 +7022,7 @@ mod tests {
 
         // CPython passes the label id itself to `_Py_CArray_EnsureCapacity()`.
         // Label 10 therefore expands the initial 10-slot map to 20.
-        instruction_sequence_use_label(&mut seq, InstructionSequenceLabel::from_index(10));
+        instruction_sequence_use_label(&mut seq, InstructionSequenceLabel::from_index(10)).unwrap();
         assert_eq!(
             seq.label_map_allocation,
             INITIAL_INSTR_SEQUENCE_LABELS_MAP_SIZE * 2
