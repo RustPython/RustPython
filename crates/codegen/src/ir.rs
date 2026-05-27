@@ -1717,7 +1717,7 @@ fn optimize_code_unit(
     *blocks = cfg_from_instruction_sequence(instr_sequence)?;
     optimize_code_unit_preprocess(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
-    remove_unused_consts(blocks, &mut metadata.consts);
+    remove_unused_consts(blocks, &mut metadata.consts)?;
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
     // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
@@ -3815,13 +3815,20 @@ fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) -> crate::InternalResul
 
 /// flowgraph.c remove_unused_consts
 #[allow(clippy::needless_range_loop)]
-fn remove_unused_consts(blocks: &mut [Block], consts: &mut ConstantPool) {
+fn remove_unused_consts(
+    blocks: &mut [Block],
+    consts: &mut ConstantPool,
+) -> crate::InternalResult<()> {
     let nconsts = consts.len();
     if nconsts == 0 {
-        return;
+        return Ok(());
     }
 
-    let mut index_map = vec![0isize; nconsts];
+    let mut index_map = Vec::new();
+    index_map
+        .try_reserve_exact(nconsts)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    index_map.resize(nconsts, 0isize);
     for i in 1..nconsts {
         index_map[i] = -1;
     }
@@ -3855,7 +3862,7 @@ fn remove_unused_consts(blocks: &mut [Block], consts: &mut ConstantPool) {
     }
 
     if n_used_consts == nconsts {
-        return;
+        return Ok(());
     }
 
     // Move all used consts to the beginning of the consts list.
@@ -3873,7 +3880,11 @@ fn remove_unused_consts(blocks: &mut [Block], consts: &mut ConstantPool) {
     consts.constants.truncate(n_used_consts);
 
     // Adjust const indices in the bytecode.
-    let mut reverse_index_map = vec![0isize; nconsts];
+    let mut reverse_index_map = Vec::new();
+    reverse_index_map
+        .try_reserve_exact(nconsts)
+        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    reverse_index_map.resize(nconsts, 0isize);
     for i in 0..nconsts {
         reverse_index_map[i] = -1;
     }
@@ -3900,6 +3911,7 @@ fn remove_unused_consts(blocks: &mut [Block], consts: &mut ConstantPool) {
         }
         block_idx = next_block;
     }
+    Ok(())
 }
 
 fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
@@ -4316,7 +4328,7 @@ impl CodeInfo {
         remove_redundant_nops_and_jumps(&mut self.blocks)?;
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
-        remove_unused_consts(&mut self.blocks, &mut self.metadata.consts);
+        remove_unused_consts(&mut self.blocks, &mut self.metadata.consts)?;
         trace.push((
             "after_optimize_cfg_cleanup".to_owned(),
             self.debug_block_dump(),
