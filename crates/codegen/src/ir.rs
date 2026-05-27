@@ -2333,12 +2333,13 @@ fn const_folding_check_complexity(obj: &ConstantData, mut limit: isize) -> Optio
     Some(limit)
 }
 
-fn repeat_wtf8(value: &Wtf8Buf, n: usize) -> Wtf8Buf {
-    let mut result = Wtf8Buf::with_capacity(value.len().saturating_mul(n));
+fn repeat_wtf8(value: &Wtf8Buf, n: usize) -> Option<Wtf8Buf> {
+    let mut result = Wtf8Buf::new();
+    result.try_reserve_exact(value.len().checked_mul(n)?).ok()?;
     for _ in 0..n {
         result.push_wtf8(value);
     }
-    result
+    Some(result)
 }
 
 fn checked_repeat_count(n: &BigInt, item_size: usize) -> Option<usize> {
@@ -2364,7 +2365,7 @@ fn const_folding_safe_multiply(left: &ConstantData, right: &ConstantData) -> Opt
         (ConstantData::Str { value: s }, ConstantData::Integer { value: n }) => {
             let n = checked_repeat_count(n, s.code_points().count())?;
             Some(ConstantData::Str {
-                value: repeat_wtf8(s, n),
+                value: repeat_wtf8(s, n)?,
             })
         }
         (ConstantData::Integer { .. }, ConstantData::Str { .. }) => {
@@ -2372,7 +2373,12 @@ fn const_folding_safe_multiply(left: &ConstantData, right: &ConstantData) -> Opt
         }
         (ConstantData::Bytes { value: b }, ConstantData::Integer { value: n }) => {
             let n = checked_repeat_count(n, b.len())?;
-            Some(ConstantData::Bytes { value: b.repeat(n) })
+            let mut value = Vec::new();
+            value.try_reserve_exact(b.len().checked_mul(n)?).ok()?;
+            for _ in 0..n {
+                value.extend_from_slice(b);
+            }
+            Some(ConstantData::Bytes { value })
         }
         (ConstantData::Integer { .. }, ConstantData::Bytes { .. }) => {
             const_folding_safe_multiply(right, left)
@@ -2390,7 +2396,10 @@ fn const_folding_safe_multiply(left: &ConstantData, right: &ConstantData) -> Opt
                     MAX_TOTAL_ITEMS / isize::try_from(n).ok()?,
                 )?;
             }
-            let mut result = Vec::with_capacity(elements.len() * n);
+            let mut result = Vec::new();
+            result
+                .try_reserve_exact(elements.len().checked_mul(n)?)
+                .ok()?;
             for _ in 0..n {
                 result.extend(elements.iter().cloned());
             }
@@ -2888,7 +2897,11 @@ fn eval_const_binop(
         (ConstantData::Str { value: l }, ConstantData::Str { value: r })
             if matches!(op, BinOp::Add) =>
         {
-            let mut result = l.clone();
+            let mut result = Wtf8Buf::new();
+            result
+                .try_reserve_exact(l.len().checked_add(r.len())?)
+                .ok()?;
+            result.push_wtf8(l);
             result.push_wtf8(r);
             Some(ConstantData::Str { value: result })
         }
@@ -2900,7 +2913,11 @@ fn eval_const_binop(
         (ConstantData::Tuple { elements: l }, ConstantData::Tuple { elements: r })
             if matches!(op, BinOp::Add) =>
         {
-            let mut result = l.clone();
+            let mut result = Vec::new();
+            result
+                .try_reserve_exact(l.len().checked_add(r.len())?)
+                .ok()?;
+            result.extend(l.iter().cloned());
             result.extend(r.iter().cloned());
             Some(ConstantData::Tuple { elements: result })
         }
@@ -2922,7 +2939,11 @@ fn eval_const_binop(
         (ConstantData::Bytes { value: l }, ConstantData::Bytes { value: r })
             if matches!(op, BinOp::Add) =>
         {
-            let mut result = l.clone();
+            let mut result = Vec::new();
+            result
+                .try_reserve_exact(l.len().checked_add(r.len())?)
+                .ok()?;
+            result.extend_from_slice(l);
             result.extend_from_slice(r);
             Some(ConstantData::Bytes { value: result })
         }
