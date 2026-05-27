@@ -1018,9 +1018,31 @@ fn write_instr(instructions: &mut Vec<CodeUnit>, info: &InstructionInfo, ilen: u
 }
 
 /// assemble.c assemble_emit_instr
-fn assemble_emit_instr(instructions: &mut Vec<CodeUnit>, info: &mut InstructionInfo) {
+fn assemble_emit_instr(
+    instructions: &mut Vec<CodeUnit>,
+    info: &mut InstructionInfo,
+) -> crate::InternalResult<()> {
     let size = instr_size(info);
+    let required = instructions
+        .len()
+        .checked_add(size)
+        .ok_or(InternalError::MalformedControlFlowGraph)?;
+    if required >= instructions.capacity() {
+        let additional = instructions
+            .capacity()
+            .checked_mul(core::mem::size_of::<CodeUnit>())
+            .and_then(|len| {
+                if len > usize::MAX / 2 {
+                    None
+                } else {
+                    Some(instructions.capacity())
+                }
+            })
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
+        vec_try_reserve_exact(instructions, additional)?;
+    }
     write_instr(instructions, info, size);
+    Ok(())
 }
 
 /// assemble.c assemble_location_info
@@ -1086,7 +1108,7 @@ fn assemble_emit(
 
     for i in 0..instr_sequence.instr_used {
         let instr = &mut instr_sequence.instrs[i].info;
-        assemble_emit_instr(&mut instructions, instr);
+        assemble_emit_instr(&mut instructions, instr)?;
     }
 
     let linetable = assemble_location_info(instr_sequence, first_line, debug_ranges)?;
