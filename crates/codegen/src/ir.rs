@@ -6461,11 +6461,13 @@ fn make_except_stack() -> crate::InternalResult<Vec<BlockIdx>> {
     stack
         .try_reserve_exact(CO_MAXBLOCKS + 2)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+    debug_assert!(stack.is_empty());
     Ok(stack)
 }
 
 /// flowgraph.c copy_except_stack
 fn copy_except_stack(stack: &[BlockIdx]) -> crate::InternalResult<Vec<BlockIdx>> {
+    debug_assert!(stack.len() <= CO_MAXBLOCKS + 1);
     let mut copy = Vec::new();
     copy.try_reserve_exact(CO_MAXBLOCKS + 2)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
@@ -6475,6 +6477,7 @@ fn copy_except_stack(stack: &[BlockIdx]) -> crate::InternalResult<Vec<BlockIdx>>
 
 /// flowgraph.c except_stack_top
 fn except_stack_top(stack: &[BlockIdx], blocks: &[Block]) -> Option<ExceptHandlerInfo> {
+    debug_assert!(stack.len() <= CO_MAXBLOCKS + 1);
     let handler_block = stack.last().copied()?;
     Some(ExceptHandlerInfo {
         handler_block,
@@ -6500,6 +6503,7 @@ fn push_except_block(
     }
     debug_assert!(stack.len() <= CO_MAXBLOCKS);
     stack.push(target);
+    debug_assert!(stack.len() <= CO_MAXBLOCKS + 1);
     except_stack_top(stack, blocks)
 }
 
@@ -6507,6 +6511,7 @@ fn push_except_block(
 fn pop_except_block(stack: &mut Vec<BlockIdx>, blocks: &[Block]) -> Option<ExceptHandlerInfo> {
     debug_assert!(!stack.is_empty());
     stack.pop().expect("non-empty exception stack");
+    debug_assert!(stack.len() <= CO_MAXBLOCKS);
     except_stack_top(stack, blocks)
 }
 
