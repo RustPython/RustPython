@@ -3309,17 +3309,13 @@ fn stores_to(info: &InstructionInfo) -> i32 {
 }
 
 /// flowgraph.c next_swappable_instruction
-fn next_swappable_instruction(
-    instructions: &[InstructionInfo],
-    mut i: usize,
-    lineno: i32,
-) -> Option<usize> {
+fn next_swappable_instruction(block: &Block, mut i: usize, lineno: i32) -> Option<usize> {
     loop {
         i += 1;
-        if i >= instructions.len() {
+        if i >= block.instruction_used {
             return None;
         }
-        let info = &instructions[i];
+        let info = &block.instructions[i];
         let info_lineno = instruction_lineno(info);
         if lineno >= 0 && info_lineno != lineno {
             return None;
@@ -3416,17 +3412,18 @@ fn swaptimize(instructions: &mut [InstructionInfo], ix: &mut usize) -> crate::In
 }
 
 /// flowgraph.c apply_static_swaps
-fn apply_static_swaps(instructions: &mut [InstructionInfo], mut i: isize) {
+fn apply_static_swaps(block: &mut Block, mut i: isize) {
     while i >= 0 {
         let idx = i as usize;
-        let swap_arg = match instructions[idx].instr.real() {
-            Some(Instruction::Swap { .. }) => u32::from(instructions[idx].arg),
+        debug_assert!(idx < block.instruction_used);
+        let swap_arg = match block.instructions[idx].instr.real() {
+            Some(Instruction::Swap { .. }) => u32::from(block.instructions[idx].arg),
             Some(Instruction::Nop | Instruction::PopTop | Instruction::StoreFast { .. }) => {
                 i -= 1;
                 continue;
             }
             _ if matches!(
-                instructions[idx].instr.pseudo(),
+                block.instructions[idx].instr.pseudo(),
                 Some(PseudoInstruction::StoreFastMaybeNull { .. })
             ) =>
             {
@@ -3436,27 +3433,27 @@ fn apply_static_swaps(instructions: &mut [InstructionInfo], mut i: isize) {
             _ => return,
         };
 
-        let Some(j) = next_swappable_instruction(instructions, idx, -1) else {
+        let Some(j) = next_swappable_instruction(block, idx, -1) else {
             return;
         };
-        let lineno = instruction_lineno(&instructions[j]);
+        let lineno = instruction_lineno(&block.instructions[j]);
         let mut k = j;
         for _ in 1..swap_arg {
-            let Some(next) = next_swappable_instruction(instructions, k, lineno) else {
+            let Some(next) = next_swappable_instruction(block, k, lineno) else {
                 return;
             };
             k = next;
         }
 
-        let store_j = stores_to(&instructions[j]);
-        let store_k = stores_to(&instructions[k]);
+        let store_j = stores_to(&block.instructions[j]);
+        let store_k = stores_to(&block.instructions[k]);
         if store_j >= 0 || store_k >= 0 {
             if store_j == store_k {
                 return;
             }
             let mut idx = j + 1;
             while idx < k {
-                let store_idx = stores_to(&instructions[idx]);
+                let store_idx = stores_to(&block.instructions[idx]);
                 if store_idx >= 0 && (store_idx == store_j || store_idx == store_k) {
                     return;
                 }
@@ -3464,8 +3461,8 @@ fn apply_static_swaps(instructions: &mut [InstructionInfo], mut i: isize) {
             }
         }
 
-        set_to_nop(&mut instructions[idx]);
-        instructions.swap(j, k);
+        set_to_nop(&mut block.instructions[idx]);
+        block.instructions.swap(j, k);
         i -= 1;
     }
 }
@@ -3478,9 +3475,8 @@ fn apply_static_swaps_block(block: &mut Block) -> crate::InternalResult<()> {
             block.instructions[i].instr.real(),
             Some(Instruction::Swap { .. })
         ) {
-            let instructions = &mut block.instructions[..block.instruction_used];
-            swaptimize(instructions, &mut i)?;
-            apply_static_swaps(instructions, i as isize);
+            swaptimize(&mut block.instructions[..block.instruction_used], &mut i)?;
+            apply_static_swaps(block, i as isize);
         }
         i += 1;
     }
