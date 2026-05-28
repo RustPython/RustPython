@@ -2292,12 +2292,17 @@ mod _ssl {
             self.0.get_timeout().map(|d| Instant::now() + d)
         }
 
-        fn select(&self, needs: SslNeeds, deadline: &SocketDeadline) -> SelectRet {
+        fn select(
+            &self,
+            needs: SslNeeds,
+            deadline: &SocketDeadline,
+            vm: &VirtualMachine,
+        ) -> SelectRet {
             let sock = match self.0.sock_opt() {
                 Some(s) => s,
                 None => return SelectRet::Closed,
             };
-            // For blocking sockets without timeout, call sock_select with None timeout
+            // For blocking sockets without timeout, call sock_wait with None timeout
             // to actually block waiting for data instead of busy-looping
             let timeout = match &deadline {
                 Ok(deadline) => match deadline.checked_duration_since(Instant::now()) {
@@ -2307,13 +2312,14 @@ mod _ssl {
                 Err(true) => None, // Blocking: no timeout, wait indefinitely
                 Err(false) => return SelectRet::Nonblocking,
             };
-            let res = socket::sock_select(
+            let res = socket::sock_wait(
                 &sock,
                 match needs {
-                    SslNeeds::Read => socket::SelectKind::Read,
-                    SslNeeds::Write => socket::SelectKind::Write,
+                    SslNeeds::Read => socket::SockWaitKind::Read,
+                    SslNeeds::Write => socket::SockWaitKind::Write,
                 },
                 timeout,
+                vm,
             );
             match res {
                 Ok(true) => SelectRet::TimedOut,
@@ -2325,13 +2331,14 @@ mod _ssl {
             &self,
             err: &ssl::Error,
             deadline: &SocketDeadline,
+            vm: &VirtualMachine,
         ) -> (Option<SslNeeds>, SelectRet) {
             let needs = match err.code() {
                 ssl::ErrorCode::WANT_READ => Some(SslNeeds::Read),
                 ssl::ErrorCode::WANT_WRITE => Some(SslNeeds::Write),
                 _ => None,
             };
-            let state = needs.map_or(SelectRet::Ok, |needs| self.select(needs, deadline));
+            let state = needs.map_or(SelectRet::Ok, |needs| self.select(needs, deadline, vm));
             (needs, state)
         }
     }
@@ -2850,7 +2857,7 @@ mod _ssl {
                         break;
                     }
                     // Wait briefly for peer's close_notify before retrying
-                    match socket_stream.select(SslNeeds::Read, &deadline) {
+                    match socket_stream.select(SslNeeds::Read, &deadline, vm) {
                         SelectRet::TimedOut => {
                             return Err(socket::timeout_error_msg(
                                 vm,
@@ -2888,7 +2895,7 @@ mod _ssl {
                 };
 
                 // Wait on the socket
-                match socket_stream.select(needs, &deadline) {
+                match socket_stream.select(needs, &deadline, vm) {
                     SelectRet::TimedOut => {
                         let msg = if err == sys::SSL_ERROR_WANT_READ {
                             "The read operation timed out"
@@ -2984,7 +2991,7 @@ mod _ssl {
                 let (needs, state) = stream
                     .get_ref()
                     .expect("handshake called in bio mode; should only be called in socket mode")
-                    .socket_needs(&err, &timeout);
+                    .socket_needs(&err, &timeout, vm);
                 match state {
                     SelectRet::TimedOut => {
                         // Clean up SNI ex_data before returning error
@@ -3038,7 +3045,7 @@ mod _ssl {
                 .get_ref()
                 .expect("write called in bio mode; should only be called in socket mode");
             let timeout = socket_ref.timeout_deadline();
-            let state = socket_ref.select(SslNeeds::Write, &timeout);
+            let state = socket_ref.select(SslNeeds::Write, &timeout, vm);
             match state {
                 SelectRet::TimedOut => {
                     return Err(socket::timeout_error_msg(
@@ -3058,7 +3065,7 @@ mod _ssl {
                 let (needs, state) = stream
                     .get_ref()
                     .expect("write called in bio mode; should only be called in socket mode")
-                    .socket_needs(&err, &timeout);
+                    .socket_needs(&err, &timeout, vm);
                 match state {
                     SelectRet::TimedOut => {
                         return Err(socket::timeout_error_msg(
@@ -3229,7 +3236,7 @@ mod _ssl {
                     let (needs, state) = stream
                         .get_ref()
                         .expect("read called in bio mode; should only be called in socket mode")
-                        .socket_needs(&err, &timeout);
+                        .socket_needs(&err, &timeout, vm);
                     match state {
                         SelectRet::TimedOut => {
                             return Err(socket::timeout_error_msg(
