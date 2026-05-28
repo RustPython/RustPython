@@ -201,7 +201,7 @@ class CmdLineTest(unittest.TestCase):
         # All good if module is located and run successfully
         assert_python_ok('-m', 'timeit', '-n', '1')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(support.is_android, "TODO: RUSTPYTHON")
     def test_run_module_bug1764407(self):
         # -m and -i need to play well together
         # Runs the timeit module and checks the __main__
@@ -1328,9 +1328,11 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertNotEqual(proc.stderr, None)
         self.assertIn(b"\nSyntaxError", proc.stderr)
 
+    @unittest.expectedFailureIf(not support.is_android, "TODO: RUSTPYTHON")
     def test_tokenizer_error_with_stdin(self):
         self.check_string(b"(1+2+3")
 
+    @unittest.expectedFailureIf(not support.is_android, "TODO: RUSTPYTHON")
     def test_decoding_error_at_the_end_of_the_line(self):
         self.check_string(br"'\u1f'")
 
