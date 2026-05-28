@@ -141,7 +141,7 @@ jobs:
         if: runner.os == 'Linux'
 
       - name: Test vendored OpenSSL build
-        run: cargo build --no-default-features --features ssl-vendor
+        run: cargo build --no-default-features --features ssl-openssl-vendor
         if: runner.os == 'Linux'
 
       # - name: Install tk-dev for tkinter build

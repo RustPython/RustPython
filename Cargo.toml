@@ -27,7 +27,7 @@ ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
 ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
 ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
-ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
+ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
