@@ -37,6 +37,7 @@ CFWS
 CLASSDEREF
 classdict
 cmpop
+CNOTAB
 codedepth
 CODEUNIT
 CONIN
@@ -98,12 +99,14 @@ HASUNION
 heaptype
 hexdigit
 HIGHRES
+ialloc
 IFUNC
 IMMUTABLETYPE
 INCREF
 inlinedepth
 inplace
 inpos
+ioffset
 isbytecode
 ishidden
 ismine
@@ -111,6 +114,7 @@ ISPOINTER
 isoctal
 iteminfo
 Itertool
+iused
 keeped
 kwnames
 kwonlyarg
@@ -122,6 +126,7 @@ linearise
 lineful
 lineiterator
 linetable
+LNOTAB
 loadfast
 localsplus
 localspluskinds
@@ -137,17 +142,22 @@ multibytecodec
 nameobj
 nameop
 nargsf
+nblocks
 ncells
+ncellsused
+ncellvars
 nconsts
 newargs
 newfree
 NEWLOCALS
 newsemlockobject
+nextop
 nfrees
 nkwargs
 nkwelts
 nlocalsplus
 nointerrupt
+noffsets
 Nondescriptor
 noninteger
 nops
@@ -155,6 +165,7 @@ noraise
 nseen
 NSIGNALS
 numer
+nvars
 opname
 opnames
 orelse
@@ -220,6 +231,7 @@ subparams
 subscr
 sval
 swappedbytes
+swaptimize
 sysdict
 tbstderr
 templatelib
@@ -240,6 +252,7 @@ uncollectable
 Unhandle
 unparse
 unparser
+untargeted
 untracking
 VARKEYWORDS
 varkwarg
