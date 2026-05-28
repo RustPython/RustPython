@@ -1211,14 +1211,12 @@ class DisTests(DisTestBase):
     def test_disassemble_fstring(self):
         self.do_disassembly_test(_fstring, dis_fstring)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_with(self):
         self.do_disassembly_test(_with, dis_with)
 
     def test_disassemble_asyncwith(self):
         self.do_disassembly_test(_asyncwith, dis_asyncwith)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_disassemble_try_finally(self):
         self.do_disassembly_test(_tryfinally, dis_tryfinally)
         self.do_disassembly_test(_tryfinallyconst, dis_tryfinallyconst)

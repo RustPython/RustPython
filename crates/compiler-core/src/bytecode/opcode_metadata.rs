@@ -282,6 +282,36 @@ impl super::Opcode {
         )
     }
 
+    /// Does this opcode have 'HAS_EVAL_BREAK_FLAG' set.
+    #[must_use]
+    pub const fn has_eval_break(self) -> bool {
+        matches!(
+            self,
+            Self::CallFunctionEx
+                | Self::Call
+                | Self::JumpBackward
+                | Self::Resume
+                | Self::CallBuiltinClass
+                | Self::CallBuiltinFast
+                | Self::CallBuiltinFastWithKeywords
+                | Self::CallBuiltinO
+                | Self::CallKwNonPy
+                | Self::CallMethodDescriptorFast
+                | Self::CallMethodDescriptorFastWithKeywords
+                | Self::CallMethodDescriptorNoargs
+                | Self::CallMethodDescriptorO
+                | Self::CallNonPyGeneral
+                | Self::CallStr1
+                | Self::CallTuple1
+                | Self::JumpBackwardJit
+                | Self::JumpBackwardNoJit
+                | Self::InstrumentedResume
+                | Self::InstrumentedCall
+                | Self::InstrumentedCallFunctionEx
+                | Self::InstrumentedJumpBackward
+        )
+    }
+
     /// Does this opcode have 'HAS_FREE_FLAG' set.
     #[must_use]
     pub const fn has_free(self) -> bool {
@@ -441,10 +471,7 @@ impl super::Opcode {
             Self::UnaryInvert => (1, 1),
             Self::UnaryNegative => (1, 1),
             Self::UnaryNot => (1, 1),
-            Self::WithExceptStart => (
-                7, // TODO: Differs from CPython `6`
-                6, // TODO: Differs from CPython `5`
-            ),
+            Self::WithExceptStart => (6, 5),
             Self::BinaryOp => (1, 2),
             Self::BuildInterpolation => (1, 2 + (oparg & 1)),
             Self::BuildList => (1, oparg),
@@ -730,6 +757,12 @@ impl super::PseudoOpcode {
         false
     }
 
+    /// Does this opcode have 'HAS_EVAL_BREAK_FLAG' set.
+    #[must_use]
+    pub const fn has_eval_break(self) -> bool {
+        matches!(self, Self::Jump)
+    }
+
     /// Does this opcode have 'HAS_FREE_FLAG' set.
     #[must_use]
     pub const fn has_free(self) -> bool {
@@ -772,18 +805,9 @@ impl super::PseudoOpcode {
             Self::JumpNoInterrupt => (0, 0),
             Self::LoadClosure => (1, 0),
             Self::PopBlock => (0, 0),
-            Self::SetupCleanup => (
-                0, // TODO: Differs from CPython `2`
-                0,
-            ),
-            Self::SetupFinally => (
-                0, // TODO: Differs from CPython `1`
-                0,
-            ),
-            Self::SetupWith => (
-                0, // TODO: Differs from CPython `1`
-                0,
-            ),
+            Self::SetupCleanup => (2, 0),
+            Self::SetupFinally => (1, 0),
+            Self::SetupWith => (1, 0),
             Self::StoreFastMaybeNull => (0, 1),
         };
 
