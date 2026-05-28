@@ -80,7 +80,7 @@ $ python # now `python` is the alias of the RustPython for the new env
 
 If you'd like to make https requests, you can enable the `ssl` feature, which
 also lets you install the `pip` package manager. Note that on Windows, you may
-need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
+need to install OpenSSL, or you can enable the `ssl-openssl-vendor` feature instead,
 which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
 OpenSSL version 3 is expected and tested in CI. Older versions may not work.
 
@@ -103,7 +103,7 @@ rustpython
 ### SSL provider
 
 For HTTPS requests, `ssl-rustls-aws-lc` is enabled by default for the RustPython binary. Embedders can use `rustpython-stdlib`'s provider-agnostic `ssl-rustls` feature and install their own rustls crypto provider, or replace rustls with `ssl-openssl` if their environment requires OpenSSL.
-Note that to use OpenSSL on Windows, you may need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
+Note that to use OpenSSL on Windows, you may need to install OpenSSL, or you can enable the `ssl-openssl-vendor` feature instead,
 which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
 OpenSSL version 3 is expected and tested in CI. Older versions may not work.
 
