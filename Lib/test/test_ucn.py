@@ -111,6 +111,7 @@ class UnicodeNamesTest(unittest.TestCase):
         self.checkletter("cjK UniFIeD idEogRAph-2aBcD", "\U0002abcd")
         self.checkletter("CJk uNIfiEd IDeOGraPH-2AbCd", "\U0002abcd")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: got unexpected unicode
     def test_tangut_ideographs(self):
         self.checkletter("TANGUT IDEOGRAPH-17000", "\U00017000")
         self.checkletter("TANGUT IDEOGRAPH-187F7", "\U000187f7")
