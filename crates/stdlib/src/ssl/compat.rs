@@ -20,45 +20,30 @@ use crate::vm::VirtualMachine;
 use alloc::sync::Arc;
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::Connection;
-use rustls::RootCertStore;
 use rustls::client::ClientConfig;
-use rustls::crypto::SupportedKxGroup;
+use rustls::crypto::{CryptoProvider, SupportedKxGroup};
 use rustls::pki_types::{CertificateDer, CertificateRevocationListDer, PrivateKeyDer};
-use rustls::server::ResolvesServerCert;
-use rustls::server::ServerConfig;
+use rustls::server::{ProducesTickets, ResolvesServerCert, ServerConfig, WebPkiClientVerifier};
 use rustls::sign::CertifiedKey;
+use rustls::{RootCertStore, SupportedCipherSuite};
 use rustpython_vm::builtins::{PyBaseException, PyBaseExceptionRef};
 use rustpython_vm::convert::IntoPyException;
 use rustpython_vm::function::ArgBytesLike;
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromObject};
 use std::io::Read;
-use std::sync::Once;
+
+use super::providers::CryptoExt;
 
 // Import PySSLSocket from parent module
-use super::_ssl::{PySSLSocket, SSL3_RT_MAX_PACKET_SIZE, VERIFY_X509_STRICT};
+use super::_ssl::{
+    PySSLSocket, SSL3_RT_MAX_PACKET_SIZE, VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT,
+};
 
 // Import error types and helper functions from error module
 use super::error::{
     PySSLCertVerificationError, PySSLError, create_ssl_eof_error, create_ssl_syscall_error,
     create_ssl_want_read_error, create_ssl_want_write_error, create_ssl_zero_return_error,
 };
-
-// CryptoProvider Initialization:
-
-/// Ensure the default CryptoProvider is installed (thread-safe, runs once)
-///
-/// This is necessary because rustls 0.23+ requires a process-level CryptoProvider
-/// to be installed before using default_provider(). We use Once to ensure this
-/// happens exactly once, even if called from multiple threads.
-static INIT_PROVIDER: Once = Once::new();
-
-fn ensure_default_provider() {
-    INIT_PROVIDER.call_once(|| {
-        let _ = rustls::crypto::CryptoProvider::install_default(
-            rustls::crypto::aws_lc_rs::default_provider(),
-        );
-    });
-}
 
 // OpenSSL Constants:
 
@@ -449,7 +434,7 @@ pub(super) struct ServerConfigOptions {
     /// Session storage for server-side session resumption
     pub session_storage: Option<Arc<rustls::server::ServerSessionMemoryCache>>,
     /// Shared ticketer for TLS 1.2 session tickets (stateless resumption)
-    pub ticketer: Option<Arc<dyn rustls::server::ProducesTickets>>,
+    pub ticketer: Option<Arc<dyn ProducesTickets>>,
 }
 
 /// Options for creating a client TLS configuration
@@ -482,15 +467,14 @@ pub(super) struct ClientConfigOptions {
 /// This helper function consolidates the duplicated CryptoProvider creation logic
 /// for both server and client configurations.
 fn create_custom_crypto_provider(
-    cipher_suites: Option<Vec<rustls::SupportedCipherSuite>>,
-    kx_groups: Option<Vec<&'static dyn rustls::crypto::SupportedKxGroup>>,
-) -> Arc<rustls::crypto::CryptoProvider> {
-    use rustls::crypto::aws_lc_rs::{ALL_CIPHER_SUITES, ALL_KX_GROUPS};
-    let default_provider = rustls::crypto::aws_lc_rs::default_provider();
+    cipher_suites: Option<Vec<SupportedCipherSuite>>,
+    kx_groups: Option<Vec<&'static dyn SupportedKxGroup>>,
+) -> Arc<CryptoProvider> {
+    let default_provider = CryptoExt::get_provider();
 
-    Arc::new(rustls::crypto::CryptoProvider {
-        cipher_suites: cipher_suites.unwrap_or_else(|| ALL_CIPHER_SUITES.to_vec()),
-        kx_groups: kx_groups.unwrap_or_else(|| ALL_KX_GROUPS.to_vec()),
+    Arc::new(CryptoProvider {
+        cipher_suites: cipher_suites.unwrap_or_else(|| default_provider.cipher_suites.clone()),
+        kx_groups: kx_groups.unwrap_or_else(|| default_provider.kx_groups.clone()),
         signature_verification_algorithms: default_provider.signature_verification_algorithms,
         secure_random: default_provider.secure_random,
         key_provider: default_provider.key_provider,
@@ -502,11 +486,6 @@ fn create_custom_crypto_provider(
 /// This abstracts the complex rustls ServerConfig building logic,
 /// matching SSL_CTX initialization for server sockets.
 pub(super) fn create_server_config(options: ServerConfigOptions) -> Result<ServerConfig, String> {
-    use rustls::server::WebPkiClientVerifier;
-
-    // Ensure default CryptoProvider is installed
-    ensure_default_provider();
-
     // Create custom crypto provider using helper function
     let custom_provider = create_custom_crypto_provider(
         options.protocol_settings.cipher_suites.clone(),
@@ -684,9 +663,6 @@ fn apply_alpn_with_fallback(config_alpn: &mut Vec<Vec<u8>>, alpn_protocols: &[Ve
 /// This abstracts the complex rustls ClientConfig building logic,
 /// matching SSL_CTX initialization for client sockets.
 pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<ClientConfig, String> {
-    // Ensure default CryptoProvider is installed
-    ensure_default_provider();
-
     // Create custom crypto provider using helper function
     let custom_provider = create_custom_crypto_provider(
         options.protocol_settings.cipher_suites.clone(),
@@ -754,7 +730,6 @@ pub(super) fn create_client_config(options: ClientConfigOptions) -> Result<Clien
                 };
 
                 // Wrap with PartialChainVerifier if VERIFY_X509_PARTIAL_CHAIN is set
-                const VERIFY_X509_PARTIAL_CHAIN: i32 = 0x80000;
                 let verifier = if options.verify_flags & VERIFY_X509_PARTIAL_CHAIN != 0 {
                     use crate::ssl::cert::PartialChainVerifier;
                     Arc::new(PartialChainVerifier::new(
@@ -2123,8 +2098,7 @@ pub(super) fn curve_name_to_kx_group(
     curve: &str,
 ) -> Result<Vec<&'static dyn SupportedKxGroup>, String> {
     // Get the default crypto provider's key exchange groups
-    let provider = rustls::crypto::aws_lc_rs::default_provider();
-    let all_groups = &provider.kx_groups;
+    let all_groups = CryptoExt::get_ext().all_kx_or_default();
 
     match curve {
         // P-256 (also known as secp256r1 or prime256v1)
@@ -2149,14 +2123,12 @@ pub(super) fn curve_name_to_kx_group(
             .map(|g| vec![*g])
             .ok_or_else(|| "X25519 not supported by crypto provider".to_owned()),
         // P-521 (also known as secp521r1 or prime521v1)
-        // Now supported with aws-lc-rs crypto provider
         "prime521v1" | "secp521r1" => all_groups
             .iter()
             .find(|g| g.name() == rustls::NamedGroup::secp521r1)
             .map(|g| vec![*g])
             .ok_or_else(|| "secp521r1 not supported by crypto provider".to_owned()),
         // X448
-        // Now supported with aws-lc-rs crypto provider
         "X448" | "x448" => all_groups
             .iter()
             .find(|g| g.name() == rustls::NamedGroup::X448)
