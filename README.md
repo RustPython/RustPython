@@ -229,24 +229,10 @@ For a high level overview of the components, see the [architecture](architecture
 
 ## Contributing
 
-Contributions are more than welcome, and in many cases we are happy to guide
-contributors through PRs or on Discord. Please refer to the
-[development guide](DEVELOPMENT.md) as well for tips on developments.
+Contributions are welcome and highly appreciated. To get started, check out the
+[**contributing guidelines**](CONTRIBUTING.md).
 
-With that in mind, please note this project is maintained by volunteers, some of
-the best ways to get started are below:
-
-Most tasks are listed in the
-[issue tracker](https://github.com/RustPython/RustPython/issues). Check issues
-labeled with [good first issue](https://github.com/RustPython/RustPython/issues?q=label%3A%22good+first+issue%22+is%3Aissue+is%3Aopen+) if you wish to start coding.
-
-To enhance CPython compatibility, try to increase unittest coverage by checking this article: [How to contribute to RustPython by CPython unittest](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html)
-
-Another approach is to checkout the source code: builtin functions and object
-methods are often the simplest and easiest way to contribute.
-
-You can also simply run `python -I scripts/whats_left.py` to assist in finding any unimplemented
-method.
+You can also join us on [**Discord**](https://discord.gg/vru8NypEhv).
 
 ## Compiling to WebAssembly
 
