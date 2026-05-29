@@ -1,12 +1,12 @@
 use rustpython_vm::Interpreter;
 
+#[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn kv_get(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
 
     /// kp and kl are the key pointer and length in wasm memory, vp and vl are for the value
     fn kv_put(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
 
-    #[link(wasm_import_module = "env")]
     fn print(p: i32, l: i32) -> i32;
 }
 
