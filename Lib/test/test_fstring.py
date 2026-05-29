@@ -1292,7 +1292,6 @@ x = (
         self.assertEqual(f'{f"{0}"*3}', '000')
         self.assertEqual(f'{f"{y}"*3}', '555')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_string_prefixes(self):
         single_quote_cases = ["fu''",
                              "uf''",
