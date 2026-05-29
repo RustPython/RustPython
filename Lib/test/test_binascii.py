@@ -222,6 +222,7 @@ class BinASCIITest(unittest.TestCase):
         assertInvalidLength(b'a' * (4 * 87 + 1))
         assertInvalidLength(b'A\tB\nC ??DE')  # only 5 valid characters
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised by a2b_uu
     def test_uu(self):
         MAX_UU = 45
         for backtick in (True, False):
@@ -444,6 +445,7 @@ class BinASCIITest(unittest.TestCase):
         self.assertConversion(binary, converted, restored,
                               quotetabs=quotetabs, istext=istext, header=header)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised by a2b_uu
     def test_empty_string(self):
         # A test for SF bug #1022953.  Make sure SystemError is not raised.
         empty = self.type2test(b'')

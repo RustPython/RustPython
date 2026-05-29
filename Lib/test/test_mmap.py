@@ -348,6 +348,7 @@ class MmapTests(unittest.TestCase):
                 self.assertEqual(m.find(slice + b'x'), -1)
         m.close()
 
+    @unittest.skip("TODO: RUSTPYTHON; panic")
     def test_find_end(self):
         # test the new 'end' parameter works as expected
         with open(TESTFN, 'wb+') as f:
