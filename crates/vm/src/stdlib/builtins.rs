@@ -1007,8 +1007,8 @@ mod builtins {
             modulus,
         } = args;
         let modulus = modulus
-            .as_ref()
-            .map_or_else(|| vm.ctx.none.as_object(), |m| m);
+            .as_deref()
+            .unwrap_or_else(|| vm.ctx.none.as_object());
         vm._pow(&x, &y, modulus)
     }
 
