@@ -10,7 +10,7 @@ mod _queue {
         common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         vm::{
             Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyException, PyType},
+            builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyType, PyTypeRef},
             function::TimeoutSeconds,
             types::Constructor,
         },
@@ -96,7 +96,7 @@ mod _queue {
         timeout: Option<TimeoutSeconds>,
     }
 
-    #[pyclass(with(Constructor))]
+    #[pyclass(with(Constructor), flags(BASETYPE, HAS_WEAKREF))]
     impl PySimpleQueue {
         fn new() -> Self {
             Self {
@@ -178,6 +178,15 @@ mod _queue {
                 },
                 vm,
             )
+        }
+
+        #[pyclassmethod]
+        fn __class_getitem__(
+            cls: PyTypeRef,
+            args: PyObjectRef,
+            vm: &VirtualMachine,
+        ) -> PyGenericAlias {
+            PyGenericAlias::from_args(cls, args, vm)
         }
     }
 
