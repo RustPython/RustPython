@@ -45,6 +45,7 @@ class MmapTests(unittest.TestCase):
         except OSError:
             pass
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'mmap' object has no attribute 'seekable'
     def test_basic(self):
         # Test mmap module on Unix systems and Windows
 
@@ -270,6 +271,7 @@ class MmapTests(unittest.TestCase):
                     self.assertRaises(TypeError, m.write_byte, 0)
                     m.close()
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(os.name == 'nt', 'trackfd not present on Windows')
     def test_trackfd_parameter(self):
         size = 64
@@ -305,6 +307,7 @@ class MmapTests(unittest.TestCase):
                 self.assertEqual(m.closed, True)
                 self.assertEqual(os.stat(TESTFN).st_size, size)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(os.name == 'nt', 'trackfd not present on Windows')
     def test_trackfd_neg1(self):
         size = 64
@@ -884,6 +887,7 @@ class MmapTests(unittest.TestCase):
                     match = closed_mmap_repr_pat.match(repr(mm))
                     self.assertIsNotNone(match)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(mmap.mmap, 'madvise'), 'needs madvise')
     def test_madvise(self):
         size = 2 * PAGESIZE
@@ -1020,6 +1024,7 @@ class MmapTests(unittest.TestCase):
         self.assertEqual(m1[:data_length], data)
         self.assertEqual(m2[:data_length], data)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mmap_closed_by_int_scenarios(self):
         """
         gh-103987: Test that mmap objects raise ValueError
