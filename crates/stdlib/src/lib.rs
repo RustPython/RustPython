@@ -53,6 +53,7 @@ mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
 
+mod _queue;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -225,6 +226,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         posixshmem::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
+        _queue::module_def(ctx),
         random::module_def(ctx),
         #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
         resource::module_def(ctx),
