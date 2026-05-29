@@ -39,6 +39,27 @@ mod _queue {
         fn borrow_buf_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
             self.buf.write()
         }
+
+        /// Returns a strong reference from the head of the buffer.
+        ///
+        /// ## Safety
+        /// Called must ensure inner buf is not empty.
+        ///
+        /// ## See Also
+        ///
+        /// [`RingBuf_Get`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L133-L154).
+        unsafe fn get_inner(&self) -> PyObjectRef {
+            let mut buf = self.borrow_buf_mut();
+
+            let cap = buf.capacity();
+            if buf.len() < (cap / 4) {
+                // Items is less than 25% occupied, shrink it by 50%. This allows for
+                // growth without immediately needing to resize the underlying items array
+                buf.shrink_to(cap / 2)
+            }
+            // SAFETY: Called must ensure `buf` is not empty.
+            unsafe { buf.pop_front().unwrap_unchecked() }
+        }
     }
 
     #[derive(FromArgs)]
@@ -122,10 +143,9 @@ mod _queue {
 
             loop {
                 if !self.empty() {
-                    let mut buf = self.borrow_buf_mut();
                     return Ok(
-                        // SAFETY: We just validated that buf is not empty
-                        unsafe { buf.pop_front().unwrap_unchecked() },
+                        // SAFETY: We just validated that buf is not empty.
+                        unsafe { self.get_inner() },
                     );
                 }
 
