@@ -10,7 +10,7 @@ mod _queue {
         common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         vm::{
             Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-            builtins::{PyException, PyType},
+            builtins::{PyBaseExceptionRef, PyException, PyType},
             function::TimeoutSeconds,
             types::Constructor,
         },
@@ -23,6 +23,13 @@ mod _queue {
     #[derive(Debug)]
     #[repr(transparent)]
     pub(crate) struct PyEmptyError(PyException);
+
+    /// ## See Also
+    ///
+    /// [`empty_error`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L347-L355).
+    fn empty_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_exception_empty(PyEmptyError::class(&vm.ctx).to_owned())
+    }
 
     #[pyattr]
     #[pyclass(module = "_queue", name = "SimpleQueue", unhashable = true)]
@@ -57,6 +64,7 @@ mod _queue {
                 // growth without immediately needing to resize the underlying items array
                 buf.shrink_to(cap / 2)
             }
+
             // SAFETY: Called must ensure `buf` is not empty.
             unsafe { buf.pop_front().unwrap_unchecked() }
         }
@@ -150,12 +158,12 @@ mod _queue {
                 }
 
                 if !block {
-                    return Err(vm.new_exception_empty(PyEmptyError::class(&vm.ctx).to_owned()));
+                    return Err(empty_error(vm));
                 }
 
                 if let (Some(start), Some(end)) = (start_time, end_time) {
                     if start.elapsed() < end {
-                        return Err(vm.new_exception_empty(PyEmptyError::class(&vm.ctx).to_owned()));
+                        return Err(empty_error(vm));
                     }
                 }
             }
