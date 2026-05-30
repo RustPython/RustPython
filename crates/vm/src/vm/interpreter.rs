@@ -106,6 +106,7 @@ where
     let global_state = PyRc::new(PyGlobalState {
         config,
         module_defs: all_module_defs,
+        module_loaded_hooks: PyMutex::default(),
         frozen,
         stacksize: AtomicCell::new(0),
         thread_count: AtomicCell::new(0),
