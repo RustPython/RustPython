@@ -7,7 +7,7 @@ mod _queue {
     use std::time::Instant;
 
     use crate::{
-        common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
+        common::lock::PyMutex,
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
@@ -16,6 +16,8 @@ mod _queue {
             types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
         },
     };
+
+    use parking_lot::Condvar;
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
 
@@ -34,28 +36,19 @@ mod _queue {
 
     #[pyattr]
     #[pyclass(module = "_queue", name = "SimpleQueue", unhashable = true)]
-    #[derive(Debug, Default, PyPayload)]
+    #[derive(Debug, PyPayload)]
     struct PySimpleQueue {
-        buf: PyRwLock<VecDeque<PyObjectRef>>,
+        buf: PyMutex<VecDeque<PyObjectRef>>,
+        not_empty: Condvar,
     }
 
     impl PySimpleQueue {
-        fn borrow_buf(&self) -> PyRwLockReadGuard<'_, VecDeque<PyObjectRef>> {
-            self.buf.read()
-        }
-
-        fn borrow_buf_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
-            self.buf.write()
-        }
-
         /// Returns a strong reference from the head of the buffer.
         ///
         /// ## See Also
         ///
         /// [`RingBuf_Get`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L133-L154).
-        fn get_inner(&self) -> Option<PyObjectRef> {
-            let mut buf = self.borrow_buf_mut();
-
+        fn get_inner(buf: &mut VecDeque<PyObjectRef>) -> Option<PyObjectRef> {
             let cap = buf.capacity();
             if buf.len() < (cap / 4) {
                 // Items is less than 25% occupied, shrink it by 50%. This allows for
@@ -100,67 +93,73 @@ mod _queue {
     impl PySimpleQueue {
         fn new() -> Self {
             Self {
-                buf: PyRwLock::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY)),
+                buf: PyMutex::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY)),
+                not_empty: Condvar::new(),
             }
         }
 
         #[pymethod]
         fn empty(&self) -> bool {
-            self.borrow_buf().is_empty()
+            let buf = self.buf.lock();
+            buf.is_empty()
         }
 
         #[pymethod]
         fn qsize(&self) -> usize {
-            self.borrow_buf().len()
+            let buf = self.buf.lock();
+            buf.len()
         }
 
         #[pymethod]
         fn put(&self, args: PutArgs) {
             let PutArgs { item, .. } = args;
-            let mut buf = self.borrow_buf_mut();
-            buf.push_back(item)
+            let mut buf = self.buf.lock();
+            buf.push_back(item);
+            self.not_empty.notify_one();
         }
 
         #[pymethod]
         fn put_nowait(&self, item: PyObjectRef) {
-            let mut buf = self.borrow_buf_mut();
-            buf.push_back(item)
+            let mut buf = self.buf.lock();
+            buf.push_back(item);
+            self.not_empty.notify_one();
         }
 
         #[pymethod]
         fn get(&self, args: GetArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             let GetArgs { block, timeout } = args;
 
-            let end_time = if !block {
-                None
-            } else {
-                match timeout.map(|v| v.to_secs_f64()) {
-                    Some(v) if v < 0.0 => {
-                        return Err(vm.new_value_error("'timeout' must be a non-negative number"));
-                    }
-                    Some(v) => Some(Duration::from_secs_f64(v)),
-                    None => None,
+            // Non-blocking: just try once
+            if !block {
+                let mut buf = self.buf.lock();
+                return Self::get_inner(&mut buf).ok_or_else(|| empty_error(vm));
+            }
+
+            let deadline = match timeout.map(|v| v.to_secs_f64()) {
+                Some(v) if v < 0.0 => {
+                    return Err(vm.new_value_error("'timeout' must be a non-negative number"));
                 }
+                Some(v) => Some(Instant::now() + Duration::from_secs_f64(v)),
+                None => None,
             };
 
-            let start_time = if end_time.is_some() {
-                Some(Instant::now())
-            } else {
-                None
-            };
-
+            let mut buf = self.buf.lock();
             loop {
-                if let Some(item) = self.get_inner() {
+                if let Some(item) = Self::get_inner(&mut buf) {
                     return Ok(item);
                 }
 
-                if !block {
-                    return Err(empty_error(vm));
-                }
+                let timed_out = if let Some(deadline) = deadline {
+                    // Sleep until notified or deadline reached
+                    let result = self.not_empty.wait_until(&mut buf, deadline);
+                    result.timed_out()
+                } else {
+                    // Sleep until notified
+                    self.not_empty.wait(&mut buf);
+                    false
+                };
 
-                if let (Some(start), Some(end)) = (start_time, end_time)
-                    && start.elapsed() > end
-                {
+                if timed_out {
                     return Err(empty_error(vm));
                 }
             }
@@ -200,7 +199,8 @@ mod _queue {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 boolean: Some(|number, _vm| {
                     let zelf = number.obj.downcast_ref::<PySimpleQueue>().unwrap();
-                    Ok(!zelf.borrow_buf().is_empty())
+                    let buf = zelf.buf.lock();
+                    Ok(!buf.is_empty())
                 }),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
