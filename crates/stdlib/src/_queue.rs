@@ -22,10 +22,12 @@ mod _queue {
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
 
     #[pyattr]
-    #[pyexception(name = "Empty", base = PyException, impl)]
-    #[derive(Debug)]
+    #[pyclass(module = "_queue", name = "Empty", base = PyException)]
     #[repr(transparent)]
     pub(crate) struct PyEmptyError(PyException);
+
+    #[pyclass(flags(HAS_WEAKREF))]
+    impl PyEmptyError {}
 
     /// ## See Also
     ///
