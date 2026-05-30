@@ -159,7 +159,7 @@ mod _queue {
                 }
 
                 if let (Some(start), Some(end)) = (start_time, end_time)
-                    && start.elapsed() < end
+                    && start.elapsed() > end
                 {
                     return Err(empty_error(vm));
                 }
