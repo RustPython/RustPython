@@ -62,6 +62,8 @@ pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
 pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 
+pub type ModuleLoadedHook = fn(&VirtualMachine, PyObjectRef) -> PyResult<()>;
+
 // Objects are live when they are on stack, or referenced by a name (for now)
 
 /// Top level container of a python virtual machine. In theory you could
@@ -591,6 +593,7 @@ pub(crate) struct CallableCache {
 pub struct PyGlobalState {
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
+    pub module_loaded_hooks: PyMutex<BTreeMap<String, Vec<ModuleLoadedHook>>>,
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
@@ -641,6 +644,38 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 impl VirtualMachine {
+    pub fn register_module_loaded_hook(
+        &self,
+        module_name: impl Into<String>,
+        hook: ModuleLoadedHook,
+    ) {
+        self.state
+            .module_loaded_hooks
+            .lock()
+            .entry(module_name.into())
+            .or_default()
+            .push(hook);
+    }
+
+    pub(crate) fn run_module_loaded_hooks(
+        &self,
+        module_name: &str,
+        module: PyObjectRef,
+    ) -> PyResult<()> {
+        let hooks = self
+            .state
+            .module_loaded_hooks
+            .lock()
+            .get(module_name)
+            .cloned();
+        if let Some(hooks) = hooks {
+            for hook in hooks {
+                hook(self, module.clone())?;
+            }
+        }
+        Ok(())
+    }
+
     fn init_callable_cache(&mut self) -> PyResult<()> {
         self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
         self.callable_cache.isinstance = Some(self.builtins.get_attr("isinstance", self)?);
@@ -2290,12 +2325,12 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
+    use rustpython_vm as vm;
+
     use super::*;
 
     #[test]
     fn nested_frozen() {
-        use rustpython_vm as vm;
-
         vm::Interpreter::builder(Default::default())
             .add_frozen_modules(rustpython_vm::py_freeze!(
                 dir = "../../../../extra_tests/snippets"
@@ -2319,8 +2354,6 @@ mod tests {
 
     #[test]
     fn frozen_origname_matches() {
-        use rustpython_vm as vm;
-
         vm::Interpreter::builder(Default::default())
             .build()
             .enter(|vm| {
@@ -2340,5 +2373,30 @@ mod tests {
                     "importlib._bootstrap_external",
                 );
             });
+    }
+
+    #[test]
+    fn module_loaded_hook_can_patch_imported_module() {
+        vm::Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                vm.register_module_loaded_hook("sys", mark_module_loaded);
+                let module = vm.import("sys", 0).unwrap();
+                assert!(
+                    module
+                        .get_attr("__rustpython_module_loaded_hook_ran__", vm)
+                        .unwrap()
+                        .try_to_bool(vm)
+                        .unwrap()
+                );
+            });
+    }
+
+    fn mark_module_loaded(vm: &VirtualMachine, module: PyObjectRef) -> PyResult<()> {
+        module.set_attr(
+            "__rustpython_module_loaded_hook_ran__",
+            vm.ctx.new_bool(true),
+            vm,
+        )
     }
 }
