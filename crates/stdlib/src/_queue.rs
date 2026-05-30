@@ -50,13 +50,10 @@ mod _queue {
 
         /// Returns a strong reference from the head of the buffer.
         ///
-        /// ## Safety
-        /// Caller must ensure inner buf is not empty.
-        ///
         /// ## See Also
         ///
         /// [`RingBuf_Get`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L133-L154).
-        unsafe fn get_inner(&self) -> PyObjectRef {
+        fn get_inner(&self) -> Option<PyObjectRef> {
             let mut buf = self.borrow_buf_mut();
 
             let cap = buf.capacity();
@@ -66,8 +63,7 @@ mod _queue {
                 buf.shrink_to(cap / 2)
             }
 
-            // SAFETY: Called must ensure `buf` is not empty.
-            unsafe { buf.pop_front().unwrap_unchecked() }
+            buf.pop_front()
         }
     }
 
@@ -154,11 +150,8 @@ mod _queue {
             };
 
             loop {
-                if !self.empty() {
-                    return Ok(
-                        // SAFETY: We just validated that buf is not empty.
-                        unsafe { self.get_inner() },
-                    );
+                if let Some(item) = self.get_inner() {
+                    return Ok(item);
                 }
 
                 if !block {
