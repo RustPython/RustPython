@@ -1,5 +1,6 @@
 use rustpython_vm::Interpreter;
 
+#[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn kv_get(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;
 
