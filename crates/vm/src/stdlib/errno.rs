@@ -733,6 +733,18 @@ const ERROR_CODES: &[(&str, i32)] = &[
         ERPCMISMATCH
     ),
     e!(cfg(target_vendor = "apple"), ESHLIBVERS),
+    e!(
+        cfg(all(
+            unix,
+            any(target_os = "linux", target_os = "fuchsia"),
+            not(any(
+                target_os = "freebsd",
+                target_os = "android",
+                target_vendor = "apple",
+            ))
+        )),
+        EHWPOISON
+    ),
 ];
 
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
