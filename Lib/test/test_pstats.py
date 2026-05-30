@@ -10,7 +10,7 @@ import os
 import pstats
 import tempfile
 try:
-    import cProfile
+    import cProfile # XXX: RUSTPYTHON
 except ImportError:
     cProfile = None
 
