@@ -1288,7 +1288,6 @@ class EventLoopTestsMixin:
         server.close()
         self.loop.run_until_complete(proto.done)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - SSL peer certificate format differs
     @unittest.skipIf(ssl is None, 'No ssl module')
     def test_create_server_ssl_verified(self):
         proto = MyProto(loop=self.loop)
