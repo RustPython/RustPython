@@ -17,6 +17,7 @@ mod _queue {
         },
     };
 
+    #[cfg(feature = "threading")]
     use parking_lot::Condvar;
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
@@ -41,6 +42,7 @@ mod _queue {
     #[derive(Debug, PyPayload)]
     struct PySimpleQueue {
         buf: PyMutex<VecDeque<PyObjectRef>>,
+        #[cfg(feature = "threading")]
         not_empty: Condvar,
     }
 
@@ -96,6 +98,7 @@ mod _queue {
         fn new() -> Self {
             Self {
                 buf: PyMutex::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY)),
+                #[cfg(feature = "threading")]
                 not_empty: Condvar::new(),
             }
         }
@@ -117,6 +120,7 @@ mod _queue {
             let PutArgs { item, .. } = args;
             let mut buf = self.buf.lock();
             buf.push_back(item);
+            #[cfg(feature = "threading")]
             self.not_empty.notify_one();
         }
 
@@ -124,6 +128,7 @@ mod _queue {
         fn put_nowait(&self, item: PyObjectRef) {
             let mut buf = self.buf.lock();
             buf.push_back(item);
+            #[cfg(feature = "threading")]
             self.not_empty.notify_one();
         }
 
@@ -137,6 +142,13 @@ mod _queue {
                 return Self::get_inner(&mut buf).ok_or_else(|| empty_error(vm));
             }
 
+            #[cfg_attr(
+                not(feature = "threading"),
+                expect(
+                    unused_variables,
+                    reason = "We are still validating the 'timeout' arg even if we don't have threading"
+                )
+            )]
             let deadline = match timeout.map(|v| v.to_secs_f64()) {
                 Some(v) if v < 0.0 => {
                     return Err(vm.new_value_error("'timeout' must be a non-negative number"));
@@ -146,23 +158,30 @@ mod _queue {
             };
 
             let mut buf = self.buf.lock();
-            loop {
-                if let Some(item) = Self::get_inner(&mut buf) {
-                    return Ok(item);
+            cfg_select! {
+                feature = "threading" => {
+                    loop {
+                        if let Some(item) = Self::get_inner(&mut buf) {
+                            return Ok(item);
+                        }
+
+                        let timed_out = if let Some(deadline) = deadline {
+                            // Sleep until notified or deadline reached
+                            let result = self.not_empty.wait_until(&mut buf, deadline);
+                            result.timed_out()
+                        } else {
+                            // Sleep until notified
+                            self.not_empty.wait(&mut buf);
+                            false
+                        };
+
+                        if timed_out {
+                            return Err(empty_error(vm));
+                        }
+                    }
                 }
-
-                let timed_out = if let Some(deadline) = deadline {
-                    // Sleep until notified or deadline reached
-                    let result = self.not_empty.wait_until(&mut buf, deadline);
-                    result.timed_out()
-                } else {
-                    // Sleep until notified
-                    self.not_empty.wait(&mut buf);
-                    false
-                };
-
-                if timed_out {
-                    return Err(empty_error(vm));
+                _ => {
+                    Self::get_inner(&mut buf).ok_or_else(|| empty_error(vm))
                 }
             }
         }
