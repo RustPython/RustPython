@@ -9,10 +9,11 @@ mod _queue {
     use crate::{
         common::lock::{PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         vm::{
-            Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyType, PyTypeRef},
-            function::TimeoutSeconds,
-            types::Constructor,
+            AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+            builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
+            function::{PyComparisonValue, TimeoutSeconds},
+            protocol::PyNumberMethods,
+            types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
         },
     };
 
@@ -50,7 +51,7 @@ mod _queue {
         /// Returns a strong reference from the head of the buffer.
         ///
         /// ## Safety
-        /// Called must ensure inner buf is not empty.
+        /// Caller must ensure inner buf is not empty.
         ///
         /// ## See Also
         ///
@@ -96,7 +97,10 @@ mod _queue {
         timeout: Option<TimeoutSeconds>,
     }
 
-    #[pyclass(with(Constructor), flags(BASETYPE, HAS_WEAKREF))]
+    #[pyclass(
+        with(Constructor, Comparable, Representable),
+        flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
+    )]
     impl PySimpleQueue {
         fn new() -> Self {
             Self {
@@ -195,6 +199,44 @@ mod _queue {
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             Ok(Self::new())
+        }
+    }
+
+    impl AsNumber for PySimpleQueue {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                boolean: Some(|number, _vm| {
+                    let zelf = number.obj.downcast_ref::<PySimpleQueue>().unwrap();
+                    Ok(!zelf.borrow_buf().is_empty())
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
+        }
+    }
+
+    impl Comparable for PySimpleQueue {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            _vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            Ok(op.identical_optimization(zelf, other).unwrap().into())
+        }
+    }
+
+    impl Representable for PySimpleQueue {
+        fn repr(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+            Ok(vm.ctx.new_str(format!(
+                "<{} at {:#x}>",
+                Self::class(&vm.ctx).slot_name(),
+                zelf.get_id()
+            )))
+        }
+
+        fn repr_str(_zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+            unreachable!("repr() is overridden directly")
         }
     }
 }
