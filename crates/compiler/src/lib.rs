@@ -397,7 +397,7 @@ impl CompileError {
                         "False" => "cannot assign to False".to_owned(),
                         "None" => "cannot assign to None".to_owned(),
                         "__debug__" => "cannot assign to __debug__".to_owned(),
-                        _ => "expression cannot contain assignment, perhaps you meant \"==\"?"
+                        _ => r#"expression cannot contain assignment, perhaps you meant "=="?"#
                             .to_owned(),
                     }
                 };
