@@ -78,7 +78,9 @@ mod _queue {
         fn push(&self, item: PyObjectRef) {
             cfg_select! {
                 feature = "threading" => {
+                    let mut wait_guard = self.wait_mutex.lock();
                     self.borrow_buf().borrow_mut().push_back(item);
+                    drop(wait_guard); // release before notify. to avoid spurious wakeup overhead
                     self.not_empty.notify_one();
                 },
                 _ => {
@@ -228,6 +230,9 @@ mod _queue {
             cfg_select! {
                 feature = "threading" => {
                     loop {
+                        // First lock, then check buf
+                        let mut wait_guard = self.wait_mutex.lock();
+
                         {
                             let guard = self.borrow_buf();
                             if let Some(item) = Self::get_inner(&guard) {
@@ -235,13 +240,12 @@ mod _queue {
                             }
                         } // guard dropped here
 
-                        let mut wait_guard = self.wait_mutex.lock();
-
                         if let Some(deadline) = deadline {
                             // Sleep until notified or deadline reached
                             let result = self.not_empty.wait_until(&mut wait_guard, deadline);
                             if result.timed_out() {
-                                return Err(empty_error(vm));
+                                // Check one last time before declaring empty
+                                return Self::get_inner(&guard).ok_or_else(|| empty_error(vm));
                             }
                         } else {
                             // Sleep until notified
