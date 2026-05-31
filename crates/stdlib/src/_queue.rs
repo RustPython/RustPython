@@ -19,7 +19,8 @@ mod _queue {
     cfg_select! {
         feature = "threading" => {
             use parking_lot::{Condvar, Mutex, ReentrantMutex, ReentrantMutexGuard};
-            use std::cell::RefCell;
+
+            use core::cell::RefCell;
 
             type Buf = ReentrantMutex<RefCell<BufInner>>;
         },
