@@ -7,7 +7,7 @@ mod _queue {
     use std::time::Instant;
 
     use crate::{
-        common::lock::PyMutex,
+        common::lock::{PyMutex, PyMutexGuard},
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
@@ -62,6 +62,10 @@ mod _queue {
 
             buf.pop_front()
         }
+
+        fn borrow_buf(&self) -> PyMutexGuard<'_, VecDeque<PyObjectRef>> {
+            self.buf.lock()
+        }
     }
 
     #[derive(FromArgs)]
@@ -105,29 +109,27 @@ mod _queue {
 
         #[pymethod]
         fn empty(&self) -> bool {
-            let buf = self.buf.lock();
-            buf.is_empty()
+            self.borrow_buf().is_empty()
         }
 
         #[pymethod]
         fn qsize(&self) -> usize {
-            let buf = self.buf.lock();
-            buf.len()
+            self.borrow_buf().len()
         }
 
         #[pymethod]
         fn put(&self, args: PutArgs) {
             let PutArgs { item, .. } = args;
-            let mut buf = self.buf.lock();
-            buf.push_back(item);
+            self.borrow_buf().push_back(item);
+
             #[cfg(feature = "threading")]
             self.not_empty.notify_one();
         }
 
         #[pymethod]
         fn put_nowait(&self, item: PyObjectRef) {
-            let mut buf = self.buf.lock();
-            buf.push_back(item);
+            self.buf.lock().push_back(item);
+
             #[cfg(feature = "threading")]
             self.not_empty.notify_one();
         }
@@ -138,8 +140,7 @@ mod _queue {
 
             // Non-blocking: just try once
             if !block {
-                let mut buf = self.buf.lock();
-                return Self::get_inner(&mut buf).ok_or_else(|| empty_error(vm));
+                return Self::get_inner(&mut self.borrow_buf()).ok_or_else(|| empty_error(vm));
             }
 
             #[cfg_attr(
@@ -157,31 +158,30 @@ mod _queue {
                 None => None,
             };
 
-            let mut buf = self.buf.lock();
             cfg_select! {
                 feature = "threading" => {
                     loop {
+                        let mut buf = self.borrow_buf();
                         if let Some(item) = Self::get_inner(&mut buf) {
                             return Ok(item);
                         }
 
-                        let timed_out = if let Some(deadline) = deadline {
+                         if let Some(deadline) = deadline {
                             // Sleep until notified or deadline reached
                             let result = self.not_empty.wait_until(&mut buf, deadline);
-                            result.timed_out()
+                            if result.timed_out() {
+                                return Err(empty_error(vm));
+                            }
                         } else {
                             // Sleep until notified
                             self.not_empty.wait(&mut buf);
-                            false
-                        };
-
-                        if timed_out {
-                            return Err(empty_error(vm));
                         }
+
+                         drop(buf);
                     }
                 }
                 _ => {
-                    Self::get_inner(&mut buf).ok_or_else(|| empty_error(vm))
+                    Self::get_inner(&mut self.borrow_buf()).ok_or_else(|| empty_error(vm))
                 }
             }
         }
