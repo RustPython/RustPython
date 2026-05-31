@@ -577,20 +577,12 @@ else:
             def create_event_loop(self):
                 return asyncio.SelectorEventLoop(selectors.PollSelector())
 
-            @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
-            def test_sendfile_ssl_pre_and_post_data(self):
-                return super().test_sendfile_ssl_pre_and_post_data()
-
     # Should always exist.
     class SelectEventLoopTests(SendfileTestsBase,
                                test_utils.TestCase):
 
         def create_event_loop(self):
             return asyncio.SelectorEventLoop(selectors.SelectSelector())
-
-        @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
-        def test_sendfile_ssl_pre_and_post_data(self):
-            return super().test_sendfile_ssl_pre_and_post_data()
 
 
 if __name__ == '__main__':
