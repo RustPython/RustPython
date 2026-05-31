@@ -24,7 +24,7 @@ mod _queue {
             type Buf = ReentrantMutex<RefCell<BufInner>>;
         },
         _ => {
-            use common::lock::{PyMutex, PyMutexGuard};
+            use crate::common::lock::{PyMutex, PyMutexGuard};
 
             type Buf = PyMutex<VecDeque<PyObjectRef>>;
         }
