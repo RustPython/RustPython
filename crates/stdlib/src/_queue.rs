@@ -128,7 +128,7 @@ mod _queue {
 
         #[pymethod]
         fn put_nowait(&self, item: PyObjectRef) {
-            self.buf.lock().push_back(item);
+            self.borrow_buf().push_back(item);
 
             #[cfg(feature = "threading")]
             self.not_empty.notify_one();
@@ -220,8 +220,7 @@ mod _queue {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 boolean: Some(|number, _vm| {
                     let zelf = number.obj.downcast_ref::<PySimpleQueue>().unwrap();
-                    let buf = zelf.buf.lock();
-                    Ok(!buf.is_empty())
+                    Ok(!zelf.borrow_buf().is_empty())
                 }),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
