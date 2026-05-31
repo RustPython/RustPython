@@ -34,7 +34,6 @@ fn starts_with_uppercase_message(s: &str) -> bool {
         "Did you mean to use 'from ... import ...' instead?",
         "Function parameters cannot be parenthesized",
         "Lambda expression parameters cannot be parenthesized",
-        "Is this intended to be part of the string?",
         "Generator expression must be parenthesized",
         "Invalid star expression",
         "Type parameter list cannot be empty",

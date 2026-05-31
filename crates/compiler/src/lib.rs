@@ -316,6 +316,18 @@ impl CompileError {
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
 
+            // Bare `*` as the leading element of a set/dict display `{*}` /
+            // `{*, 1}` or a non-call parenthesised group `(*)` / `(*,)`. CPython
+            // reports "Invalid star expression". A non-leading star (`{1, *}`),
+            // a double star (`{**}`), or a dict value (`{1: *}`) is excluded.
+            ParseErrorType::ExpectedExpression
+                if is_bare_star_first_in_group(source_text, error.location) =>
+            {
+                let (loc, end_loc) = adjusted_locations(&source_code, error.location);
+                let msg = "Invalid star expression".to_owned();
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
+
             // Dict literal: `{1:}` / `{1: 2, 3: 4, 5: }` — missing value.
             ParseErrorType::ExpectedExpression
                 if is_dict_value_position(source_text, error.location) =>
@@ -542,7 +554,8 @@ impl CompileError {
 
             // Ruff `OtherError` strings that CPython collapses to "invalid syntax":
             //   `match x:\n y=3` (no case), `case {**rest, ...}` (pattern after
-            //   double-star), `… raise from None` (missing exception), `foo(,)`.
+            //   double-star), `… raise from None` (missing exception), `foo(,)`,
+            //   `{1:2,, 3}` / `[1,, 2]` (double comma in dict/set/list display).
             ParseErrorType::OtherError(s)
                 if matches!(
                     s.as_str(),
@@ -550,6 +563,8 @@ impl CompileError {
                         | "Pattern cannot follow a double star pattern"
                         | "Exception missing in `raise` statement with cause"
                         | "Expected an expression or a ')'"
+                        | "Expected an expression or a '}'"
+                        | "Expected an expression or a ']'"
                 ) =>
             {
                 let (loc, end_loc) = adjusted_locations(&source_code, error.location);
@@ -1172,6 +1187,46 @@ fn is_bare_star_in_call(source: &str, range: ruff_text_size::TextRange) -> bool 
     }
     // The token immediately before the error must be `*`.
     prefix.trim_end().ends_with('*')
+}
+
+/// Detect a bare single `*` as the leading element of a set/dict display
+/// `{ ... }` or a non-call parenthesised group/tuple `( ... )` — CPython's
+/// "Invalid star expression" (`{*}`, `{*, 1}`, `(*)`, `(*,)`, `(*, 1)`). A
+/// non-leading star (`{1, *}`, `(1, *)`), a dict value (`{1: *}`), a double
+/// star (`{**}`), a subscript/list (`[*]`, handled elsewhere), or a call
+/// (`f(*)`, handled elsewhere) is intentionally excluded.
+fn is_bare_star_first_in_group(source: &str, range: ruff_text_size::TextRange) -> bool {
+    let start: usize = range.start().into();
+    let prefix = &source[..start];
+    let trimmed = prefix.trim_end();
+    // The token immediately before the error must be a single `*` (not `**`).
+    if !trimmed.ends_with('*') || trimmed.ends_with("**") {
+        return false;
+    }
+    // Walk back to the nearest depth-0 opener. Bail at a depth-0 `,` (the star
+    // is not the leading element), `:` (a dict value), or `[` (subscript/list,
+    // handled by `is_invalid_star_in_subscript`).
+    let mut depth = 0i32;
+    for (i, c) in prefix.char_indices().rev() {
+        match c {
+            ')' | ']' | '}' => depth += 1,
+            ',' | ':' if depth == 0 => return false,
+            '[' if depth == 0 => return false,
+            '{' if depth == 0 => return true,
+            '(' if depth == 0 => {
+                // Only a non-call group: the token before `(` must not be a
+                // callee (identifier / `)` / `]`).
+                let before = prefix[..i].chars().rev().find(|c| !c.is_whitespace());
+                return !matches!(
+                    before,
+                    Some(c) if c.is_ascii_alphanumeric() || c == '_' || c == ')' || c == ']'
+                );
+            }
+            '(' | '{' | '[' => depth -= 1,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Detect bad target in `except[*] T as <bad>:`. Returns the matching CPython
