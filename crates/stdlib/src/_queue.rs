@@ -231,10 +231,9 @@ mod _queue {
                             }
                         } // guard dropped here
 
-
                         let mut wait_guard = self.wait_mutex.lock();
 
-                         if let Some(deadline) = deadline {
+                        if let Some(deadline) = deadline {
                             // Sleep until notified or deadline reached
                             let result = self.not_empty.wait_until(&mut wait_guard, deadline);
                             if result.timed_out() {
@@ -254,7 +253,11 @@ mod _queue {
 
         #[pymethod]
         fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            Self::get_inner(&mut self.borrow_buf()).ok_or_else(|| empty_error(vm))
+            Self::get_inner(cfg_select! {
+                feature = "threading" => &self.borrow_buf(),
+                _ => &mut self.borrow_buf(),
+            })
+            .ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]
