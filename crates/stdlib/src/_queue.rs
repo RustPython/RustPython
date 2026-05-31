@@ -6,19 +6,29 @@ mod _queue {
     use core::time::Duration;
     use std::time::Instant;
 
-    use crate::{
-        common::lock::{PyMutex, PyMutexGuard},
-        vm::{
-            AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-            builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
-            function::{PyComparisonValue, TimeoutSeconds},
-            protocol::PyNumberMethods,
-            types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
-        },
+    use crate::vm::{
+        AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{PyBaseExceptionRef, PyException, PyGenericAlias, PyStr, PyType, PyTypeRef},
+        function::{PyComparisonValue, TimeoutSeconds},
+        protocol::PyNumberMethods,
+        types::{AsNumber, Comparable, Constructor, PyComparisonOp, Representable},
     };
 
-    #[cfg(feature = "threading")]
-    use parking_lot::Condvar;
+    type BufInner = VecDeque<PyObjectRef>;
+
+    cfg_select! {
+        feature = "threading" => {
+            use parking_lot::{Condvar, Mutex, ReentrantMutex, ReentrantMutexGuard};
+            use std::cell::RefCell;
+
+            type Buf = ReentrantMutex<RefCell<BufInner>>;
+        },
+        _ => {
+            use common::lock::{PyMutex, PyMutexGuard};
+
+            type Buf = PyMutex<VecDeque<PyObjectRef>>;
+        }
+    }
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
 
@@ -41,46 +51,87 @@ mod _queue {
     #[pyclass(module = "_queue", name = "SimpleQueue", unhashable = true)]
     #[derive(Debug, PyPayload)]
     struct PySimpleQueue {
-        buf: PyMutex<VecDeque<PyObjectRef>>,
+        buf: Buf,
         #[cfg(feature = "threading")]
         not_empty: Condvar,
+        #[cfg(feature = "threading")]
+        wait_mutex: Mutex<()>,
+    }
+
+    impl Default for PySimpleQueue {
+        fn default() -> Self {
+            Self {
+                buf: Buf::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY).into()),
+                #[cfg(feature = "threading")]
+                not_empty: Condvar::new(),
+                #[cfg(feature = "threading")]
+                wait_mutex: Mutex::new(()),
+            }
+        }
     }
 
     impl PySimpleQueue {
-        #[must_use]
-        fn new() -> Self {
-            Self {
-                buf: PyMutex::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY)),
-                #[cfg(feature = "threading")]
-                not_empty: Condvar::new(),
-            }
-        }
-
         fn push(&self, item: PyObjectRef) {
-            self.borrow_buf().push_back(item);
-
-            #[cfg(feature = "threading")]
-            self.not_empty.notify_one();
-        }
-
-        /// Returns a strong reference from the head of the buffer.
-        ///
-        /// ## See Also
-        ///
-        /// [`RingBuf_Get`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L133-L154).
-        fn get_inner(buf: &mut VecDeque<PyObjectRef>) -> Option<PyObjectRef> {
-            let cap = buf.capacity();
-            if buf.len() < (cap / 4) {
-                // Items is less than 25% occupied, shrink it by 50%. This allows for
-                // growth without immediately needing to resize the underlying items array
-                buf.shrink_to(cap / 2)
+            cfg_select! {
+                feature = "threading" => {
+                    self.borrow_buf().borrow_mut().push_back(item);
+                    self.not_empty.notify_one();
+                },
+                _ => {
+                    self.borrow_buf().push_back(item);
+                }
             }
-
-            buf.pop_front()
         }
 
-        fn borrow_buf(&self) -> PyMutexGuard<'_, VecDeque<PyObjectRef>> {
-            self.buf.lock()
+        cfg_select! {
+            feature = "threading" => {
+                /// Returns a strong reference from the head of the buffer.
+                ///
+                /// ## See Also
+                ///
+                /// [`RingBuf_Get`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L133-L154).
+                fn get_inner(buf: &ReentrantMutexGuard<'_, RefCell<BufInner>>) -> Option<PyObjectRef> {
+                    let mut inner = buf.borrow_mut();
+
+                    let cap = inner.capacity();
+                    if inner.len() < (cap / 4) {
+                        // Items is less than 25% occupied, shrink it by 50%. This allows for
+                        // growth without immediately needing to resize the underlying items array
+                        inner.shrink_to(cap / 2)
+                    }
+
+                    inner.pop_front()
+                }
+            }
+            _ => {
+                /// Returns a strong reference from the head of the buffer.
+                ///
+                /// ## See Also
+                ///
+                /// [`RingBuf_Get`](https://github.com/python/cpython/blob/v3.14.5/Modules/_queuemodule.c#L133-L154).
+                fn get_inner(buf: &mut BufInner) -> Option<PyObjectRef> {
+                    let cap = buf.capacity();
+                    if buf.len() < (cap / 4) {
+                        // Items is less than 25% occupied, shrink it by 50%. This allows for
+                        // growth without immediately needing to resize the underlying items array
+                        buf.shrink_to(cap / 2)
+                    }
+                    buf.pop_front()
+                }
+            }
+        }
+
+        cfg_select! {
+            feature = "threading" => {
+                fn borrow_buf(&self) -> ReentrantMutexGuard<'_, RefCell<BufInner>> {
+                    self.buf.lock()
+                }
+            }
+            _ => {
+                fn borrow_buf(&self) -> PyMutexGuard<'_, BufInner> {
+                    self.buf.lock()
+                }
+            }
         }
     }
 
@@ -117,12 +168,18 @@ mod _queue {
     impl PySimpleQueue {
         #[pymethod]
         fn empty(&self) -> bool {
-            self.borrow_buf().is_empty()
+            cfg_select! {
+                feature = "threading" => self.borrow_buf().borrow().is_empty(),
+                _ => self.borrow_buf().is_empty(),
+            }
         }
 
         #[pymethod]
         fn qsize(&self) -> usize {
-            self.borrow_buf().len()
+            cfg_select! {
+                feature = "threading" => self.borrow_buf().borrow().len(),
+                _ => self.borrow_buf().len(),
+            }
         }
 
         #[pymethod]
@@ -142,7 +199,11 @@ mod _queue {
 
             // Non-blocking: just try once
             if !block {
-                return Self::get_inner(&mut self.borrow_buf()).ok_or_else(|| empty_error(vm));
+                return Self::get_inner(cfg_select! {
+                    feature = "threading" => &self.borrow_buf(),
+                    _ => &mut self.borrow_buf(),
+                })
+                .ok_or_else(|| empty_error(vm));
             }
 
             #[cfg_attr(
@@ -160,24 +221,28 @@ mod _queue {
                 None => None,
             };
 
-            let mut buf = self.borrow_buf();
-
             cfg_select! {
                 feature = "threading" => {
                     loop {
-                        if let Some(item) = Self::get_inner(&mut buf) {
-                            return Ok(item);
-                        }
+                        {
+                            let guard = self.borrow_buf();
+                            if let Some(item) = Self::get_inner(&guard) {
+                                return Ok(item);
+                            }
+                        } // guard dropped here
+
+
+                        let mut wait_guard = self.wait_mutex.lock();
 
                          if let Some(deadline) = deadline {
                             // Sleep until notified or deadline reached
-                            let result = self.not_empty.wait_until(&mut buf, deadline);
+                            let result = self.not_empty.wait_until(&mut wait_guard, deadline);
                             if result.timed_out() {
                                 return Err(empty_error(vm));
                             }
                         } else {
                             // Sleep until notified
-                            self.not_empty.wait(&mut buf);
+                            self.not_empty.wait(&mut wait_guard);
                         }
                     }
                 }
@@ -206,7 +271,7 @@ mod _queue {
         type Args = ();
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            Ok(Self::new())
+            Ok(Self::default())
         }
     }
 
@@ -215,7 +280,10 @@ mod _queue {
             static AS_NUMBER: PyNumberMethods = PyNumberMethods {
                 boolean: Some(|number, _vm| {
                     let zelf = number.obj.downcast_ref::<PySimpleQueue>().unwrap();
-                    Ok(!zelf.borrow_buf().is_empty())
+                    Ok(cfg_select! {
+                        feature = "threading" => !zelf.borrow_buf().borrow().is_empty(),
+                        _ => !zelf.borrow_buf().is_empty(),
+                    })
                 }),
                 ..PyNumberMethods::NOT_IMPLEMENTED
             };
