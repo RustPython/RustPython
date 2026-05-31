@@ -78,7 +78,7 @@ mod _queue {
         fn push(&self, item: PyObjectRef) {
             cfg_select! {
                 feature = "threading" => {
-                    let mut wait_guard = self.wait_mutex.lock();
+                    let wait_guard = self.wait_mutex.lock();
                     self.borrow_buf().borrow_mut().push_back(item);
                     drop(wait_guard); // release before notify. to avoid spurious wakeup overhead
                     self.not_empty.notify_one();
@@ -245,6 +245,7 @@ mod _queue {
                             let result = self.not_empty.wait_until(&mut wait_guard, deadline);
                             if result.timed_out() {
                                 // Check one last time before declaring empty
+                                let guard = self.borrow_buf();
                                 return Self::get_inner(&guard).ok_or_else(|| empty_error(vm));
                             }
                         } else {
