@@ -61,7 +61,10 @@ mod _queue {
     impl Default for PySimpleQueue {
         fn default() -> Self {
             Self {
-                buf: Buf::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY).into()),
+                buf: Buf::new(cfg_select! {
+                    feature = "threading" => VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY).into(),
+                    _ => VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY),
+                }),
                 #[cfg(feature = "threading")]
                 not_empty: Condvar::new(),
                 #[cfg(feature = "threading")]
