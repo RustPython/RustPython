@@ -47,6 +47,22 @@ mod _queue {
     }
 
     impl PySimpleQueue {
+        #[must_use]
+        fn new() -> Self {
+            Self {
+                buf: PyMutex::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY)),
+                #[cfg(feature = "threading")]
+                not_empty: Condvar::new(),
+            }
+        }
+
+        fn push(&self, item: PyObjectRef) {
+            self.borrow_buf().push_back(item);
+
+            #[cfg(feature = "threading")]
+            self.not_empty.notify_one();
+        }
+
         /// Returns a strong reference from the head of the buffer.
         ///
         /// ## See Also
@@ -99,14 +115,6 @@ mod _queue {
         flags(BASETYPE, HAS_WEAKREF, IMMUTABLETYPE)
     )]
     impl PySimpleQueue {
-        fn new() -> Self {
-            Self {
-                buf: PyMutex::new(VecDeque::with_capacity(INITIAL_RING_BUF_CAPACITY)),
-                #[cfg(feature = "threading")]
-                not_empty: Condvar::new(),
-            }
-        }
-
         #[pymethod]
         fn empty(&self) -> bool {
             self.borrow_buf().is_empty()
@@ -120,18 +128,12 @@ mod _queue {
         #[pymethod]
         fn put(&self, args: PutArgs) {
             let PutArgs { item, .. } = args;
-            self.borrow_buf().push_back(item);
-
-            #[cfg(feature = "threading")]
-            self.not_empty.notify_one();
+            self.push(item);
         }
 
         #[pymethod]
         fn put_nowait(&self, item: PyObjectRef) {
-            self.borrow_buf().push_back(item);
-
-            #[cfg(feature = "threading")]
-            self.not_empty.notify_one();
+            self.push(item);
         }
 
         #[pymethod]
@@ -158,10 +160,11 @@ mod _queue {
                 None => None,
             };
 
+            let mut buf = self.borrow_buf();
+
             cfg_select! {
                 feature = "threading" => {
                     loop {
-                        let mut buf = self.borrow_buf();
                         if let Some(item) = Self::get_inner(&mut buf) {
                             return Ok(item);
                         }
@@ -176,8 +179,6 @@ mod _queue {
                             // Sleep until notified
                             self.not_empty.wait(&mut buf);
                         }
-
-                         drop(buf);
                     }
                 }
                 _ => {
@@ -188,13 +189,7 @@ mod _queue {
 
         #[pymethod]
         fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            self.get(
-                GetArgs {
-                    block: false,
-                    timeout: None,
-                },
-                vm,
-            )
+            Self::get_inner(&mut self.borrow_buf()).ok_or_else(|| empty_error(vm))
         }
 
         #[pyclassmethod]
@@ -235,7 +230,11 @@ mod _queue {
             op: PyComparisonOp,
             _vm: &VirtualMachine,
         ) -> PyResult<PyComparisonValue> {
-            Ok(op.identical_optimization(zelf, other).unwrap().into())
+            Ok(if let Some(res) = op.identical_optimization(zelf, other) {
+                res.into()
+            } else {
+                PyComparisonValue::NotImplemented
+            })
         }
     }
 
