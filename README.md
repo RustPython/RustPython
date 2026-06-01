@@ -80,7 +80,7 @@ $ python # now `python` is the alias of the RustPython for the new env
 
 If you'd like to make https requests, you can enable the `ssl` feature, which
 also lets you install the `pip` package manager. Note that on Windows, you may
-need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
+need to install OpenSSL, or you can enable the `ssl-openssl-vendor` feature instead,
 which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
 OpenSSL version 3 is expected and tested in CI. Older versions may not work.
 
@@ -102,8 +102,8 @@ rustpython
 
 ### SSL provider
 
-For HTTPS requests, `ssl-rustls` feature is enabled by default. You can replace it with `ssl-openssl` feature if your environment requires OpenSSL.
-Note that to use OpenSSL on Windows, you may need to install OpenSSL, or you can enable the `ssl-vendor` feature instead,
+For HTTPS requests, `ssl-rustls-aws-lc` is enabled by default for the RustPython binary. Embedders can use `rustpython-stdlib`'s provider-agnostic `ssl-rustls` feature and install their own rustls crypto provider, or replace rustls with `ssl-openssl` if their environment requires OpenSSL.
+Note that to use OpenSSL on Windows, you may need to install OpenSSL, or you can enable the `ssl-openssl-vendor` feature instead,
 which compiles OpenSSL for you but requires a C compiler, perl, and `make`.
 OpenSSL version 3 is expected and tested in CI. Older versions may not work.
 
@@ -229,24 +229,10 @@ For a high level overview of the components, see the [architecture](architecture
 
 ## Contributing
 
-Contributions are more than welcome, and in many cases we are happy to guide
-contributors through PRs or on Discord. Please refer to the
-[development guide](DEVELOPMENT.md) as well for tips on developments.
+Contributions are welcome and highly appreciated. To get started, check out the
+[**contributing guidelines**](CONTRIBUTING.md).
 
-With that in mind, please note this project is maintained by volunteers, some of
-the best ways to get started are below:
-
-Most tasks are listed in the
-[issue tracker](https://github.com/RustPython/RustPython/issues). Check issues
-labeled with [good first issue](https://github.com/RustPython/RustPython/issues?q=label%3A%22good+first+issue%22+is%3Aissue+is%3Aopen+) if you wish to start coding.
-
-To enhance CPython compatibility, try to increase unittest coverage by checking this article: [How to contribute to RustPython by CPython unittest](https://rustpython.github.io/guideline/2020/04/04/how-to-contribute-by-cpython-unittest.html)
-
-Another approach is to checkout the source code: builtin functions and object
-methods are often the simplest and easiest way to contribute.
-
-You can also simply run `python -I scripts/whats_left.py` to assist in finding any unimplemented
-method.
+You can also join us on [**Discord**](https://discord.gg/vru8NypEhv).
 
 ## Compiling to WebAssembly
 

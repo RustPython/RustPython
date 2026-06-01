@@ -63,11 +63,6 @@ macro_rules! define_opcodes {
                     $(Self::$op_name => $op_id,)*
                 }
             }
-            /// Stack effect of [`Self::stack_effect_info`].
-            #[must_use]
-            $opcode_vis fn stack_effect(&self, oparg: u32) -> i32 {
-                self.stack_effect_info(oparg).effect()
-            }
         }
 
         impl From<$opcode_name> for $instr_name {
@@ -154,6 +149,46 @@ macro_rules! define_opcodes {
             #[must_use]
             $instr_vis const fn is_scope_exit(&self) -> bool {
                 self.as_opcode().is_scope_exit()
+            }
+
+            #[must_use]
+            $instr_vis const fn is_terminator(&self) -> bool {
+                self.as_opcode().is_terminator()
+            }
+
+            #[must_use]
+            $instr_vis const fn is_no_fallthrough(&self) -> bool {
+                self.as_opcode().is_no_fallthrough()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_target(&self) -> bool {
+                self.as_opcode().has_target()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_jump(&self) -> bool {
+                self.as_opcode().has_jump()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_arg(&self) -> bool {
+                self.as_opcode().has_arg()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_const(&self) -> bool {
+                self.as_opcode().has_const()
+            }
+
+            #[must_use]
+            $instr_vis const fn has_eval_break(&self) -> bool {
+                self.as_opcode().has_eval_break()
+            }
+
+            #[must_use]
+            $instr_vis const fn is_assembler(&self) -> bool {
+                self.as_opcode().is_assembler()
             }
 
             #[must_use]
@@ -673,14 +708,47 @@ impl Opcode {
         )
     }
 
+    /// CPython's `IS_ASSEMBLER_OPCODE`.
+    #[must_use]
+    pub const fn is_assembler(&self) -> bool {
+        matches!(
+            self,
+            Self::JumpForward | Self::JumpBackward | Self::JumpBackwardNoInterrupt
+        )
+    }
+
     #[must_use]
     pub const fn is_scope_exit(&self) -> bool {
         matches!(self, Self::ReturnValue | Self::RaiseVarargs | Self::Reraise)
     }
 
+    /// CPython's `IS_TERMINATOR_OPCODE`.
+    #[must_use]
+    pub const fn is_terminator(&self) -> bool {
+        self.has_jump() || self.is_scope_exit()
+    }
+
+    /// CPython's `IS_SCOPE_EXIT_OPCODE || IS_UNCONDITIONAL_JUMP_OPCODE`.
+    #[must_use]
+    pub const fn is_no_fallthrough(&self) -> bool {
+        self.is_scope_exit() || self.is_unconditional_jump()
+    }
+
+    /// CPython's `HAS_TARGET`.
+    #[must_use]
+    pub const fn has_target(&self) -> bool {
+        self.has_jump() || self.is_block_push()
+    }
+
     #[must_use]
     pub const fn is_block_push(&self) -> bool {
         false
+    }
+
+    /// Stack effect of [`Self::stack_effect_info`].
+    #[must_use]
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        self.stack_effect_info(oparg).effect()
     }
 
     /// Stack effect when the instruction takes its branch (jump=true).
@@ -712,6 +780,39 @@ impl PseudoOpcode {
     #[must_use]
     pub const fn is_unconditional_jump(&self) -> bool {
         matches!(self, Self::Jump | Self::JumpNoInterrupt)
+    }
+
+    #[must_use]
+    pub const fn is_assembler(&self) -> bool {
+        false
+    }
+
+    /// CPython's `IS_TERMINATOR_OPCODE`.
+    #[must_use]
+    pub const fn is_terminator(&self) -> bool {
+        self.has_jump()
+    }
+
+    /// CPython's `IS_SCOPE_EXIT_OPCODE || IS_UNCONDITIONAL_JUMP_OPCODE`.
+    #[must_use]
+    pub const fn is_no_fallthrough(&self) -> bool {
+        self.is_unconditional_jump()
+    }
+
+    /// CPython's `HAS_TARGET`.
+    #[must_use]
+    pub const fn has_target(&self) -> bool {
+        self.has_jump() || self.is_block_push()
+    }
+
+    /// flowgraph.c get_stack_effects block-push non-jump case.
+    #[must_use]
+    pub fn stack_effect(&self, oparg: u32) -> i32 {
+        if self.is_block_push() {
+            0
+        } else {
+            self.stack_effect_info(oparg).effect()
+        }
     }
 
     /// Handler entry effect for SETUP_* pseudo ops.
@@ -776,6 +877,46 @@ impl AnyInstruction {
     either_real_pseudo!(
         #[must_use]
         pub const fn is_scope_exit(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn is_terminator(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn is_no_fallthrough(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_target(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_jump(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_arg(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_const(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn has_eval_break(&self) -> bool
+    );
+
+    either_real_pseudo!(
+        #[must_use]
+        pub const fn is_assembler(&self) -> bool
     );
 
     either_real_pseudo!(
@@ -1179,3 +1320,115 @@ impl<T: OpArgType> fmt::Debug for Arg<T> {
 // breaks the VM:/
 const _: () = assert!(core::mem::size_of::<Instruction>() == 1);
 const _: () = assert!(core::mem::size_of::<PseudoInstruction>() == 2);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn eval_break_flags_match_cpython_jump_metadata() {
+        assert!(Opcode::JumpBackward.has_eval_break());
+        assert!(!Opcode::JumpBackwardNoInterrupt.has_eval_break());
+        assert!(!Opcode::JumpForward.has_eval_break());
+
+        assert!(PseudoOpcode::Jump.has_eval_break());
+        assert!(!PseudoOpcode::JumpIfFalse.has_eval_break());
+        assert!(!PseudoOpcode::JumpIfTrue.has_eval_break());
+        assert!(!PseudoOpcode::JumpNoInterrupt.has_eval_break());
+
+        assert!(AnyInstruction::from(PseudoOpcode::Jump).has_eval_break());
+    }
+
+    #[test]
+    fn terminator_flags_match_cpython_opcode_utils() {
+        assert!(Opcode::JumpForward.is_terminator());
+        assert!(Opcode::PopJumpIfFalse.is_terminator());
+        assert!(Opcode::ForIter.is_terminator());
+        assert!(Opcode::ReturnValue.is_terminator());
+        assert!(!Opcode::Nop.is_terminator());
+
+        assert!(PseudoOpcode::JumpIfTrue.is_terminator());
+        assert!(PseudoOpcode::JumpNoInterrupt.is_terminator());
+        assert!(!PseudoOpcode::SetupFinally.is_terminator());
+        assert!(!PseudoOpcode::SetupWith.is_terminator());
+        assert!(!PseudoOpcode::SetupCleanup.is_terminator());
+        assert!(!PseudoOpcode::PopBlock.is_terminator());
+
+        assert!(AnyInstruction::from(PseudoOpcode::JumpIfFalse).is_terminator());
+    }
+
+    #[test]
+    fn assembler_flags_match_cpython_opcode_utils() {
+        assert!(Opcode::JumpForward.is_assembler());
+        assert!(Opcode::JumpBackward.is_assembler());
+        assert!(Opcode::JumpBackwardNoInterrupt.is_assembler());
+        assert!(!Opcode::PopJumpIfFalse.is_assembler());
+        assert!(!Opcode::Nop.is_assembler());
+
+        assert!(!PseudoOpcode::Jump.is_assembler());
+        assert!(!PseudoOpcode::JumpNoInterrupt.is_assembler());
+        assert!(!AnyInstruction::from(PseudoOpcode::Jump).is_assembler());
+    }
+
+    #[test]
+    fn target_flags_match_cpython_opcode_utils() {
+        assert!(Opcode::JumpForward.has_target());
+        assert!(Opcode::ForIter.has_target());
+        assert!(!Opcode::ReturnValue.has_target());
+        assert!(!Opcode::Nop.has_target());
+
+        assert!(PseudoOpcode::Jump.has_target());
+        assert!(PseudoOpcode::SetupFinally.has_target());
+        assert!(PseudoOpcode::SetupWith.has_target());
+        assert!(PseudoOpcode::SetupCleanup.has_target());
+        assert!(!PseudoOpcode::PopBlock.has_target());
+
+        assert!(AnyInstruction::from(PseudoOpcode::SetupFinally).has_target());
+    }
+
+    #[test]
+    fn arg_flags_match_cpython_opcode_metadata() {
+        assert!(Opcode::LoadConst.has_arg());
+        assert!(Opcode::YieldValue.has_arg());
+        assert!(!Opcode::Nop.has_arg());
+        assert!(!Opcode::ReturnValue.has_arg());
+
+        assert!(PseudoOpcode::Jump.has_arg());
+        assert!(PseudoOpcode::JumpIfFalse.has_arg());
+        assert!(PseudoOpcode::JumpIfTrue.has_arg());
+        assert!(PseudoOpcode::JumpNoInterrupt.has_arg());
+        assert!(PseudoOpcode::LoadClosure.has_arg());
+        assert!(PseudoOpcode::StoreFastMaybeNull.has_arg());
+        assert!(!PseudoOpcode::AnnotationsPlaceholder.has_arg());
+        assert!(!PseudoOpcode::PopBlock.has_arg());
+    }
+
+    #[test]
+    fn const_flags_match_cpython_opcode_metadata() {
+        assert!(Opcode::LoadConst.has_const());
+        assert!(Opcode::LoadConstImmortal.has_const());
+        assert!(Opcode::LoadConstMortal.has_const());
+        assert!(!Opcode::LoadSmallInt.has_const());
+        assert!(!Opcode::Nop.has_const());
+
+        assert!(!PseudoOpcode::LoadClosure.has_const());
+        assert!(!AnyInstruction::from(PseudoOpcode::Jump).has_const());
+    }
+
+    #[test]
+    fn no_fallthrough_flags_match_cpython_basicblock_nofallthrough() {
+        assert!(Opcode::JumpForward.is_no_fallthrough());
+        assert!(Opcode::ReturnValue.is_no_fallthrough());
+        assert!(!Opcode::PopJumpIfFalse.is_no_fallthrough());
+        assert!(!Opcode::ForIter.is_no_fallthrough());
+        assert!(!Opcode::Nop.is_no_fallthrough());
+
+        assert!(PseudoOpcode::Jump.is_no_fallthrough());
+        assert!(PseudoOpcode::JumpNoInterrupt.is_no_fallthrough());
+        assert!(!PseudoOpcode::JumpIfFalse.is_no_fallthrough());
+        assert!(!PseudoOpcode::SetupFinally.is_no_fallthrough());
+        assert!(!PseudoOpcode::SetupWith.is_no_fallthrough());
+
+        assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());
+    }
+}

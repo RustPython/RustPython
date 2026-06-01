@@ -1006,10 +1006,6 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        #[expect(
-            clippy::unnecessary_option_map_or_else,
-            reason = "changing this won't compile"
-        )]
         let modulus = modulus
             .as_ref()
             .map_or_else(|| vm.ctx.none.as_object(), |m| m);

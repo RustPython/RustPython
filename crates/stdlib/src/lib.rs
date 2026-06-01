@@ -128,11 +128,11 @@ mod openssl;
 #[cfg(all(
     feature = "host_env",
     not(target_arch = "wasm32"),
-    feature = "ssl-rustls"
+    feature = "__ssl-rustls"
 ))]
-mod ssl;
+pub mod ssl;
 
-#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls", not(clippy)))]
+#[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
 compile_error!(r#"features "ssl-openssl" and "ssl-rustls" are mutually exclusive"#);
 
 #[cfg(all(
@@ -246,7 +246,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         #[cfg(all(
             feature = "host_env",
             not(target_arch = "wasm32"),
-            feature = "ssl-rustls"
+            feature = "__ssl-rustls"
         ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),

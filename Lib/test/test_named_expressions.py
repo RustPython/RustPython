@@ -90,7 +90,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_15(self):
         code = """(lambda: x := 1)"""
 

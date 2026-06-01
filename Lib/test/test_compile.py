@@ -2580,7 +2580,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_dict(self):
         self.check_stack_size("{" + "x:x, " * self.N + "x:x}")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 102 not less than or equal to 6
     def test_func_args(self):
         self.check_stack_size("f(" + "x, " * self.N + ")")
 
@@ -2588,7 +2587,6 @@ class TestExpressionStackSize(unittest.TestCase):
         kwargs = (f'a{i}=x' for i in range(self.N))
         self.check_stack_size("f(" +  ", ".join(kwargs) + ")")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 102 not less than or equal to 6
     def test_meth_args(self):
         self.check_stack_size("o.m(" + "x, " * self.N + ")")
 
