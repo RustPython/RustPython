@@ -2098,6 +2098,7 @@ class HTTPSTest(TestCase):
             h.close()
             self.assertIn('text/html', content_type)
 
+    @unittest.skipIf("rustls" in __import__('ssl').OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls does not support server host name verification by CN")
     def test_networked_good_cert(self):
         # We feed the server's cert as a validating cert
         import ssl
