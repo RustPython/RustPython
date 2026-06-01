@@ -5,118 +5,8 @@ pub(crate) use decl::module_def;
 use crate::vm::{
     PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
 };
-use core::mem;
+use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
-
-#[cfg(unix)]
-mod platform {
-    pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};
-    pub use std::os::unix::io::RawFd;
-
-    pub const fn check_err(x: i32) -> bool {
-        x < 0
-    }
-}
-
-#[allow(non_snake_case)]
-#[cfg(windows)]
-mod platform {
-    pub use WinSock::{FD_SET as fd_set, FD_SETSIZE, SOCKET as RawFd, TIMEVAL as timeval, select};
-    use windows_sys::Win32::Networking::WinSock;
-
-    // based off winsock2.h: https://gist.github.com/piscisaureus/906386#file-winsock2-h-L128-L141
-
-    pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        unsafe {
-            let mut slot = (&raw mut (*set).fd_array).cast::<RawFd>();
-            let fd_count = (*set).fd_count;
-            for _ in 0..fd_count {
-                if *slot == fd {
-                    return;
-                }
-                slot = slot.add(1);
-            }
-            // slot == &fd_array[fd_count] at this point
-            if fd_count < FD_SETSIZE {
-                *slot = fd as RawFd;
-                (*set).fd_count += 1;
-            }
-        }
-    }
-
-    pub unsafe fn FD_ZERO(set: *mut fd_set) {
-        unsafe { (*set).fd_count = 0 };
-    }
-
-    pub unsafe fn FD_ISSET(fd: RawFd, set: *mut fd_set) -> bool {
-        use WinSock::__WSAFDIsSet;
-        unsafe { __WSAFDIsSet(fd as _, set) != 0 }
-    }
-
-    pub fn check_err(x: i32) -> bool {
-        x == WinSock::SOCKET_ERROR
-    }
-}
-
-#[cfg(target_os = "wasi")]
-mod platform {
-    pub use libc::{FD_SETSIZE, timeval};
-    pub use std::os::fd::RawFd;
-
-    pub fn check_err(x: i32) -> bool {
-        x < 0
-    }
-
-    #[repr(C)]
-    pub struct fd_set {
-        __nfds: usize,
-        __fds: [libc::c_int; FD_SETSIZE],
-    }
-
-    #[allow(non_snake_case)]
-    pub unsafe fn FD_ISSET(fd: RawFd, set: *const fd_set) -> bool {
-        let set = unsafe { &*set };
-        let n = set.__nfds;
-        for p in &set.__fds[..n] {
-            if *p == fd {
-                return true;
-            }
-        }
-        false
-    }
-
-    #[allow(non_snake_case)]
-    pub unsafe fn FD_SET(fd: RawFd, set: *mut fd_set) {
-        let set = unsafe { &mut *set };
-        let n = set.__nfds;
-        for p in &set.__fds[..n] {
-            if *p == fd {
-                return;
-            }
-        }
-        set.__nfds = n + 1;
-        set.__fds[n] = fd;
-    }
-
-    #[allow(non_snake_case)]
-    pub unsafe fn FD_ZERO(set: *mut fd_set) {
-        let set = unsafe { &mut *set };
-        set.__nfds = 0;
-    }
-
-    unsafe extern "C" {
-        pub fn select(
-            nfds: libc::c_int,
-            readfds: *mut fd_set,
-            writefds: *mut fd_set,
-            errorfds: *mut fd_set,
-            timeout: *const timeval,
-        ) -> libc::c_int;
-    }
-}
-
-use platform::RawFd;
-pub use platform::timeval;
 
 #[derive(Traverse)]
 struct Selectable {
@@ -139,72 +29,6 @@ impl TryFromObject for Selectable {
     }
 }
 
-// Keep it in a MaybeUninit, since on windows FD_ZERO doesn't actually zero the whole thing
-#[repr(transparent)]
-pub struct FdSet(mem::MaybeUninit<platform::fd_set>);
-
-impl FdSet {
-    pub fn new() -> Self {
-        // it's just ints, and all the code that's actually
-        // interacting with it is in C, so it's safe to zero
-        let mut fdset = core::mem::MaybeUninit::zeroed();
-        unsafe { platform::FD_ZERO(fdset.as_mut_ptr()) };
-        Self(fdset)
-    }
-
-    pub fn insert(&mut self, fd: RawFd) {
-        unsafe { platform::FD_SET(fd, self.0.as_mut_ptr()) };
-    }
-
-    pub fn contains(&mut self, fd: RawFd) -> bool {
-        unsafe { platform::FD_ISSET(fd, self.0.as_mut_ptr()) }
-    }
-
-    pub fn clear(&mut self) {
-        unsafe { platform::FD_ZERO(self.0.as_mut_ptr()) };
-    }
-
-    pub fn highest(&mut self) -> Option<RawFd> {
-        (0..platform::FD_SETSIZE as RawFd)
-            .rev()
-            .find(|&i| self.contains(i))
-    }
-}
-
-pub fn select(
-    nfds: libc::c_int,
-    readfds: &mut FdSet,
-    writefds: &mut FdSet,
-    errfds: &mut FdSet,
-    timeout: Option<&mut timeval>,
-) -> io::Result<i32> {
-    let timeout = match timeout {
-        Some(tv) => tv as *mut timeval,
-        None => core::ptr::null_mut(),
-    };
-    let ret = unsafe {
-        platform::select(
-            nfds,
-            readfds.0.as_mut_ptr(),
-            writefds.0.as_mut_ptr(),
-            errfds.0.as_mut_ptr(),
-            timeout,
-        )
-    };
-    if platform::check_err(ret) {
-        Err(io::Error::last_os_error())
-    } else {
-        Ok(ret)
-    }
-}
-
-fn sec_to_timeval(sec: f64) -> timeval {
-    timeval {
-        tv_sec: sec.trunc() as _,
-        tv_usec: (sec.fract() * 1e6) as _,
-    }
-}
-
 #[pymodule(name = "select")]
 mod decl {
     use super::*;
@@ -216,14 +40,15 @@ mod decl {
         stdlib::time,
     };
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         #[cfg(windows)]
-        crate::vm::windows::init_winsock();
+        rustpython_host_env::windows::init_winsock();
 
         #[cfg(unix)]
         {
             use crate::vm::class::PyClassImpl;
-            poll::PyPoll::make_static_type();
+            let _ = poll::PyPoll::make_static_type();
         }
 
         __module_exec(vm, module);
@@ -256,8 +81,22 @@ mod decl {
 
         let seq2set = |list: &PyObject| -> PyResult<(Vec<Selectable>, FdSet)> {
             let v: Vec<Selectable> = list.try_to_value(vm)?;
+
+            let too_many_fds = cfg_select! {
+                windows => v.len() > FD_SETSIZE as usize,
+                _ => v.len() > FD_SETSIZE,
+            };
+            if too_many_fds {
+                return Err(vm.new_value_error("too many file descriptors in select()"));
+            }
+
             let mut fds = FdSet::new();
             for fd in &v {
+                #[cfg(unix)]
+                if fd.fno as usize >= FD_SETSIZE {
+                    return Err(vm.new_value_error("file descriptor out of range in select()"));
+                }
+
                 fds.insert(fd.fno);
             }
             Ok((v, fds))
@@ -272,15 +111,20 @@ mod decl {
             return Ok((empty.clone(), empty.clone(), empty));
         }
 
-        let nfds: i32 = [&mut r, &mut w, &mut x]
-            .iter_mut()
-            .filter_map(|set| set.highest())
-            .max()
-            .map_or(0, |n| n + 1) as _;
+        let nfds = cfg_select! {
+            windows => 0, // value is ignored on windows
+
+            _ => [&mut r, &mut w, &mut x]
+                .iter_mut()
+                .filter_map(|set| set.highest())
+                .max()
+                .map_or(0, |n| n + 1) as _,
+        };
 
         loop {
-            let mut tv = timeout.map(sec_to_timeval);
-            let res = vm.allow_threads(|| super::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
+            let mut tv = timeout.map(host_select::sec_to_timeval);
+            let res =
+                vm.allow_threads(|| host_select::select(nfds, &mut r, &mut w, &mut x, tv.as_mut()));
 
             match res {
                 Ok(_) => break,
@@ -340,7 +184,6 @@ mod decl {
             stdlib::_io::Fildes,
         };
         use core::{convert::TryFrom, time::Duration};
-        use libc::pollfd;
         use num_traits::{Signed, ToPrimitive};
         use std::time::Instant;
 
@@ -388,42 +231,15 @@ mod decl {
 
         #[pyclass(module = "select", name = "poll")]
         #[derive(Default, Debug, PyPayload)]
-        pub struct PyPoll {
+        pub(crate) struct PyPoll {
             // keep sorted
-            fds: PyMutex<Vec<pollfd>>,
-        }
-
-        #[inline]
-        fn search(fds: &[pollfd], fd: i32) -> Result<usize, usize> {
-            fds.binary_search_by_key(&fd, |pfd| pfd.fd)
-        }
-
-        fn insert_fd(fds: &mut Vec<pollfd>, fd: i32, events: i16) {
-            match search(fds, fd) {
-                Ok(i) => fds[i].events = events,
-                Err(i) => fds.insert(
-                    i,
-                    pollfd {
-                        fd,
-                        events,
-                        revents: 0,
-                    },
-                ),
-            }
-        }
-
-        fn get_fd_mut(fds: &mut [pollfd], fd: i32) -> Option<&mut pollfd> {
-            search(fds, fd).ok().map(move |i| &mut fds[i])
-        }
-
-        fn remove_fd(fds: &mut Vec<pollfd>, fd: i32) -> Option<pollfd> {
-            search(fds, fd).ok().map(|i| fds.remove(i))
+            fds: PyMutex<Vec<host_select::PollFd>>,
         }
 
         // new EventMask type
         #[derive(Copy, Clone)]
         #[repr(transparent)]
-        pub struct EventMask(pub i16);
+        pub(crate) struct EventMask(pub i16);
 
         impl TryFromObject for EventMask {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
@@ -450,17 +266,12 @@ mod decl {
         #[pyclass]
         impl PyPoll {
             #[pymethod]
-            fn register(
-                &self,
-                Fildes(fd): Fildes,
-                eventmask: OptionalArg<EventMask>,
-            ) -> PyResult<()> {
+            fn register(&self, Fildes(fd): Fildes, eventmask: OptionalArg<EventMask>) {
                 let mask = match eventmask {
                     OptionalArg::Present(event_mask) => event_mask.0,
                     OptionalArg::Missing => DEFAULT_EVENTS,
                 };
-                insert_fd(&mut self.fds.lock(), fd, mask);
-                Ok(())
+                host_select::insert_poll_fd(&mut self.fds.lock(), fd, mask);
             }
 
             #[pymethod]
@@ -472,7 +283,7 @@ mod decl {
             ) -> PyResult<()> {
                 let mut fds = self.fds.lock();
                 // CPython raises KeyError if fd is not registered, match that behavior
-                let pfd = get_fd_mut(&mut fds, fd)
+                let pfd = host_select::get_poll_fd_mut(&mut fds, fd)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))?;
                 pfd.events = eventmask.0;
                 Ok(())
@@ -480,7 +291,7 @@ mod decl {
 
             #[pymethod]
             fn unregister(&self, Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<()> {
-                let removed = remove_fd(&mut self.fds.lock(), fd);
+                let removed = host_select::remove_poll_fd(&mut self.fds.lock(), fd);
                 removed
                     .map(drop)
                     .ok_or_else(|| vm.new_key_error(vm.ctx.new_int(fd).into()))
@@ -502,13 +313,12 @@ mod decl {
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let mut poll_timeout = timeout_ms;
                 loop {
-                    let res = vm.allow_threads(|| unsafe {
-                        libc::poll(fds.as_mut_ptr(), fds.len() as _, poll_timeout)
-                    });
-                    match nix::Error::result(res) {
+                    match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
                         Ok(_) => break,
-                        Err(nix::Error::EINTR) => vm.check_signals()?,
-                        Err(e) => return Err(e.into_pyexception(vm)),
+                        Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                            vm.check_signals()?
+                        }
+                        Err(err) => return Err(err.into_pyexception(vm)),
                     }
                     if let Some(d) = deadline {
                         if let Some(remaining) = d.checked_duration_since(Instant::now()) {
@@ -558,18 +368,17 @@ mod decl {
             types::Constructor,
         };
         use core::ops::Deref;
-        use rustix::event::epoll::{self, EventData, EventFlags};
-        use std::os::fd::{AsRawFd, IntoRawFd, OwnedFd};
+        use std::os::fd::{AsRawFd, OwnedFd};
         use std::time::Instant;
 
         #[pyclass(module = "select", name = "epoll")]
         #[derive(Debug, rustpython_vm::PyPayload)]
-        pub struct PyEpoll {
+        pub(crate) struct PyEpoll {
             epoll_fd: PyRwLock<Option<OwnedFd>>,
         }
 
         #[derive(FromArgs)]
-        pub struct EpollNewArgs {
+        pub(crate) struct EpollNewArgs {
             #[pyarg(any, default = -1)]
             sizehint: i32,
             #[pyarg(any, default = 0)]
@@ -601,7 +410,7 @@ mod decl {
         #[pyclass(with(Constructor))]
         impl PyEpoll {
             fn new() -> std::io::Result<Self> {
-                let epoll_fd = epoll::create(epoll::CreateFlags::CLOEXEC)?;
+                let epoll_fd = host_select::epoll::create()?;
                 let epoll_fd = Some(epoll_fd).into();
                 Ok(Self { epoll_fd })
             }
@@ -610,7 +419,7 @@ mod decl {
             fn close(&self) -> std::io::Result<()> {
                 let fd = self.epoll_fd.write().take();
                 if let Some(fd) = fd {
-                    nix::unistd::close(fd.into_raw_fd())?;
+                    host_select::epoll::close(fd)?;
                 }
                 Ok(())
             }
@@ -647,26 +456,28 @@ mod decl {
                 vm: &VirtualMachine,
             ) -> PyResult<()> {
                 let events = match eventmask {
-                    OptionalArg::Present(mask) => EventFlags::from_bits_retain(mask),
-                    OptionalArg::Missing => EventFlags::IN | EventFlags::PRI | EventFlags::OUT,
+                    OptionalArg::Present(mask) => mask,
+                    OptionalArg::Missing => (host_select::epoll::EventFlags::IN
+                        | host_select::epoll::EventFlags::PRI
+                        | host_select::epoll::EventFlags::OUT)
+                        .bits(),
                 };
                 let epoll_fd = &*self.get_epoll(vm)?;
-                let data = EventData::new_u64(fd.as_raw_fd() as u64);
-                epoll::add(epoll_fd, fd, data, events).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::add(epoll_fd, fd, fd.as_raw_fd() as u64, events)
+                    .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
             fn modify(&self, fd: Fildes, eventmask: u32, vm: &VirtualMachine) -> PyResult<()> {
-                let events = EventFlags::from_bits_retain(eventmask);
                 let epoll_fd = &*self.get_epoll(vm)?;
-                let data = EventData::new_u64(fd.as_raw_fd() as u64);
-                epoll::modify(epoll_fd, fd, data, events).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::modify(epoll_fd, fd, fd.as_raw_fd() as u64, eventmask)
+                    .map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
             fn unregister(&self, fd: Fildes, vm: &VirtualMachine) -> PyResult<()> {
                 let epoll_fd = &*self.get_epoll(vm)?;
-                epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
+                host_select::epoll::delete(epoll_fd, fd).map_err(|e| e.into_pyexception(vm))
             }
 
             #[pymethod]
@@ -674,11 +485,10 @@ mod decl {
                 let poll::TimeoutArg(timeout) = args.timeout;
                 let maxevents = args.maxevents;
 
-                let mut poll_timeout =
-                    timeout
-                        .map(rustix::event::Timespec::try_from)
-                        .transpose()
-                        .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
+                let mut poll_timeout = timeout
+                    .map(host_select::epoll::Timespec::try_from)
+                    .transpose()
+                    .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
 
                 let deadline = timeout.map(|d| Instant::now() + d);
                 let maxevents = match maxevents {
@@ -691,22 +501,19 @@ mod decl {
                     _ => maxevents as usize,
                 };
 
-                let mut events = Vec::<epoll::Event>::with_capacity(maxevents);
+                let mut events = Vec::<host_select::epoll::Event>::with_capacity(maxevents);
 
                 let epoll = &*self.get_epoll(vm)?;
 
                 loop {
-                    events.clear();
                     match vm.allow_threads(|| {
-                        epoll::wait(
-                            epoll,
-                            rustix::buffer::spare_capacity(&mut events),
-                            poll_timeout.as_ref(),
-                        )
+                        host_select::epoll::wait(epoll, &mut events, poll_timeout.as_ref())
                     }) {
                         Ok(_) => break,
-                        Err(rustix::io::Errno::INTR) => vm.check_signals()?,
-                        Err(e) => return Err(e.into_pyexception(vm)),
+                        Err(host_select::epoll::WaitError::Interrupted) => vm.check_signals()?,
+                        Err(host_select::epoll::WaitError::Io(e)) => {
+                            return Err(e.into_pyexception(vm));
+                        }
                     }
                     if let Some(deadline) = deadline {
                         if let Some(new_timeout) = deadline.checked_duration_since(Instant::now()) {

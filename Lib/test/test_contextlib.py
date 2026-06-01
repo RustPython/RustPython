@@ -48,23 +48,23 @@ class TestAbstractContextManager(unittest.TestCase):
             def __exit__(self, exc_type, exc_value, traceback):
                 return None
 
-        self.assertTrue(issubclass(ManagerFromScratch, AbstractContextManager))
+        self.assertIsSubclass(ManagerFromScratch, AbstractContextManager)
 
         class DefaultEnter(AbstractContextManager):
             def __exit__(self, *args):
                 super().__exit__(*args)
 
-        self.assertTrue(issubclass(DefaultEnter, AbstractContextManager))
+        self.assertIsSubclass(DefaultEnter, AbstractContextManager)
 
         class NoEnter(ManagerFromScratch):
             __enter__ = None
 
-        self.assertFalse(issubclass(NoEnter, AbstractContextManager))
+        self.assertNotIsSubclass(NoEnter, AbstractContextManager)
 
         class NoExit(ManagerFromScratch):
             __exit__ = None
 
-        self.assertFalse(issubclass(NoExit, AbstractContextManager))
+        self.assertNotIsSubclass(NoExit, AbstractContextManager)
 
 
 class ContextManagerTestCase(unittest.TestCase):
@@ -99,8 +99,6 @@ class ContextManagerTestCase(unittest.TestCase):
                 raise ZeroDivisionError()
         self.assertEqual(state, [1, 42, 999])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     def test_contextmanager_traceback(self):
         @contextmanager
         def f():
@@ -1016,8 +1014,7 @@ class TestBaseExitStack:
         else:
             self.fail("Expected KeyError, but no exception was raised")
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exit_exception_with_correct_context(self):
         # http://bugs.python.org/issue20317
         @contextmanager

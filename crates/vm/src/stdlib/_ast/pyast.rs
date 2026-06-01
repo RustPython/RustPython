@@ -1,5 +1,3 @@
-#![allow(clippy::all)]
-
 use super::*;
 use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union};
 use crate::common::ascii;
@@ -1521,7 +1519,7 @@ const FIELD_TYPES: &[(&str, &[(&str, FieldType)])] = &[
     ),
 ];
 
-pub fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
+pub(super) fn extend_module_nodes(vm: &VirtualMachine, module: &Py<PyModule>) {
     extend_module!(vm, module, {
         "AST" => NodeAst::make_static_type(),
         "mod" => NodeMod::make_static_type(),

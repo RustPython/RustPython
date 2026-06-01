@@ -17,10 +17,9 @@ use crate::{
 };
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
-use std::{
-    collections::HashSet,
-    io::{self, BufRead, BufReader},
-};
+#[cfg(feature = "host_env")]
+use std::io::{BufRead, BufReader};
+use std::{collections::HashSet, io};
 
 pub use super::exception_group::exception_group;
 
@@ -366,6 +365,7 @@ impl VirtualMachine {
     }
 }
 
+#[cfg(feature = "host_env")]
 fn print_source_line<W: Write>(
     output: &mut W,
     filename: &str,
@@ -373,7 +373,7 @@ fn print_source_line<W: Write>(
 ) -> Result<(), W::Error> {
     // TODO: use io.open() method instead, when available, according to https://github.com/python/cpython/blob/main/Python/traceback.c#L393
     // TODO: support different encodings
-    let file = match std::fs::File::open(filename) {
+    let file = match crate::host_env::fs::open(filename) {
         Ok(file) => file,
         Err(_) => return Ok(()),
     };
@@ -405,6 +405,8 @@ fn write_traceback_entry<W: Write>(
         tb_entry.lineno,
         tb_entry.frame.code.obj_name
     )?;
+
+    #[cfg(feature = "host_env")]
     print_source_line(output, filename, tb_entry.lineno.get())?;
 
     Ok(())
@@ -665,22 +667,22 @@ impl PyBaseException {
 #[pyclass]
 impl Py<PyBaseException> {
     #[pymethod]
-    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    pub(super) fn __str__(&self, vm: &VirtualMachine) -> PyStrRef {
         let str_args = vm.exception_args_as_string(self.args(), true);
-        Ok(match str_args.into_iter().exactly_one() {
+        match str_args.into_iter().exactly_one() {
             Err(i) if i.len() == 0 => vm.ctx.empty_str.to_owned(),
             Ok(s) => s,
             Err(i) => PyStr::from(format!("({})", i.format(", "))).into_ref(&vm.ctx),
-        })
+        }
     }
 }
 
 #[pyclass]
 impl PyRef<PyBaseException> {
     #[pymethod]
-    fn with_traceback(self, tb: Option<PyTracebackRef>) -> PyResult<Self> {
+    fn with_traceback(self, tb: Option<PyTracebackRef>) -> Self {
         *self.traceback.write() = tb;
-        Ok(self)
+        self
     }
 
     #[pymethod]
@@ -1083,11 +1085,7 @@ fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObject
     move |exc| exc.get_arg(idx)
 }
 
-fn syntax_error_set_msg(
-    exc: PyBaseExceptionRef,
-    value: PySetterValue,
-    vm: &VirtualMachine,
-) -> PyResult<()> {
+fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &VirtualMachine) {
     let mut args = exc.args.write();
     let mut new_args = args.as_slice().to_vec();
     // Ensure the message slot at index 0 always exists for SyntaxError.args.
@@ -1099,7 +1097,6 @@ fn syntax_error_set_msg(
         PySetterValue::Delete => new_args[0] = vm.ctx.none(),
     }
     *args = PyTuple::new_ref(new_args, &vm.ctx);
-    Ok(())
 }
 
 fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
@@ -1108,11 +1105,11 @@ fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
     // - size == 1: code is args[0]
     // - size > 1: code is args (the whole tuple)
     let args = exc.args.read();
-    match args.len() {
-        0 => None,
-        1 => Some(args.first().unwrap().clone()),
-        _ => Some(args.as_object().to_owned()),
-    }
+    Some(match args.len() {
+        0 => return None,
+        1 => args.first().unwrap().clone(),
+        _ => args.as_object().to_owned(),
+    })
 }
 
 #[cfg(feature = "serde")]
@@ -1274,7 +1271,7 @@ pub(crate) struct OSErrorBuilder {
 
 impl OSErrorBuilder {
     #[must_use]
-    pub fn with_subtype(
+    pub(crate) fn with_subtype(
         exc_type: PyTypeRef,
         errno: Option<i32>,
         strerror: impl ToPyObject,
@@ -1293,7 +1290,7 @@ impl OSErrorBuilder {
     }
 
     #[must_use]
-    pub fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
+    pub(crate) fn with_errno(errno: i32, strerror: impl ToPyObject, vm: &VirtualMachine) -> Self {
         let exc_type = errno_to_exc_type(errno, vm)
             .unwrap_or(vm.ctx.exceptions.os_error)
             .to_owned();
@@ -1331,10 +1328,10 @@ impl OSErrorBuilder {
         self
     }
 
-    pub fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
+    pub(crate) fn build(self, vm: &VirtualMachine) -> PyRef<types::PyOSError> {
         use types::PyOSError;
 
-        let OSErrorBuilder {
+        let Self {
             exc_type,
             errno,
             strerror,
@@ -1345,10 +1342,10 @@ impl OSErrorBuilder {
         } = self;
 
         let args = if let Some(errno) = errno {
-            #[cfg(windows)]
-            let winerror = winerror.to_pyobject(vm);
-            #[cfg(not(windows))]
-            let winerror = vm.ctx.none();
+            let winerror = cfg_select! {
+                windows => winerror.to_pyobject(vm),
+                _ => vm.ctx.none(),
+            };
 
             vec![
                 errno.to_pyobject(vm),
@@ -1380,7 +1377,7 @@ impl IntoPyException for OSErrorBuilder {
 
 impl ToOSErrorBuilder for std::io::Error {
     fn to_os_error_builder(&self, vm: &VirtualMachine) -> OSErrorBuilder {
-        use crate::common::os::ErrorExt;
+        use crate::host_env::os::ErrorExt;
 
         let errno = self.posix_errno();
         #[cfg(windows)]
@@ -1388,28 +1385,18 @@ impl ToOSErrorBuilder for std::io::Error {
             // Use C runtime's strerror for POSIX errno values.
             // For Windows-specific error codes, fall back to FormatMessage.
             const MAX_POSIX_ERRNO: i32 = 127;
-            if errno > 0 && errno <= MAX_POSIX_ERRNO {
-                let ptr = unsafe { libc::strerror(errno) };
-                if !ptr.is_null() {
-                    let s = unsafe { core::ffi::CStr::from_ptr(ptr) }.to_string_lossy();
-                    if !s.starts_with("Unknown error") {
-                        break 'msg s.into_owned();
-                    }
-                }
+            if errno > 0
+                && errno <= MAX_POSIX_ERRNO
+                && let Some(s) = crate::host_env::errno::strerror_string(errno)
+                && !s.starts_with("Unknown error")
+            {
+                break 'msg s;
             }
             self.to_string()
         };
         #[cfg(unix)]
-        let msg = {
-            let ptr = unsafe { libc::strerror(errno) };
-            if !ptr.is_null() {
-                unsafe { core::ffi::CStr::from_ptr(ptr) }
-                    .to_string_lossy()
-                    .into_owned()
-            } else {
-                self.to_string()
-            }
-        };
+        let msg =
+            crate::host_env::errno::strerror_string(errno).unwrap_or_else(|| self.to_string());
         #[cfg(not(any(windows, unix)))]
         let msg = self.to_string();
 
@@ -1436,17 +1423,160 @@ impl IntoPyException for std::io::Error {
     }
 }
 
-#[cfg(unix)]
-impl IntoPyException for nix::Error {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        std::io::Error::from(self).into_pyexception(vm)
+#[cfg(all(unix, not(target_os = "redox")))]
+impl ToPyException for rustpython_host_env::fcntl::LockfError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::InvalidCmd => vm.new_value_error("unrecognized lockf argument"),
+            Self::Overflow(e) => vm.new_overflow_error(e.clone()),
+            Self::Io(err) => err.to_pyexception(vm),
+        }
     }
 }
 
 #[cfg(unix)]
-impl IntoPyException for rustix::io::Errno {
-    fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        std::io::Error::from(self).into_pyexception(vm)
+impl ToPyException for rustpython_host_env::posix::AccessError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::InvalidMode => vm.new_value_error(
+                "One of the flags is wrong, there are only 4 possibilities F_OK, R_OK, W_OK and X_OK",
+            ),
+            Self::Os(errno) => std::io::Error::from_raw_os_error(*errno).to_pyexception(vm),
+        }
+    }
+}
+
+#[cfg(all(unix, not(target_os = "redox")))]
+impl ToPyException for rustpython_host_env::socket::AncillaryPackError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::ItemTooLarge => vm.new_os_error("ancillary data item too large"),
+            Self::TooMuchData => vm.new_os_error("too much ancillary data"),
+            Self::UnexpectedNullHeader => {
+                vm.new_runtime_error("unexpected NULL result from CMSG_FIRSTHDR/CMSG_NXTHDR")
+            }
+        }
+    }
+}
+
+#[cfg(any(unix, windows))]
+impl ToPyException for rustpython_host_env::time::CheckedTmError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::YearOutOfRange => vm.new_overflow_error("year out of range"),
+            Self::MonthOutOfRange => vm.new_value_error("month out of range"),
+            Self::DayOfMonthOutOfRange => vm.new_value_error("day of month out of range"),
+            Self::HourOutOfRange => vm.new_value_error("hour out of range"),
+            Self::MinuteOutOfRange => vm.new_value_error("minute out of range"),
+            Self::SecondsOutOfRange => vm.new_value_error("seconds out of range"),
+            Self::DayOfWeekOutOfRange => vm.new_value_error("day of week out of range"),
+            Self::DayOfYearOutOfRange => vm.new_value_error("day of year out of range"),
+            Self::EmbeddedNul => vm.new_value_error("embedded null character"),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winapi::BuildEnvironmentBlockError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::ContainsNul => vm.new_value_error("embedded null character"),
+            Self::IllegalName => vm.new_value_error("illegal environment variable name"),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winapi::BatchedWaitError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Timeout => vm
+                .new_os_subtype_error(
+                    vm.ctx.exceptions.timeout_error.to_owned(),
+                    None,
+                    "timed out",
+                )
+                .upcast(),
+            Self::Interrupted => vm
+                .new_errno_error(libc::EINTR, "Interrupted system call")
+                .upcast(),
+            Self::Os(err) => vm.new_os_error(*err as i32),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::nt::ReadlinkError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Io(err) => err.to_pyexception(vm),
+            Self::NotSymbolicLink => {
+                vm.new_os_error("The file or directory is not a reparse point")
+            }
+            Self::InvalidReparseData => vm.new_os_error("Invalid reparse data"),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::nt::ReadConsoleError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Io(err) => err.to_pyexception(vm),
+            Self::BufferTooSmall {
+                available,
+                required,
+            } => vm.new_system_error(format!(
+                "Buffer had room for {available} bytes but {required} bytes required",
+            )),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winreg::ExpandEnvironmentStringsError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Os => vm.new_os_error("ExpandEnvironmentStringsW failed"),
+            Self::Utf16(e) => vm.new_value_error(format!("UTF16 error: {e}")),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::winreg::QueryStringError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::Code(err) => std::io::Error::from_raw_os_error(*err as i32).to_pyexception(vm),
+            Self::Utf16(e) => vm.new_value_error(format!("UTF16 error: {e}")),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for rustpython_host_env::wmi::ExecQueryError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        match self {
+            Self::MoreData => vm.new_os_error(format!(
+                "Query returns more than {} characters",
+                rustpython_host_env::wmi::BUFFER_SIZE
+            )),
+            Self::Code(err) => std::io::Error::from_raw_os_error(*err as i32).to_pyexception(vm),
+        }
+    }
+}
+
+#[cfg(unix)]
+impl ToPyException for rustpython_host_env::multiprocessing::SemError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        let excs = &vm.ctx.exceptions;
+        let exc_type = match self {
+            Self::AlreadyExists => excs.file_exists_error.to_owned(),
+            Self::NotFound => excs.file_not_found_error.to_owned(),
+            _ => excs.os_error.to_owned(),
+        };
+        vm.new_os_subtype_error(exc_type, Some(self.raw_os_error()), self.description())
+            .upcast()
     }
 }
 
@@ -1604,7 +1734,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set attributes
@@ -1703,16 +1833,16 @@ pub(super) mod types {
     #[pyexception]
     impl PyKeyError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             let args = zelf.args();
-            Ok(if args.len() == 1 {
+            if args.len() == 1 {
                 vm.exception_args_as_string(args, false)
                     .into_iter()
                     .exactly_one()
                     .unwrap()
             } else {
-                zelf.__str__(vm)?
-            })
+                zelf.__str__(vm)
+            }
         }
     }
 
@@ -1745,7 +1875,7 @@ pub(super) mod types {
             }
 
             // Pass args without kwargs to BaseException_init
-            let base_args = FuncArgs::new(args.args.clone(), KwArgs::default());
+            let base_args = FuncArgs::new(args.args, KwArgs::default());
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set name attribute if provided
@@ -1892,7 +2022,7 @@ pub(super) mod types {
             // SAFETY: All OSError subclasses (FileNotFoundError, etc.) are
             // #[repr(transparent)] wrappers around PyOSError with identical memory layout
             #[allow(deprecated)]
-            let exc: &Py<PyOSError> = zelf.downcast_ref::<PyOSError>().unwrap();
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
 
             // Check if this is BlockingIOError - need to handle characters_written
             let is_blocking_io_error =
@@ -1937,7 +2067,7 @@ pub(super) mod types {
                         .as_ref()
                         .and_then(|w| w.downcast_ref::<crate::builtins::PyInt>())
                         .and_then(|w| w.try_to_primitive::<i32>(vm).ok())
-                        .map(crate::common::os::winerror_to_errno)
+                        .map(crate::host_env::os::winerror_to_errno)
                     {
                         let errno_obj = vm.new_pyobj(errno);
                         let _ = unsafe { exc.errno.swap(Some(errno_obj.clone())) };
@@ -1951,7 +2081,11 @@ pub(super) mod types {
 
             // args are truncated to 2 for compatibility (only when 2-5 args and filename is not None)
             // truncation happens inside "if (filename && filename != Py_None)" block
-            let has_filename = exc.filename.to_owned().filter(|f| !vm.is_none(f)).is_some();
+            let has_filename = exc
+                .filename
+                .to_owned()
+                .as_ref()
+                .is_some_and(|f| !vm.is_none(f));
             if (3..=5).contains(&len) && has_filename {
                 new_args.args.truncate(2);
             }
@@ -1989,8 +2123,8 @@ pub(super) mod types {
                         .as_ref()
                         .map(|s| s.str(vm))
                         .transpose()?
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| "None".to_owned());
+                        .map_or_else(|| "None".to_owned(), |s| s.to_string());
+
                     if let Some(ref f2) = filename2 {
                         return Ok(vm.ctx.new_str(format!(
                             "[WinError {}] {}: {} -> {}",
@@ -2021,14 +2155,12 @@ pub(super) mod types {
                     .as_ref()
                     .map(|e| e.str(vm))
                     .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string());
                 let msg = strerror
                     .as_ref()
                     .map(|s| s.str(vm))
                     .transpose()?
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| "None".to_owned());
+                    .map_or_else(|| "None".to_owned(), |s| s.to_string());
                 if let Some(ref f2) = filename2 {
                     return Ok(vm.ctx.new_str(format!(
                         "[Errno {}] {}: {} -> {}",
@@ -2054,7 +2186,7 @@ pub(super) mod types {
             }
 
             // fallback to BaseException.__str__
-            zelf.__str__(vm)
+            Ok(zelf.__str__(vm))
         }
 
         #[pymethod]
@@ -2076,21 +2208,19 @@ pub(super) mod types {
                             .get_attr("filename2", vm)
                             .ok()
                             .filter(|f| !vm.is_none(f));
-                        #[cfg(windows)]
-                        let winerror = obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w));
+
+                        let winerror: Option<PyObjectRef> = cfg_select! {
+                            windows => obj.get_attr("winerror", vm).ok().filter(|w| !vm.is_none(w)),
+                            _ => None,
+                        };
 
                         if let Some(filename2) = filename2 {
-                            #[cfg(windows)]
-                            {
-                                args_reduced.push(winerror.unwrap_or_else(|| vm.ctx.none()));
-                            }
-                            #[cfg(not(windows))]
-                            args_reduced.push(vm.ctx.none());
-                            args_reduced.push(filename2);
+                            #[allow(clippy::unnecessary_literal_unwrap)]
+                            let winerror = winerror.unwrap_or_else(|| vm.ctx.none());
+                            args_reduced.extend([winerror, filename2]);
                         } else {
                             // Diverges from CPython: include winerror even without
                             // filename2 so it survives pickle round-trips.
-                            #[cfg(windows)]
                             if let Some(winerror) = winerror {
                                 args_reduced.push(winerror);
                             }
@@ -2325,7 +2455,7 @@ pub(super) mod types {
     #[pyexception(with(Initializer))]
     impl PySyntaxError {
         #[pymethod]
-        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
             fn basename(filename: &Wtf8) -> &Wtf8 {
                 let bytes = filename.as_bytes();
                 let pos = if cfg!(windows) {
@@ -2378,7 +2508,7 @@ pub(super) mod types {
                 (None, None) => msg.as_wtf8().to_owned(),
             };
 
-            Ok(vm.ctx.new_str(msg_with_location_info))
+            vm.ctx.new_str(msg_with_location_info)
         }
     }
 
@@ -2397,6 +2527,21 @@ pub(super) mod types {
                     .downcast::<crate::builtins::PyTuple>()
             {
                 let location_tup_len = location_tuple.len();
+
+                match location_tup_len {
+                    4 | 6 => {}
+                    5 => {
+                        return Err(vm.new_type_error(
+                            "end_offset must be provided when end_lineno is provided".to_owned(),
+                        ));
+                    }
+                    _ => {
+                        return Err(vm.new_type_error(format!(
+                            "function takes exactly 4 or 6 arguments ({location_tup_len} given)"
+                        )));
+                    }
+                }
+
                 for (i, &attr) in [
                     "filename",
                     "lineno",

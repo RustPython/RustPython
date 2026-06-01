@@ -133,7 +133,7 @@ mod gc {
         let stats = gc_state::gc_state().get_stats();
         let mut result = Vec::with_capacity(3);
 
-        for stat in stats.iter() {
+        for stat in &stats {
             let dict = vm.ctx.new_dict();
             dict.set_item("collections", vm.ctx.new_int(stat.collections).into(), vm)?;
             dict.set_item("collected", vm.ctx.new_int(stat.collected).into(), vm)?;
@@ -163,7 +163,7 @@ mod gc {
         if let Some(g) = generation_opt
             && !(0..=2).contains(&g)
         {
-            return Err(vm.new_value_error(format!("generation must be in range(0, 3), not {}", g)));
+            return Err(vm.new_value_error(format!("generation must be in range(0, 3), not {g}")));
         }
         let objects = gc_state::gc_state().get_objects(generation_opt);
         Ok(vm.ctx.new_list(objects))

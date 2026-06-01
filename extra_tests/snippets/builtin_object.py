@@ -26,6 +26,17 @@ assert not hasattr(obj, "a")
 obj.__dict__ = {"a": 1}
 assert obj.a == 1
 
+del obj.__dict__
+d = obj.__dict__
+assert isinstance(d, dict)
+assert len(d) == 0
+
+try:
+    obj.a
+    assert False, "AttributeError expected"
+except AttributeError:
+    pass
+
 # Value inside the formatter goes through a different path of resolution.
 # Check that it still works all the same
 d = {

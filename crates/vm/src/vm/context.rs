@@ -1,9 +1,9 @@
 use crate::{
-    PyResult, VirtualMachine,
+    PyObject, PyResult, VirtualMachine,
     builtins::{
-        PyByteArray, PyBytes, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat, PyFrozenSet,
-        PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr, PyStrInterned,
-        PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
+        PyByteArray, PyBytes, PyCapsule, PyComplex, PyDict, PyDictRef, PyEllipsis, PyFloat,
+        PyFrozenSet, PyInt, PyIntRef, PyList, PyListRef, PyNone, PyNotImplemented, PyStr,
+        PyStrInterned, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8Str,
         bool_::PyBool,
         code::{self, PyCode},
         descriptor::{
@@ -14,7 +14,7 @@ use crate::{
         object, pystr,
         type_::PyAttributes,
     },
-    bytecode::{self, CodeFlags, CodeUnit, Instruction},
+    bytecode::{self, CodeFlags, CodeUnit, Instruction, Opcode},
     class::StaticType,
     common::rc::PyRc,
     exceptions,
@@ -26,6 +26,7 @@ use crate::{
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
+use core::ffi::{CStr, c_void};
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -288,6 +289,7 @@ impl Context {
     pub const INT_CACHE_POOL_RANGE: core::ops::RangeInclusive<i32> = (-5)..=256;
     const INT_CACHE_POOL_MIN: i32 = *Self::INT_CACHE_POOL_RANGE.start();
 
+    #[must_use]
     pub fn genesis() -> &'static PyRc<Self> {
         rustpython_common::static_cell! {
             static CONTEXT: PyRc<Context>;
@@ -296,7 +298,7 @@ impl Context {
             let ctx = PyRc::new(Self::init_genesis());
             // SAFETY: ctx is heap-allocated via PyRc and will be stored in
             // the CONTEXT static cell, so the Context lives for 'static.
-            let ctx_ref: &'static Context = unsafe { &*PyRc::as_ptr(&ctx) };
+            let ctx_ref: &'static Self = unsafe { &*PyRc::as_ptr(&ctx) };
             crate::types::TypeZoo::extend(ctx_ref);
             crate::exceptions::ExceptionZoo::extend(ctx_ref);
             ctx
@@ -410,9 +412,7 @@ impl Context {
                 arg: 0.into(),
             },
             CodeUnit {
-                op: Instruction::Resume {
-                    context: bytecode::Arg::marker(),
-                },
+                op: Opcode::Resume.into(),
                 arg: 0.into(),
             },
         ];
@@ -751,6 +751,15 @@ impl Context {
     pub fn new_code(&self, code: impl code::IntoCodeObject) -> PyRef<PyCode> {
         let code = code.into_code_object(self);
         PyRef::new_ref(PyCode::new(code), self.types.code_type.to_owned(), None)
+    }
+
+    pub fn new_capsule(
+        &self,
+        ptr: *mut c_void,
+        name: Option<&'static CStr>,
+        destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
+    ) -> PyRef<PyCapsule> {
+        PyCapsule::new(ptr, name, destructor).into_ref(self)
     }
 }
 

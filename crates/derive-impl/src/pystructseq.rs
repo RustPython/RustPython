@@ -102,12 +102,12 @@ fn parse_fields(input: &mut DeriveInput) -> Result<FieldInfo> {
                 bail_span!(input, "Only #[pystruct_sequence(...)] form is allowed");
             };
 
-            let idents: Vec<_> = l
+            let idents = l
                 .nested
                 .iter()
                 .filter_map(|n| n.get_ident())
                 .cloned()
-                .collect();
+                .collect::<Vec<_>>();
 
             for ident in idents {
                 match ident.to_string().as_str() {
@@ -205,7 +205,7 @@ pub(crate) fn impl_pystruct_sequence_data(
     let n_unnamed_fields = field_info.n_unnamed_fields();
 
     // Generate field index constants for visible fields (with cfg guards)
-    let field_indices: Vec<_> = visible_fields
+    let field_indices = visible_fields
         .iter()
         .enumerate()
         .map(|(i, field)| {
@@ -216,78 +216,58 @@ pub(crate) fn impl_pystruct_sequence_data(
                 pub const #const_name: usize = #i;
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate field name entries with cfg guards for named fields
-    let named_field_names: Vec<_> = named_fields
+    let named_field_names = named_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! { stringify!(#ident), }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { stringify!(#ident) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { stringify!(#ident) },
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate field name entries with cfg guards for skipped fields
-    let skipped_field_names: Vec<_> = skipped_fields
+    let skipped_field_names = skipped_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! { stringify!(#ident), }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { stringify!(#ident) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { stringify!(#ident) },
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate into_tuple items with cfg guards
-    let visible_tuple_items: Vec<_> = visible_fields
+    let visible_tuple_items = visible_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! {
-                    ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm),
-                }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
-    let skipped_tuple_items: Vec<_> = skipped_fields
+    let skipped_tuple_items = skipped_fields
         .iter()
         .map(|f| {
             let ident = &f.ident;
             let cfg_attrs = &f.cfg_attrs;
-            if cfg_attrs.is_empty() {
-                quote! {
-                    ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm),
-                }
-            } else {
-                quote! {
-                    #(#cfg_attrs)*
-                    { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
-                }
+            quote! {
+                #(#cfg_attrs)*
+                { ::rustpython_vm::convert::ToPyObject::to_pyobject(self.#ident, vm) },
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     // Generate TryFromObject impl only when try_from_object=true
     let try_from_object_impl = if try_from_object {
@@ -317,44 +297,33 @@ pub(crate) fn impl_pystruct_sequence_data(
 
     // Generate try_from_elements trait override only when try_from_object=true
     let try_from_elements_trait_override = if try_from_object {
-        let visible_field_inits: Vec<_> = visible_fields
+        let visible_field_inits = visible_fields
             .iter()
             .map(|f| {
                 let ident = &f.ident;
                 let cfg_attrs = &f.cfg_attrs;
-                if cfg_attrs.is_empty() {
-                    quote! { #ident: iter.next().unwrap().clone().try_into_value(vm)?, }
-                } else {
-                    quote! {
-                        #(#cfg_attrs)*
-                        #ident: iter.next().unwrap().clone().try_into_value(vm)?,
-                    }
+                quote! {
+                    #(#cfg_attrs)*
+                    #ident: iter.next().unwrap().clone().try_into_value(vm)?,
                 }
             })
-            .collect();
-        let skipped_field_inits: Vec<_> = skipped_fields
+            .collect::<Vec<_>>();
+
+        let skipped_field_inits = skipped_fields
             .iter()
             .map(|f| {
                 let ident = &f.ident;
                 let cfg_attrs = &f.cfg_attrs;
-                if cfg_attrs.is_empty() {
-                    quote! {
-                        #ident: match iter.next() {
-                            Some(v) => v.clone().try_into_value(vm)?,
-                            None => vm.ctx.none(),
-                        },
-                    }
-                } else {
-                    quote! {
-                        #(#cfg_attrs)*
-                        #ident: match iter.next() {
-                            Some(v) => v.clone().try_into_value(vm)?,
-                            None => vm.ctx.none(),
-                        },
-                    }
+                quote! {
+                    #(#cfg_attrs)*
+                    #ident: match iter.next() {
+                        Some(v) => v.clone().try_into_value(vm)?,
+                        None => vm.ctx.none(),
+                    },
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
+
         quote! {
             fn try_from_elements(
                 elements: Vec<::rustpython_vm::PyObjectRef>,
@@ -398,7 +367,7 @@ pub(crate) fn impl_pystruct_sequence_data(
 
     // For attribute macro, we need to output the original struct as well
     // But first, strip #[pystruct_sequence] attributes from fields
-    let mut clean_struct = item_struct.clone();
+    let mut clean_struct = item_struct;
     if let syn::Fields::Named(ref mut fields) = clean_struct.fields {
         for field in &mut fields.named {
             field
@@ -426,13 +395,14 @@ impl ItemMeta for PyStructSequenceMeta {
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self { inner }
     }
+
     fn inner(&self) -> &ItemMetaInner {
         &self.inner
     }
 }
 
 impl PyStructSequenceMeta {
-    pub fn class_name(&self) -> Result<Option<String>> {
+    pub(crate) fn class_name(&self) -> Result<Option<String>> {
         const KEY: &str = "name";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -451,12 +421,11 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
-    pub fn module(&self) -> Result<Option<String>> {
+    pub(crate) fn module(&self) -> Result<Option<String>> {
         const KEY: &str = "module";
         let inner = self.inner();
         if let Some((_, meta)) = inner.meta_map.get(KEY) {
@@ -475,9 +444,8 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            Ok(None)
         }
+        Ok(None)
     }
 
     fn data_type(&self) -> Result<Ident> {
@@ -499,15 +467,14 @@ impl PyStructSequenceMeta {
                 inner.meta_ident,
                 "#[pystruct_sequence({KEY}=value)] expects a string value"
             )
-        } else {
-            bail_span!(
-                inner.meta_ident,
-                "#[pystruct_sequence] requires data parameter (e.g., data = \"DataStructName\")"
-            )
         }
+        bail_span!(
+            inner.meta_ident,
+            "#[pystruct_sequence] requires data parameter (e.g., data = \"DataStructName\")"
+        )
     }
 
-    pub fn no_attr(&self) -> Result<bool> {
+    pub(crate) fn no_attr(&self) -> Result<bool> {
         self.inner()._bool("no_attr")
     }
 }
@@ -553,7 +520,7 @@ pub(crate) fn impl_pystruct_sequence(
     };
 
     let module_class_name = if let Some(ref m) = module_name {
-        format!("{}.{}", m, class_name)
+        format!("{m}.{class_name}")
     } else {
         class_name.clone()
     };

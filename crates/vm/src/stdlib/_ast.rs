@@ -73,6 +73,33 @@ fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ:
         .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
 }
 
+/// Read a required scalar field, rejecting both attribute absence and `None` value
+/// with CPython-compatible error messages. Pairs with `get_node_field_opt` (which
+/// returns `Option::None` for the same conditions): both filter `None`, but diverge
+/// on whether to raise or return `None`.
+///
+/// Errors:
+/// - Attribute absent: `TypeError("required field \"X\" missing from Y")` (via `get_node_field`).
+/// - Attribute present but `None`: `ValueError("field 'X' is required for Y")`,
+///   matching CPython's `Python/ast.c` validator output.
+///
+/// Use for required scalar fields where `None` is invalid (e.g. `comprehension.target`,
+/// `keyword.value`, `match_case.pattern`). Do NOT use for fields where `None` is
+/// legitimate (e.g. `Constant.value` representing the `None` literal — use plain
+/// `get_node_field`); or for optional fields (use `get_node_field_opt`).
+fn get_node_field_required(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    field: &'static str,
+    typ: &str,
+) -> PyResult {
+    let value = get_node_field(vm, obj, field, typ)?;
+    if vm.is_none(&value) {
+        return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
+    }
+    Ok(value)
+}
+
 fn get_node_field_opt(
     vm: &VirtualMachine,
     obj: &PyObject,
@@ -99,7 +126,7 @@ struct PySourceRange {
     end: PySourceLocation,
 }
 
-pub struct PySourceLocation {
+pub(crate) struct PySourceLocation {
     row: Row,
     column: Column,
 }
@@ -212,22 +239,19 @@ fn range_from_object(
 
     if start_row_val > end_row_val {
         return Err(vm.new_value_error(format!(
-            "AST node line range ({}, {}) is not valid",
-            start_row_val, end_row_val
+            "AST node line range ({start_row_val}, {end_row_val}) is not valid"
         )));
     }
     if (start_row_val < 0 && end_row_val != start_row_val)
         || (start_col_val < 0 && end_col_val != start_col_val)
     {
         return Err(vm.new_value_error(format!(
-            "AST node column range ({}, {}) for line range ({}, {}) is not valid",
-            start_col_val, end_col_val, start_row_val, end_row_val
+            "AST node column range ({start_col_val}, {end_col_val}) for line range ({start_row_val}, {end_row_val}) is not valid"
         )));
     }
     if start_row_val == end_row_val && start_col_val > end_col_val {
         return Err(vm.new_value_error(format!(
-            "line {}, column {}-{} is not a valid range",
-            start_row_val, start_col_val, end_col_val
+            "line {start_row_val}, column {start_col_val}-{end_col_val} is not a valid range"
         )));
     }
 
@@ -387,7 +411,7 @@ pub(crate) fn parse(
     };
     let obj = top.ast_to_object(vm, &source_file);
     if type_comments && obj.class().is(pyast::NodeModModule::static_type()) {
-        let type_ignores = type_ignores_from_source(vm, source)?;
+        let type_ignores = type_ignores_from_source(vm, source);
         let dict = obj.as_object().dict().unwrap();
         dict.set_item("type_ignores", vm.ctx.new_list(type_ignores).into(), vm)
             .unwrap();
@@ -485,10 +509,7 @@ pub(crate) fn parse_func_type(
     Ok(func_type.ast_to_object(vm, &source_file))
 }
 
-fn type_ignores_from_source(
-    vm: &VirtualMachine,
-    source: &str,
-) -> Result<Vec<PyObjectRef>, CompileError> {
+fn type_ignores_from_source(vm: &VirtualMachine, source: &str) -> Vec<PyObjectRef> {
     let mut ignores = Vec::new();
     for (idx, line) in source.lines().enumerate() {
         let Some(pos) = line.find("#") else {
@@ -515,7 +536,7 @@ fn type_ignores_from_source(
             .unwrap();
         ignores.push(node.into());
     }
-    Ok(ignores)
+    ignores
 }
 
 #[cfg(feature = "parser")]
@@ -776,7 +797,7 @@ pub(crate) fn compile(
     let source_file = SourceFileBuilder::new(filename, text).finish();
     let code = codegen::compile::compile_top(ast, source_file, mode, opts)
         .map_err(|err| vm.new_syntax_error(&err.into(), None))?; // FIXME source
-    Ok(vm.ctx.new_code(code).into())
+    Ok(crate::builtins::PyCode::new_ref_from_bytecode(vm, code).into())
 }
 
 #[cfg(feature = "codegen")]
@@ -788,18 +809,18 @@ pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> P
 }
 
 // Used by builtins::compile()
-pub const PY_CF_ONLY_AST: i32 = 0x0400;
+pub(crate) const PY_CF_ONLY_AST: i32 = 0x0400;
 
 // The following flags match the values from Include/cpython/compile.h
 // Caveat emptor: These flags are undocumented on purpose and depending
 // on their effect outside the standard library is **unsupported**.
-pub const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
-pub const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
-pub const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
-pub const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
-pub const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_CF_ONLY_AST;
-pub const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
-pub const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
+pub(crate) const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
+pub(crate) const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x200;
+pub(crate) const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
+pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
+pub(crate) const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_CF_ONLY_AST;
+pub(crate) const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
+pub(crate) const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
 
 // __future__ flags - sync with Lib/__future__.py
 // TODO: These flags aren't being used in rust code
@@ -818,7 +839,7 @@ const CO_FUTURE_GENERATOR_STOP: i32 = 0x800000;
 const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
 
 // Used by builtins::compile() - the summary of all flags
-pub const PY_COMPILE_FLAGS_MASK: i32 = PY_CF_ONLY_AST
+pub(crate) const PY_COMPILE_FLAGS_MASK: i32 = PY_CF_ONLY_AST
     | PY_CF_SOURCE_IS_UTF8
     | PY_CF_DONT_IMPLY_DEDENT
     | PY_CF_IGNORE_COOKIE

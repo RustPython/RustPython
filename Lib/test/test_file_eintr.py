@@ -21,8 +21,8 @@ if not support.has_subprocess_support:
     raise unittest.SkipTest("test module requires subprocess")
 
 # Test import all of the things we're about to try testing up front.
-import _io
-import _pyio
+import _io    # noqa: F401
+import _pyio  # noqa: F401
 
 @unittest.skipUnless(os.name == 'posix', 'tests requires a posix system.')
 class TestFileIOSignalInterrupt:
@@ -186,10 +186,9 @@ class TestFileIOSignalInterrupt:
 class CTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_io'
 
-    # TODO: RUSTPYTHON - _io.FileIO.readall uses read_to_end which differs from _pyio.FileIO.readall
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - _io.FileIO.readall uses read_to_end which differs from _pyio.FileIO.readall
     def test_readall(self):
-        super().test_readall()
+        return super().test_readall()
 
 class PyTestFileIOSignalInterrupt(TestFileIOSignalInterrupt, unittest.TestCase):
     modname = '_pyio'

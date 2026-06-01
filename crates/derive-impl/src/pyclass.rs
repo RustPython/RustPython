@@ -13,7 +13,7 @@ use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum AttrName {
     Method,
     ClassMethod,
@@ -318,20 +318,20 @@ pub(crate) fn impl_pyclass_impl(attr: PunctuatedNestedMeta, item: Item) -> Resul
     Ok(tokens)
 }
 
-/// Validates that when a base class is specified, the struct has the base type as its first field.
-/// This ensures proper memory layout for subclassing (required for #[repr(transparent)] to work correctly).
-fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
+/// Validates that when a base class is specified, the struct has the base type as its first
+/// *declared* field.  Returns a token naming that field (e.g. `_base` or `0` for tuple structs)
+/// so the caller can emit a compile-time `offset_of!` assertion, or `None` for non-structs.
+fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<TokenStream>> {
     let Item::Struct(item_struct) = item else {
         // Only validate structs - enums with base are already an error elsewhere
-        return Ok(());
+        return Ok(None);
     };
 
     // Get the base type name for error messages
     let base_name = base_path
         .segments
         .last()
-        .map(|s| s.ident.to_string())
-        .unwrap_or_else(|| quote!(#base_path).to_string());
+        .map_or_else(|| quote!(#base_path).to_string(), |s| s.ident.to_string());
 
     match &item_struct.fields {
         syn::Fields::Named(fields) => {
@@ -347,6 +347,8 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
+            let ident = first_field.ident.as_ref().map(|id| quote! { #id });
+            Ok(ident)
         }
         syn::Fields::Unnamed(fields) => {
             let Some(first_field) = fields.unnamed.first() else {
@@ -361,6 +363,7 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
                     "#[pyclass] with base = {base_name} requires the first field to be of type {base_name}"
                 );
             }
+            Ok(Some(quote! { 0 }))
         }
         syn::Fields::Unit => {
             bail_span!(
@@ -369,8 +372,23 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<()> {
             );
         }
     }
+}
 
-    Ok(())
+/// Adds `#[repr(C)]` to a derived pyclass struct when no explicit `#[repr(…)]` is present.
+///
+/// The inherited getter dispatcher reinterprets the derived object pointer as `*Base`, which
+/// is only valid when the base field is at offset 0.  Under `#[repr(Rust)]` the compiler may
+/// reorder fields to minimise padding, silently displacing the base field.  `#[repr(C)]`
+/// preserves declaration order, guaranteeing offset 0 for the first field.
+fn ensure_repr_c(mut item: Item) -> Item {
+    let Item::Struct(ref mut s) = item else {
+        return item;
+    };
+    let has_repr = s.attrs.iter().any(|attr| attr.path().is_ident("repr"));
+    if !has_repr {
+        s.attrs.push(parse_quote!(#[repr(C)]));
+    }
+    item
 }
 
 /// Check if a type matches a given path (handles simple cases like `Foo` or `path::to::Foo`)
@@ -549,19 +567,60 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     if matches!(item, syn::Item::Use(_)) {
         return Ok(quote!(#item));
     }
-    let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
-    let fake_ident = Ident::new("pyclass", item.span());
-    let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
-    let class_name = class_meta.class_name()?;
-    let module_name = class_meta.module()?;
-    let base = class_meta.base()?;
-    let metaclass = class_meta.metaclass()?;
-    let unhashable = class_meta.unhashable()?;
 
-    // Validate that if base is specified, the first field must be of the base type
-    if let Some(ref base_path) = base {
-        validate_base_field(&item, base_path)?;
-    }
+    let fake_ident = Ident::new("pyclass", item.span());
+    let (class_meta, class_name, module_name, base, metaclass, unhashable) = {
+        let (ident, _) = pyclass_ident_and_attrs(&item)?;
+        let class_meta = ClassItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
+        let class_name = class_meta.class_name()?;
+        let module_name = class_meta.module()?;
+        let base = class_meta.base()?;
+        let metaclass = class_meta.metaclass()?;
+        let unhashable = class_meta.unhashable()?;
+        (
+            class_meta,
+            class_name,
+            module_name,
+            base,
+            metaclass,
+            unhashable,
+        )
+    };
+
+    // When a base is specified:
+    //   1. Validate that the first *declared* field has the base type.
+    //   2. Auto-insert #[repr(C)] so the compiler preserves declaration order,
+    //      keeping the base field at offset 0 as the inherited getter dispatcher requires.
+    //   3. Emit a compile-time offset_of! assertion as a safety net for structs that
+    //      already carry an explicit repr that does not guarantee offset 0.
+    let base_field_token = if let Some(ref base_path) = base {
+        validate_base_field(&item, base_path)?
+    } else {
+        None
+    };
+
+    let item = if base.is_some() {
+        ensure_repr_c(item)
+    } else {
+        item
+    };
+
+    let (ident, attrs) = pyclass_ident_and_attrs(&item)?;
+
+    let offset_assert = match (&base, &base_field_token) {
+        (Some(_), Some(field)) => quote! {
+            const _: () = ::core::assert!(
+                ::core::mem::offset_of!(#ident, #field) == 0,
+                concat!(
+                    "The base field of `", stringify!(#ident), "` is not at offset 0. \
+                     Add `#[repr(C)]` (or `#[repr(transparent)]`) to the struct so the \
+                     compiler preserves declaration order and inherited getter dispatch \
+                     reads the correct memory."
+                )
+            );
+        },
+        _ => quote! {},
+    };
 
     let class_def = generate_class_def(
         ident,
@@ -585,8 +644,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     // 1. no `clear`: HAS_CLEAR = HAS_TRAVERSE (default: same as traverse)
     // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear calls Traverse::clear
     // 3. `clear = false`: HAS_CLEAR = false (rare: traverse without clear)
-    let has_traverse = class_meta.inner()._has_key("traverse")?;
-    let has_clear = if class_meta.inner()._has_key("clear")? {
+    let has_traverse = class_meta.inner().contains_key("traverse");
+    let has_clear = if class_meta.inner().contains_key("clear") {
         // If clear attribute is present, use its value
         class_meta.inner()._bool("clear")?
     } else {
@@ -704,6 +763,7 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     let ret = quote! {
         #derive_trace
         #item
+        #offset_assert
         #maybe_traverse_code
         #class_def
         #impl_payload
@@ -720,8 +780,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 /// But, inside `macro_rules` we don't have an opportunity
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
-pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
-    let (ident, _attrs) = pyexception_ident_and_attrs(&item)?;
+pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Result<TokenStream> {
+    let (ident, _attrs) = pyexception_ident_and_attrs(item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ExceptionItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
@@ -744,9 +804,9 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     Ok(ret)
 }
 
-pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     let Item::Impl(imp) = item else {
-        return Ok(item.into_token_stream());
+        return item.into_token_stream();
     };
 
     // Check if with(Constructor) is specified. If Constructor trait is used, don't generate slot_new
@@ -812,21 +872,17 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     // their own __init__ in __dict__.
     let slot_init = quote!();
 
-    let extra_attrs_tokens = if extra_attrs.is_empty() {
-        quote!()
-    } else {
-        quote!(, #(#extra_attrs),*)
-    };
+    let extra_attrs_tokens = quote!(#(#extra_attrs),*);
 
-    Ok(quote! {
-        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
+    quote! {
+        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*), #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
         }
 
         #slot_new
         #slot_init
-    })
+    }
 }
 
 macro_rules! define_content_item {
@@ -1071,7 +1127,7 @@ where
 
         args.context
             .getset_items
-            .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
+            .add_item(&py_name, args.cfgs.to_vec(), kind, ident.clone())?;
         Ok(())
     }
 }
@@ -1129,7 +1185,7 @@ where
             args.cfgs.to_vec(),
             tokens,
             2,
-        )?;
+        );
 
         Ok(())
     }
@@ -1175,7 +1231,7 @@ where
 
         args.context
             .attribute_items
-            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1)?;
+            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1);
 
         Ok(())
     }
@@ -1238,7 +1294,7 @@ where
         }
 
         args.context.member_items.add_item(
-            py_name,
+            &py_name,
             member_item_kind,
             member_kind,
             ident.clone(),
@@ -1342,6 +1398,7 @@ struct GetSetNursery {
     validated: bool,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum GetSetItemKind {
     Get,
     Set,
@@ -1350,7 +1407,7 @@ enum GetSetItemKind {
 impl GetSetNursery {
     fn add_item(
         &mut self,
-        name: String,
+        name: &str,
         cfgs: Vec<Attribute>,
         kind: GetSetItemKind,
         item_ident: Ident,
@@ -1358,7 +1415,7 @@ impl GetSetNursery {
         assert!(!self.validated, "new item is not allowed after validation");
         // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
         // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
-        let entry = self.map.entry((name.clone(), cfgs)).or_default();
+        let entry = self.map.entry((name.to_string(), cfgs)).or_default();
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
             GetSetItemKind::Set => &mut entry.1,
@@ -1432,6 +1489,7 @@ struct MemberNurseryEntry {
     setter: Option<Ident>,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum MemberItemKind {
     Get,
     Set,
@@ -1440,7 +1498,7 @@ enum MemberItemKind {
 impl MemberNursery {
     fn add_item(
         &mut self,
-        name: String,
+        name: &str,
         kind: MemberItemKind,
         member_kind: MemberKindStr,
         item_ident: Ident,
@@ -1448,7 +1506,7 @@ impl MemberNursery {
         assert!(!self.validated, "new item is not allowed after validation");
         let entry = self
             .map
-            .entry(name.clone())
+            .entry(name.to_string())
             .or_insert_with(|| MemberNurseryEntry {
                 kind: member_kind,
                 getter: None,
@@ -1884,17 +1942,15 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
 fn impl_item_new<Item>(
     index: usize,
     attr_name: AttrName,
-) -> Result<Box<dyn ImplItem<Item, AttrName = AttrName>>>
+) -> Box<dyn ImplItem<Item, AttrName = AttrName>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
     use AttrName::*;
-    Ok(match attr_name {
-        attr_name @ Method | attr_name @ ClassMethod | attr_name @ StaticMethod => {
-            Box::new(MethodItem {
-                inner: ContentItemInner { index, attr_name },
-            })
-        }
+    match attr_name {
+        attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
+            inner: ContentItemInner { index, attr_name },
+        }),
         GetSet => Box::new(GetSetItem {
             inner: ContentItemInner { index, attr_name },
         }),
@@ -1910,7 +1966,7 @@ where
         Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
-    })
+    }
 }
 
 fn attrs_to_content_items<F, R>(
@@ -1918,7 +1974,7 @@ fn attrs_to_content_items<F, R>(
     item_new: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, AttrName) -> Result<R>,
+    F: Fn(usize, AttrName) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -1955,13 +2011,12 @@ where
             Err(wrong_name) => {
                 if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
                     bail_span!(attr, "#[pyclass] doesn't accept #[{}]", wrong_name)
-                } else {
-                    continue;
                 }
+                continue;
             }
         };
 
-        result.push(item_new(i, attr_name)?);
+        result.push(item_new(i, attr_name));
     }
     Ok((result, cfgs))
 }

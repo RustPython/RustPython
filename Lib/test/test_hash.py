@@ -263,8 +263,7 @@ class StringlikeHashRandomizationTests(HashRandomizationTests):
             platform = 3 if IS_64BIT else 2
         return self.known_hashes[algorithm][position][platform]
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_null_hash(self):
         # PYTHONHASHSEED=0 disables the randomized hash
         known_hash_of_obj = self.get_expected_hash(0, 3)
@@ -275,8 +274,7 @@ class StringlikeHashRandomizationTests(HashRandomizationTests):
         # It can also be disabled by setting the seed to 0:
         self.assertEqual(self.get_hash(self.repr_, seed=0), known_hash_of_obj)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @skip_unless_internalhash
     def test_fixed_hash(self):
         # test a fixed seed for the randomized hash
@@ -284,8 +282,7 @@ class StringlikeHashRandomizationTests(HashRandomizationTests):
         h = self.get_expected_hash(1, 3)
         self.assertEqual(self.get_hash(self.repr_, seed=42), h)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @skip_unless_internalhash
     def test_long_fixed_hash(self):
         if self.repr_long is None:
@@ -304,8 +301,7 @@ class StrHashRandomizationTests(StringlikeHashRandomizationTests,
     def test_empty_string(self):
         self.assertEqual(hash(""), 0)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @skip_unless_internalhash
     def test_ucs2_string(self):
         h = self.get_expected_hash(3, 6)

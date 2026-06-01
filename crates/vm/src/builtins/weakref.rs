@@ -6,7 +6,7 @@ use crate::common::{
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    function::{FuncArgs, OptionalArg},
+    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     types::{
         Callable, Comparable, Constructor, Hashable, Initializer, PyComparisonOp, Representable,
     },
@@ -32,6 +32,7 @@ impl PyPayload for PyWeak {
 
 impl Callable for PyWeak {
     type Args = ();
+
     #[inline]
     fn call(zelf: &Py<Self>, _: Self::Args, vm: &VirtualMachine) -> PyResult {
         Ok(vm.unwrap_or_none(zelf.upgrade()))
@@ -50,10 +51,10 @@ impl Constructor for PyWeak {
             .ok_or_else(|| vm.new_type_error("__new__ expected at least 1 argument, got 0"))?;
         let callback = positional.next();
         if let Some(_extra) = positional.next() {
-            return Err(vm.new_type_error(format!(
-                "__new__ expected at most 2 arguments, got {}",
-                3 + positional.count()
-            )));
+            let got = positional.count() + 3;
+            return Err(
+                vm.new_type_error(format!("__new__ expected at most 2 arguments, got {got}"))
+            );
         }
         let weak = referent.downgrade_with_typ(callback, cls, vm)?;
         Ok(weak.into())
@@ -85,6 +86,11 @@ impl Initializer for PyWeak {
     flags(BASETYPE)
 )]
 impl PyWeak {
+    #[pygetset]
+    fn __callback__(&self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.unwrap_or_none(self.get_callback())
+    }
+
     #[pyclassmethod]
     fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
         PyGenericAlias::from_args(cls, args, vm)
@@ -122,15 +128,22 @@ impl Comparable for PyWeak {
         other: &PyObject,
         op: PyComparisonOp,
         vm: &VirtualMachine,
-    ) -> PyResult<crate::function::PyComparisonValue> {
+    ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
-            let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));
-            let eq = match both {
-                Some((a, b)) => vm.bool_eq(&a, &b)?,
-                None => zelf.is(other),
-            };
-            Ok(eq.into())
+            let both = zelf.upgrade().zip(other.upgrade());
+            match both {
+                // CPython parity (Objects/weakref.c::weakref_richcompare): use
+                // PyObject_RichCompare on the referents, not the bool variant,
+                // so referent __eq__ runs even when referents share identity.
+                Some((a, b)) => {
+                    let res = a.rich_compare(b, PyComparisonOp::Eq, vm)?;
+                    PyArithmeticValue::from_object(vm, res)
+                        .map(|obj| obj.try_to_bool(vm))
+                        .transpose()
+                }
+                None => Ok(zelf.is(other).into()),
+            }
         })
     }
 }
@@ -139,7 +152,7 @@ impl Representable for PyWeak {
     #[inline]
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let id = zelf.get_id();
-        let repr = if let Some(o) = zelf.upgrade() {
+        Ok(if let Some(o) = zelf.upgrade() {
             format!(
                 "<weakref at {:#x}; to '{}' at {:#x}>",
                 id,
@@ -148,11 +161,10 @@ impl Representable for PyWeak {
             )
         } else {
             format!("<weakref at {id:#x}; dead>")
-        };
-        Ok(repr)
+        })
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyWeak::extend_class(context, context.types.weakref_type);
 }

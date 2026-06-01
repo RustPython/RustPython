@@ -35,19 +35,15 @@ use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
 static ESCAPE_CHARS: [&str; 0x20] = [
     "\\u0000", "\\u0001", "\\u0002", "\\u0003", "\\u0004", "\\u0005", "\\u0006", "\\u0007", "\\b",
-    "\\t", "\\n", "\\u000", "\\f", "\\r", "\\u000e", "\\u000f", "\\u0010", "\\u0011", "\\u0012",
+    "\\t", "\\n", "\\u000b", "\\f", "\\r", "\\u000e", "\\u000f", "\\u0010", "\\u0011", "\\u0012",
     "\\u0013", "\\u0014", "\\u0015", "\\u0016", "\\u0017", "\\u0018", "\\u0019", "\\u001a",
-    "\\u001", "\\u001c", "\\u001d", "\\u001e", "\\u001f",
+    "\\u001b", "\\u001c", "\\u001d", "\\u001e", "\\u001f",
 ];
 
 // This bitset represents which bytes can be copied as-is to a JSON string (0)
 // And which one need to be escaped (1)
 // The characters that need escaping are 0x00 to 0x1F, 0x22 ("), 0x5C (\), 0x7F (DEL)
 // Non-ASCII unicode characters can be safely included in a JSON string
-#[allow(
-    clippy::unusual_byte_groupings,
-    reason = "groups of 16 are intentional here"
-)]
 static NEEDS_ESCAPING_BITSET: [u64; 4] = [
     //fedcba9876543210_fedcba9876543210_fedcba9876543210_fedcba9876543210
     0b0000000000000000_0000000000000100_1111111111111111_1111111111111111, // 3_2_1_0
@@ -72,30 +68,55 @@ fn json_escaped_char(c: u8) -> Option<&'static str> {
     }
 }
 
-pub fn write_json_string<W: io::Write>(s: &str, ascii_only: bool, w: &mut W) -> io::Result<()> {
+pub(super) fn write_json_string<W: io::Write>(
+    wtf8: &Wtf8,
+    ascii_only: bool,
+    w: &mut W,
+) -> io::Result<()> {
     w.write_all(b"\"")?;
     let mut write_start_idx = 0;
-    let bytes = s.as_bytes();
+    let bytes = wtf8.as_bytes();
     if ascii_only {
-        for (idx, c) in s.char_indices() {
-            if c.is_ascii() {
-                if let Some(escaped) = json_escaped_char(c as u8) {
+        for (idx, cp) in wtf8.code_point_indices() {
+            if let Some(c) = cp.to_char() {
+                // Valid Unicode scalar.
+                if c.is_ascii() {
+                    if let Some(escaped) = json_escaped_char(c as u8) {
+                        w.write_all(&bytes[write_start_idx..idx])?;
+                        w.write_all(escaped.as_bytes())?;
+                        write_start_idx = idx + 1;
+                    }
+                } else {
                     w.write_all(&bytes[write_start_idx..idx])?;
-                    w.write_all(escaped.as_bytes())?;
-                    write_start_idx = idx + 1;
+                    write_start_idx = idx + c.len_utf8();
+                    // codepoints outside the BMP get 2 '\uxxxx' sequences to represent them
+                    for point in c.encode_utf16(&mut [0; 2]) {
+                        write!(w, "\\u{point:04x}")?;
+                    }
                 }
             } else {
+                // Lone surrogate code point (U+D800..U+DFFF).
+                // WTF-8 encodes these as 3-byte sequences; skip those raw bytes
+                // and emit a \uXXXX escape with the surrogate value.
                 w.write_all(&bytes[write_start_idx..idx])?;
-                write_start_idx = idx + c.len_utf8();
-                // codepoints outside the BMP get 2 '\uxxxx' sequences to represent them
-                for point in c.encode_utf16(&mut [0; 2]) {
-                    write!(w, "\\u{point:04x}")?;
-                }
+                write_start_idx = idx + 3;
+                write!(w, "\\u{:04x}", cp.to_u32())?;
             }
         }
     } else {
-        for (idx, c) in s.bytes().enumerate() {
-            if let Some(escaped) = json_escaped_char(c) {
+        // ensure_ascii is false: only JSON-required escapes (< 0x20, \, ")
+        // are applied. 0x7F (DEL) is NOT escaped here, matching CPython's
+        // py_encode_basestring. Multi-byte UTF-8 characters and WTF-8
+        // surrogate sequences flow through unchanged via the trailing flush,
+        // so surrogates round-trip as-is (matching CPython behavior).
+        for (idx, c) in wtf8.as_bytes().iter().enumerate() {
+            let escaped_opt: Option<&'static str> = match *c {
+                x if x < 0x20 => Some(ESCAPE_CHARS[x as usize]),
+                b'\\' => Some("\\\\"),
+                b'\"' => Some("\\\""),
+                _ => None,
+            };
+            if let Some(escaped) = escaped_opt {
                 w.write_all(&bytes[write_start_idx..idx])?;
                 w.write_all(escaped.as_bytes())?;
                 write_start_idx = idx + 1;
@@ -107,12 +128,12 @@ pub fn write_json_string<W: io::Write>(s: &str, ascii_only: bool, w: &mut W) -> 
 }
 
 #[derive(Debug)]
-pub struct DecodeError {
+pub(super) struct DecodeError {
     pub msg: String,
     pub pos: usize,
 }
 impl DecodeError {
-    pub fn new(msg: impl Into<String>, pos: usize) -> Self {
+    pub(super) fn new(msg: impl Into<String>, pos: usize) -> Self {
         let msg = msg.into();
         Self { msg, pos }
     }
@@ -140,7 +161,7 @@ impl StrOrChar<'_> {
 /// # Returns
 /// * `Ok((result, chars_consumed, bytes_consumed))` - The decoded string and how much was consumed
 /// * `Err(DecodeError)` - If the string is malformed
-pub fn scanstring<'a>(
+pub(super) fn scanstring<'a>(
     s: &'a Wtf8,
     char_offset: usize,
     strict: bool,
@@ -210,17 +231,20 @@ pub fn scanstring<'a>(
                     'r' => "\r",
                     't' => "\t",
                     'u' => {
-                        let mut uni = decode_unicode(&mut chars, char_offset + char_i)?;
+                        // Error position for an invalid \uXXXX escape points at the
+                        // `u`, not the `\` -- matches CPython's json.decoder.
+                        let mut uni = decode_unicode(&mut chars, char_offset + next_char_i)?;
                         chunk_start = byte_i + 6;
                         if let Some(lead) = uni.to_lead_surrogate() {
                             // uni is a surrogate -- try to find its pair
                             let mut chars2 = chars.clone();
-                            if let Some(((_, (byte_pos2, _)), (_, _))) = chars2
+                            if let Some(((_, (byte_pos2, _)), (u2_char_i, (_, _)))) = chars2
                                 .next_tuple()
                                 .filter(|((_, (_, c1)), (_, (_, c2)))| *c1 == '\\' && *c2 == 'u')
                             {
-                                let uni2 =
-                                    decode_unicode(&mut chars2, char_offset + next_char_i + 1)?;
+                                // u2_char_i is the `u` of the second \uXXXX; same
+                                // position convention as the primary call above.
+                                let uni2 = decode_unicode(&mut chars2, char_offset + u2_char_i)?;
                                 if let Some(trail) = uni2.to_trail_surrogate() {
                                     // ok, we found what we were looking for -- \uXXXX\uXXXX, both surrogates
                                     uni = lead.merge(trail).into();

@@ -14,17 +14,32 @@ impl InterpreterBuilderExt for InterpreterBuilder {
     fn init_stdlib(self) -> Self {
         let defs = rustpython_stdlib::stdlib_module_defs(&self.ctx);
         let builder = self.add_native_modules(&defs);
+        #[cfg(all(feature = "ssl-rustls-aws-lc", not(target_arch = "wasm32")))]
+        let builder = builder.init_hook(install_default_tls_provider);
 
-        #[cfg(feature = "freeze-stdlib")]
-        let builder = builder
-            .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
-            .init_hook(set_frozen_stdlib_dir);
-
-        #[cfg(not(feature = "freeze-stdlib"))]
-        let builder = builder.init_hook(setup_dynamic_stdlib);
-
-        builder
+        cfg_select! {
+            feature = "freeze-stdlib" => {
+                builder
+                    .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+                    .init_hook(set_frozen_stdlib_dir)
+            }
+            _ => builder.init_hook(setup_dynamic_stdlib),
+        }
     }
+}
+
+#[cfg(all(feature = "ssl-rustls-aws-lc", not(target_arch = "wasm32")))]
+fn install_default_tls_provider(_vm: &mut crate::VirtualMachine) {
+    use rustls::crypto::aws_lc_rs;
+    use rustpython_stdlib::ssl::providers::CryptoExt;
+
+    let ext = CryptoExt {
+        all_cipher_suites: Some(aws_lc_rs::ALL_CIPHER_SUITES),
+        all_kx_groups: Some(aws_lc_rs::ALL_KX_GROUPS),
+        any_supported_key: Some(aws_lc_rs::sign::any_supported_type),
+        ticketer: aws_lc_rs::Ticketer::new,
+    };
+    let _ = CryptoExt::set_provider(aws_lc_rs::default_provider(), ext);
 }
 
 /// Set stdlib_dir for frozen standard library
@@ -64,13 +79,9 @@ fn collect_stdlib_paths() -> Vec<String> {
             .map(|path| path.into_os_string().into_string().unwrap())
             .collect()
     } else {
-        #[cfg(feature = "rustpython-pylib")]
-        {
-            vec![rustpython_pylib::LIB_PATH.to_owned()]
-        }
-        #[cfg(not(feature = "rustpython-pylib"))]
-        {
-            vec![]
-        }
+        vec![
+            #[cfg(feature = "rustpython-pylib")]
+            rustpython_pylib::LIB_PATH.to_owned(),
+        ]
     }
 }

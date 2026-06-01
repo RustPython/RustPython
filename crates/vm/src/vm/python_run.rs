@@ -105,7 +105,7 @@ mod file_run {
                 if path != "<stdin>" {
                     set_main_loader(module_dict, path, "SourceFileLoader", self)?;
                 }
-                match std::fs::read_to_string(path) {
+                match crate::host_env::fs::read_to_string(path) {
                     Ok(source) => {
                         let code_obj = self
                             .compile(&source, compiler::Mode::Exec, path.to_owned())
@@ -160,7 +160,7 @@ mod file_run {
             return Ok(false);
         }
 
-        let mut file = std::fs::File::open(path)?;
+        let mut file = crate::host_env::fs::open(path)?;
         let mut buf = [0u8; 2];
 
         use std::io::Read;
@@ -172,5 +172,62 @@ mod file_run {
         // text mode, the bytes 3 and 4 of the magic (\r\n) might not
         // be read as they are on disk.
         Ok(crate::import::check_pyc_magic_number_bytes(&buf))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::object::AsObject;
+    use rustpython_vm::Interpreter;
+
+    fn interpreter() -> Interpreter {
+        Interpreter::without_stdlib(Default::default())
+    }
+
+    #[test]
+    fn block_expr_return_const() {
+        interpreter().enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "1"));
+            let value = vm.unwrap_pyresult(value.try_int(vm));
+            let value: u32 = vm.unwrap_pyresult(value.try_to_primitive(vm));
+            assert_eq!(value, 1);
+        })
+    }
+
+    #[test]
+    fn block_expr_return_nonconst() {
+        interpreter().enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            vm.unwrap_pyresult(scope.globals.set_item("x", vm.new_pyobj(3), vm));
+            let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "2 + x"));
+            let value = vm.unwrap_pyresult(value.try_int(vm));
+            let value: u32 = vm.unwrap_pyresult(value.try_to_primitive(vm));
+            assert_eq!(value, 5);
+        })
+    }
+
+    #[test]
+    fn block_expr_return_function_def() {
+        interpreter().enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let value =
+                vm.unwrap_pyresult(vm.run_block_expr(scope.clone(), "def f():\n    return 7"));
+            vm.unwrap_pyresult(scope.globals.set_item("returned", value, vm));
+            let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "returned is f"));
+            assert!(value.is(&vm.ctx.true_value));
+        })
+    }
+
+    #[test]
+    fn block_expr_return_class_def() {
+        interpreter().enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let value =
+                vm.unwrap_pyresult(vm.run_block_expr(scope.clone(), "class C:\n    value = 11"));
+            vm.unwrap_pyresult(scope.globals.set_item("returned", value, vm));
+            let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "returned is C"));
+            assert!(value.is(&vm.ctx.true_value));
+        })
     }
 }

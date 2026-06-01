@@ -21,7 +21,7 @@ datetime.datetime objects.
 
 Generate Plist example:
 
-    import datetime
+    import datetime as dt
     import plistlib
 
     pl = dict(
@@ -37,7 +37,7 @@ Generate Plist example:
         ),
         someData = b"<binary gunk>",
         someMoreData = b"<lots of binary gunk>" * 10,
-        aDate = datetime.datetime.now()
+        aDate = dt.datetime.now()
     )
     print(plistlib.dumps(pl).decode())
 
@@ -384,7 +384,7 @@ class _PlistWriter(_DumbXMLWriter):
         self._indent_level -= 1
         maxlinelength = max(
             16,
-            76 - len(self.indent.replace(b"\t", b" " * 8) * self._indent_level))
+            76 - len((self.indent * self._indent_level).expandtabs()))
 
         for line in _encode_base64(data, maxlinelength).split(b"\n"):
             if line:

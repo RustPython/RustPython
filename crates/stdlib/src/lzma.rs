@@ -201,7 +201,7 @@ mod _lzma {
 
     impl DecompressStatus for Status {
         fn is_stream_end(&self) -> bool {
-            *self == Status::StreamEnd
+            *self == Self::StreamEnd
         }
     }
 
@@ -566,7 +566,7 @@ mod _lzma {
     }
 
     #[derive(FromArgs)]
-    pub struct LZMADecompressorConstructorArgs {
+    pub(super) struct LZMADecompressorConstructorArgs {
         #[pyarg(any, default = FORMAT_AUTO)]
         format: i32,
         #[pyarg(any, optional)]
@@ -671,7 +671,7 @@ mod _lzma {
     }
 
     impl CompressStatusKind for Status {
-        const EOF: Self = Status::StreamEnd;
+        const EOF: Self = Self::StreamEnd;
 
         fn to_usize(self) -> usize {
             self as usize
@@ -679,8 +679,8 @@ mod _lzma {
     }
 
     impl CompressFlushKind for Action {
-        const NONE: Self = Action::Run;
-        const FINISH: Self = Action::Finish;
+        const NONE: Self = Self::Run;
+        const FINISH: Self = Self::Finish;
 
         fn to_usize(self) -> usize {
             self as usize
@@ -782,7 +782,7 @@ mod _lzma {
     }
 
     #[derive(FromArgs)]
-    pub struct LZMACompressorConstructorArgs {
+    pub(super) struct LZMACompressorConstructorArgs {
         #[pyarg(any, default = FORMAT_XZ)]
         format: i32,
         #[pyarg(any, default = -1)]

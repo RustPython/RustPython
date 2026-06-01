@@ -1,4 +1,4 @@
-# Copyright (C) 2003-2013 Python Software Foundation
+# Copyright (C) 2003 Python Software Foundation
 import copy
 import operator
 import pickle
@@ -13,7 +13,6 @@ import codecs
 import subprocess
 import binascii
 import collections
-import time
 import zoneinfo
 from test import support
 from test.support import os_helper
@@ -510,6 +509,69 @@ class TestPlistlib(unittest.TestCase):
         data2 = plistlib.dumps(pl2)
         self.assertEqual(data, data2)
 
+    def test_bytes_indent(self):
+        header = (
+            b'<?xml version="1.0" encoding="UTF-8"?>\n'
+            b'<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+            b'<plist version="1.0">\n')
+        data = [{'bytes': bytes(range(50))}]
+        pl = plistlib.dumps(data)
+        self.assertEqual(pl, header +
+            b'<array>\n'
+            b'\t<dict>\n'
+            b'\t\t<key>bytes</key>\n'
+            b'\t\t<data>\n'
+            b'\t\tAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKiss\n'
+            b'\t\tLS4vMDE=\n'
+            b'\t\t</data>\n'
+            b'\t</dict>\n'
+            b'</array>\n'
+            b'</plist>\n')
+
+        def dumps_with_indent(data, indent):
+            fp = BytesIO()
+            writer = plistlib._PlistWriter(fp, indent=indent)
+            writer.write(data)
+            return fp.getvalue()
+
+        pl = dumps_with_indent(data, b' ')
+        self.assertEqual(pl, header +
+            b'<array>\n'
+            b' <dict>\n'
+            b'  <key>bytes</key>\n'
+            b'  <data>\n'
+            b'  AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDE=\n'
+            b'  </data>\n'
+            b' </dict>\n'
+            b'</array>\n'
+            b'</plist>\n')
+
+        pl = dumps_with_indent(data, b' \t')
+        self.assertEqual(pl, header +
+            b'<array>\n'
+            b' \t<dict>\n'
+            b' \t \t<key>bytes</key>\n'
+            b' \t \t<data>\n'
+            b' \t \tAAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKiss\n'
+            b' \t \tLS4vMDE=\n'
+            b' \t \t</data>\n'
+            b' \t</dict>\n'
+            b'</array>\n'
+            b'</plist>\n')
+
+        pl = dumps_with_indent(data, b'\t   ')
+        self.assertEqual(pl, header +
+            b'<array>\n'
+            b'\t   <dict>\n'
+            b'\t   \t   <key>bytes</key>\n'
+            b'\t   \t   <data>\n'
+            b'\t   \t   AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygp\n'
+            b'\t   \t   KissLS4vMDE=\n'
+            b'\t   \t   </data>\n'
+            b'\t   </dict>\n'
+            b'</array>\n'
+            b'</plist>\n')
+
     def test_loads_str_with_xml_fmt(self):
         pl = self._create()
         b = plistlib.dumps(pl)
@@ -581,7 +643,6 @@ class TestPlistlib(unittest.TestCase):
                 data = plistlib.dumps(pl, fmt=fmt)
                 self.assertEqual(data, TESTDATA[fmt],
                     "generated data was not identical to Apple's output")
-
 
     def test_appleformattingfromliteral(self):
         self.maxDiff = None
@@ -770,7 +831,7 @@ class TestPlistlib(unittest.TestCase):
                 self.assertEqual(test1, result1)
                 self.assertEqual(test2, result2)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidarray(self):
         for i in ["<key>key inside an array</key>",
                   "<key>key inside an array2</key><real>3</real>",
@@ -778,7 +839,7 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array>%s</array></plist>"%i).encode())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invaliddict(self):
         for i in ["<key><true/>k</key><string>compound key</string>",
                   "<key>single key</key>",
@@ -790,12 +851,12 @@ class TestPlistlib(unittest.TestCase):
             self.assertRaises(ValueError, plistlib.loads,
                               ("<plist><array><dict>%s</dict></array></plist>"%i).encode())
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidinteger(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not integer</integer></plist>")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalidreal(self):
         self.assertRaises(ValueError, plistlib.loads,
                           b"<plist><integer>not real</integer></plist>")
@@ -852,7 +913,7 @@ class TestPlistlib(unittest.TestCase):
         with self.assertRaises(OverflowError):
             plistlib.dumps(huge_uid, fmt=plistlib.FMT_BINARY)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_xml_plist_with_entity_decl(self):
         with self.assertRaisesRegex(plistlib.InvalidFileException,
                                     "XML entity declarations are not supported"):
@@ -1077,10 +1138,7 @@ class TestBinaryPlistlib(unittest.TestCase):
         with self.assertRaisesRegex(TypeError, msg):
             plistlib.dumps(dt, fmt=plistlib.FMT_BINARY, aware_datetime=False)
 
-    # TODO: RUSTPYTHON
-    # The error message is different
-    # In CPython, there is a separate .c file for datetime, which raises a different error message
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_dump_utc_aware_datetime_without_aware_datetime_option(self):
         dt = datetime.datetime(2345, 6, 7, 8, tzinfo=datetime.UTC)
         msg = "can't subtract offset-naive and offset-aware datetimes"

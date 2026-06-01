@@ -48,11 +48,6 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
-#[cfg(unix)]
-use nix::{
-    sys::signal::{SaFlags, SigAction, SigSet, Signal::SIGINT, kill, sigaction},
-    unistd::getpid,
-};
 use std::{
     collections::{HashMap, HashSet},
     ffi::{OsStr, OsString},
@@ -94,7 +89,7 @@ pub struct VirtualMachine {
     pub initialized: bool,
     recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
-    #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
     /// Async generator firstiter hook (per-thread, set via sys.set_asyncgen_hooks)
     pub async_gen_firstiter: RefCell<Option<PyObjectRef>>,
@@ -105,16 +100,18 @@ pub struct VirtualMachine {
     /// Current running asyncio task for this thread
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
+    pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
 }
 
 /// Non-owning frame pointer for the frames stack.
-/// The pointed-to frame is kept alive by the caller of with_frame_exc/resume_gen_frame.
+/// The pointed-to frame is kept alive by the caller of with_frame/resume_gen_frame.
 #[derive(Copy, Clone)]
 pub struct FramePtr(NonNull<Py<Frame>>);
 
 impl FramePtr {
     /// # Safety
     /// The pointed-to frame must still be alive.
+    #[must_use]
     pub unsafe fn as_ref(&self) -> &Py<Frame> {
         unsafe { self.0.as_ref() }
     }
@@ -124,9 +121,19 @@ impl FramePtr {
 // FrameRef is alive on the call stack. The Vec is always empty when the VM moves between threads.
 unsafe impl Send for FramePtr {}
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct ExceptionStack {
+    /// Linked list of handled-exception slots (`_PyErr_StackItem` chain).
+    /// Bottom element is the thread's base slot; generator/coroutine resume
+    /// pushes an additional slot.  Normal frame calls do **not** push/pop.
     stack: Vec<Option<PyBaseExceptionRef>>,
+}
+
+impl Default for ExceptionStack {
+    fn default() -> Self {
+        // Thread's base `_PyErr_StackItem` – always present.
+        Self { stack: vec![None] }
+    }
 }
 
 /// Stop-the-world state for fork safety. Before `fork()`, the requester
@@ -191,6 +198,7 @@ impl Default for StopTheWorldState {
 
 #[cfg(all(unix, feature = "threading"))]
 impl StopTheWorldState {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             requested: AtomicBool::new(false),
@@ -526,7 +534,7 @@ impl StopTheWorldState {
 #[cfg(all(unix, feature = "threading"))]
 pub(super) fn stw_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ENABLED.get_or_init(|| std::env::var_os("RUSTPYTHON_STW_TRACE").is_some())
+    *ENABLED.get_or_init(|| crate::host_env::os::var_os("RUSTPYTHON_STW_TRACE").is_some())
 }
 
 #[cfg(all(unix, feature = "threading"))]
@@ -565,9 +573,7 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
             crate::stdlib::_thread::get_ident(),
             msg
         );
-        unsafe {
-            let _ = libc::write(libc::STDERR_FILENO, out.buf.as_ptr().cast(), out.len);
-        }
+        crate::host_env::io::write_stderr_raw(&out.buf[..out.len]);
     }
 }
 
@@ -576,12 +582,14 @@ pub(crate) struct CallableCache {
     pub len: Option<PyObjectRef>,
     pub isinstance: Option<PyObjectRef>,
     pub list_append: Option<PyObjectRef>,
+    pub builtin_all: Option<PyObjectRef>,
+    pub builtin_any: Option<PyObjectRef>,
 }
 
 pub struct PyGlobalState {
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
-    pub frozen: HashMap<&'static str, FrozenModule, ahash::RandomState>,
+    pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
@@ -641,6 +649,8 @@ impl VirtualMachine {
             .get_attr(self.ctx.intern_str("append"))
             .ok_or_else(|| self.new_runtime_error("failed to cache list.append".to_owned()))?;
         self.callable_cache.list_append = Some(list_append);
+        self.callable_cache.builtin_all = Some(self.builtins.get_attr("all", self)?);
+        self.callable_cache.builtin_any = Some(self.builtins.get_attr("any", self)?);
         Ok(())
     }
 
@@ -683,13 +693,11 @@ impl VirtualMachine {
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
     pub(crate) fn is_main_thread(&self) -> bool {
-        #[cfg(feature = "threading")]
-        {
-            crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
-        }
-        #[cfg(not(feature = "threading"))]
-        {
-            true
+        cfg_select! {
+            feature = "threading" => {
+                crate::stdlib::_thread::get_ident() == self.state.main_thread_ident.load()
+            }
+            _ => true,
         }
     }
 
@@ -743,6 +751,7 @@ impl VirtualMachine {
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
+            audit_hooks: RefCell::new(vec![]),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -774,8 +783,8 @@ impl VirtualMachine {
     #[cfg(feature = "encodings")]
     fn import_encodings(&mut self) -> PyResult<()> {
         self.import("encodings", 0).map_err(|import_err| {
-            let rustpythonpath_env = std::env::var("RUSTPYTHONPATH").ok();
-            let pythonpath_env = std::env::var("PYTHONPATH").ok();
+            let rustpythonpath_env = crate::host_env::os::var("RUSTPYTHONPATH").ok();
+            let pythonpath_env = crate::host_env::os::var("PYTHONPATH").ok();
             let env_set = rustpythonpath_env.as_ref().is_some() || pythonpath_env.as_ref().is_some();
             let path_contains_env = self.state.config.paths.module_search_paths.iter().any(|s| {
                 Some(s.as_str()) == rustpythonpath_env.as_deref() || Some(s.as_str()) == pythonpath_env.as_deref()
@@ -832,7 +841,7 @@ impl VirtualMachine {
         let codec_info = getregentry.call((), self)?;
         self.state
             .codec_registry
-            .register_manual("ascii", codec_info.try_into_value(self)?)?;
+            .register_manual("ascii", codec_info.try_into_value(self)?);
 
         // Register utf-8 encoding (also as "utf8" alias since normalize_encoding_name
         // maps "utf-8" → "utf_8" but leaves "utf8" as-is)
@@ -843,10 +852,10 @@ impl VirtualMachine {
         let utf8_codec: crate::codecs::PyCodec = codec_info.try_into_value(self)?;
         self.state
             .codec_registry
-            .register_manual("utf-8", utf8_codec.clone())?;
+            .register_manual("utf-8", utf8_codec.clone());
         self.state
             .codec_registry
-            .register_manual("utf8", utf8_codec)?;
+            .register_manual("utf8", utf8_codec);
 
         // Register latin-1 / iso8859-1 aliases needed very early for stdio
         // bootstrap (e.g. PYTHONIOENCODING=latin-1).
@@ -859,7 +868,7 @@ impl VirtualMachine {
             for name in ["latin-1", "latin_1", "latin1", "iso8859-1", "iso8859_1"] {
                 self.state
                     .codec_registry
-                    .register_manual(name, latin1_codec.clone())?;
+                    .register_manual(name, latin1_codec.clone());
             }
         }
         Ok(())
@@ -930,13 +939,18 @@ impl VirtualMachine {
                     let errors = if fd == 2 {
                         Some("backslashreplace")
                     } else {
-                        self.state.config.settings.stdio_errors.as_deref().or(
-                            if self.state.config.settings.stdio_encoding.is_some() {
-                                Some("strict")
-                            } else {
-                                Some("surrogateescape")
-                            },
-                        )
+                        self.state
+                            .config
+                            .settings
+                            .stdio_errors
+                            .as_deref()
+                            .or_else(|| {
+                                Some(if self.state.config.settings.stdio_encoding.is_some() {
+                                    "strict"
+                                } else {
+                                    "surrogateescape"
+                                })
+                            })
                     };
 
                     let stdio = self.call_method(
@@ -1145,11 +1159,11 @@ impl VirtualMachine {
         // Get stderr once and reuse it
         let stderr = crate::stdlib::sys::get_stderr(self).ok();
 
-        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &VirtualMachine| {
+        let write_to_stderr = |s: &str, stderr: &Option<PyObjectRef>, vm: &Self| {
             if let Some(stderr) = stderr {
                 let _ = vm.call_method(stderr, "write", (s.to_owned(),));
             } else {
-                eprint!("{}", s);
+                eprint!("{s}");
             }
         };
 
@@ -1163,7 +1177,7 @@ impl VirtualMachine {
         let repr_result = object.repr(self);
         let repr_wtf8 = repr_result
             .as_ref()
-            .map_or("<object repr failed>".as_ref(), |s| s.as_wtf8());
+            .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
         write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
 
         // Write exception type and message
@@ -1172,7 +1186,7 @@ impl VirtualMachine {
             Ok(exc_str) if !exc_str.as_wtf8().is_empty() => {
                 format!("{}: {}\n", exc_type_name, exc_str.as_wtf8())
             }
-            _ => format!("{}\n", exc_type_name),
+            _ => format!("{exc_type_name}\n"),
         };
         write_to_stderr(&msg, &stderr, self);
 
@@ -1379,7 +1393,7 @@ impl VirtualMachine {
     /// 2-pass module dict clearing (_PyModule_ClearDict algorithm).
     /// Pass 1: Set names starting with '_' (except __builtins__) to None.
     /// Pass 2: Set all remaining names (except __builtins__) to None.
-    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &VirtualMachine) {
+    pub(crate) fn module_clear_dict(dict: &Py<PyDict>, vm: &Self) {
         let none = vm.ctx.none();
 
         // Pass 1: names starting with '_' (except __builtins__)
@@ -1420,31 +1434,19 @@ impl VirtualMachine {
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// 2048 * sizeof(void*) = 16KB for 64-bit.
-    #[cfg_attr(miri, allow(dead_code))]
+    #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
-    #[cfg(all(not(miri), windows))]
+    #[cfg(all(not(miri), not(target_env = "musl"), windows))]
     fn get_stack_bounds() -> (usize, usize) {
-        use windows_sys::Win32::System::Threading::{
-            GetCurrentThreadStackLimits, SetThreadStackGuarantee,
-        };
-        let mut low: usize = 0;
-        let mut high: usize = 0;
-        unsafe {
-            GetCurrentThreadStackLimits(&mut low as *mut usize, &mut high as *mut usize);
-            // Add the guaranteed stack space (reserved for exception handling)
-            let mut guarantee: u32 = 0;
-            SetThreadStackGuarantee(&mut guarantee);
-            low += guarantee as usize;
-        }
-        (low, high)
+        crate::host_env::windows::current_thread_stack_bounds()
     }
 
     /// Get stack boundaries on non-Windows platforms.
     /// Falls back to estimating based on current stack pointer.
-    #[cfg(all(not(miri), not(windows)))]
+    #[cfg(all(not(miri), not(target_env = "musl"), not(windows)))]
     fn get_stack_bounds() -> (usize, usize) {
         // Use pthread_attr_getstack on platforms that support it
         #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -1495,15 +1497,16 @@ impl VirtualMachine {
 
     /// Calculate the C stack soft limit based on actual stack boundaries.
     /// soft_limit = base + 2 * margin (for downward-growing stacks)
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), not(target_env = "musl")))]
     fn calculate_c_stack_soft_limit() -> usize {
         let (base, _top) = Self::get_stack_bounds();
-        // Soft limit is 2 margins above the base
         base + Self::STACK_MARGIN_BYTES * 2
     }
 
-    /// Miri doesn't support inline assembly, so disable C stack checking.
-    #[cfg(miri)]
+    /// Musl currently reports stack bounds in a way that trips the VM's
+    /// native stack guard during frozen stdlib bootstrap, so keep the Python
+    /// recursion limit as the only guard there.
+    #[cfg(any(miri, target_env = "musl"))]
     fn calculate_c_stack_soft_limit() -> usize {
         0
     }
@@ -1511,19 +1514,18 @@ impl VirtualMachine {
     /// Check if we're near the C stack limit (like _Py_MakeRecCheck).
     /// Returns true only when stack pointer is in the "danger zone" between
     /// soft_limit and hard_limit (soft_limit - 2*margin).
-    #[cfg(not(miri))]
+    #[cfg(all(not(miri), not(target_env = "musl")))]
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         let current_sp = psm::stack_pointer() as usize;
         let soft_limit = self.c_stack_soft_limit.get();
-        // Stack grows downward: check if we're below soft limit but above hard limit
-        // This matches CPython's _Py_MakeRecCheck behavior
         current_sp < soft_limit
             && current_sp >= soft_limit.saturating_sub(Self::STACK_MARGIN_BYTES * 2)
     }
 
-    /// Miri doesn't support inline assembly, so always return false.
-    #[cfg(miri)]
+    /// Miri does not support the native stack probe, and musl currently trips
+    /// the probe during stdlib bootstrap.
+    #[cfg(any(miri, target_env = "musl"))]
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         false
@@ -1550,17 +1552,7 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_impl(frame, None, true, f)
-    }
-
-    /// Like `with_frame` but allows specifying the initial exception state.
-    pub fn with_frame_exc<R, F: FnOnce(FrameRef) -> PyResult<R>>(
-        &self,
-        frame: FrameRef,
-        exc: Option<PyBaseExceptionRef>,
-        f: F,
-    ) -> PyResult<R> {
-        self.with_frame_impl(frame, exc, true, f)
+        self.with_frame_impl(frame, true, f)
     }
 
     pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
@@ -1568,13 +1560,12 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_impl(frame, None, false, f)
+        self.with_frame_impl(frame, false, f)
     }
 
     fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
         &self,
         frame: FrameRef,
-        exc: Option<PyBaseExceptionRef>,
         traced: bool,
         f: F,
     ) -> PyResult<R> {
@@ -1593,19 +1584,22 @@ impl VirtualMachine {
                 old_frame as *mut Frame,
                 core::sync::atomic::Ordering::Relaxed,
             );
-            // Push exception context for frame isolation.
-            // For normal calls: None (clean slate).
-            // For generators: the saved exception from last yield.
-            self.push_exception(exc);
+            // Normal frame calls share the caller's exc_info slot so that
+            // callees can see the caller's handled exception via sys.exc_info().
+            // Save the current value to restore on exit — this prevents
+            // exc_info pollution from frames with unbalanced
+            // PUSH_EXC_INFO/POP_EXCEPT (e.g., exception escaping an except block
+            // whose cleanup entry is missing from the exception table).
+            let saved_exc = self.current_exception();
             let old_owner = frame.owner.swap(
                 crate::frame::FrameOwner::Thread as i8,
                 core::sync::atomic::Ordering::AcqRel,
             );
 
-            // Ensure cleanup on panic: restore owner, pop exception, frame chain, and frames Vec.
+            // Ensure cleanup on panic: restore owner, exc_info, frame chain, and frames Vec.
             scopeguard::defer! {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                self.pop_exception();
+                self.set_exception(saved_exc);
                 crate::vm::thread::set_current_frame(old_frame);
                 self.frames.borrow_mut().pop();
                 #[cfg(feature = "threading")]
@@ -1620,9 +1614,9 @@ impl VirtualMachine {
         })
     }
 
-    /// Lightweight frame execution for generator/coroutine resume.
-    /// Pushes to the thread frame stack and fires trace/profile events,
-    /// but skips the thread exception update for performance.
+    /// Frame execution for generator/coroutine resume.
+    /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
+    /// linking the generator's saved handled-exception.
     pub fn resume_gen_frame<R, F: FnOnce(&Py<Frame>) -> PyResult<R>>(
         &self,
         frame: &FrameRef,
@@ -1645,20 +1639,20 @@ impl VirtualMachine {
             old_frame as *mut Frame,
             core::sync::atomic::Ordering::Relaxed,
         );
-        // Inline exception push without thread exception update
-        self.exceptions.borrow_mut().stack.push(exc);
+        // Push generator's exc_info slot onto the chain
+        // (gi_exc_state.previous_item = tstate->exc_info;
+        //  tstate->exc_info = &gi_exc_state;)
+        self.push_exception(exc);
         let old_owner = frame.owner.swap(
             crate::frame::FrameOwner::Thread as i8,
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        // Ensure cleanup on panic: restore owner, pop exception, frame chain, frames Vec,
-        // and recursion depth.
+        // Ensure cleanup on panic: restore owner, pop exc_info slot, frame chain,
+        // frames Vec, and recursion depth.
         scopeguard::defer! {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-            self.exceptions.borrow_mut().stack
-                .pop()
-                .expect("pop_exception() without nested exc stack");
+            self.pop_exception();
             crate::vm::thread::set_current_frame(old_frame);
             self.frames.borrow_mut().pop();
             #[cfg(feature = "threading")]
@@ -1875,9 +1869,9 @@ impl VirtualMachine {
                         if i >= elements.len() {
                             results.shrink_to_fit();
                             return Ok(Ok(results));
-                        } else {
-                            elements[i].clone()
                         }
+                        elements[i].clone()
+
                         // free the lock
                     };
                     match f(elem) {
@@ -2024,21 +2018,19 @@ impl VirtualMachine {
         thread::suspend_if_needed(&self.state.stop_the_world);
 
         #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::signal::check_signals(self)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            Ok(())
-        }
+        crate::signal::check_signals(self)?;
+
+        Ok(())
     }
 
+    /// Push a new exc_info slot (for generator/coroutine resume).
     pub(crate) fn push_exception(&self, exc: Option<PyBaseExceptionRef>) {
         self.exceptions.borrow_mut().stack.push(exc);
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
     }
 
+    /// Pop the topmost exc_info slot (generator/coroutine yield/return).
     pub(crate) fn pop_exception(&self) -> Option<PyBaseExceptionRef> {
         let exc = self
             .exceptions
@@ -2051,11 +2043,12 @@ impl VirtualMachine {
         exc
     }
 
-    pub(crate) fn current_exception(&self) -> Option<PyBaseExceptionRef> {
+    pub fn current_exception(&self) -> Option<PyBaseExceptionRef> {
         self.exceptions.borrow().stack.last().cloned().flatten()
     }
 
-    pub(crate) fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
+    /// Set the current exc_info slot value (PUSH_EXC_INFO / POP_EXCEPT).
+    pub fn set_exception(&self, exc: Option<PyBaseExceptionRef>) {
         // don't be holding the RefCell guard while __del__ is called
         let mut excs = self.exceptions.borrow_mut();
         debug_assert!(
@@ -2072,6 +2065,19 @@ impl VirtualMachine {
         }
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
+    }
+
+    pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
+        let mut excs = self.exceptions.borrow_mut();
+        if let Some(top) = excs.stack.last_mut() {
+            let exc = top.take();
+            drop(excs);
+            #[cfg(feature = "threading")]
+            thread::update_thread_exception(self.topmost_exception());
+            exc
+        } else {
+            None
+        }
     }
 
     pub(crate) fn contextualize_exception(&self, exception: &Py<PyBaseException>) {
@@ -2126,9 +2132,8 @@ impl VirtualMachine {
                     arg => {
                         if self.is_none(arg) {
                             return 0;
-                        } else {
-                            arg.str(self).ok()
                         }
+                        arg.str(self).ok()
                     }
                 }),
                 _ => args.as_object().repr(self).ok(),
@@ -2142,33 +2147,20 @@ impl VirtualMachine {
             }
             1
         } else if exc.fast_isinstance(self.ctx.exceptions.keyboard_interrupt) {
-            #[allow(clippy::if_same_then_else)]
-            {
-                self.print_exception(exc);
-                #[cfg(unix)]
-                {
-                    let action = SigAction::new(
-                        nix::sys::signal::SigHandler::SigDfl,
-                        SaFlags::SA_ONSTACK,
-                        SigSet::empty(),
-                    );
-                    let result = unsafe { sigaction(SIGINT, &action) };
-                    if result.is_ok() {
+            self.print_exception(exc);
+            cfg_select! {
+                unix => {
+                    if crate::host_env::signal::set_sigint_default_onstack().is_ok() {
                         self.flush_std();
-                        kill(getpid(), SIGINT).expect("Expect to be killed.");
+                        crate::host_env::signal::send_sigint_to_self()
+                            .expect("Expect to be killed.");
                     }
 
                     (libc::SIGINT as u32) + 128
                 }
-                #[cfg(windows)]
-                {
-                    // STATUS_CONTROL_C_EXIT - same as CPython
-                    0xC000013A
-                }
-                #[cfg(not(any(unix, windows)))]
-                {
-                    1
-                }
+                // STATUS_CONTROL_C_EXIT - same as CPython
+                windows => 0xC000013A,
+                _ => 1,
             }
         } else {
             self.print_exception(exc);
@@ -2259,6 +2251,7 @@ impl AsRef<Context> for VirtualMachine {
 
 /// Resolve frozen module alias to its original name.
 /// Returns the original module name if an alias exists, otherwise returns the input name.
+#[must_use]
 pub fn resolve_frozen_alias(name: &str) -> &str {
     match name {
         "_frozen_importlib" => "importlib._bootstrap",
@@ -2273,52 +2266,57 @@ pub fn resolve_frozen_alias(name: &str) -> &str {
     }
 }
 
-#[test]
-fn test_nested_frozen() {
-    use rustpython_vm as vm;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    vm::Interpreter::builder(Default::default())
-        .add_frozen_modules(rustpython_vm::py_freeze!(
-            dir = "../../../../extra_tests/snippets"
-        ))
-        .build()
-        .enter(|vm| {
-            let scope = vm.new_scope_with_builtins();
+    #[test]
+    fn nested_frozen() {
+        use rustpython_vm as vm;
 
-            let source = "from dir_module.dir_module_inner import value2";
-            let code_obj = vm
-                .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
-                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
-                .unwrap();
+        vm::Interpreter::builder(Default::default())
+            .add_frozen_modules(rustpython_vm::py_freeze!(
+                dir = "../../../../extra_tests/snippets"
+            ))
+            .build()
+            .enter(|vm| {
+                let scope = vm.new_scope_with_builtins();
 
-            if let Err(e) = vm.run_code_obj(code_obj, scope) {
-                vm.print_exception(e);
-                panic!();
-            }
-        })
-}
-
-#[test]
-fn frozen_origname_matches() {
-    use rustpython_vm as vm;
-
-    vm::Interpreter::builder(Default::default())
-        .build()
-        .enter(|vm| {
-            let check = |name, expected| {
-                let module = import::import_frozen(vm, name).unwrap();
-                let origname: PyStrRef = module
-                    .get_attr("__origname__", vm)
-                    .unwrap()
-                    .try_into_value(vm)
+                let source = "from dir_module.dir_module_inner import value2";
+                let code_obj = vm
+                    .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
+                    .map_err(|err| vm.new_syntax_error(&err, Some(source)))
                     .unwrap();
-                assert_eq!(origname.as_wtf8(), expected);
-            };
 
-            check("_frozen_importlib", "importlib._bootstrap");
-            check(
-                "_frozen_importlib_external",
-                "importlib._bootstrap_external",
-            );
-        });
+                if let Err(e) = vm.run_code_obj(code_obj, scope) {
+                    vm.print_exception(e);
+                    panic!();
+                }
+            })
+    }
+
+    #[test]
+    fn frozen_origname_matches() {
+        use rustpython_vm as vm;
+
+        vm::Interpreter::builder(Default::default())
+            .build()
+            .enter(|vm| {
+                let check = |name, expected| {
+                    let module = import::import_frozen(vm, name).unwrap();
+                    let origname: PyStrRef = module
+                        .get_attr("__origname__", vm)
+                        .unwrap()
+                        .try_into_value(vm)
+                        .unwrap();
+                    assert_eq!(origname.as_wtf8(), expected);
+                };
+
+                check("_frozen_importlib", "importlib._bootstrap");
+                check(
+                    "_frozen_importlib_external",
+                    "importlib._bootstrap_external",
+                );
+            });
+    }
 }

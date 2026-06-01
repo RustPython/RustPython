@@ -26,20 +26,42 @@ pub(crate) mod _struct {
 
     impl TryFromObject for IntoStructFormatBytes {
         fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            // CPython turns str to bytes but we do reversed way here
-            // The only performance difference is this transition cost
+            // CPython turns str to bytes (via str.encode('ascii')) but we keep str.
+            // The error reporting for non-ASCII input still matches CPython:
+            // - str input with non-ASCII char: UnicodeEncodeError, the same exception
+            //   str.encode('ascii') would produce.
+            // - bytes input with non-ASCII byte: struct.error("bad char in struct format"),
+            //   matching CPython where bytes are passed through to the format parser.
             let fmt = match_class!(match obj {
-                s @ PyStr => s.isascii().then_some(s),
-                b @ PyBytes => ascii::AsciiStr::from_ascii(&b)
-                    .ok()
-                    .map(|s| vm.ctx.new_str(s)),
+                s @ PyStr => {
+                    if !s.isascii() {
+                        let start = s
+                            .as_wtf8()
+                            .code_points()
+                            .position(|cp| !cp.to_char().is_some_and(|c| c.is_ascii()))
+                            .unwrap_or(0);
+                        return Err(vm.new_unicode_encode_error_real(
+                            vm.ctx.new_str("ascii"),
+                            s,
+                            start,
+                            start + 1,
+                            vm.ctx.new_str("ordinal not in range(128)"),
+                        ));
+                    }
+                    s
+                }
+                b @ PyBytes => {
+                    let ascii_str = ascii::AsciiStr::from_ascii(&b).map_err(|_| {
+                        new_struct_error(vm, "bad char in struct format".to_owned())
+                    })?;
+                    vm.ctx.new_str(ascii_str)
+                }
                 other =>
                     return Err(vm.new_type_error(format!(
                         "Struct() argument 1 must be a str or bytes object, not {}",
                         other.class().name()
                     ))),
-            })
-            .ok_or_else(|| vm.new_unicode_decode_error("Struct format must be a ascii string"))?;
+            });
             Ok(Self(fmt))
         }
     }

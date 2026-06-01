@@ -6,7 +6,7 @@ use syn::{Attribute, Data, DeriveInput, Expr, Field, Ident, Result, Token, parse
 
 /// The kind of the python parameter, this corresponds to the value of Parameter.kind
 /// (https://docs.python.org/3/library/inspect.html#inspect.Parameter.kind)
-#[derive(Default)]
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
 enum ParameterKind {
     PositionalOnly,
     #[default]
@@ -77,9 +77,10 @@ impl ArgAttribute {
     }
 
     fn parse_argument(&mut self, meta: ParseNestedMeta<'_>) -> Result<()> {
-        if let ParameterKind::Flatten = self.kind {
+        if self.kind == ParameterKind::Flatten {
             return Err(meta.error("can't put additional arguments on a flatten arg"));
         }
+
         if meta.path.is_ident("default") && meta.input.peek(Token![=]) {
             if matches!(self.default, Some(Some(_))) {
                 return Err(meta.error("Default already set"));
@@ -220,7 +221,7 @@ fn compute_arity_bounds(field_attrs: &[ArgAttribute]) -> (usize, usize) {
     (min_arity, max_arity)
 }
 
-pub fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
+pub(crate) fn impl_from_args(input: DeriveInput) -> Result<TokenStream> {
     let (fields, field_attrs) = match input.data {
         Data::Struct(syn::DataStruct { fields, .. }) => (
             fields

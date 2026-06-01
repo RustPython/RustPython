@@ -1261,7 +1261,6 @@ class TestLineAndInstructionEvents(CheckEvents):
             ('instruction', 'func2', 46),
             ('line', 'get_events', 11)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - instruction offsets differ from CPython
     def test_try_except(self):
 
         def func3():
@@ -1625,7 +1624,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch left', 'func', 44, 50),
             ('branch right', 'func', 28, 70)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_except_star(self):
 
         class Foo:

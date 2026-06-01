@@ -1,3 +1,5 @@
+import sys
+
 from testutils import AssertRaises, assert_raises, skip_if_unsupported
 
 assert "".__eq__(1) == NotImplemented
@@ -61,12 +63,39 @@ assert a.endswith(("A", "lo"))
 assert not a.endswith("on")
 assert not a.endswith(("A", "ll"))
 assert a.zfill(8) == "000Hallo"
+assert "á".zfill(4) == "000á"
+assert "🙂".zfill(5) == "0000🙂"
+assert "+あ".zfill(5) == "+000あ"
 assert a.isalnum()
 assert not a.isdigit()
 assert not a.isdecimal()
 assert not a.isnumeric()
 assert a.istitle()
+assert "\u1c89".istitle()
+assert "Ǳ".title() == "ǲ"
 assert a.isalpha()
+assert not "\u093f".isalpha()
+
+# Combining characters differ slightly between Rust and Python
+assert "\u006e".isalnum()
+assert not "\u0303".isalnum()
+assert not "\u006e\u0303".isalnum()
+assert "\u00f1".isalnum()
+assert not "\u0345".isalnum()
+assert not "\u093f".isalnum()
+for raw in range(0x0363, 0x036F):
+    assert not chr(raw).isalnum()
+
+# isdigit is true for exponents
+assert "⁰".isdigit()
+assert "⁰".isnumeric()
+assert not "½".isdigit()
+assert "½".isnumeric()
+assert not "Ⅻ".isdigit()
+assert "Ⅻ".isnumeric()
+
+# isnumeric is broader than Rust's
+assert "\u3405".isnumeric()
 
 s = "1 2 3"
 assert s.split(" ", 1) == ["1", "2 3"]
@@ -95,6 +124,12 @@ assert_raises(TypeError, lambda: s.rjust(12, "__"))
 
 c = "hallo"
 assert c.capitalize() == "Hallo"
+assert "ßello".capitalize() == "Ssello"
+assert "İstanbul".capitalize() == "İstanbul"
+assert "a\u0301bc".capitalize() == "Ábc"
+assert "ΣΙΓΜΑ".capitalize() == "Σιγμα"
+assert "😀hello".capitalize() == "😀hello"
+assert "élan".capitalize() == "Élan"
 assert c.center(11, "-") == "---hallo---"
 assert ["koki".center(i, "|") for i in range(3, 10)] == [
     "koki",
@@ -217,6 +252,17 @@ assert (
 assert "abc\t12345\txyz".expandtabs() == "abc     12345   xyz"
 assert "-".join(["1", "2", "3"]) == "1-2-3"
 assert "HALLO".isupper()
+assert not "123".isupper()
+assert not "123".islower()
+assert not "\U0001f431".isupper()
+assert not "\U0001f431".islower()
+assert "\U0001f431 CAT".isupper()
+assert "\U0001f431 cat".islower()
+if sys.version_info >= (3, 15):
+    assert not "\u0295".islower()
+    assert not "\u0295".isupper()
+    assert not "\u0295".istitle()
+assert "\u1c89".isupper()
 assert "hello, my name is".partition("my ") == ("hello, ", "my ", "name is")
 assert "hello".partition("is") == ("hello", "", "")
 assert "hello, my name is".rpartition("is") == ("hello, my name ", "is", "")
@@ -231,6 +277,10 @@ assert "_".isidentifier()
 assert "유니코드".isidentifier()
 assert not "😂".isidentifier()
 assert not "123".isidentifier()
+
+assert "Σίσυφος".swapcase() == "σΊΣΥΦΟΣ"
+assert "\u0295".swapcase() == "\u0295"
+assert "\u1c89".swapcase() == "\u1c8a"
 
 # String Formatting
 assert "{} {}".format(1, 2) == "1 2"
@@ -486,6 +536,8 @@ assert "a1".islower()
 assert "1a".islower()
 assert "가나다a".islower()
 assert "가나다A".isupper()
+assert not "ジョジョ".isupper()
+assert not "ジョジョ".islower()
 
 # test str.format_map()
 #

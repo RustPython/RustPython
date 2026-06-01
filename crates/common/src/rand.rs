@@ -6,6 +6,7 @@
 /// # Panics
 ///
 /// Panics if the OS entropy source returns an error.
+#[must_use]
 pub fn os_random<const N: usize>() -> [u8; N] {
     let mut buf = [0u8; N];
     getrandom::fill(&mut buf).unwrap();

@@ -5,9 +5,6 @@
 extern crate proc_macro;
 
 #[macro_use]
-extern crate maplit;
-
-#[macro_use]
 mod error;
 #[macro_use]
 mod util;
@@ -36,10 +33,12 @@ fn result_to_tokens(result: Result<TokenStream, impl Into<Diagnostic>>) -> Token
         .unwrap_or_else(ToTokens::into_token_stream)
 }
 
+#[must_use]
 pub fn derive_from_args(input: DeriveInput) -> TokenStream {
     result_to_tokens(from_args::impl_from_args(input))
 }
 
+#[must_use]
 pub fn pyclass(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_) | syn::Item::Trait(_)) {
         result_to_tokens(pyclass::impl_pyclass_impl(attr, item))
@@ -48,22 +47,26 @@ pub fn pyclass(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     }
 }
 
+#[must_use]
 pub fn pyexception(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     if matches!(item, syn::Item::Impl(_)) {
-        result_to_tokens(pyclass::impl_pyexception_impl(attr, item))
+        pyclass::impl_pyexception_impl(attr, item)
     } else {
-        result_to_tokens(pyclass::impl_pyexception(attr, item))
+        result_to_tokens(pyclass::impl_pyexception(attr, &item))
     }
 }
 
+#[must_use]
 pub fn pymodule(attr: PyModuleArgs, item: Item) -> TokenStream {
     result_to_tokens(pymodule::impl_pymodule(attr, item))
 }
 
+#[must_use]
 pub fn pystruct_sequence(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     result_to_tokens(pystructseq::impl_pystruct_sequence(attr, item))
 }
 
+#[must_use]
 pub fn pystruct_sequence_data(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     result_to_tokens(pystructseq::impl_pystruct_sequence_data(attr, item))
 }
@@ -76,10 +79,12 @@ pub fn py_freeze(input: TokenStream, compiler: &dyn Compiler) -> TokenStream {
     result_to_tokens(compile_bytecode::impl_py_freeze(input, compiler))
 }
 
+#[must_use]
 pub fn pypayload(input: DeriveInput) -> TokenStream {
-    result_to_tokens(pypayload::impl_pypayload(input))
+    pypayload::impl_pypayload(input)
 }
 
+#[must_use]
 pub fn pytraverse(item: DeriveInput) -> TokenStream {
     result_to_tokens(pytraverse::impl_pytraverse(item))
 }

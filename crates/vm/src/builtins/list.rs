@@ -245,7 +245,6 @@ impl PyList {
         Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx)
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn __len__(&self) -> usize {
         self.borrow_vec().len()
     }
@@ -669,7 +668,7 @@ fn do_sort(
 
 #[pyclass(module = false, name = "list_iterator", traverse)]
 #[derive(Debug)]
-pub struct PyListIterator {
+pub(crate) struct PyListIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
@@ -735,7 +734,7 @@ impl IterNext for PyListIterator {
 
 #[pyclass(module = false, name = "list_reverseiterator", traverse)]
 #[derive(Debug)]
-pub struct PyListReverseIterator {
+pub(crate) struct PyListReverseIterator {
     internal: PyMutex<PositionIterInternal<PyListRef>>,
 }
 
@@ -796,7 +795,7 @@ fn vectorcall_list(
     Ok(obj.into())
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     let list_type = &context.types.list_type;
     PyList::extend_class(context, list_type);
     list_type.slots.vectorcall.store(Some(vectorcall_list));

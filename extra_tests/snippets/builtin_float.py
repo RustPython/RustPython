@@ -517,3 +517,35 @@ assert_raises(ValueError, lambda: float("._0"))
 
 assert 3.0 % -2.0 == -1.0
 assert -3.0 % 2.0 == 1.0
+
+
+# Float-to-int conversion error wording matches CPython exactly. The
+# error class name is added by Python's exception display layer; the
+# message itself must not duplicate it.
+def _check_msg(call, exc_type, expected_msg):
+    try:
+        call()
+    except exc_type as e:
+        assert str(e) == expected_msg, repr(e)
+    else:
+        raise AssertionError(f"expected {exc_type.__name__}")
+
+
+_check_msg(lambda: int(INF), OverflowError, "cannot convert float infinity to integer")
+_check_msg(lambda: int(NINF), OverflowError, "cannot convert float infinity to integer")
+_check_msg(lambda: int(NAN), ValueError, "cannot convert float NaN to integer")
+_check_msg(
+    lambda: round(INF), OverflowError, "cannot convert float infinity to integer"
+)
+_check_msg(lambda: round(NAN), ValueError, "cannot convert float NaN to integer")
+_check_msg(
+    lambda: math.floor(INF), OverflowError, "cannot convert float infinity to integer"
+)
+_check_msg(lambda: math.ceil(NAN), ValueError, "cannot convert float NaN to integer")
+_check_msg(
+    lambda: math.trunc(INF), OverflowError, "cannot convert float infinity to integer"
+)
+_check_msg(
+    lambda: INF.__int__(), OverflowError, "cannot convert float infinity to integer"
+)
+_check_msg(lambda: NAN.__floor__(), ValueError, "cannot convert float NaN to integer")

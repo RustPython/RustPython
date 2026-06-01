@@ -1,4 +1,5 @@
 import sys
+import time
 
 import unittest
 # TODO: RUSTPYTHON
@@ -379,7 +380,6 @@ class IntTestCases(unittest.TestCase):
     def test_string_float(self):
         self.assertRaises(ValueError, int, '1.2')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_intconversion(self):
         # Test __int__()
         class ClassicMissingMethods:
@@ -573,7 +573,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
             else:
                 self.int_class(i, base)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_max_str_digits(self):
         maxdigits = sys.get_int_max_str_digits()
 
@@ -588,7 +587,10 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             str(i)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(
+        not hasattr(time, "get_clock_info"),
+        "TODO: RUSTPYTHON; time.get_clock_info is not available on wasm",
+    )
     def test_denial_of_service_prevented_int_to_str(self):
         """Regression test: ensure we fail before performing O(N**2) work."""
         maxdigits = sys.get_int_max_str_digits()
@@ -713,7 +715,6 @@ class IntStrDigitLimitsTests(unittest.TestCase):
         with self.assertRaises(ValueError) as err:
             int_class(f'{s}1', base)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_int_from_other_bases(self):
         base = 3
         with self.subTest(base=base):

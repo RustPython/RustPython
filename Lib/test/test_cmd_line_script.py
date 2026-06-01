@@ -14,8 +14,7 @@ import io
 
 import textwrap
 from test import support
-from test.support import import_helper
-from test.support import os_helper
+from test.support import import_helper, is_apple, os_helper
 from test.support.script_helper import (
     make_pkg, make_script, make_zip_pkg, make_zip_script,
     assert_python_ok, assert_python_failure, spawn_python, kill_python)
@@ -89,6 +88,8 @@ def _make_test_zip_pkg(zip_dir, zip_basename, pkg_name, script_basename,
     importlib.invalidate_caches()
     return to_return
 
+
+@support.force_not_colorized_test_class
 class CmdLineTest(unittest.TestCase):
     def _check_output(self, script_name, exit_code, data,
                              expected_file, expected_argv0,
@@ -152,15 +153,13 @@ class CmdLineTest(unittest.TestCase):
             print('Expected output: %r' % expected_msg)
         self.assertIn(expected_msg.encode('utf-8'), err)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dash_c_loader(self):
         rc, out, err = assert_python_ok("-c", "print(__loader__)")
         expected = repr(importlib.machinery.BuiltinImporter).encode("utf-8")
         self.assertIn(expected, out)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_stdin_loader(self):
         # Unfortunately, there's no way to automatically test the fully
         # interactive REPL, since that code path only gets executed when
@@ -207,21 +206,23 @@ class CmdLineTest(unittest.TestCase):
             stderr = p.stderr if separate_stderr else p.stdout
             self.assertIn(b'Traceback ', stderr.readline())
             self.assertIn(b'File "<stdin>"', stderr.readline())
+            self.assertIn(b'1/0', stderr.readline())
+            self.assertIn(b'    ~^~', stderr.readline())
             self.assertIn(b'ZeroDivisionError', stderr.readline())
 
-    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
+    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stdout_flush(self):
         self.check_repl_stdout_flush()
 
-    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
+    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stdout_flush_separate_stderr(self):
         self.check_repl_stdout_flush(True)
 
-    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
+    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stderr_flush(self):
         self.check_repl_stderr_flush()
 
-    @unittest.skip("TODO: RUSTPYTHON, test hang in middle")
+    @unittest.skip("TODO: RUSTPYTHON; test hang in middle")
     def test_repl_stderr_flush_separate_stderr(self):
         self.check_repl_stderr_flush(True)
 
@@ -233,8 +234,7 @@ class CmdLineTest(unittest.TestCase):
                                importlib.machinery.SourceFileLoader,
                                expected_cwd=script_dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_script_abspath(self):
         # pass the script using the relative path, expect the absolute path
         # in __file__
@@ -390,8 +390,7 @@ class CmdLineTest(unittest.TestCase):
                    "be directly executed")
             self._check_import_error(["-m", "test_pkg"], msg, cwd=script_dir)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_issue8202(self):
         # Make sure package __init__ modules see "-m" in sys.argv0 while
         # searching for the module to execute
@@ -554,7 +553,7 @@ class CmdLineTest(unittest.TestCase):
         script = textwrap.dedent("""\
             try:
                 raise ValueError
-            except:
+            except ValueError:
                 raise NameError from None
             """)
         with os_helper.temp_dir() as script_dir:
@@ -562,18 +561,23 @@ class CmdLineTest(unittest.TestCase):
             exitcode, stdout, stderr = assert_python_failure(script_name)
             text = stderr.decode('ascii').split('\n')
             self.assertEqual(len(text), 5)
-            self.assertTrue(text[0].startswith('Traceback'))
-            self.assertTrue(text[1].startswith('  File '))
-            self.assertTrue(text[3].startswith('NameError'))
+            self.assertStartsWith(text[0], 'Traceback')
+            self.assertStartsWith(text[1], '  File ')
+            self.assertStartsWith(text[3], 'NameError')
 
-    @unittest.expectedFailureIf(sys.platform == "linux", "TODO: RUSTPYTHON")
+    @unittest.expectedFailureIf(sys.platform in ("android", "linux"), "TODO: RUSTPYTHON")
     def test_non_ascii(self):
-        # Mac OS X denies the creation of a file with an invalid UTF-8 name.
+        # Apple platforms deny the creation of a file with an invalid UTF-8 name.
         # Windows allows creating a name with an arbitrary bytes name, but
         # Python cannot a undecodable bytes argument to a subprocess.
-        # WASI does not permit invalid UTF-8 names.
-        if (os_helper.TESTFN_UNDECODABLE
-        and sys.platform not in ('win32', 'darwin', 'emscripten', 'wasi')):
+        # Emscripten/WASI does not permit invalid UTF-8 names.
+        if (
+            os_helper.TESTFN_UNDECODABLE
+            and sys.platform not in {
+                "win32", "emscripten", "wasi"
+            }
+            and not is_apple
+        ):
             name = os.fsdecode(os_helper.TESTFN_UNDECODABLE)
         elif os_helper.TESTFN_NONASCII:
             name = os_helper.TESTFN_NONASCII
@@ -641,8 +645,7 @@ class CmdLineTest(unittest.TestCase):
             self.assertNotIn("\f", text)
             self.assertIn("\n    1 + 1 = 2\n    ^^^^^\n", text)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_multi_line_fstring(self):
         script = 'foo = f"""{}\nfoo"""\n'
         with os_helper.temp_dir() as script_dir:
@@ -657,8 +660,7 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_invalid_escape_sequence_multi_line(self):
         script = 'foo = """\\q"""\n'
         with os_helper.temp_dir() as script_dir:
@@ -669,13 +671,13 @@ class CmdLineTest(unittest.TestCase):
             self.assertEqual(
                 stderr.splitlines()[-3:],
                 [   b'    foo = """\\q"""',
-                    b'          ^^^^^^^^',
-                    b'SyntaxError: invalid escape sequence \'\\q\''
+                    b'             ^^',
+                    b'SyntaxError: "\\q" is an invalid escape sequence. '
+                    b'Did you mean "\\\\q"? A raw string is also an option.'
                 ],
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_null_bytes(self):
         script = "x = '\0' nothing to see here\n';import os;os.system('echo pwnd')\n"
         with os_helper.temp_dir() as script_dir:
@@ -688,8 +690,7 @@ class CmdLineTest(unittest.TestCase):
                 ],
             )
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_null_bytes_in_multiline_string(self):
         scripts = ["\n'''\nmultilinestring\0\n'''", "\nf'''\nmultilinestring\0\n'''"] # Both normal and f-strings
         with os_helper.temp_dir() as script_dir:
@@ -702,6 +703,26 @@ class CmdLineTest(unittest.TestCase):
                         b'SyntaxError: source code cannot contain null bytes'
                     ]
                 )
+
+    def test_source_lines_are_shown_when_running_source(self):
+        _, _, stderr = assert_python_failure("-c", "1/0")
+        expected_lines = [
+            b'Traceback (most recent call last):',
+            b'  File "<string>", line 1, in <module>',
+            b'    1/0',
+            b'    ~^~',
+            b'ZeroDivisionError: division by zero']
+        self.assertEqual(stderr.splitlines(), expected_lines)
+
+    def test_syntaxerror_does_not_crash(self):
+        script = "nonlocal x\n"
+        with os_helper.temp_dir() as script_dir:
+            script_name = _make_test_script(script_dir, 'script', script)
+            exitcode, stdout, stderr = assert_python_failure(script_name)
+            text = io.TextIOWrapper(io.BytesIO(stderr), 'ascii').read()
+            # It used to crash in https://github.com/python/cpython/issues/111132
+            self.assertEndsWith(text,
+                'SyntaxError: nonlocal declaration not allowed at module level\n')
 
     def test_consistent_sys_path_for_direct_execution(self):
         # This test case ensures that the following all give the same
@@ -771,8 +792,7 @@ class CmdLineTest(unittest.TestCase):
             traceback_lines = stderr.decode().splitlines()
             self.assertIn("No module named script_pkg", traceback_lines[-1])
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nonexisting_script(self):
         # bpo-34783: "./python script.py" must not crash
         # if the script file doesn't exist.
@@ -788,11 +808,11 @@ class CmdLineTest(unittest.TestCase):
         self.assertIn(": can't open file ", err)
         self.assertNotEqual(proc.returncode, 0)
 
+    @unittest.skipIf(sys.platform.startswith("darwin"), "TODO: RUSTPYTHON; Problems with Mac os descriptor")
     @unittest.skipUnless(os.path.exists('/dev/fd/0'), 'requires /dev/fd platform')
     @unittest.skipIf(sys.platform.startswith("freebsd") and
                      os.stat("/dev").st_dev == os.stat("/dev/fd").st_dev,
                      "Requires fdescfs mounted on /dev/fd on FreeBSD")
-    @unittest.skipIf(sys.platform.startswith("darwin"), "TODO: RUSTPYTHON Problems with Mac os descriptor")
     def test_script_as_dev_fd(self):
         # GH-87235: On macOS passing a non-trivial script to /dev/fd/N can cause
         # problems because all open /dev/fd/N file descriptors share the same

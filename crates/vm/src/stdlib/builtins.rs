@@ -21,8 +21,8 @@ mod builtins {
         common::hash::PyHash,
         function::{
             ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
-            PosArgs,
+            ArgPrimitiveIndex, ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
+            OptionalOption, PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -97,14 +97,23 @@ mod builtins {
     #[allow(dead_code)]
     struct CompileArgs {
         source: PyObjectRef,
-        filename: FsPath,
+        // Resolved to FsPath at the start of compile() so that bytearray /
+        // memoryview / other buffer-protocol objects raise TypeError, matching
+        // CPython's PyUnicode_FSDecoder (str / bytes / __fspath__ only).
+        filename: PyObjectRef,
         mode: PyUtf8StrRef,
+        // CPython parity: flags / optimize accept any object with __index__,
+        // not just exact int. Matches the behavior of `int(x)` arg conversion
+        // used by Python/Python-ast.c::compile.
         #[pyarg(any, optional)]
-        flags: OptionalArg<PyIntRef>,
+        flags: OptionalArg<ArgPrimitiveIndex<i32>>,
+        // CPython parity: dont_inherit goes through PyObject_IsTrue, so
+        // arbitrary objects with `__bool__` are accepted (and any exception
+        // raised inside `__bool__` propagates) — not the strict bool type.
         #[pyarg(any, optional)]
-        dont_inherit: OptionalArg<bool>,
+        dont_inherit: OptionalArg<ArgIntoBool>,
         #[pyarg(any, optional)]
-        optimize: OptionalArg<PyIntRef>,
+        optimize: OptionalArg<ArgPrimitiveIndex<i32>>,
         #[pyarg(any, optional)]
         _feature_version: OptionalArg<i32>,
     }
@@ -151,7 +160,11 @@ mod builtins {
                 .map(|&b| b as char)
                 .collect();
 
-            if name.is_empty() { None } else { Some(name) }
+            if name.is_empty() {
+                None
+            } else {
+                Some(normalize_source_encoding(&name))
+            }
         }
 
         // Split into lines (first two only)
@@ -177,15 +190,39 @@ mod builtins {
         lines.next().and_then(find_encoding_in_line)
     }
 
+    /// Match CPython's Parser/tokenizer/helpers.c:get_normal_name().
+    #[cfg(feature = "parser")]
+    fn normalize_source_encoding(name: &str) -> String {
+        let mut normalized = String::with_capacity(name.len().min(12));
+        for ch in name.chars().take(12) {
+            if ch == '_' {
+                normalized.push('-');
+            } else {
+                normalized.push(ch.to_ascii_lowercase());
+            }
+        }
+
+        if normalized == "utf-8" || normalized.starts_with("utf-8-") {
+            "utf-8".to_owned()
+        } else if normalized == "latin-1"
+            || normalized == "iso-8859-1"
+            || normalized == "iso-latin-1"
+            || normalized.starts_with("latin-1-")
+            || normalized.starts_with("iso-8859-1-")
+            || normalized.starts_with("iso-latin-1-")
+        {
+            "iso-8859-1".to_owned()
+        } else {
+            name.to_owned()
+        }
+    }
+
     /// Decode source bytes to a string, handling PEP 263 encoding declarations
     /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
     /// declaration.
-    /// Check if an encoding name is a UTF-8 variant after normalization.
-    /// Matches: utf-8, utf_8, utf8, UTF-8, etc.
     #[cfg(feature = "parser")]
     fn is_utf8_encoding(name: &str) -> bool {
-        let normalized: String = name.chars().filter(|&c| c != '-' && c != '_').collect();
-        normalized.eq_ignore_ascii_case("utf8")
+        name == "utf-8"
     }
 
     #[cfg(feature = "parser")]
@@ -197,9 +234,10 @@ mod builtins {
 
         // Validate BOM + encoding combination
         if has_bom && !is_utf8 {
+            let enc = encoding.as_deref().unwrap_or("utf-8");
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem for '{filename}': utf-8").into(),
+                format!("encoding problem: {enc} with BOM").into(),
             ));
         }
 
@@ -258,26 +296,30 @@ mod builtins {
         }
         #[cfg(feature = "ast")]
         {
+            // CPython parity: PyUnicode_FSDecoder accepts only str / bytes /
+            // __fspath__-bearing objects. Reject buffer-protocol types like
+            // bytearray and memoryview that would otherwise pass through
+            // `FsPath::TryFromObject`'s permissive fallback.
+            let filename = FsPath::try_from_path_like(args.filename, true, vm)?;
+
             use crate::{class::PyClassImpl, stdlib::_ast};
 
             let feature_version = feature_version_from_arg(args._feature_version, vm)?;
 
             let mode_str = args.mode.as_str();
 
-            let optimize: i32 = args.optimize.map_or(Ok(-1), |v| v.try_to_primitive(vm))?;
-            let optimize: u8 = if optimize == -1 {
-                vm.state.config.settings.optimize
-            } else {
-                optimize
-                    .try_into()
-                    .map_err(|_| vm.new_value_error("compile() optimize value invalid"))?
+            let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
+            let optimize: u8 = match optimize {
+                -1 => vm.state.config.settings.optimize,
+                0..=2 => optimize as u8,
+                _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
 
             if args
                 .source
                 .fast_isinstance(&_ast::NodeAst::make_static_type())
             {
-                let flags: i32 = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                let flags: i32 = args.flags.map_or(0, |v| v.value);
                 let is_ast_only = !(flags & _ast::PY_CF_ONLY_AST).is_zero();
 
                 // func_type mode requires PyCF_ONLY_AST
@@ -318,7 +360,7 @@ mod builtins {
                     return _ast::compile(
                         vm,
                         args.source,
-                        &args.filename.to_string_lossy(),
+                        &filename.to_string_lossy(),
                         mode,
                         Some(optimize),
                     );
@@ -339,13 +381,13 @@ mod builtins {
                 let source = ArgStrOrBytesLike::try_from_object(vm, args.source)?;
                 let source = source.borrow_bytes();
 
-                let source = decode_source_bytes(&source, &args.filename.to_string_lossy(), vm)?;
+                let source = decode_source_bytes(&source, &filename.to_string_lossy(), vm)?;
                 let source = source.as_str();
 
-                let flags = args.flags.map_or(Ok(0), |v| v.try_to_primitive(vm))?;
+                let flags: i32 = args.flags.map_or(0, |v| v.value);
 
                 if !(flags & !_ast::PY_COMPILE_FLAGS_MASK).is_zero() {
-                    return Err(vm.new_value_error("compile() unrecognized flags"));
+                    return Err(vm.new_value_error("compile(): unrecognised flags"));
                 }
 
                 let allow_incomplete = !(flags & _ast::PY_CF_ALLOW_INCOMPLETE_INPUT).is_zero();
@@ -386,7 +428,7 @@ mod builtins {
                             .compile_with_opts(
                                 source,
                                 mode,
-                                args.filename.to_string_lossy().into_owned(),
+                                filename.to_string_lossy().into_owned(),
                                 opts,
                             )
                             .map_err(|err| {
@@ -724,7 +766,7 @@ mod builtins {
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 #[cfg(unix)]
-                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num)),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
@@ -741,9 +783,7 @@ mod builtins {
     /// In this case, rustyline may hang because it uses raw mode.
     #[cfg(unix)]
     fn is_pty_child() -> bool {
-        use nix::unistd::{getpid, getsid};
-        // If this process is a session leader, we're likely in a PTY child
-        getsid(None) == Ok(getpid())
+        crate::host_env::posix::is_session_leader()
     }
 
     #[cfg(not(unix))]
@@ -915,7 +955,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
         let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
@@ -924,7 +964,7 @@ mod builtins {
             format!("0o{n:o}")
         };
 
-        Ok(vm.ctx.new_str(s).into())
+        vm.ctx.new_str(s).into()
     }
 
     #[pyfunction]
@@ -966,12 +1006,14 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        let modulus = modulus.as_ref().map_or(vm.ctx.none.as_object(), |m| m);
+        let modulus = modulus
+            .as_ref()
+            .map_or_else(|| vm.ctx.none.as_object(), |m| m);
         vm._pow(&x, &y, modulus)
     }
 
     #[pyfunction]
-    pub fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+    pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
         Err(vm.new_exception(vm.ctx.exceptions.system_exit.to_owned(), vec![code]))
     }
@@ -1039,7 +1081,7 @@ mod builtins {
     }
 
     #[derive(FromArgs)]
-    pub struct RoundArgs {
+    pub(super) struct RoundArgs {
         number: PyObjectRef,
         #[pyarg(any, optional)]
         ndigits: OptionalOption<PyObjectRef>,
@@ -1095,13 +1137,17 @@ mod builtins {
     }
 
     #[derive(FromArgs)]
-    pub struct SumArgs {
+    pub(super) struct SumArgs {
         #[pyarg(positional)]
         iterable: ArgIterable,
         #[pyarg(any, optional)]
         start: OptionalArg<PyObjectRef>,
     }
 
+    #[expect(
+        clippy::redundant_else,
+        reason = "match_class! macro expansion arms has a `return` inside"
+    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
@@ -1111,17 +1157,13 @@ mod builtins {
 
         match_class!(match sum {
             PyStr =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]")),
             PyBytes =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]")),
             PyByteArray =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]")
+                ),
             _ => (),
         });
 
@@ -1162,7 +1204,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    pub fn __build_class__(
+    pub(super) fn __build_class__(
         function: PyRef<PyFunction>,
         name: PyStrRef,
         bases: PosArgs,
@@ -1206,21 +1248,21 @@ mod builtins {
         };
 
         // Use downcast_exact to keep ref to old object on error.
-        let metaclass = kwargs
-            .pop_kwarg("metaclass")
-            .map(|metaclass| {
-                metaclass
-                    .downcast_exact::<PyType>(vm)
-                    .map(|m| m.into_pyref())
-            })
-            .unwrap_or_else(|| {
+        let metaclass = kwargs.pop_kwarg("metaclass").map_or_else(
+            || {
                 // if there are no bases, use type; else get the type of the first base
                 Ok(if bases.is_empty() {
                     vm.ctx.types.type_type.to_owned()
                 } else {
                     bases.first().unwrap().class().to_owned()
                 })
-            });
+            },
+            |metaclass| {
+                metaclass
+                    .downcast_exact::<PyType>(vm)
+                    .map(|m| m.into_pyref())
+            },
+        );
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
@@ -1317,15 +1359,13 @@ mod builtins {
         {
             let cell_value = classcell.get().ok_or_else(|| {
                 vm.new_runtime_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    name, class
+                    "__class__ not set defining {name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    cell_value, name, class
+                    "__class__ set to {cell_value:?} defining {name:?} as {class:?}"
                 )));
             }
         }
@@ -1337,7 +1377,7 @@ mod builtins {
 pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
     let ctx = &vm.ctx;
 
-    crate::protocol::VecBuffer::make_static_type();
+    let _ = crate::protocol::VecBuffer::make_static_type();
 
     module.__init_methods(vm).unwrap();
     builtins::module_exec(vm, module).unwrap();
@@ -1430,6 +1470,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "TimeoutError" => ctx.exceptions.timeout_error.to_owned(),
         "ReferenceError" => ctx.exceptions.reference_error.to_owned(),
         "RuntimeError" => ctx.exceptions.runtime_error.to_owned(),
+        "PythonFinalizationError" => ctx.exceptions.python_finalization_error.to_owned(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
         "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),

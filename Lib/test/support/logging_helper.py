@@ -1,6 +1,5 @@
 import logging.handlers
 
-
 class TestHandler(logging.handlers.BufferingHandler):
     def __init__(self, matcher):
         # BufferingHandler takes a "capacity" argument

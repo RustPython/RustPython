@@ -1,0 +1,28 @@
+[package]
+name = "rustpython-capi"
+description = "Minimal CPython C-API compatibility exports for RustPython"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bitflags = { workspace = true }
+num-complex = { workspace = true }
+rustpython-vm = { workspace = true, features = ["threading", "compiler"] }
+rustpython-stdlib = {workspace = true, features = ["threading"] }
+
+[dev-dependencies]
+pyo3 = { workspace = true, features = ["auto-initialize", "abi3"] }
+
+[lints]
+workspace = true
+
+[package.metadata.cargo-shear]
+# Not a direct dependency (yet), but we need to enable threading support in the stdlib.
+ignored = ["rustpython-stdlib"]

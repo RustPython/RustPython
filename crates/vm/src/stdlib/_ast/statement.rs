@@ -36,109 +36,99 @@ impl Node for ast::Stmt {
         }
     }
 
-    #[allow(clippy::if_same_then_else)]
+    #[expect(clippy::if_same_then_else, reason = "Looks better here")]
     fn ast_from_object(
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
-        _object: PyObjectRef,
+        object: PyObjectRef,
     ) -> PyResult<Self> {
-        let _cls = _object.class();
-        Ok(if _cls.is(pyast::NodeStmtFunctionDef::static_type()) {
+        let cls = object.class();
+        Ok(if cls.is(pyast::NodeStmtFunctionDef::static_type()) {
             Self::FunctionDef(ast::StmtFunctionDef::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
-        } else if _cls.is(pyast::NodeStmtAsyncFunctionDef::static_type()) {
+        } else if cls.is(pyast::NodeStmtAsyncFunctionDef::static_type()) {
             Self::FunctionDef(ast::StmtFunctionDef::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
-        } else if _cls.is(pyast::NodeStmtClassDef::static_type()) {
-            Self::ClassDef(ast::StmtClassDef::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
-        } else if _cls.is(pyast::NodeStmtReturn::static_type()) {
-            Self::Return(ast::StmtReturn::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtDelete::static_type()) {
-            Self::Delete(ast::StmtDelete::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtAssign::static_type()) {
-            Self::Assign(ast::StmtAssign::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtTypeAlias::static_type()) {
+        } else if cls.is(pyast::NodeStmtClassDef::static_type()) {
+            Self::ClassDef(ast::StmtClassDef::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtReturn::static_type()) {
+            Self::Return(ast::StmtReturn::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtDelete::static_type()) {
+            Self::Delete(ast::StmtDelete::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtAssign::static_type()) {
+            Self::Assign(ast::StmtAssign::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtTypeAlias::static_type()) {
             Self::TypeAlias(ast::StmtTypeAlias::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
-        } else if _cls.is(pyast::NodeStmtAugAssign::static_type()) {
+        } else if cls.is(pyast::NodeStmtAugAssign::static_type()) {
             Self::AugAssign(ast::StmtAugAssign::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
-        } else if _cls.is(pyast::NodeStmtAnnAssign::static_type()) {
+        } else if cls.is(pyast::NodeStmtAnnAssign::static_type()) {
             Self::AnnAssign(ast::StmtAnnAssign::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
-        } else if _cls.is(pyast::NodeStmtFor::static_type()) {
-            Self::For(ast::StmtFor::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtAsyncFor::static_type()) {
-            Self::For(ast::StmtFor::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtWhile::static_type()) {
-            Self::While(ast::StmtWhile::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtIf::static_type()) {
-            Self::If(ast::StmtIf::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtWith::static_type()) {
-            Self::With(ast::StmtWith::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtAsyncWith::static_type()) {
-            Self::With(ast::StmtWith::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtMatch::static_type()) {
-            Self::Match(ast::StmtMatch::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtRaise::static_type()) {
-            Self::Raise(ast::StmtRaise::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtTry::static_type()) {
-            Self::Try(ast::StmtTry::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtTryStar::static_type()) {
-            Self::Try(ast::StmtTry::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtAssert::static_type()) {
-            Self::Assert(ast::StmtAssert::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtImport::static_type()) {
-            Self::Import(ast::StmtImport::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtImportFrom::static_type()) {
+        } else if cls.is(pyast::NodeStmtFor::static_type()) {
+            Self::For(ast::StmtFor::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtAsyncFor::static_type()) {
+            Self::For(ast::StmtFor::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtWhile::static_type()) {
+            Self::While(ast::StmtWhile::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtIf::static_type()) {
+            Self::If(ast::StmtIf::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtWith::static_type()) {
+            Self::With(ast::StmtWith::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtAsyncWith::static_type()) {
+            Self::With(ast::StmtWith::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtMatch::static_type()) {
+            Self::Match(ast::StmtMatch::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtRaise::static_type()) {
+            Self::Raise(ast::StmtRaise::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtTry::static_type()) {
+            Self::Try(ast::StmtTry::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtTryStar::static_type()) {
+            Self::Try(ast::StmtTry::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtAssert::static_type()) {
+            Self::Assert(ast::StmtAssert::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtImport::static_type()) {
+            Self::Import(ast::StmtImport::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtImportFrom::static_type()) {
             Self::ImportFrom(ast::StmtImportFrom::ast_from_object(
-                _vm,
+                vm,
                 source_file,
-                _object,
+                object,
             )?)
-        } else if _cls.is(pyast::NodeStmtGlobal::static_type()) {
-            Self::Global(ast::StmtGlobal::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtNonlocal::static_type()) {
-            Self::Nonlocal(ast::StmtNonlocal::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
-        } else if _cls.is(pyast::NodeStmtExpr::static_type()) {
-            Self::Expr(ast::StmtExpr::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtPass::static_type()) {
-            Self::Pass(ast::StmtPass::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtBreak::static_type()) {
-            Self::Break(ast::StmtBreak::ast_from_object(_vm, source_file, _object)?)
-        } else if _cls.is(pyast::NodeStmtContinue::static_type()) {
-            Self::Continue(ast::StmtContinue::ast_from_object(
-                _vm,
-                source_file,
-                _object,
-            )?)
+        } else if cls.is(pyast::NodeStmtGlobal::static_type()) {
+            Self::Global(ast::StmtGlobal::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtNonlocal::static_type()) {
+            Self::Nonlocal(ast::StmtNonlocal::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtExpr::static_type()) {
+            Self::Expr(ast::StmtExpr::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtPass::static_type()) {
+            Self::Pass(ast::StmtPass::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtBreak::static_type()) {
+            Self::Break(ast::StmtBreak::ast_from_object(vm, source_file, object)?)
+        } else if cls.is(pyast::NodeStmtContinue::static_type()) {
+            Self::Continue(ast::StmtContinue::ast_from_object(vm, source_file, object)?)
+        } else if vm.is_none(&object) {
+            return Err(vm.new_value_error("None disallowed in statement list"));
         } else {
-            return Err(_vm.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of stmt, but got {}",
-                _object.repr(_vm)?
+                object.repr(vm)?
             )));
         })
     }
@@ -189,15 +179,17 @@ impl Node for ast::StmtFunctionDef {
         dict.set_item("type_comment", vm.ctx.none(), vm).unwrap();
         dict.set_item(
             "type_params",
-            type_params
-                .map(|tp| tp.ast_to_object(vm, source_file))
-                .unwrap_or_else(|| vm.ctx.new_list(vec![]).into()),
+            type_params.map_or_else(
+                || vm.ctx.new_list(vec![]).into(),
+                |tp| tp.ast_to_object(vm, source_file),
+            ),
             vm,
         )
         .unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
     }
+
     fn ast_from_object(
         _vm: &VirtualMachine,
         source_file: &SourceFile,
@@ -271,17 +263,19 @@ impl Node for ast::StmtClassDef {
             .unwrap();
         dict.set_item(
             "bases",
-            bases
-                .map(|b| b.ast_to_object(_vm, source_file))
-                .unwrap_or_else(|| _vm.ctx.new_list(vec![]).into()),
+            bases.map_or_else(
+                || _vm.ctx.new_list(vec![]).into(),
+                |b| b.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
         dict.set_item(
             "keywords",
-            keywords
-                .map(|k| k.ast_to_object(_vm, source_file))
-                .unwrap_or_else(|| _vm.ctx.new_list(vec![]).into()),
+            keywords.map_or_else(
+                || _vm.ctx.new_list(vec![]).into(),
+                |k| k.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
@@ -295,9 +289,10 @@ impl Node for ast::StmtClassDef {
         .unwrap();
         dict.set_item(
             "type_params",
-            type_params
-                .map(|tp| tp.ast_to_object(_vm, source_file))
-                .unwrap_or_else(|| _vm.ctx.new_list(vec![]).into()),
+            type_params.map_or_else(
+                || _vm.ctx.new_list(vec![]).into(),
+                |tp| tp.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
@@ -478,9 +473,10 @@ impl Node for ast::StmtTypeAlias {
             .unwrap();
         dict.set_item(
             "type_params",
-            type_params
-                .map(|tp| tp.ast_to_object(_vm, source_file))
-                .unwrap_or_else(|| _vm.ctx.new_list(Vec::new()).into()),
+            type_params.map_or_else(
+                || _vm.ctx.new_list(Vec::new()).into(),
+                |tp| tp.ast_to_object(_vm, source_file),
+            ),
             _vm,
         )
         .unwrap();
@@ -1243,15 +1239,16 @@ impl Node for ast::StmtPass {
         let start_row = location.start.row.get();
         let start_col = location.start.column.get();
         let mut end_row = location.end.row.get();
-        let mut end_col = location.end.column.get();
 
         // Align with CPython: when docstring optimization replaces a lone
         // docstring with `pass`, the end position is on the same line even if
         // it extends past the physical line length.
-        if end_row != start_row && _range.len() == TextSize::from(4) {
+        let end_col = if end_row != start_row && _range.len() == TextSize::from(4) {
             end_row = start_row;
-            end_col = start_col + 4;
-        }
+            start_col + 4
+        } else {
+            location.end.column.get()
+        };
 
         dict.set_item("lineno", _vm.ctx.new_int(start_row).into(), _vm)
             .unwrap();

@@ -3,7 +3,7 @@ pub(crate) use decl::module_def;
 
 #[pymodule(name = "marshal")]
 mod decl {
-    use crate::builtins::code::{CodeObject, Literal, PyObjBag};
+    use crate::builtins::code::{CodeObject, Literal, PyVmBag};
     use crate::class::StaticType;
     use crate::common::wtf8::Wtf8;
     use crate::{
@@ -107,6 +107,14 @@ mod decl {
             _version,
         } = args;
         let version = _version.unwrap_or(marshal::FORMAT_VERSION as i32);
+
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call(
+                (vm.ctx.new_str("marshal.dumps"), value.clone(), version),
+                vm,
+            )?;
+        }
+
         if !allow_code {
             check_no_code(&value, vm)?;
         }
@@ -293,7 +301,7 @@ mod decl {
             }
         } else if let Some(d) = obj.downcast_ref::<PyDict>() {
             buf.write_u8(b'{');
-            for (k, v) in d.into_iter() {
+            for (k, v) in d {
                 write_object_depth(buf, &k, refs, version, vm, depth - 1)?;
                 write_object_depth(buf, &v, refs, version, vm, depth - 1)?;
             }
@@ -382,7 +390,7 @@ mod decl {
 
     impl<'a> marshal::MarshalBag for PyMarshalBag<'a> {
         type Value = PyObjectRef;
-        type ConstantBag = PyObjBag<'a>;
+        type ConstantBag = PyVmBag<'a>;
 
         fn make_bool(&self, value: bool) -> Self::Value {
             self.0.ctx.new_bool(value).into()
@@ -412,7 +420,7 @@ mod decl {
             self.0.ctx.new_tuple(elements.collect()).into()
         }
         fn make_code(&self, code: CodeObject) -> Self::Value {
-            self.0.ctx.new_code(code).into()
+            crate::builtins::PyCode::new_ref_with_bag(self.0, code).into()
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.0.ctx.exceptions.stop_iteration.to_owned().into())
@@ -472,7 +480,7 @@ mod decl {
             .into())
         }
         fn constant_bag(self) -> Self::ConstantBag {
-            PyObjBag(&self.0.ctx)
+            PyVmBag(self.0)
         }
     }
 
@@ -572,7 +580,7 @@ mod decl {
                 check_no_code(&elem, vm)?;
             }
         } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
-            for (k, v) in dict.into_iter() {
+            for (k, v) in dict {
                 check_no_code(&k, vm)?;
                 check_no_code(&v, vm)?;
             }

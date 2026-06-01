@@ -23,6 +23,7 @@ class AuditTest(unittest.TestCase):
         with subprocess.Popen(
             [sys.executable, "-X utf8", AUDIT_TESTS_PY, *args],
             encoding="utf-8",
+            errors="backslashreplace",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         ) as p:
@@ -57,6 +58,7 @@ class AuditTest(unittest.TestCase):
     def test_block_add_hook_baseexception(self):
         self.do_test("test_block_add_hook_baseexception")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_marshal(self):
         import_helper.import_module("marshal")
 
@@ -67,18 +69,33 @@ class AuditTest(unittest.TestCase):
 
         self.do_test("test_pickle")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_monkeypatch(self):
         self.do_test("test_monkeypatch")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_open(self):
         self.do_test("test_open", os_helper.TESTFN)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cantrace(self):
         self.do_test("test_cantrace")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_mmap(self):
         self.do_test("test_mmap")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_ctypes_call_function(self):
+        import_helper.import_module("ctypes")
+        self.do_test("test_ctypes_call_function")
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_posixsubprocess(self):
+        import_helper.import_module("_posixsubprocess")
+        self.do_test("test_posixsubprocess")
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_excepthook(self):
         returncode, events, stderr = self.run_python("test_excepthook")
         if not returncode:
@@ -100,6 +117,7 @@ class AuditTest(unittest.TestCase):
             "RuntimeError('nonfatal-error') Exception ignored for audit hook test",
         )
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_winreg(self):
         import_helper.import_module("winreg")
         returncode, events, stderr = self.run_python("test_winreg")
@@ -125,8 +143,9 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(events[0][0], "socket.gethostname")
         self.assertEqual(events[1][0], "socket.__new__")
         self.assertEqual(events[2][0], "socket.bind")
-        self.assertTrue(events[2][2].endswith("('127.0.0.1', 8080)"))
+        self.assertEndsWith(events[2][2], "('127.0.0.1', 8080)")
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gc(self):
         returncode, events, stderr = self.run_python("test_gc")
         if returncode:
@@ -156,6 +175,7 @@ class AuditTest(unittest.TestCase):
             self.assertIn('HTTP', events[1][2])
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite3(self):
         sqlite3 = import_helper.import_module("sqlite3")
         returncode, events, stderr = self.run_python("test_sqlite3")
@@ -200,6 +220,7 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(actual, expected)
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threading(self):
         returncode, events, stderr = self.run_python("test_threading")
         if returncode:
@@ -218,6 +239,7 @@ class AuditTest(unittest.TestCase):
         self.assertEqual(actual, expected)
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_wmi_exec_query(self):
         import_helper.import_module("_wmi")
         returncode, events, stderr = self.run_python("test_wmi_exec_query")
@@ -231,6 +253,7 @@ class AuditTest(unittest.TestCase):
 
         self.assertEqual(actual, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syslog(self):
         syslog = import_helper.import_module("syslog")
 
@@ -292,6 +315,7 @@ class AuditTest(unittest.TestCase):
 
         self.assertEqual(actual, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_winapi_createnamedpipe(self):
         winapi = import_helper.import_module("_winapi")
 
@@ -313,6 +337,14 @@ class AuditTest(unittest.TestCase):
         if returncode:
             self.fail(stderr)
 
+    @support.support_remote_exec_only
+    @support.cpython_only
+    def test_sys_remote_exec(self):
+        returncode, events, stderr = self.run_python("test_sys_remote_exec")
+        self.assertTrue(any(["sys.remote_exec" in event for event in events]))
+        self.assertTrue(any(["cpython.remote_debugger_script" in event for event in events]))
+        if returncode:
+            self.fail(stderr)
 
 if __name__ == "__main__":
     unittest.main()

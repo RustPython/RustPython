@@ -1,7 +1,7 @@
+import unittest
 import base64
 import binascii
 import os
-import unittest
 from array import array
 from test.support import cpython_only
 from test.support import os_helper
@@ -784,6 +784,19 @@ class BaseXYTestCase(unittest.TestCase):
         self.assertRaises(ValueError, base64.a85decode, b's8W-"', adobe=False)
         self.assertRaises(ValueError, base64.a85decode, b'aaaay',
                           foldspaces=True)
+
+        self.assertEqual(base64.a85decode(b"a b\nc", ignorechars=b" \n"),
+                         b'\xc9\x89')
+        with self.assertRaises(ValueError):
+            base64.a85decode(b"a b\nc", ignorechars=b"")
+        with self.assertRaises(ValueError):
+            base64.a85decode(b"a b\nc", ignorechars=b" ")
+        with self.assertRaises(ValueError):
+            base64.a85decode(b"a b\nc", ignorechars=b"\n")
+        with self.assertRaises(TypeError):
+            base64.a85decode(b"a b\nc", ignorechars=" \n")
+        with self.assertRaises(TypeError):
+            base64.a85decode(b"a b\nc", ignorechars=None)
 
     def test_b85decode_errors(self):
         illegal = list(range(33)) + \

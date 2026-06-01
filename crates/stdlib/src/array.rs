@@ -3,7 +3,7 @@
 pub(crate) use array::module_def;
 
 #[pymodule(name = "array")]
-mod array {
+pub mod array {
     use crate::{
         common::{
             atomic::{self, AtomicUsize},

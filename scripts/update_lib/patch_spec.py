@@ -32,7 +32,7 @@ class UtMethod(enum.StrEnum):
         return name[0].lower() + name[1:]
 
     def has_args(self) -> bool:
-        return self != self.ExpectedFailure
+        return self not in (self.ExpectedFailure, self.ExpectedSuccess)
 
     def has_cond(self) -> bool:
         return self.endswith(("If", "Unless"))
@@ -40,6 +40,7 @@ class UtMethod(enum.StrEnum):
     ExpectedFailure = enum.auto()
     ExpectedFailureIf = enum.auto()
     ExpectedFailureIfWindows = enum.auto()
+    ExpectedSuccess = enum.auto()
     Skip = enum.auto()
     SkipIf = enum.auto()
     SkipUnless = enum.auto()
@@ -189,13 +190,23 @@ class PatchEntry(typing.NamedTuple):
                     if ut_method.has_cond():
                         cond = ast.unparse(dec_node.args[0])
                 else:
-                    # Search first on decorator line, then in the line before
-                    for line in lines[dec_node.lineno - 1 : dec_node.lineno - 3 : -1]:
-                        if found := re.search(rf"{COMMENT}.?(.*)", line):
-                            reason = found.group()
-                            break
+                    pattern = re.compile(rf"{COMMENT}.?(.*)")
+                    dec_lineno = dec_node.lineno
+
+                    curr_line = lines[dec_lineno - 1]
+                    prev_line = lines[dec_lineno - 2]
+
+                    # If we see our comment at the decorator line, take it
+                    if found := pattern.search(curr_line):
+                        reason = found.group()
+                    elif prev_line.strip().startswith("#") and (
+                        found := pattern.search(prev_line)
+                    ):
+                        # Search the previous line of the decorator,
+                        # only take the comment if the line starts with a `#`
+                        reason = found.group()
                     else:
-                        # Didn't find our `COMMENT` :)
+                        # Didn't find our `COMMENT`, so the patch isn't ours :)
                         continue
 
                 reason = reason.removeprefix(COMMENT).strip(";:, ")

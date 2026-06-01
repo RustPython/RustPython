@@ -132,7 +132,6 @@ class PyCompileTestsBase:
         finally:
             os.chmod(self.directory, mode.st_mode)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_coding(self):
         bad_coding = os.path.join(os.path.dirname(__file__),
                                   'tokenizedata',
@@ -198,7 +197,6 @@ class PyCompileTestsBase:
                 fp.read(), 'test', {})
         self.assertEqual(flags, 0b1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quiet(self):
         bad_coding = os.path.join(os.path.dirname(__file__),
                                   'tokenizedata',
@@ -209,6 +207,14 @@ class PyCompileTestsBase:
             self.assertEqual(stderr.getvalue(), '')
             with self.assertRaises(py_compile.PyCompileError):
                 py_compile.compile(bad_coding, doraise=True, quiet=1)
+
+    def test_utf7_decoded_cr_compiles(self):
+        with open(self.source_path, 'wb') as file:
+            file.write(b"#coding=U7+AA0''\n")
+
+        pyc_path = py_compile.compile(self.source_path, self.pyc_path, doraise=True)
+        self.assertEqual(pyc_path, self.pyc_path)
+        self.assertTrue(os.path.exists(self.pyc_path))
 
 
 class PyCompileTestsWithSourceEpoch(PyCompileTestsBase,

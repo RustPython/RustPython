@@ -49,20 +49,25 @@
   "ignorePaths": [
     "**/__pycache__/**",
     "target/**",
-    "Lib/**"
+    "Lib/**",
+    "crates/host_env/**"
   ],
   // words - list of words to be always considered correct
   // (compound words like pyarg, baseclass, microbenchmark are handled by allowCompoundWords)
   "words": [
     "aiterable",
     "alnum",
+    "csock",
     "coro",
     "dedentations",
     "dedents",
     "deduped",
+    "deoptimized",
     "deoptimize",
     "emscripten",
     "excs",
+    "fnfe",
+    "ifexp",
     "interps",
     "jitted",
     "jitting",
@@ -72,8 +77,13 @@
     "oparg",
     "opargs",
     "pyc",
+    "reborrow",
+    "reraises",
+    "reraising",
     "significand",
     "summands",
+    "TESTFN",
+    "TZPATH",
     "unraisable",
     "wasi",
     "weaked",

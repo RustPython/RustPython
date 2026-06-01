@@ -363,7 +363,7 @@ class TestJointOps:
         gc.collect()
         self.assertTrue(ref() is None, "Cycle was not collected")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skipIf("RUSTPYTHON_SKIP_ENV_POLLUTERS" in __import__("os").environ, "TODO: RUSTPYTHON")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 
@@ -1969,7 +1969,6 @@ class TestOperationsMutating:
                 self.assertIn("changed size during iteration", str(e))
 
 
-@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestBinaryOpsMutating(TestOperationsMutating):
 
     def test_eq_with_mutation(self):
@@ -2058,7 +2057,6 @@ class TestBinaryOpsMutating_Subclass_Set(TestBinaryOpsMutating, unittest.TestCas
     constructor2 = set
 
 
-@unittest.skip("TODO: RUSTPYTHON; segfault")
 class TestMethodsMutating(TestOperationsMutating):
 
     def test_issubset_with_mutation(self):

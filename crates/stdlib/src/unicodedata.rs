@@ -10,6 +10,7 @@ use crate::vm::{
     PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
 };
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum NormalizeForm {
     Nfc,
     Nfkc,
@@ -40,15 +41,19 @@ mod unicodedata {
         builtins::{PyModule, PyStrRef},
         function::OptionalArg,
     };
+
+    use icu_normalizer::{ComposingNormalizerBorrowed, DecomposingNormalizerBorrowed};
+    use icu_properties::{
+        CodePointSetData,
+        props::{
+            BidiClass, BidiMirrored, CanonicalCombiningClass, EastAsianWidth, EnumeratedProperty,
+            GeneralCategory, NamedEnumeratedProperty,
+        },
+    };
     use itertools::Itertools;
     use rustpython_common::wtf8::{CodePoint, Wtf8Buf};
-    use ucd::{Codepoint, DecompositionType, EastAsianWidth, Number, NumericType};
-    use unic_char_property::EnumeratedCharProperty;
-    use unic_normal::StrNormalForm;
+    use ucd::{Codepoint, DecompositionType, Number, NumericType};
     use unic_ucd_age::{Age, UNICODE_VERSION, UnicodeVersion};
-    use unic_ucd_bidi::BidiClass;
-    use unic_ucd_category::GeneralCategory;
-    use unicode_bidi_mirroring::is_mirroring;
 
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
@@ -85,7 +90,7 @@ mod unicodedata {
     }
 
     impl Ucd {
-        pub const fn new(unic_version: UnicodeVersion) -> Self {
+        pub(super) const fn new(unic_version: UnicodeVersion) -> Self {
             Self { unic_version }
         }
 
@@ -117,9 +122,9 @@ mod unicodedata {
                 .extract_char(character, vm)?
                 .map_or(GeneralCategory::Unassigned, |c| {
                     c.to_char()
-                        .map_or(GeneralCategory::Surrogate, GeneralCategory::of)
+                        .map_or(GeneralCategory::Surrogate, GeneralCategory::for_char)
                 })
-                .abbr_name()
+                .short_name()
                 .to_owned())
         }
 
@@ -165,8 +170,8 @@ mod unicodedata {
             let bidi = match self.extract_char(character, vm)? {
                 Some(c) => c
                     .to_char()
-                    .map_or(BidiClass::LeftToRight, BidiClass::of)
-                    .abbr_name(),
+                    .map_or(BidiClass::LeftToRight, BidiClass::for_char)
+                    .short_name(),
                 None => "",
             };
             Ok(bidi)
@@ -182,32 +187,63 @@ mod unicodedata {
             Ok(self
                 .extract_char(character, vm)?
                 .and_then(|c| c.to_char())
-                .map_or(EastAsianWidth::Neutral, |c| c.east_asian_width())
-                .abbr_name())
+                .map_or(EastAsianWidth::Neutral, EastAsianWidth::for_char)
+                .short_name())
         }
 
         #[pymethod]
-        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
+        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> Wtf8Buf {
             let text = unistr.as_wtf8();
-            let normalized_text = match form {
-                Nfc => text.map_utf8(|s| s.nfc()).collect(),
-                Nfkc => text.map_utf8(|s| s.nfkc()).collect(),
-                Nfd => text.map_utf8(|s| s.nfd()).collect(),
-                Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
-            };
-            Ok(normalized_text)
+            match form {
+                Nfc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+            }
         }
 
         #[pymethod]
-        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
+        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> bool {
             let text = unistr.as_wtf8();
             let normalized: Wtf8Buf = match form {
-                Nfc => text.map_utf8(|s| s.nfc()).collect(),
-                Nfkc => text.map_utf8(|s| s.nfkc()).collect(),
-                Nfd => text.map_utf8(|s| s.nfd()).collect(),
-                Nfkd => text.map_utf8(|s| s.nfkd()).collect(),
+                Nfc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkc => {
+                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
+                Nfkd => {
+                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
+                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
+                        .collect()
+                }
             };
-            Ok(text == &*normalized)
+            text == &*normalized
         }
 
         #[pymethod]
@@ -216,7 +252,8 @@ mod unicodedata {
                 Some(c) => {
                     if let Some(ch) = c.to_char() {
                         // Check if the character is mirrored in bidirectional text using Unicode standard
-                        Ok(if is_mirroring(ch) { 1 } else { 0 })
+                        let bidi_mirrored = CodePointSetData::new::<BidiMirrored>();
+                        Ok(if bidi_mirrored.contains(ch) { 1 } else { 0 })
                     } else {
                         Ok(0)
                     }
@@ -226,11 +263,13 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
+        fn combining(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<u8> {
             Ok(self
                 .extract_char(character, vm)?
                 .and_then(|c| c.to_char())
-                .map_or(0, |ch| ch.canonical_combining_class() as i32))
+                .map_or(0, |ch| {
+                    CanonicalCombiningClass::for_char(ch).to_icu4c_value()
+                }))
         }
 
         #[pymethod]
@@ -263,7 +302,7 @@ mod unicodedata {
             if let Some(ch) = ch
                 && matches!(
                     ch.numeric_type(),
-                    Some(NumericType::Decimal) | Some(NumericType::Digit)
+                    Some(NumericType::Decimal | NumericType::Digit)
                 )
                 && let Some(Number::Integer(n)) = ch.numeric_value()
             {
@@ -336,23 +375,6 @@ mod unicodedata {
             DecompositionType::Super => "super",
             DecompositionType::Vertical => "vertical",
             DecompositionType::Wide => "wide",
-        }
-    }
-
-    trait EastAsianWidthAbbrName {
-        fn abbr_name(&self) -> &'static str;
-    }
-
-    impl EastAsianWidthAbbrName for EastAsianWidth {
-        fn abbr_name(&self) -> &'static str {
-            match self {
-                Self::Narrow => "Na",
-                Self::Wide => "W",
-                Self::Neutral => "N",
-                Self::Ambiguous => "A",
-                Self::FullWidth => "F",
-                Self::HalfWidth => "H",
-            }
         }
     }
 

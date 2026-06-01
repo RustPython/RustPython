@@ -8,12 +8,13 @@ extern crate log;
 
 extern crate alloc;
 
-type IndexMap<K, V> = indexmap::IndexMap<K, V, ahash::RandomState>;
-type IndexSet<T> = indexmap::IndexSet<T, ahash::RandomState>;
+type IndexMap<K, V> = indexmap::IndexMap<K, V, rapidhash::quality::RandomState>;
+type IndexSet<T> = indexmap::IndexSet<T, rapidhash::quality::RandomState>;
 
 pub mod compile;
 pub mod error;
 pub mod ir;
+mod preprocess;
 mod string_parser;
 pub mod symboltable;
 mod unparse;

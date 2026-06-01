@@ -107,7 +107,7 @@ else:
     _INSTALL_SCHEMES['venv'] = _INSTALL_SCHEMES['posix_venv']
 
 def _get_implementation():
-    return 'RustPython' # XXX: For site-packages
+    return 'RustPython'  # XXX: RUSTPYTHON; For site-packages
 
 # NOTE: site.py has copy of this function.
 # Sync it when modify this function.
@@ -698,11 +698,19 @@ def get_platform():
         release = get_config_var("ANDROID_API_LEVEL")
 
         # Wheel tags use the ABI names from Android's own tools.
+        # When Python is running on 32-bit ARM Android on a 64-bit ARM kernel,
+        # 'os.uname().machine' is 'armv8l'. Such devices run the same userspace
+        # code as 'armv7l' devices.
+        # During the build process of the Android testbed when targeting 32-bit ARM,
+        # '_PYTHON_HOST_PLATFORM' is 'arm-linux-androideabi', so 'machine' becomes
+        # 'arm'.
         machine = {
-            "x86_64": "x86_64",
-            "i686": "x86",
             "aarch64": "arm64_v8a",
+            "arm": "armeabi_v7a",
             "armv7l": "armeabi_v7a",
+            "armv8l": "armeabi_v7a",
+            "i686": "x86",
+            "x86_64": "x86_64",
         }[machine]
     elif osname == "linux":
         # At least on Linux/Intel, 'machine' is the processor --

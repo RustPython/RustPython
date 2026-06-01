@@ -6,15 +6,18 @@ use super::{
         builtins_iter,
     },
 };
-use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
     atomic_func,
+    bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
     class::PyClassImpl,
-    common::str::{PyKindStr, StrData, StrKind},
+    common::{
+        lock::LazyLock,
+        str::{PyKindStr, StrData, StrKind},
+    },
     convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
     format::{format, format_map},
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
@@ -27,6 +30,7 @@ use crate::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
     },
+    utils::VecFmtWriter,
 };
 use alloc::{borrow::Cow, fmt};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
@@ -41,12 +45,16 @@ use rustpython_common::{
     hash,
     lock::PyMutex,
     str::DeduceStrKind,
-    wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Chunk, Wtf8Concat},
+    wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Concat},
 };
-use unic_ucd_bidi::BidiClass;
-use unic_ucd_category::GeneralCategory;
-use unic_ucd_ident::{is_xid_continue, is_xid_start};
-use unicode_casing::CharExt;
+
+use icu_casemap::{CaseMapper, TitlecaseMapper};
+use icu_locale::LanguageIdentifier;
+use icu_properties::props::{
+    BidiClass, BinaryProperty, CaseIgnorable, Cased, EnumeratedProperty, GeneralCategory,
+    GeneralCategoryGroup, Lowercase, NumericType, Uppercase, XidContinue, XidStart,
+};
+use writeable::Writeable;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
@@ -307,7 +315,7 @@ impl<'a> AsPyStr<'a> for &'a PyUtf8StrInterned {
 
 #[pyclass(module = false, name = "str_iterator", traverse = "manual")]
 #[derive(Debug)]
-pub struct PyStrIterator {
+pub(crate) struct PyStrIterator {
     internal: PyMutex<(PositionIterInternal<PyStrRef>, usize)>,
 }
 
@@ -404,6 +412,22 @@ impl Constructor for PyStr {
         }
 
         let args: Self::Args = func_args.bind(vm)?;
+
+        // CPython parity: when cls is exactly str, return the __str__ / __repr__
+        // result as-is so any str subclass type the user returned is preserved
+        // (matches unicode_new_impl which only invokes unicode_subtype_new when
+        // type != &PyUnicode_Type).
+        // CPython parity: `errors` without `encoding` also triggers decode
+        // mode (with default UTF-8). The fast-path repr only applies when
+        // BOTH `encoding` and `errors` are missing.
+        if cls.is(vm.ctx.types.str_type)
+            && args.encoding.is_missing()
+            && args.errors.is_missing()
+            && let OptionalArg::Present(input) = &args.object
+        {
+            return Ok(input.str(vm)?.into());
+        }
+
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
@@ -411,13 +435,31 @@ impl Constructor for PyStr {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         match args.object {
             OptionalArg::Present(input) => {
-                if let OptionalArg::Present(enc) = args.encoding {
-                    let s = vm.state.codec_registry.decode_text(
-                        input,
-                        enc.as_str(),
-                        args.errors.into_option(),
-                        vm,
-                    )?;
+                let encoding = args.encoding.into_option();
+                let errors = args.errors.into_option();
+                // CPython parity: presence of `encoding` OR `errors` triggers
+                // decode mode. When `errors` is given alone, the encoding
+                // defaults to UTF-8.
+                if encoding.is_some() || errors.is_some() {
+                    // CPython rejects str / non-bytes-like input early with
+                    // specific TypeError wording (unicode_new_impl).
+                    if input.fast_isinstance(vm.ctx.types.str_type) {
+                        return Err(vm.new_type_error("decoding str is not supported"));
+                    }
+                    if !input.fast_isinstance(vm.ctx.types.bytes_type)
+                        && !input.fast_isinstance(vm.ctx.types.bytearray_type)
+                        && crate::protocol::PyBuffer::try_from_borrowed_object(vm, &input).is_err()
+                    {
+                        return Err(vm.new_type_error(format!(
+                            "decoding to str: need a bytes-like object, {} found",
+                            input.class().name()
+                        )));
+                    }
+                    let enc_str = encoding.as_ref().map_or("utf-8", |e| e.as_str());
+                    let s = vm
+                        .state
+                        .codec_registry
+                        .decode_text(input, enc_str, errors, vm)?;
                     Ok(Self::from(s.as_wtf8().to_owned()))
                 } else {
                     let s = input.str(vm)?;
@@ -442,6 +484,7 @@ impl PyStr {
 
     /// # Safety
     /// Given `bytes` must be ascii
+    #[must_use]
     pub unsafe fn new_ascii_unchecked(bytes: Vec<u8>) -> Self {
         unsafe { AsciiString::from_ascii_unchecked(bytes) }.into()
     }
@@ -510,8 +553,7 @@ impl PyStr {
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         self.to_str()
-            .map(Cow::Borrowed)
-            .unwrap_or_else(|| self.as_wtf8().to_string_lossy())
+            .map_or_else(|| self.as_wtf8().to_string_lossy(), Cow::Borrowed)
     }
 
     pub const fn kind(&self) -> StrKind {
@@ -701,20 +743,31 @@ impl PyStr {
         }
     }
 
-    // casefold is much more aggressive than lower
+    // Case folding is a Unicode standard operation to erase case differences.
+    //
+    // Lower, upper, and title case are special properties. Case folding erases those
+    // differences. For ASCII, case folding is the same as lower case but other scripts have
+    // their own, well-defined mappings.
     #[pymethod]
     fn casefold(&self) -> Self {
         match self.as_str_kind() {
-            PyKindStr::Ascii(s) => caseless::default_case_fold_str(s.as_str()).into(),
-            PyKindStr::Utf8(s) => caseless::default_case_fold_str(s).into(),
-            PyKindStr::Wtf8(w) => w
-                .chunks()
-                .map(|c| match c {
-                    Wtf8Chunk::Utf8(s) => Wtf8Buf::from_string(caseless::default_case_fold_str(s)),
-                    Wtf8Chunk::Surrogate(c) => Wtf8Buf::from(c),
-                })
-                .collect::<Wtf8Buf>()
-                .into(),
+            PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
+            PyKindStr::Utf8(s) => CaseMapper::new().fold_string(s).to_string().into(),
+            PyKindStr::Wtf8(w) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(w.len()));
+                let mapper = CaseMapper::new();
+                for chunk in w.as_bytes().utf8_chunks() {
+                    mapper
+                        .fold(chunk.valid())
+                        .write_to(&mut out)
+                        .expect("Writing to an in-memory buffer cannot fail.");
+                    out.0.extend(chunk.invalid());
+                }
+                // SAFETY:
+                // * CaseMapper only produces valid UTF-8
+                // * Surrogates are appended as-is
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }.into()
+            }
         }
     }
 
@@ -739,25 +792,38 @@ impl PyStr {
                 s.into()
             }
             PyKindStr::Utf8(s) => {
-                let mut chars = s.chars();
-                let mut out = String::with_capacity(s.len());
-                if let Some(c) = chars.next() {
-                    out.extend(c.to_titlecase());
-                    out.push_str(&chars.as_str().to_lowercase());
+                let mut chars = s.char_indices();
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                titlecase_first(s, &mut chars, &mut out);
+                for (i, ch) in chars {
+                    lowercase_or_sigma(ch, s, i, &mut out);
                 }
-                out.into()
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
             PyKindStr::Wtf8(s) => {
-                let mut out = Wtf8Buf::with_capacity(s.len());
-                let mut chars = s.code_points();
-                if let Some(ch) = chars.next() {
-                    match ch.to_char() {
-                        Some(ch) => out.extend(ch.to_titlecase()),
-                        None => out.push(ch),
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                let mut chunks = s.as_bytes().utf8_chunks();
+
+                if let Some(first) = chunks.next() {
+                    let s = first.valid();
+                    let mut chars = s.char_indices();
+                    titlecase_first(s, &mut chars, &mut out);
+                    for (i, ch) in chars {
+                        lowercase_or_sigma(ch, s, i, &mut out);
                     }
-                    out.push_wtf8(&chars.as_wtf8().to_lowercase());
+                    out.0.extend(first.invalid());
                 }
-                out
+                // This loop is only hit if the WTF-8 buffer contains invalid Unicode. Otherwise,
+                // everything is handled above without chunking.
+                for chunk in chunks {
+                    let s = chunk.valid();
+                    for (i, ch) in s.char_indices() {
+                        lowercase_or_sigma(ch, s, i, &mut out);
+                    }
+                    out.0.extend(chunk.invalid());
+                }
+
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
         }
     }
@@ -946,39 +1012,40 @@ impl PyStr {
     #[pymethod]
     fn isalnum(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| match GeneralCategory::of(c) {
-                GeneralCategory::UppercaseLetter
-                | GeneralCategory::LowercaseLetter
-                | GeneralCategory::TitlecaseLetter
-                | GeneralCategory::ModifierLetter
-                | GeneralCategory::OtherLetter
-                | GeneralCategory::DecimalNumber
-                | GeneralCategory::LetterNumber
-                | GeneralCategory::OtherNumber => true,
-                GeneralCategory::Unassigned => c.is_alphanumeric(),
-                _ => false,
+            && self.char_all(|c| {
+                GeneralCategoryGroup::Letter
+                    .union(GeneralCategoryGroup::Number)
+                    .contains(GeneralCategory::for_char(c))
             })
     }
 
     #[pymethod]
     fn isnumeric(&self) -> bool {
-        !self.data.is_empty() && self.char_all(char::is_numeric)
+        !self.data.is_empty()
+            && self.char_all(|c| {
+                [
+                    NumericType::Decimal,
+                    NumericType::Digit,
+                    NumericType::Numeric,
+                ]
+                .contains(&NumericType::for_char(c))
+            })
     }
 
     #[pymethod]
     fn isdigit(&self) -> bool {
-        // python's isdigit also checks if exponents are digits, these are the unicode codepoints for exponents
         !self.data.is_empty()
             && self.char_all(|c| {
-                c.is_ascii_digit()
-                    || matches!(c, '⁰' | '¹' | '²' | '³' | '⁴' | '⁵' | '⁶' | '⁷' | '⁸' | '⁹')
+                [NumericType::Digit, NumericType::Decimal].contains(&NumericType::for_char(c))
             })
     }
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| GeneralCategory::of(c) == GeneralCategory::DecimalNumber)
+            && self.char_all(|c| {
+                matches!(GeneralCategory::for_char(c), GeneralCategory::DecimalNumber)
+            })
     }
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -1001,10 +1068,10 @@ impl PyStr {
 
     #[pymethod]
     fn __format__(
-        zelf: PyRef<PyStr>,
+        zelf: PyRef<Self>,
         spec: PyUtf8StrRef,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyStr>> {
+    ) -> PyResult<PyRef<Self>> {
         if spec.is_empty() {
             return if zelf.class().is(vm.ctx.types.str_type) {
                 Ok(zelf)
@@ -1023,61 +1090,62 @@ impl PyStr {
 
     #[pymethod]
     fn title(&self) -> Wtf8Buf {
-        let mut title = Wtf8Buf::with_capacity(self.data.len());
-        let mut previous_is_cased = false;
-        for c_orig in self.as_wtf8().code_points() {
-            let c = c_orig.to_char_lossy();
-            if c.is_lowercase() {
-                if !previous_is_cased {
-                    title.extend(c.to_titlecase());
-                } else {
-                    title.push_char(c);
+        match self.as_str_kind() {
+            PyKindStr::Ascii(_) => unsafe {
+                Wtf8Buf::from_bytes_unchecked(title_ascii(self.as_bytes()))
+            },
+            PyKindStr::Utf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                titlecase_string(s, &mut out);
+                // SAFETY: `s` is valid UTF-8 and titlecase_string only works on Unicode.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
+            }
+            PyKindStr::Wtf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                for chunk in s.as_bytes().utf8_chunks() {
+                    titlecase_string(chunk.valid(), &mut out);
+                    out.0.extend(chunk.invalid());
                 }
-                previous_is_cased = true;
-            } else if c.is_uppercase() || c.is_titlecase() {
-                if previous_is_cased {
-                    title.extend(c.to_lowercase());
-                } else {
-                    title.push_char(c);
-                }
-                previous_is_cased = true;
-            } else {
-                previous_is_cased = false;
-                title.push(c_orig);
+                // SAFETY:
+                // * `s` is valid WTF-8; surrogate bytes were appended without processing.
+                // * TitlecaseMapper produces valid UTF-8.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
         }
-        title
     }
 
     #[pymethod]
     fn swapcase(&self) -> Wtf8Buf {
-        let mut swapped_str = Wtf8Buf::with_capacity(self.data.len());
-        for c_orig in self.as_wtf8().code_points() {
-            let c = c_orig.to_char_lossy();
-            // to_uppercase returns an iterator, to_ascii_uppercase returns the char
-            if c.is_lowercase() {
-                swapped_str.push_char(c.to_ascii_uppercase());
-            } else if c.is_uppercase() {
-                swapped_str.push_char(c.to_ascii_lowercase());
-            } else {
-                swapped_str.push(c_orig);
+        match self.as_str_kind() {
+            PyKindStr::Ascii(s) => unsafe {
+                // SAFETY: ASCII is valid Unicode and swapcase_ascii does not produce non-ASCII.
+                Wtf8Buf::from_bytes_unchecked(swapcase_ascii(s.as_bytes()))
+            },
+            PyKindStr::Utf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                swapcase_utf8(s, &mut out);
+                // SAFETY: `s` is valid UTF-8 and swapcase_utf8 only works on Unicode.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
+            }
+            PyKindStr::Wtf8(s) => {
+                let mut out = VecFmtWriter(Vec::with_capacity(s.len()));
+                for chunk in s.as_bytes().utf8_chunks() {
+                    swapcase_utf8(chunk.valid(), &mut out);
+                    out.0.extend(chunk.invalid());
+                }
+                // SAFETY:
+                // * `s` is valid WTF-8; surrogate bytes were appended without processing.
+                // * swapcase_utf8 produces valid UTF-8.
+                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }
             }
         }
-        swapped_str
     }
 
     #[pymethod]
     fn isalpha(&self) -> bool {
         !self.data.is_empty()
-            && self.char_all(|c| match GeneralCategory::of(c) {
-                GeneralCategory::UppercaseLetter
-                | GeneralCategory::LowercaseLetter
-                | GeneralCategory::TitlecaseLetter
-                | GeneralCategory::ModifierLetter
-                | GeneralCategory::OtherLetter => true,
-                GeneralCategory::Unassigned => c.is_alphabetic(),
-                _ => false,
-            })
+            && self
+                .char_all(|c| GeneralCategoryGroup::Letter.contains(GeneralCategory::for_char(c)))
     }
 
     #[pymethod]
@@ -1112,11 +1180,17 @@ impl PyStr {
 
     #[pymethod]
     fn isspace(&self) -> bool {
-        use unic_ucd_bidi::bidi_class::abbr_names::*;
         !self.data.is_empty()
             && self.char_all(|c| {
-                GeneralCategory::of(c) == GeneralCategory::SpaceSeparator
-                    || matches!(BidiClass::of(c), WS | B | S)
+                matches!(
+                    GeneralCategory::for_char(c),
+                    GeneralCategory::SpaceSeparator
+                ) || matches!(
+                    BidiClass::for_char(c),
+                    BidiClass::WhiteSpace
+                        | BidiClass::ParagraphSeparator
+                        | BidiClass::SegmentSeparator
+                )
             })
     }
 
@@ -1184,9 +1258,8 @@ impl PyStr {
                 let first = first?;
                 if first.as_object().class().is(vm.ctx.types.str_type) {
                     return Ok(first);
-                } else {
-                    first.as_wtf8().to_owned()
                 }
+                first.as_wtf8().to_owned()
             }
             Err(iter) => zelf.as_wtf8().py_join(iter)?,
         };
@@ -1279,7 +1352,9 @@ impl PyStr {
         let mut cased = false;
         let mut previous_is_cased = false;
         for c in self.as_wtf8().code_points().map(CodePoint::to_char_lossy) {
-            if c.is_uppercase() || c.is_titlecase() {
+            if c.is_uppercase()
+                || GeneralCategoryGroup::TitlecaseLetter.contains(GeneralCategory::for_char(c))
+            {
                 if previous_is_cased {
                     return false;
                 }
@@ -1376,9 +1451,13 @@ impl PyStr {
     pub fn isidentifier(&self) -> bool {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
-        let is_identifier_start = chars.next().is_some_and(|c| c == '_' || is_xid_start(c));
+
+        let is_identifier_start = chars
+            .next()
+            .is_some_and(|c| c == '_' || XidStart::for_char(c));
+
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(is_xid_continue)
+        is_identifier_start && chars.all(XidContinue::for_char)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
@@ -1503,18 +1582,115 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn __str__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyStrRef {
         if zelf.class().is(vm.ctx.types.str_type) {
             // Already exact str, just return a reference
-            Ok(zelf.to_owned())
+            zelf.to_owned()
         } else {
             // Subclass, create a new exact str
-            Ok(PyStr::from(zelf.data.clone()).into_ref(&vm.ctx))
+            Self::from(zelf.data.clone()).into_ref(&vm.ctx)
+        }
+    }
+}
+
+/// Title case first char if it is cased or write as is.
+///
+/// This matches CPython's behavior:
+/// "123abc" -> "123abc"
+/// "abc" -> "Abc"
+fn titlecase_first(s: &str, chars: &mut core::str::CharIndices<'_>, out: &mut VecFmtWriter) {
+    if let Some((first_pos, first_ch)) = chars.next() {
+        let first = &s[..first_pos + first_ch.len_utf8()];
+        let tm = TitlecaseMapper::new();
+        tm.titlecase_segment(first, &LanguageIdentifier::UNKNOWN, Default::default())
+            .write_to(out)
+            .expect("Writing to an in-memory buffer cannot fail.");
+    }
+}
+
+/// Title case a string following CPython conventions.
+///
+/// CPython title cases each char in a segment. A "segment" is split by case ignorable characters
+/// rather than whitespace.
+/// "123abc" -> "123Abc"
+/// "123abc456def" -> "123Abc456Def"
+/// "123 abc" -> "123 Abc"
+fn titlecase_string(s: &str, out: &mut VecFmtWriter) {
+    let mut previous_is_cased = false;
+    let mapper = TitlecaseMapper::new();
+    for (i, ch) in s.char_indices() {
+        if previous_is_cased {
+            lowercase_or_sigma(ch, s, i, out);
+        } else {
+            let s = &s[i..i + ch.len_utf8()];
+            mapper
+                .titlecase_segment(s, &LanguageIdentifier::UNKNOWN, Default::default())
+                .write_to(out)
+                .expect("Writing to an in-memory buffer cannot fail.");
+        }
+
+        previous_is_cased = Cased::for_char(ch);
+    }
+}
+
+fn lowercase_or_sigma(ch: char, s: &str, i: usize, out: &mut VecFmtWriter) {
+    let sigma = 'Σ';
+    if ch == sigma {
+        let sigma_cased = handle_capital_sigma(s, i);
+        let mut buf = [0u8; 4];
+        let s = sigma_cased.encode_utf8(&mut buf);
+        out.0.extend(s.as_bytes());
+    } else {
+        for ch in ch.to_lowercase() {
+            let mut buf = [0u8; 4];
+            let s = ch.encode_utf8(&mut buf);
+            out.0.extend(s.as_bytes());
+        }
+    }
+}
+
+// Handle context-sensitive sigma.
+//
+// CPython handles sigma as a special case. This is more efficient than using icu4x to scan the
+// entire string with CaseMapper because CaseMapper would allocate to produce a new string. The
+// icu4x crates are robust but CPython's capitalize() is NOT so we can skip the extra allocs.
+fn handle_capital_sigma(s: &str, i: usize) -> char {
+    let (left, rest) = s.split_at(i);
+    let right = &rest['Σ'.len_utf8()..];
+
+    // Check if any chars before or after sigma are cased.
+    let before = left
+        .chars()
+        .rev()
+        .find(|&ch| !CaseIgnorable::for_char(ch))
+        .is_some_and(Cased::for_char);
+    let after = right
+        .chars()
+        .find(|&ch| !CaseIgnorable::for_char(ch))
+        .is_some_and(Cased::for_char);
+    if before && !after { 'ς' } else { 'σ' }
+}
+
+fn swapcase_utf8(s: &str, out: &mut VecFmtWriter) {
+    for (i, ch) in s.char_indices() {
+        if ch.is_uppercase() {
+            lowercase_or_sigma(ch, s, i, out);
+        } else if ch.is_lowercase() {
+            for ch in ch.to_uppercase() {
+                let mut buf = [0u8; 4];
+                let s = ch.encode_utf8(&mut buf);
+                out.0.extend(s.as_bytes());
+            }
+        } else {
+            let mut buf = [0u8; 4];
+            let s = ch.encode_utf8(&mut buf);
+            out.0.extend(s.as_bytes());
         }
     }
 }
 
 impl PyRef<PyStr> {
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         (**self).is_empty()
     }
@@ -1774,7 +1950,7 @@ impl ToPyObject for AsciiChar {
 type SplitArgs = anystr::SplitArgs<PyStrRef>;
 
 #[derive(FromArgs)]
-pub struct FindArgs {
+pub(crate) struct FindArgs {
     #[pyarg(positional)]
     sub: PyStrRef,
     #[pyarg(positional, default)]
@@ -1814,7 +1990,7 @@ fn vectorcall_str(
     (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyStr::extend_class(ctx, ctx.types.str_type);
     ctx.types
         .str_type
@@ -2203,6 +2379,7 @@ impl Py<PyUtf8Str> {
 
 impl PyRef<PyUtf8Str> {
     /// Convert to PyStrRef. Safe because PyUtf8Str is a subtype of PyStr.
+    #[must_use]
     pub fn into_wtf8(self) -> PyStrRef {
         unsafe { mem::transmute::<Self, PyStrRef>(self) }
     }
@@ -2236,14 +2413,6 @@ impl AnyStrContainer<str> for String {
 }
 
 impl anystr::AnyChar for char {
-    fn is_lowercase(self) -> bool {
-        self.is_lowercase()
-    }
-
-    fn is_uppercase(self) -> bool {
-        self.is_uppercase()
-    }
-
     fn bytes_len(self) -> usize {
         self.len_utf8()
     }
@@ -2332,6 +2501,14 @@ impl AnyStr for str {
         }
         splits
     }
+
+    fn py_islower(&self) -> bool {
+        self.is_cased::<Lowercase, Uppercase>()
+    }
+
+    fn py_isupper(&self) -> bool {
+        self.is_cased::<Uppercase, Lowercase>()
+    }
 }
 
 impl AnyStrContainer<Wtf8> for Wtf8Buf {
@@ -2349,12 +2526,6 @@ impl AnyStrContainer<Wtf8> for Wtf8Buf {
 }
 
 impl anystr::AnyChar for CodePoint {
-    fn is_lowercase(self) -> bool {
-        self.is_char_and(char::is_lowercase)
-    }
-    fn is_uppercase(self) -> bool {
-        self.is_char_and(char::is_uppercase)
-    }
     fn bytes_len(self) -> usize {
         self.len_wtf8()
     }
@@ -2450,6 +2621,14 @@ impl AnyStr for Wtf8 {
         }
         splits
     }
+
+    fn py_islower(&self) -> bool {
+        self.is_cased::<Lowercase, Uppercase>()
+    }
+
+    fn py_isupper(&self) -> bool {
+        self.is_cased::<Uppercase, Lowercase>()
+    }
 }
 
 impl AnyStrContainer<AsciiStr> for AsciiString {
@@ -2467,14 +2646,6 @@ impl AnyStrContainer<AsciiStr> for AsciiString {
 }
 
 impl anystr::AnyChar for ascii::AsciiChar {
-    fn is_lowercase(self) -> bool {
-        self.is_lowercase()
-    }
-
-    fn is_uppercase(self) -> bool {
-        self.is_uppercase()
-    }
-
     fn bytes_len(self) -> usize {
         1
     }
@@ -2649,6 +2820,10 @@ mod tests {
             ("Greek Ωppercases ...", "greek ωppercases ..."),
             // spell-checker:disable-next-line
             ("Greek ῼitlecases ...", "greek ῳitlecases ..."),
+            // Latin Extended-B digraphs: uppercase forms map to titlecase forms
+            // (e.g. U+01F1 'DZ' -> U+01F2 'Dz', U+01C4 'DŽ' -> U+01C5 'Dž').
+            ("\u{01F2}", "\u{01F1}"),
+            ("\u{01C5}", "\u{01C4}"),
         ];
         for (title, input) in tests {
             assert_eq!(PyStr::from(input).title().as_str(), Ok(title));
@@ -2706,5 +2881,25 @@ mod tests {
             let translated = text.translate(vm.ctx.new_int(3).into(), vm);
             assert_eq!("TypeError", &*translated.unwrap_err().class().name(),);
         })
+    }
+
+    #[test]
+    fn str_isprintable_unicode15() {
+        // Regression test for https://github.com/RustPython/RustPython/issues/7525
+        // At the time of the issue, RustPython used unic_ucd_category which had
+        // outdated Unicode data, causing U+0B55 to be misclassified as Unassigned.
+        // Now fixed by migrating to icu_properties with up-to-date Unicode data.
+
+        // Characters that should be printable
+        assert!(PyStr::from("\u{0B55}").isprintable());
+        assert!(PyStr::from("A").isprintable());
+        assert!(PyStr::from(" ").isprintable());
+        assert!(PyStr::from("").isprintable());
+
+        // Characters that should NOT be printable
+        assert!(!PyStr::from("\x00").isprintable());
+        assert!(!PyStr::from("\u{200B}").isprintable());
+        assert!(!PyStr::from("\u{E000}").isprintable());
+        assert!(!PyStr::from("\u{00A0}").isprintable());
     }
 }

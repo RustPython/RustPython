@@ -1,9 +1,0 @@
----
-source: crates/codegen/src/compile.rs
-expression: "compile_exec_optimized(\"\\\nx = not True\n\")"
----
-  1           0 RESUME               (0)
-              1 LOAD_CONST           (False)
-              2 STORE_NAME           (0, x)
-              3 LOAD_CONST           (None)
-              4 RETURN_VALUE

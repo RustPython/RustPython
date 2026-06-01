@@ -5,7 +5,7 @@ use core::borrow::Borrow;
 
 pub(crate) use _imp::module_def;
 
-pub use crate::vm::resolve_frozen_alias;
+pub(super) use crate::vm::resolve_frozen_alias;
 
 #[cfg(feature = "threading")]
 #[pymodule(sub)]
@@ -38,6 +38,7 @@ mod lock {
         IMP_LOCK.lock();
     }
 
+    #[cfg(all(unix, feature = "host_env"))]
     pub(super) fn release_lock_after_fork_parent() {
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
             unsafe { IMP_LOCK.unlock() };
@@ -53,7 +54,7 @@ mod lock {
     /// # Safety
     ///
     /// Must only be called from single-threaded child after fork().
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     pub(crate) unsafe fn reinit_after_fork() {
         if IMP_LOCK.is_locked() && !IMP_LOCK.is_owned_by_current_thread() {
             // Held by a dead thread — reset to unlocked.
@@ -65,7 +66,7 @@ mod lock {
     /// behavior in the post-fork child:
     /// 1) if ownership metadata is stale (dead owner / changed tid), reset;
     /// 2) if current thread owns the lock, release it.
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "host_env"))]
     pub(super) unsafe fn after_fork_child_reinit_and_release() {
         unsafe { reinit_after_fork() };
         if IMP_LOCK.is_locked() && IMP_LOCK.is_owned_by_current_thread() {
@@ -75,22 +76,22 @@ mod lock {
 }
 
 /// Re-export for fork safety code in posix.rs
-#[cfg(feature = "threading")]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) fn acquire_imp_lock_for_fork() {
     lock::acquire_lock_for_fork();
 }
 
-#[cfg(feature = "threading")]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) fn release_imp_lock_after_fork_parent() {
     lock::release_lock_after_fork_parent();
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) unsafe fn reinit_imp_lock_after_fork() {
     unsafe { lock::reinit_after_fork() }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) unsafe fn after_fork_child_imp_lock_release() {
     unsafe { lock::after_fork_child_reinit_and_release() }
 }
@@ -182,8 +183,8 @@ mod _imp {
     use version::PYC_MAGIC_NUMBER_TOKEN;
 
     #[pyfunction]
-    const fn extension_suffixes() -> PyResult<Vec<PyObjectRef>> {
-        Ok(Vec::new())
+    const fn extension_suffixes() -> Vec<PyObjectRef> {
+        Vec::new()
     }
 
     #[pyfunction]
@@ -261,11 +262,11 @@ mod _imp {
                     name.clone().into_wtf8(),
                 )
             };
-            let bag = crate::builtins::code::PyObjBag(&vm.ctx);
+            let bag = crate::builtins::code::PyVmBag(vm);
             let code =
                 rustpython_compiler_core::marshal::deserialize_code(&mut &contiguous[..], bag)
                     .map_err(|_| invalid_err())?;
-            return Ok(vm.ctx.new_code(code));
+            return Ok(PyCode::new_ref_with_bag(vm, code));
         }
         import::make_frozen(vm, name.as_str())
     }
@@ -296,14 +297,12 @@ mod _imp {
     }
 
     #[pyfunction]
-    fn _frozen_module_names(vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let names = vm
-            .state
+    fn _frozen_module_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        vm.state
             .frozen
             .keys()
             .map(|&name| vm.ctx.new_utf8_str(name).into())
-            .collect();
-        Ok(names)
+            .collect()
     }
 
     #[allow(clippy::type_complexity)]

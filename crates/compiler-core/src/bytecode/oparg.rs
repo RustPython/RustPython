@@ -1,7 +1,7 @@
 use core::fmt;
 
 use crate::{
-    bytecode::{CodeUnit, instruction::Instruction},
+    bytecode::{CodeUnit, Instruction},
     marshal::MarshalError,
 };
 
@@ -19,6 +19,18 @@ impl OpArgByte {
     pub const fn new(value: u8) -> Self {
         Self(value)
     }
+
+    /// Returns the inner value as a [`u8`].
+    #[must_use]
+    pub const fn as_u8(self) -> u8 {
+        self.0
+    }
+
+    /// Returns the inner value as a [`u32`].
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self.0 as u32
+    }
 }
 
 impl From<u8> for OpArgByte {
@@ -29,7 +41,7 @@ impl From<u8> for OpArgByte {
 
 impl From<OpArgByte> for u8 {
     fn from(value: OpArgByte) -> Self {
-        value.0
+        value.as_u8()
     }
 }
 
@@ -54,6 +66,7 @@ impl OpArg {
 
     /// Returns how many CodeUnits a instruction with this op_arg will be encoded as
     #[inline]
+    #[must_use]
     pub const fn instr_size(self) -> usize {
         (self.0 > 0xff) as usize + (self.0 > 0xff_ff) as usize + (self.0 > 0xff_ff_ff) as usize + 1
     }
@@ -93,7 +106,7 @@ pub struct OpArgState {
 
 impl OpArgState {
     #[inline(always)]
-    pub fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
+    pub const fn get(&mut self, ins: CodeUnit) -> (Instruction, OpArg) {
         let arg = self.extend(ins.arg);
         if !matches!(ins.op, Instruction::ExtendedArg) {
             self.reset();
@@ -102,9 +115,9 @@ impl OpArgState {
     }
 
     #[inline(always)]
-    pub fn extend(&mut self, arg: OpArgByte) -> OpArg {
-        self.state = (self.state << 8) | u32::from(arg.0);
-        self.state.into()
+    pub const fn extend(&mut self, arg: OpArgByte) -> OpArg {
+        self.state = (self.state << 8) | arg.as_u32();
+        OpArg::new(self.state)
     }
 
     #[inline(always)]
@@ -113,35 +126,52 @@ impl OpArgState {
     }
 }
 
-/// Helper macro for defining oparg enums in an optimal way.
+/// Defines an enum whose variants map to fixed `u8` discriminants,
+/// and automatically implements the following traits:
 ///
-/// Will generate the following:
+/// - [`Display`](std::fmt::Display)
+/// - [`From`]`<EnumName> for u8` / `u32`
+/// - [`TryFrom`]`<u8> / <u32> for EnumName`
+/// - [`OpArgType`]
 ///
-/// - Enum which variant's aren't assigned any value (for optimizations).
-/// - impl [`TryFrom<u8>`]
-/// - impl [`TryFrom<u32>`]
-/// - impl [`Into<u8>`]
-/// - impl [`Into<u32>`]
-/// - impl [`OpArgType`]
+/// Along with the inherent methods `as_u8`, `as_u32`, `try_from_u8`, and `try_from_u32`.
 ///
-/// # Note
-/// If an enum variant has "alternative" values (i.e. `Foo = 0 | 1`), the first value will be the
-/// result of converting to a number.
+/// # Variant syntax
 ///
-/// # Examples
+/// Each variant is assigned a value using one of two forms:
+///
+/// | Form | Syntax | `Display` output |
+/// |---|---|---|
+/// | Numeric | `Variant = 0` | `0` |
+/// | Labeled | `Variant = (0, "label")` | `label` |
+///
+/// # Example
 ///
 /// ```ignore
-/// oparg_enum!(
-///     /// Oparg for the `X` opcode.
-///     #[derive(Clone, Copy)]
-///     pub enum MyOpArg {
-///         /// Some doc.
-///         Foo = 4,
-///         Bar = 8,
-///         Baz = 15 | 16,
-///         Qux = 23 | 42
+/// oparg_enum! {
+///     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///     pub enum MyArg {
+///         /// No argument.
+///         None  = 0,
+///         /// A small argument, displayed as "small".
+///         Small = (1, "small"),
+///         /// A large argument, displayed as "large".
+///         Large = (2, "large"),
 ///     }
-/// );
+/// }
+///
+/// assert_eq!(MyArg::None.as_u8(), 0);
+/// assert_eq!(MyArg::Small.as_u8(), 1);
+///
+/// assert_eq!(MyArg::try_from_u8(2), Ok(MyArg::Large));
+/// assert_eq!(u8::from(MyArg::None), 0u8);
+///
+/// assert_eq!(MyArg::None.to_string(),  "0");
+/// assert_eq!(MyArg::Small.to_string(), "small");
+/// assert_eq!(MyArg::Large.to_string(), "large");
+///
+/// // Format specs are respected
+/// assert_eq!(format!("{:>10}", MyArg::Small), "     small");
 /// ```
 macro_rules! oparg_enum {
     (
@@ -149,7 +179,7 @@ macro_rules! oparg_enum {
         $vis:vis enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident = $value:literal $(| $alternatives:expr)*
+                $variant:ident = $value:tt
             ),* $(,)?
         }
     ) => {
@@ -162,9 +192,9 @@ macro_rules! oparg_enum {
         }
 
         impl_oparg_enum!(
-            enum $name {
+            $vis enum $name {
                 $(
-                    $variant = $value $(| $alternatives)*,
+                    $variant = $value,
                 )*
             }
         );
@@ -173,22 +203,58 @@ macro_rules! oparg_enum {
 
 macro_rules! impl_oparg_enum {
     (
-        enum $name:ident {
+        $vis:vis enum $name:ident {
             $(
-                $variant:ident = $value:literal $(| $alternatives:expr)*
+                $variant:ident = $value:tt
             ),* $(,)?
         }
     ) => {
+        impl $name {
+            /// Returns the oparg as a [`u8`] value.
+            #[must_use]
+            $vis const fn as_u8(self) -> u8 {
+                match self {
+                    $(
+                        Self::$variant => impl_oparg_enum!(@discriminant $value),
+                    )*
+                }
+            }
+
+            /// Returns the oparg as a [`u32`] value.
+            #[must_use]
+            $vis const fn as_u32(self) -> u32 {
+                self.as_u8() as u32
+            }
+
+            $vis const fn try_from_u8(value: u8) -> Result<Self, $crate::marshal::MarshalError> {
+                Ok(match value {
+                    $(
+                        impl_oparg_enum!(@discriminant $value) => Self::$variant,
+                    )*
+                    _ => return Err($crate::marshal::MarshalError::InvalidBytecode),
+                })
+            }
+
+            $vis const fn try_from_u32(value: u32) -> Result<Self, $crate::marshal::MarshalError> {
+                if value > (u8::MAX as u32) {
+                    return Err($crate::marshal::MarshalError::InvalidBytecode);
+                }
+
+                // We already validated this is a lossles cast.
+                Self::try_from_u8(value as u8)
+            }
+
+            /// Iterate over the variants.
+            $vis fn iter() -> impl Iterator<Item = Self> {
+                [$(Self::$variant),*].iter().copied()
+            }
+        }
+
         impl TryFrom<u8> for $name {
             type Error = $crate::marshal::MarshalError;
 
             fn try_from(value: u8) -> Result<Self, Self::Error> {
-                Ok(match value {
-                    $(
-                        $value $(| $alternatives)* => Self::$variant,
-                    )*
-                    _ => return Err(Self::Error::InvalidBytecode),
-                })
+                Self::try_from_u8(value)
             }
         }
 
@@ -196,29 +262,42 @@ macro_rules! impl_oparg_enum {
             type Error = $crate::marshal::MarshalError;
 
             fn try_from(value: u32) -> Result<Self, Self::Error> {
-                u8::try_from(value)
-                    .map_err(|_| Self::Error::InvalidBytecode)
-                    .map(TryInto::try_into)?
+                Self::try_from_u32(value)
             }
         }
 
         impl From<$name> for u8 {
             fn from(value: $name) -> Self {
-                match value {
-                    $(
-                        $name::$variant => $value,
-                    )*
-                }
+                value.as_u8()
             }
         }
 
         impl From<$name> for u32 {
             fn from(value: $name) -> Self {
-                Self::from(u8::from(value))
+                value.as_u32()
+            }
+        }
+
+        impl ::core::fmt::Display for $name {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                match self {
+                    $(
+                        Self::$variant => impl_oparg_enum!(@display f, $value),
+                    )*
+                }
             }
         }
 
         impl OpArgType for $name {}
+    };
+
+    (@discriminant ($num:literal, $str:literal)) => { $num };
+    (@discriminant $num:literal) => { $num };
+    (@display $f:expr, ($num:literal, $str:literal)) => {
+        ::core::fmt::Display::fmt($str, $f)
+    };
+    (@display $f:expr, $num:literal) => {
+        ::core::fmt::Display::fmt(&$num, $f)
     };
 }
 
@@ -227,7 +306,7 @@ oparg_enum!(
     ///
     /// ## See also
     ///
-    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/8183fa5e3f78ca6ab862de7fb8b14f3d929421e0/Include/ceval.h#L129-L132)
+    /// - [CPython FVC_* flags](https://github.com/python/cpython/blob/v3.14.4/Include/ceval.h#L129-L132)
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
     pub enum ConvertValueOparg {
         /// No conversion.
@@ -236,45 +315,32 @@ oparg_enum!(
         /// f"{x}"
         /// f"{x:4}"
         /// ```
-        // Ruff `ConversionFlag::None` is `-1i8`, when its converted to `u8` its value is `u8::MAX`.
-        None = 0 | 255,
+        // NOTE: We should never reach the display of this.
+        // `FVC_NONE` are being handled by `Instruction::FormatSimple`
+        None = 0,
         /// Converts by calling `str(<value>)`.
         ///
         /// ```python
         /// f"{x!s}"
         /// f"{x!s:2}"
         /// ```
-        Str = 1,
+        Str = (1, "str"),
         /// Converts by calling `repr(<value>)`.
         ///
         /// ```python
         /// f"{x!r}"
         /// f"{x!r:2}"
         /// ```
-        Repr = 2,
+        Repr = (2, "repr"),
         /// Converts by calling `ascii(<value>)`.
         ///
         /// ```python
         /// f"{x!a}"
         /// f"{x!a:2}"
         /// ```
-        Ascii = 3,
+        Ascii = (3, "ascii"),
     }
 );
-
-impl fmt::Display for ConvertValueOparg {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let out = match self {
-            Self::Str => "1 (str)",
-            Self::Repr => "2 (repr)",
-            Self::Ascii => "3 (ascii)",
-            // We should never reach this. `FVC_NONE` are being handled by `Instruction::FormatSimple`
-            Self::None => "",
-        };
-
-        write!(f, "{out}")
-    }
-}
 
 pub type NameIdx = u32;
 
@@ -306,7 +372,7 @@ oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_1
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum IntrinsicFunction1 {
-        // Invalid = 0,
+        Invalid = 0,
         Print = 1,
         /// Import * operation
         ImportStar = 2,
@@ -326,10 +392,32 @@ oparg_enum!(
     }
 );
 
+impl IntrinsicFunction1 {
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/internal/pycore_intrinsics.h#L9-L20
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Invalid => "INTRINSIC_1_INVALID",
+            Self::Print => "INTRINSIC_PRINT",
+            Self::ImportStar => "INTRINSIC_IMPORT_STAR",
+            Self::StopIterationError => "INTRINSIC_STOPITERATION_ERROR",
+            Self::AsyncGenWrap => "INTRINSIC_ASYNC_GEN_WRAP",
+            Self::UnaryPositive => "INTRINSIC_UNARY_POSITIVE",
+            Self::ListToTuple => "INTRINSIC_LIST_TO_TUPLE",
+            Self::TypeVar => "INTRINSIC_TYPEVAR",
+            Self::ParamSpec => "INTRINSIC_PARAMSPEC",
+            Self::TypeVarTuple => "INTRINSIC_TYPEVARTUPLE",
+            Self::SubscriptGeneric => "INTRINSIC_SUBSCRIPT_GENERIC",
+            Self::TypeAlias => "INTRINSIC_TYPEALIAS",
+        }
+    }
+}
+
 oparg_enum!(
     /// Intrinsic function for CALL_INTRINSIC_2
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum IntrinsicFunction2 {
+        Invalid = 0,
         PrepReraiseStar = 1,
         TypeVarWithBound = 2,
         TypeVarWithConstraint = 3,
@@ -338,6 +426,21 @@ oparg_enum!(
         SetTypeparamDefault = 5,
     }
 );
+
+impl IntrinsicFunction2 {
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/internal/pycore_intrinsics.h#L26-L31
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Invalid => "INTRINSIC_2_INVALID",
+            Self::PrepReraiseStar => "INTRINSIC_PREP_RERAISE_STAR",
+            Self::TypeVarWithBound => "INTRINSIC_TYPEVAR_WITH_BOUND",
+            Self::TypeVarWithConstraint => "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
+            Self::SetFunctionTypeParams => "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
+            Self::SetTypeparamDefault => "INTRINSIC_SET_TYPEPARAM_DEFAULT",
+        }
+    }
+}
 
 bitflagset::bitflag! {
     /// `SET_FUNCTION_ATTRIBUTE` flags.
@@ -382,15 +485,18 @@ impl TryFrom<u32> for MakeFunctionFlag {
 impl From<MakeFunctionFlag> for u32 {
     /// Encode as CPython-compatible power-of-two value
     fn from(flag: MakeFunctionFlag) -> Self {
-        1u32 << (flag as u32)
+        1u32 << (flag as Self)
     }
 }
 
 impl OpArgType for MakeFunctionFlag {}
 
-/// `COMPARE_OP` arg is `(cmp_index << 5) | mask`.  Only the upper
-/// 3 bits identify the comparison; the lower 5 bits are an inline
-/// cache mask for adaptive specialization.
+/// `COMPARE_OP` arg is `(cmp_index << 5) | mask`.
+///
+/// The low four bits are the CPython comparison mask used by specialized
+/// compare opcodes, and bit 4 requests bool-conversion of the compare result.
+pub const COMPARE_OP_BOOL_MASK: u32 = 1 << 4;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ComparisonOperator {
     Less,
@@ -425,15 +531,15 @@ impl TryFrom<u32> for ComparisonOperator {
 }
 
 impl From<ComparisonOperator> for u8 {
-    /// Encode as `cmp_index << 5` (mask bits zero).
+    /// Encode using CPython's comparison mask layout.
     fn from(value: ComparisonOperator) -> Self {
         match value {
-            ComparisonOperator::Less => 0,
-            ComparisonOperator::LessOrEqual => 1 << 5,
-            ComparisonOperator::Equal => 2 << 5,
-            ComparisonOperator::NotEqual => 3 << 5,
-            ComparisonOperator::Greater => 4 << 5,
-            ComparisonOperator::GreaterOrEqual => 5 << 5,
+            ComparisonOperator::Less => 2,
+            ComparisonOperator::LessOrEqual => (1 << 5) | 2 | 8,
+            ComparisonOperator::Equal => (2 << 5) | 8,
+            ComparisonOperator::NotEqual => (3 << 5) | 1 | 2 | 4,
+            ComparisonOperator::Greater => (4 << 5) | 4,
+            ComparisonOperator::GreaterOrEqual => (5 << 5) | 4 | 8,
         }
     }
 }
@@ -445,6 +551,20 @@ impl From<ComparisonOperator> for u32 {
 }
 
 impl OpArgType for ComparisonOperator {}
+
+impl fmt::Display for ComparisonOperator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let op = match self {
+            Self::Less => "<",
+            Self::LessOrEqual => "<=",
+            Self::Equal => "==",
+            Self::NotEqual => "!=",
+            Self::Greater => ">",
+            Self::GreaterOrEqual => ">=",
+        };
+        f.write_str(op)
+    }
+}
 
 oparg_enum!(
     /// The possible Binary operators
@@ -462,59 +582,59 @@ oparg_enum!(
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     pub enum BinaryOperator {
         /// `+`
-        Add = 0,
+        Add = (0, "+"),
         /// `&`
-        And = 1,
+        And = (1, "&"),
         /// `//`
-        FloorDivide = 2,
+        FloorDivide = (2, "//"),
         /// `<<`
-        Lshift = 3,
+        Lshift = (3, "<<"),
         /// `@`
-        MatrixMultiply = 4,
+        MatrixMultiply = (4, "@"),
         /// `*`
-        Multiply = 5,
+        Multiply = (5, "*"),
         /// `%`
-        Remainder = 6,
+        Remainder = (6, "%"),
         /// `|`
-        Or = 7,
+        Or = (7, "|"),
         /// `**`
-        Power = 8,
+        Power = (8, "**"),
         /// `>>`
-        Rshift = 9,
+        Rshift = (9, ">>"),
         /// `-`
-        Subtract = 10,
+        Subtract = (10, "-"),
         /// `/`
-        TrueDivide = 11,
+        TrueDivide = (11, "/"),
         /// `^`
-        Xor = 12,
+        Xor = (12, "^"),
         /// `+=`
-        InplaceAdd = 13,
+        InplaceAdd = (13, "+="),
         /// `&=`
-        InplaceAnd = 14,
+        InplaceAnd = (14, "&="),
         /// `//=`
-        InplaceFloorDivide = 15,
+        InplaceFloorDivide = (15, "//="),
         /// `<<=`
-        InplaceLshift = 16,
+        InplaceLshift = (16, "<<="),
         /// `@=`
-        InplaceMatrixMultiply = 17,
+        InplaceMatrixMultiply = (17, "@="),
         /// `*=`
-        InplaceMultiply = 18,
+        InplaceMultiply = (18, "*="),
         /// `%=`
-        InplaceRemainder = 19,
+        InplaceRemainder = (19, "%="),
         /// `|=`
-        InplaceOr = 20,
+        InplaceOr = (20, "|="),
         /// `**=`
-        InplacePower = 21,
+        InplacePower = (21, "**="),
         /// `>>=`
-        InplaceRshift = 22,
+        InplaceRshift = (22, ">>="),
         /// `-=`
-        InplaceSubtract = 23,
+        InplaceSubtract = (23, "-="),
         /// `/=`
-        InplaceTrueDivide = 24,
+        InplaceTrueDivide = (24, "/="),
         /// `^=`
-        InplaceXor = 25,
+        InplaceXor = (25, "^="),
         /// `[]` subscript
-        Subscr = 26,
+        Subscr = (26, "[]"),
     }
 );
 
@@ -549,40 +669,39 @@ impl BinaryOperator {
             _ => self,
         }
     }
-}
 
-impl fmt::Display for BinaryOperator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let op = match self {
-            Self::Add => "+",
-            Self::And => "&",
-            Self::FloorDivide => "//",
-            Self::Lshift => "<<",
-            Self::MatrixMultiply => "@",
-            Self::Multiply => "*",
-            Self::Remainder => "%",
-            Self::Or => "|",
-            Self::Power => "**",
-            Self::Rshift => ">>",
-            Self::Subtract => "-",
-            Self::TrueDivide => "/",
-            Self::Xor => "^",
-            Self::InplaceAdd => "+=",
-            Self::InplaceAnd => "&=",
-            Self::InplaceFloorDivide => "//=",
-            Self::InplaceLshift => "<<=",
-            Self::InplaceMatrixMultiply => "@=",
-            Self::InplaceMultiply => "*=",
-            Self::InplaceRemainder => "%=",
-            Self::InplaceOr => "|=",
-            Self::InplacePower => "**=",
-            Self::InplaceRshift => ">>=",
-            Self::InplaceSubtract => "-=",
-            Self::InplaceTrueDivide => "/=",
-            Self::InplaceXor => "^=",
-            Self::Subscr => "[]",
-        };
-        write!(f, "{op}")
+    /// https://github.com/python/cpython/blob/v3.14.4/Include/opcode.h#L10-L36
+    #[must_use]
+    pub const fn desc(&self) -> &str {
+        match self {
+            Self::Add => "NB_ADD",
+            Self::And => "NB_AND",
+            Self::FloorDivide => "NB_FLOOR_DIVIDE",
+            Self::Lshift => "NB_LSHIFT",
+            Self::MatrixMultiply => "NB_MATRIX_MULTIPLY",
+            Self::Multiply => "NB_MULTIPLY",
+            Self::Remainder => "NB_REMAINDER",
+            Self::Or => "NB_OR",
+            Self::Power => "NB_POWER",
+            Self::Rshift => "NB_RSHIFT",
+            Self::Subtract => "NB_SUBTRACT",
+            Self::TrueDivide => "NB_TRUE_DIVIDE",
+            Self::Xor => "NB_XOR",
+            Self::InplaceAdd => "NB_INPLACE_ADD",
+            Self::InplaceAnd => "NB_INPLACE_AND",
+            Self::InplaceFloorDivide => "NB_INPLACE_FLOOR_DIVIDE",
+            Self::InplaceLshift => "NB_INPLACE_LSHIFT",
+            Self::InplaceMatrixMultiply => "NB_INPLACE_MATRIX_MULTIPLY",
+            Self::InplaceMultiply => "NB_INPLACE_MULTIPLY",
+            Self::InplaceRemainder => "NB_INPLACE_REMAINDER",
+            Self::InplaceOr => "NB_INPLACE_OR",
+            Self::InplacePower => "NB_INPLACE_POWER",
+            Self::InplaceRshift => "NB_INPLACE_RSHIFT",
+            Self::InplaceSubtract => "NB_INPLACE_SUBTRACT",
+            Self::InplaceTrueDivide => "NB_INPLACE_TRUE_DIVIDE",
+            Self::InplaceXor => "NB_INPLACE_XOR",
+            Self::Subscr => "NB_SUBSCR",
+        }
     }
 }
 
@@ -608,27 +727,15 @@ oparg_enum!(
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum SpecialMethod {
         /// `__enter__` for sync context manager
-        Enter = 0,
+        Enter = (0, "__enter__"),
         /// `__exit__` for sync context manager
-        Exit = 1,
+        Exit = (1, "__exit__"),
         /// `__aenter__` for async context manager
-        AEnter = 2,
+        AEnter = (2, "__aenter__"),
         /// `__aexit__` for async context manager
-        AExit = 3,
+        AExit = (3, "__aexit__"),
     }
 );
-
-impl fmt::Display for SpecialMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let method_name = match self {
-            Self::Enter => "__enter__",
-            Self::Exit => "__exit__",
-            Self::AEnter => "__aenter__",
-            Self::AExit => "__aexit__",
-        };
-        write!(f, "{method_name}")
-    }
-}
 
 oparg_enum!(
     /// Common constants for LOAD_COMMON_CONSTANT opcode.
@@ -636,30 +743,21 @@ oparg_enum!(
     #[derive(Debug, Copy, Clone, PartialEq, Eq)]
     pub enum CommonConstant {
         /// `AssertionError` exception type
-        AssertionError = 0,
+        AssertionError = (0, "AssertionError"),
         /// `NotImplementedError` exception type
-        NotImplementedError = 1,
+        NotImplementedError = (1, "NotImplementedError"),
         /// Built-in `tuple` type
-        BuiltinTuple = 2,
+        BuiltinTuple = (2, "tuple"),
         /// Built-in `all` function
-        BuiltinAll = 3,
+        BuiltinAll = (3, "all"),
         /// Built-in `any` function
-        BuiltinAny = 4,
+        BuiltinAny = (4, "any"),
+        /// Built-in `list` type
+        BuiltinList = (5, "list"),
+        /// Built-in `set` type
+        BuiltinSet = (6, "set"),
     }
 );
-
-impl fmt::Display for CommonConstant {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = match self {
-            Self::AssertionError => "AssertionError",
-            Self::NotImplementedError => "NotImplementedError",
-            Self::BuiltinTuple => "tuple",
-            Self::BuiltinAll => "all",
-            Self::BuiltinAny => "any",
-        };
-        write!(f, "{name}")
-    }
-}
 
 oparg_enum!(
     /// Specifies if a slice is built with either 2 or 3 arguments.
@@ -712,19 +810,19 @@ macro_rules! newtype_oparg {
         $vis struct $name(u32);
 
         impl $name {
-            /// Creates a new [`$name`] instance.
+            #[doc = concat!("Creates a new [`", stringify!($name), "`] instance.")]
             #[must_use]
             pub const fn from_u32(value: u32) -> Self {
                 Self(value)
             }
 
-            /// Returns the oparg as a `u32` value.
+            /// Returns the oparg as a [`u32`] value.
             #[must_use]
             pub const fn as_u32(self) -> u32 {
                 self.0
             }
 
-            /// Returns the oparg as a `usize` value.
+            /// Returns the oparg as a [`usize`] value.
             #[must_use]
             pub const fn as_usize(self) -> usize {
               self.0 as usize
@@ -918,8 +1016,8 @@ impl VarNums {
 
 impl LoadAttr {
     #[must_use]
-    pub fn builder() -> LoadAttrBuilder {
-        LoadAttrBuilder::default()
+    pub const fn new(name_idx: u32, is_method: bool) -> Self {
+        Self::from_u32((name_idx << 1) | (is_method as u32))
     }
 
     #[must_use]
@@ -933,36 +1031,10 @@ impl LoadAttr {
     }
 }
 
-#[derive(Clone, Copy, Default)]
-pub struct LoadAttrBuilder {
-    name_idx: u32,
-    is_method: bool,
-}
-
-impl LoadAttrBuilder {
-    #[must_use]
-    pub const fn build(self) -> LoadAttr {
-        let value = (self.name_idx << 1) | (self.is_method as u32);
-        LoadAttr::from_u32(value)
-    }
-
-    #[must_use]
-    pub const fn name_idx(mut self, value: u32) -> Self {
-        self.name_idx = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn is_method(mut self, value: bool) -> Self {
-        self.is_method = value;
-        self
-    }
-}
-
 impl LoadSuperAttr {
     #[must_use]
-    pub fn builder() -> LoadSuperAttrBuilder {
-        LoadSuperAttrBuilder::default()
+    pub const fn new(name_idx: u32, is_load_method: bool, has_class: bool) -> Self {
+        Self::from_u32((name_idx << 2) | (is_load_method as u32) | ((has_class as u32) << 1))
     }
 
     #[must_use]
@@ -978,45 +1050,5 @@ impl LoadSuperAttr {
     #[must_use]
     pub const fn has_class(self) -> bool {
         (self.0 & 2) == 2
-    }
-}
-
-#[derive(Clone, Copy, Default)]
-pub struct LoadSuperAttrBuilder {
-    name_idx: u32,
-    is_load_method: bool,
-    has_class: bool,
-}
-
-impl LoadSuperAttrBuilder {
-    #[must_use]
-    pub const fn build(self) -> LoadSuperAttr {
-        let value =
-            (self.name_idx << 2) | ((self.has_class as u32) << 1) | (self.is_load_method as u32);
-        LoadSuperAttr::from_u32(value)
-    }
-
-    #[must_use]
-    pub const fn name_idx(mut self, value: u32) -> Self {
-        self.name_idx = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn is_load_method(mut self, value: bool) -> Self {
-        self.is_load_method = value;
-        self
-    }
-
-    #[must_use]
-    pub const fn has_class(mut self, value: bool) -> Self {
-        self.has_class = value;
-        self
-    }
-}
-
-impl From<LoadSuperAttrBuilder> for LoadSuperAttr {
-    fn from(builder: LoadSuperAttrBuilder) -> Self {
-        builder.build()
     }
 }

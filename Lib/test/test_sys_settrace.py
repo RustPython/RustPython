@@ -1488,8 +1488,6 @@ class JumpTestCase(unittest.TestCase):
             output.append(11)
         output.append(12)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(5, 11, [2, 4], (ValueError, 'after'))
     def test_no_jump_over_return_try_finally_in_finally_block(output):
         try:
@@ -1957,8 +1955,6 @@ class JumpTestCase(unittest.TestCase):
         finally:
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(1, 5, [], (ValueError, "into an 'except'"))
     def test_no_jump_into_bare_except_block(output):
         output.append(1)
@@ -1967,8 +1963,6 @@ class JumpTestCase(unittest.TestCase):
         except:
             output.append(5)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     @jump_test(1, 5, [], (ValueError, "into an 'except'"))
     def test_no_jump_into_qualified_except_block(output):
         output.append(1)

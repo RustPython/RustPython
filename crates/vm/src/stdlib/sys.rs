@@ -31,7 +31,7 @@ mod sys_jit {
 }
 
 #[pymodule]
-mod sys {
+pub mod sys {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
@@ -53,17 +53,8 @@ mod sys {
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
-        env::{self, VarError},
+        env,
         io::{IsTerminal, Read, Write},
-    };
-
-    #[cfg(windows)]
-    use windows_sys::Win32::{
-        Foundation::MAX_PATH,
-        Storage::FileSystem::{
-            GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
-        },
-        System::LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
     };
 
     // Rust target triple (e.g., "x86_64-unknown-linux-gnu")
@@ -85,16 +76,15 @@ mod sys {
     #[pyclass]
     impl BootstrapStderr {
         #[pymethod]
-        fn write(&self, s: PyStrRef) -> PyResult<usize> {
+        fn write(&self, s: PyStrRef) -> usize {
             let bytes = s.as_bytes();
             let _ = std::io::stderr().write_all(bytes);
-            Ok(bytes.len())
+            bytes.len()
         }
 
         #[pymethod]
-        fn flush(&self) -> PyResult<()> {
+        fn flush(&self) {
             let _ = std::io::stderr().flush();
-            Ok(())
         }
     }
 
@@ -243,26 +233,18 @@ mod sys {
     pub(crate) const MAXSIZE: isize = isize::MAX;
     #[pyattr(name = "maxunicode")]
     const MAXUNICODE: u32 = core::char::MAX as u32;
+
     #[pyattr(name = "platform")]
-    pub const PLATFORM: &str = {
-        cfg_if::cfg_if! {
-            if #[cfg(target_os = "linux")] {
-                "linux"
-            } else if #[cfg(target_os = "android")] {
-                "android"
-            } else if #[cfg(target_os = "macos")] {
-                "darwin"
-            } else if #[cfg(target_os = "ios")] {
-                "ios"
-            } else if #[cfg(windows)] {
-                "win32"
-            } else if #[cfg(target_os = "wasi")] {
-                "wasi"
-            } else {
-                "unknown"
-            }
-        }
+    pub const PLATFORM: &str = cfg_select! {
+        target_os = "linux" => "linux",
+        target_os = "android" => "android",
+        target_os = "macos" => "darwin",
+        target_os = "ios" => "ios",
+        windows => "win32",
+        target_os = "wasi" => "wasi",
+        _ => "unknown"
     };
+
     #[pyattr(name = "ps1")]
     const PS1: &str = ">>>>> ";
     #[pyattr(name = "ps2")]
@@ -667,8 +649,8 @@ mod sys {
     fn _git(vm: &VirtualMachine) -> PyTupleRef {
         vm.new_tuple((
             ascii!("RustPython"),
-            version::get_git_identifier(),
-            version::get_git_revision(),
+            version::GIT_IDENTIFIER,
+            version::GIT_REVISION,
         ))
     }
 
@@ -676,14 +658,15 @@ mod sys {
     fn implementation(vm: &VirtualMachine) -> PyRef<PyNamespace> {
         const NAME: &str = "rustpython";
 
-        let cache_tag = format!("{NAME}-{}{}", version::MAJOR, version::MINOR);
+        // cache tag uses 'cpython' because our compiler is cpython compatible
+        let cache_tag = format!("cpython-{}{}", version::MAJOR, version::MINOR);
         let ctx = &vm.ctx;
         py_namespace!(vm, {
             "name" => ctx.new_str(NAME),
             "cache_tag" => ctx.new_str(cache_tag),
             "_multiarch" => ctx.new_str(multiarch()),
-            "version" => version_info(vm),
-            "hexversion" => ctx.new_int(version::VERSION_HEX),
+            "version" => PyVersionInfo::from_data(VersionInfoData::IMPLEMENTATION, vm),
+            "hexversion" => ctx.new_int(version::VERSION_HEX_IMPL),
             "supports_isolated_interpreters" => ctx.new_bool(false),
         })
     }
@@ -724,17 +707,13 @@ mod sys {
         vm.ctx.none()
     }
 
-    #[pyattr]
-    fn version(_vm: &VirtualMachine) -> String {
-        version::get_version()
-    }
+    #[pyattr(name = "version")]
+    const VERSION: &str = version::RUSTPYTHON_VERSION;
 
+    // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
     #[cfg(windows)]
-    #[pyattr]
-    fn winver(_vm: &VirtualMachine) -> String {
-        // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
-        version::get_winver_number()
-    }
+    #[pyattr(name = "winver")]
+    const WINVER: &str = version::WINVER;
 
     #[pyattr]
     fn _xoptions(vm: &VirtualMachine) -> PyDictRef {
@@ -774,11 +753,6 @@ mod sys {
         vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
             .map_err(|e| vm.new_os_error(format!("Error running stdin: {e}")))?;
         Ok(())
-    }
-
-    #[pyfunction]
-    fn audit(_args: FuncArgs) {
-        // TODO: sys.audit implementation
     }
 
     #[pyfunction]
@@ -842,7 +816,7 @@ mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
-        match vm.normalize_exception(exc_type.clone(), exc_val.clone(), exc_tb) {
+        match vm.normalize_exception(exc_type, exc_val.clone(), exc_tb) {
             Ok(exc) => {
                 // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)
@@ -871,15 +845,18 @@ mod sys {
     #[pyfunction(name = "__breakpointhook__")]
     #[pyfunction]
     pub fn breakpointhook(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let env_var = std::env::var("PYTHONBREAKPOINT")
+        #[cfg(feature = "host_env")]
+        let env_var = crate::host_env::os::var("PYTHONBREAKPOINT")
             .and_then(|env_var| {
                 if env_var.is_empty() {
-                    Err(VarError::NotPresent)
+                    Err(std::env::VarError::NotPresent)
                 } else {
                     Ok(env_var)
                 }
             })
             .unwrap_or_else(|_| "pdb.set_trace".to_owned());
+        #[cfg(not(feature = "host_env"))]
+        let env_var = "pdb.set_trace".to_owned();
 
         if env_var.eq("0") {
             return Ok(vm.ctx.none());
@@ -991,19 +968,34 @@ mod sys {
     #[pyfunction]
     fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
         let offset = offset.into_option().unwrap_or(0);
-        let frames = vm.frames.borrow();
-        if offset >= frames.len() {
-            return Err(vm.new_value_error("call stack is not deep enough"));
+        let frame_ref = {
+            let frames = vm.frames.borrow();
+            if offset >= frames.len() {
+                return Err(vm.new_value_error("call stack is not deep enough"));
+            }
+
+            let idx = frames.len() - offset - 1;
+            // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
+            let py: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
+            py.to_owned()
+        };
+
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
         }
-        let idx = frames.len() - offset - 1;
-        // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
-        let py: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
-        Ok(py.to_owned())
+
+        Ok(frame_ref)
     }
 
     #[pyfunction]
-    fn _getframemodulename(depth: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult {
+    fn _getframemodulename(
+        depth: OptionalArg<usize>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let depth = depth.into_option().unwrap_or(0);
+        if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
+            audit.call((vm.ctx.new_str("sys._getframemodulename"), depth), vm)?;
+        }
 
         // Get the frame at the specified depth
         let func_obj = {
@@ -1018,17 +1010,16 @@ mod sys {
         };
 
         // If the frame has a function object, return its __module__ attribute
-        if let Some(func_obj) = func_obj {
-            match func_obj.get_attr(identifier!(vm, __module__), vm) {
-                Ok(module) => Ok(module),
-                Err(_) => {
+        Ok(if let Some(func_obj) = func_obj {
+            func_obj
+                .get_attr(identifier!(vm, __module__), vm)
+                .unwrap_or_else(
                     // CPython clears the error and returns None
-                    Ok(vm.ctx.none())
-                }
-            }
+                    |_| vm.ctx.none(),
+                )
         } else {
-            Ok(vm.ctx.none())
-        }
+            vm.ctx.none()
+        })
     }
 
     /// Return a dictionary mapping each thread's identifier to the topmost stack frame
@@ -1080,8 +1071,8 @@ mod sys {
     /// Stub for non-threading builds - returns empty dict
     #[cfg(not(feature = "threading"))]
     #[pyfunction]
-    fn _current_frames(vm: &VirtualMachine) -> PyResult<PyDictRef> {
-        Ok(vm.ctx.new_dict())
+    fn _current_frames(vm: &VirtualMachine) -> PyDictRef {
+        vm.ctx.new_dict()
     }
 
     #[pyfunction]
@@ -1090,118 +1081,21 @@ mod sys {
     }
 
     #[cfg(windows)]
-    fn get_kernel32_version() -> std::io::Result<(u32, u32, u32)> {
-        use crate::common::windows::ToWideString;
-        unsafe {
-            // Create a wide string for "kernel32.dll"
-            let module_name: Vec<u16> = std::ffi::OsStr::new("kernel32.dll").to_wide_with_nul();
-            let h_kernel32 = GetModuleHandleW(module_name.as_ptr());
-            if h_kernel32.is_null() {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Prepare a buffer for the module file path
-            let mut kernel32_path = [0u16; MAX_PATH as usize];
-            let len = GetModuleFileNameW(
-                h_kernel32,
-                kernel32_path.as_mut_ptr(),
-                kernel32_path.len() as u32,
-            );
-            if len == 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Get the size of the version information block
-            let ver_block_size =
-                GetFileVersionInfoSizeW(kernel32_path.as_ptr(), core::ptr::null_mut());
-            if ver_block_size == 0 {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Allocate a buffer to hold the version information
-            let mut ver_block = vec![0u8; ver_block_size as usize];
-            if GetFileVersionInfoW(
-                kernel32_path.as_ptr(),
-                0,
-                ver_block_size,
-                ver_block.as_mut_ptr() as *mut _,
-            ) == 0
-            {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Prepare an empty sub-block string (L"") as required by VerQueryValueW
-            let sub_block: Vec<u16> = std::ffi::OsStr::new("").to_wide_with_nul();
-
-            let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
-            let mut ffi_len: u32 = 0;
-            if VerQueryValueW(
-                ver_block.as_ptr() as *const _,
-                sub_block.as_ptr(),
-                &mut ffi_ptr as *mut *mut VS_FIXEDFILEINFO as *mut *mut _,
-                &mut ffi_len as *mut u32,
-            ) == 0
-                || ffi_ptr.is_null()
-            {
-                return Err(std::io::Error::last_os_error());
-            }
-
-            // Extract the version numbers from the VS_FIXEDFILEINFO structure.
-            let ffi = *ffi_ptr;
-            let real_major = (ffi.dwProductVersionMS >> 16) & 0xFFFF;
-            let real_minor = ffi.dwProductVersionMS & 0xFFFF;
-            let real_build = (ffi.dwProductVersionLS >> 16) & 0xFFFF;
-
-            Ok((real_major, real_minor, real_build))
-        }
-    }
-
-    #[cfg(windows)]
     #[pyfunction]
     fn getwindowsversion(vm: &VirtualMachine) -> PyResult<crate::builtins::tuple::PyTupleRef> {
-        use std::ffi::OsString;
-        use std::os::windows::ffi::OsStringExt;
-        use windows_sys::Win32::System::SystemInformation::{
-            GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW,
-        };
-
-        let mut version: OSVERSIONINFOEXW = unsafe { core::mem::zeroed() };
-        version.dwOSVersionInfoSize = core::mem::size_of::<OSVERSIONINFOEXW>() as u32;
-        let result = unsafe {
-            let os_vi = &mut version as *mut OSVERSIONINFOEXW as *mut OSVERSIONINFOW;
-            // SAFETY: GetVersionExW accepts a pointer of OSVERSIONINFOW, but windows-sys crate's type currently doesn't allow to do so.
-            // https://docs.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-getversionexw#parameters
-            GetVersionExW(os_vi)
-        };
-
-        if result == 0 {
-            return Err(vm.new_os_error("failed to get windows version".to_owned()));
-        }
-
-        let service_pack = {
-            let (last, _) = version
-                .szCSDVersion
-                .iter()
-                .take_while(|&x| x != &0)
-                .enumerate()
-                .last()
-                .unwrap_or((0, &0));
-            let sp = OsString::from_wide(&version.szCSDVersion[..last]);
-            sp.into_string()
-                .map_err(|_| vm.new_os_error("service pack is not ASCII".to_owned()))?
-        };
-        let real_version = get_kernel32_version().map_err(|e| vm.new_os_error(e.to_string()))?;
+        let version = crate::host_env::windows::get_windows_version()
+            .map_err(|e| vm.new_os_error(e.to_string()))?;
         let winver = WindowsVersionData {
-            major: real_version.0,
-            minor: real_version.1,
-            build: real_version.2,
-            platform: version.dwPlatformId,
-            service_pack,
-            service_pack_major: version.wServicePackMajor,
-            service_pack_minor: version.wServicePackMinor,
-            suite_mask: version.wSuiteMask,
-            product_type: version.wProductType,
-            platform_version: (real_version.0, real_version.1, real_version.2), // TODO Provide accurate version, like CPython impl
+            major: version.major,
+            minor: version.minor,
+            build: version.build,
+            platform: version.platform,
+            service_pack: version.service_pack,
+            service_pack_major: version.service_pack_major,
+            service_pack_minor: version.service_pack_minor,
+            suite_mask: version.suite_mask,
+            product_type: version.product_type,
+            platform_version: (version.major, version.minor, version.build), // TODO Provide accurate version, like CPython impl
         };
         Ok(PyWindowsVersion::from_data(winver, vm))
     }
@@ -1257,7 +1151,7 @@ mod sys {
         if let Ok(module_str) = module_name.downcast::<PyStr>() {
             let module = module_str.as_wtf8();
             if module != "builtins" && module != "__main__" {
-                write!(stderr, "{}.", module);
+                write!(stderr, "{module}.");
             }
         } else {
             write!(stderr, "<unknown>.");
@@ -1763,6 +1657,14 @@ mod sys {
             releaselevel: version::RELEASELEVEL,
             serial: version::SERIAL,
         };
+
+        pub const IMPLEMENTATION: Self = Self {
+            major: version::MAJOR_IMPL,
+            minor: version::MINOR_IMPL,
+            micro: version::MICRO_IMPL,
+            releaselevel: version::RELEASELEVEL_IMPL,
+            serial: version::SERIAL_IMPL,
+        };
     }
 
     #[pystruct_sequence(name = "version_info", data = "VersionInfoData", no_attr)]
@@ -1829,6 +1731,60 @@ mod sys {
 
     #[pyclass(with(PyStructSequence))]
     impl PyUnraisableHookArgs {}
+
+    pub(crate) fn run_audit_hooks(
+        event: PyStrRef,
+        args: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let hooks = vm.audit_hooks.borrow().clone();
+
+        if hooks.is_empty() {
+            return Ok(());
+        }
+
+        for hook in hooks {
+            hook.call((event.clone(), args.clone()), vm)?;
+        }
+
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn audit(event: PyStrRef, args: PosArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if vm.audit_hooks.borrow().is_empty() {
+            return Ok(());
+        }
+
+        let args_tup = vm.ctx.new_tuple(args.into_vec()).into();
+        run_audit_hooks(event, &args_tup, vm)
+    }
+
+    #[pyfunction]
+    fn addaudithook(hook: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let hooks = vm.audit_hooks.borrow().clone();
+
+        if hooks.is_empty() {
+            vm.audit_hooks.borrow_mut().push(hook);
+            return Ok(());
+        }
+
+        let args: PyObjectRef = vm.ctx.new_tuple(vec![]).into();
+        let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
+
+        for existing_hook in hooks {
+            let Err(exc) = existing_hook.call((event.clone(), args.clone()), vm) else {
+                continue;
+            };
+            if exc.class().fast_issubclass(vm.ctx.exceptions.runtime_error) {
+                return Ok(());
+            }
+            return Err(exc);
+        }
+
+        vm.audit_hooks.borrow_mut().push(hook);
+        Ok(())
+    }
 }
 
 pub(crate) fn init_module(vm: &VirtualMachine, module: &Py<PyModule>, builtins: &Py<PyModule>) {

@@ -1,4 +1,4 @@
-# Copyright (C) 2001-2010 Python Software Foundation
+# Copyright (C) 2001 Python Software Foundation
 # Contact: email-sig@python.org
 # email package unit tests
 
@@ -481,7 +481,7 @@ class TestMessageAPI(TestEmailBase):
             "Content-Type: foo; bar*0=\"baz\\\"foobar\"; bar*1=\"\\\"baz\"")
         self.assertEqual(msg.get_param('bar'), 'baz"foobar"baz')
 
-    @unittest.skip('TODO: RUSTPYTHON; Takes a long time to the point of timeouting')
+    @unittest.skip("TODO: RUSTPYTHON; Timeout")
     def test_get_param_linear_complexity(self):
         # Ensure that email.message._parseparam() is fast.
         # See https://github.com/python/cpython/issues/136063.
@@ -767,6 +767,31 @@ class TestMessageAPI(TestEmailBase):
         self.assertEqual(
             "attachment; filename*=utf-8''Fu%C3%9Fballer%20%5Bfilename%5D.ppt",
             msg['Content-Disposition'])
+
+    def test_invalid_header_names(self):
+        invalid_headers = [
+            ('Invalid Header', 'contains space'),
+            ('Tab\tHeader', 'contains tab'),
+            ('Colon:Header', 'contains colon'),
+            ('', 'Empty name'),
+            (' LeadingSpace', 'starts with space'),
+            ('TrailingSpace ', 'ends with space'),
+            ('Header\x7F', 'Non-ASCII character'),
+            ('Header\x80', 'Extended ASCII'),
+        ]
+        for policy in (email.policy.default, email.policy.compat32):
+            for setter in (Message.__setitem__, Message.add_header):
+                for name, value in invalid_headers:
+                    self.do_test_invalid_header_names(
+                        policy, setter,name, value)
+
+    def do_test_invalid_header_names(self, policy, setter, name, value):
+        with self.subTest(policy=policy, setter=setter, name=name, value=value):
+            message = Message(policy=policy)
+            pattern = r'(?i)(?=.*invalid)(?=.*header)(?=.*name)'
+            with self.assertRaisesRegex(ValueError, pattern) as cm:
+                 setter(message, name, value)
+            self.assertIn(f"{name!r}", str(cm.exception))
 
     def test_binary_quopri_payload(self):
         for charset in ('latin-1', 'ascii'):
@@ -2241,70 +2266,6 @@ class TestNonConformant(TestEmailBase):
         eq(msg.get_content_maintype(), 'text')
         eq(msg.get_content_subtype(), 'plain')
 
-    # test_defect_handling
-    def test_same_boundary_inner_outer(self):
-        msg = self._msgobj('msg_15.txt')
-        # XXX We can probably eventually do better
-        inner = msg.get_payload(0)
-        self.assertHasAttr(inner, 'defects')
-        self.assertEqual(len(inner.defects), 1)
-        self.assertIsInstance(inner.defects[0],
-                              errors.StartBoundaryNotFoundDefect)
-
-    # test_defect_handling
-    def test_multipart_no_boundary(self):
-        msg = self._msgobj('msg_25.txt')
-        self.assertIsInstance(msg.get_payload(), str)
-        self.assertEqual(len(msg.defects), 2)
-        self.assertIsInstance(msg.defects[0],
-                              errors.NoBoundaryInMultipartDefect)
-        self.assertIsInstance(msg.defects[1],
-                              errors.MultipartInvariantViolationDefect)
-
-    multipart_msg = textwrap.dedent("""\
-        Date: Wed, 14 Nov 2007 12:56:23 GMT
-        From: foo@bar.invalid
-        To: foo@bar.invalid
-        Subject: Content-Transfer-Encoding: base64 and multipart
-        MIME-Version: 1.0
-        Content-Type: multipart/mixed;
-            boundary="===============3344438784458119861=="{}
-
-        --===============3344438784458119861==
-        Content-Type: text/plain
-
-        Test message
-
-        --===============3344438784458119861==
-        Content-Type: application/octet-stream
-        Content-Transfer-Encoding: base64
-
-        YWJj
-
-        --===============3344438784458119861==--
-        """)
-
-    # test_defect_handling
-    def test_multipart_invalid_cte(self):
-        msg = self._str_msg(
-            self.multipart_msg.format("\nContent-Transfer-Encoding: base64"))
-        self.assertEqual(len(msg.defects), 1)
-        self.assertIsInstance(msg.defects[0],
-            errors.InvalidMultipartContentTransferEncodingDefect)
-
-    # test_defect_handling
-    def test_multipart_no_cte_no_defect(self):
-        msg = self._str_msg(self.multipart_msg.format(''))
-        self.assertEqual(len(msg.defects), 0)
-
-    # test_defect_handling
-    def test_multipart_valid_cte_no_defect(self):
-        for cte in ('7bit', '8bit', 'BINary'):
-            msg = self._str_msg(
-                self.multipart_msg.format(
-                    "\nContent-Transfer-Encoding: {}".format(cte)))
-            self.assertEqual(len(msg.defects), 0)
-
     # test_headerregistry.TestContentTypeHeader invalid_1 and invalid_2.
     def test_invalid_content_type(self):
         eq = self.assertEqual
@@ -2380,30 +2341,6 @@ counter to RFC 5322, there's no separating newline here
         self.assertEqual(len(bad.defects), 1)
         self.assertIsInstance(bad.defects[0],
                               errors.StartBoundaryNotFoundDefect)
-
-    # test_defect_handling
-    def test_first_line_is_continuation_header(self):
-        eq = self.assertEqual
-        m = ' Line 1\nSubject: test\n\nbody'
-        msg = email.message_from_string(m)
-        eq(msg.keys(), ['Subject'])
-        eq(msg.get_payload(), 'body')
-        eq(len(msg.defects), 1)
-        self.assertDefectsEqual(msg.defects,
-                                 [errors.FirstHeaderLineIsContinuationDefect])
-        eq(msg.defects[0].line, ' Line 1\n')
-
-    # test_defect_handling
-    def test_missing_header_body_separator(self):
-        # Our heuristic if we see a line that doesn't look like a header (no
-        # leading whitespace but no ':') is to assume that the blank line that
-        # separates the header from the body is missing, and to stop parsing
-        # headers and start parsing the body.
-        msg = self._str_msg('Subject: test\nnot a header\nTo: abc\n\nb\n')
-        self.assertEqual(msg.keys(), ['Subject'])
-        self.assertEqual(msg.get_payload(), 'not a header\nTo: abc\n\nb\n')
-        self.assertDefectsEqual(msg.defects,
-                                [errors.MissingHeaderBodySeparatorDefect])
 
     def test_string_payload_with_extra_space_after_cte(self):
         # https://github.com/python/cpython/issues/98188
@@ -4897,6 +4834,15 @@ class TestQuopri(unittest.TestCase):
 
     def test_decode_false_quoting(self):
         self._test_decode('A=1,B=A ==> A+B==2', 'A=1,B=A ==> A+B==2')
+
+    def test_decode_crlf_eol_no_trailing_newline(self):
+        self._test_decode('abc', 'abc', eol='\r\n')
+
+    def test_decode_crlf_eol_multiline_no_trailing_newline(self):
+        self._test_decode('a\r\nb', 'a\r\nb', eol='\r\n')
+
+    def test_decode_crlf_eol_with_trailing_newline(self):
+        self._test_decode('abc\r\n', 'abc\r\n', eol='\r\n')
 
     def _test_encode(self, body, expected_encoded_body, maxlinelen=None, eol=None):
         kwargs = {}
