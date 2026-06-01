@@ -575,6 +575,13 @@ pub trait MarshalBag: Copy {
     }
 
     fn constant_bag(self) -> Self::ConstantBag;
+
+    fn constant_ref_from_value(
+        &self,
+        _value: &Self::Value,
+    ) -> Option<<Self::ConstantBag as ConstantBag>::Constant> {
+        None
+    }
 }
 
 impl<Bag: ConstantBag> MarshalBag for Bag {
@@ -669,6 +676,13 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     fn constant_bag(self) -> Self::ConstantBag {
         self
     }
+
+    fn constant_ref_from_value(
+        &self,
+        value: &Self::Value,
+    ) -> Option<<Self::ConstantBag as ConstantBag>::Constant> {
+        Some(value.clone())
+    }
 }
 
 pub const MAX_MARSHAL_STACK_DEPTH: usize = 2000;
@@ -727,16 +741,18 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
     };
 
     let typ = Type::try_from(type_code)?;
-    // Code-objects keep their own inner ref table because Bag::Value (the
-    // outer marshal value) and the constant-bag's Constant type are not
-    // in general the same. When the outer header carried FLAG_REF, the
-    // code object occupies slot 0 of the single global ref space, so we
-    // mirror that by reserving slot 0 of the inner table.
+    // CPython's r_object() uses one global ref table: TYPE_CODE reserves its
+    // slot before reading code fields, and those fields may use later TYPE_REF
+    // indexes. Keep the same indexes even when Bag::Value and Constant differ.
     let value = if matches!(typ, Type::Code) {
-        let mut inner_refs: Vec<Option<<Bag::ConstantBag as ConstantBag>::Constant>> = Vec::new();
-        if flag {
-            inner_refs.push(None);
-        }
+        let mut inner_refs: Vec<Option<<Bag::ConstantBag as ConstantBag>::Constant>> = refs
+            .iter()
+            .map(|value| {
+                value
+                    .as_ref()
+                    .and_then(|value| bag.constant_ref_from_value(value))
+            })
+            .collect();
         let code = deserialize_code_inner(rdr, bag.constant_bag(), depth - 1, &mut inner_refs)?;
         bag.make_code(code)
     } else {
@@ -1501,6 +1517,15 @@ mod tests {
         }
     }
 
+    fn decode_tuple(hex: &str) -> Vec<ConstantData> {
+        let bytes = hex_to_bytes(hex);
+        let value = deserialize_value(&mut &bytes[..], BasicBag).expect("decode failed");
+        match value {
+            ConstantData::Tuple { elements } => elements,
+            other => panic!("expected Tuple, got {other:?}"),
+        }
+    }
+
     /// CPython 3.14 marshal output for: `compile("x = 1", "<t>", "exec")`.
     /// Exercises FLAG_REF on the code object and TYPE_REF for qualname
     /// pointing back at the obj_name slot.
@@ -1561,5 +1586,28 @@ mod tests {
             ConstantData::Str { ref value } if value.as_str().ok() == Some("hello"),
         ));
         assert!(matches!(consts[2], ConstantData::None));
+    }
+
+    /// CPython 3.14 marshal output for:
+    /// `(compile("x = 1", "<t>", "exec"),)`.
+    /// The outer tuple occupies ref slot 0 and the code object occupies
+    /// slot 1, so code-object fields must preserve that global ref offset.
+    #[test]
+    fn cpython_314_code_inside_tuple_preserves_ref_indexes() {
+        let hex = "a901630000000000000000000000000100000000000000f30a00000080005e017400\
+                   520123002902e9010000004e2901da0178a900f300000000da033c743eda083c6d6f\
+                   64756c653e720700000001000000730a000000f003010101d8040582017205000000";
+        let tuple = decode_tuple(hex);
+        assert_eq!(tuple.len(), 1);
+        let code = match &tuple[0] {
+            ConstantData::Code { code } => code,
+            other => panic!("expected nested Code, got {other:?}"),
+        };
+        assert_eq!(code.obj_name.as_str(), "<module>");
+        assert_eq!(code.qualname.as_str(), "<module>");
+        assert_eq!(code.source_path.as_str(), "<t>");
+        assert_eq!(code.names.len(), 1);
+        assert_eq!(code.names[0].as_str(), "x");
+        assert_eq!(code.constants.len(), 2);
     }
 }

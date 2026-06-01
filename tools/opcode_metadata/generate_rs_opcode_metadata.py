@@ -67,6 +67,12 @@ class OpcodeGen:
         return self.gen_fn_has_attr("has_local", "uses_locals", "HAS_LOCAL_FLAG")
 
     @property
+    def fn_has_eval_break(self) -> str:
+        return self.gen_fn_has_attr(
+            "has_eval_break", "eval_breaker", "HAS_EVAL_BREAK_FLAG"
+        )
+
+    @property
     def fn_is_instrumented(self) -> str:
         arms = "|".join(
             f"Self::{opcode.rust_name}" for opcode in self if opcode.is_instrumented

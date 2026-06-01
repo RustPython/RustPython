@@ -11,7 +11,7 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls", "host_env"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
@@ -22,10 +22,12 @@ freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/fre
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
-ssl = []
+ssl = ["host_env"]
 ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
+ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
+ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
-ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
+ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
@@ -45,6 +47,9 @@ lexopt = "0.3"
 dirs = "6"
 env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
+
+rustls = { workspace = true, optional = true }
+rustls-graviola = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 libc = { workspace = true }
@@ -69,6 +74,17 @@ harness = false
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+
+[[example]]
+name = "custom_tls_providers"
+path = "examples/custom_tls_providers.rs"
+required-features = [
+    "rustls-graviola",
+    "rustls/ring",
+    "rustpython-pylib/freeze-stdlib",
+    "rustpython-stdlib/ssl-rustls",
+    "rustpython-vm/freeze-stdlib",
+]
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -179,7 +195,6 @@ phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
 ascii = "1.1"
-aws-lc-rs = "1.16.3"
 base64 = "0.22"
 blake2 = "0.10.4"
 bitflags = "2.11.0"
@@ -203,7 +218,8 @@ exitcode = "1.1.2"
 flame = "0.2.2"
 flamer = "0.5"
 flate2 = { version = "1.1.9", default-features = false }
-foreign-types-shared = "0.3.1"
+# Bump only when the openssl crate bumps it
+foreign-types-shared = "0.1"
 gethostname = "1.0.2"
 getrandom = { version = "0.3", features = ["std"] }
 glob = "0.3"
@@ -264,6 +280,7 @@ rapidhash = "4.4.1"
 result-like = "0.5.0"
 rustix = { version = "1.1", features = ["event", "param", "system"] }
 rustls = { version = "0.23.39", default-features = false }
+rustls-graviola = "0.3"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-platform-verifier = "0.7"

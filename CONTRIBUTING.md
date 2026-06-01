@@ -1,4 +1,28 @@
-# RustPython Development Guide and Tips
+# Contributing to RustPython
+
+Contributions are more than welcome, and in many cases we are happy to guide
+contributors through PRs or on [**Discord**](https://discord.gg/vru8NypEhv).
+
+## Finding ways to help
+
+We label issues that would be good for a first time contributor as [`good first issue`](https://github.com/RustPython/RustPython/issues?q=label%3A%22good+first+issue%22+is%3Aissue+is%3Aopen+).
+Also checkout the [issue tracker](https://github.com/RustPython/RustPython/issues) for all open issues. 
+
+You can enhance CPython compatibility by increasing our unittest coverage, you can see [This pinned issue](https://github.com/RustPython/RustPython/issues/6839) to see which libs and tests need be updated to our current supported python version.
+
+Another approach is to checkout the source code: builtin functions and object
+methods are often the simplest and easiest way to contribute.
+
+You can also simply run `python -I scripts/whats_left.py` to assist in finding any unimplemented method.
+
+## Use of AI
+
+We **require all use of AI in contributions to follow our
+[AI Policy](https://github.com/RustPython/.github/blob/main/AI_POLICY.md)**.
+
+If your contribution does not follow the policy, it will be closed.
+
+## RustPython Development Guide and Tips
 
 RustPython attracts developers with interest and experience in Rust, Python,
 or WebAssembly. Whether you are familiar with Rust, Python, or 

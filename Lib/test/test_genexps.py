@@ -154,7 +154,7 @@ Verify re-use of tuples (a side benefit of using genexps over listcomps)
 
 Verify that syntax error's are raised for genexps used as lvalues
 
-    >>> (y for y in (1,2)) = 10  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> (y for y in (1,2)) = 10
     Traceback (most recent call last):
        ...
     SyntaxError: cannot assign to generator expression

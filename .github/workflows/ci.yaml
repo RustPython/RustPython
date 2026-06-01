@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls,host_env
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
@@ -140,6 +140,10 @@ jobs:
         run: cargo build --no-default-features --features ssl-openssl
         if: runner.os == 'Linux'
 
+      - name: Test vendored OpenSSL build
+        run: cargo build --no-default-features --features ssl-openssl-vendor
+        if: runner.os == 'Linux'
+
       # - name: Install tk-dev for tkinter build
       #   run: sudo apt-get update && sudo apt-get install -y tk-dev
       #   if: runner.os == 'Linux'
@@ -186,6 +190,7 @@ jobs:
           skip_ssl: true
         - os: ubuntu-latest
           target: wasm32-wasip2
+          skip_ssl: true
         - os: ubuntu-latest
           target: x86_64-unknown-freebsd
           skip_ssl: true
@@ -785,7 +790,7 @@ jobs:
           clang: true
 
       - name: build rustpython
-        run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
+        run: cargo build --release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest

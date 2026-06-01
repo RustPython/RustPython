@@ -415,6 +415,10 @@ impl<T> IndexMut<oparg::VarNum> for [T] {
 }
 
 /// Per-slot kind flags for localsplus (co_localspluskinds).
+pub const CO_FAST_ARG_POS: u8 = 0x02;
+pub const CO_FAST_ARG_KW: u8 = 0x04;
+pub const CO_FAST_ARG_VAR: u8 = 0x08;
+pub const CO_FAST_ARG: u8 = CO_FAST_ARG_POS | CO_FAST_ARG_KW | CO_FAST_ARG_VAR;
 pub const CO_FAST_HIDDEN: u8 = 0x10;
 pub const CO_FAST_LOCAL: u8 = 0x20;
 pub const CO_FAST_CELL: u8 = 0x40;
@@ -443,7 +447,8 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
-    /// Per-slot kind flags: CO_FAST_LOCAL, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN.
+    /// Per-slot kind flags: CO_FAST_ARG_*, CO_FAST_LOCAL, CO_FAST_CELL,
+    /// CO_FAST_FREE, CO_FAST_HIDDEN.
     /// Length = nlocalsplus (nlocals + ncells + nfrees).
     pub localspluskinds: Box<[u8]>,
     /// Line number table (CPython 3.11+ format)
