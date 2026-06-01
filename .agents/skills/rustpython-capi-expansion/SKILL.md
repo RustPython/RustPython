@@ -41,6 +41,7 @@ Use this workflow for adding missing C-API functions to RustPython.
 - Follow existing RustPython capi coding style in neighboring files.
 - Reuse `rustpython-vm` methods and types first; avoid duplicating VM logic in capi wrappers.
 - When exposing previously private VM helpers, keep the API surface minimal and avoid unrelated refactors.
+- Only expose and implement ABI-stable C-API surface needed for `abi3` / `abi3t`.
 - Add comments only when they explain non-obvious behavior.
 - Keep edits minimal and focused on requested API expansion.
 
