@@ -75,6 +75,8 @@ use x509_parser::{
     x509::X509Name,
 };
 
+use rustpython_host_env::errno;
+
 use crate::{
     common::lock::LazyLock,
     vm::{
@@ -2948,9 +2950,34 @@ impl Io {
             Ok(value) => Ok(value),
 
             Err(err) => match err.kind() {
-                std::io::ErrorKind::Other => Err(SslError::Py(
-                    io.error.take().expect("BUG: Io.error is not set"),
-                )),
+                std::io::ErrorKind::Other => {
+                    let err = io.error.take().expect("BUG: Io.error is not set");
+
+                    // This is an ugly hack for test.test_ssl.ThreadedTests.test_wrong_cert_tls*
+                    const ERRNO_INTO_ECONNRESET: &[i32] = &[
+                        errno::errors::ECONNRESET,
+                        errno::errors::EPIPE,
+                        errno::errors::ECONNABORTED,
+                    ];
+                    if err.fast_isinstance(vm.ctx.exceptions.os_error)
+                        && err
+                            .as_object()
+                            .get_attr("errno", vm)
+                            .and_then(|e| e.try_into_value::<i32>(vm))
+                            .is_ok_and(|e| ERRNO_INTO_ECONNRESET.contains(&e))
+                    {
+                        Err(SslError::Py(
+                            vm.new_os_subtype_error(
+                                vm.ctx.exceptions.connection_reset_error.to_owned(),
+                                Some(errno::errors::ECONNRESET),
+                                "Connection reset by peer",
+                            )
+                            .upcast(),
+                        ))
+                    } else {
+                        Err(SslError::Py(err))
+                    }
+                }
 
                 std::io::ErrorKind::InvalidData => {
                     // ConnectionCommon::complete_io() wraps TLS processing errors in InvalidData.
