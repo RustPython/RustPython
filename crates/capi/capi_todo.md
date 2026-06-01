@@ -154,18 +154,7 @@ RustPython C API target: `crates/capi/src/pystate.rs`
 
 ## `setobject.h`
 
-RustPython C API target: `crates/capi/src/setobject.rs` (not present yet)
-
-- `PyFrozenSet_Check`
-- `PyFrozenSet_New`
-- `PySet_Add`
-- `PySet_Check`
-- `PySet_Clear`
-- `PySet_Contains`
-- `PySet_Discard`
-- `PySet_New`
-- `PySet_Pop`
-- `PySet_Size`
+RustPython C API target: `crates/capi/src/setobject.rs`
 
 ## `sliceobject.h`
 
