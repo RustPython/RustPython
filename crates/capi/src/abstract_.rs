@@ -6,7 +6,9 @@ use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 
 mod mapping;
+mod number;
 pub use mapping::*;
+pub use number::*;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
@@ -203,11 +205,6 @@ pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) 
             }
         }
     })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn PyNumber_Index(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*obj }.try_index(vm))
 }
 
 #[cfg(test)]
