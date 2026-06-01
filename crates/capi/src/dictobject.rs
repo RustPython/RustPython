@@ -58,6 +58,43 @@ pub unsafe extern "C" fn PyDict_GetItemRef(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyDict_SetDefaultRef(
+    dict: *mut PyObject,
+    key: *mut PyObject,
+    default_value: *mut PyObject,
+    result: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let result = NonNull::new(result);
+        if let Some(result) = result {
+            unsafe {
+                result.write(core::ptr::null_mut());
+            }
+        }
+        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let key = unsafe { &*key };
+
+        if let Some(value) = dict.inner_getitem_opt(key, vm)? {
+            if let Some(result) = result {
+                unsafe {
+                    result.write(value.into_raw().as_ptr());
+                }
+            }
+            Ok(true)
+        } else {
+            let value = unsafe { &*default_value }.to_owned();
+            dict.inner_setitem(key, value.clone(), vm)?;
+            if let Some(result) = result {
+                unsafe {
+                    result.write(value.into_raw().as_ptr());
+                }
+            }
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
@@ -187,13 +224,13 @@ pub unsafe extern "C" fn PyDict_Next(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{IntoPyDict, PyDict, PyDictMethods, PyInt, PyList};
 
     #[test]
-    fn test_create_empty_dict() {
+    fn create_empty_dict() {
         Python::attach(|py| {
             let dict = PyDict::new(py);
             assert!(dict.is_instance_of::<PyDict>());
@@ -201,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_dict_with_items() {
+    fn create_dict_with_items() {
         Python::attach(|py| {
             let dict = [(1, 2), (3, 4)].into_py_dict(py)?;
             let value = dict.get_item(1)?.unwrap().cast_into::<PyInt>()?;
@@ -214,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dict_iter() {
+    fn dict_iter() {
         Python::attach(|py| {
             let dict = [(1, 2), (3, 4)].into_py_dict(py).unwrap();
             let values = dict
