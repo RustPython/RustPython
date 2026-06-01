@@ -28,6 +28,7 @@ pub mod pyerrors;
 pub mod pylifecycle;
 pub mod pystate;
 pub mod refcount;
+pub mod setobject;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
