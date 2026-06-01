@@ -23,7 +23,7 @@ mod _queue {
             type Buf = Mutex<BufInner>;
         },
         _ => {
-            use crate::common::lock::{PyMutex, PyMutexGuard};
+            use crate::common::lock::PyMutex;
 
             type Buf = PyMutex<BufInner>;
         }
