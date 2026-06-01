@@ -299,9 +299,31 @@ pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyOb
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let cause = NonNull::new(cause)
+            .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
+        exc.set___cause__(cause);
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
+        exc.set___traceback__(vm.unwrap_or_none(traceback), vm)
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use pyo3::exceptions::PyTypeError;
+    use pyo3::PyTypeInfo;
+    use pyo3::create_exception;
+    use pyo3::exceptions::{PyException, PyTypeError};
     use pyo3::prelude::*;
 
     #[test]
@@ -309,7 +331,7 @@ mod tests {
         Python::attach(|py| {
             PyTypeError::new_err(py.None()).restore(py);
             assert!(PyErr::occurred(py));
-            assert!(unsafe { !pyo3::ffi::PyErr_GetRaisedException().is_null() });
+            assert!(PyErr::take(py).is_some());
             assert!(!PyErr::occurred(py));
         })
     }
@@ -319,6 +341,21 @@ mod tests {
         Python::attach(|py| {
             let err = PyTypeError::new_err(py.None());
             assert!(err.is_instance_of::<PyTypeError>(py));
+        })
+    }
+
+    #[test]
+    fn new_exception_type() {
+        create_exception!(my_module, MyError, PyException, "Some description.");
+
+        Python::attach(|py| {
+            let exc = MyError::new_err("This is a new exception");
+            assert!(exc.is_instance_of::<MyError>(py));
+            let exc_type = MyError::type_object(py);
+            assert_eq!(
+                exc_type.fully_qualified_name().unwrap(),
+                "my_module.MyError"
+            );
         })
     }
 }

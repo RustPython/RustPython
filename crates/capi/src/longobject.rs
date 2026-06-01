@@ -1,6 +1,5 @@
-use crate::PyObject;
 use crate::object::define_py_check;
-use crate::pystate::with_vm;
+use crate::{PyObject, pystate::with_vm};
 use core::ffi::{c_long, c_longlong, c_ulong, c_ulonglong};
 use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyInt;
@@ -64,13 +63,13 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyInt;
 
     #[test]
-    fn test_py_int_u32() {
+    fn py_int_u32() {
         Python::attach(|py| {
             let number = PyInt::new(py, 123);
             assert!(number.is_instance_of::<PyInt>());
@@ -79,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn test_py_int_u64() {
+    fn py_int_u64() {
         Python::attach(|py| {
             let number = PyInt::new(py, 123u64);
             assert!(number.is_instance_of::<PyInt>());

@@ -72,7 +72,7 @@ pub unsafe extern "C" fn PySlice_AdjustIndices(
     slice_len as isize
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{PySlice, PySliceMethods};

@@ -142,13 +142,13 @@ fn checked_capsule<'a>(
     Ok(capsule)
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyCapsule;
 
     #[test]
-    fn test_capsule_new() {
+    fn capsule_new() {
         Python::attach(|py| {
             let value = String::from("Some data");
             let capsule = PyCapsule::new_with_value(py, value, c"my_capsule").unwrap();
