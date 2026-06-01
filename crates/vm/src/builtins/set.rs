@@ -537,7 +537,7 @@ impl PySet {
         self.inner.len()
     }
 
-    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
     }
 
@@ -679,17 +679,17 @@ impl PySet {
     }
 
     #[pymethod]
-    fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.discard(&item, vm).map(|_| ())
     }
 
     #[pymethod]
-    fn clear(&self) {
+    pub fn clear(&self) {
         self.inner.clear()
     }
 
     #[pymethod]
-    fn pop(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn pop(&self, vm: &VirtualMachine) -> PyResult {
         self.inner.pop(vm)
     }
 
@@ -995,7 +995,7 @@ impl PyFrozenSet {
         self.inner.len()
     }
 
-    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
     }
 
