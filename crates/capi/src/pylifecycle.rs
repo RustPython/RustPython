@@ -1,11 +1,13 @@
 use crate::get_main_interpreter;
 use crate::pyerrors::init_exception_statics;
 use crate::pystate::ensure_thread_has_vm_attached;
-use core::ffi::c_int;
+use alloc::ffi::CString;
+use core::ffi::{c_char, c_int, c_ulong};
 use rustpython_vm::common::rc::PyRc;
+use rustpython_vm::version::{MAJOR, MICRO, MINOR, VERSION_HEX};
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use rustpython_vm::{Context, Interpreter};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 pub(crate) static MAIN_INTERP: Mutex<Option<Interpreter>> = Mutex::new(None);
 
@@ -16,6 +18,9 @@ pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
         .expect("Interpreter not initialized")
         .enter(|vm| vm.new_thread())
 }
+
+#[unsafe(no_mangle)]
+pub static Py_Version: c_ulong = VERSION_HEX as c_ulong;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsInitialized() -> c_int {
@@ -64,4 +69,28 @@ pub extern "C" fn Py_FinalizeEx() -> c_int {
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsFinalizing() -> c_int {
     0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetVersion() -> *const c_char {
+    static VERSION: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(format!("{MAJOR}.{MINOR}.{MICRO}"))
+            .expect("version string must not contain interior NULs")
+    });
+    VERSION.as_ptr()
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+
+    #[test]
+    fn get_version() {
+        Python::attach(|py| {
+            let version = py.version_info();
+            assert!(version >= (3, 14));
+        });
+
+        assert!(unsafe { pyo3::ffi::Py_Version } >= 0x030d0000);
+    }
 }

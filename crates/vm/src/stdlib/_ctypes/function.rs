@@ -19,6 +19,7 @@ use crate::{
 use alloc::borrow::Cow;
 use core::ffi::c_void;
 use core::fmt::Debug;
+use core::ptr::NonNull;
 use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 #[cfg(windows)]
@@ -1431,6 +1432,28 @@ fn convert_raw_result(
     }
 
     let info = stg_info.unwrap();
+
+    // py_object: interpret return value as PyObject* and materialize it.
+    if let Ok(type_attr) = restype_type
+        .as_object()
+        .get_attr(vm.ctx.intern_str("_type_"), vm)
+        && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
+        && type_str.to_str() == Some("O")
+    {
+        let ptr = match raw_result {
+            RawResult::Pointer(p) => *p,
+            RawResult::Value(v) => *v as usize,
+            RawResult::Void => 0,
+        };
+        let ptr = NonNull::new(ptr as *mut PyObject).or_else(|| {
+            vm.set_exception(Some(vm.new_value_error("PyObject is NULL")));
+            None
+        })?;
+        unsafe {
+            let obj = PyObjectRef::from_raw(ptr);
+            return Some(obj);
+        }
+    }
 
     // 5. Simple type with getfunc → use bytes_to_pyobject (info->getfunc)
     // is_simple_instance returns TRUE for c_int, c_void_p, etc.

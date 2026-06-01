@@ -71,7 +71,7 @@ pub unsafe extern "C" fn PyByteArray_Resize(bytearray: *mut PyObject, len: isize
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{PyByteArray, PyBytes};

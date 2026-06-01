@@ -92,7 +92,7 @@ pub unsafe extern "C" fn PyErr_WarnExplicit(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::exceptions::{PyRuntimeWarning, PyUserWarning};
     use pyo3::prelude::*;

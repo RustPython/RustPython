@@ -165,7 +165,7 @@ pub unsafe extern "C" fn PyList_Sort(list: *mut PyObject) -> c_int {
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::exceptions::PyIndexError;
     use pyo3::prelude::*;
