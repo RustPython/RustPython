@@ -328,9 +328,13 @@ impl CompileError {
                 (ParseErrorType::OtherError(msg), loc, end_loc)
             }
 
-            // Dict literal: `{1:}` / `{1: 2, 3: 4, 5: }` — missing value.
+            // Dict literal: `{1:}` / `{1: 2, 3: 4, 5: }` — *missing* value. CPython's
+            // "expression expected after dictionary key and ':'" is specific to a
+            // genuinely empty value; a present-but-unparseable value (`{1: *}`,
+            // `{1: 2*}`, `{1: +}`) is plain "invalid syntax", so require emptiness.
             ParseErrorType::ExpectedExpression
-                if is_dict_value_position(source_text, error.location) =>
+                if is_dict_value_position(source_text, error.location)
+                    && dict_value_is_empty(source_text, error.location) =>
             {
                 let (loc, end_loc) = adjusted_locations(&source_code, error.location);
                 let msg = "expression expected after dictionary key and ':'".to_owned();
@@ -1185,48 +1189,68 @@ fn is_bare_star_in_call(source: &str, range: ruff_text_size::TextRange) -> bool 
     {
         return false;
     }
-    // The token immediately before the error must be `*`.
-    prefix.trim_end().ends_with('*')
+    // The current argument slot (after the enclosing `(` or the last depth-0
+    // comma) must begin with a bare `*`; a `*` after an operand (`f(a *)`, a
+    // binary multiply) is plain "invalid syntax".
+    let args = &prefix[open_idx + 1..];
+    let mut d = 0i32;
+    let mut slot_start = 0;
+    for (j, c) in args.char_indices() {
+        match c {
+            '(' | '[' | '{' => d += 1,
+            ')' | ']' | '}' => d -= 1,
+            ',' if d == 0 => slot_start = j + 1,
+            _ => {}
+        }
+    }
+    slot_starts_with_bare_star(&args[slot_start..])
 }
 
 /// Detect a bare single `*` as the leading element of a set/dict display
 /// `{ ... }` or a non-call parenthesised group/tuple `( ... )` — CPython's
-/// "Invalid star expression" (`{*}`, `{*, 1}`, `(*)`, `(*,)`, `(*, 1)`). A
-/// non-leading star (`{1, *}`, `(1, *)`), a dict value (`{1: *}`), a double
-/// star (`{**}`), a subscript/list (`[*]`, handled elsewhere), or a call
-/// (`f(*)`, handled elsewhere) is intentionally excluded.
+/// "Invalid star expression" (`{*}`, `{*, 1}`, `(*)`, `(*,)`, `(*, 1)`). The
+/// star must START the (leading) slot: a star following an operand (`{1 *}`, a
+/// binary multiply), a comma (`{1, *}`), or a dict colon (`{1: *}`), as well as
+/// a double star (`{**}`), a subscript/list (`[*]`), or a call (`f(*)`) are
+/// excluded (the last two are handled by `is_invalid_star_in_subscript` /
+/// `is_bare_star_in_call`).
 fn is_bare_star_first_in_group(source: &str, range: ruff_text_size::TextRange) -> bool {
     let start: usize = range.start().into();
     let prefix = &source[..start];
-    let trimmed = prefix.trim_end();
-    // The token immediately before the error must be a single `*` (not `**`).
-    if !trimmed.ends_with('*') || trimmed.ends_with("**") {
-        return false;
-    }
-    // Walk back to the nearest depth-0 opener. Bail at a depth-0 `,` (the star
-    // is not the leading element), `:` (a dict value), or `[` (subscript/list,
-    // handled by `is_invalid_star_in_subscript`).
+    // Walk back to the nearest depth-0 opener; the leading slot (opener..error)
+    // must begin with a bare `*`. Bail at a depth-0 `,`/`:` (non-leading slot /
+    // dict value) or `[` (subscript/list, handled by `is_invalid_star_in_subscript`).
     let mut depth = 0i32;
     for (i, c) in prefix.char_indices().rev() {
         match c {
             ')' | ']' | '}' => depth += 1,
             ',' | ':' if depth == 0 => return false,
             '[' if depth == 0 => return false,
-            '{' if depth == 0 => return true,
+            '{' if depth == 0 => return slot_starts_with_bare_star(&prefix[i + 1..]),
             '(' if depth == 0 => {
                 // Only a non-call group: the token before `(` must not be a
                 // callee (identifier / `)` / `]`).
                 let before = prefix[..i].chars().rev().find(|c| !c.is_whitespace());
-                return !matches!(
+                if matches!(
                     before,
                     Some(c) if c.is_ascii_alphanumeric() || c == '_' || c == ')' || c == ']'
-                );
+                ) {
+                    return false;
+                }
+                return slot_starts_with_bare_star(&prefix[i + 1..]);
             }
             '(' | '{' | '[' => depth -= 1,
             _ => {}
         }
     }
     false
+}
+
+/// Whether `slot` (the text from an opener to the error) begins with a single
+/// bare `*` (not `**`) — i.e. a leading starred element with no operand.
+fn slot_starts_with_bare_star(slot: &str) -> bool {
+    let s = slot.trim_start();
+    s.starts_with('*') && !s.starts_with("**")
 }
 
 /// Detect bad target in `except[*] T as <bad>:`. Returns the matching CPython
@@ -1394,6 +1418,35 @@ fn is_dict_value_position(source: &str, range: ruff_text_size::TextRange) -> boo
         }
     }
     matches!(last_relevant, Some(':'))
+}
+
+/// Whether the dict value position (after the nearest depth-0 `:` inside the
+/// enclosing `{`) is empty — the next non-whitespace character is the `,`/`}`
+/// delimiter (or end of input): `{1:}`, `{1: }`, `{1: ,}`. Only then does
+/// CPython emit "expression expected after dictionary key and ':'"; a value
+/// that is present but fails to parse (`{1: *}`, `{1: 2*}`, `{1: +}`) is plain
+/// "invalid syntax". Used together with [`is_dict_value_position`], which
+/// guarantees the nearest depth-0 separator is the `:`.
+fn dict_value_is_empty(source: &str, range: ruff_text_size::TextRange) -> bool {
+    let start: usize = range.start().into();
+    let prefix = &source[..start];
+    let mut depth = 0i32;
+    for (i, c) in prefix.char_indices().rev() {
+        match c {
+            ')' | ']' | '}' => depth += 1,
+            ',' if depth == 0 => return false,
+            ':' if depth == 0 => {
+                return matches!(
+                    source[i + 1..].trim_start().chars().next(),
+                    None | Some(',' | '}')
+                );
+            }
+            '(' | '[' | '{' if depth == 0 => return false,
+            '(' | '[' | '{' => depth -= 1,
+            _ => {}
+        }
+    }
+    false
 }
 
 /// Detect `X=Y` in tuple/list/set literals (i.e. not a function call).
