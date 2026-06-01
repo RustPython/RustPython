@@ -23,9 +23,9 @@ pub struct PyModuleDef {
     // free: free_func
 }
 
-pub type ModuleCreate =
+pub(crate) type ModuleCreate =
     fn(&VirtualMachine, &PyObject, &'static PyModuleDef) -> PyResult<PyRef<PyModule>>;
-pub type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
+pub(crate) type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
 
 #[derive(Default)]
 pub struct PyModuleSlots {
@@ -82,10 +82,6 @@ impl PyModuleDef {
     }
 }
 
-#[allow(
-    clippy::new_without_default,
-    reason = "avoid a misleading Default implementation"
-)]
 #[pyclass(module = false, name = "module")]
 #[derive(Debug)]
 pub struct PyModule {
@@ -112,7 +108,11 @@ pub struct ModuleInitArgs {
 }
 
 impl PyModule {
-    #[allow(clippy::new_without_default)]
+    #[expect(
+        clippy::new_without_default,
+        reason = "avoid a misleading Default implementation"
+    )]
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             def: None,
@@ -120,6 +120,7 @@ impl PyModule {
         }
     }
 
+    #[must_use]
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
             def: Some(def),
@@ -183,8 +184,7 @@ impl Py<PyModule> {
 
         let is_possibly_shadowing = origin
             .as_ref()
-            .map(|o| is_possibly_shadowing_path(o, vm))
-            .unwrap_or(false);
+            .is_some_and(|o| is_possibly_shadowing_path(o, vm));
         // Use the ORIGINAL __name__ object for stdlib check (may raise TypeError
         // if __name__ is an unhashable str subclass)
         let is_possibly_shadowing_stdlib = if is_possibly_shadowing {

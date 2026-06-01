@@ -236,3 +236,35 @@ class complex_subclass(complex):
 z = complex_subclass(3 + 4j)
 assert z.__complex__() == 3 + 4j
 assert type(z.__complex__()) == complex
+
+
+# repr must use scientific notation for |value| >= 1e16 or < 1e-4, matching
+# CPython. Previously integer-valued large magnitudes (e.g. 1e16, 1e100) hit
+# a `fract() == 0.0` branch in rustpython_literal::complex::to_string that
+# used Rust's default Display — which emits the full decimal expansion
+# (`10000...000`) instead of `1e+16`.
+assert repr(1e16 + 1j) == "(1e+16+1j)"
+assert repr(1e17 + 1j) == "(1e+17+1j)"
+assert repr(1e100 + 1e100j) == "(1e+100+1e+100j)"
+assert repr(-1e100 - 1e100j) == "(-1e+100-1e+100j)"
+assert repr(1e-100 + 1e100j) == "(1e-100+1e+100j)"
+assert repr(1 + 1e100j) == "(1+1e+100j)"
+assert repr(1e100 + 1j) == "(1e+100+1j)"
+
+# Threshold boundary: |x| in [1e-4, 1e16) renders in decimal form; values
+# outside that range use scientific notation. These three assertions pin
+# the exact transition points.
+assert repr(1e15 + 1j) == "(1000000000000000+1j)"  # below 1e16 -> decimal
+assert repr(1e-4 + 1j) == "(0.0001+1j)"  # at 1e-4 (inclusive) -> decimal
+assert repr(1e-5 + 1j) == "(1e-05+1j)"  # below 1e-4 -> scientific
+
+# Integer-valued components render without trailing ".0".
+assert repr(1 + 2j) == "(1+2j)"
+assert repr(1.0 + 2.0j) == "(1+2j)"
+
+# Special values still round-trip correctly.
+assert repr(float("nan") + 1j) == "(nan+1j)"
+assert repr(float("inf") + 1j) == "(inf+1j)"
+assert repr(float("-inf") + 1j) == "(-inf+1j)"
+assert repr(complex(1, float("nan"))) == "(1+nanj)"
+assert repr(complex(1, float("inf"))) == "(1+infj)"

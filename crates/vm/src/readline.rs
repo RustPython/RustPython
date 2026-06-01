@@ -14,15 +14,16 @@ pub enum ReadlineResult {
     Interrupt,
     Io(std::io::Error),
     #[cfg(unix)]
-    OsError(nix::Error),
+    OsError(String),
     Other(OtherError),
 }
 
 #[allow(unused)]
-mod basic_readline {
+pub mod basic_readline {
     use super::*;
 
     pub trait Helper {}
+
     impl<T> Helper for T {}
 
     pub struct Readline<H: Helper> {
@@ -65,7 +66,7 @@ mod basic_readline {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-mod rustyline_readline {
+pub mod rustyline_readline {
     use super::*;
 
     pub trait Helper: rustyline::Helper {}
@@ -105,18 +106,34 @@ mod rustyline_readline {
         }
 
         pub fn load_history(&mut self, path: &Path) -> OtherResult<()> {
-            self.repl.load_history(path)?;
-            Ok(())
+            #[cfg(not(feature = "host_env"))]
+            {
+                let _ = path;
+                Err(io::Error::other("history requires the `host_env` feature").into())
+            }
+            #[cfg(feature = "host_env")]
+            {
+                self.repl.load_history(path)?;
+                Ok(())
+            }
         }
 
         pub fn save_history(&mut self, path: &Path) -> OtherResult<()> {
-            if !path.exists()
-                && let Some(parent) = path.parent()
+            #[cfg(not(feature = "host_env"))]
             {
-                std::fs::create_dir_all(parent)?;
+                let _ = path;
+                Err(io::Error::other("history requires the `host_env` feature").into())
             }
-            self.repl.save_history(path)?;
-            Ok(())
+            #[cfg(feature = "host_env")]
+            {
+                if !path.exists()
+                    && let Some(parent) = path.parent()
+                {
+                    crate::host_env::fs::create_dir_all(parent)?;
+                }
+                self.repl.save_history(path)?;
+                Ok(())
+            }
         }
 
         pub fn add_history_entry(&mut self, entry: &str) -> OtherResult<()> {
@@ -146,7 +163,7 @@ mod rustyline_readline {
                     Err(ReadlineError::Io(e)) => ReadlineResult::Io(e),
                     Err(ReadlineError::Signal(_)) => continue,
                     #[cfg(unix)]
-                    Err(ReadlineError::Errno(num)) => ReadlineResult::OsError(num),
+                    Err(ReadlineError::Errno(num)) => ReadlineResult::OsError(num.to_string()),
                     Err(e) => ReadlineResult::Other(e.into()),
                 };
             }

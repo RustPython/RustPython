@@ -1,3 +1,4 @@
+import ast
 import dis
 import gc
 from itertools import combinations, product
@@ -92,7 +93,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(unot, 'POP_JUMP_IF_TRUE')
         self.check_lnotab(unot)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_elim_inversion_of_is_or_in(self):
         for line, cmp_op, invert in (
             ('not a is b', 'IS_OP', 1,),
@@ -132,7 +132,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_CONST', None)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_while_one(self):
         # Skip over:  LOAD_CONST trueconst  POP_JUMP_IF_FALSE xx
         def f():
@@ -145,7 +144,6 @@ class TestTranforms(BytecodeTestCase):
             self.assertInBytecode(f, elem)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pack_unpack(self):
         for line, elem in (
             ('a, = a,', 'LOAD_CONST',),
@@ -159,7 +157,7 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'UNPACK_SEQUENCE')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 2
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LOAD_CONST count mismatch in long-tuple branch
     def test_constant_folding_tuples_of_constants(self):
         for line, elem in (
             ('a = 1,2,3', (1, 2, 3)),
@@ -201,7 +199,6 @@ class TestTranforms(BytecodeTestCase):
             ],)
         self.check_lnotab(crater)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_lists_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_LIST should be folded to a tuple:
@@ -216,7 +213,6 @@ class TestTranforms(BytecodeTestCase):
                 self.assertNotInBytecode(code, 'BUILD_LIST')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_sets_of_constants(self):
         for line, elem in (
             # in/not in constants with BUILD_SET should be folded to a frozenset:
@@ -247,7 +243,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertTrue(g(4))
         self.check_lnotab(g)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_constant_folding_small_int(self):
         tests = [
             ('(0, )[0]', 0),
@@ -282,7 +277,6 @@ class TestTranforms(BytecodeTestCase):
                     self.assertNotInBytecode(code, 'LOAD_SMALL_INT')
                 self.check_lnotab(code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'UNARY_NEGATIVE' starts with 'UNARY_'
     def test_constant_folding_unaryop(self):
         intrinsic_positive = 5
         tests = [
@@ -328,7 +322,6 @@ class TestTranforms(BytecodeTestCase):
             self.assertNotStartsWith(instr.opname, 'UNARY_')
         self.check_lnotab(negzero)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BINARY_OP               26 ([])
     def test_constant_folding_binop(self):
         tests = [
             ('1 + 2', 'NB_ADD', True, 'LOAD_SMALL_INT', 3),
@@ -530,7 +523,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 1)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 20
     def test_elim_jump_to_return(self):
         # JUMP_FORWARD to RETURN -->  RETURN
         def f(cond, true_value, false_value):
@@ -545,7 +537,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(len(returns), 2)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; absolute jump encoding
     def test_elim_jump_to_uncond_jump(self):
         # POP_JUMP_IF_FALSE to JUMP_FORWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -559,7 +550,6 @@ class TestTranforms(BytecodeTestCase):
         self.check_jump_targets(f)
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 38
     def test_elim_jump_to_uncond_jump2(self):
         # POP_JUMP_IF_FALSE to JUMP_BACKWARD --> POP_JUMP_IF_FALSE to non-jump
         def f():
@@ -604,7 +594,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertEqual(count_instr_recursively(f, 'POP_JUMP_IF_FALSE'), 1)
         self.assertEqual(count_instr_recursively(f, 'POP_JUMP_IF_TRUE'), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 6
     def test_elim_jump_to_uncond_jump4(self):
         def f():
             for i in range(5):
@@ -638,7 +627,6 @@ class TestTranforms(BytecodeTestCase):
         self.assertNotInBytecode(f, 'BINARY_OP')
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; no BUILD_LIST to BUILD_TUPLE optimization
     def test_in_literal_list(self):
         def containtest():
             return x in [a, b]
@@ -681,7 +669,6 @@ class TestTranforms(BytecodeTestCase):
             return 6
         self.check_lnotab(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 != 1
     def test_assignment_idiom_in_comprehensions(self):
         def listcomp():
             return [y for x in a for y in [f(x)]]
@@ -789,7 +776,6 @@ class TestTranforms(BytecodeTestCase):
             c, b, a = a, b, c
         self.assertNotInBytecode(f, "SWAP")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_static_swaps_match_mapping(self):
         for a, b, c in product("_a", "_b", "_c"):
             pattern = f"{{'a': {a}, 'b': {b}, 'c': {c}}}"
@@ -797,7 +783,6 @@ class TestTranforms(BytecodeTestCase):
                 code = compile_pattern_with_fast_locals(pattern)
                 self.assertNotInBytecode(code, "SWAP")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_static_swaps_match_class(self):
         forms = [
             "C({}, {}, {})",
@@ -812,7 +797,6 @@ class TestTranforms(BytecodeTestCase):
                     code = compile_pattern_with_fast_locals(pattern)
                     self.assertNotInBytecode(code, "SWAP")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_static_swaps_match_sequence(self):
         swaps = {"*_, b, c", "a, *_, c", "a, b, *_"}
         forms = ["{}, {}, {}", "{}, {}, *{}", "{}, *{}, {}", "*{}, {}, {}"]
@@ -867,7 +851,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
             y = x + x
         self.assertInBytecode(f, 'LOAD_FAST_BORROW_LOAD_FAST_BORROW')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_unknown_simple(self):
         def f():
             if condition():
@@ -876,7 +859,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_unknown_because_del(self):
         def f():
             x = 1
@@ -911,7 +893,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f5, 'LOAD_FAST_BORROW')
         self.assertNotInBytecode(f5, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_known_because_already_loaded(self):
         def f():
             if condition():
@@ -931,7 +912,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_BORROW')
         self.assertNotInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; L5 to L6 -> L6 [1] lasti
     def test_load_fast_unknown_after_error(self):
         def f():
             try:
@@ -943,7 +923,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         # Assert that it doesn't occur in the LOAD_FAST_CHECK branch.
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; L5 to L6 -> L6 [1] lasti
     def test_load_fast_unknown_after_error_2(self):
         def f():
             try:
@@ -954,7 +933,6 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
         self.assertInBytecode(f, 'LOAD_FAST_CHECK')
         self.assertNotInBytecode(f, 'LOAD_FAST')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; RETURN_VALUE
     def test_load_fast_too_many_locals(self):
         # When there get to be too many locals to analyze completely,
         # later locals are all converted to LOAD_FAST_CHECK, except
@@ -1145,6 +1123,53 @@ class TestMarkingVariablesAsUnKnown(BytecodeTestCase):
 
 
 class DirectCfgOptimizerTests(CfgOptimizationTestCase):
+
+    def test_optimize_cfg_const_index_out_of_range(self):
+        insts = [
+            ('LOAD_CONST', 2, 0),
+            ('RETURN_VALUE', None, 0),
+        ]
+        seq = self.seq_from_insts(insts)
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            _testinternalcapi.optimize_cfg(seq, [0, 1], 0)
+
+    def test_optimize_cfg_consts_must_be_list(self):
+        insts = [
+            ('LOAD_CONST', 0, 0),
+            ('RETURN_VALUE', None, 0),
+        ]
+        seq = self.seq_from_insts(insts)
+        with self.assertRaisesRegex(TypeError, "consts must be a list"):
+            _testinternalcapi.optimize_cfg(seq, (0,), 0)
+
+    def test_compiler_codegen_metadata_consts_roundtrips_optimize_cfg(self):
+        tree = ast.parse("x = (1, 2)", mode="exec", optimize=1)
+        insts, meta = _testinternalcapi.compiler_codegen(tree, "<s>", 0)
+        consts = meta["consts"]
+        self.assertIsInstance(consts, list)
+        _testinternalcapi.optimize_cfg(insts, consts, 0)
+
+    def test_compiler_codegen_consts_include_none_required_for_implicit_return(self):
+        # Module "pass" only needs the const table entry for None once
+        # _PyCodegen_AddReturnAtEnd runs. If metadata["consts"] were taken
+        # before that, the list would not match LOAD_CONST opargs (here: 0
+        # for None), and optimize_cfg would read out of range.
+        tree = ast.parse("pass", mode="exec", optimize=1)
+        insts, meta = _testinternalcapi.compiler_codegen(tree, "<s>", 0)
+        consts = meta["consts"]
+        self.assertEqual(consts, [None])
+
+        load_const = opcode.opmap["LOAD_CONST"]
+        self.assertEqual(
+            [t[1] for t in insts.get_instructions() if t[0] == load_const],
+            [0],
+        )
+
+        # As if consts were snapshotted before AddReturnAtEnd: still LOAD_CONST 0, no row.
+        with self.assertRaisesRegex(ValueError, "out of range"):
+            _testinternalcapi.optimize_cfg(insts, [], 0)
+
+        _testinternalcapi.optimize_cfg(insts, list(consts), 0)
 
     def cfg_optimization_test(self, insts, expected_insts,
                               consts=None, expected_consts=None,

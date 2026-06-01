@@ -5,7 +5,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{
         PyBytes, PyDict, PyDictRef, PyGenericAlias, PyInt, PyList, PyStr, PyTuple, PyTupleRef,
-        PyType, PyTypeRef, PyUtf8Str, pystr::AsPyStr,
+        PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
     convert::{ToPyObject, ToPyResult},
@@ -199,10 +199,12 @@ impl PyObject {
             }
         }
 
-        if let Some(dict) = self.dict() {
+        if let Some(instance_dict) = self.instance_dict() {
             if let PySetterValue::Assign(value) = value {
-                dict.set_item(attr_name, value, vm)?;
-            } else {
+                instance_dict
+                    .get_or_insert(vm)
+                    .set_item(attr_name, value, vm)?;
+            } else if let Some(dict) = instance_dict.get() {
                 dict.del_item(attr_name, vm).map_err(|e| {
                     if e.fast_isinstance(vm.ctx.exceptions.key_error) {
                         vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned())
@@ -210,6 +212,8 @@ impl PyObject {
                         e
                     }
                 })?;
+            } else {
+                return Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()));
             }
             Ok(())
         } else {
@@ -298,7 +302,9 @@ impl PyObject {
     ) -> PyResult<Either<PyObjectRef, bool>> {
         let swapped = op.swapped();
         let call_cmp = |obj: &Self, other: &Self, op| {
-            let cmp = obj.class().slots.richcompare.load().unwrap();
+            let Some(cmp) = obj.class().slots.richcompare.load() else {
+                return Ok(PyArithmeticValue::NotImplemented);
+            };
             let r = match cmp(obj, other, op, vm)? {
                 Either::A(obj) => PyArithmeticValue::from_object(vm, obj).map(Either::A),
                 Either::B(arithmetic) => arithmetic.map(Either::B),
@@ -346,6 +352,20 @@ impl PyObject {
         op_id: PyComparisonOp,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
+        // CPython parity: PyObject_RichCompareBool guarantees identity implies
+        // equality (and inequality is false on identity), short-circuiting
+        // before dispatch. Collection membership / equality (e.g. `x in [x]`,
+        // `[nan] == [nan]`) depend on this even when `__eq__` would raise
+        // or return False. Only Eq/Ne are decidable from identity; ordering
+        // ops fall through to `_cmp` because Python does not guarantee
+        // reflexivity for `<`/`<=`/`>`/`>=`.
+        if self.is(other) {
+            match op_id {
+                PyComparisonOp::Eq => return Ok(true),
+                PyComparisonOp::Ne => return Ok(false),
+                _ => {}
+            }
+        }
         match self._cmp(other, op_id, vm)? {
             Either::A(obj) => obj.try_to_bool(vm),
             Either::B(other) => Ok(other),
@@ -390,6 +410,7 @@ impl PyObject {
         // Fast path for exact int: skip __str__ method resolution
         let obj = match obj.downcast_exact::<PyInt>(vm) {
             Ok(int) => {
+                check_int_to_str_digits(int.as_bigint(), vm)?;
                 return Ok(vm.ctx.new_str(int.to_str_radix_10()));
             }
             Err(obj) => obj,

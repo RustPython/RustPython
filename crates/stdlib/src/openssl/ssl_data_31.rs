@@ -7,7 +7,7 @@ use phf::phf_map;
 
 // Maps lib_code -> library name
 // Example: 20 -> "SSL"
-pub static LIBRARY_CODES: phf::Map<u32, &'static str> = phf_map! {
+pub(super) static LIBRARY_CODES: phf::Map<u32, &'static str> = phf_map! {
     0u32 => "MASK",
     1u32 => "NONE",
     2u32 => "SYS",
@@ -67,7 +67,7 @@ pub static LIBRARY_CODES: phf::Map<u32, &'static str> = phf_map! {
 // Maps encoded (lib, reason) -> error mnemonic
 // Example: encode_error_key(20, 134) -> "CERTIFICATE_VERIFY_FAILED"
 // Key encoding: (lib << 32) | reason
-pub static ERROR_CODES: phf::Map<u64, &'static str> = phf_map! {
+pub(super) static ERROR_CODES: phf::Map<u64, &'static str> = phf_map! {
     55834575019u64 => "ADDING_OBJECT",
     55834575051u64 => "ASN1_PARSE_ERROR",
     55834575052u64 => "ASN1_SIG_PARSE_ERROR",
@@ -1765,6 +1765,6 @@ pub static ERROR_CODES: phf::Map<u64, &'static str> = phf_map! {
 
 /// Helper function to create encoded key from (lib, reason) pair
 #[inline]
-pub fn encode_error_key(lib: i32, reason: i32) -> u64 {
+pub(super) fn encode_error_key(lib: i32, reason: i32) -> u64 {
     ((lib as u64) << 32) | (reason as u64 & 0xFFFFFFFF)
 }

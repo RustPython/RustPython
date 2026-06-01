@@ -5,7 +5,7 @@ mod _uuid {
     use crate::{builtins::PyNone, vm::VirtualMachine};
     use mac_address::get_mac_address;
     use std::sync::OnceLock;
-    use uuid::{Context, Uuid, timestamp::Timestamp};
+    use uuid::{ContextV1, Uuid, timestamp::Timestamp};
 
     fn get_node_id() -> [u8; 6] {
         match get_mac_address() {
@@ -17,7 +17,7 @@ mod _uuid {
 
     #[pyfunction]
     fn generate_time_safe() -> (Vec<u8>, PyNone) {
-        static CONTEXT: Context = Context::new(0);
+        static CONTEXT: ContextV1 = ContextV1::new(0);
         let ts = Timestamp::now(&CONTEXT);
 
         static NODE_ID: OnceLock<[u8; 6]> = OnceLock::new();

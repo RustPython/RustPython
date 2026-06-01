@@ -181,8 +181,7 @@ mod _collections {
                 Err(vm.new_value_error(
                     needle
                         .repr(vm)
-                        .map(|repr| format!("{repr} is not in deque"))
-                        .unwrap_or_else(|_| String::new()),
+                        .map_or_else(|_| String::new(), |repr| format!("{repr} is not in deque")),
                 ))
             }
         }
@@ -252,11 +251,11 @@ mod _collections {
         }
 
         #[pymethod]
-        fn __reversed__(zelf: PyRef<Self>) -> PyResult<PyReverseDequeIterator> {
-            Ok(PyReverseDequeIterator {
+        fn __reversed__(zelf: PyRef<Self>) -> PyReverseDequeIterator {
+            PyReverseDequeIterator {
                 state: zelf.state.load(),
                 internal: PyMutex::new(PositionIterInternal::new(zelf, 0)),
-            })
+            }
         }
 
         #[pymethod]
@@ -388,7 +387,11 @@ mod _collections {
                 Some(v) => vm.new_pyobj((vm.ctx.empty_tuple.clone(), v)),
                 None => vm.ctx.empty_tuple.clone().into(),
             };
-            Ok(vm.new_pyobj((cls, value, vm.ctx.none(), PyDequeIterator::new(zelf))))
+            // Use __getstate__ to capture both __dict__ and __slots__ values so
+            // subclass attributes survive a pickle round-trip (matches CPython's
+            // deque___reduce___impl, which calls _PyObject_GetState).
+            let state = vm.call_method(zelf.as_object(), "__getstate__", ())?;
+            Ok(vm.new_pyobj((cls, value, state, PyDequeIterator::new(zelf))))
         }
 
         #[pyclassmethod]
@@ -565,8 +568,7 @@ mod _collections {
             let class_name = class.name();
             let closing_part = zelf
                 .maxlen
-                .map(|maxlen| format!("], maxlen={maxlen}"))
-                .unwrap_or_else(|| "]".to_owned());
+                .map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
 
             if zelf.__len__() == 0 {
                 return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));
@@ -686,7 +688,7 @@ mod _collections {
             (DequeIterArgs { deque, index }, _kwargs): Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let iter = PyDeque::__reversed__(deque)?;
+            let iter = PyDeque::__reversed__(deque);
             if let OptionalArg::Present(index) = index {
                 let index = max(index, 0) as usize;
                 iter.internal.lock().position = index;
@@ -706,20 +708,21 @@ mod _collections {
         fn __reduce__(
             zelf: PyRef<Self>,
             vm: &VirtualMachine,
-        ) -> PyResult<(PyTypeRef, (PyDequeRef, PyObjectRef))> {
+        ) -> (PyTypeRef, (PyDequeRef, PyObjectRef)) {
             let internal = zelf.internal.lock();
             let deque = match &internal.status {
                 Active(obj) => obj.clone(),
                 Exhausted => PyDeque::default().into_ref(&vm.ctx),
             };
-            Ok((
+            (
                 zelf.class().to_owned(),
                 (deque, vm.ctx.new_int(internal.position).into()),
-            ))
+            )
         }
     }
 
     impl SelfIter for PyReverseDequeIterator {}
+
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|deque, pos| {

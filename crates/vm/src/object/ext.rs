@@ -40,19 +40,13 @@ Basically reference counting, but then done by rust.
 /// since exceptions are also python objects.
 pub type PyResult<T = PyObjectRef> = Result<T, PyBaseExceptionRef>; // A valid value, or an exception
 
-impl<T: fmt::Display> fmt::Display for PyRef<T>
-where
-    T: PyPayload + fmt::Display,
-{
+impl<T: PyPayload + fmt::Display> fmt::Display for PyRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
-impl<T: fmt::Display> fmt::Display for Py<T>
-where
-    T: PyPayload + fmt::Display,
-{
+impl<T: PyPayload + fmt::Display> fmt::Display for Py<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
@@ -142,10 +136,12 @@ pub struct PyRefExact<T: PyPayload> {
 impl<T: PyPayload> PyRefExact<T> {
     /// # Safety
     /// obj must have exact type for the payload
+    #[must_use]
     pub const unsafe fn new_unchecked(obj: PyRef<T>) -> Self {
         Self { inner: obj }
     }
 
+    #[must_use]
     pub fn into_pyref(self) -> PyRef<T> {
         self.inner
     }
@@ -259,8 +255,8 @@ impl<T> Drop for PyAtomicRef<T> {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<T> {}
         unsafe impl<T: Sync + PyPayload> Sync for PyAtomicRef<T> {}
         unsafe impl<T: Send + PyPayload> Send for PyAtomicRef<Option<T>> {}
@@ -270,6 +266,7 @@ cfg_if::cfg_if! {
         unsafe impl Send for PyAtomicRef<Option<PyObject>> {}
         unsafe impl Sync for PyAtomicRef<Option<PyObject>> {}
     }
+    _ => {}
 }
 
 impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
@@ -343,9 +340,7 @@ impl<T: PyPayload> PyAtomicRef<T> {
 
 impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
     fn from(opt_ref: Option<PyRef<T>>) -> Self {
-        let val = opt_ref
-            .map(|x| PyRef::leak(x) as *const Py<T> as *mut _)
-            .unwrap_or(null_mut());
+        let val = opt_ref.map_or(null_mut(), |x| PyRef::leak(x) as *const Py<T> as *mut _);
         Self {
             inner: Radium::new(val),
             _phantom: Default::default(),
@@ -375,9 +370,7 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
     /// until no more reference can be used via PyAtomicRef::deref()
     #[must_use]
     pub unsafe fn swap(&self, opt_ref: Option<PyRef<T>>) -> Option<PyRef<T>> {
-        let val = opt_ref
-            .map(|x| PyRef::leak(x) as *const Py<T> as *mut _)
-            .unwrap_or(null_mut());
+        let val = opt_ref.map_or(null_mut(), |x| PyRef::leak(x) as *const Py<T> as *mut _);
         let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
         unsafe { old.cast::<Py<T>>().as_ref().map(|x| PyRef::from_raw(x)) }
     }
@@ -437,9 +430,7 @@ impl PyAtomicRef<PyObject> {
 
 impl From<Option<PyObjectRef>> for PyAtomicRef<Option<PyObject>> {
     fn from(obj: Option<PyObjectRef>) -> Self {
-        let val = obj
-            .map(|x| x.into_raw().as_ptr().cast())
-            .unwrap_or(null_mut());
+        let val = obj.map_or(null_mut(), |x| x.into_raw().as_ptr().cast());
         Self {
             inner: Radium::new(val),
             _phantom: Default::default(),
@@ -469,9 +460,7 @@ impl PyAtomicRef<Option<PyObject>> {
     /// until no more reference can be used via PyAtomicRef::deref()
     #[must_use]
     pub unsafe fn swap(&self, obj: Option<PyObjectRef>) -> Option<PyObjectRef> {
-        let val = obj
-            .map(|x| x.into_raw().as_ptr().cast())
-            .unwrap_or(null_mut());
+        let val = obj.map_or(null_mut(), |x| x.into_raw().as_ptr().cast());
         let old = Radium::swap(&self.inner, val, Ordering::AcqRel);
         unsafe { NonNull::new(old.cast::<PyObject>()).map(|x| PyObjectRef::from_raw(x)) }
     }
@@ -499,6 +488,7 @@ unsafe impl Send for PyAtomicBorrow {}
 unsafe impl Sync for PyAtomicBorrow {}
 
 impl PyAtomicBorrow {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             inner: Radium::new(null_mut()),
@@ -609,6 +599,7 @@ pub struct PyLease<'a, T: PyPayload> {
 
 impl<T: PyPayload> PyLease<'_, T> {
     #[inline(always)]
+    #[must_use]
     pub fn into_owned(self) -> PyRef<T> {
         self.inner.clone()
     }

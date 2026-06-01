@@ -185,7 +185,6 @@ class BaseLocalTest:
             """To test that subclasses behave properly."""
         self._test_dict_attribute(LocalSubclass)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; cycle detection/collection
     def test_cycle_collection(self):
         class X:
             pass
@@ -232,6 +231,10 @@ class ThreadLocalTest(unittest.TestCase, BaseLocalTest):
     @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: TypeError not raised by _local
     def test_arguments(self):
         return super().test_arguments()
+
+    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_cycle_collection(self):
+        return super().test_cycle_collection()
 
 class PyThreadingLocalTest(unittest.TestCase, BaseLocalTest):
     _local = _threading_local.local

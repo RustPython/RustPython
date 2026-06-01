@@ -111,7 +111,6 @@ class TestTString(unittest.TestCase, TStringBaseCase):
         with self.assertRaises(SyntaxError):
             eval("t'{num!z}'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?          ++++++
     def test_debug_specifier(self):
         # Test debug specifier
         value = 42

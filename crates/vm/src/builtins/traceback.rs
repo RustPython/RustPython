@@ -17,7 +17,7 @@ pub struct PyTraceback {
     pub lineno: OneIndexed,
 }
 
-pub type PyTracebackRef = PyRef<PyTraceback>;
+pub(crate) type PyTracebackRef = PyRef<PyTraceback>;
 
 impl PyPayload for PyTraceback {
     #[inline]
@@ -28,6 +28,7 @@ impl PyPayload for PyTraceback {
 
 #[pyclass(with(Constructor))]
 impl PyTraceback {
+    #[must_use]
     pub const fn new(
         next: Option<PyRef<Self>>,
         frame: FrameRef,
@@ -119,7 +120,7 @@ impl PyTracebackRef {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyTraceback::extend_class(context, context.types.traceback_type);
 }
 

@@ -1,5 +1,6 @@
 [package]
 name = "rustpython-doc"
+description = "Python __doc__ database for RustPython"
 version.workspace = true
 authors.workspace = true
 edition.workspace = true

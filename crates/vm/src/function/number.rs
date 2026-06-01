@@ -22,6 +22,7 @@ pub struct ArgIntoComplex {
 
 impl ArgIntoComplex {
     #[inline]
+    #[must_use]
     pub fn into_complex(self) -> Complex64 {
         self.value
     }
@@ -60,10 +61,12 @@ pub struct ArgIntoFloat {
 
 impl ArgIntoFloat {
     #[inline]
+    #[must_use]
     pub fn into_float(self) -> f64 {
         self.value
     }
 
+    #[must_use]
     pub fn vec_into_f64(v: Vec<Self>) -> Vec<f64> {
         // TODO: Vec::into_raw_parts once stabilized
         let mut v = core::mem::ManuallyDrop::new(v);
@@ -105,6 +108,7 @@ impl ArgIntoBool {
     pub const FALSE: Self = Self { value: false };
 
     #[inline]
+    #[must_use]
     pub fn into_bool(self) -> bool {
         self.value
     }
@@ -133,6 +137,7 @@ pub struct ArgIndex {
 
 impl ArgIndex {
     #[inline]
+    #[must_use]
     pub fn into_int_ref(self) -> PyIntRef {
         self.value
     }

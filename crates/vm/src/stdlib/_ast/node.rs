@@ -31,7 +31,14 @@ impl<T: Node> Node for Vec<T> {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        vm.extract_elements_with(&object, |obj| Node::ast_from_object(vm, source_file, obj))
+        // Recursion guard for each element: prevents stack overflow when a
+        // sequence element transitively references the sequence itself
+        // (e.g. `l = ast.List(...); l.elts = [l]`). See issue #4862.
+        vm.extract_elements_with(&object, |obj| {
+            vm.with_recursion("while traversing AST node", || {
+                Node::ast_from_object(vm, source_file, obj)
+            })
+        })
     }
 }
 
@@ -45,7 +52,13 @@ impl<T: Node> Node for Box<T> {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        T::ast_from_object(vm, source_file, object).map(Self::new)
+        // Recursion guard: every descent through a Box<AstNode> increments the
+        // VM's recursion depth so cyclic or pathologically deep ASTs raise
+        // RecursionError instead of overflowing the native stack.
+        // See issue #4862.
+        vm.with_recursion("while traversing AST node", || {
+            T::ast_from_object(vm, source_file, object).map(Self::new)
+        })
     }
 
     fn is_none(&self) -> bool {

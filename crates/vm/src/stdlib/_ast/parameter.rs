@@ -143,7 +143,7 @@ impl Node for ast::Parameter {
             name: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field(_vm, &_object, "arg", "arg")?,
+                get_node_field_required(_vm, &_object, "arg", "arg")?,
             )?,
             annotation: get_node_field_opt(_vm, &_object, "annotation")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
@@ -189,7 +189,7 @@ impl Node for ast::Keyword {
             value: Node::ast_from_object(
                 _vm,
                 source_file,
-                get_node_field(_vm, &_object, "value", "keyword")?,
+                get_node_field_required(_vm, &_object, "value", "keyword")?,
             )?,
             range: range_from_object(_vm, source_file, _object, "keyword")?,
         })

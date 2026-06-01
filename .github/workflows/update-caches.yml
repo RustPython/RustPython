@@ -1,0 +1,77 @@
+name: Update Actions Caches
+
+permissions:
+  contents: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+concurrency:
+    group: ${{ github.workflow }}
+    cancel-in-progress: false
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+  CARGO_ARGS: --workspace --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,threading,jit --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
+
+jobs:
+  build-caches:
+    name: Build Caches
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            toolchain: stable
+            target: ""
+          - os: ubuntu-latest
+            toolchain: stable
+            target: ""
+          - os: windows-latest
+            toolchain: stable
+            target: ""
+    steps:
+      - name: Checkout RustPython main branch
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: RustPython/RustPython
+          ref: main
+          persist-credentials: false
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          target: ${{ matrix.target }}
+
+      - name: Install macos dependencies
+        uses: ./.github/actions/install-macos-deps
+        with:
+          openssl: true
+
+      - name: Build dev cache # dev profile used by check & doc
+        run: cargo build --profile dev ${{ env.CARGO_ARGS }}
+
+      - name: Build test cache
+        run: cargo build --profile test ${{ env.CARGO_ARGS }}
+
+      - name: Build release cache
+        run: cargo build --profile release ${{ env.CARGO_ARGS }}
+
+      - name: Save cache
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ matrix.toolchain }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml') }}-${{ hashFiles('Cargo.lock') }}-${{ github.sha }}

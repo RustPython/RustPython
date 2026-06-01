@@ -43,8 +43,6 @@ class Test(unittest.TestCase):
         self.assertEqual(syslog.setlogmask(0), mask)
         self.assertEqual(syslog.setlogmask(oldmask), mask)
 
-    # TODO: RUSTPYTHON; AssertionError: 12 is not false
-    @unittest.expectedFailure
     def test_log_mask(self):
         mask = syslog.LOG_UPTO(syslog.LOG_WARNING)
         self.assertTrue(mask & syslog.LOG_MASK(syslog.LOG_WARNING))

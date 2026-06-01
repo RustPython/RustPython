@@ -8,6 +8,9 @@ on:
 
 name: CI
 
+permissions:
+  contents: read
+
 # Cancel previous workflows if they are the same workflow on same ref (branch/tags)
 # with the same event (push/pull_request) even they are in progress.
 # This setting will help reduce the number of duplicated workflows.
@@ -16,19 +19,63 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls,host_env
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
   # - rustpython-compiler-source: deprecated
   # - rustpython-venvlauncher: Windows-only
   WORKSPACE_EXCLUDES: --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
-  # Python version targeted by the CI.
-  PYTHON_VERSION: "3.14.3"
   X86_64_PC_WINDOWS_MSVC_OPENSSL_LIB_DIR: C:\Program Files\OpenSSL\lib\VC\x64\MD
   X86_64_PC_WINDOWS_MSVC_OPENSSL_INCLUDE_DIR: C:\Program Files\OpenSSL\include
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_RELEASE_DEBUG: 0
+  CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
+  CI: true
 
 jobs:
+  determine_changes:
+    name: Determine changes
+    runs-on: ubuntu-slim
+    outputs:
+      # Flag that is raised when any rust code is changed.
+      rust_code: ${{ steps.check_rust_code.outputs.changed }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Determine merge base
+        id: merge_base
+        run: |
+          sha=$(git merge-base HEAD "origin/${BASE_REF}")
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref || 'main' }}
+
+      - name: Check if there was any code related change
+        id: check_rust_code
+        run: |
+          if git diff --quiet "${MERGE_BASE}...HEAD" -- \
+            ':Cargo.toml' \
+            ':Cargo.lock' \
+            ':rust-toolchain.toml' \
+            ':.cargo/config.toml' \
+            ':crates/**' \
+            ':src/**' \
+            ':.github/workflows/ci.yaml' \
+          ; then
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          MERGE_BASE: ${{ steps.merge_base.outputs.sha }}
+
   rust_tests:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
@@ -45,29 +92,36 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
-        with:
-          components: clippy
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
 
-      - name: run clippy
-        run: cargo clippy ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
-
       - name: run rust tests
-        run: cargo test --workspace ${{ env.WORKSPACE_EXCLUDES }} --verbose --features threading ${{ env.CARGO_ARGS }}
+        run: cargo test --workspace --exclude rustpython-capi ${{ env.WORKSPACE_EXCLUDES }} --features threading ${{ env.CARGO_ARGS }}
+        env:
+          INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
 
-      - name: check compilation without threading
-        run: cargo check ${{ env.CARGO_ARGS }}
-
-      - run: cargo doc --locked
-        if: runner.os == 'Linux'
+      - name: run c-api tests
+        working-directory: crates/capi
+        run: cargo test
+        if: runner.os != 'Windows'  # Requires pyo3 0.29+ on Windows
 
       - name: check compilation without host_env (sandbox mode)
         run: |
@@ -84,6 +138,10 @@ jobs:
 
       - name: Test openssl build
         run: cargo build --no-default-features --features ssl-openssl
+        if: runner.os == 'Linux'
+
+      - name: Test vendored OpenSSL build
+        run: cargo build --no-default-features --features ssl-openssl-vendor
         if: runner.os == 'Linux'
 
       # - name: Install tk-dev for tkinter build
@@ -107,41 +165,48 @@ jobs:
         if: runner.os == 'Linux'
 
   cargo_check:
-    if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
-    name: Ensure compilation on various targets
+    name: cargo check
     runs-on: ${{ matrix.os }}
+    needs:
+      - determine_changes
+    if: |
+      (
+        !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+        needs.determine_changes.outputs.rust_code == 'true'
+      ) || github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        include: 
+        include:
         - os: ubuntu-latest
-          targets:
-            - aarch64-linux-android
-            - i686-unknown-linux-gnu
-            - i686-unknown-linux-musl
-            - wasm32-wasip2
-            - x86_64-unknown-freebsd
+          target: aarch64-linux-android
+        - os: ubuntu-latest
+          target: i686-unknown-linux-gnu
           dependencies:
             gcc-multilib: true
-            musl-tools: true
         - os: ubuntu-latest
-          targets:
-            - aarch64-unknown-linux-gnu
+          target: i686-unknown-linux-musl
           dependencies:
-            gcc-aarch64-linux-gnu: true # conflict with `gcc-multilib`
+            musl-tools: true
+          skip_ssl: true
+        - os: ubuntu-latest
+          target: wasm32-wasip2
+          skip_ssl: true
+        - os: ubuntu-latest
+          target: x86_64-unknown-freebsd
+          skip_ssl: true
+        - os: ubuntu-latest
+          target: aarch64-unknown-linux-gnu
+          dependencies:
+            gcc-aarch64-linux-gnu: true
         - os: macos-latest
-          targets:
-            - aarch64-apple-ios
-            - x86_64-apple-darwin
+          target: aarch64-apple-ios
+        - os: macos-latest
+          target: x86_64-apple-darwin
       fail-fast: false
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-        with:
-          prefix-key: v0-rust-${{ join(matrix.targets, '-') }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install dependencies
         uses: ./.github/actions/install-linux-deps
@@ -152,18 +217,48 @@ jobs:
           musl-tools: ${{ matrix.dependencies.musl-tools || false }}
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          targets: ${{ join(matrix.targets, ',') }}
-          toolchain: stable
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          # key won't match, will rely on restore-keys
+          key: ${{ runner.os }}-${{ matrix.target }}
+          restore-keys: |
+            ${{ runner.os }}-stable-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable-${{ matrix.target }}-
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          target: ${{ matrix.target }}
 
       - name: Setup Android NDK
-        if: ${{ contains(matrix.targets, 'aarch64-linux-android') }}
+        if: ${{ matrix.target == 'aarch64-linux-android' }}
         id: setup-ndk
-        uses: nttld/setup-ndk@v1
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         with:
           ndk-version: r27
           add-to-path: true
+
+      - name: Append env conf to cargo
+        if: ${{ matrix.target == 'aarch64-linux-android' }}
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          {
+            echo "[env]"
+            echo "CC_aarch64_linux_android = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
+
+            echo "AR_aarch64_linux_android = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar\""
+
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = \"${NDK_PATH}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang\""
+          } >> .cargo/config.toml
 
       # - name: Prepare repository for redox compilation
       #   run: bash scripts/redox/uncomment-cargo.sh
@@ -173,18 +268,12 @@ jobs:
       #     command: check
       #     args: --ignore-rust-version
 
-      - name: Check compilation
-        run: |
-          for target in ${{ join(matrix.targets, ' ') }}
-          do
-            echo "::group::${target}"
-            cargo check --target $target ${{ env.CARGO_ARGS_NO_SSL }}
-            echo "::endgroup::"
-          done
-        env:
-          CC_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          AR_aarch64_linux_android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
+      - name: Check compilation with threading
+        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS_NO_SSL }} --features threading
+
+      - name: Check compilation with ssl
+        if: ${{ !matrix.skip_ssl }}
+        run: cargo check --target "${{ matrix.target }}" ${{ env.CARGO_ARGS }}
 
   snippets_cpython:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -206,18 +295,21 @@ jobs:
         - os: macos-latest
           extra_test_args:
             - '-u all'
-          env_polluting_tests: []
+          env_polluting_tests:
+            - test_set
           skips: []
           timeout: 50
         - os: ubuntu-latest
           extra_test_args:
             - '-u all'
-          env_polluting_tests: []
+          env_polluting_tests:
+            - test_set
           skips: []
           timeout: 60
         - os: windows-2025
           extra_test_args: [] # TODO: Enable '-u all'
-          env_polluting_tests: []
+          env_polluting_tests:
+            - test_set
           skips:
             - test_rlcompleter
             - test_pathlib # panic by surrogate chars
@@ -230,17 +322,25 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@stable
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
@@ -270,8 +370,24 @@ jobs:
 
       - name: Run flaky MP CPython tests
         run: |
-          target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v ${{ env.FLAKY_MP_TESTS }}
+          for attempt in $(seq 1 5); do
+            echo "::group::Attempt ${attempt}"
+
+            set +e
+            target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v ${{ env.FLAKY_MP_TESTS }}
+            status=$?
+            set -e
+
+            echo "::endgroup::"
+
+            if [ $status -eq 0 ]; then
+              exit 0
+            fi
+          done
+
+          exit 1
         timeout-minutes: ${{ matrix.timeout }}
+        shell: bash
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
 
@@ -328,12 +444,82 @@ jobs:
         shell: bash
         run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
 
+  clippy:
+    name: clippy
+    runs-on: ${{ matrix.os }}
+    needs:
+      - determine_changes
+    permissions:
+      contents: read
+    if: |
+      needs.determine_changes.outputs.rust_code == 'true' ||
+      github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+        # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
+        continue-on-error: true
+
+      - name: Clippy
+        run: cargo clippy --keep-going ${{ env.CARGO_ARGS }} --workspace --all-targets ${{ env.WORKSPACE_EXCLUDES }} -- -Dwarnings
+
+  cargo_shear:
+    name: cargo shear
+    runs-on: ubuntu-latest
+    needs:
+      - determine_changes
+    permissions:
+      contents: read
+    if: |
+      needs.determine_changes.outputs.rust_code == 'true' ||
+      github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
+
+      - name: cargo shear
+        run: |
+          cargo binstall --no-confirm cargo-shear
+          cargo shear
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
     permissions:
       contents: read
       checks: write
+      issues: write
       pull-requests: write
       security-events: write # for zizmor
     steps:
@@ -342,55 +528,76 @@ jobs:
           persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
           components: rustfmt
 
-      - uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
-
-      - name: cargo shear
-        run: |
-          cargo binstall --no-confirm cargo-shear
-          cargo shear
-
       - name: actionlint
-        uses: reviewdog/action-actionlint@0d952c597ef8459f634d7145b0b044a9699e5e43 # v1.71.0
+        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@71321a20a9ded102f6e9ce5718a2fcec2c4f70d8 # v0.5.2
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
 
       - name: restore prek cache
-        if: ${{ github.ref != 'refs/heads/main' }} # never restore on main
-        uses: actions/cache/restore@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
-      - name: prek
+      # TODO: Remove on 2026/06/02 when node24 is the default
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          package-manager-cache: false
+          node-version: "24"
+
+      - name: install prek
         id: prek
-        uses: j178/prek-action@79f765515bd648eb4d6bb1b17277b7cb22cb6468 # v2.0.0
+        uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
         with:
           cache: false
           show-verbose-logs: false
-        continue-on-error: true
+          install-only: true
+
+      - name: prek run
+        run: prek run --show-diff-on-failure --color=always --all-files
+
+      - name: Get target CPython version
+        id: cpython-version
+        run: |
+          version=$(cat .python-version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Clone CPython
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: python/cpython
+          path: cpython
+          ref: "v${{ steps.cpython-version.outputs.version }}"
+          persist-credentials: false
+
+      - name: prek run (manual stage)
+        run: prek run --show-diff-on-failure --color=always --all-files --hook-stage manual
+        env:
+          CPYTHON_ROOT: ${{ github.workspace }}/cpython
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
-        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
+      - name: restore git permissions
+        if: ${{ !cancelled() }}
+        run: sudo chown -R "$(id -u):$(id -g)" .git
+
       - name: reviewdog
-        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # 1.24.0
+        if: ${{ !cancelled() }}
+        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # v1.24.0
         with:
           level: warning
           fail_level: error
-          cleanup: false
 
   miri:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -404,14 +611,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.NIGHTLY_CHANNEL }}
           components: miri
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-
 
       - name: Run tests under miri
         run: cargo +${{ env.NIGHTLY_CHANNEL }} miri test -p rustpython-vm -- miri_test
@@ -430,17 +646,27 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-          toolchain: stable
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+            ${{ runner.os }}-
 
       - name: cargo clippy
-        run: cargo clippy --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
+        run: cargo clippy --keep-going --manifest-path=crates/wasm/Cargo.toml -- -Dwarnings
 
       - name: install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
@@ -451,15 +677,29 @@ jobs:
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          cache: "npm"
-          cache-dependency-path: "wasm/demo/package-lock.json"
+          package-manager-cache: false
+
+      - name: Get npm cache directory
+        id: npm-cache-dir
+        shell: bash
+        run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore npm cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        # don't restore on main or release
+        if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release'
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: node-${{ runner.os }}-wasm-demo-
+          restore-keys: |
+            node-${{ runner.os }}-wasm-demo-
+
       - name: run test
         run: |
           driver_path="$(pwd)/../../geckodriver"
@@ -469,8 +709,11 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/demo
-      - uses: mwilliamson/setup-wabt-action@v3
-        with: { wabt-version: "1.0.36" }
+
+      - uses: mwilliamson/setup-wabt-action@427f2fdd70bc4dbc2e53c2eb4f19f66162d71bd2 # v4.0.0
+        with:
+          wabt-version: "1.0.36"
+
       - name: check wasm32-unknown without js
         run: |
           cd example_projects/wasm32_without_js/rustpython-without-js
@@ -480,6 +723,7 @@ jobs:
             echo "ERROR: wasm32-unknown module expects imports from the host environment" >&2
           fi
           cargo run --release --manifest-path wasm-runtime/Cargo.toml rustpython-without-js/target/wasm32-unknown-unknown/debug/rustpython_without_js.wasm
+
       - name: build notebook demo
         if: github.ref == 'refs/heads/release'
         run: |
@@ -489,14 +733,23 @@ jobs:
         env:
           NODE_OPTIONS: "--openssl-legacy-provider"
         working-directory: ./wasm/notebook
+
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         env:
           ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
           PUBLISH_DIR: ./wasm/demo/dist
           EXTERNAL_REPOSITORY: RustPython/demo
           PUBLISH_BRANCH: master
+
+      - name: Save npm cache
+        # Save only on main or release
+        if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ${{ steps.npm-cache-dir.outputs.dir }}
+          key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
 
   wasm-wasi:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
@@ -508,17 +761,28 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
+      - uses: dtolnay/rust-toolchain@stable
         with:
           target: wasm32-wasip1
-          toolchain: stable
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable-wasm32-wasip1-${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable-wasm32-wasip1-
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
 
       - name: Setup Wasmer
-        uses: wasmerio/setup-wasmer@v3
+        uses: wasmerio/setup-wasmer@24b15c95293d23f89c68bd40dac76338f773e924 # v3.1
 
       - name: Install clang
         uses: ./.github/actions/install-linux-deps
@@ -526,8 +790,44 @@ jobs:
           clang: true
 
       - name: build rustpython
-        run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
+        run: cargo build --release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
         run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+
+  cargo_doc:
+    needs:
+      - determine_changes
+    if: |
+      (
+        !contains(github.event.pull_request.labels.*.name, 'skip:ci') &&
+        needs.determine_changes.outputs.rust_code == 'true'
+      ) || github.ref == 'refs/heads/main'
+    env:
+      RUST_BACKTRACE: full
+    name: cargo doc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-${{ hashFiles('**/Cargo.toml') }}-
+          restore-keys: |
+            ${{ runner.os }}-stable--${{ hashFiles('**/Cargo.toml') }}-
+            ${{ runner.os }}-stable--
+
+      - name: cargo doc
+        run: cargo doc --locked

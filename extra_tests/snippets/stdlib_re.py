@@ -79,3 +79,6 @@ assert re.compile("(?:(1)?)*").match("111").group() == "111"
 # Test of fix re.fullmatch POSSESSIVE_REPEAT, issue #7183
 assert re.fullmatch(r"([0-9]++(?:\.[0-9]+)*+)", "1.25.38")
 assert re.fullmatch(r"([0-9]++(?:\.[0-9]+)*+)", "1.25.38").group(0) == "1.25.38"
+
+# Combining characters; issue #7518
+assert not re.match(r"\w", "\u0345"), r"\w should not match U+0345 (category Mn)"

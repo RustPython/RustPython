@@ -10,9 +10,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-env:
-  PYTHON_VERSION: "3.14.3"
-
 jobs:
   check_deps:
     permissions:
@@ -37,46 +34,71 @@ jobs:
           # Checkout only Lib/ directory from PR head for accurate comparison
           git checkout ${{ github.event.pull_request.head.sha }} -- Lib/
 
-      - name: Checkout CPython
+      - name: Get target CPython version
+        id: cpython-version
         run: |
-          git clone --depth 1 --branch "v${{ env.PYTHON_VERSION }}" https://github.com/python/cpython.git cpython
+          version=$(cat .python-version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout CPython
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: python/cpython
+          path: cpython
+          ref: "v${{ steps.cpython-version.outputs.version }}"
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Get changed Lib files
-        id: changed-files
+        id: all-changed-files
         run: |
           # Get the list of changed files under Lib/
-          changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py' | head -50)
-          echo "Changed files:"
-          echo "$changed"
+          {
+            echo 'changed<<EOF'
 
-          # Extract unique module names
-          modules=""
-          for file in $changed; do
-            if [[ "$file" == Lib/test/* ]]; then
-              # Test files: Lib/test/test_pydoc.py -> test_pydoc, Lib/test/test_pydoc/foo.py -> test_pydoc
-              module=$(echo "$file" | sed -E 's|^Lib/test/||; s|\.py$||; s|/.*||')
-              # Skip non-test files in test/ (e.g., support.py, __init__.py)
-              if [[ ! "$module" == test_* ]]; then
+            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py'
+
+            echo 'EOF' 
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Parse changed files
+        id: changed-files
+        run: |
+          from os import environ
+
+          files = environ["FILES"]
+          modules = set()
+          for file in files.splitlines():
+            file = file.strip()
+
+            if file.startswith("Lib/test/"):
+              # Test files:
+              # Lib/test/test_pydoc.py -> test_pydoc
+              # Lib/test/test_pydoc/foo.py -> test_pydoc
+              module = file.removeprefix("Lib/test/").split("/")[0]
+              if not module.startswith("test_"):
                 continue
-              fi
-            else
-              # Lib files: Lib/foo.py -> foo, Lib/foo/__init__.py -> foo
-              module=$(echo "$file" | sed -E 's|^Lib/||; s|/__init__\.py$||; s|\.py$||; s|/.*||')
-            fi
-            if [[ -n "$module" && ! " $modules " =~ " $module " ]]; then
-              modules="$modules $module"
-            fi
-          done
+            else:
+              # Lib files:
+              # Lib/foo.py -> foo
+              # Lib/foo/__init__.py -> foo
+              module = file.removeprefix("Lib/").split("/")[0]
+            
+            module = module.split(".")[0]
+            modules.add(module)
 
-          modules=$(echo "$modules" | xargs)  # trim whitespace
-          echo "Detected modules: $modules"
-          echo "modules=$modules" >> $GITHUB_OUTPUT
+          print(f"{modules=}")
+          output = " ".join(sorted(modules))
+          output_file = environ["GITHUB_OUTPUT"]
+          with open(output_file, mode="a", encoding="utf-8") as fd:
+            fd.write(f"modules={output}\n")
+        env:
+          FILES: ${{ steps.all-changed-files.outputs.changed }}
+        shell: python
 
       - name: Setup Python
         if: steps.changed-files.outputs.modules != ''
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: "${{ env.PYTHON_VERSION }}"
 
       - name: Run deps check
         if: steps.changed-files.outputs.modules != ''
@@ -92,7 +114,7 @@ jobs:
 
       - name: Post comment
         if: steps.deps-check.outputs.deps_output != ''
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
         with:
           header: lib-deps-check
           number: ${{ github.event.pull_request.number }}
@@ -109,7 +131,7 @@ jobs:
 
       - name: Remove comment if no Lib changes
         if: steps.changed-files.outputs.modules == ''
-        uses: marocchino/sticky-pull-request-comment@v3
+        uses: marocchino/sticky-pull-request-comment@0ea0beb66eb9baf113663a64ec522f60e49231c0 # v3.0.4
         with:
           header: lib-deps-check
           number: ${{ github.event.pull_request.number }}

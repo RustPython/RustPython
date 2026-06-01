@@ -1,3 +1,5 @@
+// cspell:ignore pyhash
+
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
 };
@@ -108,9 +110,7 @@ impl PyPayload for PyTuple {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        let len = unsafe { &*(obj as *const crate::Py<PyTuple>) }
-            .elements
-            .len();
+        let len = unsafe { &*(obj as *const crate::Py<Self>) }.elements.len();
         if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
             return false;
         }
@@ -225,7 +225,7 @@ impl Constructor for PyTuple {
         if cls.is(vm.ctx.types.tuple_type) {
             // Return exact tuple as-is
             if let OptionalArg::Present(ref input) = iterable
-                && let Ok(tuple) = input.clone().downcast_exact::<PyTuple>(vm)
+                && let Ok(tuple) = input.clone().downcast_exact::<Self>(vm)
             {
                 return Ok(tuple.into_pyref().into());
             }
@@ -291,17 +291,20 @@ impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
 }
 
 impl<R> PyTuple<R> {
+    #[must_use]
     pub const fn as_slice(&self) -> &[R] {
         &self.elements
     }
 
     #[inline]
-    pub fn len(&self) -> usize {
+    #[must_use]
+    pub const fn len(&self) -> usize {
         self.elements.len()
     }
 
     #[inline]
-    pub fn is_empty(&self) -> bool {
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
@@ -325,6 +328,7 @@ impl PyTuple<PyObjectRef> {
     /// Creating a new tuple with given boxed slice.
     /// NOTE: for usual case, you probably want to use PyTuple::new_ref.
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
+    #[must_use]
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
         Self { elements }
     }
@@ -402,6 +406,7 @@ impl PyTuple {
     }
 
     #[inline]
+    #[must_use]
     pub const fn __len__(&self) -> usize {
         self.elements.len()
     }
@@ -608,6 +613,7 @@ impl PyRef<PyTuple<PyObjectRef>> {
 }
 
 impl<T: PyPayload> PyRef<PyTuple<PyRef<T>>> {
+    #[must_use]
     pub fn into_untyped(self) -> PyRef<PyTuple> {
         // SAFETY: PyTuple<PyRef<T>> has the same layout as PyTuple
         unsafe { core::mem::transmute::<Self, PyRef<PyTuple>>(self) }
@@ -721,23 +727,29 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
-    #[cfg(target_pointer_width = "64")]
-    const PRIME1: PyUHash = 11400714785074694791;
-    #[cfg(target_pointer_width = "64")]
-    const PRIME2: PyUHash = 14029467366897019727;
-    #[cfg(target_pointer_width = "64")]
-    const PRIME5: PyUHash = 2870177450012600261;
-    #[cfg(target_pointer_width = "64")]
-    const ROTATE: u32 = 31;
+    const PRIME1: PyUHash = cfg_select! {
+        target_pointer_width = "64" => 11400714785074694791,
+        target_pointer_width = "32" => 2654435761,
+        _ => unreachable!(),
+    };
 
-    #[cfg(target_pointer_width = "32")]
-    const PRIME1: PyUHash = 2654435761;
-    #[cfg(target_pointer_width = "32")]
-    const PRIME2: PyUHash = 2246822519;
-    #[cfg(target_pointer_width = "32")]
-    const PRIME5: PyUHash = 374761393;
-    #[cfg(target_pointer_width = "32")]
-    const ROTATE: u32 = 13;
+    const PRIME2: PyUHash = cfg_select! {
+        target_pointer_width = "64" => 14029467366897019727,
+        target_pointer_width = "32" => 2246822519,
+        _ => unreachable!(),
+    };
+
+    const PRIME5: PyUHash = cfg_select! {
+        target_pointer_width = "64" => 2870177450012600261,
+        target_pointer_width = "32" => 374761393,
+        _ => unreachable!(),
+    };
+
+    const ROTATE: u32 = cfg_select! {
+        target_pointer_width = "64" => 31,
+        target_pointer_width = "32" => 13,
+        _ => unreachable!(),
+    };
 
     let mut acc = PRIME5;
     let len = elements.len() as PyUHash;
@@ -751,8 +763,10 @@ pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyRes
 
     acc = acc.wrapping_add(len ^ (PRIME5 ^ 3527539));
 
-    if acc as PyHash == -1 {
+    let acc_pyhash = acc as PyHash;
+    if acc_pyhash == -1 {
         return Ok(1546275796);
     }
-    Ok(acc as PyHash)
+
+    Ok(acc_pyhash)
 }

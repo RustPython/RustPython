@@ -182,21 +182,20 @@ impl VirtualMachine {
         let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
         let slot_a_addr = slot_a.map(|x| x as usize);
         let mut slot_b = None;
-        let left_b_addr;
-
-        if !class_a.is(class_b) {
+        let left_b_addr = if class_a.is(class_b) {
+            slot_a_addr
+        } else {
             let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
             if slot_bb.map(|x| x as usize) != slot_a_addr {
                 slot_b = slot_bb;
             }
-            left_b_addr = class_b
+
+            class_b
                 .slots
                 .as_number
                 .left_binary_op(op_slot)
-                .map(|x| x as usize);
-        } else {
-            left_b_addr = slot_a_addr;
-        }
+                .map(|x| x as usize)
+        };
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b
@@ -305,21 +304,20 @@ impl VirtualMachine {
         let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
         let slot_a_addr = slot_a.map(|x| x as usize);
         let mut slot_b = None;
-        let left_b_addr;
-
-        if !class_a.is(class_b) {
+        let left_b_addr = if class_a.is(class_b) {
+            slot_a_addr
+        } else {
             let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
             if slot_bb.map(|x| x as usize) != slot_a_addr {
                 slot_b = slot_bb;
             }
-            left_b_addr = class_b
+
+            class_b
                 .slots
                 .as_number
                 .left_ternary_op(op_slot)
-                .map(|x| x as usize);
-        } else {
-            left_b_addr = slot_a_addr;
-        }
+                .map(|x| x as usize)
+        };
 
         if let Some(slot_a) = slot_a {
             if let Some(slot_bb) = slot_b
@@ -372,7 +370,7 @@ impl VirtualMachine {
         } else {
             self.new_type_error(format!(
                 "unsupported operand type(s) for {}: \
-                '{}' and '{}', '{}'",
+                '{}', '{}', '{}'",
                 op_str,
                 a.class(),
                 b.class(),
@@ -401,7 +399,7 @@ impl VirtualMachine {
 
     binary_func!(_sub, Subtract, "-");
     binary_func!(_mod, Remainder, "%");
-    binary_func!(_divmod, Divmod, "divmod");
+    binary_func!(_divmod, Divmod, "divmod()");
     binary_func!(_lshift, Lshift, "<<");
     binary_func!(_rshift, Rshift, ">>");
     binary_func!(_and, And, "&");

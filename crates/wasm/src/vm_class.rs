@@ -26,6 +26,7 @@ mod _window {
     use super::{js_module, wasm_builtins};
     use rustpython_vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
         extend_module!(vm, module, {
@@ -36,7 +37,7 @@ mod _window {
 }
 
 impl StoredVirtualMachine {
-    fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
+    fn new(id: String, inject_browser_module: bool) -> Self {
         let mut settings = Settings::default();
         settings.allow_external_library = false;
 
@@ -70,7 +71,7 @@ impl StoredVirtualMachine {
 
         let scope = interp.enter(|vm| vm.new_scope_with_builtins());
 
-        StoredVirtualMachine {
+        Self {
             interp,
             scope,
             held_objects: RefCell::new(Vec::new()),
@@ -108,6 +109,7 @@ pub struct VMStore;
 
 #[wasm_bindgen(js_class = vmStore)]
 impl VMStore {
+    #[must_use]
     pub fn init(id: String, inject_browser_module: Option<bool>) -> WASMVirtualMachine {
         STORED_VMS.with_borrow_mut(|vms| {
             if !vms.contains_key(&id) {
@@ -123,6 +125,7 @@ impl VMStore {
         STORED_VMS.with_borrow(|vms| vms.contains_key(&id).then_some(WASMVirtualMachine { id }))
     }
 
+    #[must_use]
     pub fn get(id: String) -> JsValue {
         match Self::_get(id) {
             Some(wasm_vm) => wasm_vm.into(),
@@ -142,6 +145,7 @@ impl VMStore {
         });
     }
 
+    #[must_use]
     pub fn ids() -> Vec<JsValue> {
         STORED_VMS.with_borrow(|vms| vms.keys().map(|k| k.into()).collect())
     }
@@ -178,6 +182,7 @@ impl WASMVirtualMachine {
         self.with(|stored| stored.interp.enter(|vm| f(vm, stored)))
     }
 
+    #[must_use]
     pub fn valid(&self) -> bool {
         STORED_VMS.with_borrow(|vms| vms.contains_key(&self.id))
     }

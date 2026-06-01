@@ -58,7 +58,7 @@ macro_rules! bail_span {
 // }
 
 #[derive(Debug)]
-pub struct Diagnostic {
+pub(crate) struct Diagnostic {
     inner: Repr,
 }
 
@@ -75,7 +75,7 @@ enum Repr {
 }
 
 impl Diagnostic {
-    pub fn error<T: Into<String>>(text: T) -> Self {
+    pub(crate) fn error<T: Into<String>>(text: T) -> Self {
         Self {
             inner: Repr::Single {
                 text: text.into(),
@@ -93,7 +93,7 @@ impl Diagnostic {
         }
     }
 
-    pub fn from_vec(diagnostics: Vec<Self>) -> Result<(), Self> {
+    pub(crate) fn from_vec(diagnostics: Vec<Self>) -> Result<(), Self> {
         if diagnostics.is_empty() {
             Ok(())
         } else {
@@ -103,7 +103,7 @@ impl Diagnostic {
         }
     }
 
-    pub fn panic(&self) -> ! {
+    pub(crate) fn panic(&self) -> ! {
         match &self.inner {
             Repr::Single { text, .. } => panic!("{}", text),
             Repr::SynError(error) => panic!("{}", error),
@@ -120,7 +120,7 @@ impl From<Error> for Diagnostic {
     }
 }
 
-pub fn extract_spans(node: &dyn ToTokens) -> Option<(Span, Span)> {
+pub(crate) fn extract_spans(node: &dyn ToTokens) -> Option<(Span, Span)> {
     let mut t = TokenStream::new();
     node.to_tokens(&mut t);
     let mut tokens = t.into_iter();

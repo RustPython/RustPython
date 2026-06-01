@@ -196,7 +196,11 @@ class RotatingFileHandler(BaseRotatingHandler):
         if self.stream is None:                 # delay was set...
             self.stream = self._open()
         if self.maxBytes > 0:                   # are we rolling over?
-            pos = self.stream.tell()
+            try:
+                pos = self.stream.tell()
+            except io.UnsupportedOperation:
+                # gh-143237: Never rollover a named pipe.
+                return False
             if not pos:
                 # gh-116263: Never rollover an empty file
                 return False
@@ -855,7 +859,7 @@ class SysLogHandler(logging.Handler):
     }
 
     def __init__(self, address=('localhost', SYSLOG_UDP_PORT),
-                 facility=LOG_USER, socktype=None):
+                 facility=LOG_USER, socktype=None, timeout=None):
         """
         Initialize a handler.
 
@@ -872,6 +876,7 @@ class SysLogHandler(logging.Handler):
         self.address = address
         self.facility = facility
         self.socktype = socktype
+        self.timeout = timeout
         self.socket = None
         self.createSocket()
 
@@ -933,6 +938,8 @@ class SysLogHandler(logging.Handler):
                 err = sock = None
                 try:
                     sock = socket.socket(af, socktype, proto)
+                    if self.timeout:
+                        sock.settimeout(self.timeout)
                     if socktype == socket.SOCK_STREAM:
                         sock.connect(sa)
                     break
@@ -1528,6 +1535,19 @@ class QueueListener(object):
         self.handlers = handlers
         self._thread = None
         self.respect_handler_level = respect_handler_level
+
+    def __enter__(self):
+        """
+        For use as a context manager. Starts the listener.
+        """
+        self.start()
+        return self
+
+    def __exit__(self, *args):
+        """
+        For use as a context manager. Stops the listener.
+        """
+        self.stop()
 
     def dequeue(self, block):
         """

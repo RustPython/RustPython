@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::{hash, lock::LazyLock},
     convert::ToPyObject,
-    function::{ArgMapping, OptionalArg, PyComparisonValue},
+    function::{ArgMapping, OptionalArg, PyArithmeticValue, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
     types::{
@@ -211,9 +211,12 @@ impl Comparable for PyMappingProxy {
         vm: &VirtualMachine,
     ) -> PyResult<PyComparisonValue> {
         let obj = zelf.to_object(vm)?;
-        Ok(PyComparisonValue::Implemented(
-            obj.rich_compare_bool(other, op, vm)?,
-        ))
+        // CPython parity (Objects/descrobject.c::mappingproxy_richcompare):
+        // delegate to PyObject_RichCompare on the underlying mapping.
+        let res = obj.rich_compare(other.to_owned(), op, vm)?;
+        PyArithmeticValue::from_object(vm, res)
+            .map(|o| o.try_to_bool(vm))
+            .transpose()
     }
 }
 
@@ -258,11 +261,19 @@ impl AsNumber for PyMappingProxy {
     fn as_number() -> &'static PyNumberMethods {
         static AS_NUMBER: PyNumberMethods = PyNumberMethods {
             or: Some(|a, b, vm| {
-                if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
-                    a.__or__(b.to_pyobject(vm), vm)
-                } else {
-                    Ok(vm.ctx.not_implemented())
-                }
+                // Mirror CPython's mappingproxy_or: when either side is a
+                // mappingproxy, unwrap to its underlying mapping and delegate
+                // to PyNumber_Or so `dict | mp`, `mp | dict`, and `mp | mp`
+                // all produce a `dict` result.
+                let a_obj = match a.downcast_ref::<PyMappingProxy>() {
+                    Some(mp) => mp.copy(vm)?,
+                    None => a.to_pyobject(vm),
+                };
+                let b_obj = match b.downcast_ref::<PyMappingProxy>() {
+                    Some(mp) => mp.copy(vm)?,
+                    None => b.to_pyobject(vm),
+                };
+                vm._or(a_obj.as_ref(), b_obj.as_ref())
             }),
             inplace_or: Some(|a, b, vm| {
                 if let Some(a) = a.downcast_ref::<PyMappingProxy>() {
@@ -293,6 +304,6 @@ impl Representable for PyMappingProxy {
     }
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PyMappingProxy::extend_class(context, context.types.mappingproxy_type)
 }

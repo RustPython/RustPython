@@ -2245,7 +2245,6 @@ class AssertionErrorTests(unittest.TestCase):
                 result = run_script(source)
                 self.assertEqual(result[-3:], expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_multiline_not_highlighted(self):
         cases = [
@@ -2519,7 +2518,6 @@ class SyntaxErrorTests(unittest.TestCase):
         self.assertEqual(error, the_exception.text)
         self.assertEqual("bad bad", the_exception.msg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_incorrect_constructor(self):
         args = ("bad.py", 1, 2)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)

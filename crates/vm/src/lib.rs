@@ -6,12 +6,19 @@
 //!
 //! Some stdlib modules are implemented here, but most of them are in the `rustpython-stdlib` module. The
 
-// to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
-// how `mod` works, but we want this sometimes for pymodule declarations
-#![allow(clippy::module_inception)]
-// we want to mirror python naming conventions when defining python structs, so that does mean
-// uppercase acronyms, e.g. TextIOWrapper instead of TextIoWrapper
-#![allow(clippy::upper_case_acronyms)]
+#![deny(clippy::disallowed_methods)]
+#![allow(
+    clippy::module_inception,
+    reason = "
+ to allow `mod foo {}` in foo.rs; clippy thinks this is a mistake/misunderstanding of
+ how `mod` works, but we want this sometimes for pymodule declarations"
+)]
+#![allow(
+    clippy::upper_case_acronyms,
+    reason = "
+we want to mirror python naming conventions when defining python structs, so that does mean
+uppercase acronyms, e.g. TextIOWrapper instead of TextIoWrapper"
+)]
 #![doc(html_logo_url = "https://raw.githubusercontent.com/RustPython/RustPython/main/logo.png")]
 #![doc(html_root_url = "https://docs.rs/rustpython-vm/")]
 
@@ -105,6 +112,7 @@ pub use self::vm::{Context, Interpreter, InterpreterBuilder, Settings, VirtualMa
 
 pub use rustpython_common as common;
 pub use rustpython_compiler_core::{bytecode, frozen};
+pub use rustpython_host_env as host_env;
 pub use rustpython_literal as literal;
 
 #[doc(hidden)]

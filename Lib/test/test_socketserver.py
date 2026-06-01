@@ -43,7 +43,7 @@ def receive(sock, n, timeout=test.support.SHORT_TIMEOUT):
         raise RuntimeError("timed out on %r" % (sock,))
 
 
-@test.support.requires_fork() # TODO: RUSTPYTHON, os.fork is currently only supported on Unix-based systems
+@test.support.requires_fork()
 @contextlib.contextmanager
 def simple_subprocess(testcase):
     """Tests that a custom child process is not waited on (Issue 1540386)"""
@@ -218,12 +218,16 @@ class SocketServerTest(unittest.TestCase):
                             self.dgram_examine)
 
     @requires_unix_sockets
+    @unittest.skipIf(test.support.is_apple_mobile and test.support.on_github_actions,
+                     "gh-140702: Test fails regularly on iOS simulator on GitHub Actions")
     def test_UnixDatagramServer(self):
         self.run_server(socketserver.UnixDatagramServer,
                         socketserver.DatagramRequestHandler,
                         self.dgram_examine)
 
     @requires_unix_sockets
+    @unittest.skipIf(test.support.is_apple_mobile and test.support.on_github_actions,
+                     "gh-140702: Test fails regularly on iOS simulator on GitHub Actions")
     def test_ThreadingUnixDatagramServer(self):
         self.run_server(socketserver.ThreadingUnixDatagramServer,
                         socketserver.DatagramRequestHandler,

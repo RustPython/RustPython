@@ -250,8 +250,8 @@ class TestSpecifics(unittest.TestCase):
             d = -281474976710656  # 1 << 48
             e = +4611686018427387904  # 1 << 62
             f = -4611686018427387904  # 1 << 62
-            g = +9223372036854775807  # 1 << 63 - 1
-            h = -9223372036854775807  # 1 << 63 - 1
+            g = +9223372036854775807  # (1 << 63) - 1
+            h = -9223372036854775807  # (1 << 63) - 1
 
             for variable in self.test_32_63_bit_values.__code__.co_consts:
                 if variable is not None:
@@ -647,7 +647,6 @@ class TestSpecifics(unittest.TestCase):
         d = {f(): f(), f(): f()}
         self.assertEqual(d, {1: 2, 3: 4})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised
     def test_compile_filename(self):
         for filename in 'file.py', b'file.py':
             code = compile('pass', filename, 'exec')
@@ -657,7 +656,6 @@ class TestSpecifics(unittest.TestCase):
                 compile('pass', filename, 'exec')
         self.assertRaises(TypeError, compile, 'pass', list(b'file.py'), 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type bool, not EvilBool
     def test_compile_filename_refleak(self):
         # Regression tests for reference leak in PyUnicode_FSDecoder.
         # See https://github.com/python/cpython/issues/139748.
@@ -999,7 +997,6 @@ class TestSpecifics(unittest.TestCase):
                         dis.dis(code)
                     self.assertNotIn('NOP', output.getvalue())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: unable to find constant -0.0 in (0.0,)
     def test_dont_merge_constants(self):
         # Issue #25843: compile() must not merge constants which are equal
         # but have a different type.
@@ -1084,7 +1081,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertEqual('RETURN_VALUE', opcodes[-1].opname)
             self.assertEqual(None, opcodes[-1].argval)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 3 != 8
     def test_false_while_loop(self):
         def break_in_while():
             while False:
@@ -1103,7 +1099,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertEqual('RETURN_VALUE', opcodes[-1].opname)
             self.assertEqual(None, opcodes[1].argval)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_consts_in_conditionals(self):
         def and_true(x):
             return True and x
@@ -1161,7 +1156,6 @@ class TestSpecifics(unittest.TestCase):
                 self.assertIn('LOAD_ATTR', instructions)
                 self.assertIn('CALL', instructions)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LOAD_SMALL_INT' not found in ['RESUME', 'LOAD_CONST', 'RETURN_VALUE']
     def test_folding_type_param(self):
         get_code_fn_cls = lambda x: x.co_consts[0].co_consts[2]
         get_code_type_alias = lambda x: x.co_consts[0].co_consts[3]
@@ -1195,7 +1189,6 @@ class TestSpecifics(unittest.TestCase):
         line1 = call.__code__.co_firstlineno + 1
         assert line1 not in [line for (_, _, line) in call.__code__.co_lines()]
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_after_implicit_return(self):
         TRUE = True
         # Don't use constant True or False, as compiler will remove test
@@ -1256,7 +1249,6 @@ class TestSpecifics(unittest.TestCase):
                 last_line = line
         return res
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_attribute(self):
         def load_attr():
             return (
@@ -1301,7 +1293,6 @@ class TestSpecifics(unittest.TestCase):
                 code_lines = self.get_code_lines(func.__code__)
                 self.assertEqual(lines, code_lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [0]
     def test_line_number_genexp(self):
 
         def return_genexp():
@@ -2497,7 +2488,6 @@ class TestStaticAttributes(unittest.TestCase):
         self.assertIsInstance(C.__static_attributes__, tuple)
         self.assertEqual(sorted(C.__static_attributes__), ['a', 'b'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object 'C' has no attribute '__static_attributes__'
     def test_nested_function(self):
         class C:
             def f(self):
@@ -2578,22 +2568,18 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_binop(self):
         self.check_stack_size("x + " * self.N + "x")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 not less than or equal to 6
     def test_list(self):
         self.check_stack_size("[" + "x, " * self.N + "x]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 not less than or equal to 6
     def test_tuple(self):
         self.check_stack_size("(" + "x, " * self.N + "x)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 not less than or equal to 6
     def test_set(self):
         self.check_stack_size("{" + "x, " * self.N + "x}")
 
     def test_dict(self):
         self.check_stack_size("{" + "x:x, " * self.N + "x:x}")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 102 not less than or equal to 6
     def test_func_args(self):
         self.check_stack_size("f(" + "x, " * self.N + ")")
 
@@ -2601,7 +2587,6 @@ class TestExpressionStackSize(unittest.TestCase):
         kwargs = (f'a{i}=x' for i in range(self.N))
         self.check_stack_size("f(" +  ", ".join(kwargs) + ")")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 102 not less than or equal to 6
     def test_meth_args(self):
         self.check_stack_size("o.m(" + "x, " * self.N + ")")
 

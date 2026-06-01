@@ -34,6 +34,7 @@ fn create_exception_group(ctx: &Context) -> PyRef<PyType> {
     .expect("Failed to create ExceptionGroup type with multiple inheritance")
 }
 
+#[must_use]
 pub fn exception_group() -> &'static Py<PyType> {
     ::rustpython_vm::common::static_cell! {
         static CELL: ::rustpython_vm::builtins::PyTypeRef;
@@ -113,7 +114,7 @@ pub(super) mod types {
             }
 
             if !modified {
-                return Ok(zelf.clone().into());
+                return Ok(zelf.into());
             }
 
             if matching.is_empty() {
@@ -211,12 +212,14 @@ pub(super) mod types {
 
             let mut result = Wtf8Buf::new();
             write!(result, "{class_name}(").unwrap();
-            let message_wtf8: &Wtf8 = message.as_ref().map_or("''".as_ref(), |s| s.as_wtf8());
+            let message_wtf8: &Wtf8 = message
+                .as_ref()
+                .map_or_else(|| "''".as_ref(), |s| s.as_wtf8());
             result.push_wtf8(message_wtf8);
             result.push_str(", [");
             if let Some(exceptions_obj) = zelf.get_arg(1) {
                 let iter: ArgIterable<PyObjectRef> =
-                    ArgIterable::try_from_object(vm, exceptions_obj.clone())?;
+                    ArgIterable::try_from_object(vm, exceptions_obj)?;
                 let mut first = true;
                 for exc in iter.iter(vm)? {
                     if !first {
@@ -286,8 +289,7 @@ pub(super) mod types {
             for (i, exc) in exceptions.iter().enumerate() {
                 if !exc.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
                     return Err(vm.new_value_error(format!(
-                        "Item {} of second argument (exceptions) is not an exception",
-                        i
+                        "Item {i} of second argument (exceptions) is not an exception"
                     )));
                 }
                 // Check if any exception is not an Exception subclass
@@ -402,7 +404,7 @@ pub(super) mod types {
         // If it's a tuple of types
         if let Some(tuple) = condition.downcast_ref::<PyTuple>() {
             let mut types = Vec::new();
-            for item in tuple.iter() {
+            for item in tuple {
                 let typ: PyTypeRef = item.clone().try_into_value(vm).map_err(|_| {
                     vm.new_type_error(
                         "expected a function, exception type or tuple of exception types",
@@ -431,9 +433,9 @@ pub(super) mod types {
     impl ConditionMatcher {
         fn check(&self, exc: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
             match self {
-                ConditionMatcher::Type(typ) => Ok(exc.fast_isinstance(typ)),
-                ConditionMatcher::Types(types) => Ok(types.iter().any(|t| exc.fast_isinstance(t))),
-                ConditionMatcher::Callable(func) => {
+                Self::Type(typ) => Ok(exc.fast_isinstance(typ)),
+                Self::Types(types) => Ok(types.iter().any(|t| exc.fast_isinstance(t))),
+                Self::Callable(func) => {
                     let result = func.call((exc.to_owned(),), vm)?;
                     result.try_to_bool(vm)
                 }

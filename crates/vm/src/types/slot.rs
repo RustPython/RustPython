@@ -37,6 +37,7 @@ impl TypeDataSlot {
     }
 
     /// Get a reference to the data if the type matches.
+    #[must_use]
     pub fn get<T: Any + 'static>(&self) -> Option<&T> {
         if self.type_id == TypeId::of::<T>() {
             self.data.downcast_ref()
@@ -63,6 +64,7 @@ pub struct TypeDataRef<'a, T: 'static> {
 impl<'a, T: Any + 'static> TypeDataRef<'a, T> {
     /// Try to create a TypeDataRef from a read guard.
     /// Returns None if the slot is empty or contains a different type.
+    #[must_use]
     pub fn try_new(guard: PyRwLockReadGuard<'a, Option<TypeDataSlot>>) -> Option<Self> {
         PyRwLockReadGuard::try_map(guard, |opt| opt.as_ref().and_then(|slot| slot.get::<T>()))
             .ok()
@@ -86,6 +88,7 @@ pub struct TypeDataRefMut<'a, T: 'static> {
 impl<'a, T: Any + 'static> TypeDataRefMut<'a, T> {
     /// Try to create a TypeDataRefMut from a write guard.
     /// Returns None if the slot is empty or contains a different type.
+    #[must_use]
     pub fn try_new(guard: PyRwLockWriteGuard<'a, Option<TypeDataSlot>>) -> Option<Self> {
         PyRwLockWriteGuard::try_map(guard, |opt| {
             opt.as_mut().and_then(|slot| slot.get_mut::<T>())
@@ -188,6 +191,7 @@ pub struct PyTypeSlots {
 }
 
 impl PyTypeSlots {
+    #[must_use]
     pub fn new(name: &'static str, flags: PyTypeFlags) -> Self {
         Self {
             name,
@@ -196,6 +200,7 @@ impl PyTypeSlots {
         }
     }
 
+    #[must_use]
     pub fn heap_default() -> Self {
         Self {
             // init: AtomicCell::new(Some(init_wrapper)),
@@ -243,6 +248,7 @@ impl PyTypeFlags {
     // CPython: See initialization of flags in type_new.
     /// Used for types created in Python. Subclassable and are a
     /// heaptype.
+    #[must_use]
     pub const fn heap_type_flags() -> Self {
         match Self::from_bits(Self::DEFAULT.bits() | Self::HEAPTYPE.bits() | Self::BASETYPE.bits())
         {
@@ -251,11 +257,13 @@ impl PyTypeFlags {
         }
     }
 
+    #[must_use]
     pub const fn has_feature(self, flag: Self) -> bool {
         self.contains(flag)
     }
 
     #[cfg(debug_assertions)]
+    #[must_use]
     pub const fn is_created_with_flags(self) -> bool {
         self.contains(Self::_CREATED_WITH_FLAGS)
     }
@@ -491,8 +499,7 @@ fn hash_wrapper(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyHash> {
     let big_int = py_int.as_bigint();
     let hash = big_int
         .to_i64()
-        .map(fix_sentinel)
-        .unwrap_or_else(|| hash_bigint(big_int));
+        .map_or_else(|| hash_bigint(big_int), fix_sentinel);
     Ok(hash)
 }
 
@@ -572,7 +579,8 @@ fn bool_wrapper(num: PyNumber<'_>, vm: &VirtualMachine) -> PyResult<bool> {
     Ok(crate::builtins::bool_::get_value(&result))
 }
 
-// PyObject_SelfIter in CPython
+/// PyObject_SelfIter in CPython
+#[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
 const fn self_iter(zelf: PyObjectRef, _vm: &VirtualMachine) -> PyResult {
     Ok(zelf)
 }
@@ -670,7 +678,7 @@ impl PyType {
             let Some(subclass) = weak_ref.upgrade() else {
                 continue;
             };
-            let Some(subclass) = subclass.downcast_ref::<PyType>() else {
+            let Some(subclass) = subclass.downcast_ref::<Self>() else {
                 continue;
             };
 
@@ -1394,12 +1402,10 @@ impl PyType {
             SlotAccessor::SqLength => {
                 update_sub_slot!(as_sequence, length, sequence_len_wrapper, SeqLength)
             }
-            SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat => {
+            SlotAccessor::SqConcat | SlotAccessor::SqInplaceConcat if !ADD => {
                 // Sequence concat uses sq_concat slot - no generic wrapper needed
                 // (handled by number protocol fallback)
-                if !ADD {
-                    accessor.inherit_from_mro(self);
-                }
+                accessor.inherit_from_mro(self);
             }
             SlotAccessor::SqRepeat => {
                 update_sub_slot!(as_sequence, repeat, sequence_repeat_wrapper, SeqRepeat)
@@ -1521,14 +1527,14 @@ impl PyType {
         use crate::builtins::descriptor::PyWrapper;
 
         // Helper to check if a class is a subclass of another by checking MRO
-        let is_subclass_of = |subclass_mro: &[PyRef<PyType>], superclass: &Py<PyType>| -> bool {
+        let is_subclass_of = |subclass_mro: &[PyRef<Self>], superclass: &Py<Self>| -> bool {
             subclass_mro.iter().any(|c| c.is(superclass))
         };
 
         // Helper to extract slot from an attribute if it's a wrapper descriptor
         // and the wrapper's type is compatible with the given class.
         // bpo-37619: wrapper descriptor from wrong class should not be used directly.
-        let try_extract = |attr: &PyObjectRef, for_class_mro: &[PyRef<PyType>]| -> Option<T> {
+        let try_extract = |attr: &PyObjectRef, for_class_mro: &[PyRef<Self>]| -> Option<T> {
             if attr.class().is(ctx.types.wrapper_descriptor_type) {
                 attr.downcast_ref::<PyWrapper>().and_then(|wrapper| {
                     // Only extract slot if for_class is a subclass of wrapper.typ
@@ -1658,8 +1664,7 @@ pub trait Initializer: PyPayload {
                             == 2;
                         if double_appearance {
                             panic!(
-                                "This type `{}` doesn't seem to support `init`. Override `slot_init` instead: {}",
-                                class_name_for_debug, msg
+                                "This type `{class_name_for_debug}` doesn't seem to support `init`. Override `slot_init` instead: {msg}"
                             );
                         }
                     }
@@ -1864,6 +1869,7 @@ impl PyComparisonOp {
         }
     }
 
+    #[must_use]
     pub fn eval_ord(self, ord: Ordering) -> bool {
         match self {
             Self::Lt => ord == Ordering::Less,
@@ -1875,6 +1881,7 @@ impl PyComparisonOp {
         }
     }
 
+    #[must_use]
     pub const fn swapped(self) -> Self {
         match self {
             Self::Lt => Self::Gt,
@@ -1897,6 +1904,7 @@ impl PyComparisonOp {
         }
     }
 
+    #[must_use]
     pub const fn operator_token(self) -> &'static str {
         match self {
             Self::Lt => "<",
@@ -1989,6 +1997,7 @@ pub trait AsMapping: PyPayload {
     fn as_mapping() -> &'static PyMappingMethods;
 
     #[inline]
+    #[must_use]
     fn mapping_downcast(mapping: PyMapping<'_>) -> &Py<Self> {
         unsafe { mapping.obj.downcast_unchecked_ref() }
     }
@@ -2003,6 +2012,7 @@ pub trait AsSequence: PyPayload {
     fn as_sequence() -> &'static PySequenceMethods;
 
     #[inline]
+    #[must_use]
     fn sequence_downcast(seq: PySequence<'_>) -> &Py<Self> {
         unsafe { seq.obj.downcast_unchecked_ref() }
     }
@@ -2027,6 +2037,7 @@ pub trait AsNumber: PyPayload {
     }
 
     #[inline]
+    #[must_use]
     fn number_downcast(num: PyNumber<'_>) -> &Py<Self> {
         unsafe { num.obj.downcast_unchecked_ref() }
     }

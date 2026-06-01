@@ -133,6 +133,8 @@ impl Node for ast::Expr {
             let interpolation =
                 string::TStringInterpolation::ast_from_object(vm, source_file, object)?;
             return string::interpolation_to_expr(vm, interpolation);
+        } else if vm.is_none(&object) {
+            return Err(vm.new_value_error("None disallowed in expression list"));
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of expr, but got {}",
@@ -800,7 +802,7 @@ impl Node for ast::ExprYieldFrom {
             value: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "value", "YieldFrom")?,
+                get_node_field_required(vm, &object, "value", "YieldFrom")?,
             )?,
             range: range_from_object(vm, source_file, object, "YieldFrom")?,
         })
@@ -1314,12 +1316,12 @@ impl Node for ast::Comprehension {
             target: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "target", "comprehension")?,
+                get_node_field_required(vm, &object, "target", "comprehension")?,
             )?,
             iter: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "iter", "comprehension")?,
+                get_node_field_required(vm, &object, "iter", "comprehension")?,
             )?,
             ifs: Node::ast_from_object(
                 vm,

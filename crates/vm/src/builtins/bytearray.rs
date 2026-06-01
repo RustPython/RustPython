@@ -46,7 +46,7 @@ pub struct PyByteArray {
     exports: AtomicUsize,
 }
 
-pub type PyByteArrayRef = PyRef<PyByteArray>;
+pub(crate) type PyByteArrayRef = PyRef<PyByteArray>;
 
 impl From<PyBytesInner> for PyByteArray {
     fn from(inner: PyBytesInner) -> Self {
@@ -856,7 +856,7 @@ impl Representable for PyByteArray {
 
 #[pyclass(module = false, name = "bytearray_iterator")]
 #[derive(Debug)]
-pub struct PyByteArrayIterator {
+pub(crate) struct PyByteArrayIterator {
     internal: PyMutex<PositionIterInternal<PyByteArrayRef>>,
 }
 

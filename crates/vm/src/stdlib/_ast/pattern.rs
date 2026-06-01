@@ -34,7 +34,7 @@ impl Node for ast::MatchCase {
             pattern: Node::ast_from_object(
                 vm,
                 source_file,
-                get_node_field(vm, &object, "pattern", "match_case")?,
+                get_node_field_required(vm, &object, "pattern", "match_case")?,
             )?,
             guard: get_node_field_opt(vm, &object, "guard")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
@@ -201,9 +201,9 @@ impl Node for ast::PatternMatchSingleton {
 impl Node for ast::Singleton {
     fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         match self {
-            ast::Singleton::None => vm.ctx.none(),
-            ast::Singleton::True => vm.ctx.new_bool(true).into(),
-            ast::Singleton::False => vm.ctx.new_bool(false).into(),
+            Self::None => vm.ctx.none(),
+            Self::True => vm.ctx.new_bool(true).into(),
+            Self::False => vm.ctx.new_bool(false).into(),
         }
     }
 
@@ -213,11 +213,11 @@ impl Node for ast::Singleton {
         object: PyObjectRef,
     ) -> PyResult<Self> {
         if vm.is_none(&object) {
-            Ok(ast::Singleton::None)
+            Ok(Self::None)
         } else if object.is(&vm.ctx.true_value) {
-            Ok(ast::Singleton::True)
+            Ok(Self::True)
         } else if object.is(&vm.ctx.false_value) {
-            Ok(ast::Singleton::False)
+            Ok(Self::False)
         } else {
             Err(vm.new_value_error(format!(
                 "Expected None, True, or False, got {:?}",

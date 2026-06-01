@@ -6,13 +6,13 @@ use lock_api::{
     RwLockReadGuard, RwLockUpgradableReadGuard, RwLockWriteGuard,
 };
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "threading")] {
+cfg_select! {
+    feature = "threading" => {
         pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
-
         pub use std::sync::OnceLock as OnceCell;
         pub use core::cell::LazyCell;
-    } else {
+    }
+    _ => {
         mod cell_lock;
         pub use cell_lock::{RawCellMutex as RawMutex, RawCellRwLock as RawRwLock, SingleThreadId as RawThreadId};
 
@@ -23,10 +23,11 @@ cfg_if::cfg_if! {
 // LazyLock: uses std::sync::LazyLock when std is available (even without
 // threading, because Rust test runner uses parallel threads).
 // Without std, uses a LazyCell wrapper (truly single-threaded only).
-cfg_if::cfg_if! {
-    if #[cfg(any(feature = "threading", feature = "std"))] {
+cfg_select! {
+    any(feature = "threading", feature = "std") => {
         pub use std::sync::LazyLock;
-    } else {
+    }
+    _ => {
         pub struct LazyLock<T, F = fn() -> T>(core::cell::LazyCell<T, F>);
         // SAFETY: This branch is only active when both "std" and "threading"
         // features are absent — i.e., truly single-threaded no_std environments

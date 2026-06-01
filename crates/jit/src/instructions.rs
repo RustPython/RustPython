@@ -29,32 +29,32 @@ enum JitValue {
     Bool(Value),
     None,
     Null,
-    Tuple(Vec<JitValue>),
+    Tuple(Vec<Self>),
     FuncRef(FuncRef),
 }
 
 impl JitValue {
-    fn from_type_and_value(ty: JitType, val: Value) -> JitValue {
+    fn from_type_and_value(ty: JitType, val: Value) -> Self {
         match ty {
-            JitType::Int => JitValue::Int(val),
-            JitType::Float => JitValue::Float(val),
-            JitType::Bool => JitValue::Bool(val),
+            JitType::Int => Self::Int(val),
+            JitType::Float => Self::Float(val),
+            JitType::Bool => Self::Bool(val),
         }
     }
 
     fn to_jit_type(&self) -> Option<JitType> {
         match self {
-            JitValue::Int(_) => Some(JitType::Int),
-            JitValue::Float(_) => Some(JitType::Float),
-            JitValue::Bool(_) => Some(JitType::Bool),
-            JitValue::None | JitValue::Null | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
+            Self::Int(_) => Some(JitType::Int),
+            Self::Float(_) => Some(JitType::Float),
+            Self::Bool(_) => Some(JitType::Bool),
+            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
 
     fn into_value(self) -> Option<Value> {
         match self {
-            JitValue::Int(val) | JitValue::Float(val) | JitValue::Bool(val) => Some(val),
-            JitValue::None | JitValue::Null | JitValue::Tuple(_) | JitValue::FuncRef(_) => None,
+            Self::Int(val) | Self::Float(val) | Self::Bool(val) => Some(val),
+            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
 }
@@ -65,7 +65,7 @@ struct DDValue {
     lo: Value,
 }
 
-pub struct FunctionCompiler<'a, 'b> {
+pub(crate) struct FunctionCompiler<'a, 'b> {
     builder: &'a mut FunctionBuilder<'b>,
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
@@ -74,14 +74,14 @@ pub struct FunctionCompiler<'a, 'b> {
 }
 
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
-    pub fn new(
+    pub(crate) fn new(
         builder: &'a mut FunctionBuilder<'b>,
         num_variables: usize,
         arg_types: &[JitType],
         ret_type: Option<JitType>,
         entry_block: Block,
-    ) -> FunctionCompiler<'a, 'b> {
-        let mut compiler = FunctionCompiler {
+    ) -> Self {
+        let mut compiler = Self {
             builder,
             stack: Vec::new(),
             variables: vec![None; num_variables].into_boxed_slice(),
@@ -204,7 +204,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(target)
     }
 
-    pub fn compile<C: bytecode::Constant>(
+    pub(crate) fn compile<C: bytecode::Constant>(
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
@@ -350,7 +350,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(())
     }
 
-    pub fn add_instruction<C: bytecode::Constant>(
+    pub(crate) fn add_instruction<C: bytecode::Constant>(
         &mut self,
         func_ref: FuncRef,
         bytecode: &CodeObject<C>,
@@ -580,10 +580,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let b_type: Option<JitType> = b.to_jit_type();
 
                 match (a, b) {
-                    (JitValue::Int(a), JitValue::Int(b))
-                    | (JitValue::Bool(a), JitValue::Bool(b))
-                    | (JitValue::Bool(a), JitValue::Int(b))
-                    | (JitValue::Int(a), JitValue::Bool(b)) => {
+                    (
+                        JitValue::Int(a) | JitValue::Bool(a),
+                        JitValue::Int(b) | JitValue::Bool(b),
+                    ) => {
                         let operand_one = match a_type.unwrap() {
                             JitType::Bool => self.builder.ins().uextend(types::I64, a),
                             _ => a,
@@ -735,6 +735,20 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             Instruction::StoreFast { var_num } => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
                 self.store_variable(var_num.get(arg), val)
+            }
+            Instruction::StoreFastLoadFast { var_nums } => {
+                let oparg = var_nums.get(arg);
+                let (store_idx, load_idx) = oparg.indexes();
+                let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
+                self.store_variable(store_idx, val)?;
+                let local = self.variables[load_idx]
+                    .as_ref()
+                    .ok_or(JitCompileError::BadBytecode)?;
+                self.stack.push(JitValue::from_type_and_value(
+                    local.ty.clone(),
+                    self.builder.use_var(local.var),
+                ));
+                Ok(())
             }
             Instruction::StoreFastStoreFast { var_nums } => {
                 let oparg = var_nums.get(arg);

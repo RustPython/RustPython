@@ -366,3 +366,38 @@ class SubInt(int):
 subint = int.__new__(SubInt, 11)
 assert subint.real is not subint
 assert type(subint.real) is int
+
+
+# sys.set_int_max_str_digits enforced on int → str conversions (PEP 644).
+# Decimal paths (str, repr, f-string, %d, format(d/n/empty)) raise ValueError;
+# binary bases ('x', 'o', 'b') are exempt.
+import sys
+
+_orig_limit = sys.get_int_max_str_digits()
+try:
+    sys.set_int_max_str_digits(4000)
+    huge = 10**4001  # 4002 decimal digits, well over the limit
+
+    for fn in [
+        lambda: str(huge),
+        lambda: repr(huge),
+        lambda: f"{huge}",
+        lambda: "%d" % huge,
+        lambda: b"%d" % huge,
+        lambda: format(huge, ""),
+        lambda: format(huge, "d"),
+        lambda: format(huge, ",d"),
+    ]:
+        with assert_raises(ValueError):
+            fn()
+
+    # Binary bases must NOT raise.
+    assert format(huge, "x")
+    assert format(huge, "o")
+    assert format(huge, "b")
+
+    # Limit disabled: no check.
+    sys.set_int_max_str_digits(0)
+    assert str(huge)
+finally:
+    sys.set_int_max_str_digits(_orig_limit)

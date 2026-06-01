@@ -286,7 +286,6 @@ class SliceTest(unittest.TestCase):
         self.assertIsNot(s.stop, c.stop)
         self.assertIsNot(s.step, c.step)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_cycle(self):
         class myobj(): pass
         o = myobj()

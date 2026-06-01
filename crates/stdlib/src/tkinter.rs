@@ -1,3 +1,8 @@
+#![allow(
+    clippy::disallowed_methods,
+    reason = "tkinter environment setup still uses direct host APIs until later extraction"
+)]
+
 // spell-checker:ignore createcommand
 
 pub(crate) use self::_tkinter::module_def;
@@ -75,6 +80,7 @@ mod _tkinter {
     static QUIT_MAIN_LOOP: AtomicBool = AtomicBool::new(false);
     static ERROR_IN_CMD: AtomicBool = AtomicBool::new(false);
 
+    #[expect(dead_code, reason = "TODO: Impl more methods")]
     #[pyattr]
     #[pyclass(name = "tkapp")]
     #[derive(PyPayload)]
@@ -149,8 +155,9 @@ mod _tkinter {
         // }
 
         // str
-        if let Some(str) = obj.downcast_ref::<PyStr>() {
-            return Ok(str.as_str().to_string());
+
+        if let Some(varname) = obj.downcast_ref::<PyStr>().map(|s| s.to_string()) {
+            return Ok(varname);
         }
 
         if let Some(_tcl_obj) = obj.downcast_ref::<TclObject>() {
@@ -162,7 +169,7 @@ mod _tkinter {
         // Construct an error message using the type name (truncated to 50 characters).
         Err(vm.new_type_error(format!(
             "must be str, bytes or Tcl_Obj, not {:.50}",
-            obj.obj_type().str(vm)?.as_str()
+            obj.class().name(),
         )))
     }
 

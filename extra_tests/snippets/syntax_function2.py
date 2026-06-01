@@ -104,3 +104,9 @@ def f9():
     pass
 
 assert f9.__doc__ == None
+
+try:
+    del f9.__dict__
+    assert False, "TypeError expected for function dict deletion"
+except TypeError:
+    pass

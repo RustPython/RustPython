@@ -237,7 +237,6 @@ class TestPredicates(IsTestBase):
 
         self.assertFalse(inspect.ispackage(FakePackage()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_iscoroutine(self):
         async_gen_coro = async_generator_function_example(1)
         gen_coro = gen_coroutine_function_example(1)
@@ -888,7 +887,6 @@ class TestRetrievingSourceCode(GetSourceBase):
         self.assertRaises(OSError, inspect.getsourcelines, A)
         self.assertIsNone(inspect.getcomments(A))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by getsource
     def test_getsource_on_class_without_firstlineno(self):
         __firstlineno__ = 1
         class C:
@@ -961,7 +959,6 @@ class TestGettingSourceOfToplevelFrames(GetSourceBase):
 class TestDecorators(GetSourceBase):
     fodderModule = mod2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; pass
     def test_wrapped_decorator(self):
         self.assertSourceEqual(mod2.wrapped, 14, 17)
 
@@ -1162,7 +1159,6 @@ class TestBuggyCases(GetSourceBase):
         self.assertSourceEqual(mod2.cls183, 183, 188)
         self.assertSourceEqual(mod2.cls183.cls185, 185, 188)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; pass
     def test_class_decorator(self):
         self.assertSourceEqual(mod2.cls196, 194, 201)
         self.assertSourceEqual(mod2.cls196.cls200, 198, 201)
@@ -1259,7 +1255,6 @@ class TestNoEOL(GetSourceBase):
 class TestComplexDecorator(GetSourceBase):
     fodderModule = mod2
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; return foo + bar()
     def test_parens_in_decorator(self):
         self.assertSourceEqual(self.fodderModule.complex_decorated, 273, 275)
 
@@ -6236,8 +6231,7 @@ class TestSignatureDefinitions(unittest.TestCase):
     def test_os_module_has_signatures(self):
         unsupported_signature = {'chmod', 'utime'}
         unsupported_signature |= {name for name in
-            ['get_terminal_size', 'link', 'posix_spawn', 'posix_spawnp',
-             'register_at_fork', 'startfile']
+            ['get_terminal_size', 'link', 'register_at_fork', 'startfile']
             if hasattr(os, name)}
         self._test_module_has_signatures(os, unsupported_signature=unsupported_signature)
 

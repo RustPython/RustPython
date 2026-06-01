@@ -5,152 +5,20 @@ mod _opcode {
     use crate::vm::{
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef},
-        bytecode::{AnyInstruction, Instruction, InstructionMetadata, PseudoInstruction},
+        bytecode::{AnyOpcode, oparg},
     };
-    use core::ops::Deref;
 
-    #[derive(Clone, Copy)]
-    struct Opcode(AnyInstruction);
-
-    impl Deref for Opcode {
-        type Target = AnyInstruction;
-
-        fn deref(&self) -> &Self::Target {
-            &self.0
-        }
-    }
-
-    impl TryFrom<i32> for Opcode {
-        type Error = ();
-
-        fn try_from(value: i32) -> Result<Self, Self::Error> {
-            Ok(Self(
-                u16::try_from(value)
-                    .map_err(|_| ())?
-                    .try_into()
-                    .map_err(|_| ())?,
-            ))
-        }
-    }
-
-    impl Opcode {
-        // https://github.com/python/cpython/blob/v3.14.2/Include/opcode_ids.h#L252
-        const HAVE_ARGUMENT: i32 = 43;
-
-        pub fn try_from_pyint(raw: PyIntRef, vm: &VirtualMachine) -> PyResult<Self> {
-            let instruction = raw
-                .try_to_primitive::<u16>(vm)
-                .and_then(|v| {
-                    AnyInstruction::try_from(v).map_err(|_| {
-                        vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned())
-                    })
-                })
-                .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
-
-            Ok(Self(instruction))
-        }
-
-        const fn inner(self) -> AnyInstruction {
-            self.0
-        }
-
-        /// Check if opcode is valid (can be converted to an AnyInstruction)
-        #[must_use]
-        pub fn is_valid(opcode: i32) -> bool {
-            Self::try_from(opcode).is_ok()
-        }
-
-        /// Check if instruction has an argument
-        #[must_use]
-        pub fn has_arg(opcode: i32) -> bool {
-            Self::is_valid(opcode) && opcode > Self::HAVE_ARGUMENT
-        }
-
-        /// Check if instruction uses co_consts
-        #[must_use]
-        pub fn has_const(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(Instruction::LoadConst { .. }))
-            )
-        }
-
-        /// Check if instruction uses co_names
-        #[must_use]
-        pub fn has_name(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::DeleteAttr { .. }
-                        | Instruction::DeleteGlobal { .. }
-                        | Instruction::DeleteName { .. }
-                        | Instruction::ImportFrom { .. }
-                        | Instruction::ImportName { .. }
-                        | Instruction::LoadAttr { .. }
-                        | Instruction::LoadGlobal { .. }
-                        | Instruction::LoadName { .. }
-                        | Instruction::StoreAttr { .. }
-                        | Instruction::StoreGlobal { .. }
-                        | Instruction::StoreName { .. }
-                ))
-            )
-        }
-
-        /// Check if instruction is a jump
-        #[must_use]
-        pub fn has_jump(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::ForIter { .. }
-                        | Instruction::PopJumpIfFalse { .. }
-                        | Instruction::PopJumpIfTrue { .. }
-                        | Instruction::Send { .. }
-                ) | AnyInstruction::Pseudo(PseudoInstruction::Jump { .. }))
-            )
-        }
-
-        /// Check if instruction uses co_freevars/co_cellvars
-        #[must_use]
-        pub fn has_free(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::DeleteDeref { .. }
-                        | Instruction::LoadFromDictOrDeref { .. }
-                        | Instruction::LoadDeref { .. }
-                        | Instruction::StoreDeref { .. }
-                ))
-            )
-        }
-
-        /// Check if instruction uses co_varnames (local variables)
-        #[must_use]
-        pub fn has_local(opcode: i32) -> bool {
-            matches!(
-                Self::try_from(opcode).map(|op| op.inner()),
-                Ok(AnyInstruction::Real(
-                    Instruction::DeleteFast { .. }
-                        | Instruction::LoadFast { .. }
-                        | Instruction::LoadFastAndClear { .. }
-                        | Instruction::StoreFast { .. }
-                        | Instruction::StoreFastLoadFast { .. }
-                ))
-            )
-        }
-
-        /// Check if instruction has exception info
-        #[must_use]
-        pub fn has_exc(_opcode: i32) -> bool {
-            // No instructions have exception info in RustPython
-            // (exception handling is done via exception table)
-            false
-        }
+    fn try_from_i32(raw: i32) -> Result<AnyOpcode, ()> {
+        u16::try_from(raw)
+            .map_err(|_| ())?
+            .try_into()
+            .map_err(|_| ())
     }
 
     // prepare specialization
     #[pyattr]
     const ENABLE_SPECIALIZATION: i8 = 1;
+
     #[pyattr]
     const ENABLE_SPECIALIZATION_FT: i8 = 1;
 
@@ -166,181 +34,296 @@ mod _opcode {
 
     #[pyfunction]
     fn stack_effect(args: StackEffectArgs, vm: &VirtualMachine) -> PyResult<i32> {
-        let oparg = args
-            .oparg
-            .map(|v| {
-                if !v.fast_isinstance(vm.ctx.types.int_type) {
-                    return Err(vm.new_type_error(format!(
+        let oparg = args.oparg.map_or(Ok(0), |v| {
+            if !v.fast_isinstance(vm.ctx.types.int_type) {
+                return Err(vm.new_type_error(format!(
+                    "'{}' object cannot be interpreted as an integer",
+                    v.class().name()
+                )));
+            }
+            v.downcast_ref::<PyInt>()
+                .ok_or_else(|| {
+                    vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         v.class().name()
-                    )));
+                    ))
+                })?
+                .try_to_primitive::<u32>(vm)
+        })?;
+
+        let jump: Option<bool> = match args.jump {
+            Some(v) => {
+                if vm.is_none(&v) {
+                    None
+                } else {
+                    Some(v.try_to_bool(vm).map_err(|_| {
+                        vm.new_value_error("stack_effect: jump must be False, True or None")
+                    })?)
                 }
-                v.downcast_ref::<PyInt>()
-                    .ok_or_else(|| {
-                        vm.new_type_error(format!(
-                            "'{}' object cannot be interpreted as an integer",
-                            v.class().name()
-                        ))
-                    })?
-                    .try_to_primitive::<u32>(vm)
-            })
-            .unwrap_or(Ok(0))?;
+            }
+            None => None,
+        };
 
-        let jump = args
-            .jump
-            .map(|v| {
-                v.try_to_bool(vm).map_err(|_| {
-                    vm.new_value_error("stack_effect: jump must be False, True or None")
-                })
+        let instr = args
+            .opcode
+            .try_to_primitive::<u16>(vm)
+            .and_then(|v| {
+                AnyOpcode::try_from(v)
+                    .map_err(|_| vm.new_exception_empty(vm.ctx.exceptions.value_error.to_owned()))
             })
-            .unwrap_or(Ok(false))?;
-
-        let opcode = Opcode::try_from_pyint(args.opcode, vm)?;
+            .map_err(|_| vm.new_value_error("invalid opcode or oparg"))?;
 
         // Raise ValueError if specialized.
-        if opcode.inner().real().is_some_and(|op| op.deopt().is_some()) {
+        if instr.real().is_some_and(|op| op.deopt().is_some()) {
             return Err(vm.new_value_error("invalid opcode or oparg"));
         }
 
-        let _ = jump; // Python API accepts jump but it's not used
-        Ok(opcode.stack_effect(oparg))
+        let effect = match jump {
+            Some(true) => instr.stack_effect_jump(oparg),
+            Some(false) => instr.stack_effect(oparg),
+            // jump=None: max of both paths (CPython convention)
+            None => instr
+                .stack_effect(oparg)
+                .max(instr.stack_effect_jump(oparg)),
+        };
+        Ok(effect)
     }
 
     #[pyfunction]
     fn is_valid(opcode: i32) -> bool {
-        Opcode::is_valid(opcode)
+        try_from_i32(opcode).is_ok()
     }
 
     #[pyfunction]
     fn has_arg(opcode: i32) -> bool {
-        Opcode::has_arg(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.has_arg())
     }
 
     #[pyfunction]
     fn has_const(opcode: i32) -> bool {
-        Opcode::has_const(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.has_const())
     }
 
     #[pyfunction]
     fn has_name(opcode: i32) -> bool {
-        Opcode::has_name(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.has_name())
     }
 
     #[pyfunction]
     fn has_jump(opcode: i32) -> bool {
-        Opcode::has_jump(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.has_jump())
     }
 
     #[pyfunction]
     fn has_free(opcode: i32) -> bool {
-        Opcode::has_free(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.has_free())
     }
 
     #[pyfunction]
     fn has_local(opcode: i32) -> bool {
-        Opcode::has_local(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.has_local())
     }
 
     #[pyfunction]
     fn has_exc(opcode: i32) -> bool {
-        Opcode::has_exc(opcode)
+        try_from_i32(opcode).is_ok_and(|op| op.is_block_push())
     }
 
     #[pyfunction]
     fn get_intrinsic1_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            "INTRINSIC_1_INVALID",
-            "INTRINSIC_PRINT",
-            "INTRINSIC_IMPORT_STAR",
-            "INTRINSIC_STOPITERATION_ERROR",
-            "INTRINSIC_ASYNC_GEN_WRAP",
-            "INTRINSIC_UNARY_POSITIVE",
-            "INTRINSIC_LIST_TO_TUPLE",
-            "INTRINSIC_TYPEVAR",
-            "INTRINSIC_PARAMSPEC",
-            "INTRINSIC_TYPEVARTUPLE",
-            "INTRINSIC_SUBSCRIPT_GENERIC",
-            "INTRINSIC_TYPEALIAS",
-        ]
-        .into_iter()
-        .map(|x| vm.ctx.new_str(x).into())
-        .collect()
-    }
-
-    #[pyfunction]
-    fn get_intrinsic2_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            "INTRINSIC_2_INVALID",
-            "INTRINSIC_PREP_RERAISE_STAR",
-            "INTRINSIC_TYPEVAR_WITH_BOUND",
-            "INTRINSIC_TYPEVAR_WITH_CONSTRAINTS",
-            "INTRINSIC_SET_FUNCTION_TYPE_PARAMS",
-            "INTRINSIC_SET_TYPEPARAM_DEFAULT",
-        ]
-        .into_iter()
-        .map(|x| vm.ctx.new_str(x).into())
-        .collect()
-    }
-
-    #[pyfunction]
-    fn get_nb_ops(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        [
-            ("NB_ADD", "+"),
-            ("NB_AND", "&"),
-            ("NB_FLOOR_DIVIDE", "//"),
-            ("NB_LSHIFT", "<<"),
-            ("NB_MATRIX_MULTIPLY", "@"),
-            ("NB_MULTIPLY", "*"),
-            ("NB_REMAINDER", "%"),
-            ("NB_OR", "|"),
-            ("NB_POWER", "**"),
-            ("NB_RSHIFT", ">>"),
-            ("NB_SUBTRACT", "-"),
-            ("NB_TRUE_DIVIDE", "/"),
-            ("NB_XOR", "^"),
-            ("NB_INPLACE_ADD", "+="),
-            ("NB_INPLACE_AND", "&="),
-            ("NB_INPLACE_FLOOR_DIVIDE", "//="),
-            ("NB_INPLACE_LSHIFT", "<<="),
-            ("NB_INPLACE_MATRIX_MULTIPLY", "@="),
-            ("NB_INPLACE_MULTIPLY", "*="),
-            ("NB_INPLACE_REMAINDER", "%="),
-            ("NB_INPLACE_OR", "|="),
-            ("NB_INPLACE_POWER", "**="),
-            ("NB_INPLACE_RSHIFT", ">>="),
-            ("NB_INPLACE_SUBTRACT", "-="),
-            ("NB_INPLACE_TRUE_DIVIDE", "/="),
-            ("NB_INPLACE_XOR", "^="),
-            ("NB_SUBSCR", "[]"),
-        ]
-        .into_iter()
-        .map(|(a, b)| {
-            vm.ctx
-                .new_tuple(vec![vm.ctx.new_str(a).into(), vm.ctx.new_str(b).into()])
-                .into()
-        })
-        .collect()
-    }
-
-    #[pyfunction]
-    fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        ["__enter__", "__exit__", "__aenter__", "__aexit__"]
-            .into_iter()
-            .map(|x| vm.ctx.new_str(x).into())
+        oparg::IntrinsicFunction1::iter()
+            .map(|x| vm.ctx.new_str(x.desc()).into())
             .collect()
     }
 
     #[pyfunction]
-    fn get_executor(
-        _code: PyObjectRef,
-        _offset: i32,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        Ok(vm.ctx.none())
+    fn get_intrinsic2_descs(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        oparg::IntrinsicFunction2::iter()
+            .map(|x| vm.ctx.new_str(x.desc()).into())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_nb_ops(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        oparg::BinaryOperator::iter()
+            .map(|x| {
+                vm.ctx
+                    .new_tuple(vec![
+                        vm.ctx.new_str(x.desc()).into(),
+                        vm.ctx.new_str(x.to_string()).into(),
+                    ])
+                    .into()
+            })
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_special_method_names(vm: &VirtualMachine) -> Vec<PyObjectRef> {
+        oparg::SpecialMethod::iter()
+            .map(|x| vm.ctx.new_str(x.to_string()).into())
+            .collect()
+    }
+
+    #[pyfunction]
+    fn get_executor(_code: PyObjectRef, _offset: i32, vm: &VirtualMachine) -> PyObjectRef {
+        // TODO
+        vm.ctx.none()
     }
 
     #[pyfunction]
     fn get_specialization_stats(vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vm::{self, compiler::Mode};
+
+    macro_rules! assert_dis_snapshot {
+        ($value:expr) => {
+            insta::assert_snapshot!(dis($value))
+        };
+    }
+
+    /// Returns the [`dis.dis`](https://docs.python.org/3/library/dis.html#dis.dis) output.
+    ///
+    /// # Notes
+    ///
+    /// Memory addresses in the output are replaced with `0xdeadbeef` for consistency.
+    fn dis(source: &str) -> String {
+        let fname = String::from("<?>");
+
+        let builder = vm::Interpreter::builder(Default::default());
+        let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
+        let interp = builder
+            .add_native_modules(&stdlib_defs)
+            .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
+            .build();
+
+        interp.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let code_obj = vm
+                .compile(source.trim(), Mode::Exec, fname.clone())
+                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
+                .unwrap();
+            scope.globals.set_item("code", code_obj.into(), vm).unwrap();
+
+            let py_source = r#"
+import dis
+import io
+import re
+import sys
+
+old_stdout = sys.stdout
+sys.stdout = buf = io.StringIO()
+dis.dis(code)
+sys.stdout = old_stdout
+
+tmp_output = buf.getvalue()
+
+# constant mem address
+output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp_output)
+"#;
+
+            let py_code_obj = vm
+                .compile(py_source, Mode::Exec, fname)
+                .map_err(|err| vm.new_syntax_error(&err, Some(py_source)))
+                .unwrap();
+
+            vm.run_code_obj(py_code_obj, scope.clone()).unwrap();
+            let py_output = scope.globals.get_item("output", vm).unwrap();
+            py_output.str(vm).unwrap().to_string()
+        })
+    }
+
+    #[test]
+    fn if_ors() {
+        assert_dis_snapshot!(
+            r#"
+if True or False or False:
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn if_ands() {
+        assert_dis_snapshot!(
+            r#"
+if True and False and False:
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn if_mixed() {
+        assert_dis_snapshot!(
+            r#"
+if (True and False) or (False and True):
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn nested_bool_op() {
+        assert_dis_snapshot!(
+            r#"
+x = Test() and False or False
+"#
+        )
+    }
+
+    #[test]
+    fn const_no_op() {
+        assert_dis_snapshot!(
+            r#"
+x = not True
+"#
+        )
+    }
+
+    #[test]
+    fn constant_true_if_pass_keeps_line_anchor_nop() {
+        assert_dis_snapshot!(
+            r#"
+if 1:
+    pass
+"#
+        )
+    }
+
+    #[test]
+    fn nested_double_async_with() {
+        assert_dis_snapshot!(
+            r#"
+async def test():
+    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):
+        with self.subTest(type=type(stop_exc)):
+            try:
+                async with egg():
+                    raise stop_exc
+            except Exception as ex:
+                self.assertIs(ex, stop_exc)
+            else:
+                self.fail(f'{stop_exc} was suppressed')
+"#
+        )
+    }
+
+    #[test]
+    fn bare_function_annotations_check_attribute_and_subscript_expressions() {
+        assert_dis_snapshot!(
+            r#"
+def f(one: int):
+    int.new_attr: int
+    [list][0].new_attr: [int, str]
+    my_lst = [1]
+    my_lst[one]: int
+    return my_lst
+"#
+        )
     }
 }

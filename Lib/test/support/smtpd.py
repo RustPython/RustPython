@@ -70,17 +70,16 @@ and if remoteport is not given, then 25 is used.
 # - Handle more ESMTP extensions
 # - handle error codes from the backend smtpd
 
-import collections
+import sys
+import os
 import errno
 import getopt
-import os
-import socket
-import sys
 import time
-from email._header_value_parser import get_addr_spec, get_angle_addr
+import socket
+import collections
+from test.support import asyncore, asynchat
 from warnings import warn
-
-from test.support import asynchat, asyncore
+from email._header_value_parser import get_addr_spec, get_angle_addr
 
 __all__ = [
     "SMTPChannel", "SMTPServer", "DebuggingServer", "PureProxy",

@@ -1,13 +1,15 @@
 //! Infamous code object. The python class `code`
 
-use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType};
+use super::{PyBytesRef, PyStrRef, PyTupleRef, PyType, set::PyFrozenSet};
 use crate::common::lock::PyMutex;
+#[cfg(feature = "host_env")]
+use crate::convert::ToPyException;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::PyStrInterned,
     bytecode::{self, AsBag, BorrowedConstant, CodeFlags, Constant, ConstantBag, Instruction},
     class::{PyClassImpl, StaticType},
-    convert::{ToPyException, ToPyObject},
+    convert::ToPyObject,
     frozen,
     function::OptionalArg,
     types::{Comparable, Constructor, Hashable, Representable},
@@ -196,7 +198,7 @@ impl From<Literal> for PyObjectRef {
 
 impl From<PyObjectRef> for Literal {
     fn from(obj: PyObjectRef) -> Self {
-        Literal(obj)
+        Self(obj)
     }
 }
 
@@ -232,6 +234,23 @@ fn borrow_obj_constant(obj: &PyObject) -> BorrowedConstant<'_, Literal> {
         }
         super::singletons::PyNone => BorrowedConstant::None,
         super::slice::PyEllipsis => BorrowedConstant::Ellipsis,
+        ref s @ super::slice::PySlice => {
+            // Constant pool slices always store Some() for start/step (even for None).
+            // Box::leak the array so it outlives the borrow. Leak is acceptable since
+            // constant pool objects live for the program's lifetime.
+            let start = s.start.clone().unwrap();
+            let stop = s.stop.clone();
+            let step = s.step.clone().unwrap();
+            let arr = Box::leak(Box::new([Literal(start), Literal(stop), Literal(step)]));
+            BorrowedConstant::Slice { elements: arr }
+        }
+        ref fs @ super::set::PyFrozenSet => {
+            // Box::leak the elements so they outlive the borrow. Leak is acceptable since
+            // constant pool objects live for the program's lifetime.
+            let elems: Vec<Literal> = fs.elements().into_iter().map(Literal).collect();
+            let elements = Box::leak(elems.into_boxed_slice());
+            BorrowedConstant::Frozenset { elements }
+        }
         _ => panic!("unexpected payload for constant python value"),
     })
 }
@@ -247,13 +266,6 @@ impl<'a> AsBag for &'a Context {
     type Bag = PyObjBag<'a>;
     fn as_bag(self) -> PyObjBag<'a> {
         PyObjBag(self)
-    }
-}
-
-impl<'a> AsBag for &'a VirtualMachine {
-    type Bag = PyObjBag<'a>;
-    fn as_bag(self) -> PyObjBag<'a> {
-        PyObjBag(&self.ctx)
     }
 }
 
@@ -283,6 +295,30 @@ impl ConstantBag for PyObjBag<'_> {
                     .collect();
                 ctx.new_tuple(elements).into()
             }
+            BorrowedConstant::Slice { elements } => {
+                let [start, stop, step] = elements;
+                let start_obj = self.make_constant(start.borrow_constant()).0;
+                let stop_obj = self.make_constant(stop.borrow_constant()).0;
+                let step_obj = self.make_constant(step.borrow_constant()).0;
+                // Store as PySlice with Some() for all fields (even None values)
+                // so borrow_obj_constant can reference them.
+                use crate::builtins::PySlice;
+                PySlice {
+                    start: Some(start_obj),
+                    stop: stop_obj,
+                    step: Some(step_obj),
+                }
+                .into_ref(ctx)
+                .into()
+            }
+            BorrowedConstant::Frozenset { elements: _ } => {
+                // Creating a frozenset requires VirtualMachine for element hashing.
+                // PyObjBag only has Context, so we cannot construct PyFrozenSet here.
+                // Frozenset constants from .pyc are handled by PyMarshalBag which has VM access.
+                unimplemented!(
+                    "frozenset constant in PyObjBag::make_constant requires VirtualMachine"
+                )
+            }
             BorrowedConstant::None => ctx.none(),
             BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
         };
@@ -307,7 +343,88 @@ impl ConstantBag for PyObjBag<'_> {
     }
 }
 
-pub type CodeObject = bytecode::CodeObject<Literal>;
+#[derive(Clone, Copy)]
+pub(crate) struct PyVmBag<'a>(pub &'a VirtualMachine);
+
+impl ConstantBag for PyVmBag<'_> {
+    type Constant = Literal;
+
+    fn make_constant<C: Constant>(&self, constant: BorrowedConstant<'_, C>) -> Self::Constant {
+        let vm = self.0;
+        let ctx = &vm.ctx;
+        let obj = match constant {
+            BorrowedConstant::Integer { value } => ctx.new_bigint(value).into(),
+            BorrowedConstant::Float { value } => ctx.new_float(value).into(),
+            BorrowedConstant::Complex { value } => ctx.new_complex(value).into(),
+            BorrowedConstant::Str { value } if value.len() <= 20 => {
+                ctx.intern_str(value).to_object()
+            }
+            BorrowedConstant::Str { value } => ctx.new_str(value).into(),
+            BorrowedConstant::Bytes { value } => ctx.new_bytes(value.to_vec()).into(),
+            BorrowedConstant::Boolean { value } => ctx.new_bool(value).into(),
+            BorrowedConstant::Code { code } => {
+                PyCode::new_ref_with_bag(vm, code.map_clone_bag(self)).into()
+            }
+            BorrowedConstant::Tuple { elements } => {
+                let elements = elements
+                    .iter()
+                    .map(|constant| self.make_constant(constant.borrow_constant()).0)
+                    .collect();
+                ctx.new_tuple(elements).into()
+            }
+            BorrowedConstant::Slice { elements } => {
+                let [start, stop, step] = elements;
+                let start_obj = self.make_constant(start.borrow_constant()).0;
+                let stop_obj = self.make_constant(stop.borrow_constant()).0;
+                let step_obj = self.make_constant(step.borrow_constant()).0;
+                use crate::builtins::PySlice;
+                PySlice {
+                    start: Some(start_obj),
+                    stop: stop_obj,
+                    step: Some(step_obj),
+                }
+                .into_ref(ctx)
+                .into()
+            }
+            BorrowedConstant::Frozenset { elements } => {
+                let elements = elements
+                    .iter()
+                    .map(|constant| self.make_constant(constant.borrow_constant()).0);
+                PyFrozenSet::from_iter(vm, elements)
+                    .unwrap()
+                    .into_ref(ctx)
+                    .into()
+            }
+            BorrowedConstant::None => ctx.none(),
+            BorrowedConstant::Ellipsis => ctx.ellipsis.clone().into(),
+        };
+
+        Literal(obj)
+    }
+
+    fn make_name(&self, name: &str) -> &'static PyStrInterned {
+        self.0.ctx.intern_str(name)
+    }
+
+    fn make_int(&self, value: BigInt) -> Self::Constant {
+        Literal(self.0.ctx.new_int(value).into())
+    }
+
+    fn make_tuple(&self, elements: impl Iterator<Item = Self::Constant>) -> Self::Constant {
+        Literal(
+            self.0
+                .ctx
+                .new_tuple(elements.map(|lit| lit.0).collect())
+                .into(),
+        )
+    }
+
+    fn make_code(&self, code: CodeObject) -> Self::Constant {
+        Literal(PyCode::new_ref_with_bag(self.0, code).into())
+    }
+}
+
+pub(crate) type CodeObject = bytecode::CodeObject<Literal>;
 
 pub trait IntoCodeObject {
     fn into_code_object(self, ctx: &Context) -> CodeObject;
@@ -386,12 +503,29 @@ impl PyCode {
             Ordering::Relaxed,
         );
     }
+
+    pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
+        PyRef::new_ref(Self::new(code), vm.ctx.types.code_type.to_owned(), None)
+    }
+
+    pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
+        Self::new_ref_with_bag(vm, code.map_bag(PyVmBag(vm)))
+    }
+
+    pub fn new_ref_from_frozen<B: AsRef<[u8]>>(
+        vm: &VirtualMachine,
+        code: frozen::FrozenCodeObject<B>,
+    ) -> PyRef<Self> {
+        Self::new_ref_with_bag(vm, code.decode(PyVmBag(vm)))
+    }
+
+    #[cfg(feature = "host_env")]
     pub fn from_pyc_path(path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
         let name = match path.file_stem() {
             Some(stem) => stem.display().to_string(),
             None => "".to_owned(),
         };
-        let content = std::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
+        let content = crate::host_env::fs::read(path).map_err(|e| e.to_pyexception(vm))?;
         Self::from_pyc(
             &content,
             Some(&name),
@@ -399,6 +533,10 @@ impl PyCode {
             Some("<source>"),
             vm,
         )
+    }
+    #[cfg(not(feature = "host_env"))]
+    pub fn from_pyc_path(_path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Err(vm.new_runtime_error("loading a pyc file requires the `host_env` feature".to_owned()))
     }
     pub fn from_pyc(
         pyc_bytes: &[u8],
@@ -610,7 +748,7 @@ impl Constructor for PyCode {
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
         let instructions = CodeUnits::try_from(bytecode_bytes)
-            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
         // Convert constants
         let constants = args
@@ -698,7 +836,7 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(PyCode::new(code))
+        Ok(Self::new(code))
     }
 }
 
@@ -1057,7 +1195,7 @@ impl PyCode {
                     let target = after_cache + oparg as usize;
                     let right = if matches!(
                         instructions.get(target).map(|u| u.op),
-                        Some(Instruction::EndFor) | Some(Instruction::InstrumentedEndFor)
+                        Some(Instruction::EndFor | Instruction::InstrumentedEndFor)
                     ) {
                         (target + 1) * 2
                     } else {
@@ -1204,7 +1342,7 @@ impl PyCode {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
                 CodeUnits::try_from(code_bytes.as_bytes())
-                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?
+                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
             OptionalArg::Missing => self.code.instructions.clone(),
         };
@@ -1280,7 +1418,7 @@ impl PyCode {
             exceptiontable,
         };
 
-        Ok(PyCode::new(new_code))
+        Ok(Self::new(new_code))
     }
 
     #[pymethod]
@@ -1290,31 +1428,37 @@ impl PyCode {
         let idx = usize::try_from(opcode).map_err(|_| idx_err(vm))?;
 
         let varnames_len = self.code.varnames.len();
-        let cellvars_len = self.code.cellvars.len();
+        // Non-parameter cells: cellvars that are NOT also in varnames
+        let nonparam_cellvars: Vec<_> = self
+            .code
+            .cellvars
+            .iter()
+            .filter(|s| {
+                let s_str: &str = s.as_ref();
+                !self.code.varnames.iter().any(|v| {
+                    let v_str: &str = v.as_ref();
+                    v_str == s_str
+                })
+            })
+            .collect();
+        let nonparam_len = nonparam_cellvars.len();
 
         let name = if idx < varnames_len {
-            // Index in varnames
+            // Index in varnames (includes parameter cells)
             self.code.varnames.get(idx).ok_or_else(|| idx_err(vm))?
-        } else if idx < varnames_len + cellvars_len {
-            // Index in cellvars
-            self.code
-                .cellvars
+        } else if idx < varnames_len + nonparam_len {
+            // Index in non-parameter cellvars
+            *nonparam_cellvars
                 .get(idx - varnames_len)
                 .ok_or_else(|| idx_err(vm))?
         } else {
             // Index in freevars
             self.code
                 .freevars
-                .get(idx - varnames_len - cellvars_len)
+                .get(idx - varnames_len - nonparam_len)
                 .ok_or_else(|| idx_err(vm))?
         };
         Ok(name.to_object())
-    }
-}
-
-impl fmt::Display for PyCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (**self).fmt(f)
     }
 }
 
@@ -1326,7 +1470,7 @@ impl ToPyObject for CodeObject {
 
 impl ToPyObject for bytecode::CodeObject {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_code(self).into()
+        PyCode::new_ref_from_bytecode(vm, self).into()
     }
 }
 
@@ -1393,6 +1537,6 @@ impl<'a> LineTableReader<'a> {
     }
 }
 
-pub fn init(ctx: &'static Context) {
+pub(crate) fn init(ctx: &'static Context) {
     PyCode::extend_class(ctx, ctx.types.code_type);
 }

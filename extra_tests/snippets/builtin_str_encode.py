@@ -20,3 +20,15 @@ def round_trip(s, encoding="utf-8"):
 round_trip("👺♦  𝐚Şđƒ  ☆☝")
 round_trip("☢🐣  ᖇ𝓤𝕊тⓟ𝕐𝕥卄σ𝔫  ♬👣")
 round_trip("💀👌  ק𝔂tℍⓞ𝓷 ３  🔥👤")
+
+# Bytes should not assume an encoding for isupper/islower
+assert "Æ".isupper()
+assert not "Æ".encode().isupper()
+assert "æ".islower()
+assert not "æ".encode().islower()
+
+# Invalid Unicode
+assert not b"\x80\x80".islower()
+assert not b"\x80\x80".isupper()
+assert b"\x80cat\x80".islower()
+assert b"\x80CAT\x80".isupper()

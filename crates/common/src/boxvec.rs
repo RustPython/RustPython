@@ -38,6 +38,7 @@ macro_rules! panic_oob {
 }
 
 impl<T> BoxVec<T> {
+    #[must_use]
     pub fn new(n: usize) -> Self {
         Self {
             xs: Box::new_uninit_slice(n),
@@ -46,24 +47,29 @@ impl<T> BoxVec<T> {
     }
 
     #[inline]
+    #[must_use]
     pub const fn len(&self) -> usize {
         self.len
     }
 
     #[inline]
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
     #[inline]
+    #[must_use]
     pub const fn capacity(&self) -> usize {
         self.xs.len()
     }
 
+    #[must_use]
     pub const fn is_full(&self) -> bool {
         self.len() == self.capacity()
     }
 
+    #[must_use]
     pub const fn remaining_capacity(&self) -> usize {
         self.capacity() - self.len()
     }
@@ -312,6 +318,7 @@ impl<T> BoxVec<T> {
     }
 
     /// Return a slice containing all elements of the vector.
+    #[must_use]
     pub fn as_slice(&self) -> &[T] {
         self
     }
@@ -323,6 +330,7 @@ impl<T> BoxVec<T> {
 
     /// Return a raw pointer to the vector's buffer.
     #[inline]
+    #[must_use]
     pub fn as_ptr(&self) -> *const T {
         self.xs.as_ptr().cast()
     }
@@ -487,6 +495,7 @@ impl<T> DoubleEndedIterator for Drain<'_, T> {
 impl<T> ExactSizeIterator for Drain<'_, T> {}
 
 impl<'a, T> Drain<'a, T> {
+    #[must_use]
     pub fn as_slice(&self) -> &'a [T] {
         self.iter.as_slice()
     }

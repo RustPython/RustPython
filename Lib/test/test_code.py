@@ -508,8 +508,6 @@ class CodeTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemError, msg):
             foo()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
     # @requires_debug_ranges()
     def test_co_positions_artificial_instructions(self):
         import dis

@@ -4,6 +4,9 @@ use crate::{
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
+use icu_properties::props::{
+    BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
+};
 use num_traits::{cast::ToPrimitive, sign::Signed};
 
 use core::ops::Range;
@@ -35,7 +38,7 @@ impl ExpandTabsArgs {
 }
 
 #[derive(FromArgs)]
-pub struct StartsEndsWithArgs {
+pub(crate) struct StartsEndsWithArgs {
     #[pyarg(positional)]
     affix: PyObjectRef,
     #[pyarg(positional, default)]
@@ -45,7 +48,7 @@ pub struct StartsEndsWithArgs {
 }
 
 impl StartsEndsWithArgs {
-    pub fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
+    pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
         let range = if self.start.is_some() || self.end.is_some() {
             Some(adjust_indices(self.start, self.end, len))
         } else {
@@ -55,7 +58,7 @@ impl StartsEndsWithArgs {
     }
 
     #[inline]
-    pub fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
+    pub(crate) fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
     where
         S: ?Sized + AnyStr,
         F: Fn(&S, Range<usize>) -> &S,
@@ -85,7 +88,11 @@ fn saturate_to_isize(py_int: PyIntRef) -> isize {
 }
 
 // help get optional string indices
-pub fn adjust_indices(start: Option<PyIntRef>, end: Option<PyIntRef>, len: usize) -> Range<usize> {
+pub(crate) fn adjust_indices(
+    start: Option<PyIntRef>,
+    end: Option<PyIntRef>,
+    len: usize,
+) -> Range<usize> {
     let mut start = start.map_or(0, saturate_to_isize);
     let mut end = end.map_or(len as isize, saturate_to_isize);
     if end > len as isize {
@@ -105,7 +112,7 @@ pub fn adjust_indices(start: Option<PyIntRef>, end: Option<PyIntRef>, len: usize
     start as usize..end as usize
 }
 
-pub trait StringRange {
+pub(crate) trait StringRange {
     fn is_normal(&self) -> bool;
 }
 
@@ -115,12 +122,12 @@ impl StringRange for Range<usize> {
     }
 }
 
-pub trait AnyStrWrapper<S: AnyStr + ?Sized> {
+pub(crate) trait AnyStrWrapper<S: AnyStr + ?Sized> {
     fn as_ref(&self) -> Option<&S>;
     fn is_empty(&self) -> bool;
 }
 
-pub trait AnyStrContainer<S>
+pub(crate) trait AnyStrContainer<S>
 where
     S: ?Sized,
 {
@@ -129,13 +136,11 @@ where
     fn push_str(&mut self, s: &S);
 }
 
-pub trait AnyChar: Copy {
-    fn is_lowercase(self) -> bool;
-    fn is_uppercase(self) -> bool;
+pub(crate) trait AnyChar: Copy {
     fn bytes_len(self) -> usize;
 }
 
-pub trait AnyStr {
+pub(crate) trait AnyStr {
     type Char: AnyChar;
     type Container: AnyStrContainer<Self> + Extend<Self::Char>;
 
@@ -396,37 +401,71 @@ pub trait AnyStr {
 
     fn py_zfill(&self, width: isize) -> Vec<u8> {
         let width = width.to_usize().unwrap_or(0);
+        let char_len = self.elements().count();
+        let width = self
+            .bytes_len()
+            .saturating_add(width.saturating_sub(char_len));
         rustpython_common::str::zfill(self.as_bytes(), width)
     }
 
-    // Unified form of CPython functions:
-    //  _Py_bytes_islower
-    //  unicode_islower_impl
+    // _Py_bytes_islower
     fn py_islower(&self) -> bool {
         let mut lower = false;
-        for c in self.elements() {
-            if c.is_uppercase() {
+        for byte in self
+            .as_bytes()
+            .iter()
+            .copied()
+            .filter(u8::is_ascii_alphabetic)
+        {
+            if byte.is_ascii_uppercase() {
                 return false;
-            } else if !lower && c.is_lowercase() {
-                lower = true
             }
+            lower = true;
         }
         lower
     }
 
-    // Unified form of CPython functions:
-    //   Py_bytes_isupper
-    //  unicode_isupper_impl
+    // Py_bytes_isupper
     fn py_isupper(&self) -> bool {
         let mut upper = false;
-        for c in self.elements() {
-            if c.is_lowercase() {
+        for byte in self
+            .as_bytes()
+            .iter()
+            .copied()
+            .filter(u8::is_ascii_alphabetic)
+        {
+            if byte.is_ascii_lowercase() {
                 return false;
-            } else if !upper && c.is_uppercase() {
-                upper = true
             }
+            upper = true;
         }
         upper
+    }
+
+    // Unified form of CPython functions:
+    //  unicode_isupper_impl
+    //  unicode_islower_impl
+    fn is_cased<VALID, INVALID>(&self) -> bool
+    where
+        VALID: BinaryProperty,
+        INVALID: BinaryProperty,
+    {
+        let mut all_cased = false;
+        for c in self
+            .as_bytes()
+            .utf8_chunks()
+            .flat_map(|c| c.valid().chars())
+        {
+            if INVALID::for_char(c)
+                || GeneralCategoryGroup::TitlecaseLetter.contains(GeneralCategory::for_char(c))
+            {
+                return false;
+            }
+            if !all_cased && VALID::for_char(c) {
+                all_cased = true;
+            }
+        }
+        all_cased
     }
 }
 
@@ -434,7 +473,7 @@ pub trait AnyStr {
 /// test that any of the values contained within the tuples satisfies the predicate. Type parameter
 /// T specifies the type that is expected, if the input value is not of that type or a tuple of
 /// values of that type, then a TypeError is raised.
-pub fn single_or_tuple_any<'a, T, F, M>(
+pub(crate) fn single_or_tuple_any<'a, T, F, M>(
     obj: &'a PyObject,
     predicate: &F,
     message: &M,

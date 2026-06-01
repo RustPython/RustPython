@@ -292,7 +292,6 @@ class DictSetTest(unittest.TestCase):
         self.assertRaises(TypeError, copy.copy, d.values())
         self.assertRaises(TypeError, copy.copy, d.items())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compare_error(self):
         class Exc(Exception):
             pass

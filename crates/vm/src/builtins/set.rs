@@ -32,7 +32,7 @@ use rustpython_common::{
     hash,
 };
 
-pub type SetContentType = dict_inner::Dict<()>;
+pub(crate) type SetContentType = dict_inner::Dict<()>;
 
 #[pyclass(module = false, name = "set", unhashable = true, traverse)]
 #[derive(Default)]
@@ -46,6 +46,7 @@ impl PySet {
         Self::default().into_ref(ctx)
     }
 
+    #[must_use]
     pub fn elements(&self) -> Vec<PyObjectRef> {
         self.inner.elements()
     }
@@ -508,17 +509,15 @@ fn extract_set(obj: &PyObject) -> Option<&PySetInner> {
     })
 }
 
-fn reduce_set(
-    zelf: &PyObject,
-    vm: &VirtualMachine,
-) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
-    Ok((
+fn reduce_set(zelf: &PyObject, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
+    (
         zelf.class().to_owned(),
+        #[expect(clippy::or_fun_call, reason = "changing this won't compile")]
         vm.new_tuple((extract_set(zelf)
             .unwrap_or(&PySetInner::default())
             .elements(),)),
         zelf.dict(),
-    ))
+    )
 }
 
 #[pyclass(
@@ -764,7 +763,7 @@ impl PySet {
     fn __reduce__(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -834,11 +833,7 @@ impl AsNumber for PySet {
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     // When called via __rsub__, a might be PyFrozenSet
                     a.__sub__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -852,11 +847,7 @@ impl AsNumber for PySet {
                     a.__and__(b.to_owned(), vm).to_pyresult(vm)
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     a.__and__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -870,11 +861,7 @@ impl AsNumber for PySet {
                     a.__xor__(b.to_owned(), vm).to_pyresult(vm)
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     a.__xor__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -888,11 +875,7 @@ impl AsNumber for PySet {
                     a.__or__(b.to_owned(), vm).to_pyresult(vm)
                 } else if let Some(a) = a.downcast_ref::<PyFrozenSet>() {
                     a.__or__(b.to_owned(), vm)
-                        .map(|r| {
-                            r.map(|s| PySet {
-                                inner: s.inner.clone(),
-                            })
-                        })
+                        .map(|r| r.map(|s| PySet { inner: s.inner }))
                         .to_pyresult(vm)
                 } else {
                     Ok(vm.ctx.not_implemented())
@@ -964,7 +947,7 @@ impl Constructor for PyFrozenSet {
         if cls.is(vm.ctx.types.frozenset_type) {
             // Return exact frozenset as-is
             if let OptionalArg::Present(ref input) = iterable
-                && let Ok(fs) = input.clone().downcast_exact::<PyFrozenSet>(vm)
+                && let Ok(fs) = input.clone().downcast_exact::<Self>(vm)
             {
                 return Ok(fs.into_pyref().into());
             }
@@ -1154,7 +1137,7 @@ impl PyFrozenSet {
     fn __reduce__(
         zelf: PyRef<Self>,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyTypeRef, PyTupleRef, Option<PyDictRef>)> {
+    ) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
         reduce_set(zelf.as_ref(), vm)
     }
 
@@ -1376,12 +1359,9 @@ impl PySetIterator {
     }
 
     #[pymethod]
-    fn __reduce__(
-        zelf: PyRef<Self>,
-        vm: &VirtualMachine,
-    ) -> PyResult<(PyObjectRef, (PyObjectRef,))> {
+    fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyObjectRef, (PyObjectRef,)) {
         let internal = zelf.internal.lock();
-        Ok((
+        (
             builtins_iter(vm),
             (vm.ctx
                 .new_list(match &internal.status {
@@ -1391,7 +1371,7 @@ impl PySetIterator {
                     }
                 })
                 .into(),),
-        ))
+        )
     }
 }
 
@@ -1447,7 +1427,7 @@ fn vectorcall_frozenset(
     (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
 }
 
-pub fn init(context: &'static Context) {
+pub(crate) fn init(context: &'static Context) {
     PySet::extend_class(context, context.types.set_type);
     context
         .types

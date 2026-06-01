@@ -385,7 +385,6 @@ class PluralFormsTests:
                 x = ngettext(singular, plural, None)
             self.assertEqual(x, tplural)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_forms(self):
         self._test_plural_forms(
             self.ngettext, self.gettext,
@@ -396,7 +395,6 @@ class PluralFormsTests:
             '%d file deleted', '%d files deleted',
             '%d file deleted', '%d files deleted')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_context_forms(self):
         ngettext = partial(self.npgettext, 'With context')
         gettext = partial(self.pgettext, 'With context')
@@ -409,7 +407,6 @@ class PluralFormsTests:
             '%d file deleted', '%d files deleted',
             '%d file deleted', '%d files deleted')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_wrong_context_forms(self):
         self._test_plural_forms(
             partial(self.npgettext, 'Unknown context'),
@@ -442,7 +439,6 @@ class GNUTranslationsWithDomainPluralFormsTestCase(PluralFormsTests, GettextBase
         self.pgettext = partial(gettext.dpgettext, 'gettext')
         self.npgettext = partial(gettext.dnpgettext, 'gettext')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_forms_wrong_domain(self):
         self._test_plural_forms(
             partial(gettext.dngettext, 'unknown'),
@@ -451,7 +447,6 @@ class GNUTranslationsWithDomainPluralFormsTestCase(PluralFormsTests, GettextBase
             'There is %s file', 'There are %s files',
             numbers_only=False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_context_forms_wrong_domain(self):
         self._test_plural_forms(
             partial(gettext.dnpgettext, 'unknown', 'With context'),
@@ -472,7 +467,6 @@ class GNUTranslationsClassPluralFormsTestCase(PluralFormsTests, GettextBaseTest)
         self.pgettext = t.pgettext
         self.npgettext = t.npgettext
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_forms_null_translations(self):
         t = gettext.NullTranslations()
         self._test_plural_forms(
@@ -481,7 +475,6 @@ class GNUTranslationsClassPluralFormsTestCase(PluralFormsTests, GettextBaseTest)
             'There is %s file', 'There are %s files',
             numbers_only=False)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_plural_context_forms_null_translations(self):
         t = gettext.NullTranslations()
         self._test_plural_forms(

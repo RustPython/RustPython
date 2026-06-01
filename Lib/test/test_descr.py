@@ -1716,6 +1716,28 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             spam_cm.__get__(None, list)
         self.assertEqual(str(cm.exception), expected_errmsg)
 
+    @support.cpython_only
+    def test_method_get_meth_method_invalid_type(self):
+        # gh-146615: method_get() for METH_METHOD descriptors used to pass
+        # Py_TYPE(type)->tp_name as the %V fallback instead of the separate
+        # %s argument, causing a missing argument for %s and a crash.
+        # Verify the error message is correct when __get__() is called with a
+        # non-type as the second argument.
+        #
+        # METH_METHOD|METH_FASTCALL|METH_KEYWORDS is the only flag combination
+        # that enters the affected branch in method_get().
+        import io
+
+        obj = io.StringIO()
+        descr = io.TextIOBase.read
+
+        with self.assertRaises(TypeError) as cm:
+            descr.__get__(obj, "not_a_type")
+        self.assertEqual(
+            str(cm.exception),
+            "descriptor 'read' needs a type, not 'str', as arg 2",
+        )
+
     def test_staticmethods(self):
         # Testing static methods...
         class C(object):
@@ -1838,8 +1860,8 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(b.foo, 3)
         self.assertEqual(b.__class__, D)
 
-    # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
-    # @unittest.expectedFailure
+    @unittest.expectedSuccess  # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
+    @unittest.expectedFailure
     def test_bad_new(self):
         self.assertRaises(TypeError, object.__new__)
         self.assertRaises(TypeError, object.__new__, '')
@@ -1886,8 +1908,8 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         object.__init__(A(3))
         self.assertRaises(TypeError, object.__init__, A(3), 5)
 
-    # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
-    # @unittest.expectedFailure
+    @unittest.expectedSuccess  # TODO: RUSTPYTHON; The `expectedFailure` here is from CPython, so this test must fail
+    @unittest.expectedFailure
     def test_restored_object_new(self):
         class A(object):
             def __new__(cls, *args, **kwargs):
@@ -3098,7 +3120,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         ##         pass
         ##     os_helper.unlink(os_helper.TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords(self):
         # Testing keyword args to basic type constructors ...
         with self.assertRaisesRegex(TypeError, 'keyword argument'):
@@ -4929,7 +4950,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(TypeError):
             a + a
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_slot_shadows_class_variable(self):
         with self.assertRaises(ValueError) as cm:
             class X:
@@ -4938,7 +4958,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         m = str(cm.exception)
         self.assertEqual("'foo' in __slots__ conflicts with class variable", m)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_set_doc(self):
         class X:
             "elephant"
@@ -4987,7 +5006,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         self.assertEqual(Y.__qualname__, 'Y')
         self.assertEqual(Y.Inside.__qualname__, 'Y.Inside')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_qualname_dict(self):
         ns = {'__qualname__': 'some.name'}
         tp = type('Foo', (), ns)
@@ -4998,7 +5016,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         ns = {'__qualname__': 1}
         self.assertRaises(TypeError, type, 'Foo', (), ns)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cycle_through_dict(self):
         # See bug #1469629
         class X(dict):
@@ -5170,6 +5187,26 @@ class ClassPropertiesAndMethods(unittest.TestCase):
 
         with self.assertRaisesRegex(NotImplementedError, "BAR"):
             B().foo
+
+    def test_staticmethod_new(self):
+        class MyStaticMethod(staticmethod):
+            def __init__(self, func):
+                pass
+        def func(): pass
+        sm = MyStaticMethod(func)
+        self.assertEqual(repr(sm), '<staticmethod(None)>')
+        self.assertIsNone(sm.__func__)
+        self.assertIsNone(sm.__wrapped__)
+
+    def test_classmethod_new(self):
+        class MyClassMethod(classmethod):
+            def __init__(self, func):
+                pass
+        def func(): pass
+        cm = MyClassMethod(func)
+        self.assertEqual(repr(cm), '<classmethod(None)>')
+        self.assertIsNone(cm.__func__)
+        self.assertIsNone(cm.__wrapped__)
 
 
 class DictProxyTests(unittest.TestCase):

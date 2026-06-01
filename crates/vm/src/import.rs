@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub(crate) fn check_pyc_magic_number_bytes(buf: &[u8]) -> bool {
-    buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES[..2])
+    buf.starts_with(&crate::version::PYC_MAGIC_NUMBER_BYTES)
 }
 
 pub(crate) fn init_importlib_base(vm: &mut VirtualMachine) -> PyResult<PyObjectRef> {
@@ -72,7 +72,7 @@ pub fn make_frozen(vm: &VirtualMachine, name: &str) -> PyResult<PyRef<PyCode>> {
             vm.ctx.new_utf8_str(name),
         )
     })?;
-    Ok(vm.ctx.new_code(frozen.code))
+    Ok(PyCode::new_ref_from_frozen(vm, frozen.code))
 }
 
 pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
@@ -82,7 +82,12 @@ pub fn import_frozen(vm: &VirtualMachine, module_name: &str) -> PyResult {
             vm.ctx.new_utf8_str(module_name),
         )
     })?;
-    let module = import_code_obj(vm, module_name, vm.ctx.new_code(frozen.code), false)?;
+    let module = import_code_obj(
+        vm,
+        module_name,
+        PyCode::new_ref_from_frozen(vm, frozen.code),
+        false,
+    )?;
     debug_assert!(module.get_attr(identifier!(vm, __name__), vm).is_ok());
     let origname = resolve_frozen_alias(module_name);
     module.set_attr("__origname__", vm.ctx.new_utf8_str(origname), vm)?;
@@ -301,7 +306,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
     };
     // For packages (__init__.py), look one directory further up
     let root = if origin_path.file_name() == Some("__init__.py".as_ref()) {
-        parent.parent().unwrap_or(Path::new(""))
+        parent.parent().unwrap_or_else(|| Path::new(""))
     } else {
         parent
     };
@@ -335,7 +340,7 @@ pub(crate) fn is_possibly_shadowing_path(origin: &str, vm: &VirtualMachine) -> b
     };
 
     let cmp_path = if sys_path_0.is_empty() {
-        match std::env::current_dir() {
+        match crate::host_env::os::current_dir() {
             Ok(d) => d.to_string_lossy().to_string(),
             Err(_) => return false,
         }
@@ -385,10 +390,10 @@ pub(crate) fn import_module_level(
             if level == 0 {
                 let sys_modules = vm.sys_module.get_attr("modules", vm)?;
                 return sys_modules.get_item(name, vm).map_err(|_| {
-                    vm.new_import_error(format!("No module named '{}'", name), name.to_owned())
+                    vm.new_import_error(format!("No module named '{name}'"), name.to_owned())
                 });
             }
-            return Err(vm.new_import_error(format!("No module named '{}'", name), name.to_owned()));
+            return Err(vm.new_import_error(format!("No module named '{name}'"), name.to_owned()));
         }
     };
 
