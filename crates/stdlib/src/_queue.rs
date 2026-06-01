@@ -64,8 +64,11 @@ mod _queue {
         }
 
         fn release(&self) {
-            let mut count = self.mutex.lock();
-            *count += 1;
+            {
+                let mut count = self.mutex.lock();
+                *count += 1;
+            } // lock dropped. now we can notify a waiting thread
+
             self.cond.notify_one();
         }
 
@@ -78,9 +81,11 @@ mod _queue {
                     *count -= 1;
                     return true;
                 }
+
                 if !block {
                     return false;
                 }
+
                 match deadline {
                     Some(dl) => {
                         let result = vm.allow_threads(|| self.cond.wait_until(&mut count, dl));
@@ -133,6 +138,7 @@ mod _queue {
             #[cfg(not(feature = "threading"))] buf: &mut BufInner,
         ) -> Option<PyObjectRef> {
             let cap = buf.capacity();
+
             if buf.len() < (cap / 4) {
                 // Items is less than 25% occupied, shrink it by 50%. This allows for
                 // growth without immediately needing to resize the underlying items array
