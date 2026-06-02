@@ -6,9 +6,11 @@ pub use number::*;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
 use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+pub use sequence::*;
 
 mod mapping;
 mod number;
+mod sequence;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
@@ -185,25 +187,6 @@ pub unsafe extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyOb
         let inst = unsafe { &*inst };
         let cls = unsafe { &*cls };
         inst.is_instance(cls, vm)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
-    with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = unsafe { &mut *value };
-        match obj.try_sequence(vm) {
-            Ok(sequence) => sequence.contains(value, vm),
-            Err(type_err) => {
-                // TODO Dict should implement sequence protocol, but for now we can special case it
-                if let Some(dict) = obj.downcast_ref::<PyDict>() {
-                    Ok(dict.contains_key(value, vm))
-                } else {
-                    Err(type_err)
-                }
-            }
-        }
     })
 }
 

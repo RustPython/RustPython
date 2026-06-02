@@ -116,14 +116,6 @@ RustPython C API target: `crates/capi/src/pystate.rs`
 - `PyInterpreterState_Get`
 - `PyInterpreterState_GetID`
 
-## `sliceobject.h`
-
-RustPython C API target: `crates/capi/src/sliceobject.rs` (not present yet)
-
-- `PySlice_AdjustIndices`
-- `PySlice_New`
-- `PySlice_Unpack`
-
 ## `unicodeobject.h`
 
 RustPython C API target: `crates/capi/src/unicodeobject.rs`
@@ -132,10 +124,3 @@ RustPython C API target: `crates/capi/src/unicodeobject.rs`
 - `PyUnicode_DecodeFSDefaultAndSize`
 - `PyUnicode_EncodeFSDefault`
 - `PyUnicode_FromEncodedObject`
-
-## `warnings.h`
-
-RustPython C API target: `crates/capi/src/warnings.rs` (not present yet)
-
-- `PyErr_WarnEx`
-- `PyErr_WarnExplicit`
