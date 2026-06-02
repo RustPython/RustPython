@@ -663,6 +663,10 @@ if sys.platform == 'win32':
                 self._basetest_datagram_send_to_non_listening_address(
                     recvfrom_into))
 
+        @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; AssertionError: ValueError not raised")
+        def test_recvfrom_into_wrong_size(self):
+            return super().test_recvfrom_into_wrong_size()
+
 else:
     import selectors
 
