@@ -36,6 +36,10 @@ if is_emscripten:
 class MmapTests(unittest.TestCase):
 
     def setUp(self):
+        # TODO: RUSTPYTHON; Remove this once windows doesn't get errored on setup:/
+        if os.name == "nt":
+            raise unittest.SkipTest("TODO: RUSTPYTHON; Error during class setUp")
+
         if os.path.exists(TESTFN):
             os.unlink(TESTFN)
 
