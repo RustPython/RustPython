@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    env:
+      INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
