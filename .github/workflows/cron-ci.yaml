@@ -15,7 +15,6 @@ on:
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true' # TODO: Remove on 2026/06/02
 
 jobs:
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
