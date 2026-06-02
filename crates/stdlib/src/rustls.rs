@@ -1162,7 +1162,7 @@ mod _ssl {
             };
 
             let verifier = CustomServerCertVerifier::new(
-                self.verify_mode() == CERT_REQUIRED,
+                self.verify_mode() != CERT_NONE,
                 use_system_certificates,
                 &self.cert_store.read(),
                 crypto.clone(),
