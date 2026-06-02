@@ -11,33 +11,6 @@ RustPython C API target: `crates/capi/src/abstract_.rs`
 - `PyIter_Send`
 - `PyObject_GetIter`
 - `PyObject_Size`
-- `PySequence_Check`
-- `PySequence_Concat`
-- `PySequence_Count`
-- `PySequence_DelItem`
-- `PySequence_DelSlice`
-- `PySequence_GetItem`
-- `PySequence_GetSlice`
-- `PySequence_InPlaceConcat`
-- `PySequence_InPlaceRepeat`
-- `PySequence_Index`
-- `PySequence_List`
-- `PySequence_Repeat`
-- `PySequence_SetItem`
-- `PySequence_SetSlice`
-- `PySequence_Size`
-- `PySequence_Tuple`
-
-## `bytearrayobject.h`
-
-RustPython C API target: `crates/capi/src/bytearrayobject.rs` (not present yet)
-
-- `PyByteArray_AsString`
-- `PyByteArray_Check`
-- `PyByteArray_FromObject`
-- `PyByteArray_FromStringAndSize`
-- `PyByteArray_Resize`
-- `PyByteArray_Size`
 
 ## `descrobject.h`
 
@@ -143,10 +116,6 @@ RustPython C API target: `crates/capi/src/pystate.rs`
 - `PyInterpreterState_Get`
 - `PyInterpreterState_GetID`
 
-## `setobject.h`
-
-RustPython C API target: `crates/capi/src/setobject.rs`
-
 ## `sliceobject.h`
 
 RustPython C API target: `crates/capi/src/sliceobject.rs` (not present yet)
@@ -170,13 +139,3 @@ RustPython C API target: `crates/capi/src/warnings.rs` (not present yet)
 
 - `PyErr_WarnEx`
 - `PyErr_WarnExplicit`
-
-## `weakrefobject.h`
-
-RustPython C API target: `crates/capi/src/weakrefobject.rs` (not present yet)
-
-- `PyWeakref_CheckProxy`
-- `PyWeakref_CheckRef`
-- `PyWeakref_GetRef`
-- `PyWeakref_NewProxy`
-- `PyWeakref_NewRef`
