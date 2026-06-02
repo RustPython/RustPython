@@ -32,6 +32,7 @@ pub mod moduleobject;
 pub mod object;
 pub mod objimpl;
 pub mod osmodule;
+pub mod pybuffer;
 pub mod pycapsule;
 pub mod pyerrors;
 pub mod pyframe;
