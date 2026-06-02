@@ -7,18 +7,15 @@ rustflags = "-C link-args=-Wl,--stack,8000000"
 [target.wasm32-unknown-unknown]
 rustflags = ["--cfg=getrandom_backend=\"wasm_js\""]
 
-# Enforce a 64 MB memory cap and 1 MB stack limit for WASI targets.
-# Without these, the WASM heap can grow unboundedly (e.g., a simple
-# `a = 1` allocated ~79 MB) and crash on constrained runtimes like wasmi.
-# See issue #4989.
+# Enforce a 1 MB stack limit for WASI targets.
+# (Runaway heap growth is fixed by the smaller DataStack chunk
+# and the size‑optimized wasm‑release profile.)
 [target.wasm32-wasip1]
 rustflags = [
-    "-C", "link-arg=--max-memory=67108864",
     "-C", "link-arg=-zstack-size=1048576",
 ]
 
 [target.wasm32-wasip2]
 rustflags = [
-    "-C", "link-arg=--max-memory=67108864",
     "-C", "link-arg=-zstack-size=1048576",
 ]
