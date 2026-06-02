@@ -482,6 +482,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
+name = "chacha20"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f8d983286843e49675a4b7a2d174efe136dc93a18d69130dd18198a6c167601"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1438,11 +1449,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "899def5c37c4fd7b2664648c28120ecec138e4d395b459e5ca34f9cce2dd77fd"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "r-efi 5.3.0",
  "wasip2",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -1452,10 +1461,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de51e6874e94e7bf76d726fc5d13ba782deca734ff60d5bb2fb2607c7406555"
 dependencies = [
  "cfg-if",
+ "js-sys",
  "libc",
  "r-efi 6.0.0",
+ "rand_core 0.10.1",
  "wasip2",
  "wasip3",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2373,11 +2385,11 @@ dependencies = [
 
 [[package]]
 name = "mt19937"
-version = "3.2.0"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56bc7ea7924ea1a79a9e817d0483e39295424cf2b1276cf2b968f9a6c9b63b54"
+checksum = "25b4ab1a6f4b7820876af86b84adf545d53a52f59c5374856225aad9562d903e"
 dependencies = [
- "rand_core 0.9.5",
+ "rand_core 0.10.1",
 ]
 
 [[package]]
@@ -3110,6 +3122,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2e8e8bcc7961af1fdac401278c6a831614941f6164ee3bf4ce61b7edb162207"
+dependencies = [
+ "chacha20",
+ "getrandom 0.4.2",
+ "rand_core 0.10.1",
+]
+
+[[package]]
 name = "rand_chacha"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3515,7 +3538,7 @@ version = "0.5.0"
 dependencies = [
  "ascii",
  "bitflags 2.11.1",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "itertools 0.14.0",
  "libc",
  "lock_api",
@@ -3602,7 +3625,7 @@ name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
  "bitflags 2.11.1",
- "getrandom 0.3.4",
+ "getrandom 0.4.2",
  "junction",
  "libc",
  "libffi",
@@ -3646,7 +3669,7 @@ dependencies = [
  "is-macro",
  "lexical-parse-float",
  "num-traits",
- "rand 0.9.4",
+ "rand 0.10.1",
  "rustpython-wtf8",
 ]
 

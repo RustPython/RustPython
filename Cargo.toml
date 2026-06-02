@@ -220,7 +220,7 @@ flate2 = { version = "1.1.9", default-features = false }
 # Bump only when the openssl crate bumps it
 foreign-types-shared = "0.1"
 gethostname = "1.0.2"
-getrandom = { version = "0.3", features = ["std"] }
+getrandom = { version = "0.4", features = ["std"] }
 glob = "0.3"
 half = "2"
 hex = "0.4.3"
@@ -251,7 +251,7 @@ malachite-base = "0.9.1"
 md-5 = "0.10.1"
 memchr = "2.8.0"
 memmap2 = "0.9.10"
-mt19937 = "<=3.2"  # upgrade it once rand is upgraded
+mt19937 = "<=3.3"  # upgrade it once rand is upgraded
 num-complex = "0.4.6"
 num-integer = "0.1.46"
 num-traits = "0.2"
@@ -273,7 +273,7 @@ pymath = { version = "0.2.0", features = ["mul_add", "malachite-bigint", "comple
 pyo3 = "0.28"
 quote = "1.0.45"
 radium = "1.1.1"
-rand = "0.9"
+rand = "0.10"
 rand_core = { version = "0.9", features = ["os_rng"] }
 rapidhash = "4.4.1"
 result-like = "0.5.0"
