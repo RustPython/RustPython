@@ -222,6 +222,7 @@ class BinASCIITest(unittest.TestCase):
         assertInvalidLength(b'a' * (4 * 87 + 1))
         assertInvalidLength(b'A\tB\nC ??DE')  # only 5 valid characters
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised by a2b_uu
     def test_uu(self):
         MAX_UU = 45
         for backtick in (True, False):
@@ -242,6 +243,10 @@ class BinASCIITest(unittest.TestCase):
         self.assertEqual(binascii.a2b_uu(b"\xff"), b"\x00"*31)
         self.assertRaises(binascii.Error, binascii.a2b_uu, b"\xff\x00")
         self.assertRaises(binascii.Error, binascii.a2b_uu, b"!!!!")
+        self.assertRaises(binascii.Error, binascii.a2b_uu,
+                          self.type2test(b""))
+        self.assertRaises(binascii.Error, binascii.a2b_uu,
+                          self.type2test(b"#86)C")[:0])
         self.assertRaises(binascii.Error, binascii.b2a_uu, 46*b"!")
 
         # Issue #7701 (crash on a pydebug build)
@@ -440,6 +445,7 @@ class BinASCIITest(unittest.TestCase):
         self.assertConversion(binary, converted, restored,
                               quotetabs=quotetabs, istext=istext, header=header)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised by a2b_uu
     def test_empty_string(self):
         # A test for SF bug #1022953.  Make sure SystemError is not raised.
         empty = self.type2test(b'')
@@ -449,6 +455,9 @@ class BinASCIITest(unittest.TestCase):
                 binascii.crc_hqx(empty, 0)
                 continue
             f = getattr(binascii, func)
+            if func == 'a2b_uu':
+                self.assertRaises(binascii.Error, f, empty)
+                continue
             try:
                 f(empty)
             except Exception as err:
