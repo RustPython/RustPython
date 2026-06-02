@@ -1,9 +1,12 @@
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
 use core::ffi::c_int;
+pub use mapping::*;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
 use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+
+mod mapping;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
