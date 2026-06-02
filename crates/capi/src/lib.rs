@@ -30,6 +30,7 @@ pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
 mod util;
+pub mod weakrefobject;
 
 /// Get main interpreter of this process. Will be None if it has not been initialized yet.
 pub fn get_main_interpreter() -> MutexGuard<'static, Option<Interpreter>> {
