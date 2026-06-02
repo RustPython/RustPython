@@ -7,6 +7,10 @@ use rustpython_vm::byte::bytes_from_object;
 
 define_py_check!(fn PyByteArray_Check, types.bytearray_type);
 
+/// # Safety
+///
+/// If `bytes` is `NULL`, the returned bytearray may contain uninitialized
+/// bytes. The caller is responsible for initializing all bytes before any read.
 #[unsafe(no_mangle)]
 #[allow(clippy::uninit_vec)]
 pub unsafe extern "C" fn PyByteArray_FromStringAndSize(
@@ -20,6 +24,9 @@ pub unsafe extern "C" fn PyByteArray_FromStringAndSize(
 
         let data = if bytes.is_null() {
             let mut data = Vec::with_capacity(len);
+            // SAFETY: `bytes == NULL` follows CPython semantics here; caller must
+            // initialize all bytes before any read. We keep this behavior for C-API
+            // compatibility and to avoid unnecessary zero-initialization overhead.
             unsafe { data.set_len(len) };
             data
         } else {
