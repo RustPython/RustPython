@@ -151,6 +151,11 @@ pub unsafe extern "C" fn PySequence_Size(obj: *mut PyObject) -> isize {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PySequence_Length(obj: *mut PyObject) -> isize {
+    unsafe { PySequence_Size(obj) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySequence_Tuple(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
@@ -159,12 +164,17 @@ pub unsafe extern "C" fn PySequence_Tuple(obj: *mut PyObject) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PySequence_Contains(obj: *mut PyObject, value: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let value = unsafe { &*value };
         obj.sequence_unchecked().contains(value, vm)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PySequence_In(obj: *mut PyObject, value: *mut PyObject) -> c_int {
+    unsafe { PySequence_Contains(obj, value) }
 }
 
 #[cfg(false)]
