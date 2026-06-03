@@ -28,7 +28,7 @@ ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
 ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
-tkinter = ["rustpython-stdlib/tkinter"]
+# tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -49,7 +49,6 @@ env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
 
 rustls = { workspace = true, optional = true }
-rustls-graviola = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 libc = { workspace = true }
@@ -62,6 +61,7 @@ criterion = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
+rustls-graviola = { workspace = true }
 
 [[bench]]
 name = "execution"
@@ -281,7 +281,7 @@ rustls = { version = "0.23.39", default-features = false }
 rustls-graviola = "0.3"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
-rustls-platform-verifier = "0.7"
+# rustls-platform-verifier = "0.7"
 rustyline = "18"
 serde = { package = "serde_core", version = "1.0.225", default-features = false, features = ["alloc"] }
 schannel = "0.1.29"
@@ -299,12 +299,12 @@ strum_macros = "0.28"
 syn = "2"
 syn-ext = "0.5.0"
 system-configuration = "0.7.0"
-tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
+# tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 textwrap = { version = "0.16.2", default-features = false }
 termios = "0.3.3"
 thiserror = "2.0"
 timsort = "0.1.2"
-tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
+# tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 icu_casemap = "2"
 icu_locale = "2"
 icu_properties = "2"
@@ -320,7 +320,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = "0.3"
 webpki-roots = "1.0"
 which = "8"
-x509-cert = "0.2.5"
+# x509-cert = "0.2.5"
 x509-parser = "0.18"
 xml = "1.2"
 writeable = "0.6"
