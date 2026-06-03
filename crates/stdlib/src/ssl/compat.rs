@@ -177,8 +177,8 @@ pub(super) enum SslError {
     ZeroReturn,
     /// Unexpected EOF without close_notify (protocol violation)
     Eof,
-    /// Certificate verification error
-    CertVerification(rustls::CertificateError),
+    /// rustls error
+    Rustls(rustls::Error),
     /// I/O error
     Io(std::io::Error),
     /// Timeout error (socket.timeout)
@@ -186,10 +186,6 @@ pub(super) enum SslError {
     Timeout(String),
     /// Python exception (pass through directly)
     Py(PyBaseExceptionRef),
-    /// TLS alert received with OpenSSL-compatible error code
-    AlertReceived { lib: i32, reason: i32 },
-    /// OpenSSL-compatible SSL reason code
-    OpenSslReason(i32),
 }
 
 impl SslError {
@@ -198,60 +194,6 @@ impl SslError {
     fn alert_to_openssl_reason(alert: rustls::AlertDescription) -> i32 {
         // AlertDescription can be converted to u8 via as u8 cast
         1000 + (u8::from(alert) as i32)
-    }
-
-    /// Convert rustls error to SslError
-    pub(super) fn from_rustls(err: rustls::Error) -> Self {
-        match err {
-            rustls::Error::InvalidCertificate(cert_err) => Self::CertVerification(cert_err),
-            rustls::Error::AlertReceived(alert_desc) => {
-                // Map TLS alerts to OpenSSL-compatible error codes
-                // lib = 20 (ERR_LIB_SSL), reason = 1000 + alert_code
-                match alert_desc {
-                    rustls::AlertDescription::CloseNotify => {
-                        // Special case: close_notify is handled as ZeroReturn
-                        Self::ZeroReturn
-                    }
-                    _ => {
-                        // All other alerts: convert to OpenSSL error code
-                        // This includes InternalError (80 -> reason 1080)
-                        Self::AlertReceived {
-                            lib: ERR_LIB_SSL,
-                            reason: Self::alert_to_openssl_reason(alert_desc),
-                        }
-                    }
-                }
-            }
-            rustls::Error::PeerIncompatible(peer_err) => {
-                use rustls::PeerIncompatible;
-                let reason = match peer_err {
-                    PeerIncompatible::NoCipherSuitesInCommon => SSL_R_NO_SHARED_CIPHER,
-                    PeerIncompatible::NoKxGroupsInCommon
-                    | PeerIncompatible::NoEcPointFormatsInCommon
-                    | PeerIncompatible::EcPointsExtensionRequired
-                    | PeerIncompatible::NamedGroupsExtensionRequired
-                    | PeerIncompatible::UncompressedEcPointsRequired => SSL_R_NO_SUITABLE_GROUPS,
-                    PeerIncompatible::KeyShareExtensionRequired => SSL_R_NO_SUITABLE_KEY_SHARE,
-                    PeerIncompatible::NoCertificateRequestSignatureSchemesInCommon
-                    | PeerIncompatible::NoSignatureSchemesInCommon
-                    | PeerIncompatible::SignatureAlgorithmsExtensionRequired => {
-                        SSL_R_NO_SUITABLE_SIGNATURE_ALGORITHM
-                    }
-                    PeerIncompatible::ServerDoesNotSupportTls12Or13
-                    | PeerIncompatible::ServerTlsVersionIsDisabledByOurConfig
-                    | PeerIncompatible::SupportedVersionsExtensionRequired
-                    | PeerIncompatible::Tls12NotOffered
-                    | PeerIncompatible::Tls12NotOfferedOrEnabled
-                    | PeerIncompatible::Tls13RequiredForQuic => SSL_R_UNSUPPORTED_PROTOCOL,
-                    _ => return Self::Ssl(format!("peer is incompatible: {peer_err:?}")),
-                };
-                Self::OpenSslReason(reason)
-            }
-            rustls::Error::NoApplicationProtocol => {
-                Self::OpenSslReason(SSL_R_NO_APPLICATION_PROTOCOL)
-            }
-            _ => Self::Ssl(format!("{err}")),
-        }
     }
 
     /// Create SSLError with library and reason from string values
@@ -366,6 +308,57 @@ impl SslError {
             Self::WantWrite => create_ssl_want_write_error(vm).upcast(),
             Self::Timeout(msg) => timeout_error_msg(vm, msg).upcast(),
             Self::Ssl(msg) => Self::create_plain_ssl_error(vm, msg),
+            Self::Rustls(err) => match err {
+                rustls::Error::InvalidCertificate(cert_err) => {
+                    create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
+                }
+                rustls::Error::AlertReceived(rustls::AlertDescription::CloseNotify) => {
+                    create_ssl_zero_return_error(vm).upcast()
+                }
+                rustls::Error::AlertReceived(alert_desc) => Self::create_ssl_error_from_codes(
+                    vm,
+                    ERR_LIB_SSL,
+                    Self::alert_to_openssl_reason(alert_desc),
+                ),
+                rustls::Error::PeerIncompatible(peer_err) => {
+                    use rustls::PeerIncompatible;
+                    let reason = match peer_err {
+                        PeerIncompatible::NoCipherSuitesInCommon => SSL_R_NO_SHARED_CIPHER,
+                        PeerIncompatible::NoKxGroupsInCommon
+                        | PeerIncompatible::NoEcPointFormatsInCommon
+                        | PeerIncompatible::EcPointsExtensionRequired
+                        | PeerIncompatible::NamedGroupsExtensionRequired
+                        | PeerIncompatible::UncompressedEcPointsRequired => {
+                            SSL_R_NO_SUITABLE_GROUPS
+                        }
+                        PeerIncompatible::KeyShareExtensionRequired => SSL_R_NO_SUITABLE_KEY_SHARE,
+                        PeerIncompatible::NoCertificateRequestSignatureSchemesInCommon
+                        | PeerIncompatible::NoSignatureSchemesInCommon
+                        | PeerIncompatible::SignatureAlgorithmsExtensionRequired => {
+                            SSL_R_NO_SUITABLE_SIGNATURE_ALGORITHM
+                        }
+                        PeerIncompatible::ServerDoesNotSupportTls12Or13
+                        | PeerIncompatible::ServerTlsVersionIsDisabledByOurConfig
+                        | PeerIncompatible::SupportedVersionsExtensionRequired
+                        | PeerIncompatible::Tls12NotOffered
+                        | PeerIncompatible::Tls12NotOfferedOrEnabled
+                        | PeerIncompatible::Tls13RequiredForQuic => SSL_R_UNSUPPORTED_PROTOCOL,
+                        _ => {
+                            return Self::create_plain_ssl_error(
+                                vm,
+                                format!("peer is incompatible: {peer_err:?}"),
+                            );
+                        }
+                    };
+                    Self::create_ssl_error_from_codes(vm, ERR_LIB_SSL, reason)
+                }
+                rustls::Error::NoApplicationProtocol => Self::create_ssl_error_from_codes(
+                    vm,
+                    ERR_LIB_SSL,
+                    SSL_R_NO_APPLICATION_PROTOCOL,
+                ),
+                _ => Self::create_plain_ssl_error(vm, err.to_string()),
+            },
             Self::PemLib(msg) => Self::create_pem_ssl_error(vm, format!("PEM lib: {msg}"))
                 .expect("unlikely to happen"),
             Self::FailedToReadDer(msg) => {
@@ -381,10 +374,6 @@ impl SslError {
             ),
             Self::ZeroReturn => create_ssl_zero_return_error(vm).upcast(),
             Self::Eof => create_ssl_eof_error(vm).upcast(),
-            Self::CertVerification(cert_err) => {
-                // Use the proper cert verification error creator
-                create_ssl_cert_verification_error(vm, &cert_err).expect("unlikely to happen")
-            }
             Self::Io(err) if err.kind() == std::io::ErrorKind::UnexpectedEof => {
                 create_ssl_eof_error(vm).upcast()
             }
@@ -397,12 +386,6 @@ impl SslError {
                 .upcast(),
             Self::Io(err) => err.into_pyexception(vm),
             Self::Py(exc) => exc,
-            Self::AlertReceived { lib, reason } => {
-                Self::create_ssl_error_from_codes(vm, lib, reason)
-            }
-            Self::OpenSslReason(reason) => {
-                Self::create_ssl_error_from_codes(vm, ERR_LIB_SSL, reason)
-            }
         }
     }
 }
