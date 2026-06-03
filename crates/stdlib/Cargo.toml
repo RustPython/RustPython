@@ -131,6 +131,8 @@ pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional 
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
 liblzma = { workspace = true }
 liblzma-sys = { workspace = true }
+zstd = { workspace = true }
+zstd-safe = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
