@@ -4811,8 +4811,8 @@ impl OidMappings {
         // See https://github.com/openssl/openssl/blob/11b7b6ea3b65a584e1d31408ed1bdb139465cffd/crypto/objects/README.md
         // See https://github.com/openssl/openssl/blob/11b7b6ea3b65a584e1d31408ed1bdb139465cffd/crypto/objects/objects.pl
         // TODO: Do this in compile time.
-        let obj_mac_num = include_str!("rustls-data/obj_mac.num");
-        let objects_txt = include_str!("rustls-data/objects.txt");
+        let obj_mac_num = include_str!("../rustls-data/obj_mac.num");
+        let objects_txt = include_str!("../rustls-data/objects.txt");
 
         let nids: HashMap<_, _> = obj_mac_num
             .split('\n')
