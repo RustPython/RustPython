@@ -736,10 +736,9 @@ mod _ssl {
 
             if cafile.is_some() || capath.is_some() {
                 // Load certificates and certificate revocation lists from specified paths.
-                let has_cafile = cafile.is_some();
                 let args = LoadVerifyLocationsArgs {
                     cafile,
-                    capath: if has_cafile { None } else { capath },
+                    capath,
                     cadata: OptionalArg::Missing,
                 };
                 self.load_verify_locations(args, vm)?;
