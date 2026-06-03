@@ -1482,6 +1482,7 @@ class ContextTests(unittest.TestCase):
         self.assertRaises(TypeError, ctx.load_default_certs, 'SERVER_AUTH')
 
     @unittest.skipIf(sys.platform == "win32", "not-Windows specific")
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls does not support certificate lazy loading")
     def test_load_default_certs_env(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         with os_helper.EnvironmentVarGuard() as env:
@@ -1493,6 +1494,7 @@ class ContextTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows specific")
     @unittest.skipIf(support.Py_DEBUG,
                      "Debug build does not share environment between CRTs")
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls does not support certificate lazy loading")
     def test_load_default_certs_env_windows(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.load_default_certs()
