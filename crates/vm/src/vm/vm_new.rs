@@ -315,7 +315,7 @@ impl VirtualMachine {
         let def = self
             .ctx
             .new_method_def(name, f, PyMethodFlags::empty(), None);
-        def.build_function(self)
+        def.build_function(self, None)
     }
 
     pub fn new_method<F, FKind>(

@@ -177,6 +177,7 @@ mod file_run {
 
 #[cfg(test)]
 mod tests {
+    use crate::object::AsObject;
     use rustpython_vm::Interpreter;
 
     fn interpreter() -> Interpreter {
@@ -203,6 +204,30 @@ mod tests {
             let value = vm.unwrap_pyresult(value.try_int(vm));
             let value: u32 = vm.unwrap_pyresult(value.try_to_primitive(vm));
             assert_eq!(value, 5);
+        })
+    }
+
+    #[test]
+    fn block_expr_return_function_def() {
+        interpreter().enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let value =
+                vm.unwrap_pyresult(vm.run_block_expr(scope.clone(), "def f():\n    return 7"));
+            vm.unwrap_pyresult(scope.globals.set_item("returned", value, vm));
+            let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "returned is f"));
+            assert!(value.is(&vm.ctx.true_value));
+        })
+    }
+
+    #[test]
+    fn block_expr_return_class_def() {
+        interpreter().enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            let value =
+                vm.unwrap_pyresult(vm.run_block_expr(scope.clone(), "class C:\n    value = 11"));
+            vm.unwrap_pyresult(scope.globals.set_item("returned", value, vm));
+            let value = vm.unwrap_pyresult(vm.run_block_expr(scope, "returned is C"));
+            assert!(value.is(&vm.ctx.true_value));
         })
     }
 }

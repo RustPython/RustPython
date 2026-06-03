@@ -53,6 +53,7 @@ mod math;
 #[cfg(all(feature = "host_env", any(unix, windows)))]
 mod mmap;
 
+mod _queue;
 mod pyexpat;
 mod pystruct;
 mod random;
@@ -128,11 +129,11 @@ mod openssl;
 #[cfg(all(
     feature = "host_env",
     not(target_arch = "wasm32"),
-    feature = "ssl-rustls"
+    feature = "__ssl-rustls"
 ))]
-mod ssl;
+pub mod ssl;
 
-#[cfg(all(feature = "ssl-openssl", feature = "ssl-rustls", not(clippy)))]
+#[cfg(all(feature = "ssl-openssl", feature = "__ssl-rustls", not(clippy)))]
 compile_error!(r#"features "ssl-openssl" and "ssl-rustls" are mutually exclusive"#);
 
 #[cfg(all(
@@ -225,6 +226,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         posixshmem::module_def(ctx),
         pyexpat::module_def(ctx),
         pystruct::module_def(ctx),
+        _queue::module_def(ctx),
         random::module_def(ctx),
         #[cfg(all(feature = "host_env", unix, not(target_os = "redox")))]
         resource::module_def(ctx),
@@ -246,7 +248,7 @@ pub fn stdlib_module_defs(ctx: &Context) -> Vec<&'static builtins::PyModuleDef> 
         #[cfg(all(
             feature = "host_env",
             not(target_arch = "wasm32"),
-            feature = "ssl-rustls"
+            feature = "__ssl-rustls"
         ))]
         ssl::module_def(ctx),
         statistics::module_def(ctx),

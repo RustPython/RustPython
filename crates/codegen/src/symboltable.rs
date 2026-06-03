@@ -60,6 +60,9 @@ pub struct SymbolTable {
     /// Whether this scope contains yield/yield from (is a generator function)
     pub is_generator: bool,
 
+    /// Whether this scope contains await or async comprehension machinery.
+    pub is_coroutine: bool,
+
     /// Whether this comprehension scope should be inlined (PEP 709)
     /// True for list/set/dict comprehensions in non-generator expressions
     pub comp_inlined: bool,
@@ -102,6 +105,7 @@ impl SymbolTable {
             needs_classdict: false,
             can_see_class_scope: false,
             is_generator: false,
+            is_coroutine: false,
             comp_inlined: false,
             annotation_block: None,
             skip_enclosing_function_scope: false,
@@ -1532,6 +1536,9 @@ impl SymbolTableBuilder {
                     },
                     has_type_params, // skip_defaults: already scanned above
                 )?;
+                if *is_async {
+                    self.tables.last_mut().unwrap().is_coroutine = true;
+                }
                 self.scan_statements(body)?;
                 self.leave_scope();
                 if type_params.is_some() {
@@ -2026,6 +2033,7 @@ impl SymbolTableBuilder {
                 range: _,
             }) => {
                 self.scan_expression(value, context)?;
+                self.tables.last_mut().unwrap().is_coroutine = true;
             }
             Expr::Yield(ExprYield {
                 value,
@@ -2353,6 +2361,9 @@ impl SymbolTableBuilder {
         );
         // Generator expressions need the is_generator flag
         self.tables.last_mut().unwrap().is_generator = is_generator;
+        if generators.iter().any(|generator| generator.is_async) {
+            self.tables.last_mut().unwrap().is_coroutine = true;
+        }
 
         // PEP 709: Mark non-generator comprehensions for inlining.
         // CPython's symtable marks all non-generator comprehensions for
@@ -2389,7 +2400,14 @@ impl SymbolTableBuilder {
         }
         self.scan_expression(elt1, ExpressionContext::Load)?;
 
+        // CPython symtable_handle_comprehension(): non-generator async
+        // comprehensions propagate ste_coroutine to the enclosing scope after
+        // the comprehension block is exited.
+        let propagate_coroutine = self.tables.last().unwrap().is_coroutine && !is_generator;
         self.leave_scope();
+        if propagate_coroutine {
+            self.tables.last_mut().unwrap().is_coroutine = true;
+        }
 
         Ok(())
     }

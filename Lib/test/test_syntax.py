@@ -31,7 +31,7 @@ Errors from set_context():
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
@@ -39,11 +39,11 @@ SyntaxError: cannot assign to None
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> True = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> True = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
->>> (True := 1)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (True := 1)
 Traceback (most recent call last):
 SyntaxError: cannot use assignment expressions with True
 
@@ -79,7 +79,7 @@ SyntaxError: cannot delete __debug__
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call here. Maybe you meant '==' instead of '='?
 
->>> yield = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> yield = 1
 Traceback (most recent call last):
 SyntaxError: assignment to yield expression not possible
 
@@ -91,23 +91,23 @@ SyntaxError: cannot delete function call
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression here. Maybe you meant '==' instead of '='?
 
->>> (x for x in x) = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (x for x in x) = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to generator expression
 
->>> 1 = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> 1 = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
 
->>> "abc" = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> "abc" = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
 
->>> b"" = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> b"" = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal here. Maybe you meant '==' instead of '='?
 
->>> ... = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> ... = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to ellipsis here. Maybe you meant '==' instead of '='?
 
@@ -124,7 +124,7 @@ them.
 Traceback (most recent call last):
 SyntaxError: cannot assign to literal
 
->>> (a, True, c) = (1, 2, 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (a, True, c) = (1, 2, 3)
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
@@ -132,7 +132,7 @@ SyntaxError: cannot assign to True
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
->>> (a, *True, c) = (1, 2, 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (a, *True, c) = (1, 2, 3)
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
@@ -140,19 +140,19 @@ SyntaxError: cannot assign to True
 Traceback (most recent call last):
 SyntaxError: cannot assign to __debug__
 
->>> [a, b, c + 1] = [1, 2, 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [a, b, c + 1] = [1, 2, 3]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> [a, b[1], c + 1] = [1, 2, 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [a, b[1], c + 1] = [1, 2, 3]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> [a, b.c.d, c + 1] = [1, 2, 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [a, b.c.d, c + 1] = [1, 2, 3]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> a if 1 else b = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> a if 1 else b = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to conditional expression
 
@@ -188,15 +188,15 @@ SyntaxError: expected expression before 'if', but statement is given
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> True = True = 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> True = True = 3
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
->>> x = y = True = z = 3  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> x = y = True = z = 3
 Traceback (most recent call last):
 SyntaxError: cannot assign to True
 
->>> x = y = yield = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> x = y = yield = 1
 Traceback (most recent call last):
 SyntaxError: assignment to yield expression not possible
 
@@ -215,31 +215,31 @@ SyntaxError: 'list' is an illegal expression for augmented assignment
 Invalid targets in `for` loops and `with` statements should also
 produce a specialized error message
 
->>> for a() in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for a() in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for (a, b()) in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for (a, b()) in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for [a, b()] in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for [a, b()] in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for (*a, b, c+1) in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for (*a, b, c+1) in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> for (x, *(y, z.d())) in b: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for (x, *(y, z.d())) in b: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for a, b() in c: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for a, b() in c: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> for a, b, (c + 1, d()): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> for a, b, (c + 1, d()): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
@@ -251,27 +251,27 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> with a as b(): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as b(): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as (b, c()): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as (b, c()): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as [b, c()]: pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as [b, c()]: pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as (*b, c, d+1): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as (*b, c, d+1): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> with a as (x, *(y, z.d())): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as (x, *(y, z.d())): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> with a as b, c as d(): pass  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> with a as b, c as d(): pass
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
@@ -293,11 +293,11 @@ SyntaxError: 'in' expected after for-loop variables
 Traceback (most recent call last):
 SyntaxError: 'in' expected after for-loop variables
 
->>> [x for x() in a]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for x() in a]
 Traceback (most recent call last):
 SyntaxError: cannot assign to function call
 
->>> [x for a, b, (c + 1, d()) in y]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for a, b, (c + 1, d()) in y]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
@@ -305,11 +305,11 @@ SyntaxError: cannot assign to expression
 Traceback (most recent call last):
 SyntaxError: 'in' expected after for-loop variables
 
->>> [x for x+1 in y]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for x+1 in y]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
->>> [x for x+1, x() in y]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [x for x+1, x() in y]
 Traceback (most recent call last):
 SyntaxError: cannot assign to expression
 
@@ -334,19 +334,19 @@ SyntaxError: invalid syntax. Is this intended to be part of the string?
 # produce special error messages regarding missing
 # parentheses, but about missing commas instead
 
->>> [1, 2 3]  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> [1, 2 3]
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
->>> {1, 2 3}  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1, 2 3}
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
->>> {1:2, 2:5 3:12}  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> {1:2, 2:5 3:12}
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
->>> (1, 2 3)  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> (1, 2 3)
 Traceback (most recent call last):
 SyntaxError: invalid syntax. Perhaps you forgot a comma?
 
@@ -2114,19 +2114,19 @@ SyntaxError: cannot use subscript as import target
 # Check that we don't raise a "cannot use name as import target" error
 # if there is an error in an unrelated statement after ';'
 
->>> import a as b; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> import a as b; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> import a, b as c; d = 1; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> import a, b as c; d = 1; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> from a import b as c; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import b as c; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 
->>> from a import b, c as d; e = 1; None = 1  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+>>> from a import b, c as d; e = 1; None = 1
 Traceback (most recent call last):
 SyntaxError: cannot assign to None
 

@@ -8,7 +8,6 @@ mod _random {
     use crate::vm::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyTupleRef},
-        convert::ToPyException,
         function::OptionalOption,
         types::{Constructor, Initializer},
     };
@@ -16,7 +15,7 @@ mod _random {
     use malachite_bigint::{BigInt, BigUint, Sign};
     use mt19937::MT19937;
     use num_traits::{Signed, Zero};
-    use rand_core::{RngCore, SeedableRng};
+    use rand::{Rng, SeedableRng};
     use rustpython_vm::types::DefaultConstructor;
 
     #[pyattr]
@@ -60,8 +59,7 @@ mod _random {
                     let key = if key.is_empty() { &[0] } else { key.as_slice() };
                     MT19937::new_with_slice_seed(key)
                 }
-                None => MT19937::try_from_os_rng()
-                    .map_err(|e| std::io::Error::from(e).to_pyexception(vm))?,
+                None => MT19937::from_rng(&mut rand::rng()),
             };
             Ok(())
         }

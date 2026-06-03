@@ -18,14 +18,14 @@ pub(crate) mod _hashlib {
         types::{Constructor, Representable},
     };
     use blake2::{Blake2b512, Blake2s256};
-    use digest::{DynDigest, OutputSizeUser, core_api::BlockSizeUser};
-    use digest::{ExtendableOutput, Update};
+    use digest::{DynDigest, ExtendableOutput, OutputSizeUser, Update, block_api::BlockSizeUser};
     use dyn_clone::{DynClone, clone_trait_object};
-    use hmac::Mac;
+    use hmac::{Hmac, KeyInit, Mac, SimpleHmac};
     use md5::Md5;
     use sha1::Sha1;
     use sha2::{Sha224, Sha256, Sha384, Sha512};
-    use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512, Shake128, Shake256};
+    use sha3::{Sha3_224, Sha3_256, Sha3_384, Sha3_512};
+    use shake::{Shake128, Shake256};
 
     const HASH_ALGORITHMS: &[&str] = &[
         "md5",
@@ -767,8 +767,8 @@ pub(crate) mod _hashlib {
         let msg_data = args.msg.flatten();
 
         macro_rules! make_hmac {
-            ($hash_ty:ty) => {{
-                let mut mac = <hmac::Hmac<$hash_ty> as Mac>::new_from_slice(&key_buf)
+            ($hmac:ty, $hash_ty:ty) => {{
+                let mut mac = <$hmac>::new_from_slice(&key_buf)
                     .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
                 if let Some(ref m) = msg_data {
                     m.with_ref(|bytes| Mac::update(&mut mac, bytes));
@@ -783,16 +783,16 @@ pub(crate) mod _hashlib {
         }
 
         match name.as_str() {
-            "md5" => make_hmac!(Md5),
-            "sha1" => make_hmac!(Sha1),
-            "sha224" => make_hmac!(Sha224),
-            "sha256" => make_hmac!(Sha256),
-            "sha384" => make_hmac!(Sha384),
-            "sha512" => make_hmac!(Sha512),
-            "sha3_224" => make_hmac!(Sha3_224),
-            "sha3_256" => make_hmac!(Sha3_256),
-            "sha3_384" => make_hmac!(Sha3_384),
-            "sha3_512" => make_hmac!(Sha3_512),
+            "md5" => make_hmac!(Hmac<Md5>, Md5),
+            "sha1" => make_hmac!(Hmac<Sha1>, Sha1),
+            "sha224" => make_hmac!(Hmac<Sha224>, Sha224),
+            "sha256" => make_hmac!(Hmac<Sha256>, Sha256),
+            "sha384" => make_hmac!(Hmac<Sha384>, Sha384),
+            "sha512" => make_hmac!(Hmac<Sha512>, Sha512),
+            "sha3_224" => make_hmac!(SimpleHmac<Sha3_224>, Sha3_224),
+            "sha3_256" => make_hmac!(SimpleHmac<Sha3_256>, Sha3_256),
+            "sha3_384" => make_hmac!(SimpleHmac<Sha3_384>, Sha3_384),
+            "sha3_512" => make_hmac!(SimpleHmac<Sha3_512>, Sha3_512),
             _ => Err(unsupported_hash(&name, vm)),
         }
     }
@@ -805,8 +805,8 @@ pub(crate) mod _hashlib {
         let msg_buf = args.msg.borrow_buf();
 
         macro_rules! do_hmac {
-            ($hash_ty:ty) => {{
-                let mut mac = <hmac::Hmac<$hash_ty> as Mac>::new_from_slice(&key_buf)
+            ($hmac:ty) => {{
+                let mut mac = <$hmac>::new_from_slice(&key_buf)
                     .map_err(|_| vm.new_value_error("invalid key length".to_owned()))?;
                 Mac::update(&mut mac, &msg_buf);
                 Ok(mac.finalize().into_bytes().to_vec().into())
@@ -814,16 +814,16 @@ pub(crate) mod _hashlib {
         }
 
         match name.as_str() {
-            "md5" => do_hmac!(Md5),
-            "sha1" => do_hmac!(Sha1),
-            "sha224" => do_hmac!(Sha224),
-            "sha256" => do_hmac!(Sha256),
-            "sha384" => do_hmac!(Sha384),
-            "sha512" => do_hmac!(Sha512),
-            "sha3_224" => do_hmac!(Sha3_224),
-            "sha3_256" => do_hmac!(Sha3_256),
-            "sha3_384" => do_hmac!(Sha3_384),
-            "sha3_512" => do_hmac!(Sha3_512),
+            "md5" => do_hmac!(Hmac<Md5>),
+            "sha1" => do_hmac!(Hmac<Sha1>),
+            "sha224" => do_hmac!(Hmac<Sha224>),
+            "sha256" => do_hmac!(Hmac<Sha256>),
+            "sha384" => do_hmac!(Hmac<Sha384>),
+            "sha512" => do_hmac!(Hmac<Sha512>),
+            "sha3_224" => do_hmac!(SimpleHmac<Sha3_224>),
+            "sha3_256" => do_hmac!(SimpleHmac<Sha3_256>),
+            "sha3_384" => do_hmac!(SimpleHmac<Sha3_384>),
+            "sha3_512" => do_hmac!(SimpleHmac<Sha3_512>),
             _ => Err(unsupported_hash(&name, vm)),
         }
     }
@@ -864,6 +864,14 @@ pub(crate) mod _hashlib {
             }};
         }
 
+        macro_rules! do_pbkdf2_sha3 {
+            ($hash_ty:ty) => {{
+                pbkdf2::pbkdf2::<SimpleHmac<$hash_ty>>(&password_buf, &salt_buf, rounds, &mut dk)
+                    .map_err(|_| vm.new_value_error("invalid key length."))?;
+                Ok(dk.into())
+            }};
+        }
+
         match name.as_str() {
             "md5" => do_pbkdf2!(Md5),
             "sha1" => do_pbkdf2!(Sha1),
@@ -871,10 +879,10 @@ pub(crate) mod _hashlib {
             "sha256" => do_pbkdf2!(Sha256),
             "sha384" => do_pbkdf2!(Sha384),
             "sha512" => do_pbkdf2!(Sha512),
-            "sha3_224" => do_pbkdf2!(Sha3_224),
-            "sha3_256" => do_pbkdf2!(Sha3_256),
-            "sha3_384" => do_pbkdf2!(Sha3_384),
-            "sha3_512" => do_pbkdf2!(Sha3_512),
+            "sha3_224" => do_pbkdf2_sha3!(Sha3_224),
+            "sha3_256" => do_pbkdf2_sha3!(Sha3_256),
+            "sha3_384" => do_pbkdf2_sha3!(Sha3_384),
+            "sha3_512" => do_pbkdf2_sha3!(Sha3_512),
             _ => Err(unsupported_hash(&name, vm)),
         }
     }
@@ -953,10 +961,13 @@ pub(crate) mod _hashlib {
             }
         }
 
-        fn block_size(&self) -> usize {
+        const fn block_size(&self) -> usize {
+            // https://en.wikipedia.org/wiki/SHA-3#Instances
+            // SHAKE128: 1344 / 8 = 168
+            // SHAKE256: 1088 / 8 = 136
             match self {
-                Self::Shake128(_) => Shake128::block_size(),
-                Self::Shake256(_) => Shake256::block_size(),
+                Self::Shake128(_) => 168,
+                Self::Shake256(_) => 136,
             }
         }
 
