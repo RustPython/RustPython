@@ -65,7 +65,7 @@ pub unsafe extern "C" fn PyWeakref_NewRef(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyAnyMethods;

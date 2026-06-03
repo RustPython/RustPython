@@ -177,7 +177,7 @@ pub unsafe extern "C" fn PySequence_In(obj: *mut PyObject, value: *mut PyObject)
     unsafe { PySequence_Contains(obj, value) }
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{PyAnyMethods, PyDict, PyList, PySequence, PySequenceMethods, PyTuple};
