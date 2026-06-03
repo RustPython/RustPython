@@ -1,6 +1,7 @@
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
 use core::ffi::c_int;
+pub use iter::*;
 pub use mapping::*;
 pub use number::*;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
@@ -8,6 +9,7 @@ use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 pub use sequence::*;
 
+mod iter;
 mod mapping;
 mod number;
 mod sequence;
@@ -168,5 +170,13 @@ pub unsafe extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyOb
         let inst = unsafe { &*inst };
         let cls = unsafe { &*cls };
         inst.is_instance(cls, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Size(obj: *mut PyObject) -> isize {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        obj.length(vm)
     })
 }
