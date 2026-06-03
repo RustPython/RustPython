@@ -638,7 +638,7 @@ mod _zstd {
             let dict_opt = args.zstd_dict.flatten();
 
             if level_opt.is_some() && options_opt.is_some() {
-                return Err(vm.new_runtime_error("Only one of level or options should be used"));
+                return Err(vm.new_type_error("Only one of level or options should be used."));
             }
 
             let mut cctx = CCtx::<'static>::create();
@@ -1000,37 +1000,44 @@ mod _zstd {
 
         #[pymethod]
         fn set_pledged_input_size(&self, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            // Parse the argument *before* taking the lock: `try_index` can run a
+            // Python `__index__`, and doing that while holding `self.state` would
+            // let a re-entrant call into this compressor deadlock. CPython
+            // likewise converts the argument before touching the compressor.
+            //
+            // Python passes `None` to mean "unknown"; libzstd represents that
+            // internally as `ZSTD_CONTENTSIZE_UNKNOWN` (`u64::MAX`), and
+            // `zstd_safe` translates `None` accordingly. libzstd also reserves
+            // `ZSTD_CONTENTSIZE_ERROR` (`u64::MAX - 1`), so a concrete size must
+            // be strictly less than that; reject anything else up front so
+            // callers see the documented `ValueError`, not a libzstd-level error.
+            let pledged: Option<u64> = if vm.is_none(&size) {
+                None
+            } else {
+                const LIMIT: u64 = u64::MAX - 1;
+                let err = || {
+                    vm.new_value_error(format!(
+                        "size argument should be a positive int less than {LIMIT}"
+                    ))
+                };
+                // `try_to_primitive` fails (OverflowError) for negatives and for
+                // values above `u64::MAX`; the explicit check covers the rest of
+                // the reserved range.
+                let v: u64 = size
+                    .try_index(vm)?
+                    .try_to_primitive(vm)
+                    .map_err(|_| err())?;
+                if v >= LIMIT {
+                    return Err(err());
+                }
+                Some(v)
+            };
             let mut state = self.state.lock();
             if state.last_mode != COMP_MODE_FLUSH_FRAME {
                 return Err(vm.new_value_error(
                     "set_pledged_input_size() method must be called when last_mode == FLUSH_FRAME",
                 ));
             }
-            // Python passes `None` to mean "unknown"; libzstd represents that
-            // internally as `ZSTD_CONTENTSIZE_UNKNOWN` (`u64::MAX`), and
-            // `zstd_safe` translates `None` accordingly. Reject any concrete
-            // int outside the valid range up front so callers see the
-            // documented `ValueError`, not a libzstd-level error. The valid
-            // upper bound is `ZSTD_CONTENTSIZE_ERROR - 1`, i.e. `u64::MAX - 2`.
-            let pledged: Option<u64> = if vm.is_none(&size) {
-                None
-            } else {
-                const UPPER_BOUND: u64 = u64::MAX - 2;
-                let int_ref = size.try_index(vm)?;
-                // Try fitting into u64; OverflowError covers negatives and
-                // values above `u64::MAX`.
-                let v: u64 = int_ref.try_to_primitive(vm).map_err(|_| {
-                    vm.new_value_error(format!(
-                        "size argument should be a positive int less than {UPPER_BOUND}"
-                    ))
-                })?;
-                if v > UPPER_BOUND {
-                    return Err(vm.new_value_error(format!(
-                        "size argument should be a positive int less than {UPPER_BOUND}"
-                    )));
-                }
-                Some(v)
-            };
             state
                 .cctx
                 .set_pledged_src_size(pledged)
