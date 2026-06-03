@@ -2,22 +2,6 @@
 
 Mapping source: `pyo3-ffi/src/*.rs`, which mirrors the CPython header split used by the C API.
 
-## `abstract.h`
-
-RustPython C API target: `crates/capi/src/abstract_.rs`
-
-- `PyIter_Check`
-- `PyIter_NextItem`
-- `PyIter_Send`
-- `PyObject_GetIter`
-- `PyObject_Size`
-
-## `descrobject.h`
-
-RustPython C API target: `crates/capi/src/descrobject.rs` (not present yet)
-
-- `PyDictProxy_New`
-
 ## `dictobject.h`
 
 RustPython C API target: `crates/capi/src/dictobject.rs`
@@ -66,13 +50,6 @@ RustPython C API target: `crates/capi/src/modsupport.rs` (not present yet)
 - `PyModule_ExecDef`
 - `PyModule_FromDefAndSpec2`
 
-## `moduleobject.h`
-
-RustPython C API target: `crates/capi/src/moduleobject.rs`
-
-- `PyModule_GetFilenameObject`
-- `PyModule_NewObject`
-
 ## `object.h`
 
 RustPython C API target: `crates/capi/src/object.rs`
@@ -90,17 +67,6 @@ RustPython C API target: `crates/capi/src/object.rs`
 RustPython C API target: `crates/capi/src/osmodule.rs` (not present yet)
 
 - `PyOS_FSPath`
-
-## `pybuffer.h`
-
-RustPython C API target: `crates/capi/src/pybuffer.rs` (not present yet)
-
-- `PyBuffer_FromContiguous`
-- `PyBuffer_GetPointer`
-- `PyBuffer_IsContiguous`
-- `PyBuffer_Release`
-- `PyBuffer_ToContiguous`
-- `PyObject_GetBuffer`
 
 ## `pyerrors.h`
 
