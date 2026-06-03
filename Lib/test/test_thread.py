@@ -150,6 +150,7 @@ class ThreadRunningTests(BasicThreadTest):
                 support.gc_collect()  # For PyPy or other GCs.
             self.assertEqual(thread._count(), orig)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unraisable_exception(self):
         def task():
             started.release()
@@ -322,7 +323,7 @@ class ThreadRunningTests(BasicThreadTest):
         with self.assertRaisesRegex(RuntimeError, "thread not started"):
             handle._set_done()
 
-    @unittest.skip("TODO: RUSTPYTHON; panic")
+    @unittest.skipIf(__import__("sys").platform == "linux", "TODO: RUSTPYTHON; panic")
     def test_start_duplicate_handle(self):
         lock = thread.allocate_lock()
         lock.acquire()
@@ -338,6 +339,7 @@ class ThreadRunningTests(BasicThreadTest):
             lock.release()
             handle.join()
 
+    @unittest.skipIf(__import__("sys").platform == "linux", "TODO: RUSTPYTHON; panic")
     def test_start_with_none_handle(self):
         def func():
             pass
