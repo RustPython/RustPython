@@ -1587,28 +1587,10 @@ mod _ssl {
                             }
                         };
 
-                        let context = self.context();
                         let hello = accepted.client_hello();
 
-                        // Remember shared cipher suites.
-                        {
-                            let our_ciphers = context.ciphers.read();
-                            *self.shared_ciphers.write() = Some(
-                                hello
-                                    .cipher_suites()
-                                    .iter()
-                                    .filter_map(|c| {
-                                        our_ciphers
-                                            .0
-                                            .iter()
-                                            .find(|oc| u16::from(*c) == u16::from(oc.suite()))
-                                    })
-                                    .copied()
-                                    .collect(),
-                            );
-                        }
-
                         // Call SNI callback (if any).
+                        let context = self.context();
                         let sni_callback = context.sni_callback();
                         if !vm.is_none(&sni_callback) {
                             let owner = self.owner.upgrade().ok_or_else(|| {
@@ -1670,6 +1652,27 @@ mod _ssl {
                                 }
                             }
                         };
+
+                        // SNI callback may change the context, so get it again.
+                        let context = self.context();
+
+                        // Remember shared cipher suites.
+                        {
+                            let our_ciphers = context.ciphers.read();
+                            *self.shared_ciphers.write() = Some(
+                                hello
+                                    .cipher_suites()
+                                    .iter()
+                                    .filter_map(|c| {
+                                        our_ciphers
+                                            .0
+                                            .iter()
+                                            .find(|oc| u16::from(*c) == u16::from(oc.suite()))
+                                    })
+                                    .copied()
+                                    .collect(),
+                            );
+                        }
 
                         // Create rustls connection.
                         let conn =
