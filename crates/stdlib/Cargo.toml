@@ -21,10 +21,23 @@ ssl = ["host_env"]
 ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
 ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
-tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
+# tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
 flame-it = ["flame"]
 
-__ssl-rustls = ["ssl", "rustls", "rustls-native-certs", "rustls-pemfile", "rustls-platform-verifier", "x509-cert", "x509-parser", "der", "pem-rfc7468", "webpki-roots", "oid-registry", "pkcs8"]
+__ssl-rustls = [
+    "ssl",
+    "rustls",
+    "rustls-native-certs",
+    "rustls-pemfile",
+    # "rustls-platform-verifier",
+    # "x509-cert",
+    "x509-parser",
+    "der",
+    "pem-rfc7468",
+    "webpki-roots",
+    "oid-registry",
+    "pkcs8"
+]
 
 [dependencies]
 # rustpython crates
@@ -92,10 +105,10 @@ libz-rs-sys = { workspace = true }
 bzip2 = { workspace = true }
 
 # tkinter
-tk-sys = { workspace = true, optional = true }
-tcl-sys = { workspace = true, optional = true }
+# tk-sys = { workspace = true, optional = true }
+# tcl-sys = { workspace = true, optional = true }
 widestring = { workspace = true, optional = true }
-chrono.workspace = true
+chrono = { workspace = true }
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
@@ -118,8 +131,8 @@ foreign-types-shared = { workspace = true, optional = true }
 rustls = { workspace = true, default-features = false, features = ["std", "tls12"], optional = true }
 rustls-native-certs = { workspace = true, optional = true }
 rustls-pemfile = { workspace = true, optional = true }
-rustls-platform-verifier = { workspace = true, optional = true }
-x509-cert = { workspace = true, features = ["pem", "builder"], optional = true }
+# rustls-platform-verifier = { workspace = true, optional = true }
+# x509-cert = { workspace = true, features = ["pem", "builder"], optional = true }
 x509-parser = { workspace = true, optional = true }
 der = { workspace = true, optional = true }
 pem-rfc7468 = { workspace = true, features = ["alloc"], optional = true }
