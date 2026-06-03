@@ -1198,7 +1198,7 @@ mod _ssl {
             };
 
             Ok(ClientConnection::new(Arc::new(config), server_name)
-                .map_err(|e| SslError::from_rustls(e).into_py_err(vm))?
+                .map_err(|e| SslError::Rustls(e).into_py_err(vm))?
                 .into())
         }
 
@@ -1214,7 +1214,7 @@ mod _ssl {
             // TODO: Search by a requested host name too.
             let cert_chain = self.cert_chain.read();
             if cert_chain.is_empty() {
-                return Err(SslError::from_rustls(rustls::Error::PeerIncompatible(
+                return Err(SslError::Rustls(rustls::Error::PeerIncompatible(
                     rustls::PeerIncompatible::NoCipherSuitesInCommon,
                 ))
                 .into_py_err(vm));
@@ -2707,7 +2707,7 @@ impl State {
             Err(SslError::Ssl("TLS alert is too long or too short".to_string()).into_py_err(vm))
         } else {
             Ok(Self::ServerSendingAlert {
-                error: SslError::from_rustls(error).into_py_err(vm),
+                error: SslError::Rustls(error).into_py_err(vm),
                 alert_buf,
                 alert_buf_pos: 0,
             })
@@ -2847,7 +2847,7 @@ impl Io {
                     let err = err
                         .downcast::<rustls::Error>()
                         .expect("BUG: Not a rustls Error");
-                    Err(SslError::from_rustls(err).into_py_err(vm))
+                    Err(SslError::Rustls(err).into_py_err(vm))
                 }
 
                 _ => Err(SslError::Io(err).into_py_err(vm)),
