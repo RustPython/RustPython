@@ -11,7 +11,9 @@ use crate::convert::ToPyObject;
 use crate::function::{Either, FuncArgs, OptionalArg};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
 use crate::types::{AsBuffer, AsNumber, Constructor, Initializer, Representable};
-use crate::{AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use crate::{
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, set_attrs,
+};
 use alloc::borrow::Cow;
 use core::fmt::Debug;
 use num_traits::ToPrimitive;
@@ -605,12 +607,11 @@ fn create_swapped_types(
     // c_char (c), c_byte (b), c_ubyte (B)
     let single_byte_types = ["c", "b", "B"];
     if single_byte_types.contains(&type_str) {
-        type_ref
-            .as_object()
-            .set_attr("__ctype_le__", type_ref.as_object().to_owned(), vm)?;
-        type_ref
-            .as_object()
-            .set_attr("__ctype_be__", type_ref.as_object().to_owned(), vm)?;
+        set_attrs!(
+            type_ref.as_object(), vm,
+            "__ctype_le__" => type_ref.as_object().to_owned(),
+            "__ctype_be__" => type_ref.as_object().to_owned(),
+        );
         return Ok(());
     }
 
@@ -627,12 +628,11 @@ fn create_swapped_types(
     let bases = vm.ctx.new_tuple(vec![type_ref.as_object().to_owned()]);
 
     // Set placeholder first to prevent recursion
-    type_ref
-        .as_object()
-        .set_attr("__ctype_le__", vm.ctx.none(), vm)?;
-    type_ref
-        .as_object()
-        .set_attr("__ctype_be__", vm.ctx.none(), vm)?;
+    set_attrs!(
+        type_ref.as_object(), vm,
+        "__ctype_le__" => vm.ctx.none(),
+        "__ctype_be__" => vm.ctx.none(),
+    );
 
     // Create only the non-native endian type
     let suffix = if is_little_endian { "_be" } else { "_le" };
@@ -646,7 +646,10 @@ fn create_swapped_types(
     )?;
 
     // Set _swappedbytes_ on the swapped type to indicate byte swapping is needed
-    swapped_type.set_attr("_swappedbytes_", vm.ctx.none(), vm)?;
+    set_attrs!(
+        swapped_type, vm,
+        "_swappedbytes_" => vm.ctx.none(),
+    );
 
     // Update swapped type's StgInfo format to use opposite endian prefix
     if let Ok(swapped_type_ref) = swapped_type.clone().downcast::<PyType>()
@@ -663,24 +666,30 @@ fn create_swapped_types(
     // Native endian attribute points to self, non-native points to swapped type
     if is_little_endian {
         // Little-endian system: __ctype_le__ = self, __ctype_be__ = swapped
-        type_ref
-            .as_object()
-            .set_attr("__ctype_le__", type_ref.as_object().to_owned(), vm)?;
-        type_ref
-            .as_object()
-            .set_attr("__ctype_be__", swapped_type.clone(), vm)?;
-        swapped_type.set_attr("__ctype_le__", type_ref.as_object().to_owned(), vm)?;
-        swapped_type.set_attr("__ctype_be__", swapped_type.clone(), vm)?;
+        set_attrs!(
+            type_ref.as_object(), vm,
+            "__ctype_le__" => type_ref.as_object().to_owned(),
+            "__ctype_be__" => swapped_type.clone(),
+        );
+
+        set_attrs!(
+            swapped_type, vm,
+            "__ctype_le__" => type_ref.as_object().to_owned(),
+            "__ctype_be__" => swapped_type.clone(),
+        );
     } else {
         // Big-endian system: __ctype_be__ = self, __ctype_le__ = swapped
-        type_ref
-            .as_object()
-            .set_attr("__ctype_be__", type_ref.as_object().to_owned(), vm)?;
-        type_ref
-            .as_object()
-            .set_attr("__ctype_le__", swapped_type.clone(), vm)?;
-        swapped_type.set_attr("__ctype_be__", type_ref.as_object().to_owned(), vm)?;
-        swapped_type.set_attr("__ctype_le__", swapped_type.clone(), vm)?;
+        set_attrs!(
+            type_ref.as_object(), vm,
+            "__ctype_be__" => type_ref.as_object().to_owned(),
+            "__ctype_le__" => swapped_type.clone(),
+        );
+
+        set_attrs!(
+            swapped_type, vm,
+            "__ctype_be__" => type_ref.as_object().to_owned(),
+            "__ctype_le__" => swapped_type.clone(),
+        );
     }
 
     Ok(())
