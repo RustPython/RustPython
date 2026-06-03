@@ -49,7 +49,6 @@ env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
 
 rustls = { workspace = true, optional = true }
-rustls-graviola = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 libc = { workspace = true }
@@ -62,6 +61,7 @@ criterion = { workspace = true }
 pyo3 = { workspace = true, features = ["auto-initialize"] }
 rustpython-stdlib = { workspace = true }
 ruff_python_parser = { workspace = true }
+rustls-graviola = { workspace = true }
 
 [[bench]]
 name = "execution"
@@ -79,7 +79,6 @@ path = "src/main.rs"
 name = "custom_tls_providers"
 path = "examples/custom_tls_providers.rs"
 required-features = [
-    "rustls-graviola",
     "rustls/ring",
     "rustpython-pylib/freeze-stdlib",
     "rustpython-stdlib/ssl-rustls",
