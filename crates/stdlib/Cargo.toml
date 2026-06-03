@@ -61,15 +61,16 @@ pymath = { workspace = true }
 xml = { workspace = true }
 
 # random
-rand_core = { workspace = true }
+rand = { workspace = true }
 mt19937 = { workspace = true }
 
 # Crypto:
 digest = { workspace = true }
 md-5 = { workspace = true }
-sha-1 = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 sha3 = { workspace = true }
+shake = { workspace = true }
 blake2 = { workspace = true }
 hmac = { workspace = true }
 pbkdf2 = { workspace = true, features = ["hmac"] }
