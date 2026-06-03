@@ -21,7 +21,12 @@ ssl = ["host_env"]
 ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
 ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
-# tkinter = ["dep:tk-sys", "dep:tcl-sys", "dep:widestring"]
+# TODO: Fix tkinter
+tkinter = [
+    # "dep:tk-sys",
+    # "dep:tcl-sys",
+    # "dep:widestring",
+]
 flame-it = ["flame"]
 
 __ssl-rustls = [
