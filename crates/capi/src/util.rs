@@ -76,6 +76,14 @@ impl FfiResult<*mut c_char> for *const u8 {
     }
 }
 
+impl FfiResult<*mut c_char> for *mut u8 {
+    const ERR_VALUE: *mut c_char = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *mut c_char {
+        self.cast()
+    }
+}
+
 impl FfiResult for *const c_char {
     const ERR_VALUE: *const c_char = core::ptr::null_mut();
 
