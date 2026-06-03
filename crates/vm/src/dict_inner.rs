@@ -1245,7 +1245,7 @@ mod tests {
     use crate::{Interpreter, common::ascii};
 
     #[test]
-    fn test_insert() {
+    fn insert_basic() {
         Interpreter::without_stdlib(Default::default()).enter(|vm| {
             let dict = Dict::default();
             assert_eq!(0, dict.len());
@@ -1290,8 +1290,8 @@ mod tests {
     }
 
     hash_tests! {
-        test_abc: "abc",
-        test_x: "x",
+        abc: "abc",
+        x: "x",
     }
 
     fn check_hash_equivalence(text: &str) {

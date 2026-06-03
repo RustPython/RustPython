@@ -1,9 +1,16 @@
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
 use core::ffi::c_int;
+pub use mapping::*;
+pub use number::*;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
 use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+pub use sequence::*;
+
+mod mapping;
+mod number;
+mod sequence;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 

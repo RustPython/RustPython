@@ -22,7 +22,10 @@ use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 use std::collections::HashSet;
 use x509_parser::prelude::*;
 
-use super::_ssl::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT};
+use super::{
+    _ssl::{VERIFY_X509_PARTIAL_CHAIN, VERIFY_X509_STRICT},
+    providers::CryptoExt,
+};
 
 // Certificate Verification Constants
 
@@ -1151,7 +1154,7 @@ pub(super) fn load_cert_chain_from_file(
     let private_key = if let Some(pwd) = password {
         // Try to parse as encrypted PKCS#8
         use der::SecretDocument;
-        use pkcs8::EncryptedPrivateKeyInfo;
+        use pkcs8::EncryptedPrivateKeyInfoRef;
         use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 
         let pem_str = String::from_utf8_lossy(&key_contents);
@@ -1177,7 +1180,7 @@ pub(super) fn load_cert_chain_from_file(
                 Ok((label, doc)) => {
                     if label == "ENCRYPTED PRIVATE KEY" {
                         // Parse encrypted key info from DER
-                        match EncryptedPrivateKeyInfo::try_from(doc.as_bytes()) {
+                        match EncryptedPrivateKeyInfoRef::try_from(doc.as_bytes()) {
                             Ok(encrypted_key) => {
                                 // Decrypt with password
                                 match encrypted_key.decrypt(pwd.as_bytes()) {
@@ -1268,9 +1271,7 @@ pub(super) fn validate_cert_key_match(
 
     // For rustls, the actual validation happens when creating CertifiedKey
     // We can attempt to create a signing key to verify the key is valid
-    use rustls::crypto::aws_lc_rs::sign::any_supported_type;
-
-    match any_supported_type(private_key) {
+    match CryptoExt::get_ext().any_supported_key(private_key) {
         Ok(_signing_key) => {
             // If we can create a signing key, the private key is valid
             // Rustls will validate the cert-key match when building config

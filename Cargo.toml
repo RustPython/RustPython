@@ -11,7 +11,7 @@ license.workspace = true
 
 [features]
 capi = ["dep:rustpython-capi", "threading"]
-default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls", "host_env"]
+default = ["threading", "stdlib", "stdio", "importlib", "ssl-rustls-aws-lc", "host_env"]
 host_env = ["rustpython-vm/host_env", "rustpython-stdlib?/host_env"]
 importlib = ["rustpython-vm/importlib"]
 encodings = ["rustpython-vm/encodings"]
@@ -22,10 +22,12 @@ freeze-stdlib = ["stdlib", "rustpython-vm/freeze-stdlib", "rustpython-pylib?/fre
 jit = ["rustpython-vm/jit"]
 threading = ["rustpython-vm/threading", "rustpython-stdlib/threading"]
 sqlite = ["rustpython-stdlib/sqlite"]
-ssl = []
+ssl = ["host_env"]
 ssl-rustls = ["ssl", "rustpython-stdlib/ssl-rustls"]
+ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
+ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
-ssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-vendor"]
+ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
 tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
@@ -45,6 +47,9 @@ lexopt = "0.3"
 dirs = "6"
 env_logger = "0.11"
 flamescope = { version = "0.1.2", optional = true }
+
+rustls = { workspace = true, optional = true }
+rustls-graviola = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 libc = { workspace = true }
@@ -69,6 +74,17 @@ harness = false
 [[bin]]
 name = "rustpython"
 path = "src/main.rs"
+
+[[example]]
+name = "custom_tls_providers"
+path = "examples/custom_tls_providers.rs"
+required-features = [
+    "rustls-graviola",
+    "rustls/ring",
+    "rustpython-pylib/freeze-stdlib",
+    "rustpython-stdlib/ssl-rustls",
+    "rustpython-vm/freeze-stdlib",
+]
 
 [profile.dev.package."*"]
 opt-level = 3
@@ -100,6 +116,14 @@ opt-level = 3
 
 [profile.release]
 lto = "thin"
+
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
 
 [patch.crates-io]
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
@@ -178,9 +202,8 @@ phf = { version = "0.13.1", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
 ascii = "1.1"
-aws-lc-rs = "1.16.3"
 base64 = "0.22"
-blake2 = "0.10.4"
+blake2 = "0.11.0-rc.6"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = "1"
@@ -188,28 +211,29 @@ bzip2 = "0.6"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 console_error_panic_hook = "0.1"
 constant_time_eq = "0.4"
-cranelift = "0.131.1"
-cranelift-jit = "0.131.1"
-cranelift-module = "0.131.0"
+cranelift = "0.132.0"
+cranelift-jit = "0.132.0"
+cranelift-module = "0.132.0"
 crc32fast = "1.3.2"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
 csv-core = "0.1.11"
-digest = "0.10.7"
+digest = "0.11"
 dns-lookup = "3.0"
 dyn-clone = "1.0.10"
 exitcode = "1.1.2"
 flame = "0.2.2"
 flamer = "0.5"
 flate2 = { version = "1.1.9", default-features = false }
-foreign-types-shared = "0.3.1"
+# Bump only when the openssl crate bumps it
+foreign-types-shared = "0.1"
 gethostname = "1.0.2"
-getrandom = { version = "0.3", features = ["std"] }
+getrandom = { version = "0.4", features = ["std"] }
 glob = "0.3"
 half = "2"
 hex = "0.4.3"
 hexf-parse = "0.2.1"
-hmac = "0.12"
+hmac = "0.13"
 indexmap = { version = "2.14.0", features = ["std"] }
 insta = "1.47"
 itertools = "0.14.0"
@@ -232,10 +256,10 @@ mac_address = "1.1.3"
 malachite-bigint = "0.9.1"
 malachite-q = "0.9.1"
 malachite-base = "0.9.1"
-md-5 = "0.10.1"
+md-5 = "0.11"
 memchr = "2.8.0"
 memmap2 = "0.9.10"
-mt19937 = "<=3.2"  # upgrade it once rand is upgraded
+mt19937 = "3.3"
 num-complex = "0.4.6"
 num-integer = "0.1.46"
 num-traits = "0.2"
@@ -248,21 +272,21 @@ openssl-probe = "0.2.1"
 optional = "0.5"
 parking_lot = "0.12.3"
 paste = "1.0.15"
-pbkdf2 = "0.12"
+pbkdf2 = "0.13"
 pem-rfc7468 = "1.0"
-pkcs8 = "0.10"
+pkcs8 = "0.11"
 proc-macro2 = "1.0.105"
 psm = "0.1"
 pymath = { version = "0.2.0", features = ["mul_add", "malachite-bigint", "complex"] }
 pyo3 = "0.28"
 quote = "1.0.45"
 radium = "1.1.1"
-rand = "0.9"
-rand_core = { version = "0.9", features = ["os_rng"] }
+rand = "0.10"
 rapidhash = "4.4.1"
 result-like = "0.5.0"
 rustix = { version = "1.1", features = ["event", "param", "system"] }
 rustls = { version = "0.23.39", default-features = false }
+rustls-graviola = "0.3"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
 rustls-platform-verifier = "0.7"
@@ -271,9 +295,10 @@ serde = { package = "serde_core", version = "1.0.225", default-features = false,
 schannel = "0.1.29"
 scopeguard = "1"
 serde-wasm-bindgen = "0.6.5"
-sha-1 = "0.10.0"
-sha2 = "0.10.2"
-sha3 = "0.10.1"
+sha1 = "0.11"
+sha2 = "0.11"
+sha3 = "0.12"
+shake = "0.1"
 siphasher = "1"
 socket2 = "0.6.3"
 static_assertions = "1.1"
@@ -335,8 +360,11 @@ similar_names = "allow"
 
 # restriction lints
 alloc_instead_of_core = "warn"
+cfg_not_test = "warn"
+redundant_test_prefix = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
+tests_outside_test_module = "warn"
 
 # nursery lints to enforce gradually
 debug_assert_with_mut_call = "warn"

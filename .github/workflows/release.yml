@@ -68,7 +68,7 @@ jobs:
           libtool: true
 
       - name: Build RustPython
-        run: cargo build --release --target=${{ matrix.target }} --verbose --no-default-features --features stdlib,stdio,importlib,encodings,sqlite,host_env,ssl-rustls,threading,jit
+        run: cargo build --release --target=${{ matrix.target }} --verbose --no-default-features --features stdlib,stdio,importlib,encodings,sqlite,host_env,ssl-rustls-aws-lc,threading,jit
 
       - name: Rename Binary
         run: cp target/${{ matrix.target }}/release/rustpython target/rustpython-release-${{ runner.os }}-${{ matrix.target }}
@@ -141,7 +141,7 @@ jobs:
 
       - name: Deploy demo to Github Pages
         if: ${{ github.repository == 'RustPython/RustPython' }}
-        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         with:
           deploy_key: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
           publish_dir: ./wasm/demo/dist

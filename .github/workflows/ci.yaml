@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls,host_env
+  CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env
   CARGO_ARGS_NO_SSL: --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,host_env
   # Crates excluded from workspace builds:
   # - rustpython_wasm: requires wasm target
@@ -33,7 +33,6 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
   CI: true
 
 jobs:
@@ -140,6 +139,10 @@ jobs:
         run: cargo build --no-default-features --features ssl-openssl
         if: runner.os == 'Linux'
 
+      - name: Test vendored OpenSSL build
+        run: cargo build --no-default-features --features ssl-openssl-vendor
+        if: runner.os == 'Linux'
+
       # - name: Install tk-dev for tkinter build
       #   run: sudo apt-get update && sudo apt-get install -y tk-dev
       #   if: runner.os == 'Linux'
@@ -186,6 +189,7 @@ jobs:
           skip_ssl: true
         - os: ubuntu-latest
           target: wasm32-wasip2
+          skip_ssl: true
         - os: ubuntu-latest
           target: x86_64-unknown-freebsd
           skip_ssl: true
@@ -305,11 +309,7 @@ jobs:
           extra_test_args: [] # TODO: Enable '-u all'
           env_polluting_tests:
             - test_set
-          skips:
-            - test_rlcompleter
-            - test_pathlib # panic by surrogate chars
-            - test_posixpath # OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-            - test_venv # couple of failing tests
+          skips: []
           timeout: 50
       fail-fast: false
     steps:
@@ -519,6 +519,8 @@ jobs:
       security-events: write # for zizmor
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
 
@@ -530,7 +532,7 @@ jobs:
         uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@b1d7e1fb5de872772f31590499237e7cce841e8e # v0.5.3
+        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
 
       - name: restore prek cache
         uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -538,18 +540,35 @@ jobs:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
-      # TODO: Remove on 2026/06/02 when node24 is the default
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          package-manager-cache: false
-          node-version: "24"
-
-      - name: prek
+      - name: install prek
         id: prek
-        uses: j178/prek-action@6ad80277337ad479fe43bd70701c3f7f8aa74db3 # v2.0.3
+        uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
         with:
           cache: false
           show-verbose-logs: false
+          install-only: true
+
+      - name: prek run
+        run: prek run --show-diff-on-failure --color=always --all-files
+
+      - name: Get target CPython version
+        id: cpython-version
+        run: |
+          version=$(cat .python-version)
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Clone CPython
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: python/cpython
+          path: cpython
+          ref: "v${{ steps.cpython-version.outputs.version }}"
+          persist-credentials: false
+
+      - name: prek run (manual stage)
+        run: prek run --show-diff-on-failure --color=always --all-files --hook-stage manual
+        env:
+          CPYTHON_ROOT: ${{ github.workspace }}/cpython
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
@@ -706,7 +725,7 @@ jobs:
 
       - name: Deploy demo to Github Pages
         if: success() && github.ref == 'refs/heads/release'
-        uses: peaceiris/actions-gh-pages@4f9cc6602d3f66b9c108549d475ec49e8ef4d45e # v4.0.0
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
         env:
           ACTIONS_DEPLOY_KEY: ${{ secrets.ACTIONS_DEMO_DEPLOY_KEY }}
           PUBLISH_DIR: ./wasm/demo/dist
@@ -760,11 +779,11 @@ jobs:
           clang: true
 
       - name: build rustpython
-        run: cargo build --release --target wasm32-wasip1 --features freeze-stdlib,stdlib --verbose
+        run: cargo build --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo_doc:
     needs:
@@ -801,3 +820,4 @@ jobs:
 
       - name: cargo doc
         run: cargo doc --locked
+

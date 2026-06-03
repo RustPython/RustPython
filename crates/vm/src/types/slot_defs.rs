@@ -1501,7 +1501,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_find_by_name() {
+    fn find_by_name() {
         // __len__ appears in both sequence and mapping
         let len_defs: Vec<_> = find_slot_defs_by_name("__len__").collect();
         assert_eq!(len_defs.len(), 2);
@@ -1516,7 +1516,7 @@ mod tests {
     }
 
     #[test]
-    fn test_slot_op() {
+    fn slot_op() {
         // Test comparison ops
         assert_eq!(SlotOp::Lt.as_compare_op(), Some(PyComparisonOp::Lt));
         assert_eq!(SlotOp::Eq.as_compare_op(), Some(PyComparisonOp::Eq));

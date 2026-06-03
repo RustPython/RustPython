@@ -1,5 +1,6 @@
 ---
 source: crates/stdlib/src/_opcode.rs
+assertion_line: 300
 expression: "dis(r#\"\nasync def test():\n    for stop_exc in (StopIteration('spam'), StopAsyncIteration('ham')):\n        with self.subTest(type=type(stop_exc)):\n            try:\n                async with egg():\n                    raise stop_exc\n            except Exception as ex:\n                self.assertIs(ex, stop_exc)\n            else:\n                self.fail(f'{stop_exc} was suppressed')\n\"#)"
 ---
   0           RESUME                   0
@@ -146,29 +147,29 @@ Disassembly of <code object test at 0xdeadbeef file "<?>", line 1>:
        L34:     PUSH_EXC_INFO
                 WITH_EXCEPT_START
                 TO_BOOL
-                POP_JUMP_IF_TRUE         2 (to L37)
-       L35:     NOT_TAKEN
-       L36:     RERAISE                  2
-       L37:     POP_TOP
-       L38:     POP_EXCEPT
+                POP_JUMP_IF_TRUE         2 (to L35)
+                NOT_TAKEN
+                RERAISE                  2
+       L35:     POP_TOP
+       L36:     POP_EXCEPT
                 POP_TOP
                 POP_TOP
                 POP_TOP
                 JUMP_BACKWARD          205 (to L2)
 
-  --   L39:     COPY                     3
+  --   L37:     COPY                     3
                 POP_EXCEPT
                 RERAISE                  1
-       L40:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
+       L38:     CALL_INTRINSIC_1         3 (INTRINSIC_STOPITERATION_ERROR)
                 RERAISE                  1
 ExceptionTable:
-  L1 to L3 -> L40 [0] lasti
+  L1 to L3 -> L38 [0] lasti
   L3 to L4 -> L34 [3] lasti
   L5 to L7 -> L27 [3]
   L7 to L8 -> L12 [7]
   L8 to L10 -> L27 [3]
   L10 to L11 -> L14 [5] lasti
-  L11 to L12 -> L40 [0] lasti
+  L11 to L12 -> L38 [0] lasti
   L12 to L13 -> L27 [3]
   L14 to L16 -> L24 [7] lasti
   L16 to L17 -> L18 [10]
@@ -181,7 +182,6 @@ ExceptionTable:
   L29 to L30 -> L34 [3] lasti
   L30 to L32 -> L32 [4] lasti
   L32 to L33 -> L34 [3] lasti
-  L33 to L34 -> L40 [0] lasti
-  L34 to L35 -> L39 [5] lasti
-  L36 to L38 -> L39 [5] lasti
-  L38 to L40 -> L40 [0] lasti
+  L33 to L34 -> L38 [0] lasti
+  L34 to L36 -> L37 [5] lasti
+  L36 to L38 -> L38 [0] lasti

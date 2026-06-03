@@ -65,7 +65,7 @@ mod _ssl {
             LazyLock, PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
             PyRwLockWriteGuard,
         },
-        socket::{self, PySocket},
+        socket::{self, PySocket, SockWaitKind, sock_wait},
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
@@ -2292,47 +2292,52 @@ mod _ssl {
             self.0.get_timeout().map(|d| Instant::now() + d)
         }
 
-        fn select(&self, needs: SslNeeds, deadline: &SocketDeadline) -> SelectRet {
-            let sock = match self.0.sock_opt() {
-                Some(s) => s,
-                None => return SelectRet::Closed,
+        fn select(
+            &self,
+            needs: SslNeeds,
+            deadline: &SocketDeadline,
+            vm: &VirtualMachine,
+        ) -> PyResult<SelectRet> {
+            let Some(sock) = self.0.sock_opt() else {
+                return Ok(SelectRet::Closed);
             };
             // For blocking sockets without timeout, call sock_select with None timeout
             // to actually block waiting for data instead of busy-looping
             let timeout = match &deadline {
                 Ok(deadline) => match deadline.checked_duration_since(Instant::now()) {
                     Some(d) => Some(d),
-                    None => return SelectRet::TimedOut,
+                    None => return Ok(SelectRet::TimedOut),
                 },
                 Err(true) => None, // Blocking: no timeout, wait indefinitely
-                Err(false) => return SelectRet::Nonblocking,
+                Err(false) => return Ok(SelectRet::Nonblocking),
             };
-            let res = socket::sock_select(
-                &sock,
-                match needs {
-                    SslNeeds::Read => socket::SelectKind::Read,
-                    SslNeeds::Write => socket::SelectKind::Write,
-                },
-                timeout,
-            );
-            match res {
-                Ok(true) => SelectRet::TimedOut,
-                _ => SelectRet::Ok,
-            }
+            let wait_kind = match needs {
+                SslNeeds::Read => SockWaitKind::Read,
+                SslNeeds::Write => SockWaitKind::Write,
+            };
+            sock_wait(&*sock, wait_kind, timeout, vm).map(|timed_out| {
+                if timed_out {
+                    SelectRet::TimedOut
+                } else {
+                    SelectRet::Ok
+                }
+            })
         }
 
         fn socket_needs(
             &self,
             err: &ssl::Error,
             deadline: &SocketDeadline,
-        ) -> (Option<SslNeeds>, SelectRet) {
+            vm: &VirtualMachine,
+        ) -> PyResult<(Option<SslNeeds>, SelectRet)> {
             let needs = match err.code() {
                 ssl::ErrorCode::WANT_READ => Some(SslNeeds::Read),
                 ssl::ErrorCode::WANT_WRITE => Some(SslNeeds::Write),
                 _ => None,
             };
-            let state = needs.map_or(SelectRet::Ok, |needs| self.select(needs, deadline));
-            (needs, state)
+            let state =
+                needs.map_or(Ok(SelectRet::Ok), |needs| self.select(needs, deadline, vm))?;
+            Ok((needs, state))
         }
     }
 
@@ -2850,7 +2855,7 @@ mod _ssl {
                         break;
                     }
                     // Wait briefly for peer's close_notify before retrying
-                    match socket_stream.select(SslNeeds::Read, &deadline) {
+                    match socket_stream.select(SslNeeds::Read, &deadline, vm)? {
                         SelectRet::TimedOut => {
                             return Err(socket::timeout_error_msg(
                                 vm,
@@ -2888,7 +2893,7 @@ mod _ssl {
                 };
 
                 // Wait on the socket
-                match socket_stream.select(needs, &deadline) {
+                match socket_stream.select(needs, &deadline, vm)? {
                     SelectRet::TimedOut => {
                         let msg = if err == sys::SSL_ERROR_WANT_READ {
                             "The read operation timed out"
@@ -2984,7 +2989,7 @@ mod _ssl {
                 let (needs, state) = stream
                     .get_ref()
                     .expect("handshake called in bio mode; should only be called in socket mode")
-                    .socket_needs(&err, &timeout);
+                    .socket_needs(&err, &timeout, vm)?;
                 match state {
                     SelectRet::TimedOut => {
                         // Clean up SNI ex_data before returning error
@@ -3038,7 +3043,7 @@ mod _ssl {
                 .get_ref()
                 .expect("write called in bio mode; should only be called in socket mode");
             let timeout = socket_ref.timeout_deadline();
-            let state = socket_ref.select(SslNeeds::Write, &timeout);
+            let state = socket_ref.select(SslNeeds::Write, &timeout, vm)?;
             match state {
                 SelectRet::TimedOut => {
                     return Err(socket::timeout_error_msg(
@@ -3058,7 +3063,7 @@ mod _ssl {
                 let (needs, state) = stream
                     .get_ref()
                     .expect("write called in bio mode; should only be called in socket mode")
-                    .socket_needs(&err, &timeout);
+                    .socket_needs(&err, &timeout, vm)?;
                 match state {
                     SelectRet::TimedOut => {
                         return Err(socket::timeout_error_msg(
@@ -3229,7 +3234,7 @@ mod _ssl {
                     let (needs, state) = stream
                         .get_ref()
                         .expect("read called in bio mode; should only be called in socket mode")
-                        .socket_needs(&err, &timeout);
+                        .socket_needs(&err, &timeout, vm)?;
                     match state {
                         SelectRet::TimedOut => {
                             return Err(socket::timeout_error_msg(
@@ -4142,7 +4147,7 @@ mod bio {
     use openssl_sys as sys;
     use std::marker::PhantomData;
 
-    pub struct MemBioSlice<'a>(*mut sys::BIO, PhantomData<&'a [u8]>);
+    pub(super) struct MemBioSlice<'a>(*mut sys::BIO, PhantomData<&'a [u8]>);
 
     impl Drop for MemBioSlice<'_> {
         fn drop(&mut self) {
@@ -4153,7 +4158,7 @@ mod bio {
     }
 
     impl<'a> MemBioSlice<'a> {
-        pub fn new(buf: &'a [u8]) -> Result<MemBioSlice<'a>, ErrorStack> {
+        pub(super) fn new(buf: &'a [u8]) -> Result<MemBioSlice<'a>, ErrorStack> {
             openssl::init();
 
             assert!(buf.len() <= c_int::MAX as usize);
@@ -4165,7 +4170,7 @@ mod bio {
             Ok(MemBioSlice(bio, PhantomData))
         }
 
-        pub fn as_ptr(&self) -> *mut sys::BIO {
+        pub(super) fn as_ptr(&self) -> *mut sys::BIO {
             self.0
         }
     }

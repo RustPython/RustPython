@@ -1624,7 +1624,6 @@ class TestBranchAndJumpEvents(CheckEvents):
             ('branch left', 'func', 44, 50),
             ('branch right', 'func', 28, 70)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - bytecode layout differs from CPython
     def test_except_star(self):
 
         class Foo:

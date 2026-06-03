@@ -238,7 +238,7 @@ output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp
     }
 
     #[test]
-    fn test_if_ors() {
+    fn if_ors() {
         assert_dis_snapshot!(
             r#"
 if True or False or False:
@@ -248,7 +248,7 @@ if True or False or False:
     }
 
     #[test]
-    fn test_if_ands() {
+    fn if_ands() {
         assert_dis_snapshot!(
             r#"
 if True and False and False:
@@ -258,7 +258,7 @@ if True and False and False:
     }
 
     #[test]
-    fn test_if_mixed() {
+    fn if_mixed() {
         assert_dis_snapshot!(
             r#"
 if (True and False) or (False and True):
@@ -268,7 +268,7 @@ if (True and False) or (False and True):
     }
 
     #[test]
-    fn test_nested_bool_op() {
+    fn nested_bool_op() {
         assert_dis_snapshot!(
             r#"
 x = Test() and False or False
@@ -277,7 +277,7 @@ x = Test() and False or False
     }
 
     #[test]
-    fn test_const_no_op() {
+    fn const_no_op() {
         assert_dis_snapshot!(
             r#"
 x = not True
@@ -286,7 +286,7 @@ x = not True
     }
 
     #[test]
-    fn test_constant_true_if_pass_keeps_line_anchor_nop() {
+    fn constant_true_if_pass_keeps_line_anchor_nop() {
         assert_dis_snapshot!(
             r#"
 if 1:
@@ -296,7 +296,7 @@ if 1:
     }
 
     #[test]
-    fn test_nested_double_async_with() {
+    fn nested_double_async_with() {
         assert_dis_snapshot!(
             r#"
 async def test():
@@ -314,7 +314,7 @@ async def test():
     }
 
     #[test]
-    fn test_bare_function_annotations_check_attribute_and_subscript_expressions() {
+    fn bare_function_annotations_check_attribute_and_subscript_expressions() {
         assert_dis_snapshot!(
             r#"
 def f(one: int):

@@ -26,6 +26,7 @@ use crate::{
     object::{Py, PyObjectPayload, PyObjectRef, PyPayload, PyRef},
     types::{PyTypeFlags, PyTypeSlots, TypeZoo},
 };
+use core::ffi::{CStr, c_void};
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
@@ -754,10 +755,11 @@ impl Context {
 
     pub fn new_capsule(
         &self,
-        ptr: *mut core::ffi::c_void,
+        ptr: *mut c_void,
+        name: Option<&'static CStr>,
         destructor: Option<unsafe extern "C" fn(_: *mut PyObject)>,
     ) -> PyRef<PyCapsule> {
-        PyCapsule::new(ptr, destructor).into_ref(self)
+        PyCapsule::new(ptr, name, destructor).into_ref(self)
     }
 }
 
