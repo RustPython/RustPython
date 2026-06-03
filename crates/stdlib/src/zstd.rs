@@ -39,16 +39,6 @@ mod _zstd {
     use zstd_safe::zstd_sys;
     use zstd_safe::{CCtx, CParameter, DCtx, DParameter, InBuffer, OutBuffer};
 
-    /// Class names of the `CompressionParameter` and `DecompressionParameter`
-    /// `IntEnum`s defined by the pure-Python wrapper at
-    /// `Lib/compression/zstd/__init__.py`. We identify these by name rather
-    /// than identity because storing `PyTypeRef` in a Rust `static` requires
-    /// `Sync`, which `PyMutex` does not provide on single-threaded targets
-    /// (Android, iOS, wasm32). Name comparison is sufficient since both names
-    /// originate from a module we ship and control.
-    const C_PARAMETER_TYPE_NAME: &str = "CompressionParameter";
-    const D_PARAMETER_TYPE_NAME: &str = "DecompressionParameter";
-
     // =========================================================================
     // Module-level constants
     // =========================================================================
@@ -177,29 +167,30 @@ mod _zstd {
     // Parameter helpers
     // =========================================================================
 
-    /// If `key`'s class is the wrong kind of parameter enum for the caller's
-    /// context (a `CompressionParameter` passed to a decompressor, or vice
-    /// versa), return a `TypeError`. Used by both (de)compressor option-dict
-    /// loops so the resulting message names the actual type rather than the
-    /// generic "out of range" wording.
+    /// Reject an options-dict `key` whose class is the parameter enum that is
+    /// invalid for the caller's context (a `CompressionParameter` passed to a
+    /// decompressor, or vice versa) with a `TypeError` naming the type.
     ///
-    /// We identify the enums by class name (see [`C_PARAMETER_TYPE_NAME`]),
-    /// which avoids storing a `PyTypeRef` in a Rust `static` (impossible on
-    /// single-threaded builds whose `PyMutex` is not `Sync`).
+    /// `forbidden` is that invalid enum class, resolved once by the caller from
+    /// the types the pure-Python wrapper registers via [`set_parameter_types`];
+    /// `None` (the wrapper never ran) skips the check, matching CPython's NULL
+    /// module-state pointers. The comparison is by identity, mirroring
+    /// CPython's `Py_TYPE(key) == ...` check.
     fn check_wrong_param_kind(
         key: &PyObjectRef,
-        is_compress: bool,
+        forbidden: Option<&PyObjectRef>,
+        kind: &str,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let class_name = key.class().name();
-        let (forbidden, kind) = if is_compress {
-            (D_PARAMETER_TYPE_NAME, "compression")
-        } else {
-            (C_PARAMETER_TYPE_NAME, "decompression")
+        let Some(forbidden) = forbidden else {
+            return Ok(());
         };
-        if &*class_name == forbidden {
+        if key.class().is(forbidden) {
+            // `key`'s class is `forbidden` here, so name it directly (the same
+            // string CPython formats from `Py_TYPE(key)->tp_name`).
+            let name = key.class().name();
             return Err(vm.new_type_error(format!(
-                "{kind} options dictionary key must not be a {forbidden}"
+                "{kind} options dictionary key must not be a {name} attribute"
             )));
         }
         Ok(())
@@ -705,12 +696,21 @@ mod _zstd {
         let dict = options_obj
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("options must be a dict"))?;
+        // Resolve the parameter enum class that is invalid for this direction
+        // (registered by the pure-Python wrapper via set_parameter_types) once,
+        // so a key from the wrong family yields a clear TypeError naming the
+        // type. `None` when the wrapper never ran (e.g. `_zstd` used directly).
+        let (wrong_kind_attr, kind) = if is_compress {
+            ("_decompression_parameter_type", "compression")
+        } else {
+            ("_compression_parameter_type", "decompression")
+        };
+        let wrong_kind = vm.get_attribute_opt(vm.import("_zstd", 0)?, wrong_kind_attr)?;
         for (k, v) in dict {
-            // Reject the wrong enum kind ("CompressionParameter" vs
-            // "DecompressionParameter") before doing any numeric coercion,
-            // so the error carries the documented type name rather than a
+            // Reject a key from the wrong parameter family before any numeric
+            // coercion, so the error names the type rather than giving a
             // generic out-of-range message.
-            check_wrong_param_kind(&k, is_compress, vm)?;
+            check_wrong_param_kind(&k, wrong_kind.as_ref(), kind, vm)?;
             let key_int: i32 = k.try_to_value(vm)?;
             let val_int: i32 = v.try_to_value(vm)?;
             // libzstd silently clamps out-of-range values for some
@@ -1572,26 +1572,21 @@ mod _zstd {
         Ok((bounds.lowerBound, bounds.upperBound))
     }
 
-    // The (de)compressor constructors identify the parameter enums by class
-    // *name* (see [`check_wrong_param_kind`]) rather than identity, so this
-    // function does not need to retain the type objects beyond the call.
-    // CPython retains them to produce nicer error messages naming the specific
-    // enum member; matching that would require a `Sync` cell-of-`PyTypeRef`,
-    // which is not available on single-threaded targets. The pure-Python
-    // wrapper at `Lib/compression/zstd/__init__.py:242` calls this exactly
-    // once at import time.
+    // Register the `CompressionParameter` / `DecompressionParameter` enum
+    // classes defined by the pure-Python wrapper so [`check_wrong_param_kind`]
+    // can reject a key from the wrong parameter family by identity. The types
+    // are stashed as private `_zstd` module attributes — the RustPython
+    // equivalent of the module state CPython keeps these in. The wrapper in
+    // `Lib/compression/zstd/__init__.py` calls this exactly once at import.
     #[pyfunction]
     fn set_parameter_types(
-        c_parameter_type: PyObjectRef,
-        d_parameter_type: PyObjectRef,
+        c_parameter_type: PyTypeRef,
+        d_parameter_type: PyTypeRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let _ = c_parameter_type
-            .downcast::<PyType>()
-            .map_err(|_| vm.new_type_error("c_parameter_type must be a type object"))?;
-        let _ = d_parameter_type
-            .downcast::<PyType>()
-            .map_err(|_| vm.new_type_error("d_parameter_type must be a type object"))?;
+        let module = vm.import("_zstd", 0)?;
+        module.set_attr("_compression_parameter_type", c_parameter_type, vm)?;
+        module.set_attr("_decompression_parameter_type", d_parameter_type, vm)?;
         Ok(())
     }
 }
