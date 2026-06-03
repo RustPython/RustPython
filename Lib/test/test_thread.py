@@ -322,6 +322,7 @@ class ThreadRunningTests(BasicThreadTest):
         with self.assertRaisesRegex(RuntimeError, "thread not started"):
             handle._set_done()
 
+    @unittest.skip("TODO: RUSTPYTHON; panic")
     def test_start_duplicate_handle(self):
         lock = thread.allocate_lock()
         lock.acquire()

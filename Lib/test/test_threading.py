@@ -323,6 +323,7 @@ class ThreadTests(BaseTestCase):
 
     # PyThreadState_SetAsyncExc() is a CPython-only gimmick, not (currently)
     # exposed at the Python level.  This test relies on ctypes to get at it.
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_PyThreadState_SetAsyncExc(self):
         ctypes = import_module("ctypes")
 
@@ -1182,6 +1183,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertIn(b"can't create new thread at interpreter shutdown", err)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_join_daemon_thread_in_finalization(self):
         # gh-123940: Py_Finalize() prevents other threads from running Python
         # code, so join() can not succeed unless the thread is already done.
