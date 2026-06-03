@@ -131,7 +131,7 @@ impl Comparable for PyWeak {
     ) -> PyResult<PyComparisonValue> {
         op.eq_only(|| {
             let other = class_or_notimplemented!(Self, other);
-            let both = zelf.upgrade().and_then(|s| other.upgrade().map(|o| (s, o)));
+            let both = zelf.upgrade().zip(other.upgrade());
             match both {
                 // CPython parity (Objects/weakref.c::weakref_richcompare): use
                 // PyObject_RichCompare on the referents, not the bool variant,

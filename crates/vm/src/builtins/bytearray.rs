@@ -548,7 +548,7 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn resize(&self, size: isize, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn resize(&self, size: isize, vm: &VirtualMachine) -> PyResult<()> {
         if size < 0 {
             return Err(vm.new_value_error("bytearray.resize(): new size must be >= 0"));
         }

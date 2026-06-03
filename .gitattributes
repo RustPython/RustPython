@@ -58,13 +58,14 @@ Lib/venv/scripts/posix/* text eol=lf
 #
 [attr]generated linguist-generated=true diff=generated
 
-Lib/_opcode_metadata.py                             generated
-Lib/keyword.py                                      generated
-Lib/idlelib/help.html                               generated
-Lib/test/certdata/*.pem                             generated
-Lib/test/certdata/*.0                               generated
-Lib/test/levenshtein_examples.json                  generated
-Lib/test/test_stable_abi_ctypes.py                  generated
-Lib/token.py                                        generated
+Lib/_opcode_metadata.py                                 generated
+Lib/keyword.py                                          generated
+Lib/idlelib/help.html                                   generated
+Lib/test/certdata/*.pem                                 generated
+Lib/test/certdata/*.0                                   generated
+Lib/test/levenshtein_examples.json                      generated
+Lib/test/test_stable_abi_ctypes.py                      generated
+Lib/token.py                                            generated
+crates/compiler-core/src/bytecode/opcode_metadata.rs    generated
 
 .github/workflows/*.lock.yml linguist-generated=true merge=ours

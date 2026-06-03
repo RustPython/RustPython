@@ -18,6 +18,7 @@ import sys
 import threading
 import signal
 import array
+import collections.abc
 import queue
 import time
 import types
@@ -1058,12 +1059,14 @@ class IteratorProxy(BaseProxy):
 
 
 class AcquirerProxy(BaseProxy):
-    _exposed_ = ('acquire', 'release')
+    _exposed_ = ('acquire', 'release', 'locked')
     def acquire(self, blocking=True, timeout=None):
         args = (blocking,) if timeout is None else (blocking, timeout)
         return self._callmethod('acquire', args)
     def release(self):
         return self._callmethod('release')
+    def locked(self):
+        return self._callmethod('locked')
     def __enter__(self):
         return self._callmethod('acquire')
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -1071,7 +1074,7 @@ class AcquirerProxy(BaseProxy):
 
 
 class ConditionProxy(AcquirerProxy):
-    _exposed_ = ('acquire', 'release', 'wait', 'notify', 'notify_all')
+    _exposed_ = ('acquire', 'release', 'locked', 'wait', 'notify', 'notify_all')
     def wait(self, timeout=None):
         return self._callmethod('wait', (timeout,))
     def notify(self, n=1):
@@ -1159,10 +1162,10 @@ class ValueProxy(BaseProxy):
 
 
 BaseListProxy = MakeProxyType('BaseListProxy', (
-    '__add__', '__contains__', '__delitem__', '__getitem__', '__len__',
-    '__mul__', '__reversed__', '__rmul__', '__setitem__',
-    'append', 'count', 'extend', 'index', 'insert', 'pop', 'remove',
-    'reverse', 'sort', '__imul__'
+    '__add__', '__contains__', '__delitem__', '__getitem__', '__imul__',
+    '__len__', '__mul__', '__reversed__', '__rmul__', '__setitem__',
+    'append', 'clear', 'copy', 'count', 'extend', 'index', 'insert', 'pop',
+    'remove', 'reverse', 'sort',
     ))
 class ListProxy(BaseListProxy):
     def __iadd__(self, value):
@@ -1174,17 +1177,54 @@ class ListProxy(BaseListProxy):
 
     __class_getitem__ = classmethod(types.GenericAlias)
 
+collections.abc.MutableSequence.register(BaseListProxy)
 
-_BaseDictProxy = MakeProxyType('DictProxy', (
-    '__contains__', '__delitem__', '__getitem__', '__iter__', '__len__',
-    '__setitem__', 'clear', 'copy', 'get', 'items',
+_BaseDictProxy = MakeProxyType('_BaseDictProxy', (
+    '__contains__', '__delitem__', '__getitem__', '__ior__', '__iter__',
+    '__len__', '__or__', '__reversed__', '__ror__',
+    '__setitem__', 'clear', 'copy', 'fromkeys', 'get', 'items',
     'keys', 'pop', 'popitem', 'setdefault', 'update', 'values'
     ))
 _BaseDictProxy._method_to_typeid_ = {
     '__iter__': 'Iterator',
     }
 class DictProxy(_BaseDictProxy):
+    def __ior__(self, value):
+        self._callmethod('__ior__', (value,))
+        return self
+
     __class_getitem__ = classmethod(types.GenericAlias)
+
+collections.abc.MutableMapping.register(_BaseDictProxy)
+
+_BaseSetProxy = MakeProxyType("_BaseSetProxy", (
+    '__and__', '__class_getitem__', '__contains__', '__iand__', '__ior__',
+    '__isub__', '__iter__', '__ixor__', '__len__', '__or__', '__rand__',
+    '__ror__', '__rsub__', '__rxor__', '__sub__', '__xor__',
+    '__ge__', '__gt__', '__le__', '__lt__',
+    'add', 'clear', 'copy', 'difference', 'difference_update', 'discard',
+    'intersection', 'intersection_update', 'isdisjoint', 'issubset',
+    'issuperset', 'pop', 'remove', 'symmetric_difference',
+    'symmetric_difference_update', 'union', 'update',
+))
+
+class SetProxy(_BaseSetProxy):
+    def __ior__(self, value):
+        self._callmethod('__ior__', (value,))
+        return self
+    def __iand__(self, value):
+        self._callmethod('__iand__', (value,))
+        return self
+    def __ixor__(self, value):
+        self._callmethod('__ixor__', (value,))
+        return self
+    def __isub__(self, value):
+        self._callmethod('__isub__', (value,))
+        return self
+
+    __class_getitem__ = classmethod(types.GenericAlias)
+
+collections.abc.MutableMapping.register(_BaseSetProxy)
 
 
 ArrayProxy = MakeProxyType('ArrayProxy', (
@@ -1237,6 +1277,7 @@ SyncManager.register('Barrier', threading.Barrier, BarrierProxy)
 SyncManager.register('Pool', pool.Pool, PoolProxy)
 SyncManager.register('list', list, ListProxy)
 SyncManager.register('dict', dict, DictProxy)
+SyncManager.register('set', set, SetProxy)
 SyncManager.register('Value', Value, ValueProxy)
 SyncManager.register('Array', Array, ArrayProxy)
 SyncManager.register('Namespace', Namespace, NamespaceProxy)

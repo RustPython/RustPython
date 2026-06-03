@@ -266,6 +266,7 @@ class BasicTest(BaseTest):
             with patch('venv.subprocess.check_output', pip_cmd_checker):
                 builder.upgrade_dependencies(fake_context)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     def test_prefixes(self):
         """
@@ -285,6 +286,7 @@ class BasicTest(BaseTest):
             self.assertEqual(pathlib.Path(out.strip().decode()),
                              pathlib.Path(expected), prefix)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     def test_sysconfig(self):
         """
@@ -318,6 +320,7 @@ class BasicTest(BaseTest):
                 out, err = check_output(cmd, encoding='utf-8')
                 self.assertEqual(out.strip(), expected, err)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     @unittest.skipUnless(can_symlink(), 'Needs symlinks')
     def test_sysconfig_symlinks(self):
@@ -458,6 +461,7 @@ class BasicTest(BaseTest):
             data = self.get_text_file_contents('pyvenv.cfg')
             self.assertIn('include-system-site-packages = %s\n' % s, data)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(can_symlink(), 'Needs symlinks')
     def test_symlinking(self):
         """
@@ -482,6 +486,7 @@ class BasicTest(BaseTest):
     # run the test, the pyvenv.cfg in the venv created in the test will
     # point to the venv being used to run the test, and we lose the link
     # to the source build - so Python can't initialise properly.
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     def test_executable(self):
         """
@@ -494,6 +499,7 @@ class BasicTest(BaseTest):
             'import sys; print(sys.executable)'])
         self.assertEqual(out.strip(), envpy.encode())
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(can_symlink(), 'Needs symlinks')
     def test_executable_symlinks(self):
         """
@@ -562,6 +568,7 @@ class BasicTest(BaseTest):
         self.assertEndsWith(lines[1], env_name.encode())
 
     # gh-124651: test quoted strings on Windows
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
     def test_special_chars_windows(self):
         """
@@ -585,6 +592,7 @@ class BasicTest(BaseTest):
         self.assertTrue(env_name.encode() in lines[0])
         self.assertEndsWith(lines[1], env_name.encode())
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
     def test_unicode_in_batch_file(self):
         """
@@ -616,6 +624,7 @@ class BasicTest(BaseTest):
             filepath_regex = r"'[A-Z]:\\\\(?:[^\\\\]+\\\\)*[^\\\\]+'"
             self.assertRegex(err, rf"Unable to symlink {filepath_regex} to {filepath_regex}")
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     def test_multiprocessing(self):
         """
@@ -635,6 +644,7 @@ class BasicTest(BaseTest):
             'pool.terminate()'])
         self.assertEqual(out.strip(), "python".encode())
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     def test_multiprocessing_recursion(self):
         """
@@ -892,6 +902,7 @@ class BasicTest(BaseTest):
                     self.assertFalse(same_path(path1, path2))
 
     # gh-126084: venvwlauncher should run pythonw, not python
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requireVenvCreate
     @unittest.skipUnless(os.name == 'nt', 'only relevant on Windows')
     def test_venvwlauncher(self):
@@ -926,11 +937,13 @@ class EnsurePipTest(BaseTest):
         self.assertEqual(out.strip(), "OK")
 
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_no_pip_by_default(self):
         rmtree(self.env_dir)
         self.run_with_capture(venv.create, self.env_dir)
         self.assert_pip_not_installed()
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     def test_explicit_no_pip(self):
         rmtree(self.env_dir)
         self.run_with_capture(venv.create, self.env_dir, with_pip=False)

@@ -38,16 +38,20 @@ impl fmt::Display for CodegenError {
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum InternalError {
-    StackOverflow,
     StackUnderflow,
+    InconsistentStackDepth,
+    InvalidStackEffect,
+    MalformedControlFlowGraph,
     MissingSymbol(String),
 }
 
 impl Display for InternalError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::StackOverflow => write!(f, "stack overflow"),
-            Self::StackUnderflow => write!(f, "stack underflow"),
+            Self::StackUnderflow => write!(f, "Invalid CFG, stack underflow"),
+            Self::InconsistentStackDepth => write!(f, "Invalid CFG, inconsistent stackdepth"),
+            Self::InvalidStackEffect => write!(f, "Invalid stack effect"),
+            Self::MalformedControlFlowGraph => write!(f, "malformed control flow graph."),
             Self::MissingSymbol(s) => write!(
                 f,
                 "The symbol '{s}' must be present in the symbol table, even when it is undefined in python."

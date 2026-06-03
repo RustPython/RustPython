@@ -1444,7 +1444,6 @@ class BlobTests(unittest.TestCase):
         with self.assertRaisesRegex(IndexError, "cannot fit 'int'"):
             self.blob[_testcapi.ULLONG_MAX]
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
     def test_blob_set_item_error(self):
         with self.assertRaisesRegex(TypeError, "cannot be interpreted"):
             self.blob[0] = b"multiple"

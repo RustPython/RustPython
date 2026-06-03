@@ -86,22 +86,27 @@ class REPLThread(threading.Thread):
         global return_code
 
         try:
-            banner = (
-                f'asyncio REPL {sys.version} on {sys.platform}\n'
-                f'Use "await" directly instead of "asyncio.run()".\n'
-                f'Type "help", "copyright", "credits" or "license" '
-                f'for more information.\n'
-            )
+            if not sys.flags.quiet:
+                banner = (
+                    f'asyncio REPL {sys.version} on {sys.platform}\n'
+                    f'Use "await" directly instead of "asyncio.run()".\n'
+                    f'Type "help", "copyright", "credits" or "license" '
+                    f'for more information.\n'
+                )
 
-            console.write(banner)
+                console.write(banner)
 
-            if startup_path := os.getenv("PYTHONSTARTUP"):
+            if not sys.flags.isolated and (startup_path := os.getenv("PYTHONSTARTUP")):
                 sys.audit("cpython.run_startup", startup_path)
-
-                import tokenize
-                with tokenize.open(startup_path) as f:
-                    startup_code = compile(f.read(), startup_path, "exec")
+                try:
+                    import tokenize
+                    with tokenize.open(startup_path) as f:
+                        startup_code = compile(f.read(), startup_path, "exec")
                     exec(startup_code, console.locals)
+                except SystemExit:
+                    raise
+                except BaseException:
+                    console.showtraceback()
 
             ps1 = getattr(sys, "ps1", ">>> ")
             if CAN_USE_PYREPL:
@@ -236,4 +241,5 @@ if __name__ == '__main__':
             break
 
     console.write('exiting asyncio REPL...\n')
+    loop.close()
     sys.exit(return_code)

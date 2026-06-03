@@ -2525,7 +2525,7 @@ Traceback (most recent call last):
   ...
 SyntaxError: 'yield from' outside function
 
->>> def f(): x = yield = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): x = yield = y
 Traceback (most recent call last):
   ...
 SyntaxError: assignment to yield expression not possible

@@ -293,6 +293,27 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertEqual(overridden_outputs, ['all', 'any', 'tuple'])
 
 
+    def test_builtin_call_async_genexpr_no_crash(self):
+        async def f_all():
+            return all(await 2 for _ in [])
+
+        async def f_any():
+            return any(await 2 for _ in [])
+
+        async def f_tuple():
+            return tuple(await 2 for _ in [])
+
+        async def f_list():
+            return list(await 2 for _ in [])
+
+        async def f_set():
+            return set(await 2 for _ in [])
+
+        for f in (f_all, f_any, f_tuple, f_list, f_set):
+            with self.subTest(func=f.__name__):
+                with self.assertRaises(TypeError):
+                    run_yielding_async_fn(f)
+
     def test_ascii(self):
         self.assertEqual(ascii(''), '\'\'')
         self.assertEqual(ascii(0), '0')
@@ -606,7 +627,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(co, glob)
         self.assertEqual(type(glob['ticker']()), AsyncGeneratorType)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: <_ast.Name object at 0xb40000731e3d1360> is not an instance of <class '_ast.Constant'>
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <_ast.Name object at 0xb40000731e3d1360> is not an instance of <class '_ast.Constant'>
     def test_compile_ast(self):
         args = ("a*__debug__", "f.py", "exec")
         raw = compile(*args, flags = ast.PyCF_ONLY_AST).body[0]
@@ -970,7 +991,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         self.assertRaisesRegex(NameError, "name 'superglobal' is not defined",
                                eval, code, ns)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; wrong error message
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_exec_builtins_mapping_import(self):
         code = compile("import foo.bar", "test", "exec")
         ns = {'__builtins__': types.MappingProxyType({})}
@@ -979,7 +1000,7 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(code, ns)
         self.assertEqual(ns['foo'], ('foo.bar', ns, ns, None, 0))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; AssertionError: AttributeError not raised by eval
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AttributeError not raised by eval
     def test_eval_builtins_mapping_reduce(self):
         # list_iterator.__reduce__() calls _PyEval_GetBuiltin("iter")
         code = compile("x.__reduce__()", "test", "eval")

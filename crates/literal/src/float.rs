@@ -425,7 +425,7 @@ pub fn to_hex(value: f64) -> String {
 
 #[test]
 fn test_to_hex() {
-    use rand::Rng;
+    use rand::RngExt;
     assert_eq!(to_hex(f64::from_bits(1)), "0x0.0000000000001p-1022");
     assert_eq!(to_hex(f64::from_bits(2)), "0x0.0000000000002p-1022");
     assert_eq!(to_hex(-f64::from_bits(1)), "-0x0.0000000000001p-1022");
