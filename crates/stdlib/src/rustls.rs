@@ -957,8 +957,7 @@ mod _ssl {
             // Load from capath
             if let Some(capath) = capath {
                 let capath = capath.to_path_buf(vm)?;
-                let paths = vm
-                    .allow_threads(|| rustpython_host_env::fs::read_dir(capath))
+                let paths = rustpython_host_env::fs::read_dir(capath)
                     .map_err(|e| e.into_pyexception(vm))?;
                 for path in paths {
                     let path = path.map_err(|e| e.into_pyexception(vm))?;
@@ -1977,9 +1976,6 @@ mod _ssl {
         }
 
         // When handshaking, complete_io() returns only after handshake is complete.
-        // TODO: This might call certificate verifier which might be blocking and require network access on its own.
-        //     option 1: Extract process_new_packets() from complete_io() to wrap it in allow_threads().
-        //     option 2: Introduce VirtualMachine::disallow_threads() and use it inside the IO wrapper instead.
         fn complete_io(
             &self,
             conn: &mut Connection,
@@ -2341,8 +2337,7 @@ mod _ssl {
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
         let store_name_str = store_name.as_str();
-        let certs =
-            vm.allow_threads(|| rustpython_host_env::cert_store::enum_certificates(store_name_str));
+        let certs = rustpython_host_env::cert_store::enum_certificates(store_name_str);
         if !certs.had_open_store {
             return Err(vm.new_os_error(format!(
                 "failed to open certificate store {store_name_str:?}"
@@ -2382,13 +2377,11 @@ mod _ssl {
     #[pyfunction]
     fn enum_crls(store_name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
         let store_name_str = store_name.as_str();
-        let crls = vm
-            .allow_threads(|| rustpython_host_env::cert_store::enum_crls(store_name_str))
-            .map_err(|_| {
-                vm.new_os_error(format!(
-                    "failed to open certificate store {store_name_str:?}"
-                ))
-            })?;
+        let crls = rustpython_host_env::cert_store::enum_crls(store_name_str).map_err(|_| {
+            vm.new_os_error(format!(
+                "failed to open certificate store {store_name_str:?}"
+            ))
+        })?;
 
         Ok(crls
             .into_iter()
@@ -2522,7 +2515,7 @@ mod _ssl {
 
         let rng = CryptoExt::get_provider().secure_random;
         let mut buf = vec![0u8; len];
-        vm.allow_threads(|| rng.fill(&mut buf))
+        rng.fill(&mut buf)
             .map_err(|_| vm.new_os_error("Failed to generate random bytes"))?;
         Ok(PyBytesRef::from(vm.ctx.new_bytes(buf)))
     }
@@ -3131,9 +3124,7 @@ fn load_der_bytes_from_pem_or_der_file_inner(
     password: &mut Password,
     vm: &VirtualMachine,
 ) -> SslResult<Vec<DerBytes>> {
-    let bytes = vm
-        .allow_threads(|| rustpython_host_env::fs::read(path))
-        .map_err(SslError::Io)?;
+    let bytes = rustpython_host_env::fs::read(path).map_err(SslError::Io)?;
     load_der_bytes_from_pem_or_der_bytes(&format!("{path:?}"), bytes, kinds, password, vm)
 }
 
