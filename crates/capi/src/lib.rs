@@ -10,6 +10,7 @@ extern crate alloc;
 
 pub mod abstract_;
 pub mod boolobject;
+pub mod bytearrayobject;
 pub mod bytesobject;
 pub mod ceval;
 pub mod complexobject;
