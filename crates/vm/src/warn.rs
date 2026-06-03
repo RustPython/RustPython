@@ -329,7 +329,7 @@ pub fn warn_with_skip(
 
 /// Core warning logic matching `warn_explicit()` in `_warnings.c`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn warn_explicit(
+pub fn warn_explicit(
     category: Option<PyTypeRef>,
     message: PyObjectRef,
     filename: PyStrRef,
