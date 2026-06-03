@@ -5,7 +5,7 @@ Tests for the threading module.
 import test.support
 from test.support import threading_helper, requires_subprocess, requires_gil_enabled
 from test.support import verbose, cpython_only, os_helper
-from test.support.import_helper import import_module
+from test.support.import_helper import ensure_lazy_imports, import_module
 from test.support.script_helper import assert_python_ok, assert_python_failure
 from test.support import force_not_colorized
 
@@ -28,7 +28,7 @@ from test import lock_tests
 from test import support
 
 try:
-    from test.support import interpreters
+    from concurrent import interpreters
 except ImportError:
     interpreters = None
 
@@ -119,6 +119,10 @@ class BaseTestCase(unittest.TestCase):
 
 class ThreadTests(BaseTestCase):
     maxDiff = 9999
+
+    @cpython_only
+    def test_lazy_import(self):
+        ensure_lazy_imports("threading", {"functools", "warnings"})
 
     @cpython_only
     def test_name(self):
@@ -319,7 +323,7 @@ class ThreadTests(BaseTestCase):
 
     # PyThreadState_SetAsyncExc() is a CPython-only gimmick, not (currently)
     # exposed at the Python level.  This test relies on ctypes to get at it.
-    @cpython_only
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_PyThreadState_SetAsyncExc(self):
         ctypes = import_module("ctypes")
 
@@ -408,7 +412,7 @@ class ThreadTests(BaseTestCase):
             t.join()
         # else the thread is still running, and we have no way to kill it
 
-    @unittest.skip('TODO: RUSTPYTHON; threading._start_new_thread not exposed')
+    @unittest.skip("TODO: RUSTPYTHON; threading._start_new_thread not exposed")
     def test_limbo_cleanup(self):
         # Issue 7481: Failure to start thread should cleanup the limbo map.
         def fail_new_thread(*args, **kwargs):
@@ -424,7 +428,7 @@ class ThreadTests(BaseTestCase):
         finally:
             threading._start_joinable_thread = _start_joinable_thread
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; ctypes.pythonapi is not supported
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ctypes.pythonapi is not supported
     def test_finalize_running_thread(self):
         # Issue 1402: the PyGILState_Ensure / _Release functions may be called
         # very late on python exit: on deallocation of a running thread for
@@ -681,7 +685,7 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out, b'')
         self.assertEqual(err, b'')
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @skip_unless_reliable_fork
     def test_is_alive_after_fork(self):
         # Try hard to trigger #18418: is_alive() could sometimes be True on
@@ -745,7 +749,7 @@ class ThreadTests(BaseTestCase):
                          "main ident True\n"
                          "current is main True\n")
 
-    @unittest.skip("TODO: RUSTPYTHON flaky; process timeout after fork")
+    @unittest.skip("TODO: RUSTPYTHON; flaky; process timeout after fork")
     @skip_unless_reliable_fork
     @unittest.skipUnless(hasattr(os, 'waitpid'), "test needs os.waitpid()")
     def test_main_thread_after_fork_from_nonmain_thread(self):
@@ -1016,7 +1020,7 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.settrace(old_trace)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_gettrace_all_threads(self):
         def fn(*args): pass
         old_trace = threading.gettrace()
@@ -1055,7 +1059,7 @@ class ThreadTests(BaseTestCase):
         finally:
             threading.setprofile(old_profile)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_getprofile_all_threads(self):
         def fn(*args): pass
         old_profile = threading.getprofile()
@@ -1179,6 +1183,78 @@ class ThreadTests(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertIn(b"can't create new thread at interpreter shutdown", err)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_join_daemon_thread_in_finalization(self):
+        # gh-123940: Py_Finalize() prevents other threads from running Python
+        # code, so join() can not succeed unless the thread is already done.
+        # (Non-Python threads, that is `threading._DummyThread`, can't be
+        # joined at all.)
+        # We raise an exception rather than hang.
+        for timeout in (None, 10):
+            with self.subTest(timeout=timeout):
+                code = textwrap.dedent(f"""
+                    import threading
+
+
+                    def loop():
+                        while True:
+                            pass
+
+
+                    class Cycle:
+                        def __init__(self):
+                            self.self_ref = self
+                            self.thr = threading.Thread(
+                                target=loop, daemon=True)
+                            self.thr.start()
+
+                        def __del__(self):
+                            assert self.thr.is_alive()
+                            try:
+                                self.thr.join(timeout={timeout})
+                            except PythonFinalizationError:
+                                assert self.thr.is_alive()
+                                print('got the correct exception!')
+
+                    # Cycle holds a reference to itself, which ensures it is
+                    # cleaned up during the GC that runs after daemon threads
+                    # have been forced to exit during finalization.
+                    Cycle()
+                """)
+                rc, out, err = assert_python_ok("-c", code)
+                self.assertEqual(err, b"")
+                self.assertIn(b"got the correct exception", out)
+
+    def test_join_finished_daemon_thread_in_finalization(self):
+        # (see previous test)
+        # If the thread is already finished, join() succeeds.
+        code = textwrap.dedent("""
+            import threading
+            done = threading.Event()
+
+            def set_event():
+                done.set()
+
+            class Cycle:
+                def __init__(self):
+                    self.self_ref = self
+                    self.thr = threading.Thread(target=set_event, daemon=True)
+                    self.thr.start()
+                    self.thr.join()
+
+                def __del__(self):
+                    assert done.is_set()
+                    assert not self.thr.is_alive()
+                    self.thr.join()
+                    assert not self.thr.is_alive()
+                    print('all clear!')
+
+            Cycle()
+        """)
+        rc, out, err = assert_python_ok("-c", code)
+        self.assertEqual(err, b"")
+        self.assertIn(b"all clear", out)
+
     def test_start_new_thread_failed(self):
         # gh-109746: if Python fails to start newly created thread
         # due to failure of underlying PyThread_start_new_thread() call,
@@ -1213,36 +1289,6 @@ class ThreadTests(BaseTestCase):
             self.skipTest('RLIMIT_NPROC had no effect; probably superuser')
         self.assertEqual(out, b'ok')
         self.assertEqual(err, b'')
-
-
-    @skip_unless_reliable_fork
-    @unittest.skipUnless(hasattr(threading, 'get_native_id'), "test needs threading.get_native_id()")
-    def test_native_id_after_fork(self):
-        script = """if True:
-            import threading
-            import os
-            from test import support
-
-            parent_thread_native_id = threading.current_thread().native_id
-            print(parent_thread_native_id, flush=True)
-            assert parent_thread_native_id == threading.get_native_id()
-            childpid = os.fork()
-            if childpid == 0:
-                print(threading.current_thread().native_id, flush=True)
-                assert threading.current_thread().native_id == threading.get_native_id()
-            else:
-                try:
-                    assert parent_thread_native_id == threading.current_thread().native_id
-                    assert parent_thread_native_id == threading.get_native_id()
-                finally:
-                    support.wait_process(childpid, exitcode=0)
-            """
-        rc, out, err = assert_python_ok('-c', script)
-        self.assertEqual(rc, 0)
-        self.assertEqual(err, b"")
-        native_ids = out.strip().splitlines()
-        self.assertEqual(len(native_ids), 2)
-        self.assertNotEqual(native_ids[0], native_ids[1])
 
     @cpython_only
     def test_finalize_daemon_thread_hang(self):
@@ -1314,10 +1360,65 @@ class ThreadTests(BaseTestCase):
         ''')
         assert_python_ok("-c", script)
 
-    @unittest.skip('TODO: RUSTPYTHON; Thread._tstate_lock not implemented')
+    @skip_unless_reliable_fork
+    @unittest.skipUnless(hasattr(threading, 'get_native_id'), "test needs threading.get_native_id()")
+    def test_native_id_after_fork(self):
+        script = """if True:
+            import threading
+            import os
+            from test import support
+
+            parent_thread_native_id = threading.current_thread().native_id
+            print(parent_thread_native_id, flush=True)
+            assert parent_thread_native_id == threading.get_native_id()
+            childpid = os.fork()
+            if childpid == 0:
+                print(threading.current_thread().native_id, flush=True)
+                assert threading.current_thread().native_id == threading.get_native_id()
+            else:
+                try:
+                    assert parent_thread_native_id == threading.current_thread().native_id
+                    assert parent_thread_native_id == threading.get_native_id()
+                finally:
+                    support.wait_process(childpid, exitcode=0)
+            """
+        rc, out, err = assert_python_ok('-c', script)
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, b"")
+        native_ids = out.strip().splitlines()
+        self.assertEqual(len(native_ids), 2)
+        self.assertNotEqual(native_ids[0], native_ids[1])
+
+    def test_stop_the_world_during_finalization(self):
+        # gh-137433: Test functions that trigger a stop-the-world in the free
+        # threading build concurrent with interpreter finalization.
+        script = """if True:
+            import gc
+            import sys
+            import threading
+            NUM_THREADS = 5
+            b = threading.Barrier(NUM_THREADS + 1)
+            def run_in_bg():
+                b.wait()
+                while True:
+                    sys.setprofile(None)
+                    gc.collect()
+
+            for _ in range(NUM_THREADS):
+                t = threading.Thread(target=run_in_bg, daemon=True)
+                t.start()
+
+            b.wait()
+            print("Exiting...")
+        """
+        rc, out, err = assert_python_ok('-c', script)
+        self.assertEqual(rc, 0)
+        self.assertEqual(err, b"")
+        self.assertEqual(out.strip(), b"Exiting...")
+
+    @unittest.skip("TODO: RUSTPYTHON; Thread._tstate_lock not implemented")
     def test_tstate_lock(self):
         return super().test_tstate_lock()
-
 
 class ThreadJoinOnShutdown(BaseTestCase):
 
@@ -1370,7 +1471,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
             """
         self._run_and_join(script)
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @skip_unless_reliable_fork
     def test_3_join_in_forked_from_thread(self):
         # Like the test above, but fork() was called from a worker thread
@@ -1471,8 +1572,7 @@ class ThreadJoinOnShutdown(BaseTestCase):
         self.assertEqual(out.strip(), b"OK")
         self.assertEqual(rc, 0)
 
-    # TODO: RUSTPYTHON - parking_lot mutex not fork-safe, child may SIGSEGV
-    @unittest.skip("TODO: RUSTPYTHON - flaky, parking_lot mutex not fork-safe")
+    @unittest.skip("TODO: RUSTPYTHON; - flaky, parking_lot mutex not fork-safe")
     @skip_unless_reliable_fork
     def test_reinit_tls_after_fork(self):
         # Issue #13817: fork() would deadlock in a multithreaded program with
@@ -1537,7 +1637,7 @@ class SubinterpThreadingTests(BaseTestCase):
             os.set_blocking(r, False)
         return (r, w)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threads_join(self):
         # Non-daemon threads should be joined at subinterpreter shutdown
         # (issue #18808)
@@ -1566,7 +1666,7 @@ class SubinterpThreadingTests(BaseTestCase):
         # The thread was joined properly.
         self.assertEqual(os.read(r, 1), b"x")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_threads_join_2(self):
         # Same as above, but a delay gets introduced after the thread's
         # Python code returned but before the thread state is deleted.
@@ -1643,6 +1743,7 @@ class SubinterpThreadingTests(BaseTestCase):
         self.assertEqual(os.read(r_interp, 1), DONE)
 
     @cpython_only
+    @support.skip_if_sanitizer(thread=True, memory=True)
     def test_daemon_threads_fatal_error(self):
         import_module("_testcapi")
         subinterp_code = f"""if 1:
@@ -1661,10 +1762,7 @@ class SubinterpThreadingTests(BaseTestCase):
 
             _testcapi.run_in_subinterp(%r)
             """ % (subinterp_code,)
-        with test.support.SuppressCrashReport():
-            rc, out, err = assert_python_failure("-c", script)
-        self.assertIn("Fatal Python error: Py_EndInterpreter: "
-                      "not the last thread", err.decode())
+        assert_python_ok("-c", script)
 
     def _check_allowed(self, before_start='', *,
                        allowed=True,
@@ -1755,7 +1853,7 @@ class ThreadingExceptionTests(BaseTestCase):
         lock = threading.Lock()
         self.assertRaises(RuntimeError, lock.release)
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     @requires_subprocess()
     def test_recursion_limit(self):
         # Issue 9670
@@ -2139,7 +2237,7 @@ class CRLockTests(lock_tests.RLockTests):
             CustomRLock(1, b=2)
         self.assertEqual(warnings_log, [])
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_different_thread(self):
         return super().test_different_thread()
 
@@ -2153,7 +2251,7 @@ class ConditionAsRLockTests(lock_tests.RLockTests):
     def test_recursion_count(self):
         self.skipTest("Condition does not expose _recursion_count()")
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky test')
+    @unittest.skip("TODO: RUSTPYTHON; flaky test")
     def test_different_thread(self):
         return super().test_different_thread()
 
@@ -2178,6 +2276,118 @@ class MiscTestCase(unittest.TestCase):
         not_exported = {'currentThread', 'activeCount'}
         support.check__all__(self, threading, ('threading', '_thread'),
                              extra=extra, not_exported=not_exported)
+
+    @unittest.skipUnless(hasattr(_thread, 'set_name'), "missing _thread.set_name")
+    @unittest.skipUnless(hasattr(_thread, '_get_name'), "missing _thread._get_name")
+    def test_set_name(self):
+        # Ensure main thread name is restored after test
+        self.addCleanup(_thread.set_name, _thread._get_name())
+
+        # set_name() limit in bytes
+        truncate = getattr(_thread, "_NAME_MAXLEN", None)
+        limit = truncate or 100
+
+        tests = [
+            # test short ASCII name
+            "CustomName",
+
+            # test short non-ASCII name
+            "namé€",
+
+            # embedded null character: name is truncated
+            # at the first null character
+            "embed\0null",
+
+            # Test long ASCII names (not truncated)
+            "x" * limit,
+
+            # Test long ASCII names (truncated)
+            "x" * (limit + 10),
+
+            # Test long non-ASCII name (truncated)
+            "x" * (limit - 1) + "é€",
+
+            # Test long non-BMP names (truncated) creating surrogate pairs
+            # on Windows
+            "x" * (limit - 1) + "\U0010FFFF",
+            "x" * (limit - 2) + "\U0010FFFF" * 2,
+            "x" + "\U0001f40d" * limit,
+            "xx" + "\U0001f40d" * limit,
+            "xxx" + "\U0001f40d" * limit,
+            "xxxx" + "\U0001f40d" * limit,
+        ]
+        if os_helper.FS_NONASCII:
+            tests.append(f"nonascii:{os_helper.FS_NONASCII}")
+        if os_helper.TESTFN_UNENCODABLE:
+            tests.append(os_helper.TESTFN_UNENCODABLE)
+
+        if sys.platform.startswith("sunos"):
+            # Use ASCII encoding on Solaris/Illumos/OpenIndiana
+            encoding = "ascii"
+        else:
+            encoding = sys.getfilesystemencoding()
+
+        def work():
+            nonlocal work_name
+            work_name = _thread._get_name()
+
+        for name in tests:
+            if not support.MS_WINDOWS:
+                encoded = name.encode(encoding, "replace")
+                if b'\0' in encoded:
+                    encoded = encoded.split(b'\0', 1)[0]
+                if truncate is not None:
+                    encoded = encoded[:truncate]
+                if sys.platform.startswith("sunos"):
+                    expected = encoded.decode("ascii", "surrogateescape")
+                else:
+                    expected = os.fsdecode(encoded)
+            else:
+                size = 0
+                chars = []
+                for ch in name:
+                    if ord(ch) > 0xFFFF:
+                        size += 2
+                    else:
+                        size += 1
+                    if size > truncate:
+                        break
+                    chars.append(ch)
+                expected = ''.join(chars)
+
+                if '\0' in expected:
+                    expected = expected.split('\0', 1)[0]
+
+            with self.subTest(name=name, expected=expected, thread="main"):
+                _thread.set_name(name)
+                self.assertEqual(_thread._get_name(), expected)
+
+            with self.subTest(name=name, expected=expected, thread="worker"):
+                work_name = None
+                thread = threading.Thread(target=work, name=name)
+                thread.start()
+                thread.join()
+                self.assertEqual(work_name, expected,
+                                 f"{len(work_name)=} and {len(expected)=}")
+
+    @unittest.skipUnless(hasattr(_thread, 'set_name'), "missing _thread.set_name")
+    @unittest.skipUnless(hasattr(_thread, '_get_name'), "missing _thread._get_name")
+    def test_change_name(self):
+        # Change the name of a thread while the thread is running
+
+        name1 = None
+        name2 = None
+        def work():
+            nonlocal name1, name2
+            name1 = _thread._get_name()
+            threading.current_thread().name = "new name"
+            name2 = _thread._get_name()
+
+        thread = threading.Thread(target=work, name="name")
+        thread.start()
+        thread.join()
+        self.assertEqual(name1, "name")
+        self.assertEqual(name2, "new name")
 
 
 class InterruptMainTests(unittest.TestCase):
@@ -2204,7 +2414,7 @@ class InterruptMainTests(unittest.TestCase):
             # Restore original handler
             signal.signal(signum, handler)
 
-    @unittest.skip('TODO: RUSTPYTHON; flaky')
+    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @requires_gil_enabled("gh-118433: Flaky due to a longstanding bug")
     def test_interrupt_main_subthread(self):
         # Calling start_new_thread with a function that executes interrupt_main
