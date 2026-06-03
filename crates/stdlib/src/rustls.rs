@@ -157,9 +157,11 @@ mod _ssl {
         CIPHER_MAPPINGS, CertInfo, CertStore, CipherDescriptionDict, CipherList, CloseNotifyState,
         ConnectionState, CrlCheck, CustomServerCertVerifier, DerKind, Io, OID_MAPPINGS, Password,
         SECURITY_LEVEL_TO_MIN_BITS, State, Stats, WithOptionSuiteB, cipher_to_tuple,
-        cipher_to_version, compat::SslError, der_to_pem_cert, ensure_single_der_bytes,
-        load_der_bytes_from_der, load_der_bytes_from_pem, load_der_bytes_from_pem_or_der_bytes,
-        load_der_bytes_from_pem_or_der_file, providers::CryptoExt,
+        cipher_to_version,
+        compat::{SslError, SslResult},
+        der_to_pem_cert, ensure_single_der_bytes, load_der_bytes_from_der, load_der_bytes_from_pem,
+        load_der_bytes_from_pem_or_der_bytes, load_der_bytes_from_pem_or_der_file,
+        providers::CryptoExt,
     };
 
     #[expect(clippy::unnecessary_wraps, reason = "pymodule hook expects PyResult")]
@@ -1571,7 +1573,9 @@ mod _ssl {
                         let accepted = loop {
                             {
                                 let mut io = self.io.write();
-                                let _ = io.with_io(vm, |io| acceptor.read_tls(io))?;
+                                let _ = io
+                                    .with_io(vm, |io| acceptor.read_tls(io))
+                                    .map_err(|e| e.into_py_err(vm))?;
                             }
 
                             match acceptor.accept() {
@@ -1685,13 +1689,6 @@ mod _ssl {
                             state: ConnectionState::Handshaking,
                             conn,
                         };
-                        let State::HasConnection { state, conn, .. } = &mut *state else {
-                            unreachable!("BUG: Impossible")
-                        };
-
-                        self.complete_io(conn, true, vm)?;
-                        *state = ConnectionState::Connected(CloseNotifyState::None);
-                        break Ok(());
                     }
 
                     State::ServerSendingAlert {
@@ -1700,7 +1697,9 @@ mod _ssl {
                         alert_buf_pos,
                     } => {
                         let mut io = self.io.write();
-                        let sent = io.with_io(vm, |io| io.write(&alert_buf[*alert_buf_pos..]))?;
+                        let sent = io
+                            .with_io(vm, |io| io.write(&alert_buf[*alert_buf_pos..]))
+                            .map_err(|e| e.into_py_err(vm))?;
                         *alert_buf_pos += sent;
                         if *alert_buf_pos == alert_buf.len() {
                             break Err(error.clone());
@@ -1711,7 +1710,7 @@ mod _ssl {
                         state: conn_state @ ConnectionState::Handshaking,
                         conn,
                     } => {
-                        self.complete_io(conn, true, vm)?;
+                        self.complete_io_with_sending_alert_on_error(conn, conn_state, true, vm)?;
                         *conn_state = ConnectionState::Connected(CloseNotifyState::None);
                         break Ok(());
                     }
@@ -1723,6 +1722,14 @@ mod _ssl {
                             | ConnectionState::ShutDown,
                         ..
                     } => break Ok(()), // handshake already done
+
+                    State::HasConnection {
+                        state: ConnectionState::SendingAlertAfterError(err),
+                        conn,
+                    } => {
+                        self.send_alert_after_error(conn, vm)?;
+                        return Err(err.clone());
+                    }
                 };
             }
         }
@@ -1819,6 +1826,14 @@ mod _ssl {
                 } => {
                     return Err(SslError::ZeroReturn.into_py_err(vm));
                 }
+
+                State::HasConnection {
+                    state: ConnectionState::SendingAlertAfterError(err),
+                    conn,
+                } => {
+                    self.send_alert_after_error(conn, vm)?;
+                    return Err(err.clone());
+                }
             };
 
             // Do the read.
@@ -1850,7 +1865,7 @@ mod _ssl {
 
                     Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                         // There is no plaintext data in internal buffers, need to do IO.
-                        self.complete_io(conn, true, vm)?;
+                        self.complete_io_with_sending_alert_on_error(conn, conn_state, true, vm)?;
                     }
 
                     Err(err) => return Err(SslError::Io(err).into_py_err(vm)),
@@ -1864,7 +1879,7 @@ mod _ssl {
             self.do_handshake(vm)?;
 
             let mut state = self.state.write();
-            let conn = match &mut *state {
+            let (conn, conn_state) = match &mut *state {
                 State::ServerWaitingForClientHello(_)
                 | State::ServerSendingAlert { .. }
                 | State::HasConnection {
@@ -1876,9 +1891,11 @@ mod _ssl {
 
                 State::HasConnection {
                     state:
-                        ConnectionState::Connected(CloseNotifyState::None | CloseNotifyState::Received),
+                        conn_state @ ConnectionState::Connected(
+                            CloseNotifyState::None | CloseNotifyState::Received,
+                        ),
                     conn,
-                } => conn,
+                } => (conn, conn_state),
 
                 State::HasConnection {
                     state:
@@ -1889,10 +1906,18 @@ mod _ssl {
                 } => {
                     return Err(SslError::ZeroReturn.into_py_err(vm));
                 }
+
+                State::HasConnection {
+                    state: ConnectionState::SendingAlertAfterError(err),
+                    conn,
+                } => {
+                    self.send_alert_after_error(conn, vm)?;
+                    return Err(err.clone());
+                }
             };
 
             // Send previously queued data, if any.
-            self.complete_io(conn, false, vm)?;
+            self.complete_io_with_sending_alert_on_error(conn, conn_state, false, vm)?;
 
             let data = data.borrow_buf();
             let written = conn
@@ -1900,7 +1925,7 @@ mod _ssl {
                 .write(&data)
                 .map_err(|e| SslError::Io(e).into_py_err(vm))?;
 
-            self.complete_io(conn, false, vm)?;
+            self.complete_io_with_sending_alert_on_error(conn, conn_state, false, vm)?;
 
             Ok(written)
         }
@@ -1957,7 +1982,8 @@ mod _ssl {
                         state: conn_state @ ConnectionState::ShuttingDown,
                         conn,
                     } => {
-                        self.complete_io(conn, true, vm)?;
+                        self.complete_io(conn, true, vm)
+                            .map_err(|e| e.into_py_err(vm))?;
                         *conn_state = ConnectionState::ShutDown;
                         break;
                     }
@@ -1968,10 +1994,40 @@ mod _ssl {
                     } => {
                         break;
                     }
+
+                    State::HasConnection {
+                        state: ConnectionState::SendingAlertAfterError(err),
+                        conn,
+                    } => {
+                        self.send_alert_after_error(conn, vm)?;
+                        return Err(err.clone());
+                    }
                 };
             }
 
             Ok(self.io.read().to_socket(vm))
+        }
+
+        fn complete_io_with_sending_alert_on_error(
+            &self,
+            conn: &mut Connection,
+            conn_state: &mut ConnectionState,
+            read_and_write: bool,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            match self.complete_io(conn, read_and_write, vm) {
+                Ok(()) => Ok(()),
+
+                Err(err @ SslError::Rustls(_)) => {
+                    // TLS implementation may want to send an alert after a TLS-level error.
+                    let err = err.into_py_err(vm);
+                    *conn_state = ConnectionState::SendingAlertAfterError(err.clone());
+                    self.send_alert_after_error(conn, vm)?;
+                    Err(err)
+                }
+
+                Err(err) => Err(err.into_py_err(vm)),
+            }
         }
 
         // When handshaking, complete_io() returns only after handshake is complete.
@@ -1980,12 +2036,26 @@ mod _ssl {
             conn: &mut Connection,
             read_and_write: bool,
             vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        ) -> SslResult<()> {
             // complete_io() when writing if !conn.wants_write() may read data past the Close Notify.
             // TODO: Remove this check when proper rustls unbuffered API is used.
             if read_and_write || conn.wants_write() {
                 let mut io = self.io.write();
                 let _ = io.with_io(vm, |io| conn.complete_io(io))?;
+            }
+            Ok(())
+        }
+
+        fn send_alert_after_error(
+            &self,
+            conn: &mut Connection,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            while conn.wants_write() {
+                let mut io = self.io.write();
+                let _ = io
+                    .with_io(vm, |io| conn.write_tls(io))
+                    .map_err(|e| e.into_py_err(vm))?;
             }
             Ok(())
         }
@@ -2652,6 +2722,7 @@ enum ConnectionState {
     Connected(CloseNotifyState),
     ShuttingDown,
     ShutDown,
+    SendingAlertAfterError(PyBaseExceptionRef),
 }
 
 #[derive(Debug)]
@@ -2744,7 +2815,8 @@ impl State {
                 state:
                     ConnectionState::Connected(_)
                     | ConnectionState::ShuttingDown
-                    | ConnectionState::ShutDown,
+                    | ConnectionState::ShutDown
+                    | ConnectionState::SendingAlertAfterError(_),
                 conn,
             } => Some(conn),
         }
@@ -2763,7 +2835,8 @@ impl State {
                 state:
                     ConnectionState::Connected(_)
                     | ConnectionState::ShuttingDown
-                    | ConnectionState::ShutDown,
+                    | ConnectionState::ShutDown
+                    | ConnectionState::SendingAlertAfterError(_),
                 conn,
             } => Some(conn),
         }
@@ -2825,7 +2898,7 @@ impl Io {
         }
     }
 
-    fn with_io<F, T>(&mut self, vm: &VirtualMachine, f: F) -> PyResult<T>
+    fn with_io<F, T>(&mut self, vm: &VirtualMachine, f: F) -> SslResult<T>
     where
         F: FnOnce(&mut WithIo<'_>) -> std::io::Result<T>,
     {
@@ -2838,19 +2911,19 @@ impl Io {
             Ok(value) => Ok(value),
 
             Err(err) => match err.kind() {
-                std::io::ErrorKind::Other => {
-                    Err(io.error.take().expect("BUG: Io.error is not set"))
-                }
+                std::io::ErrorKind::Other => Err(SslError::Py(
+                    io.error.take().expect("BUG: Io.error is not set"),
+                )),
 
                 std::io::ErrorKind::InvalidData => {
                     // ConnectionCommon::complete_io() wraps TLS processing errors in InvalidData.
                     let err = err
                         .downcast::<rustls::Error>()
                         .expect("BUG: Not a rustls Error");
-                    Err(SslError::Rustls(err).into_py_err(vm))
+                    Err(SslError::Rustls(err))
                 }
 
-                _ => Err(SslError::Io(err).into_py_err(vm)),
+                _ => Err(SslError::Io(err)),
             },
         }
     }
