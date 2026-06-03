@@ -117,6 +117,14 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 
+[profile.wasm-release]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
 [patch.crates-io]
 parking_lot_core = { git = "https://github.com/youknowone/parking_lot", branch = "rustpython" }
 # REDOX START, Uncomment when you want to compile/check with redoxer
