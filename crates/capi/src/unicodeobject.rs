@@ -177,17 +177,13 @@ pub unsafe extern "C" fn PyUnicode_FromEncodedObject(
             Some(vm.ctx.new_utf8_str(errors))
         };
 
-        let decoded = obj.try_bytes_like(vm, |b| {
+        obj.try_bytes_like(vm, |b| {
             vm.state.codec_registry.decode_text(
                 vm.ctx.new_bytes(b.to_vec()).into(),
                 encoding,
                 errors,
                 vm,
             )
-        });
-
-        decoded.map_err(|_| {
-            vm.new_type_error("decoding to str: need a bytes-like object, not str".to_owned())
         })?
     })
 }
