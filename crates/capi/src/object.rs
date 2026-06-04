@@ -203,6 +203,18 @@ pub unsafe extern "C" fn PyObject_SetAttr(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_HasAttrWithError(
+    obj: *mut PyObject,
+    attr_name: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
+        obj.has_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GenericGetAttr(
     obj: *mut PyObject,
     name: *mut PyObject,
