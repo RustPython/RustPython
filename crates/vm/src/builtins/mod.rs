@@ -56,6 +56,7 @@ pub(crate) mod namespace;
 pub use namespace::PyNamespace;
 pub(crate) mod object;
 pub use object::PyBaseObject;
+pub use object::{object_generic_set_dict, object_get_dict};
 pub(crate) mod property;
 pub use property::PyProperty;
 #[path = "bool.rs"]
