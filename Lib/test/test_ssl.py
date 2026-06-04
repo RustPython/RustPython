@@ -1346,6 +1346,7 @@ class ContextTests(unittest.TestCase):
         with self.assertRaises(ssl.SSLError):
             ctx.load_verify_locations(cadata=cacert_der + b"A")
 
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls does not support custom DH parameters")
     def test_load_dh_params(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         try:
@@ -1481,6 +1482,7 @@ class ContextTests(unittest.TestCase):
         self.assertRaises(TypeError, ctx.load_default_certs, 'SERVER_AUTH')
 
     @unittest.skipIf(sys.platform == "win32", "not-Windows specific")
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls does not support certificate lazy loading")
     def test_load_default_certs_env(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         with os_helper.EnvironmentVarGuard() as env:
@@ -1492,6 +1494,7 @@ class ContextTests(unittest.TestCase):
     @unittest.skipUnless(sys.platform == "win32", "Windows specific")
     @unittest.skipIf(support.Py_DEBUG,
                      "Debug build does not share environment between CRTs")
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls does not support certificate lazy loading")
     def test_load_default_certs_env_windows(self):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.load_default_certs()
@@ -2092,6 +2095,7 @@ class SimpleBackgroundTests(unittest.TestCase):
                                     cert_reqs=ssl.CERT_NONE, ciphers="^$:,;?*'dorothyx")
                 s.connect(self.server_addr)
 
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; capath certificates are loaded eagerly instead of on request")
     def test_get_ca_certs_capath(self):
         # capath certs are loaded on request
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -2863,7 +2867,6 @@ class ThreadedTests(unittest.TestCase):
                 'Cannot create a client socket with a PROTOCOL_TLS_SERVER context',
                 str(e.exception))
 
-    @unittest.skip("TODO: RUSTPYTHON; flaky")
     @unittest.skipUnless(support.Py_GIL_DISABLED, "test is only useful if the GIL is disabled")
     def test_ssl_in_multiple_threads(self):
         # See GH-124984: OpenSSL is not thread safe.
@@ -3071,6 +3074,7 @@ class ThreadedTests(unittest.TestCase):
 
     @unittest.skipUnless(IS_OPENSSL_3_0_0,
                          "test requires RFC 5280 check added in OpenSSL 3.0+")
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; rustls cert verification does not match OpenSSL's VERIFY_X509_STRICT")
     def test_verify_strict(self):
         # verification fails by default, since the server cert is non-conforming
         client_context = ssl.create_default_context()
@@ -3996,7 +4000,6 @@ class ThreadedTests(unittest.TestCase):
                 s.connect((HOST, server.port))
                 self.assertIn("ECDH", s.cipher()[0])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless("tls-unique" in ssl.CHANNEL_BINDING_TYPES,
                          "'tls-unique' channel binding not available")
     def test_tls_unique_channel_binding(self):
@@ -4259,7 +4262,6 @@ class ThreadedTests(unittest.TestCase):
         self.check_common_name(stats, SIGNED_CERTFILE_HOSTNAME)
         self.assertEqual(calls, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + TLSV1_ALERT_ACCESS_DENIED
     def test_sni_callback_alert(self):
         # Returning a TLS alert is reflected to the connecting client
         server_context, other_context, client_context = self.sni_contexts()
@@ -4273,7 +4275,6 @@ class ThreadedTests(unittest.TestCase):
                                        sni_name='supermessage')
         self.assertEqual(cm.exception.reason, 'TLSV1_ALERT_ACCESS_DENIED')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sni_callback_raising(self):
         # Raising fails the connection with a TLS handshake failure alert.
         server_context, other_context, client_context = self.sni_contexts()
@@ -4293,7 +4294,6 @@ class ThreadedTests(unittest.TestCase):
             self.assertRegex(cm.exception.reason, regex)
             self.assertEqual(catch.unraisable.exc_type, ZeroDivisionError)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'SSLEOFError' object has no attribute 'reason'
     def test_sni_callback_wrong_return_type(self):
         # Returning the wrong return type terminates the TLS connection
         # with an internal error alert.
@@ -4359,7 +4359,7 @@ class ThreadedTests(unittest.TestCase):
                     s.sendfile(file)
                     self.assertEqual(s.recv(1024), TEST_DATA)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'id'")
     def test_session(self):
         client_context, server_context, hostname = testing_context()
         # TODO: sessions aren't compatible with TLSv1.3 yet
@@ -4417,7 +4417,7 @@ class ThreadedTests(unittest.TestCase):
         self.assertEqual(sess_stat['accept'], 4)
         self.assertEqual(sess_stat['hits'], 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False != True
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; AssertionError: None is not true")
     def test_session_handling(self):
         client_context, server_context, hostname = testing_context()
         client_context2, _, _ = testing_context()
@@ -5036,7 +5036,7 @@ class TestSSLDebug(unittest.TestCase):
         with self.assertRaises(TypeError):
             client_context._msg_callback = object()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ('read', <TLSVersion.TLSv1_2: 771>, <_TLSContentType.HANDSHAKE: 22>, <_TLSMessageType.SERVER_KEY_EXCHANGE: 12>) not found in []
+    @unittest.expectedFailureIf("rustls" in ssl.OPENSSL_VERSION, "TODO: RUSTPYTHON; AssertionError: ('read', <TLSVersion.TLSv1_2: 771>, <_TLSContentType.HANDSHAKE: 22>, <_TLSMessageType.SERVER_KEY_EXCHANGE: 12>) not found in []")
     def test_msg_callback_tls12(self):
         client_context, server_context, hostname = testing_context()
         client_context.maximum_version = ssl.TLSVersion.TLSv1_2

@@ -738,7 +738,6 @@ class TestSSL(test_utils.TestCase):
                 asyncio.wait_for(client(srv.addr),
                                  timeout=support.SHORT_TIMEOUT))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_create_connection_memory_leak(self):
         HELLO_MSG = b'1' * self.PAYLOAD_SIZE
 
@@ -1617,7 +1616,6 @@ class TestSSL(test_utils.TestCase):
             else:
                 self.fail('Unexpected ResourceWarning: {}'.format(cm.warning))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - gc.collect() doesn't release SSLContext properly
     def test_handshake_timeout_handler_leak(self):
         s = socket.socket(socket.AF_INET)
         s.bind(('127.0.0.1', 0))

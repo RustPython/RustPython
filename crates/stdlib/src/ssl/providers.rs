@@ -26,6 +26,7 @@ static CRYPTO_EXT: OnceLock<CryptoExt> = OnceLock::new();
 #[derive(Clone, Copy)]
 pub struct CryptoExt {
     pub all_cipher_suites: Option<&'static [SupportedCipherSuite]>,
+    pub default_cipher_suites: Option<&'static [SupportedCipherSuite]>,
     pub all_kx_groups: Option<&'static [&'static dyn SupportedKxGroup]>,
     #[allow(clippy::type_complexity)]
     pub any_supported_key: Option<fn(&PrivateKeyDer<'_>) -> Result<Arc<dyn SigningKey>, Error>>,
@@ -53,7 +54,17 @@ impl CryptoExt {
     /// Panics if a [`CryptoProvider`] hasn't been set.
     #[must_use]
     pub fn all_ciphers_or_default(&self) -> &'static [SupportedCipherSuite] {
-        self.all_cipher_suites.unwrap_or_else(|| {
+        self.all_cipher_suites
+            .unwrap_or_else(|| self.default_ciphers_or_provider())
+    }
+
+    /// Returns default [`SupportedCipherSuite`]s or the provider's configured ciphers.
+    ///
+    /// # Panics
+    /// Panics if a [`CryptoProvider`] hasn't been set.
+    #[must_use]
+    pub fn default_ciphers_or_provider(&self) -> &'static [SupportedCipherSuite] {
+        self.default_cipher_suites.unwrap_or_else(|| {
             CryptoProvider::get_default()
                 .expect("A CryptoProvider has been set if CryptoExt is set")
                 .cipher_suites
