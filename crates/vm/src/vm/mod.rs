@@ -2279,6 +2279,11 @@ impl VirtualMachine {
         Ok(Cow::Owned(s))
     }
 
+    /// Serialize Rust structures into Python with default configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics on unit (`()`) values.
     #[cfg(feature = "serde")]
     pub fn with_serde<'a, T, F>(&'a self, f: F) -> PyResult<T>
     where
@@ -2287,6 +2292,11 @@ impl VirtualMachine {
         self.with_serde_conf(RustPySerDeConf::default(), f)
     }
 
+    /// Serialize Rust structures into Python with provided configuration.
+    ///
+    /// # Panics
+    ///
+    /// Panics on unit (`()`) values.
     #[cfg(feature = "serde")]
     pub fn with_serde_conf<'a, T, F>(&'a self, conf: RustPySerDeConf, f: F) -> PyResult<T>
     where

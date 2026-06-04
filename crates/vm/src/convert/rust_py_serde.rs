@@ -11,23 +11,39 @@ use crate::{
 };
 
 // TODO: Add a shortcut implementation for `py_serde::PyObjectSerializer`.
-/// Panics on unit values and unit structures.
+/// Rust -> Python serializer.
+///
+/// # Panics
+///
+/// Panics on unit (`()`) values.
 pub struct RustPySerDe<'a> {
     vm: &'a VirtualMachine,
     conf: RustPySerDeConf,
 }
 
+/// Configuration of Rust -> Python serializer.
 #[derive(Eq, PartialEq, Debug, Clone)]
 pub struct RustPySerDeConf {
+    /// How to serialize lists.
     pub lists: RustPySerDeSeqKind,
+
+    /// How to serialize tuples.
     pub tuples: RustPySerDeSeqKind,
+
+    /// How to serialize tuple structures.
     pub tuple_structs: RustPySerDeSeqKind,
+
+    /// How to serialize tuple variants of enums.
     pub tuple_variants: RustPySerDeSeqKind,
 }
 
+/// How to serialize sequences into Python types.
 #[derive(Eq, PartialEq, Debug, Clone, Copy)]
 pub enum RustPySerDeSeqKind {
+    /// Serialize sequences as Python tuples.
     AsTuple,
+
+    /// Serialize sequences as Python lists.
     AsList,
 }
 
