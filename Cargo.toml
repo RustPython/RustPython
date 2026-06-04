@@ -28,7 +28,7 @@ ssl-rustls-aws-lc = ["ssl-rustls", "dep:rustls", "rustls/aws_lc_rs"]
 ssl-rustls-aws-lc-fips = ["ssl-rustls-aws-lc", "rustls/fips"]
 ssl-openssl = ["ssl", "rustpython-stdlib/ssl-openssl"]
 ssl-openssl-vendor = ["ssl-openssl", "rustpython-stdlib/ssl-openssl-vendor"]
-# tkinter = ["rustpython-stdlib/tkinter"]
+tkinter = ["rustpython-stdlib/tkinter"]
 
 [build-dependencies]
 winresource = "0.1"
@@ -307,12 +307,12 @@ strum_macros = "0.28"
 syn = "2"
 syn-ext = "0.5.0"
 system-configuration = "0.7.0"
-# tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
+#tcl-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 textwrap = { version = "0.16.2", default-features = false }
 termios = "0.3.3"
 thiserror = "2.0"
 timsort = "0.1.2"
-# tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
+tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 icu_casemap = "2"
 icu_locale = "2"
 icu_properties = "2"
