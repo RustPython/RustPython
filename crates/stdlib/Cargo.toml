@@ -21,11 +21,10 @@ ssl = ["host_env"]
 ssl-rustls = ["__ssl-rustls", "rustls/custom-provider"]
 ssl-openssl = ["ssl", "openssl", "openssl-sys", "foreign-types-shared", "openssl-probe"]
 ssl-openssl-vendor = ["ssl-openssl", "openssl/vendored"]
-# TODO: Fix tkinter
-tkinter = [
-    # "dep:tk-sys",
+tkinter = [ 
+    "dep:tk-sys",
     # "dep:tcl-sys",
-    # "dep:widestring",
+    "dep:widestring",
 ]
 flame-it = ["flame"]
 
@@ -110,8 +109,8 @@ libz-rs-sys = { workspace = true }
 bzip2 = { workspace = true }
 
 # tkinter
-# tk-sys = { workspace = true, optional = true }
-# tcl-sys = { workspace = true, optional = true }
+tk-sys = { workspace = true, optional = true }
+#tcl-sys = { workspace = true, optional = true }
 widestring = { workspace = true, optional = true }
 chrono = { workspace = true }
 
