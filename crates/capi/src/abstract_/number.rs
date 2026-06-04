@@ -30,7 +30,7 @@ pub unsafe extern "C" fn PyNumber_Subtract(o1: *mut PyObject, o2: *mut PyObject)
     with_vm(|vm| vm._sub(unsafe { &*o1 }, unsafe { &*o2 }))
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
 

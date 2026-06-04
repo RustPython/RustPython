@@ -15,6 +15,7 @@ pub mod bytearrayobject;
 pub mod bytesobject;
 pub mod ceval;
 pub mod complexobject;
+pub mod descrobject;
 pub mod dictobject;
 pub mod floatobject;
 pub mod import;

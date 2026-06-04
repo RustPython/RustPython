@@ -15,7 +15,7 @@ pub(crate) use _thread::{
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
@@ -50,9 +50,30 @@ pub(crate) mod _thread {
     #[cfg(target_os = "windows")]
     const TIMEOUT_MAX_IN_MICROSECONDS: i64 = 0xffffffff * 1_000;
 
+    /// [CPython `SYSTEM_PAGE_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_obmalloc.h#L170)
+    const SYSTEM_PAGE_SIZE: usize = 4 * 1024;
+
+    // TODO: Check for sanitize once https://github.com/rust-lang/rust/issues/39699 is closed
+    /// [CPython `_PyOS_LOG2_STACK_MARGIN`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L41-L47)
+    const PY_OS_LOG2_STACK_MARGIN: u32 = cfg_select! {
+        debug_assertions => 12,
+        _ => 11,
+    };
+
+    /// [CPython `_PyOS_STACK_MARGIN`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L48)
+    const PY_OS_STACK_MARGIN: usize = 1 << PY_OS_LOG2_STACK_MARGIN;
+
+    /// [CPython `_PyOS_STACK_MARGIN_BYTES`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L49)
+    const PY_OS_STACK_MARGIN_BYTES: usize = PY_OS_STACK_MARGIN * size_of::<*const ()>();
+
+    // TODO: Check for sanitize once https://github.com/rust-lang/rust/issues/39699 is closed
+    /// [CPython `_PyOS_MIN_STACK_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L57-L61)
+    const PY_OS_MIN_STACK_SIZE: usize = PY_OS_STACK_MARGIN_BYTES * 3;
+
     // this is a value in seconds
     #[pyattr]
     const TIMEOUT_MAX: f64 = (TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000) as f64;
+
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.runtime_error.to_owned()
@@ -76,22 +97,23 @@ pub(crate) mod _thread {
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
-                    Err(vm
-                        .new_value_error("timeout value must be a non-negative number".to_owned()))
+                    Err(vm.new_value_error("timeout value must be a non-negative number"))
                 }
                 true => {
                     if timeout > TIMEOUT_MAX {
-                        return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+                        return Err(vm.new_overflow_error("timeout value is too large"));
                     }
 
                     Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
                 }
-                false if timeout != -1.0 => Err(vm
-                    .new_value_error("can't specify a timeout for a non-blocking call".to_owned())),
+                false if timeout != -1.0 => {
+                    Err(vm.new_value_error("can't specify a timeout for a non-blocking call"))
+                }
                 false => Ok(mu.try_lock()),
             }
         }};
     }
+
     macro_rules! repr_lock_impl {
         ($zelf:expr) => {{
             let status = if $zelf.mu.is_locked() {
@@ -603,10 +625,18 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn stack_size(size: OptionalArg<usize>, vm: &VirtualMachine) -> usize {
-        let size = size.unwrap_or(0);
-        // TODO: do validation on this to make sure it's not too small
-        vm.state.stacksize.swap(size)
+    fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
+        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+
+        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
+            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
+        };
+
+        if size != 0 && size < MIN_SIZE {
+            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
+        }
+
+        Ok(vm.state.stacksize.swap(size))
     }
 
     #[pyfunction]
