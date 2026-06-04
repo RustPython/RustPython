@@ -109,12 +109,11 @@ mod decl {
                     }
                 }
             };
-            match next {
-                Err(_) | Ok(PyIterReturn::StopIteration(_)) => {
-                    *zelf.source.write() = None;
-                }
-                _ => {}
+
+            if matches!(next, Err(_) | Ok(PyIterReturn::StopIteration(_))) {
+                *zelf.source.write() = None;
             };
+
             next
         }
     }

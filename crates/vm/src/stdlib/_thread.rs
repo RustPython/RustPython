@@ -1548,7 +1548,7 @@ pub(crate) mod _thread {
                 .map(|(_, candidate)| candidate);
 
             let msg_suffix =
-                suggestion.map_or_else(|| String::new(), |s| format!(". Did you mean '{s}'?"));
+                suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
             let msg = format!(
                 "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
             );
