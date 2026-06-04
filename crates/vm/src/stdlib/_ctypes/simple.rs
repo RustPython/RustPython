@@ -664,33 +664,26 @@ fn create_swapped_types(
 
     // Set attributes based on system byte order
     // Native endian attribute points to self, non-native points to swapped type
-    if is_little_endian {
+    let type_obj = type_ref.as_object().to_owned();
+    let (ctype_le, ctype_be) = if is_little_endian {
         // Little-endian system: __ctype_le__ = self, __ctype_be__ = swapped
-        set_attrs!(
-            type_ref.as_object(), vm,
-            "__ctype_le__" => type_ref.as_object().to_owned(),
-            "__ctype_be__" => swapped_type.clone(),
-        );
-
-        set_attrs!(
-            swapped_type, vm,
-            "__ctype_le__" => type_ref.as_object().to_owned(),
-            "__ctype_be__" => swapped_type.clone(),
-        );
+        (type_obj.clone(), swapped_type.clone())
     } else {
-        // Big-endian system: __ctype_be__ = self, __ctype_le__ = swapped
-        set_attrs!(
-            type_ref.as_object(), vm,
-            "__ctype_be__" => type_ref.as_object().to_owned(),
-            "__ctype_le__" => swapped_type.clone(),
-        );
+        // Big-endian system: __ctype_le__ = swapped, __ctype_be__ = self
+        (swapped_type.clone(), type_obj.clone())
+    };
 
-        set_attrs!(
-            swapped_type, vm,
-            "__ctype_be__" => type_ref.as_object().to_owned(),
-            "__ctype_le__" => swapped_type.clone(),
-        );
-    }
+    set_attrs!(
+        type_ref.as_object(), vm,
+        "__ctype_le__" => ctype_le.clone(),
+        "__ctype_be__" => ctype_be.clone(),
+    );
+
+    set_attrs!(
+       swapped_type, vm,
+       "__ctype_le__" => ctype_le,
+       "__ctype_be__" => ctype_be,
+    );
 
     Ok(())
 }
