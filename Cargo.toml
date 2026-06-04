@@ -210,7 +210,7 @@ bstr = "1"
 bzip2 = "0.6"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 console_error_panic_hook = "0.1"
-constant_time_eq = "0.4"
+constant_time_eq = "0.5"
 cranelift = "0.132.0"
 cranelift-jit = "0.132.0"
 cranelift-module = "0.132.0"
