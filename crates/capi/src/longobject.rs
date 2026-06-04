@@ -63,6 +63,17 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_ulonglong {
+    with_vm::<PyResult<c_ulonglong>, _>(|vm| {
+        let int = unsafe { &*obj }.to_owned().try_index(vm)?;
+        let low = u64::from(int.as_u32_mask());
+        let high = u64::from(vm.ctx.new_int(int.as_bigint() >> 32).as_u32_mask());
+        let masked = low | (high << 32);
+        Ok(masked)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;

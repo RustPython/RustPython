@@ -169,6 +169,7 @@ nvars
 opname
 opnames
 orelse
+osmodule
 outparam
 outparm
 paramfunc
