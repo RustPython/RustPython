@@ -2702,14 +2702,24 @@ mod _ssl {
 //
 
 enum State {
+    // Initial state for a server connection.
+    // Possible state transitions:
+    //   * ServerWaitingForClientHello(_) -> ServerSendingAlert
+    //     ^ rustls failed to accept the Client Hello or SNI callback failed or returned an alert code
+    //   * ServerWaitingForClientHello(_) -> HasConnection { state: ConnectionState::Handshaking }
+    //     ^ rustls accepted the Client Hello
     ServerWaitingForClientHello(Acceptor),
 
+    // Either rustls failed to accept the Client Hello or SNI callback failed/returned an alert code.
+    // This state is final.
     ServerSendingAlert {
         error: PyBaseExceptionRef,
         alert_buf: [u8; TLS_RECORD_HEADER_LEN + TLS_ALERT_RECORD_LEN],
         alert_buf_pos: usize,
     },
 
+    // We have a rustls connection. Client connection starts here with { state: ConnectionState::Handshaking }.
+    // This state is final.
     HasConnection {
         state: ConnectionState,
         conn: Connection,
@@ -2718,10 +2728,37 @@ enum State {
 
 #[derive(Debug)]
 enum ConnectionState {
+    // Initial state.
+    // Possible state transitions:
+    //   * Handshaking -> Connected(CloseNotifyState::None)
+    //     ^ After a successful TLS handshake
+    //   * Handshaking -> SendingAlertAfterError(_)
+    //     ^ TLS handshake failed for some reason, we might need to send some alert to the other side
     Handshaking,
+
+    // This is the primary state that allows reading and writing plaintext data.
+    // Possible state transitions:
+    //   * Connected(CloseNotifyState::None) -> Connected(CloseNotifyState::Received)
+    //     ^ Close Notify received from the other side
+    //   * Connected(CloseNotifyState::Sent) -> ShuttingDown
+    //     ^ Close Notify was previously buffered for sending by PySSLSocket::shutdown() plus now we received
+    //       it from the other side which means that TLS connection is near a complete shut down
+    //   * Connected(_) -> SendingAlertAfterError(_)
+    //     ^ TLS-level error, we might need to send some alert to the other side
     Connected(CloseNotifyState),
+
+    // Outgoing Close Notify was buffered by PySSLSocket::shutdown() and now we are sending it.
+    // Possible state transitions:
+    //   * ShuttingDown -> ShutDown
+    //     ^ No more IO to do, connection is shut down completely
     ShuttingDown,
+
+    // TLS connection is shut down completely.
+    // This state is final.
     ShutDown,
+
+    // TLS-level error happened, we might need to send some alert to the other side.
+    // This state is final.
     SendingAlertAfterError(PyBaseExceptionRef),
 }
 
