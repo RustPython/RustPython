@@ -10,6 +10,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyDictRef},
 };
 
+// TODO: Add a shortcut implementation for `py_serde::PyObjectSerializer`.
 /// Panics on unit values and unit structures.
 pub struct RustPySerDe<'a> {
     vm: &'a VirtualMachine,
@@ -507,9 +508,7 @@ mod tests {
 
     use serde::Serialize;
 
-    use rustpython_vm::Interpreter;
-
-    use crate::convert::RustPySerDeConf;
+    use crate::{Interpreter, convert::RustPySerDeConf, py_serde::PyObjectSerializer};
 
     fn interpreter() -> Interpreter {
         Interpreter::without_stdlib(Default::default())
@@ -730,6 +729,25 @@ mod tests {
             let script = "\
                 assert val == {'Variant': [11, 22, 33]}\n\
                 assert isinstance(val['Variant'], list)\n\
+            ";
+            let _ = vm.unwrap_pyresult(vm.run_block_expr(scope, script));
+        });
+    }
+
+    #[test]
+    fn serialize_py_object() {
+        interpreter().enter(|vm| {
+            let obj = vm.ctx.new_str("test");
+            let val = vm.unwrap_pyresult(
+                vm.with_serde(|serde| PyObjectSerializer::new(vm, &obj.into()).serialize(serde)),
+            );
+
+            let scope = vm.new_scope_with_builtins();
+            vm.unwrap_pyresult(scope.globals.set_item("val", val, vm));
+
+            let script = "\
+                assert val == 'test'\n\
+                assert isinstance(val, str)\n\
             ";
             let _ = vm.unwrap_pyresult(vm.run_block_expr(scope, script));
         });
