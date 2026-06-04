@@ -138,8 +138,8 @@ impl<'a> Serializer for &'a RustPySerDe<'a> {
         unimplemented!("BUG: Unit value cannot be serialized into a Python object")
     }
 
-    fn serialize_unit_struct(self, _name: &'static str) -> Result<Self::Ok, Self::Error> {
-        unimplemented!("BUG: Unit struct value cannot be serialized into a Python object")
+    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
+        name.serialize(self)
     }
 
     fn serialize_unit_variant(
@@ -557,6 +557,7 @@ mod tests {
         val_tuple: (&'static str, i32),
         val_map: BTreeMap<&'static str, i32>,
         val_struct: TestSubStruct,
+        val_unit_struct: TestUnitStruct,
     }
 
     #[derive(Serialize)]
@@ -574,6 +575,9 @@ mod tests {
         Baz(u32, &'static str),
         Qux { aaa: String, bbb: i32 },
     }
+
+    #[derive(Serialize)]
+    struct TestUnitStruct;
 
     #[test]
     fn serialize() {
@@ -610,6 +614,7 @@ mod tests {
                     bbb: -3,
                 },
             },
+            val_unit_struct: TestUnitStruct,
         };
 
         interpreter().enter(|vm| {
@@ -621,7 +626,7 @@ mod tests {
             let script = "\
                 from sys import maxsize\n\
                 \n\
-                assert len(val) == 24\n\
+                assert len(val) == 25\n\
                 assert val['val_bool']\n\
                 assert val['val_u8'] == 255\n\
                 assert val['val_i8'] == -128\n\
@@ -650,6 +655,8 @@ mod tests {
                 assert isinstance(val['val_tuple'], tuple)\n\
                 assert val['val_map'] == {'one': 1, 'two': 2}\n\
                 assert isinstance(val['val_map'], dict)\n\
+                assert val['val_unit_struct'] == 'TestUnitStruct'\n\
+                assert isinstance(val['val_unit_struct'], str)\n\
                 \n\
                 val = val['val_struct']\n\
                 assert len(val) == 4\n\
