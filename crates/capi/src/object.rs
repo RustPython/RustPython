@@ -240,10 +240,10 @@ pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
 pub unsafe extern "C" fn PyObject_RichCompare(
     left: *mut PyObject,
     right: *mut PyObject,
-    opid: c_int,
+    op: c_int,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let op = match opid {
+        let op = match op {
             0 => ComparisonOperator::Less,
             1 => ComparisonOperator::LessOrEqual,
             2 => ComparisonOperator::Equal,
@@ -272,9 +272,8 @@ pub unsafe extern "C" fn PyObject_ClearWeakRefs(obj: *mut PyObject) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Dir(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        unsafe { &*obj }
-            .to_owned()
-            .dir(vm)
+        unsafe { obj.as_ref() }
+            .map_or_else(|| vm.dir(None), |obj| obj.to_owned().dir(vm))
             .map(|list| list.into_ref(&vm.ctx))
     })
 }
@@ -306,8 +305,11 @@ pub unsafe extern "C" fn PyObject_GenericSetDict(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let value = unsafe { &*value }.to_owned();
-        object_generic_set_dict(obj.to_owned(), PySetterValue::Assign(value), vm)
+        let value = match NonNull::new(value) {
+            Some(value) => PySetterValue::Assign(unsafe { value.as_ref() }.to_owned()),
+            None => PySetterValue::Delete,
+        };
+        object_generic_set_dict(obj.to_owned(), value, vm)
     })
 }
 
