@@ -7,7 +7,7 @@ from test.support import (verbose, refcount_test,
                           Py_GIL_DISABLED)
 from test.support.import_helper import import_module
 from test.support.os_helper import temp_dir, TESTFN, unlink
-from test.support.script_helper import assert_python_ok, make_script, run_test_script
+from test.support.script_helper import assert_python_ok, make_script
 from test.support import threading_helper, gc_threshold
 
 import gc
@@ -236,8 +236,7 @@ class GCTests(unittest.TestCase):
         # is 3 because it includes f's code object.
         self.assertIn(gc.collect(), (2, 3))
 
-    # TODO: RUSTPYTHON - weakref clear ordering differs from 3.15+
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - weakref clear ordering differs from 3.15+
     def test_function_tp_clear_leaves_consistent_state(self):
         # https://github.com/python/cpython/issues/91636
         code = """if 1:
@@ -310,28 +309,6 @@ class GCTests(unittest.TestCase):
         # The `func` global is None because the weakref was cleared.
         self.assertRegex(stdout, rb"""\A\s*func=None""")
         self.assertFalse(stderr)
-
-    # TODO: RUSTPYTHON - _datetime module not available
-    @unittest.expectedFailure
-    def test_datetime_weakref_cycle(self):
-        # https://github.com/python/cpython/issues/132413
-        # If the weakref used by the datetime extension gets cleared by the GC (due to being
-        # in an unreachable cycle) then datetime functions would crash (get_module_state()
-        # was returning a NULL pointer).  This bug is fixed by clearing weakrefs without
-        # callbacks *after* running finalizers.
-        code = """if 1:
-        import _datetime
-        class C:
-            def __del__(self):
-                print('__del__ called')
-                _datetime.timedelta(days=1)  # crash?
-
-        l = [C()]
-        l.append(l)
-        """
-        rc, stdout, stderr = assert_python_ok("-c", code)
-        self.assertEqual(rc, 0)
-        self.assertEqual(stdout.strip(), b'__del__ called')
 
     @refcount_test
     def test_frame(self):
@@ -423,11 +400,19 @@ class GCTests(unittest.TestCase):
         # each call to collect(N)
         x = []
         gc.collect(0)
-        # x is now in the old gen
+        # x is now in gen 1
         a, b, c = gc.get_count()
-        # We don't check a since its exact values depends on
+        gc.collect(1)
+        # x is now in gen 2
+        d, e, f = gc.get_count()
+        gc.collect(2)
+        # x is now in gen 3
+        g, h, i = gc.get_count()
+        # We don't check a, d, g since their exact values depends on
         # internal implementation details of the interpreter.
         self.assertEqual((b, c), (1, 0))
+        self.assertEqual((e, f), (0, 1))
+        self.assertEqual((h, i), (0, 0))
 
     def test_trashcan(self):
         class Ouch:
@@ -682,8 +667,9 @@ class GCTests(unittest.TestCase):
         gc.collect()
         self.assertEqual(len(ouch), 2)  # else the callbacks didn't run
         for x in ouch:
-            # The weakref should be cleared before executing the callback.
-            self.assertIsNone(x)
+            # If the callback resurrected one of these guys, the instance
+            # would be damaged, with an empty __dict__.
+            self.assertEqual(x, None)
 
     def test_bug21435(self):
         # This is a poor test - its only virtue is that it happened to
@@ -845,20 +831,17 @@ class GCTests(unittest.TestCase):
         rc, out, err = assert_python_ok(TESTFN)
         self.assertEqual(out.strip(), b'__del__ called')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_get_stats(self):
         stats = gc.get_stats()
         self.assertEqual(len(stats), 3)
         for st in stats:
             self.assertIsInstance(st, dict)
-            self.assertEqual(
-                set(st),
-                {"collected", "collections", "uncollectable", "candidates", "duration"}
-            )
+            self.assertEqual(set(st),
+                             {"collected", "collections", "uncollectable"})
             self.assertGreaterEqual(st["collected"], 0)
             self.assertGreaterEqual(st["collections"], 0)
             self.assertGreaterEqual(st["uncollectable"], 0)
-            self.assertGreaterEqual(st["candidates"], 0)
-            self.assertGreaterEqual(st["duration"], 0)
         # Check that collection counts are incremented correctly
         if gc.isenabled():
             self.addCleanup(gc.enable)
@@ -869,25 +852,11 @@ class GCTests(unittest.TestCase):
         self.assertEqual(new[0]["collections"], old[0]["collections"] + 1)
         self.assertEqual(new[1]["collections"], old[1]["collections"])
         self.assertEqual(new[2]["collections"], old[2]["collections"])
-        self.assertGreater(new[0]["duration"], old[0]["duration"])
-        self.assertEqual(new[1]["duration"], old[1]["duration"])
-        self.assertEqual(new[2]["duration"], old[2]["duration"])
-        for stat in ["collected", "uncollectable", "candidates"]:
-            self.assertGreaterEqual(new[0][stat], old[0][stat])
-            self.assertEqual(new[1][stat], old[1][stat])
-            self.assertEqual(new[2][stat], old[2][stat])
         gc.collect(2)
-        old, new = new, gc.get_stats()
-        self.assertEqual(new[0]["collections"], old[0]["collections"])
+        new = gc.get_stats()
+        self.assertEqual(new[0]["collections"], old[0]["collections"] + 1)
         self.assertEqual(new[1]["collections"], old[1]["collections"])
         self.assertEqual(new[2]["collections"], old[2]["collections"] + 1)
-        self.assertEqual(new[0]["duration"], old[0]["duration"])
-        self.assertEqual(new[1]["duration"], old[1]["duration"])
-        self.assertGreater(new[2]["duration"], old[2]["duration"])
-        for stat in ["collected", "uncollectable", "candidates"]:
-            self.assertEqual(new[0][stat], old[0][stat])
-            self.assertEqual(new[1][stat], old[1][stat])
-            self.assertGreaterEqual(new[2][stat], old[2][stat])
 
     def test_freeze(self):
         gc.freeze()
@@ -911,9 +880,41 @@ class GCTests(unittest.TestCase):
         self.assertTrue(
                 any(l is element for element in gc.get_objects(generation=0))
         )
-        gc.collect()
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=1))
+        )
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=2))
+        )
+        gc.collect(generation=0)
         self.assertFalse(
                 any(l is element for element in gc.get_objects(generation=0))
+        )
+        self.assertTrue(
+                any(l is element for element in gc.get_objects(generation=1))
+        )
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=2))
+        )
+        gc.collect(generation=1)
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=0))
+        )
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=1))
+        )
+        self.assertTrue(
+                any(l is element for element in gc.get_objects(generation=2))
+        )
+        gc.collect(generation=2)
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=0))
+        )
+        self.assertFalse(
+                any(l is element for element in gc.get_objects(generation=1))
+        )
+        self.assertTrue(
+                any(l is element for element in gc.get_objects(generation=2))
         )
         del l
         gc.collect()
@@ -1203,37 +1204,6 @@ class GCTests(unittest.TestCase):
         """)
         assert_python_ok("-c", source)
 
-    def test_do_not_cleanup_type_subclasses_before_finalization(self):
-        #  See https://github.com/python/cpython/issues/135552
-        # If we cleanup weakrefs for tp_subclasses before calling
-        # the finalizer (__del__) then the line `fail = BaseNode.next.next`
-        # should fail because we are trying to access a subclass
-        # attribute. But subclass type cache was not properly invalidated.
-        code = """
-            class BaseNode:
-                def __del__(self):
-                    BaseNode.next = BaseNode.next.next
-                    fail = BaseNode.next.next
-
-            class Node(BaseNode):
-                pass
-
-            BaseNode.next = Node()
-            BaseNode.next.next = Node()
-        """
-        # this test checks garbage collection while interp
-        # finalization
-        assert_python_ok("-c", textwrap.dedent(code))
-
-        code_inside_function = textwrap.dedent(F"""
-            def test():
-                {textwrap.indent(code, '    ')}
-
-            test()
-        """)
-        # this test checks regular garbage collection
-        assert_python_ok("-c", code_inside_function)
-
 
     @unittest.skipUnless(Py_GIL_DISABLED, "requires free-threaded GC")
     @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
@@ -1252,16 +1222,14 @@ class GCTests(unittest.TestCase):
         # Use n // 2 just in case some other objects were collected.
         self.assertTrue(new_count - count > (n // 2))
 
-
-class IncrementalGCTests(unittest.TestCase):
+    @requires_gil_enabled('need generational GC')
     @unittest.skipIf(_testinternalcapi is None, "requires _testinternalcapi")
-    @requires_gil_enabled("Free threading does not support incremental GC")
-    def test_incremental_gc_handles_fast_cycle_creation(self):
-        # Run this test in a fresh process.  The number of alive objects (which can
-        # be from unit tests run before this one) can influence how quickly cyclic
-        # garbage is found.
-        script = support.findfile("_test_gc_fast_cycles.py")
-        run_test_script(script)
+    def test_heap_size(self):
+        count = _testinternalcapi.get_tracked_heap_size()
+        l = []
+        self.assertEqual(count + 1, _testinternalcapi.get_tracked_heap_size())
+        del l
+        self.assertEqual(count, _testinternalcapi.get_tracked_heap_size())
 
 
 class GCCallbackTests(unittest.TestCase):
@@ -1338,11 +1306,9 @@ class GCCallbackTests(unittest.TestCase):
         # Check that we got the right info dict for all callbacks
         for v in self.visit:
             info = v[2]
-            self.assertIn("generation", info)
-            self.assertIn("collected", info)
-            self.assertIn("uncollectable", info)
-            self.assertIn("candidates", info)
-            self.assertIn("duration", info)
+            self.assertTrue("generation" in info)
+            self.assertTrue("collected" in info)
+            self.assertTrue("uncollectable" in info)
 
     def test_collect_generation(self):
         self.preclean()
@@ -1518,8 +1484,8 @@ class GCTogglingTests(unittest.TestCase):
         assert not detector.gc_happened
         while not detector.gc_happened:
             i += 1
-            if i > 100000:
-                self.fail("gc didn't happen after 100000 iterations")
+            if i > 10000:
+                self.fail("gc didn't happen after 10000 iterations")
             self.assertEqual(len(ouch), 0)
             junk.append([])  # this will eventually trigger gc
 
@@ -1530,7 +1496,6 @@ class GCTogglingTests(unittest.TestCase):
             self.assertEqual(x, None)
 
     @gc_threshold(1000, 0, 0)
-    @unittest.skipIf(Py_GIL_DISABLED, "requires GC generations or increments")
     def test_bug1055820d(self):
         # Corresponds to temp2d.py in the bug report.  This is very much like
         # test_bug1055820c, but uses a __del__ method instead of a weakref
@@ -1591,8 +1556,8 @@ class GCTogglingTests(unittest.TestCase):
             gc.collect()
         while not detector.gc_happened:
             i += 1
-            if i > 50000:
-                self.fail("gc didn't happen after 50000 iterations")
+            if i > 10000:
+                self.fail("gc didn't happen after 10000 iterations")
             self.assertEqual(len(ouch), 0)
             junk.append([])  # this will eventually trigger gc
 
@@ -1609,8 +1574,8 @@ class GCTogglingTests(unittest.TestCase):
         detector = GC_Detector()
         while not detector.gc_happened:
             i += 1
-            if i > 100000:
-                self.fail("gc didn't happen after 100000 iterations")
+            if i > 10000:
+                self.fail("gc didn't happen after 10000 iterations")
             junk.append([])  # this will eventually trigger gc
 
         try:
@@ -1620,11 +1585,11 @@ class GCTogglingTests(unittest.TestCase):
             detector = GC_Detector()
             while not detector.gc_happened:
                 i += 1
-                if i > 100000:
+                if i > 10000:
                     break
                 junk.append([])  # this may eventually trigger gc (if it is enabled)
 
-            self.assertEqual(i, 100001)
+            self.assertEqual(i, 10001)
         finally:
             gc.enable()
 

@@ -61,15 +61,16 @@ pymath = { workspace = true }
 xml = { workspace = true }
 
 # random
-rand_core = { workspace = true }
+rand = { workspace = true }
 mt19937 = { workspace = true }
 
 # Crypto:
 digest = { workspace = true }
 md-5 = { workspace = true }
-sha-1 = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 sha3 = { workspace = true }
+shake = { workspace = true }
 blake2 = { workspace = true }
 hmac = { workspace = true }
 pbkdf2 = { workspace = true, features = ["hmac"] }
@@ -128,8 +129,8 @@ pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional 
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
-liblzma = { workspace = true }
-liblzma-sys = { workspace = true }
+xz = { workspace = true }
+xz-sys = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }

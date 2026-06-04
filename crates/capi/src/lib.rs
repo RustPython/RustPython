@@ -10,25 +10,32 @@ extern crate alloc;
 
 pub mod abstract_;
 pub mod boolobject;
+pub mod bytearrayobject;
 pub mod bytesobject;
 pub mod ceval;
 pub mod complexobject;
+pub mod descrobject;
 pub mod dictobject;
 pub mod floatobject;
 pub mod import;
 pub mod listobject;
 pub mod longobject;
 pub mod methodobject;
+pub mod moduleobject;
 pub mod object;
 pub mod pycapsule;
 pub mod pyerrors;
 pub mod pylifecycle;
 pub mod pystate;
 pub mod refcount;
+pub mod setobject;
+pub mod sliceobject;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
 mod util;
+pub mod warnings;
+pub mod weakrefobject;
 
 /// Get main interpreter of this process. Will be None if it has not been initialized yet.
 pub fn get_main_interpreter() -> MutexGuard<'static, Option<Interpreter>> {

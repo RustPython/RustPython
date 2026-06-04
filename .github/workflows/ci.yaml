@@ -33,7 +33,6 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
   CI: true
 
 jobs:
@@ -310,11 +309,7 @@ jobs:
           extra_test_args: [] # TODO: Enable '-u all'
           env_polluting_tests:
             - test_set
-          skips:
-            - test_rlcompleter
-            - test_pathlib # panic by surrogate chars
-            - test_posixpath # OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-            - test_venv # couple of failing tests
+          skips: []
           timeout: 50
       fail-fast: false
     steps:
@@ -544,12 +539,6 @@ jobs:
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
-
-      # TODO: Remove on 2026/06/02 when node24 is the default
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          package-manager-cache: false
-          node-version: "24"
 
       - name: install prek
         id: prek
@@ -790,11 +779,11 @@ jobs:
           clang: true
 
       - name: build rustpython
-        run: cargo build --release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
+        run: cargo build --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
       - name: run cpython unittest
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo_doc:
     needs:
@@ -831,3 +820,4 @@ jobs:
 
       - name: cargo doc
         run: cargo doc --locked
+
