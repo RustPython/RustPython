@@ -1671,13 +1671,14 @@ impl ItemMeta for SlotItemMeta {
         I: core::iter::Iterator<Item = NestedMeta>,
     {
         let meta_map = if let Some(nested_meta) = nested.next() {
-            match nested_meta {
-                NestedMeta::Meta(meta) => Some(
+            if let NestedMeta::Meta(meta) = nested_meta {
+                Some(
                     core::iter::once(&("name".to_owned(), (0, meta)))
                         .cloned()
                         .collect(),
-                ),
-                _ => None,
+                )
+            } else {
+                None
             }
         } else {
             Some(HashMap::default())
