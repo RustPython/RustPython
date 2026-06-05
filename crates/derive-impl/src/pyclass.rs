@@ -1672,9 +1672,11 @@ impl ItemMeta for SlotItemMeta {
     {
         let meta_map = if let Some(nested_meta) = nested.next() {
             match nested_meta {
-                NestedMeta::Meta(meta) => {
-                    Some([("name".to_owned(), (0, meta))].iter().cloned().collect())
-                }
+                NestedMeta::Meta(meta) => Some(
+                    core::iter::once(&("name".to_owned(), (0, meta)))
+                        .cloned()
+                        .collect(),
+                ),
                 _ => None,
             }
         } else {
