@@ -139,7 +139,7 @@ mod builtins {
             let after_coding = &after_hash[coding_pos + 6..];
 
             // Next char must be ':' or '='
-            let rest = if matches!(after_coding.first(), Some(&b':' | &b'=')) {
+            let rest = if matches!(after_coding.first(), Some(b':' | b'=')) {
                 &after_coding[1..]
             } else {
                 return None;
@@ -181,7 +181,7 @@ mod builtins {
                 .find(|&&b| !matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
                 .copied();
 
-            if trimmed != Some(b'#') {
+            if trimmed.is_some_and(|v| v == b'#') {
                 return None;
             }
         }
