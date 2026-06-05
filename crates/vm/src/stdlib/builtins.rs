@@ -181,7 +181,7 @@ mod builtins {
                 .find(|&&b| !matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
                 .copied();
 
-            if trimmed.is_some_and(|v| v == b'#') {
+            if trimmed == Some(b'#') {
                 return None;
             }
         }
