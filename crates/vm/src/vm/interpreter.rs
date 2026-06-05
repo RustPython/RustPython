@@ -229,6 +229,7 @@ impl InterpreterBuilder {
     ///     })
     ///     .build();
     /// ```
+    #[must_use]
     pub fn init_hook<F>(mut self, init: F) -> Self
     where
         F: FnOnce(&mut VirtualMachine) + 'static,
@@ -250,6 +251,7 @@ impl InterpreterBuilder {
     ///     // In practice: .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
     ///     .build();
     /// ```
+    #[must_use]
     pub fn add_frozen_modules<I>(mut self, frozen: I) -> Self
     where
         I: IntoIterator<Item = (&'static str, FrozenModule)>,

@@ -342,10 +342,10 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.get(vm, &*key)? {
-            Some(value) => Ok(value),
-            None => Ok(default.unwrap_or_none(vm)),
-        }
+        Ok(self
+            .entries
+            .get(vm, &*key)?
+            .unwrap_or_else(|| default.unwrap_or_none(vm)))
     }
 
     #[pymethod]
@@ -360,6 +360,7 @@ impl PyDict {
     }
 
     #[pymethod]
+    #[must_use]
     pub fn copy(&self) -> Self {
         Self {
             entries: self.entries.clone(),
