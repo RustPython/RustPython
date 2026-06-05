@@ -10,6 +10,11 @@ use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
 
 pub type PyTypeObject = Py<PyType>;
 
+pub struct PyTypeSlot {
+    pub slot: c_int,
+    pub pfunc: *mut c_void,
+}
+
 macro_rules! define_py_check {
     (fn $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
@@ -162,18 +167,12 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
 }
 
 #[repr(C)]
-pub struct PyType_Slot {
-    slot: c_int,
-    pfunc: *mut c_void,
-}
-
-#[repr(C)]
 pub struct PyType_Spec {
     name: *const c_char,
     basicsize: c_int,
     itemsize: c_int,
     flags: c_uint,
-    slots: *mut PyType_Slot,
+    slots: *mut PyTypeSlot,
 }
 
 #[repr(C)]
