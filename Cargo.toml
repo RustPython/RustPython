@@ -379,6 +379,7 @@ use_self = "warn"
 useless_let_if_seq = "warn"
 
 # pedantic lints to enforce gradually
+checked_conversions = "warn"
 cloned_instead_of_copied = "warn"
 collapsible_else_if = "warn"
 comparison_chain = "warn"
