@@ -415,7 +415,6 @@ pub(crate) mod _thread {
 
     /// Get OS-level thread ID (pthread_self on Unix)
     /// This is important for fork compatibility - the ID must remain stable after fork
-    #[cfg(unix)]
     fn current_thread_id() -> u64 {
         cfg_select! {
             unix => host_thread::current_thread_id(),
