@@ -665,12 +665,13 @@ fn create_swapped_types(
     // Set attributes based on system byte order
     // Native endian attribute points to self, non-native points to swapped type
     let type_obj = type_ref.as_object().to_owned();
+    let swapped_obj = swapped_type.clone();
     let (ctype_le, ctype_be) = if is_little_endian {
         // Little-endian system: __ctype_le__ = self, __ctype_be__ = swapped
-        (type_obj.clone(), swapped_type.clone())
+        (type_obj, swapped_obj)
     } else {
         // Big-endian system: __ctype_le__ = swapped, __ctype_be__ = self
-        (swapped_type.clone(), type_obj.clone())
+        (swapped_obj, type_obj)
     };
 
     set_attrs!(
