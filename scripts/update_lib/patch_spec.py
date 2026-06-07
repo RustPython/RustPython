@@ -309,6 +309,7 @@ def _iter_patch_lines(
             if cls_async:
                 async_methods[node.name] = cls_async
 
+    # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
         specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
         if not specs:
