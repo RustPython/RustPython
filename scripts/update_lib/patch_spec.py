@@ -326,7 +326,7 @@ def _iter_patch_lines(
 
         for test_name, specs in sorted(tests.items()):
             if test_name == "__self__":
-                # Yielding modifications for the class itself should be done during phase 1
+                # Yielding modifications for the class itself should be done during phase 3
                 continue
 
             decorators = "\n".join(spec.as_decorator() for spec in specs)
@@ -358,6 +358,7 @@ def {test_name}(self):
 """.rstrip()
             yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
 
+    # Phase 3: Mark the class itself
     for cls_node in all_class_nodes:
         if cls_specs := patches.get(cls_node.name, {}).pop("__self__", None):
             yield modification_from_node_specs(cls_node, cls_specs)
