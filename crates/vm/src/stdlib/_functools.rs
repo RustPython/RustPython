@@ -44,7 +44,7 @@ mod _functools {
         } else {
             // initial was not provided at all
             iter.next().transpose()?.ok_or_else(|| {
-                vm.new_type_error("reduce() of empty sequence with no initial value")
+                vm.new_type_error("reduce() of empty iterable with no initial value")
             })?
         };
 
