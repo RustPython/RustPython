@@ -349,6 +349,7 @@ class TestFoo(unittest.TestCase):
         """Test that extracted patches can be re-applied."""
         original = f"""import unittest
 
+@unittest.skipIf(a == b, "{COMMENT}")
 @unittest.expectedFailure  # {COMMENT}
 class TestFoo(unittest.TestCase):
     ...
@@ -367,6 +368,7 @@ class TestFoo(unittest.TestCase):
 
         # Should have the decorator
         self.assertIn("@unittest.expectedFailure", result)
+        self.assertIn("@unittest.skipIf", result)
         self.assertIn(COMMENT, result)
 
 
