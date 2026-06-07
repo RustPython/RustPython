@@ -9,6 +9,7 @@ This module handles:
 import ast
 import collections
 import enum
+import re
 import textwrap
 import typing
 
@@ -91,33 +92,83 @@ class PatchSpec(typing.NamedTuple):
 
         return f"@{unparsed}"
 
+    @classmethod
+    def try_from_ast_node(cls, node: ast.Attribute | ast.Call) -> typing.Self | None:
 
-def _single_to_double_quotes(s: str) -> str:
-    """Convert single-quoted strings to double-quoted strings.
+        if isinstance(node, ast.Attribute):
+            attr_node = node
+        elif isinstance(node, ast.Call):
+            attr_node = node.func
+        else:
+            return
 
-    Falls back to original if conversion breaks the AST equivalence.
-    """
-    import re
+        if (
+            isinstance(attr_node, ast.Name)
+            or getattr(attr_node.value, "id", None) != UT
+        ):
+            return
 
-    def replace_string(match: re.Match) -> str:
-        content = match.group(1)
-        # Unescape single quotes and escape double quotes
-        content = content.replace("\\'", "'").replace('"', '\\"')
-        return f'"{content}"'
+        cond = None
+        try:
+            ut_method = UtMethod(attr_node.attr)
+        except ValueError:
+            return
 
-    # Match single-quoted strings (handles escaped single quotes inside)
-    converted = re.sub(r"'((?:[^'\\]|\\.)*)'", replace_string, s)
+        # If our ut_method has args then,
+        # we need to search for a constant that contains our `COMMENT`.
+        # Otherwise we need to search it in the raw source code :/
+        if ut_method.has_args():
+            reason = next(
+                (
+                    inner_node.value
+                    for inner_node in ast.walk(node)
+                    if isinstance(inner_node, ast.Constant)
+                    and isinstance(inner_node.value, str)
+                    and COMMENT in inner_node.value
+                ),
+                None,
+            )
 
-    # Verify: parse converted and unparse should equal original
-    try:
-        converted_ast = ast.parse(converted, mode="eval")
-        if ast.unparse(converted_ast) == s:
-            return converted
-    except SyntaxError:
-        pass
+            # If we didn't find a constant containing <COMMENT>,
+            # then we didn't put this decorator
+            if not reason:
+                return
 
-    # Fall back to original if conversion failed
-    return s
+            if ut_method.has_cond():
+                cond = ast.unparse(node.args[0])
+        else:
+            pattern = re.compile(rf"{COMMENT}.?(.*)")
+            dec_lineno = node.lineno
+
+            curr_line = lines[dec_lineno - 1]
+            prev_line = lines[dec_lineno - 2]
+
+            # If we see our comment at the decorator line, take it
+            if found := pattern.search(curr_line):
+                reason = found.group()
+            elif prev_line.strip().startswith("#") and (
+                found := pattern.search(prev_line)
+            ):
+                # Search the previous line of the decorator,
+                # only take the comment if the line starts with a `#`
+                reason = found.group()
+            else:
+                # Didn't find our `COMMENT`, so the patch isn't ours :)
+                return
+
+        reason = reason.removeprefix(COMMENT).strip(";:, ")
+        return cls(ut_method, cond, reason)
+
+
+class PatchEntryVisitor(ast.NodeVisitor):
+    def __init__(self):
+        self.current_class = None
+        self.patches = []
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        self.current_class = node.name
+
+        self.generic_visit(node)
 
 
 class PatchEntry(typing.NamedTuple):
@@ -142,75 +193,14 @@ class PatchEntry(typing.NamedTuple):
     def iter_patch_entries(
         cls, tree: ast.Module, lines: list[str]
     ) -> "Iterator[typing.Self]":
-        import re
         import sys
 
         for cls_node, fn_node in iter_tests(tree):
             parent_class = cls_node.name
             for dec_node in fn_node.decorator_list:
-                if not isinstance(dec_node, (ast.Attribute, ast.Call)):
+                spec = PatchSpec.try_from_ast_node(dec_node)
+                if spec is None:
                     continue
-
-                attr_node = (
-                    dec_node if isinstance(dec_node, ast.Attribute) else dec_node.func
-                )
-
-                if (
-                    isinstance(attr_node, ast.Name)
-                    or getattr(attr_node.value, "id", None) != UT
-                ):
-                    continue
-
-                cond = None
-                try:
-                    ut_method = UtMethod(attr_node.attr)
-                except ValueError:
-                    continue
-
-                # If our ut_method has args then,
-                # we need to search for a constant that contains our `COMMENT`.
-                # Otherwise we need to search it in the raw source code :/
-                if ut_method.has_args():
-                    reason = next(
-                        (
-                            node.value
-                            for node in ast.walk(dec_node)
-                            if isinstance(node, ast.Constant)
-                            and isinstance(node.value, str)
-                            and COMMENT in node.value
-                        ),
-                        None,
-                    )
-
-                    # If we didn't find a constant containing <COMMENT>,
-                    # then we didn't put this decorator
-                    if not reason:
-                        continue
-
-                    if ut_method.has_cond():
-                        cond = ast.unparse(dec_node.args[0])
-                else:
-                    pattern = re.compile(rf"{COMMENT}.?(.*)")
-                    dec_lineno = dec_node.lineno
-
-                    curr_line = lines[dec_lineno - 1]
-                    prev_line = lines[dec_lineno - 2]
-
-                    # If we see our comment at the decorator line, take it
-                    if found := pattern.search(curr_line):
-                        reason = found.group()
-                    elif prev_line.strip().startswith("#") and (
-                        found := pattern.search(prev_line)
-                    ):
-                        # Search the previous line of the decorator,
-                        # only take the comment if the line starts with a `#`
-                        reason = found.group()
-                    else:
-                        # Didn't find our `COMMENT`, so the patch isn't ours :)
-                        continue
-
-                reason = reason.removeprefix(COMMENT).strip(";:, ")
-                spec = PatchSpec(ut_method, cond, reason)
                 yield cls(parent_class, fn_node.name, spec)
 
 
@@ -406,3 +396,32 @@ def patches_from_json(data: dict) -> Patches:
         }
         for cls_name, tests in data.items()
     }
+
+
+def _single_to_double_quotes(s: str) -> str:
+    """
+    Convert single-quoted strings to double-quoted strings.
+
+    Falls back to original if conversion breaks the AST equivalence.
+    """
+    import re
+
+    def replace_string(match: re.Match) -> str:
+        content = match.group(1)
+        # Unescape single quotes and escape double quotes
+        content = content.replace("\\'", "'").replace('"', '\\"')
+        return f'"{content}"'
+
+    # Match single-quoted strings (handles escaped single quotes inside)
+    converted = re.sub(r"'((?:[^'\\]|\\.)*)'", replace_string, s)
+
+    # Verify: parse converted and unparse should equal original
+    try:
+        converted_ast = ast.parse(converted, mode="eval")
+        if ast.unparse(converted_ast) == s:
+            return converted
+    except SyntaxError:
+        pass
+
+    # Fall back to original if conversion failed
+    return s
