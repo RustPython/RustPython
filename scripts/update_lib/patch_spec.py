@@ -93,8 +93,9 @@ class PatchSpec(typing.NamedTuple):
         return f"@{unparsed}"
 
     @classmethod
-    def try_from_ast_node(cls, node: ast.Attribute | ast.Call) -> typing.Self | None:
-
+    def try_from_ast_node(
+        cls, node: ast.Attribute | ast.Call, lines: list[str]
+    ) -> typing.Self | None:
         if isinstance(node, ast.Attribute):
             attr_node = node
         elif isinstance(node, ast.Call):
@@ -198,7 +199,7 @@ class PatchEntry(typing.NamedTuple):
         for cls_node, fn_node in iter_tests(tree):
             parent_class = cls_node.name
             for dec_node in fn_node.decorator_list:
-                spec = PatchSpec.try_from_ast_node(dec_node)
+                spec = PatchSpec.try_from_ast_node(dec_node, lines)
                 if spec is None:
                     continue
                 yield cls(parent_class, fn_node.name, spec)
