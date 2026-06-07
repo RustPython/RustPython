@@ -193,7 +193,10 @@ class PatchEntryVisitor(ast.NodeVisitor):
 
     def visit_ClassDef(self, node: ast.ClassDef):
         with temp_attr(self, "current_class", node.name):
-            # TODO: Patches from `node.decorator_list`
+            for patch in self.patches_from_node(node):
+                patch = patch._replace(test_name="__self__")
+                self.patches.append(patch)
+
             self.generic_visit(node)
 
 
@@ -262,6 +265,15 @@ def extract_patches(contents: str) -> Patches:
     return build_patch_dict(iter_patches(contents))
 
 
+def modification_from_node_specs(node, specs):
+    lineno = min(
+        (dec_node.lineno for dec_node in node.decorator_list), default=node.lineno
+    )
+    indent = " " * node.col_offset
+    patch_lines = "\n".join(spec.as_decorator() for spec in specs)
+    return (lineno - 1, textwrap.indent(patch_lines, indent))
+
+
 def _iter_patch_lines(
     tree: ast.Module, patches: Patches
 ) -> "Iterator[tuple[int, str]]":
@@ -273,7 +285,15 @@ def _iter_patch_lines(
     async_methods: dict[str, set[str]] = {}
     # Track class bases for inherited async method lookup
     class_bases: dict[str, list[str]] = {}
-    all_classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
+    all_classes = set()
+    all_class_nodes = []
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+
+        all_classes.add(node.name)
+        all_class_nodes.append(node)
+
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             cache[node.name] = node.end_lineno
@@ -289,19 +309,12 @@ def _iter_patch_lines(
             if cls_async:
                 async_methods[node.name] = cls_async
 
-    # Phase 1: Iterate and mark existing tests
     for cls_node, fn_node in iter_tests(tree):
         specs = patches.get(cls_node.name, {}).pop(fn_node.name, None)
         if not specs:
             continue
 
-        lineno = min(
-            (dec_node.lineno for dec_node in fn_node.decorator_list),
-            default=fn_node.lineno,
-        )
-        indent = " " * fn_node.col_offset
-        patch_lines = "\n".join(spec.as_decorator() for spec in specs)
-        yield (lineno - 1, textwrap.indent(patch_lines, indent))
+        yield modification_from_node_specs(fn_node, specs)
 
     # Phase 2: Iterate and mark inherited tests
     for cls_name, tests in sorted(patches.items()):
@@ -311,6 +324,10 @@ def _iter_patch_lines(
             continue
 
         for test_name, specs in sorted(tests.items()):
+            if test_name == "__self__":
+                # Yielding modifications for the class itself should be done during phase 1
+                continue
+
             decorators = "\n".join(spec.as_decorator() for spec in specs)
             # Check current class and ancestors for async method
             is_async = False
@@ -339,6 +356,10 @@ def {test_name}(self):
 {DEFAULT_INDENT}return super().{test_name}()
 """.rstrip()
             yield (lineno, textwrap.indent(patch_lines, DEFAULT_INDENT))
+
+    for cls_node in all_class_nodes:
+        if cls_specs := patches.get(cls_node.name, {}).pop("__self__", None):
+            yield modification_from_node_specs(cls_node, cls_specs)
 
 
 def _has_unittest_import(tree: ast.Module) -> bool:
