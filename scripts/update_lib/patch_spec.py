@@ -6,8 +6,11 @@ This module handles:
 - Applying patches to test files (JSON -> file)
 """
 
+from __future__ import annotations
+
 import ast
 import collections
+import contextlib
 import enum
 import re
 import textwrap
@@ -162,14 +165,36 @@ class PatchSpec(typing.NamedTuple):
 
 
 class PatchEntryVisitor(ast.NodeVisitor):
-    def __init__(self):
+    def __init__(self, lines: list[str]):
         self.current_class = None
         self.patches = []
+        self.lines = lines
+
+    def patches_from_node(
+        self, node: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> Iterator[PatchEntry]:
+        for dec_node in node.decorator_list:
+            spec = PatchSpec.try_from_ast_node(dec_node, self.lines)
+
+            if spec is None:
+                continue
+
+            yield PatchEntry(self.current_class, node.name, spec)
+
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef):
+        self.patches.extend(self.patches_from_node(node))
+        # TODO: Support nested classes/methods
+        # self.generic_visit(node)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        self.patches.extend(self.patches_from_node(node))
+        # TODO: Support nested classes/methods
+        # self.generic_visit(node)
 
     def visit_ClassDef(self, node: ast.ClassDef):
-        self.current_class = node.name
-
-        self.generic_visit(node)
+        with temp_attr(self, "current_class", node.name):
+            # TODO: Patches from `node.decorator_list`
+            self.generic_visit(node)
 
 
 class PatchEntry(typing.NamedTuple):
@@ -194,15 +219,10 @@ class PatchEntry(typing.NamedTuple):
     def iter_patch_entries(
         cls, tree: ast.Module, lines: list[str]
     ) -> "Iterator[typing.Self]":
-        import sys
 
-        for cls_node, fn_node in iter_tests(tree):
-            parent_class = cls_node.name
-            for dec_node in fn_node.decorator_list:
-                spec = PatchSpec.try_from_ast_node(dec_node, lines)
-                if spec is None:
-                    continue
-                yield cls(parent_class, fn_node.name, spec)
+        visitor = PatchEntryVisitor(lines)
+        visitor.visit(tree)
+        yield from visitor.patches
 
 
 def iter_tests(
@@ -305,6 +325,7 @@ def _iter_patch_lines(
                     is_async = True
                     break
                 queue.extend(class_bases.get(cur, []))
+
             if is_async:
                 patch_lines = f"""
 {decorators}
@@ -426,3 +447,13 @@ def _single_to_double_quotes(s: str) -> str:
 
     # Fall back to original if conversion failed
     return s
+
+
+@contextlib.contextmanager
+def temp_attr(obj: object, attr: str, value: object):
+    old = getattr(obj, attr, None)
+    setattr(obj, attr, value)
+    try:
+        yield obj
+    finally:
+        setattr(obj, attr, old)
