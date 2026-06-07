@@ -7,11 +7,13 @@ use crate::{
 
 impl PyObject {
     #[inline]
+    #[must_use]
     pub fn to_callable(&self) -> Option<PyCallable<'_>> {
         PyCallable::new(self)
     }
 
     #[inline]
+    #[must_use]
     pub fn is_callable(&self) -> bool {
         self.to_callable().is_some()
     }
@@ -134,6 +136,7 @@ impl<'a> PyCallable<'a> {
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum TraceEvent {
     Call,
     Return,
@@ -147,7 +150,8 @@ pub(crate) enum TraceEvent {
 
 impl TraceEvent {
     /// Whether sys.settrace receives this event.
-    fn is_trace_event(&self) -> bool {
+    #[must_use]
+    const fn is_trace_event(&self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::Exception | Self::Line | Self::Opcode
@@ -157,7 +161,8 @@ impl TraceEvent {
     /// Whether sys.setprofile receives this event.
     /// In legacy_tracing.c, profile callbacks are only registered for
     /// PY_RETURN, PY_UNWIND, C_CALL, C_RETURN, C_RAISE.
-    fn is_profile_event(&self) -> bool {
+    #[must_use]
+    const fn is_profile_event(&self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::CCall | Self::CReturn | Self::CException
@@ -165,7 +170,8 @@ impl TraceEvent {
     }
 
     /// Whether this event is dispatched only when f_trace_opcodes is set.
-    pub(crate) fn is_opcode_event(&self) -> bool {
+    #[must_use]
+    pub(crate) const fn is_opcode_event(&self) -> bool {
         matches!(self, Self::Opcode)
     }
 }

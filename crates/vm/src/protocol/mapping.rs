@@ -1,3 +1,5 @@
+use crossbeam_utils::atomic::AtomicCell;
+
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, VirtualMachine,
     builtins::{
@@ -7,12 +9,9 @@ use crate::{
     convert::ToPyResult,
     object::{Traverse, TraverseFn},
 };
-use crossbeam_utils::atomic::AtomicCell;
 
-// Mapping protocol
-// https://docs.python.org/3/c-api/mapping.html
-
-#[allow(clippy::type_complexity)]
+/// [Mapping protocol](https://docs.python.org/3/c-api/mapping.html)
+#[expect(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PyMappingSlots {
     pub length: AtomicCell<Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>>,
@@ -29,25 +28,28 @@ impl core::fmt::Debug for PyMappingSlots {
 }
 
 impl PyMappingSlots {
+    #[must_use]
     pub fn has_subscript(&self) -> bool {
         self.subscript.load().is_some()
     }
 
-    /// Copy from static PyMappingMethods
+    /// Copy from static [`PyMappingMethods`].
     pub fn copy_from(&self, methods: &PyMappingMethods) {
         if let Some(f) = methods.length {
             self.length.store(Some(f));
         }
+
         if let Some(f) = methods.subscript {
             self.subscript.store(Some(f));
         }
+
         if let Some(f) = methods.ass_subscript {
             self.ass_subscript.store(Some(f));
         }
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PyMappingMethods {
     pub length: Option<fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usize>>,
@@ -71,7 +73,8 @@ impl PyMappingMethods {
 }
 
 impl PyObject {
-    pub fn mapping_unchecked(&self) -> PyMapping<'_> {
+    #[must_use]
+    pub const fn mapping_unchecked(&self) -> PyMapping<'_> {
         PyMapping { obj: self }
     }
 
