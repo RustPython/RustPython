@@ -331,6 +331,7 @@ mod _heapq {
         heapify_internal(&lst, siftup, vm)
     }
 
+    /// [CPython's siftdown_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L407-L449)
     fn siftdown_max(
         heap: &PyListRef,
         startpos: usize,
@@ -374,6 +375,7 @@ mod _heapq {
         Ok(())
     }
 
+    /// [CPython's siftup_max](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L451-L499)
     fn siftup_max(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
