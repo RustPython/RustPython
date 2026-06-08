@@ -1,4 +1,4 @@
-// cspell:ignore siftup siftdown
+// cspell:ignore siftup siftdown mhalf
 pub(crate) use _heapq::module_def;
 
 #[pymodule]
