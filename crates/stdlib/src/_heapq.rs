@@ -114,7 +114,7 @@ mod _heapq {
 
         let size = heap.__len__();
 
-        siftdown_func(&heap, 0, size - 1, vm)
+        siftdown_func(heap, 0, size - 1, vm)
     }
 
     #[pyfunction]
@@ -152,7 +152,7 @@ mod _heapq {
             root
         };
 
-        siftup_func(&heap, 0, vm)?;
+        siftup_func(heap, 0, vm)?;
         Ok(returnitem)
     }
 
@@ -188,7 +188,7 @@ mod _heapq {
             root
         };
 
-        siftup_func(&heap, 0, vm)?;
+        siftup_func(heap, 0, vm)?;
         Ok(returnitem)
     }
 
