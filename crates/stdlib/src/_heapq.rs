@@ -105,7 +105,14 @@ mod _heapq {
         n << i
     }
 
-    fn cache_friendly_heapify(heap: &PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn cache_friendly_heapify<F>(
+        heap: &PyListRef,
+        siftup_func: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<()>
+    where
+        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+    {
         let m = heap.__len__() >> 1; // index of first childless node
         let leftmost = keep_top_bit(m + 1) - 1; // leftmost node in row of m 
         let mhalf = m >> 1; // parent of first childless node
@@ -114,7 +121,7 @@ mod _heapq {
             let mut j = i;
 
             loop {
-                siftup(heap, j, vm)?;
+                siftup_func(heap, j, vm)?;
 
                 if j & 1 == 0 {
                     break;
@@ -128,7 +135,7 @@ mod _heapq {
             let mut j = i;
 
             loop {
-                siftup(heap, j, vm)?;
+                siftup_func(heap, j, vm)?;
 
                 if j & 1 == 0 {
                     break;
@@ -141,18 +148,72 @@ mod _heapq {
         Ok(())
     }
 
-    fn heapify_internal(heap: &PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn heapify_internal<F>(heap: &PyListRef, siftup_func: F, vm: &VirtualMachine) -> PyResult<()>
+    where
+        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+    {
         let n = heap.__len__();
 
         if n > 2500 {
-            return cache_friendly_heapify(heap, vm);
+            return cache_friendly_heapify(heap, siftup_func, vm);
         }
 
         for i in (0..(n >> 1)).rev() {
-            siftup(heap, i, vm)?;
+            siftup_func(heap, i, vm)?;
         }
 
         Ok(())
+    }
+
+    fn heappop_internal<F>(
+        heap: &PyListRef,
+        siftup_func: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>
+    where
+        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+    {
+        let Some(lastelt) = heap.borrow_vec_mut().pop() else {
+            return Err(vm.new_index_error("index out of range"));
+        };
+
+        if heap.borrow_vec().is_empty() {
+            return Ok(lastelt);
+        };
+
+        let returnitem = {
+            let mut vec = heap.borrow_vec_mut();
+            let root = vec[0].clone();
+            vec[0] = lastelt;
+            root
+        };
+
+        siftup_func(&heap, 0, vm)?;
+        Ok(returnitem)
+    }
+
+    fn heapreplace_internal<F>(
+        heap: &PyListRef,
+        item: PyObjectRef,
+        siftup_func: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>
+    where
+        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+    {
+        let returnitem = {
+            let mut vec = heap.borrow_vec_mut();
+            let root = match vec.first() {
+                Some(v) => v.clone(),
+                None => return Err(vm.new_index_error("index out of range")),
+            };
+
+            vec[0] = item;
+            root
+        };
+
+        siftup_func(&heap, 0, vm)?;
+        Ok(returnitem)
     }
 
     #[pyfunction]
@@ -183,23 +244,7 @@ mod _heapq {
             ))
         })?;
 
-        let Some(lastelt) = lst.borrow_vec_mut().pop() else {
-            return Err(vm.new_index_error("index out of range"));
-        };
-
-        if lst.borrow_vec().is_empty() {
-            return Ok(lastelt);
-        };
-
-        let returnitem = {
-            let mut vec = lst.borrow_vec_mut();
-            let root = vec[0].clone();
-            vec[0] = lastelt;
-            root
-        };
-
-        siftup(&lst, 0, vm)?;
-        Ok(returnitem)
+        heappop_internal(&lst, siftup, vm)
     }
 
     #[pyfunction]
@@ -211,7 +256,7 @@ mod _heapq {
             ))
         })?;
 
-        heapify_internal(&lst, vm)
+        heapify_internal(&lst, siftup, vm)
     }
 
     #[pyfunction]
@@ -268,18 +313,6 @@ mod _heapq {
             ))
         })?;
 
-        let returnitem = {
-            let mut vec = lst.borrow_vec_mut();
-            let root = match vec.first() {
-                Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
-            };
-
-            vec[0] = item;
-            root
-        };
-
-        siftup(&lst, 0, vm)?;
-        Ok(returnitem)
+        heapreplace_internal(&lst, item, siftup, vm)
     }
 }
