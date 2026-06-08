@@ -52,49 +52,6 @@ mod _heapq {
         Ok(())
     }
 
-    fn siftdown_max(
-        heap: &PyListRef,
-        startpos: usize,
-        mut pos: usize,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let size = heap.__len__();
-
-        let newitem = match heap.borrow_vec().get(pos) {
-            Some(v) => v.clone(),
-            None => return Err(vm.new_index_error("index out of range")),
-        };
-
-        // Follow the path to the root, moving parents down until finding
-        // a place newitem fits.
-        while pos > startpos {
-            let parentpos = (pos - 1) >> 1;
-            let parent = {
-                let vec = heap.borrow_vec();
-                vec[parentpos].clone()
-            };
-
-            let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm)?;
-
-            if size != heap.__len__() {
-                return Err(vm.new_runtime_error("list changed size during iteration"));
-            }
-
-            if !cmp {
-                break;
-            }
-
-            {
-                let mut vec = heap.borrow_vec_mut();
-                vec.swap(pos, parentpos);
-            }
-
-            pos = parentpos;
-        }
-
-        Ok(())
-    }
-
     fn siftup(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
@@ -140,49 +97,155 @@ mod _heapq {
         siftdown(heap, startpos, pos, vm)
     }
 
-    fn siftup_max(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
-        let endpos = heap.__len__();
-        let startpos = pos;
+    fn heappush_internal<F>(
+        heap: &PyListRef,
+        item: PyObjectRef,
+        siftdown_func: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<()>
+    where
+        F: Fn(&PyListRef, usize, usize, &VirtualMachine) -> PyResult<()>,
+    {
+        {
+            let mut vec = heap.borrow_vec_mut();
+            vec.push(item);
+        }
 
-        if pos >= endpos {
+        let size = heap.__len__();
+
+        siftdown_func(&heap, 0, size - 1, vm)
+    }
+
+    #[pyfunction]
+    fn heappush(heap: PyObjectRef, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let lst = heap.downcast::<PyList>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "heappush() argument 1 must be list, not {}",
+                obj.class().name()
+            ))
+        })?;
+
+        heappush_internal(&lst, item, siftdown, vm)
+    }
+
+    fn heappop_internal<F>(
+        heap: &PyListRef,
+        siftup_func: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>
+    where
+        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+    {
+        let Some(lastelt) = heap.borrow_vec_mut().pop() else {
             return Err(vm.new_index_error("index out of range"));
         };
 
-        let limit = endpos >> 1; // smallest pos that has no child
+        if heap.borrow_vec().is_empty() {
+            return Ok(lastelt);
+        };
 
-        // Bubble up the larger child until hitting a leaf.
-        while pos < limit {
-            // Set childpos to index of larger child.
-            let mut childpos = 2 * pos + 1; // leftmost child position
+        let returnitem = {
+            let mut vec = heap.borrow_vec_mut();
+            let root = vec[0].clone();
+            vec[0] = lastelt;
+            root
+        };
 
-            if childpos + 1 < endpos {
-                let (a, b) = {
-                    let vec = heap.borrow_vec();
-                    (vec[childpos + 1].clone(), vec[childpos].clone())
-                };
+        siftup_func(&heap, 0, vm)?;
+        Ok(returnitem)
+    }
 
-                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
+    #[pyfunction]
+    fn heappop(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        let lst = heap.downcast::<PyList>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "heappop() argument 1 must be list, not {}",
+                obj.class().name()
+            ))
+        })?;
 
-                if endpos != heap.__len__() {
-                    return Err(vm.new_runtime_error("list changed size during iteration"));
-                }
+        heappop_internal(&lst, siftup, vm)
+    }
 
-                if !cmp {
-                    childpos += 1;
-                }
+    fn heapreplace_internal<F>(
+        heap: &PyListRef,
+        item: PyObjectRef,
+        siftup_func: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef>
+    where
+        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
+    {
+        let returnitem = {
+            let mut vec = heap.borrow_vec_mut();
+            let root = match vec.first() {
+                Some(v) => v.clone(),
+                None => return Err(vm.new_index_error("index out of range")),
+            };
+
+            vec[0] = item;
+            root
+        };
+
+        siftup_func(&heap, 0, vm)?;
+        Ok(returnitem)
+    }
+
+    #[pyfunction]
+    fn heapreplace(
+        heap: PyObjectRef,
+        item: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let lst = heap.downcast::<PyList>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "heapreplace() argument 1 must be list, not {}",
+                obj.class().name()
+            ))
+        })?;
+
+        heapreplace_internal(&lst, item, siftup, vm)
+    }
+
+    #[pyfunction]
+    fn heappushpop(
+        heap: PyObjectRef,
+        item: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let lst = heap.downcast::<PyList>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "heappushpop() argument 1 must be list, not {}",
+                obj.class().name()
+            ))
+        })?;
+
+        let top = {
+            let vec = lst.borrow_vec();
+            match vec.first() {
+                Some(v) => v.clone(),
+                None => return Ok(item),
             }
+        };
 
-            {
-                // Move the larger child up
-                let mut vec = heap.borrow_vec_mut();
-                vec.swap(pos, childpos);
-            }
-
-            pos = childpos;
+        let cmp = top.rich_compare_bool(&item, PyComparisonOp::Lt, vm)?;
+        if !cmp {
+            return Ok(item);
         }
 
-        // Bubble it up to its final resting place (by sifting its parents down)
-        siftdown_max(heap, startpos, pos, vm)
+        let returnitem = {
+            let mut vec = lst.borrow_vec_mut();
+            let root = match vec.first() {
+                Some(v) => v.clone(),
+                None => return Err(vm.new_index_error("index out of range")),
+            };
+
+            vec[0] = item;
+            root
+        };
+
+        siftup(&lst, 0, vm)?;
+        Ok(returnitem)
     }
 
     const fn keep_top_bit(mut n: usize) -> usize {
@@ -256,86 +319,104 @@ mod _heapq {
         Ok(())
     }
 
-    fn heappop_internal<F>(
-        heap: &PyListRef,
-        siftup_func: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>
-    where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
-    {
-        let Some(lastelt) = heap.borrow_vec_mut().pop() else {
-            return Err(vm.new_index_error("index out of range"));
-        };
-
-        if heap.borrow_vec().is_empty() {
-            return Ok(lastelt);
-        };
-
-        let returnitem = {
-            let mut vec = heap.borrow_vec_mut();
-            let root = vec[0].clone();
-            vec[0] = lastelt;
-            root
-        };
-
-        siftup_func(&heap, 0, vm)?;
-        Ok(returnitem)
-    }
-
-    fn heapreplace_internal<F>(
-        heap: &PyListRef,
-        item: PyObjectRef,
-        siftup_func: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef>
-    where
-        F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
-    {
-        let returnitem = {
-            let mut vec = heap.borrow_vec_mut();
-            let root = match vec.first() {
-                Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
-            };
-
-            vec[0] = item;
-            root
-        };
-
-        siftup_func(&heap, 0, vm)?;
-        Ok(returnitem)
-    }
-
-    fn heappush_internal<F>(
-        heap: &PyListRef,
-        item: PyObjectRef,
-        siftdown_func: F,
-        vm: &VirtualMachine,
-    ) -> PyResult<()>
-    where
-        F: Fn(&PyListRef, usize, usize, &VirtualMachine) -> PyResult<()>,
-    {
-        {
-            let mut vec = heap.borrow_vec_mut();
-            vec.push(item);
-        }
-
-        let size = heap.__len__();
-
-        siftdown_func(&heap, 0, size - 1, vm)
-    }
-
     #[pyfunction]
-    fn heappush(heap: PyObjectRef, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn heapify(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let lst = heap.downcast::<PyList>().map_err(|obj| {
             vm.new_type_error(format!(
-                "heappush() argument 1 must be list, not {}",
+                "heapify() argument 1 must be list, not {}",
                 obj.class().name()
             ))
         })?;
 
-        heappush_internal(&lst, item, siftdown, vm)
+        heapify_internal(&lst, siftup, vm)
+    }
+
+    fn siftdown_max(
+        heap: &PyListRef,
+        startpos: usize,
+        mut pos: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let size = heap.__len__();
+
+        let newitem = match heap.borrow_vec().get(pos) {
+            Some(v) => v.clone(),
+            None => return Err(vm.new_index_error("index out of range")),
+        };
+
+        // Follow the path to the root, moving parents down until finding
+        // a place newitem fits.
+        while pos > startpos {
+            let parentpos = (pos - 1) >> 1;
+            let parent = {
+                let vec = heap.borrow_vec();
+                vec[parentpos].clone()
+            };
+
+            let cmp = parent.rich_compare_bool(&newitem, PyComparisonOp::Lt, vm)?;
+
+            if size != heap.__len__() {
+                return Err(vm.new_runtime_error("list changed size during iteration"));
+            }
+
+            if !cmp {
+                break;
+            }
+
+            {
+                let mut vec = heap.borrow_vec_mut();
+                vec.swap(pos, parentpos);
+            }
+
+            pos = parentpos;
+        }
+
+        Ok(())
+    }
+
+    fn siftup_max(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
+        let endpos = heap.__len__();
+        let startpos = pos;
+
+        if pos >= endpos {
+            return Err(vm.new_index_error("index out of range"));
+        };
+
+        let limit = endpos >> 1; // smallest pos that has no child
+
+        // Bubble up the larger child until hitting a leaf.
+        while pos < limit {
+            // Set childpos to index of larger child.
+            let mut childpos = 2 * pos + 1; // leftmost child position
+
+            if childpos + 1 < endpos {
+                let (a, b) = {
+                    let vec = heap.borrow_vec();
+                    (vec[childpos + 1].clone(), vec[childpos].clone())
+                };
+
+                let cmp = a.rich_compare_bool(&b, PyComparisonOp::Lt, vm)?;
+
+                if endpos != heap.__len__() {
+                    return Err(vm.new_runtime_error("list changed size during iteration"));
+                }
+
+                if !cmp {
+                    childpos += 1;
+                }
+            }
+
+            {
+                // Move the larger child up
+                let mut vec = heap.borrow_vec_mut();
+                vec.swap(pos, childpos);
+            }
+
+            pos = childpos;
+        }
+
+        // Bubble it up to its final resting place (by sifting its parents down)
+        siftdown_max(heap, startpos, pos, vm)
     }
 
     #[pyfunction]
@@ -351,18 +432,6 @@ mod _heapq {
     }
 
     #[pyfunction]
-    fn heappop(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappop() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heappop_internal(&lst, siftup, vm)
-    }
-
-    #[pyfunction]
     fn heappop_max(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let lst = heap.downcast::<PyList>().map_err(|obj| {
             vm.new_type_error(format!(
@@ -375,15 +444,19 @@ mod _heapq {
     }
 
     #[pyfunction]
-    fn heapify(heap: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn heapreplace_max(
+        heap: PyObjectRef,
+        item: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let lst = heap.downcast::<PyList>().map_err(|obj| {
             vm.new_type_error(format!(
-                "heapify() argument 1 must be list, not {}",
+                "heapreplace_max() argument 1 must be list, not {}",
                 obj.class().name()
             ))
         })?;
 
-        heapify_internal(&lst, siftup, vm)
+        heapreplace_internal(&lst, item, siftup_max, vm)
     }
 
     #[pyfunction]
@@ -396,47 +469,6 @@ mod _heapq {
         })?;
 
         heapify_internal(&lst, siftup_max, vm)
-    }
-
-    #[pyfunction]
-    fn heappushpop(
-        heap: PyObjectRef,
-        item: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heappushpop() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        let top = {
-            let vec = lst.borrow_vec();
-            match vec.first() {
-                Some(v) => v.clone(),
-                None => return Ok(item),
-            }
-        };
-
-        let cmp = top.rich_compare_bool(&item, PyComparisonOp::Lt, vm)?;
-        if !cmp {
-            return Ok(item);
-        }
-
-        let returnitem = {
-            let mut vec = lst.borrow_vec_mut();
-            let root = match vec.first() {
-                Some(v) => v.clone(),
-                None => return Err(vm.new_index_error("index out of range")),
-            };
-
-            vec[0] = item;
-            root
-        };
-
-        siftup(&lst, 0, vm)?;
-        Ok(returnitem)
     }
 
     #[pyfunction]
@@ -478,37 +510,5 @@ mod _heapq {
 
         siftup_max(&lst, 0, vm)?;
         Ok(returnitem)
-    }
-
-    #[pyfunction]
-    fn heapreplace(
-        heap: PyObjectRef,
-        item: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heapreplace() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heapreplace_internal(&lst, item, siftup, vm)
-    }
-
-    #[pyfunction]
-    fn heapreplace_max(
-        heap: PyObjectRef,
-        item: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyObjectRef> {
-        let lst = heap.downcast::<PyList>().map_err(|obj| {
-            vm.new_type_error(format!(
-                "heapreplace_max() argument 1 must be list, not {}",
-                obj.class().name()
-            ))
-        })?;
-
-        heapreplace_internal(&lst, item, siftup_max, vm)
     }
 }
