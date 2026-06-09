@@ -30,14 +30,14 @@ NEVER use Docker, Podman, or any other container runtime. Only use the `containe
 
    ```shell
    container run -d --name rustpython-test -m 8G -c 4 \
-       --mount type=bind,source=/Users/al03219714/Projects/RustPython3,target=/workspace \
+       --mount type=bind,source="$(pwd)",target=/workspace \
        -w /workspace rustpython-dev sleep infinity
    ```
 
 3. Run the requested test command inside the container:
 
    ```shell
-   container exec rustpython-test sh -c "cargo run --release -- -m test <test-args>"
+   container exec rustpython-test cargo run --release -- -m test <test-args>
    ```
 
 4. Report results:
