@@ -826,3 +826,18 @@ impl PyObject {
         }
     }
 }
+
+/// Macro to reduce code repetition when setting multiple attributes on an object.
+#[macro_export]
+macro_rules! set_attrs {
+    ($obj:expr, $vm:expr, unwrap, $($key:expr => $val:expr),+ $(,)?) => {
+        $(
+            $obj.set_attr($key, $val, $vm).unwrap();
+        )+
+    };
+    ($obj:expr, $vm:expr, $($key:expr => $val:expr),+ $(,)?) => {
+        $(
+            $obj.set_attr($key, $val, $vm)?;
+        )+
+    };
+}
