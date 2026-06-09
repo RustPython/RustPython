@@ -1,7 +1,7 @@
 ---
 name: investigate-test-failure
 description: Investigate a failing RustPython test, compare with CPython behavior, and decide whether to implement a fix or prepare incompatibility issue details.
-allowed-tools: Bash(python3:*) Bash(cargo run:*) Read Grep Glob Bash(git add:*) Bash(git commit:*) Bash(cargo fmt:*) Bash(git diff:*) Task
+allowed-tools: Bash(python3:*) Bash(cargo run:*) Bash(gh issue create:*) Read Grep Glob Bash(git add:*) Bash(git commit:*) Bash(cargo fmt:*) Bash(git diff:*) Task
 ---
 
 # Investigate Test Failure

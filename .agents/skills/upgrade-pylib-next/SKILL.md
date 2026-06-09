@@ -1,7 +1,7 @@
 ---
 name: upgrade-pylib-next
 description: Pick the next CPython stdlib module ready for upgrade based on update_lib todo output and skip modules with open upgrade PRs.
-allowed-tools: Skill(upgrade-pylib) Bash(gh pr list:*)
+allowed-tools: Skill(upgrade-pylib) Bash(gh pr list:*) Bash(cargo run:*)
 ---
 
 # Upgrade Next Python Library

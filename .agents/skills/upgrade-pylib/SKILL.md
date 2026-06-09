@@ -1,7 +1,7 @@
 ---
 name: upgrade-pylib
 description: Upgrade a Python standard library module from CPython into RustPython using scripts/update_lib and then triage and mark remaining failures.
-allowed-tools: Bash(git add:*) Bash(git commit:*) Bash(python3 scripts/update_lib quick:*) Bash(python3 scripts/update_lib auto-mark:*)
+allowed-tools: Bash(git add:*) Bash(git commit:*) Bash(git diff:*) Bash(cargo run:*) Bash(python3 scripts/update_lib quick:*) Bash(python3 scripts/update_lib auto-mark:*)
 ---
 
 # Upgrade Python Library from CPython
