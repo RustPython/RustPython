@@ -10,6 +10,7 @@ mod _heapq {
         types::PyComparisonOp,
     };
 
+    /// [CPython's siftdown](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L25-L68)
     fn siftdown(
         heap: &PyListRef,
         startpos: usize,
@@ -53,6 +54,7 @@ mod _heapq {
         Ok(())
     }
 
+    /// [CPython's siftup](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L70-L118)
     fn siftup(heap: &PyListRef, mut pos: usize, vm: &VirtualMachine) -> PyResult<()> {
         let endpos = heap.__len__();
         let startpos = pos;
@@ -98,6 +100,11 @@ mod _heapq {
         siftdown(heap, startpos, pos, vm)
     }
 
+    /// configurable `sift_func` for doing heappush operation.
+    ///
+    /// A generic implementation of:
+    /// - [CPython's _heapq_heappush_impl](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L131-L150)
+    /// - [CPython's _heapq_heappush_max_impl](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L512-L532)
     fn heappush_internal<F>(
         heap: &PyListRef,
         item: PyObjectRef,
@@ -129,6 +136,7 @@ mod _heapq {
         heappush_internal(&lst, item, siftdown, vm)
     }
 
+    /// [CPython's heappop_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L152-L183)
     fn heappop_internal<F>(
         heap: &PyListRef,
         siftup_func: F,
@@ -168,6 +176,7 @@ mod _heapq {
         heappop_internal(&lst, siftup, vm)
     }
 
+    /// [CPython's heapreplace_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L202-L220)
     fn heapreplace_internal<F>(
         heap: &PyListRef,
         item: PyObjectRef,
@@ -249,6 +258,7 @@ mod _heapq {
         Ok(returnitem)
     }
 
+    /// [CPython's keep_top_bit](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L299-L309)
     const fn keep_top_bit(mut n: usize) -> usize {
         let mut i = 0;
 
@@ -260,6 +270,7 @@ mod _heapq {
         n << i
     }
 
+    /// [CPython's cache_friendly_heapify](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L311-L362)
     fn cache_friendly_heapify<F>(
         heap: &PyListRef,
         siftup_func: F,
@@ -303,6 +314,7 @@ mod _heapq {
         Ok(())
     }
 
+    /// [CPython's heapify_internal](https://github.com/python/cpython/blob/v3.14.5/Modules/_heapqmodule.c#L364-L388)
     fn heapify_internal<F>(heap: &PyListRef, siftup_func: F, vm: &VirtualMachine) -> PyResult<()>
     where
         F: Fn(&PyListRef, usize, &VirtualMachine) -> PyResult<()>,
