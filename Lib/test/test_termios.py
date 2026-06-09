@@ -181,7 +181,6 @@ class TestFunctions(unittest.TestCase):
         termios.tcflow(self.fd, termios.TCIOFF)
         termios.tcflow(self.fd, termios.TCION)
 
-    @unittest.skip("TODO: RUSTPYTHON; segfault")
     @support.skip_android_selinux('tcflow')
     def test_tcflow_errors(self):
         self.assertRaisesTermiosError(errno.EINVAL, termios.tcflow, self.fd, -1)
