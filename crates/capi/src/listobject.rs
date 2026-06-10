@@ -3,8 +3,10 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use core::ffi::c_int;
 use core::ptr::NonNull;
+use rustpython_vm::AsObject;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyList;
+use rustpython_vm::sliceable::{SaturatedSlice, SliceableSequenceMutOp, SliceableSequenceOp};
 
 define_py_check!(fn PyList_Check, types.list_type);
 define_py_check!(exact fn PyList_CheckExact, types.list_type);
@@ -110,16 +112,69 @@ pub unsafe extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_AsTuple(list: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_GetSlice(
+    list: *mut PyObject,
+    low: isize,
+    high: isize,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let vec = list.borrow_vec();
+        let sliced = vec.getitem_by_slice(vm, SaturatedSlice::from_parts(low, high, 1))?;
+        Ok(vm.ctx.new_list(sliced))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_SetSlice(
+    list: *mut PyObject,
+    low: isize,
+    high: isize,
+    itemlist: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let slice = SaturatedSlice::from_parts(low, high, 1);
+        let mut vec = list.borrow_vec_mut();
+
+        if itemlist.is_null() {
+            vec.delitem_by_slice(vm, slice)?;
+            return Ok(());
+        }
+
+        let items: Vec<PyObjectRef> = unsafe { &*itemlist }.try_to_value(vm)?;
+        vec.setitem_by_slice(vm, slice, &items)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyList_Sort(list: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        vm.call_method(list.as_object(), "sort", ())?;
+        Ok(())
+    })
+}
+
 #[cfg(false)]
 mod tests {
     use pyo3::exceptions::PyIndexError;
     use pyo3::prelude::*;
-    use pyo3::types::PyList;
+    use pyo3::types::{PyList, PyListMethods};
 
     #[test]
-    fn test_create_list() {
+    fn create_list() {
         Python::attach(|py| {
-            let list = PyList::new(py, &[1, 2, 3]).unwrap();
+            let list = PyList::new(py, [1, 2, 3]).unwrap();
             assert_eq!(list.len(), 3);
             assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
             assert_eq!(list.get_item(1).unwrap().extract::<u32>().unwrap(), 2);
@@ -129,9 +184,9 @@ mod tests {
     }
 
     #[test]
-    fn test_replace_item_in_list() {
+    fn replace_item_in_list() {
         Python::attach(|py| {
-            let list = PyList::new(py, &[1]).unwrap();
+            let list = PyList::new(py, [1]).unwrap();
             assert_eq!(list.len(), 1);
             list.set_item(0, 2).unwrap();
             assert_eq!(list.len(), 1);
@@ -140,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn test_set_item_out_of_range() {
+    fn set_item_out_of_range() {
         Python::attach(|py| {
             let list = PyList::empty(py);
             assert!(
@@ -152,7 +207,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_append() {
+    fn list_append() {
         Python::attach(|py| {
             let list = PyList::empty(py);
             assert_eq!(list.len(), 0);
@@ -163,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn test_list_insert() {
+    fn list_insert() {
         Python::attach(|py| {
             let list = PyList::empty(py);
             assert_eq!(list.len(), 0);
@@ -175,12 +230,62 @@ mod tests {
     }
 
     #[test]
-    fn test_list_reverse() {
+    fn list_reverse() {
         Python::attach(|py| {
-            let list = PyList::new(py, &[1, 2, 3]).unwrap();
+            let list = PyList::new(py, [1, 2, 3]).unwrap();
             list.reverse().unwrap();
             assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 3);
             assert_eq!(list.get_item(2).unwrap().extract::<u32>().unwrap(), 1);
+        })
+    }
+
+    #[test]
+    fn list_as_tuple() {
+        Python::attach(|py| {
+            let list = PyList::new(py, [1, 2, 3]).unwrap();
+            let tuple = list.to_tuple();
+            assert_eq!(tuple.len(), 3);
+            assert_eq!(tuple.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
+
+            list.set_item(0, 9).unwrap();
+            assert_eq!(tuple.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
+        })
+    }
+
+    #[test]
+    fn list_get_slice() {
+        Python::attach(|py| {
+            let list = PyList::new(py, [1, 2, 3, 4]).unwrap();
+            let slice = list.get_slice(1, 10);
+            assert_eq!(slice.len(), 3);
+            assert_eq!(slice.get_item(0).unwrap().extract::<u32>().unwrap(), 2);
+            assert_eq!(slice.get_item(2).unwrap().extract::<u32>().unwrap(), 4);
+        })
+    }
+
+    #[test]
+    fn list_set_slice() {
+        Python::attach(|py| {
+            let list = PyList::new(py, [1, 2, 3, 4]).unwrap();
+            let repl = PyList::new(py, [8, 9]).unwrap();
+            list.set_slice(1, 3, repl.as_any()).unwrap();
+
+            assert_eq!(list.len(), 4);
+            assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
+            assert_eq!(list.get_item(1).unwrap().extract::<u32>().unwrap(), 8);
+            assert_eq!(list.get_item(2).unwrap().extract::<u32>().unwrap(), 9);
+            assert_eq!(list.get_item(3).unwrap().extract::<u32>().unwrap(), 4);
+        })
+    }
+
+    #[test]
+    fn list_sort() {
+        Python::attach(|py| {
+            let list = PyList::new(py, [3, 1, 2]).unwrap();
+            list.sort().unwrap();
+            assert_eq!(list.get_item(0).unwrap().extract::<u32>().unwrap(), 1);
+            assert_eq!(list.get_item(1).unwrap().extract::<u32>().unwrap(), 2);
+            assert_eq!(list.get_item(2).unwrap().extract::<u32>().unwrap(), 3);
         })
     }
 }
