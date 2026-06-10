@@ -17,6 +17,7 @@ const PYBUF_ANY_CONTIGUOUS: c_int = 0x0080 | PYBUF_STRIDES;
 const PYBUF_INDIRECT: c_int = 0x0100 | PYBUF_STRIDES;
 
 #[repr(C)]
+#[derive(Default)]
 pub struct Py_buffer {
     pub buf: *mut c_void,
     pub obj: *mut PyObject,
@@ -192,39 +193,33 @@ pub unsafe extern "C" fn PyObject_GetBuffer(
             format,
         });
 
-        let shape_ptr = if (flags & PYBUF_ND) != 0 {
-            internal.shape.as_mut_ptr()
-        } else {
-            ptr::null_mut()
-        };
-        let strides_ptr = if (flags & PYBUF_STRIDES) != 0 {
-            internal.strides.as_mut_ptr()
-        } else {
-            ptr::null_mut()
-        };
-        let suboffsets_ptr = if (flags & PYBUF_INDIRECT) != 0 {
-            internal.suboffsets.as_mut_ptr()
-        } else {
-            ptr::null_mut()
-        };
-        let format_ptr = if (flags & PYBUF_FORMAT) != 0 {
-            internal.format.as_ptr().cast_mut()
-        } else {
-            ptr::null_mut()
-        };
-
         let view_ref = unsafe { &mut *view };
-        let obj_owned = obj_ref.to_owned();
         view_ref.buf = buffer.obj_bytes().as_ptr().cast_mut().cast();
-        view_ref.obj = obj_owned.into_raw().as_ptr().cast();
+        view_ref.obj = obj_ref.to_owned().into_raw().as_ptr().cast();
         view_ref.len = len;
         view_ref.itemsize = itemsize;
         view_ref.readonly = c_int::from(buffer.desc.readonly);
         view_ref.ndim = ndim_i32;
-        view_ref.format = format_ptr;
-        view_ref.shape = shape_ptr;
-        view_ref.strides = strides_ptr;
-        view_ref.suboffsets = suboffsets_ptr;
+        view_ref.format = if (flags & PYBUF_FORMAT) != 0 {
+            internal.format.as_ptr().cast_mut()
+        } else {
+            ptr::null_mut()
+        };
+        view_ref.shape = if (flags & PYBUF_ND) != 0 {
+            internal.shape.as_mut_ptr()
+        } else {
+            ptr::null_mut()
+        };
+        view_ref.strides = if (flags & PYBUF_STRIDES) != 0 {
+            internal.strides.as_mut_ptr()
+        } else {
+            ptr::null_mut()
+        };
+        view_ref.suboffsets = if (flags & PYBUF_INDIRECT) != 0 {
+            internal.suboffsets.as_mut_ptr()
+        } else {
+            ptr::null_mut()
+        };
         view_ref.internal = Box::into_raw(internal).cast();
         Ok(())
     })
@@ -244,17 +239,7 @@ pub unsafe extern "C" fn PyBuffer_Release(view: *mut Py_buffer) {
         unsafe { drop(Box::from_raw(internal.as_ptr())) };
     }
 
-    view_ref.buf = ptr::null_mut();
-    view_ref.obj = ptr::null_mut();
-    view_ref.len = 0;
-    view_ref.itemsize = 0;
-    view_ref.readonly = 0;
-    view_ref.ndim = 0;
-    view_ref.format = ptr::null_mut();
-    view_ref.shape = ptr::null_mut();
-    view_ref.strides = ptr::null_mut();
-    view_ref.suboffsets = ptr::null_mut();
-    view_ref.internal = ptr::null_mut();
+    *view_ref = Py_buffer::default();
 }
 
 #[unsafe(no_mangle)]
