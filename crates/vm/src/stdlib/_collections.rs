@@ -365,7 +365,7 @@ mod _collections {
                 })
             } else {
                 Err(vm.new_type_error(format!(
-                    "can only concatenate deque (not \"{}\") to deque",
+                    r#"can only concatenate deque (not "{}") to deque"#,
                     other.class().name()
                 )))
             }
@@ -503,11 +503,13 @@ mod _collections {
                         .concat(other, vm)
                         .map(|x| x.into_ref(&vm.ctx).into())
                 }),
+
                 repeat: atomic_func!(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
                         .__mul__(n, vm)
                         .map(|x| x.into_ref(&vm.ctx).into())
                 }),
+
                 item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).__getitem__(i, vm)),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
@@ -517,14 +519,17 @@ mod _collections {
                         zelf.__delitem__(i, vm)
                     }
                 }),
+
                 contains: atomic_func!(
                     |seq, needle, vm| PyDeque::sequence_downcast(seq)._contains(needle, vm)
                 ),
+
                 inplace_concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     zelf._extend(other, vm)?;
                     Ok(zelf.to_owned().into())
                 }),
+
                 inplace_repeat: atomic_func!(|seq, n, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     PyDeque::__imul__(zelf.to_owned(), n, vm).map(|x| x.into())
@@ -545,6 +550,7 @@ mod _collections {
             if let Some(res) = op.identical_optimization(zelf, other) {
                 return Ok(res.into());
             }
+
             let other = class_or_notimplemented!(Self, other);
             let lhs = zelf.borrow_deque();
             let rhs = other.borrow_deque();
@@ -573,6 +579,7 @@ mod _collections {
             if zelf.__len__() == 0 {
                 return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));
             }
+
             if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 Ok(vm.ctx.new_str(collection_repr(
                     Some(&class_name),

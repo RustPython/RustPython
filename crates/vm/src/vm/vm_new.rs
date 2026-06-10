@@ -22,6 +22,7 @@ use crate::{
     exceptions::OSErrorBuilder,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
+    set_attrs,
     vm::VirtualMachine,
 };
 
@@ -425,7 +426,11 @@ impl VirtualMachine {
     pub fn new_name_error(&self, msg: impl Into<Wtf8Buf>, name: PyStrRef) -> PyBaseExceptionRef {
         let name_error_type = self.ctx.exceptions.name_error.to_owned();
         let name_error = self.new_exception_msg(name_error_type, msg.into());
-        name_error.as_object().set_attr("name", name, self).unwrap();
+        set_attrs!(
+            name_error.as_object(), self, unwrap,
+            "name" => name,
+        );
+
         name_error
     }
 
@@ -512,13 +517,16 @@ impl VirtualMachine {
                 reason.clone().into(),
             ],
         );
-        exc.as_object()
-            .set_attr("encoding", encoding, self)
-            .unwrap();
-        exc.as_object().set_attr("object", object, self).unwrap();
-        exc.as_object().set_attr("start", start, self).unwrap();
-        exc.as_object().set_attr("end", end, self).unwrap();
-        exc.as_object().set_attr("reason", reason, self).unwrap();
+
+        set_attrs!(
+            exc.as_object(), self, unwrap,
+            "encoding" => encoding,
+            "object" => object,
+            "start" => start,
+            "end" => end,
+            "reason" => reason,
+        );
+
         exc
     }
 
@@ -542,13 +550,16 @@ impl VirtualMachine {
                 reason.clone().into(),
             ],
         );
-        exc.as_object()
-            .set_attr("encoding", encoding, self)
-            .unwrap();
-        exc.as_object().set_attr("object", object, self).unwrap();
-        exc.as_object().set_attr("start", start, self).unwrap();
-        exc.as_object().set_attr("end", end, self).unwrap();
-        exc.as_object().set_attr("reason", reason, self).unwrap();
+
+        set_attrs!(
+            exc.as_object(), self, unwrap,
+            "encoding" => encoding,
+            "object" => object,
+            "start" => start,
+            "end" => end,
+            "reason" => reason,
+        );
+
         exc
     }
 
@@ -752,14 +763,12 @@ impl VirtualMachine {
         let (lineno, offset) = error.python_location();
         let lineno = self.ctx.new_int(lineno);
         let offset = self.ctx.new_int(offset);
-        syntax_error
-            .as_object()
-            .set_attr("lineno", lineno, self)
-            .unwrap();
-        syntax_error
-            .as_object()
-            .set_attr("offset", offset, self)
-            .unwrap();
+
+        set_attrs!(
+            syntax_error.as_object(), self, unwrap,
+            "lineno" => lineno,
+            "offset" => offset,
+        );
 
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
@@ -771,24 +780,19 @@ impl VirtualMachine {
             };
             let end_lineno = self.ctx.new_int(end_lineno);
             let end_offset = self.ctx.new_int(end_offset);
-            syntax_error
-                .as_object()
-                .set_attr("end_lineno", end_lineno, self)
-                .unwrap();
-            syntax_error
-                .as_object()
-                .set_attr("end_offset", end_offset, self)
-                .unwrap();
+
+            set_attrs!(
+                syntax_error.as_object(), self, unwrap,
+                "end_lineno" => end_lineno,
+                "end_offset" => end_offset,
+            );
         }
 
-        syntax_error
-            .as_object()
-            .set_attr("text", statement.to_pyobject(self), self)
-            .unwrap();
-        syntax_error
-            .as_object()
-            .set_attr("filename", self.ctx.new_str(error.source_path()), self)
-            .unwrap();
+        set_attrs!(
+            syntax_error.as_object(), self, unwrap,
+            "text" => statement.to_pyobject(self),
+            "filename" => self.ctx.new_str(error.source_path())
+        );
 
         // Set _metadata for keyword typo suggestions in traceback module.
         // Format: (start_line, col_offset, source_code)
@@ -800,10 +804,10 @@ impl VirtualMachine {
                 self.ctx.new_int(0).into(),
                 self.ctx.new_str(source).into(),
             ]);
-            syntax_error
-                .as_object()
-                .set_attr("_metadata", metadata, self)
-                .unwrap();
+            set_attrs!(
+                syntax_error.as_object(), self, unwrap,
+                "_metadata" => metadata,
+            );
         }
 
         syntax_error
@@ -825,7 +829,11 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.to_owned();
         let exc = self.new_exception_msg(import_error, msg.into());
-        exc.as_object().set_attr("name", name.into(), self).unwrap();
+        set_attrs!(
+            exc.as_object(), self, unwrap,
+            "name" => name.into(),
+        );
+
         exc
     }
 
