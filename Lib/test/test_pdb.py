@@ -490,7 +490,7 @@ def test_pdb_breakpoint_with_filename():
     ...     mod2.func88()
     ...     mod2.func114()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +ELLIPSIS +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +ELLIPSIS +SKIP
     ...     'break test.test_inspect.inspect_fodder2:90',
     ...     'continue', # will stop at func88
     ...     'break test/test_inspect/inspect_fodder2.py:115',
@@ -577,7 +577,7 @@ def test_pdb_breakpoints_preserved_across_interactive_sessions():
     2   breakpoint   keep yes   at ...test_pdb.py:...
     (Pdb) continue
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
     ...    'break',
     ...    'break pdb.find_function',
     ...    'break',
@@ -601,7 +601,7 @@ def test_pdb_breakpoints_preserved_across_interactive_sessions():
     Deleted breakpoint 1 at ...test_pdb.py:...
     (Pdb) continue
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +SKIP
     ...    'break',
     ...    'clear 2',
     ...    'clear 3',
@@ -2953,7 +2953,7 @@ def test_pdb_issue_20766():
     ...         print('pdb %d: %s' % (i, sess._previous_sigint_handler))
     ...         i += 1
 
-    >>> with PdbTestInput(['continue',  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with PdbTestInput(['continue',  # TODO: RUSTPYTHON # doctest: +SKIP
     ...                    'continue']):
     ...     test_function()
     > <doctest test.test_pdb.test_pdb_issue_20766[0]>(5)test_function()
@@ -4898,7 +4898,7 @@ class PdbTestColorize(unittest.TestCase):
 @support.force_not_colorized_test_class
 @support.requires_subprocess()
 class TestREPLSession(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON")
     def test_return_from_inline_mode_to_REPL(self):
         # GH-124703: Raise BdbQuit when exiting pdb in REPL session.
         # This allows the REPL session to continue.
