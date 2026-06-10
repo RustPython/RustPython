@@ -1445,6 +1445,12 @@ impl PyObject {
         self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.to_owned(), vm)
     }
 
+    pub fn clear_weak_refs(&self) {
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear(self);
+        }
+    }
+
     pub fn get_weak_references(&self) -> Option<Vec<PyRef<PyWeak>>> {
         self.weak_ref_list()
             .map(|wrl| wrl.get_weak_references(self))
