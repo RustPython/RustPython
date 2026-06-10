@@ -2,6 +2,8 @@
 
 pub(super) use decl::crc32;
 pub(crate) use decl::module_def;
+
+use rustpython_common::wtf8::Wtf8Buf;
 use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef, convert::ToPyException};
 
 const PAD: u8 = 61u8;
@@ -16,6 +18,7 @@ mod decl {
         convert::ToPyException,
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
     };
+
     use base64::Engine;
     use itertools::Itertools;
 
@@ -33,7 +36,7 @@ mod decl {
         vm.ctx.new_exception_type("binascii", "Incomplete", None)
     }
 
-    fn hex_nibble(n: u8) -> u8 {
+    const fn hex_nibble(n: u8) -> u8 {
         match n {
             0..=9 => b'0' + n,
             10..=15 => b'a' + (n - 10),
@@ -174,10 +177,7 @@ mod decl {
     fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         data.with_ref(|hex_bytes| {
             if hex_bytes.len() % 2 != 0 {
-                return Err(super::new_binascii_error(
-                    "Odd-length string".to_owned(),
-                    vm,
-                ));
+                return Err(super::new_binascii_error("Odd-length string", vm));
             }
 
             let mut unhex = Vec::<u8>::with_capacity(hex_bytes.len() / 2);
@@ -185,10 +185,7 @@ mod decl {
                 if let (Some(n1), Some(n2)) = (unhex_nibble(*n1), unhex_nibble(*n2)) {
                     unhex.push((n1 << 4) | n2);
                 } else {
-                    return Err(super::new_binascii_error(
-                        "Non-hexadecimal digit found".to_owned(),
-                        vm,
-                    ));
+                    return Err(super::new_binascii_error("Non-hexadecimal digit found", vm));
                 }
             }
 
@@ -264,10 +261,10 @@ mod decl {
 
     #[pyfunction]
     fn a2b_base64(args: A2bBase64Args, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        #[rustfmt::skip]
         // Converts between ASCII and base-64 characters. The index of a given number yields the
         // number in ASCII while the value of said index yields the number in base-64. For example
         // "=" is 61 in ASCII but 0 (since it's the pad character) in base-64, so BASE64_TABLE[61] == 0
+        #[rustfmt::skip]
         const BASE64_TABLE: [i8; 256] = [
             -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
             -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1, -1,-1,-1,-1,
@@ -398,7 +395,7 @@ mod decl {
             if [b'\r', b'\n'].contains(c) {
                 return Ok(0);
             }
-            return Err(super::new_binascii_error("Illegal char".to_owned(), vm));
+            return Err(super::new_binascii_error("Illegal char", vm));
         }
         Ok((*c - b' ') & 0x3f)
     }
@@ -757,8 +754,7 @@ mod decl {
 
             // Allocate the buffer
             let mut res = Vec::<u8>::with_capacity(length);
-            let trailing_garbage_error =
-                || Err(super::new_binascii_error("Trailing garbage".to_owned(), vm));
+            let trailing_garbage_error = || Err(super::new_binascii_error("Trailing garbage", vm));
 
             for chunk in b.get(1..).unwrap_or_default().chunks(4) {
                 let (char_a, char_b, char_c, char_d) = {
@@ -823,10 +819,7 @@ mod decl {
         data.with_ref(|b| {
             let length = b.len();
             if length > 45 {
-                return Err(super::new_binascii_error(
-                    "At most 45 bytes at once".to_owned(),
-                    vm,
-                ));
+                return Err(super::new_binascii_error("At most 45 bytes at once", vm));
             }
             let mut res = Vec::<u8>::with_capacity(2 + length.div_ceil(3) * 4);
             res.push(uu_b2a(length as u8, backtick));
@@ -850,7 +843,7 @@ mod decl {
 
 struct Base64DecodeError(base64::DecodeError);
 
-fn new_binascii_error(msg: String, vm: &VirtualMachine) -> PyBaseExceptionRef {
+fn new_binascii_error<T: Into<Wtf8Buf>>(msg: T, vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_exception_msg(decl::error_type(vm), msg.into())
 }
 

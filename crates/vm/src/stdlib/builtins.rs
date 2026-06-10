@@ -128,7 +128,7 @@ mod builtins {
             let hash_pos = line.iter().position(|&b| b == b'#')?;
             if !line[..hash_pos]
                 .iter()
-                .all(|&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
+                .all(|&b| matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
             {
                 return None;
             }
@@ -139,8 +139,7 @@ mod builtins {
             let after_coding = &after_hash[coding_pos + 6..];
 
             // Next char must be ':' or '='
-            let rest = if after_coding.first() == Some(&b':') || after_coding.first() == Some(&b'=')
-            {
+            let rest = if matches!(after_coding.first(), Some(b':' | b'=')) {
                 &after_coding[1..]
             } else {
                 return None;
@@ -150,15 +149,15 @@ mod builtins {
             let rest = rest
                 .iter()
                 .copied()
-                .skip_while(|&b| b == b' ' || b == b'\t')
+                .skip_while(|&b| matches!(b, b' ' | b'\t'))
                 .collect::<Vec<_>>();
 
             // Read encoding name: [-\w.]+
-            let name: String = rest
+            let name = rest
                 .iter()
-                .take_while(|&&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+                .take_while(|&&b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
                 .map(|&b| b as char)
-                .collect();
+                .collect::<String>();
 
             if name.is_empty() {
                 None
@@ -179,10 +178,10 @@ mod builtins {
             // Only check second line if first line is blank or a comment
             let trimmed = first
                 .iter()
-                .skip_while(|&&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
-                .copied()
-                .collect::<Vec<_>>();
-            if !trimmed.is_empty() && trimmed[0] != b'#' {
+                .find(|&&b| !matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
+                .copied();
+
+            if trimmed.is_some_and(|b| b != b'#') {
                 return None;
             }
         }
@@ -350,7 +349,7 @@ mod builtins {
 
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
-                    return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned()));
+                    return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED));
                 }
                 #[cfg(feature = "rustpython-codegen")]
                 {
@@ -368,10 +367,10 @@ mod builtins {
             }
 
             #[cfg(not(feature = "parser"))]
-            {
-                const PARSER_NOT_SUPPORTED: &str = "can't compile() source code when the `parser` feature of rustpython is disabled";
-                Err(vm.new_type_error(PARSER_NOT_SUPPORTED.to_owned()))
-            }
+            return Err(vm.new_type_error(
+                "can't compile() source code when the `parser` feature of rustpython is disabled",
+            ));
+
             #[cfg(feature = "parser")]
             {
                 use crate::convert::ToPyException;
@@ -398,7 +397,7 @@ mod builtins {
                 if (flags & _ast::PY_CF_ONLY_AST).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
-                        Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))
+                        Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED))
                     }
                     #[cfg(feature = "compiler")]
                     {
@@ -470,23 +469,22 @@ mod builtins {
         feature_version: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<ruff_python_ast::PythonVersion>> {
-        let minor = match feature_version.into_option() {
-            Some(minor) => minor,
-            None => return Ok(None),
+        let Some(minor) = feature_version.into_option() else {
+            return Ok(None);
         };
 
         if minor < 0 {
             return Ok(None);
         }
 
-        let minor = u8::try_from(minor)
-            .map_err(|_| vm.new_value_error("compile() _feature_version out of range"))?;
-        Ok(Some(ruff_python_ast::PythonVersion { major: 3, minor }))
+        u8::try_from(minor)
+            .map(|v| Some(ruff_python_ast::PythonVersion { major: 3, minor: v }))
+            .map_err(|_| vm.new_value_error("compile() _feature_version out of range"))
     }
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
                 attr.class().name()
@@ -514,40 +512,42 @@ mod builtins {
     }
 
     impl ScopeArgs {
+        fn validate_globals_dict(
+            globals: &PyObject,
+            vm: &VirtualMachine,
+            func_name: &'static str,
+        ) -> PyResult<()> {
+            if globals.fast_isinstance(vm.ctx.types.dict_type) {
+                return Ok(());
+            }
+
+            let msg = match func_name {
+                "eval" => {
+                    let is_mapping = globals.mapping_unchecked().check();
+                    if is_mapping {
+                        "globals must be a real dict; try eval(expr, {}, mapping)".into()
+                    } else {
+                        "globals must be a dict".into()
+                    }
+                }
+                "exec" => format!(
+                    "exec() globals must be a dict, not {}",
+                    globals.class().name()
+                ),
+                _ => "globals must be a dict".into(),
+            };
+
+            Err(vm.new_type_error(msg))
+        }
+
         fn make_scope(
             self,
             vm: &VirtualMachine,
             func_name: &'static str,
         ) -> PyResult<crate::scope::Scope> {
-            fn validate_globals_dict(
-                globals: &PyObject,
-                vm: &VirtualMachine,
-                func_name: &'static str,
-            ) -> PyResult<()> {
-                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
-                    return Err(match func_name {
-                        "eval" => {
-                            let is_mapping = globals.mapping_unchecked().check();
-                            vm.new_type_error(if is_mapping {
-                                "globals must be a real dict; try eval(expr, {}, mapping)"
-                                    .to_owned()
-                            } else {
-                                "globals must be a dict".to_owned()
-                            })
-                        }
-                        "exec" => vm.new_type_error(format!(
-                            "exec() globals must be a dict, not {}",
-                            globals.class().name()
-                        )),
-                        _ => vm.new_type_error("globals must be a dict"),
-                    });
-                }
-                Ok(())
-            }
-
             let (globals, locals) = match self.globals {
                 Some(globals) => {
-                    validate_globals_dict(&globals, vm, func_name)?;
+                    Self::validate_globals_dict(&globals, vm, func_name)?;
 
                     let globals = PyDictRef::try_from_object(vm, globals)?;
                     if !globals.contains_key(identifier!(vm, __builtins__), vm) {
@@ -636,7 +636,7 @@ mod builtins {
                     .map_err(|err| vm.new_syntax_error(&err, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
-            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned())),
+            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
             Either::B(code_obj) => code_obj,
         };
 
