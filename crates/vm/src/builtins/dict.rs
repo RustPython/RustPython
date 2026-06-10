@@ -855,6 +855,7 @@ impl Iterator for DictIntoIter {
         (l, Some(l))
     }
 }
+
 impl ExactSizeIterator for DictIntoIter {
     fn len(&self) -> usize {
         self.dict.entries.len_from_entry_index(self.position)
@@ -886,6 +887,7 @@ impl Iterator for DictIter<'_> {
         (l, Some(l))
     }
 }
+
 impl ExactSizeIterator for DictIter<'_> {
     fn len(&self) -> usize {
         self.dict.entries.len_from_entry_index(self.position)
@@ -1266,6 +1268,7 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
+
 #[pyclass(
     flags(DISALLOW_INSTANTIATION),
     with(
