@@ -555,7 +555,7 @@ impl PyBaseObject {
     }
 }
 
-pub(crate) fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+pub fn object_get_dict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyDictRef> {
     if let Some(dict) = obj.dict() {
         Ok(dict)
     } else {
@@ -578,7 +578,7 @@ pub(crate) fn object_set_dict(
         .map_err(|_| vm.new_attribute_error("This object has no __dict__"))
 }
 
-pub(crate) fn object_generic_set_dict(
+pub fn object_generic_set_dict(
     obj: PyObjectRef,
     value: PySetterValue,
     vm: &VirtualMachine,
