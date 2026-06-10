@@ -1129,7 +1129,7 @@ pub mod sys {
             let tb_module = vm.import("traceback", 0)?;
             let print_tb = tb_module.get_attr("print_tb", vm)?;
             let stderr_obj = super::get_stderr(vm)?;
-            let kwargs: KwArgs = [("file".to_string(), stderr_obj)].into_iter().collect();
+            let kwargs: KwArgs = core::iter::once(("file".to_string(), stderr_obj)).collect();
             let _ = print_tb.call(
                 FuncArgs::new(vec![unraisable.exc_traceback.clone()], kwargs),
                 vm,

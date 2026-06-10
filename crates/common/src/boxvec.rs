@@ -127,7 +127,7 @@ impl<T> BoxVec<T> {
                 let p: *mut _ = self.get_unchecked_ptr(index);
                 // Shift everything over to make space. (Duplicating the
                 // `index`th element into two consecutive places.)
-                ptr::copy(p, p.offset(1), len - index);
+                ptr::copy(p, p.add(1), len - index);
                 // Write it in, overwriting the first copy of the `index`th
                 // element.
                 ptr::write(p, element);

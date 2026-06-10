@@ -274,11 +274,10 @@ mod unicodedata {
 
         #[pymethod]
         fn decomposition(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            let ch = match self.extract_char(character, vm)?.and_then(|c| c.to_char()) {
-                Some(ch) => ch,
-                None => return Ok(String::new()),
+            let Some(ch) = self.extract_char(character, vm)?.and_then(|c| c.to_char()) else {
+                return Ok(String::new());
             };
-            let chars: Vec<char> = ch.decomposition_map().collect();
+            let chars = ch.decomposition_map().collect::<Vec<char>>();
             // If decomposition maps to just the character itself, there's no decomposition
             if chars.len() == 1 && chars[0] == ch {
                 return Ok(String::new());
@@ -356,7 +355,7 @@ mod unicodedata {
         }
     }
 
-    fn decomposition_type_tag(dt: DecompositionType) -> &'static str {
+    const fn decomposition_type_tag(dt: DecompositionType) -> &'static str {
         match dt {
             DecompositionType::Canonical => "canonical",
             DecompositionType::Compat => "compat",
