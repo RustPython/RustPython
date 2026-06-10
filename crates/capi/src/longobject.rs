@@ -67,9 +67,18 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
 pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_ulonglong {
     with_vm::<PyResult<c_ulonglong>, _>(|vm| {
         let int = unsafe { &*obj }.to_owned().try_index(vm)?;
-        let low = u64::from(int.as_u32_mask());
-        let high = u64::from(vm.ctx.new_int(int.as_bigint() >> 32).as_u32_mask());
-        let masked = low | (high << 32);
+        let text = int.to_str_radix_10();
+        let (is_negative, digits) = text
+            .strip_prefix('-')
+            .map_or((false, text.as_str()), |digits| (true, digits));
+        let masked = digits.bytes().fold(0u64, |acc, b| {
+            acc.wrapping_mul(10).wrapping_add(u64::from(b - b'0'))
+        });
+        let masked = if is_negative {
+            masked.wrapping_neg()
+        } else {
+            masked
+        };
         Ok(masked)
     })
 }
