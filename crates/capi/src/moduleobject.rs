@@ -2,8 +2,8 @@ use crate::PyObject;
 use crate::methodobject::PyMethodDef;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use rustpython_vm::builtins::{PyModule, PyStr};
 use rustpython_vm::AsObject;
+use rustpython_vm::builtins::{PyModule, PyStr};
 use std::ffi::{CStr, c_char, c_int, c_void};
 
 define_py_check!(fn PyModule_Check, types.module_type);

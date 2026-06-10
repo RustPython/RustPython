@@ -152,6 +152,7 @@ pub(crate) mod _thread {
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             acquire_lock_impl!(&self.mu, args, vm)
         }
+
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -240,6 +241,7 @@ pub(crate) mod _thread {
             }
             Ok(result)
         }
+
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -413,34 +415,36 @@ pub(crate) mod _thread {
 
     /// Get OS-level thread ID (pthread_self on Unix)
     /// This is important for fork compatibility - the ID must remain stable after fork
-    #[cfg(unix)]
     fn current_thread_id() -> u64 {
-        host_thread::current_thread_id()
-    }
-
-    #[cfg(not(unix))]
-    fn current_thread_id() -> u64 {
-        thread_to_rust_id(&thread::current())
+        cfg_select! {
+            unix => host_thread::current_thread_id(),
+            _ => thread_to_rust_id(&thread::current()),
+        }
     }
 
     /// Convert Rust thread to ID (used for non-unix platforms)
     #[cfg(not(unix))]
     fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
+
         struct U64Hash {
             v: Option<u64>,
         }
+
         impl Hasher for U64Hash {
             fn write(&mut self, _: &[u8]) {
                 unreachable!()
             }
+
             fn write_u64(&mut self, i: u64) {
                 self.v = Some(i);
             }
+
             fn finish(&self) -> u64 {
                 self.v.expect("should have written a u64")
             }
         }
+
         let mut h = U64Hash { v: None };
         t.id().hash(&mut h);
         h.finish()
@@ -472,12 +476,14 @@ pub(crate) mod _thread {
         if !f_args.kwargs.is_empty() {
             return Err(vm.new_type_error("start_new_thread() takes no keyword arguments"));
         }
+
         let given = f_args.args.len();
         if given < 2 {
             return Err(vm.new_type_error(format!(
                 "start_new_thread expected at least 2 arguments, got {given}"
             )));
         }
+
         if given > 3 {
             return Err(vm.new_type_error(format!(
                 "start_new_thread expected at most 3 arguments, got {given}"
@@ -491,9 +497,11 @@ pub(crate) mod _thread {
         if func_obj.to_callable().is_none() {
             return Err(vm.new_type_error("first arg must be callable"));
         }
+
         if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
             return Err(vm.new_type_error("2nd arg must be a tuple"));
         }
+
         if kwargs_obj
             .as_ref()
             .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
@@ -1537,13 +1545,12 @@ pub(crate) mod _thread {
                 })
                 .min_by_key(|(distance, _)| *distance)
                 .map(|(_, candidate)| candidate);
-            let msg = if let Some(suggestion) = suggestion {
-                format!(
-                    "start_joinable_thread() got an unexpected keyword argument '{unexpected}'. Did you mean '{suggestion}'?"
-                )
-            } else {
-                format!("start_joinable_thread() got an unexpected keyword argument '{unexpected}'")
-            };
+
+            let msg_suffix =
+                suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
+            let msg = format!(
+                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
+            );
             return Err(vm.new_type_error(msg));
         }
 

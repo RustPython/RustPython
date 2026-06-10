@@ -8933,7 +8933,7 @@ impl ExecutingFrame<'_> {
         } else if iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some() {
             Some(Instruction::ForIterTuple)
         } else if iter.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
-            && jump_delta <= i16::MAX as u32
+            && i16::try_from(jump_delta).is_ok()
             && self.for_iter_has_end_for_shape(instr_idx, jump_delta)
             && !self.specialization_eval_frame_active(vm)
         {

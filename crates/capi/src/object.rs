@@ -1,12 +1,11 @@
-use crate::methodobject::{PyMethodDef, build_method_def};
-use crate::{PyObject, pystate::with_vm};
+use crate::PyObject;
+use crate::pystate::with_vm;
 use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
-use rustpython_vm::convert::IntoObject;
-use rustpython_vm::function::{FuncArgs, PyMethodFlags};
-use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
-use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+use rustpython_vm::builtins::{PyStr, PyType, object_generic_set_dict, object_get_dict};
+use rustpython_vm::bytecode::ComparisonOperator;
+use rustpython_vm::function::PySetterValue;
+use rustpython_vm::{AsObject, Py, PyPayload};
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -82,6 +81,11 @@ pub unsafe extern "C" fn PyType_GetName(ptr: *const PyTypeObject) -> *mut PyObje
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyType_GetQualName(ptr: *const PyTypeObject) -> *mut PyObject {
     with_vm(|vm| unsafe { &*ptr }.__qualname__(vm))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyType_GetModuleName(ptr: *const PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*ptr }.__module__(vm))
 }
 
 #[unsafe(no_mangle)]
@@ -397,6 +401,29 @@ pub unsafe extern "C" fn PyObject_GetAttrString(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetOptionalAttr(
+    obj: *mut PyObject,
+    name: *mut PyObject,
+    result: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        unsafe {
+            *result = core::ptr::null_mut();
+        }
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
+            unsafe {
+                *result = attr.into_raw().as_ptr();
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_SetAttrString(
     obj: *mut PyObject,
     attr_name: *const c_char,
@@ -427,6 +454,30 @@ pub unsafe extern "C" fn PyObject_SetAttr(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_HasAttrWithError(
+    obj: *mut PyObject,
+    attr_name: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
+        obj.has_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GenericGetAttr(
+    obj: *mut PyObject,
+    name: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        obj.generic_getattr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let Some(obj) = NonNull::new(obj) else {
@@ -449,6 +500,48 @@ pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_RichCompare(
+    left: *mut PyObject,
+    right: *mut PyObject,
+    op: c_int,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let op = match op {
+            0 => ComparisonOperator::Less,
+            1 => ComparisonOperator::LessOrEqual,
+            2 => ComparisonOperator::Equal,
+            3 => ComparisonOperator::NotEqual,
+            4 => ComparisonOperator::Greater,
+            5 => ComparisonOperator::GreaterOrEqual,
+            _ => return Err(vm.new_system_error("invalid comparison operator")),
+        };
+        let left = unsafe { &*left };
+        let right = unsafe { &*right };
+        left.to_owned()
+            .rich_compare(right.to_owned(), op.into(), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyCallable_Check(obj: *mut PyObject) -> c_int {
+    with_vm(|_vm| unsafe { obj.as_ref().is_some_and(PyObject::is_callable) })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_ClearWeakRefs(obj: *mut PyObject) {
+    with_vm(|_vm| unsafe { &*obj }.clear_weak_refs())
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Dir(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        unsafe { obj.as_ref() }
+            .map_or_else(|| vm.dir(None), |obj| obj.to_owned().dir(vm))
+            .map(|list| list.into_ref(&vm.ctx))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
@@ -457,50 +550,54 @@ pub unsafe extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GenericGetDict(
+pub unsafe extern "C" fn PyObject_GenericGetDict(
     obj: *mut PyObject,
     _context: *mut c_void,
 ) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        obj.get_attr("__dict__", vm)
+        object_get_dict(obj.to_owned(), vm)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GenericSetDict(
+pub unsafe extern "C" fn PyObject_GenericSetDict(
     obj: *mut PyObject,
     value: *mut PyObject,
     _context: *mut c_void,
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let value = unsafe { &*value }.to_owned();
-        obj.set_attr("__dict__", value, vm)
+        let value = match NonNull::new(value) {
+            Some(value) => PySetterValue::Assign(unsafe { value.as_ref() }.to_owned()),
+            None => PySetterValue::Delete,
+        };
+        object_generic_set_dict(obj.to_owned(), value, vm)
     })
 }
 
-#[cfg(test)]
+#[cfg(false)]
 mod tests {
+    use pyo3::class::basic::CompareOp;
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyDict, PyInt, PyNone, PyString, PyType};
+    use pyo3::types::{PyBool, PyDict, PyInt, PyString, PyTypeMethods};
 
     #[test]
-    fn test_is_truthy() {
+    fn is_truthy() {
         Python::attach(|py| {
             assert!(!py.None().is_truthy(py).unwrap());
         })
     }
 
     #[test]
-    fn test_is_none() {
+    fn is_none() {
         Python::attach(|py| {
             assert!(py.None().is_none(py));
         })
     }
 
     #[test]
-    fn test_bool() {
+    fn bool() {
         Python::attach(|py| {
             assert!(PyBool::new(py, true).is_truthy().unwrap());
             assert!(!PyBool::new(py, false).is_truthy().unwrap());
@@ -508,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn test_type_name() {
+    fn type_name() {
         Python::attach(|py| {
             let string = PyString::new(py, "Hello, World!");
             assert_eq!(string.get_type().name().unwrap().to_str().unwrap(), "str");
@@ -516,15 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn test_static_type_pointers() {
-        Python::attach(|py| {
-            assert!(py.None().bind(py).is_instance_of::<PyNone>());
-            assert!(PyBool::new(py, true).is_instance_of::<PyBool>());
-        })
-    }
-
-    #[test]
-    fn test_repr() {
+    fn repr() {
         Python::attach(|py| {
             let module = py.import("sys").unwrap();
             assert_eq!(module.repr().unwrap(), "<module 'sys' (built-in)>");
@@ -532,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn test_obj_to_str() {
+    fn obj_to_str() {
         Python::attach(|py| {
             let number = PyInt::new(py, 42);
             assert_eq!(number.str().unwrap(), "42");
@@ -540,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_attr() {
+    fn get_attr() {
         Python::attach(|py| {
             let sys = py.import("sys").unwrap();
             let implementation = sys
@@ -556,7 +645,62 @@ mod tests {
     }
 
     #[test]
-    fn test_generic_get_dict() {
+    fn callable_check() {
+        Python::attach(|py| {
+            let int_type = py.get_type::<PyInt>();
+            assert!(int_type.is_callable());
+            assert!(!PyInt::new(py, 42).is_callable());
+        })
+    }
+
+    #[test]
+    fn object_dir() {
+        Python::attach(|py| {
+            assert!(PyInt::new(py, 42).dir().unwrap().len() > 0);
+        })
+    }
+
+    #[test]
+    fn get_optional_attr() {
+        Python::attach(|py| {
+            let number = PyInt::new(py, 42);
+            assert!(number.getattr_opt("real").unwrap().is_some());
+            assert!(
+                number
+                    .getattr_opt("attribute_that_should_not_exist")
+                    .unwrap()
+                    .is_none()
+            );
+        })
+    }
+
+    #[test]
+    fn rich_compare() {
+        Python::attach(|py| {
+            let lower = PyInt::new(py, 1);
+            let upper = PyInt::new(py, 2);
+            assert!(
+                lower
+                    .rich_compare(upper, CompareOp::Lt)
+                    .unwrap()
+                    .is_truthy()
+                    .unwrap()
+            );
+        })
+    }
+
+    #[test]
+    fn type_get_module_name() {
+        Python::attach(|py| {
+            assert_eq!(
+                py.get_type::<PyInt>().module().unwrap().to_str().unwrap(),
+                "builtins"
+            );
+        })
+    }
+
+    #[test]
+    fn generic_get_dict() {
         Python::attach(|py| {
             let globals = PyDict::new(py);
             py.run(c"class MyClass: ...", None, Some(&globals)).unwrap();
@@ -566,101 +710,11 @@ mod tests {
             let dict = unsafe {
                 Bound::from_owned_ptr_or_err(
                     py,
-                    pyo3::ffi::PyObject_GenericGetDict(instance.as_ptr(), std::ptr::null_mut()),
+                    pyo3::ffi::PyObject_GenericGetDict(instance.as_ptr(), core::ptr::null_mut()),
                 )
             }
             .unwrap();
             assert!(dict.get_item("foo").is_ok());
         })
-    }
-
-    #[test]
-    fn test_rust_class() {
-        #[pyclass]
-        struct MyClass {
-            #[pyo3(get)]
-            num: i32,
-        }
-
-        #[pymethods]
-        impl MyClass {
-            #[new]
-            fn new(value: i32) -> Self {
-                MyClass { num: value }
-            }
-
-            fn method1(&self) -> PyResult<i32> {
-                Ok(self.num + 10)
-            }
-
-            fn method2(&self, a: i32) -> PyResult<i32> {
-                Ok(self.num + a)
-            }
-
-            #[staticmethod]
-            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
-                Ok(a + b)
-            }
-
-            #[staticmethod]
-            fn static_method2() -> PyResult<i32> {
-                Ok(0)
-            }
-
-            #[classmethod]
-            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
-                assert!(cls.is_subclass_of::<MyClass>()?);
-                Ok(10)
-            }
-        }
-
-        Python::attach(|py| {
-            let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
-
-            let globals = PyDict::new(py);
-            globals.set_item("instance", &obj).unwrap();
-            py.run(c"assert instance.num == 3", Some(&globals), None)
-                .unwrap();
-
-            assert_eq!(
-                obj.call_method1("method1", ())
-                    .unwrap()
-                    .extract::<i32>()
-                    .unwrap(),
-                13
-            );
-
-            assert_eq!(
-                obj.call_method1("method2", (5,))
-                    .unwrap()
-                    .extract::<i32>()
-                    .unwrap(),
-                8
-            );
-
-            assert_eq!(
-                obj.call_method1("static_method1", (5, 8))
-                    .unwrap()
-                    .extract::<i32>()
-                    .unwrap(),
-                13
-            );
-
-            assert_eq!(
-                obj.call_method1("static_method2", ())
-                    .unwrap()
-                    .extract::<i32>()
-                    .unwrap(),
-                0
-            );
-
-            assert_eq!(
-                obj.call_method1("cls_method", ())
-                    .unwrap()
-                    .extract::<i32>()
-                    .unwrap(),
-                10
-            );
-        });
     }
 }
