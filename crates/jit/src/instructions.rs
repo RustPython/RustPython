@@ -109,6 +109,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
+        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
         let local = self.variables[idx].get_or_insert_with(|| {
@@ -147,6 +148,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn get_or_create_block(&mut self, label: Label) -> Block {
+        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
         let builder = &mut self.builder;
         *self
             .label_to_block

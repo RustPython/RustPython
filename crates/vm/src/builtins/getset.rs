@@ -70,6 +70,7 @@ impl GetDescriptor for PyGetSet {
 }
 
 impl PyGetSet {
+    #[must_use]
     pub fn new(name: String, class: &'static Py<PyType>) -> Self {
         Self {
             name,
@@ -79,6 +80,7 @@ impl PyGetSet {
         }
     }
 
+    #[must_use]
     pub fn with_get<G, X>(mut self, getter: G) -> Self
     where
         G: IntoPyGetterFunc<X>,
@@ -87,6 +89,7 @@ impl PyGetSet {
         self
     }
 
+    #[must_use]
     pub fn with_set<S, X>(mut self, setter: S) -> Self
     where
         S: IntoPySetterFunc<X>,

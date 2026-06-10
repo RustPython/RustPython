@@ -1503,16 +1503,13 @@ mod tests {
     #[test]
     fn find_by_name() {
         // __len__ appears in both sequence and mapping
-        let len_defs: Vec<_> = find_slot_defs_by_name("__len__").collect();
-        assert_eq!(len_defs.len(), 2);
+        assert_eq!(find_slot_defs_by_name("__len__").count(), 2);
 
         // __init__ appears once
-        let init_defs: Vec<_> = find_slot_defs_by_name("__init__").collect();
-        assert_eq!(init_defs.len(), 1);
+        assert_eq!(find_slot_defs_by_name("__init__").count(), 1);
 
         // __add__ appears in number (left/right) and sequence
-        let add_defs: Vec<_> = find_slot_defs_by_name("__add__").collect();
-        assert_eq!(add_defs.len(), 2); // NbAdd(Left) and SqConcat
+        assert_eq!(find_slot_defs_by_name("__add__").count(), 2); // NbAdd(Left) and SqConcat
     }
 
     #[test]
