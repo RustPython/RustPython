@@ -89,6 +89,7 @@ def write_all(fd, data):
 
 # Marginal testing of pty suite. Cannot do extensive 'do or fail' testing
 # because pty code is not too portable.
+@unittest.skipIf(getattr(tty, "tcgetwinsize", None) is None, "TODO: RUSTPYTHON; `tty.tcgetwinsize` is required for setUp")
 class PtyTest(unittest.TestCase):
     def setUp(self):
         old_sighup = signal.signal(signal.SIGHUP, self.handle_sighup)
@@ -108,7 +109,6 @@ class PtyTest(unittest.TestCase):
     def handle_sighup(signum, frame):
         pass
 
-    @unittest.skip("TODO: RUSTPYTHON; \"Not runnable. tty.tcgetwinsize\" is required to setUp")
     @expectedFailureIfStdinIsTTY
     def test_openpty(self):
         try:
@@ -195,7 +195,6 @@ class PtyTest(unittest.TestCase):
         s2 = _readline(master_fd)
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
-    @unittest.skip("TODO: RUSTPYTHON; \"Not runnable. tty.tcgetwinsize\" is required to setUp")
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()
@@ -278,7 +277,6 @@ class PtyTest(unittest.TestCase):
             ##else:
             ##    raise TestFailed("Read from master_fd did not raise exception")
 
-    @unittest.skip("TODO: RUSTPYTHON; AttributeError: module \"tty\" has no attribute \"tcgetwinsize\"")
     def test_master_read(self):
         # XXX(nnorwitz):  this test leaks fds when there is an error.
         debug("Calling pty.openpty()")
@@ -298,7 +296,6 @@ class PtyTest(unittest.TestCase):
 
         self.assertEqual(data, b"")
 
-    @unittest.skip("TODO: RUSTPYTHON; AttributeError: module \"tty\" has no attribute \"tcgetwinsize\"")
     def test_spawn_doesnt_hang(self):
         # gh-140482: Do the test in a pty.fork() child to avoid messing
         # with the interactive test runner's terminal settings.
