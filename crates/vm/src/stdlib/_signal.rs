@@ -450,8 +450,8 @@ pub(crate) mod _signal {
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
         for signum in SIGNUM_RANGE {
-            if host_signal::sigset_contains(mask, signum as i32) {
-                set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
+            if host_signal::sigset_contains(mask, signum) {
+                set.add(vm.ctx.new_int(signum).into(), vm)?;
             }
         }
         Ok(set.into())
