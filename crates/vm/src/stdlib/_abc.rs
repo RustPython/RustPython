@@ -361,9 +361,8 @@ mod _abc {
             return Ok(false);
         }
         if !ok.is(&vm.ctx.not_implemented) {
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.assertion_error.to_owned(),
-                "__subclasshook__ must return either False, True, or NotImplemented".into(),
+            return Err(vm.new_assertion_error(
+                "__subclasshook__ must return either False, True, or NotImplemented",
             ));
         }
 

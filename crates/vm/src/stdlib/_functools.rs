@@ -44,11 +44,7 @@ mod _functools {
         } else {
             // initial was not provided at all
             iter.next().transpose()?.ok_or_else(|| {
-                let exc_type = vm.ctx.exceptions.type_error.to_owned();
-                vm.new_exception_msg(
-                    exc_type,
-                    "reduce() of empty sequence with no initial value".into(),
-                )
+                vm.new_type_error("reduce() of empty iterable with no initial value")
             })?
         };
 
