@@ -276,13 +276,22 @@ impl IterNext for PyCallableIterator {
 
         let ret = callable.invoke((), vm)?;
 
-        // Re-check: a reentrant call may have exhausted the iterator.
-        let status = zelf.status.upgradable_read();
-        if !matches!(&*status, IterStatus::Active(_)) {
-            return Ok(PyIterReturn::StopIteration(None));
+        // Re-check before comparing, but don't hold the lock while running
+        // sentinel equality. User __eq__ code can re-enter this iterator.
+        {
+            let status = zelf.status.read();
+            if !matches!(&*status, IterStatus::Active(_)) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
         }
 
-        if vm.bool_eq(&ret, &zelf.sentinel)? {
+        let is_sentinel = vm.identical_or_equal(&ret, &zelf.sentinel)?;
+
+        if is_sentinel {
+            let status = zelf.status.upgradable_read();
+            if !matches!(&*status, IterStatus::Active(_)) {
+                return Ok(PyIterReturn::StopIteration(None));
+            }
             *PyRwLockUpgradableReadGuard::upgrade(status) = IterStatus::Exhausted;
             Ok(PyIterReturn::StopIteration(None))
         } else {

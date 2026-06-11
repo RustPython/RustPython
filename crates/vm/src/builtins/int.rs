@@ -236,10 +236,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     let float = true_div(i1, i2);
 
     if float.is_infinite() {
-        Err(vm.new_exception_msg(
-            vm.ctx.exceptions.overflow_error.to_owned(),
-            "integer division result too large for a float".into(),
-        ))
+        Err(vm.new_overflow_error("integer division result too large for a float"))
     } else {
         Ok(vm.ctx.new_float(float).into())
     }

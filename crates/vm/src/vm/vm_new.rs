@@ -930,4 +930,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
     define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
+    define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
+    define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
 }

@@ -7,8 +7,7 @@ use crate::{
 use core::borrow::Borrow;
 use core::ops::Deref;
 
-/// Iterator Protocol
-// https://docs.python.org/3/c-api/iter.html
+/// [Iterator Protocol](https://docs.python.org/3/c-api/iter.html).
 #[derive(Debug, Clone)]
 #[repr(transparent)]
 pub struct PyIter<O = PyObjectRef>(O)
@@ -31,9 +30,11 @@ impl<O> PyIter<O>
 where
     O: Borrow<PyObject>,
 {
+    #[must_use]
     pub const fn new(obj: O) -> Self {
         Self(obj)
     }
+
     pub fn next(&self, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let iternext = self
             .0
@@ -193,7 +194,7 @@ impl PyIterReturn {
         match self {
             Self::Return(obj) => Ok(obj),
             Self::StopIteration(v) => Err({
-                let args = if let Some(v) = v { vec![v] } else { Vec::new() };
+                let args = v.map_or_else(Vec::new, |v| vec![v]);
                 vm.new_exception(vm.ctx.exceptions.stop_async_iteration.to_owned(), args)
             }),
         }
