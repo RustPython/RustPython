@@ -548,6 +548,10 @@ if sys.platform == 'win32':
         def create_event_loop(self):
             return asyncio.ProactorEventLoop()
 
+        @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; Flaky on CI")
+        def test_sendfile_ssl_pre_and_post_data(self):
+            return super().test_sendfile_ssl_pre_and_post_data()
+
 else:
     import selectors
 
