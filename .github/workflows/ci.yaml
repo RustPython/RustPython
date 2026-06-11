@@ -309,7 +309,6 @@ jobs:
           extra_test_args: [] # TODO: Enable '-u all'
           env_polluting_tests:
             - test_set
-            - test_tempfile
           skips: []
           timeout: 50
       fail-fast: false

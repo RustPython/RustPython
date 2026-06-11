@@ -1746,8 +1746,8 @@ class TestTemporaryDirectory(BaseTestCase):
                          "were deleted")
         d2.cleanup()
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; flaky, sometimes pollute env on CI")
     @unittest.expectedFailureIf(sys.platform in ("android", "linux"), "TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory: '<LONG_PATH>'")
-    @unittest.skipIf(sys.platform == 'win32' and "RUSTPYTHON_SKIP_ENV_POLLUTERS" in os.environ, "TODO: RUSTPYTHON")
     @os_helper.skip_unless_symlink
     def test_cleanup_with_symlink_modes(self):
         # cleanup() should not follow symlinks when fixing mode bits (#91133)
