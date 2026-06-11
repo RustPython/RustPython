@@ -13,7 +13,8 @@ from _pyrepl.console import Event
 from _pyrepl.reader import Reader
 from _colorize import default_theme
 
-import unittest # # XXX: RUSTPYTHON
+import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
+
 
 overrides = {"reset": "z", "soft_keyword": "K"}
 colors = {overrides.get(k, k[0].lower()): v for k, v in default_theme.syntax.items()}
@@ -230,6 +231,7 @@ class TestReader(ScreenEqualMixin, TestCase):
             console.get_event.side_effect = events
             console.height = 100
             console.width = 80
+            console.getheightwidth = MagicMock(side_effect=lambda: (console.height, console.width))
             console.input_hook = input_hook
             return console
 

@@ -140,10 +140,10 @@ def __rustpython_patch_termios_tcsetattr(a, b, c):
 # )
 @patch("termios.tcgetattr", __rustpython_patch_termios_tcgetattr)
 @patch(
-        "termios.tcsetattr",
-        # TODO: RUSTPYTHON; SyntaxError: no symbol table available in lambda (type: Lambda)
-        # lambda a, b, c: None
-        __rustpython_patch_termios_tcsetattr
+    "termios.tcsetattr",
+    # TODO: RUSTPYTHON; SyntaxError: no symbol table available in lambda (type: Lambda)
+    # lambda a, b, c: None
+    __rustpython_patch_termios_tcsetattr,
 )
 @patch("os.write")
 @force_not_colorized_test_class
@@ -298,8 +298,7 @@ class TestConsole(TestCase):
         events = itertools.chain(code_to_events(code))
         reader, console = handle_events_short_unix_console(events)
 
-        console.height = 2
-        console.getheightwidth = MagicMock(lambda _: (2, 80))
+        console.getheightwidth = MagicMock(side_effect=lambda: (2, 80))
 
         def same_reader(_):
             return reader
@@ -334,8 +333,7 @@ class TestConsole(TestCase):
         events = itertools.chain(code_to_events(code))
         reader, console = handle_events_unix_console_height_3(events)
 
-        console.height = 1
-        console.getheightwidth = MagicMock(lambda _: (1, 80))
+        console.getheightwidth = MagicMock(side_effect=lambda: (1, 80))
 
         def same_reader(_):
             return reader

@@ -18,8 +18,6 @@ from test.support import has_subprocess_support, SHORT_TIMEOUT, STDLIB_DIR
 from test.support.import_helper import import_module
 from test.support.os_helper import EnvironmentVarGuard, unlink
 
-import unittest  # XXX RUSTPYTHON
-
 from .support import (
     FakeConsole,
     ScreenEqualMixin,
@@ -41,6 +39,8 @@ from _pyrepl.readline import (
     _ReadlineWrapper,
 )
 from _pyrepl.readline import multiline_input as readline_multiline_input
+
+import unittest  # XXX: RUSTPYTHON; importing to be able to skip tests
 
 try:
     import pty
