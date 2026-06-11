@@ -2312,6 +2312,12 @@ pub mod module {
         super::super::os::module_exec(vm, module)?;
         Ok(())
     }
+
+    #[pyfunction]
+    fn _is_inputhook_installed() -> bool {
+        // TODO: Implement the actual logic here
+        false
+    }
 }
 
 #[cfg(any(
@@ -2454,11 +2460,5 @@ mod posix_sched {
         let libc_sched_param = convert_sched_param(&args.sched_param, vm)?;
         rustpython_host_env::posix::sched_setparam(args.pid, &libc_sched_param)
             .map_err(|err| err.into_pyexception(vm))
-    }
-
-    #[pyfunction]
-    fn _is_inputhook_installed() -> bool {
-        // TODO: Implement the actual logic here
-        false
     }
 }

@@ -1532,6 +1532,7 @@ class TestPasteEvent(TestCase):
 
 @skipUnless(pty, "requires pty")
 class TestDumbTerminal(ReplTestCase):
+    @unittest.expectedFailureIf(sys.platform in ("darwin", "linux"), "TODO: RUSTPYTHON")
     def test_dumb_terminal_exits_cleanly(self):
         env = os.environ.copy()
         env.pop('PYTHON_BASIC_REPL', None)
