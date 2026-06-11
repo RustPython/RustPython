@@ -86,8 +86,8 @@ pub(crate) enum ConstantLiteral {
     },
     Bytes(Box<[u8]>),
     Int(ast::Int),
-    Tuple(Vec<ConstantLiteral>),
-    FrozenSet(Vec<ConstantLiteral>),
+    Tuple(Vec<Self>),
+    FrozenSet(Vec<Self>),
     Float(f64),
     Complex {
         real: f64,

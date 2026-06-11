@@ -32,7 +32,7 @@ impl syn::parse::Parse for WithItem {
             }
         }
         let path = input.parse()?;
-        Ok(WithItem { cfg_attrs, path })
+        Ok(Self { cfg_attrs, path })
     }
 }
 
@@ -75,7 +75,7 @@ impl syn::parse::Parse for PyModuleArgs {
             input.parse::<syn::Token![,]>()?;
         }
 
-        Ok(PyModuleArgs { metas, with_items })
+        Ok(Self { metas, with_items })
     }
 }
 
@@ -84,13 +84,13 @@ fn negate_cfg_attrs(cfg_attrs: &[Attribute]) -> Vec<Attribute> {
     if cfg_attrs.is_empty() {
         return vec![];
     }
-    let predicates: Vec<_> = cfg_attrs
+    let predicates = cfg_attrs
         .iter()
         .map(|attr| match &attr.meta {
             syn::Meta::List(list) => list.tokens.clone(),
             _ => unreachable!("only #[cfg(...)] should be here"),
         })
-        .collect();
+        .collect::<Vec<_>>();
     if predicates.len() == 1 {
         let predicate = &predicates[0];
         vec![parse_quote!(#[cfg(not(#predicate))])]
@@ -295,19 +295,20 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     // Split with_items into unconditional and cfg-gated groups
     let (uncond_withs, cond_withs): (Vec<_>, Vec<_>) =
         with_items.iter().partition(|w| w.cfg_attrs.is_empty());
-    let uncond_paths: Vec<_> = uncond_withs.iter().map(|w| &w.path).collect();
+    let uncond_paths = uncond_withs.iter().map(|w| &w.path).collect::<Vec<_>>();
 
     let method_defs = if with_items.is_empty() {
         quote!(#function_items)
     } else {
         // For cfg-gated with items, generate conditional const declarations
         // so the total array size adapts to the cfg at compile time
-        let cond_const_names: Vec<_> = cond_withs
+        let cond_const_names = cond_withs
             .iter()
             .enumerate()
             .map(|(i, _)| format_ident!("__WITH_METHODS_{}", i))
-            .collect();
-        let cond_const_decls: Vec<_> = cond_withs
+            .collect::<Vec<_>>();
+
+        let cond_const_decls= cond_withs
             .iter()
             .zip(&cond_const_names)
             .map(|(w, name)| {
@@ -321,7 +322,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
                     const #name: &'static [::rustpython_vm::function::PyMethodDef] = &[];
                 }
             })
-            .collect();
+            .collect::<Vec<_>>();
 
         quote!({
             const OWN_METHODS: &'static [::rustpython_vm::function::PyMethodDef] = &#function_items;
@@ -340,7 +341,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
     };
 
     // Generate __init_attributes calls, wrapping cfg-gated items
-    let init_with_calls: Vec<_> = with_items
+    let init_with_calls = with_items
         .iter()
         .map(|w| {
             let cfg_attrs = &w.cfg_attrs;
@@ -350,7 +351,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
                 super::#path::__init_attributes(vm, module);
             }
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     items.extend([
         parse_quote! {
@@ -702,8 +703,7 @@ impl ModuleItem for FunctionItem {
                     let r = loop_unit();
                     args.context.errors.ok_or_push(r);
                 }
-                let py_names: Vec<_> = py_names.into_iter().collect();
-                py_names
+                py_names.into_iter().collect::<Vec<_>>()
             }
         };
         let call_flags = infer_native_call_flags(func.sig(), 0);
@@ -816,7 +816,7 @@ impl ModuleItem for ClassItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -910,7 +910,7 @@ impl ModuleItem for StructSequenceItem {
                 #set_attr
             },
             0,
-        )?;
+        );
         Ok(())
     }
 }
@@ -995,9 +995,9 @@ impl ModuleItem for AttributeItem {
                         cfgs.clone(),
                         tokens,
                         1,
-                    )?;
+                    );
                     Ok(())
-                })?;
+                });
                 return Ok(());
             }
             other => {
@@ -1053,7 +1053,7 @@ impl ModuleItem for AttributeItem {
 
         args.context
             .attribute_items
-            .add_item(ident, py_names, cfgs, tokens, 1)?;
+            .add_item(ident, py_names, cfgs, tokens, 1);
 
         Ok(())
     }

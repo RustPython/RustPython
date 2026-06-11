@@ -1,7 +1,10 @@
 //! Implementation of the _thread module
+
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
 pub(crate) use _thread::after_fork_child;
+
 pub use _thread::get_ident;
+
 #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
 pub(crate) use _thread::{
     CurrentFrameSlot, HandleEntry, RawRMutex, ShutdownEntry, get_all_current_frames,
@@ -12,7 +15,7 @@ pub(crate) use _thread::{
 pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
@@ -28,6 +31,8 @@ pub(crate) mod _thread {
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
     use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
+    #[cfg(any(unix, windows))]
+    use rustpython_host_env::thread as host_thread;
     use std::thread;
 
     // PYTHREAD_NAME: show current thread name
@@ -45,9 +50,30 @@ pub(crate) mod _thread {
     #[cfg(target_os = "windows")]
     const TIMEOUT_MAX_IN_MICROSECONDS: i64 = 0xffffffff * 1_000;
 
+    /// [CPython `SYSTEM_PAGE_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_obmalloc.h#L170)
+    const SYSTEM_PAGE_SIZE: usize = 4 * 1024;
+
+    // TODO: Check for sanitize once https://github.com/rust-lang/rust/issues/39699 is closed
+    /// [CPython `_PyOS_LOG2_STACK_MARGIN`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L41-L47)
+    const PY_OS_LOG2_STACK_MARGIN: u32 = cfg_select! {
+        debug_assertions => 12,
+        _ => 11,
+    };
+
+    /// [CPython `_PyOS_STACK_MARGIN`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L48)
+    const PY_OS_STACK_MARGIN: usize = 1 << PY_OS_LOG2_STACK_MARGIN;
+
+    /// [CPython `_PyOS_STACK_MARGIN_BYTES`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L49)
+    const PY_OS_STACK_MARGIN_BYTES: usize = PY_OS_STACK_MARGIN * size_of::<*const ()>();
+
+    // TODO: Check for sanitize once https://github.com/rust-lang/rust/issues/39699 is closed
+    /// [CPython `_PyOS_MIN_STACK_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L57-L61)
+    const PY_OS_MIN_STACK_SIZE: usize = PY_OS_STACK_MARGIN_BYTES * 3;
+
     // this is a value in seconds
     #[pyattr]
     const TIMEOUT_MAX: f64 = (TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000) as f64;
+
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.runtime_error.to_owned()
@@ -71,22 +97,23 @@ pub(crate) mod _thread {
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
-                    Err(vm
-                        .new_value_error("timeout value must be a non-negative number".to_owned()))
+                    Err(vm.new_value_error("timeout value must be a non-negative number"))
                 }
                 true => {
                     if timeout > TIMEOUT_MAX {
-                        return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+                        return Err(vm.new_overflow_error("timeout value is too large"));
                     }
 
                     Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
                 }
-                false if timeout != -1.0 => Err(vm
-                    .new_value_error("can't specify a timeout for a non-blocking call".to_owned())),
+                false if timeout != -1.0 => {
+                    Err(vm.new_value_error("can't specify a timeout for a non-blocking call"))
+                }
                 false => Ok(mu.try_lock()),
             }
         }};
     }
+
     macro_rules! repr_lock_impl {
         ($zelf:expr) => {{
             let status = if $zelf.mu.is_locked() {
@@ -125,6 +152,7 @@ pub(crate) mod _thread {
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             acquire_lock_impl!(&self.mu, args, vm)
         }
+
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -137,11 +165,10 @@ pub(crate) mod _thread {
 
         #[cfg(unix)]
         #[pymethod]
-        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
             unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
-            Ok(())
         }
 
         #[pymethod]
@@ -214,6 +241,7 @@ pub(crate) mod _thread {
             }
             Ok(result)
         }
+
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -232,12 +260,11 @@ pub(crate) mod _thread {
 
         #[cfg(unix)]
         #[pymethod]
-        fn _at_fork_reinit(&self, _vm: &VirtualMachine) -> PyResult<()> {
+        fn _at_fork_reinit(&self, _vm: &VirtualMachine) {
             // Overwrite lock state to unlocked. Do NOT call unlock() here —
             // after fork(), unlock_slow() would try to unpark stale waiters.
             self.count.store(0, core::sync::atomic::Ordering::Relaxed);
             unsafe { rustpython_common::lock::zero_reinit_after_fork(&self.mu) };
-            Ok(())
         }
 
         #[pymethod]
@@ -380,75 +407,44 @@ pub(crate) mod _thread {
     /// Set the name of the current thread
     #[pyfunction]
     fn set_name(name: PyUtf8StrRef) {
-        #[cfg(target_os = "linux")]
-        {
-            use alloc::ffi::CString;
-            if let Ok(c_name) = CString::new(name.as_str()) {
-                // pthread_setname_np on Linux has a 16-byte limit including null terminator
-                // TODO: Potential UTF-8 boundary issue when truncating thread name on Linux.
-                // https://github.com/RustPython/RustPython/pull/6726/changes#r2689379171
-                let truncated = if c_name.as_bytes().len() > 15 {
-                    CString::new(&c_name.as_bytes()[..15]).unwrap_or(c_name)
-                } else {
-                    c_name
-                };
-                unsafe {
-                    libc::pthread_setname_np(libc::pthread_self(), truncated.as_ptr());
-                }
-            }
-        }
-        #[cfg(target_os = "macos")]
-        {
-            use alloc::ffi::CString;
-            if let Ok(c_name) = CString::new(name.as_str()) {
-                unsafe {
-                    libc::pthread_setname_np(c_name.as_ptr());
-                }
-            }
-        }
-        #[cfg(windows)]
-        {
-            // Windows doesn't have a simple pthread_setname_np equivalent
-            // SetThreadDescription requires Windows 10+
-            let _ = name;
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-        {
-            let _ = name;
-        }
+        #[cfg(any(unix, windows))]
+        host_thread::set_current_thread_name(name.as_str());
+        #[cfg(not(any(unix, windows)))]
+        let _ = name;
     }
 
     /// Get OS-level thread ID (pthread_self on Unix)
     /// This is important for fork compatibility - the ID must remain stable after fork
-    #[cfg(unix)]
     fn current_thread_id() -> u64 {
-        // pthread_self() for fork compatibility
-        unsafe { libc::pthread_self() as u64 }
-    }
-
-    #[cfg(not(unix))]
-    fn current_thread_id() -> u64 {
-        thread_to_rust_id(&thread::current())
+        cfg_select! {
+            unix => host_thread::current_thread_id(),
+            _ => thread_to_rust_id(&thread::current()),
+        }
     }
 
     /// Convert Rust thread to ID (used for non-unix platforms)
     #[cfg(not(unix))]
     fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
+
         struct U64Hash {
             v: Option<u64>,
         }
+
         impl Hasher for U64Hash {
             fn write(&mut self, _: &[u8]) {
                 unreachable!()
             }
+
             fn write_u64(&mut self, i: u64) {
                 self.v = Some(i);
             }
+
             fn finish(&self) -> u64 {
                 self.v.expect("should have written a u64")
             }
         }
+
         let mut h = U64Hash { v: None };
         t.id().hash(&mut h);
         h.finish()
@@ -463,6 +459,7 @@ pub(crate) mod _thread {
             use std::os::unix::thread::JoinHandleExt;
             handle.as_pthread_t() as _
         }
+
         #[cfg(not(unix))]
         {
             thread_to_rust_id(handle.thread())
@@ -479,12 +476,14 @@ pub(crate) mod _thread {
         if !f_args.kwargs.is_empty() {
             return Err(vm.new_type_error("start_new_thread() takes no keyword arguments"));
         }
+
         let given = f_args.args.len();
         if given < 2 {
             return Err(vm.new_type_error(format!(
                 "start_new_thread expected at least 2 arguments, got {given}"
             )));
         }
+
         if given > 3 {
             return Err(vm.new_type_error(format!(
                 "start_new_thread expected at most 3 arguments, got {given}"
@@ -498,9 +497,11 @@ pub(crate) mod _thread {
         if func_obj.to_callable().is_none() {
             return Err(vm.new_type_error("first arg must be callable"));
         }
+
         if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
             return Err(vm.new_type_error("2nd arg must be a tuple"));
         }
+
         if kwargs_obj
             .as_ref()
             .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
@@ -559,10 +560,16 @@ pub(crate) mod _thread {
         // Increment thread count when thread actually starts executing
         vm.state.thread_count.fetch_add(1);
 
-        match func.invoke(args, vm) {
-            Ok(_obj) => {}
-            Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
-            Err(exc) => {
+        // Inner scope: drop `func` (and its Python refs) before the thread
+        // slot is torn down below. Otherwise the parameter `func` would drop
+        // at end-of-function, after cleanup_current_thread_frames has cleared
+        // CURRENT_THREAD_SLOT, and a weakref callback fired during that drop
+        // would panic in push_thread_frame.
+        {
+            let func = func;
+            if let Err(exc) = func.invoke(args, vm)
+                && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+            {
                 vm.run_unraisable(
                     exc,
                     Some("Exception ignored in thread started by".to_owned()),
@@ -626,10 +633,18 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn stack_size(size: OptionalArg<usize>, vm: &VirtualMachine) -> usize {
-        let size = size.unwrap_or(0);
-        // TODO: do validation on this to make sure it's not too small
-        vm.state.stacksize.swap(size)
+    fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
+        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+
+        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
+            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
+        };
+
+        if size != 0 && size < MIN_SIZE {
+            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
+        }
+
+        Ok(vm.state.stacksize.swap(size))
     }
 
     #[pyfunction]
@@ -861,11 +876,7 @@ pub(crate) mod _thread {
         };
         let name = thread_name.unwrap_or_else(|| Wtf8Buf::from(format!("{}", get_ident())));
 
-        let _ = vm.call_method(
-            &file,
-            "write",
-            (format!("Exception in thread {}:\n", name),),
-        );
+        let _ = vm.call_method(&file, "write", (format!("Exception in thread {name}:\n"),));
 
         // Display the traceback
         if let Ok(traceback_mod) = vm.import("traceback", 0)
@@ -1458,9 +1469,7 @@ pub(crate) mod _thread {
 
         #[pyslot]
         fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            ThreadHandle::new(vm)
-                .into_ref_with_type(vm, cls)
-                .map(Into::into)
+            Self::new(vm).into_ref_with_type(vm, cls).map(Into::into)
         }
     }
 
@@ -1536,13 +1545,12 @@ pub(crate) mod _thread {
                 })
                 .min_by_key(|(distance, _)| *distance)
                 .map(|(_, candidate)| candidate);
-            let msg = if let Some(suggestion) = suggestion {
-                format!(
-                    "start_joinable_thread() got an unexpected keyword argument '{unexpected}'. Did you mean '{suggestion}'?"
-                )
-            } else {
-                format!("start_joinable_thread() got an unexpected keyword argument '{unexpected}'")
-            };
+
+            let msg_suffix =
+                suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
+            let msg = format!(
+                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
+            );
             return Err(vm.new_type_error(msg));
         }
 
@@ -1698,11 +1706,18 @@ pub(crate) mod _thread {
                 // Increment thread count when thread actually starts executing
                 vm_state.thread_count.fetch_add(1);
 
-                // Run the function
-                match func.invoke((), vm) {
-                    Ok(_) => {}
-                    Err(e) if e.fast_isinstance(vm.ctx.exceptions.system_exit) => {}
-                    Err(exc) => {
+                // Inner scope: drop `func` (and its Python refs) before the
+                // outer scopeguard::defer tears down the thread slot. As a
+                // `move` closure capture, `func` would otherwise drop after
+                // all locals (including the scopeguard `_guard`), and a
+                // weakref callback fired during that drop would panic in
+                // push_thread_frame.
+                {
+                    let func = func;
+                    // Run the function
+                    if let Err(exc) = func.invoke((), vm)
+                        && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
+                    {
                         vm.run_unraisable(
                             exc,
                             Some("Exception ignored in thread started by".to_owned()),

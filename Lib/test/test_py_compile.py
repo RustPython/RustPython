@@ -132,7 +132,6 @@ class PyCompileTestsBase:
         finally:
             os.chmod(self.directory, mode.st_mode)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_coding(self):
         bad_coding = os.path.join(os.path.dirname(__file__),
                                   'tokenizedata',
@@ -198,7 +197,6 @@ class PyCompileTestsBase:
                 fp.read(), 'test', {})
         self.assertEqual(flags, 0b1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quiet(self):
         bad_coding = os.path.join(os.path.dirname(__file__),
                                   'tokenizedata',

@@ -236,10 +236,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     let float = true_div(i1, i2);
 
     if float.is_infinite() {
-        Err(vm.new_exception_msg(
-            vm.ctx.exceptions.overflow_error.to_owned(),
-            "integer division result too large for a float".into(),
-        ))
+        Err(vm.new_overflow_error("integer division result too large for a float"))
     } else {
         Ok(vm.ctx.new_float(float).into())
     }
@@ -446,7 +443,7 @@ impl PyInt {
         zelf: PyRef<Self>,
         ndigits: OptionalOption<PyIntRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
+    ) -> PyRef<Self> {
         if let Some(ndigits) = ndigits.flatten() {
             let ndigits = ndigits.as_bigint();
             // round(12345, -2) == 12300
@@ -477,10 +474,10 @@ impl PyInt {
                         BigInt::from(0)
                     };
                 let rounded = (rounded + correction) * sign;
-                return Ok(vm.ctx.new_int(rounded));
+                return vm.ctx.new_int(rounded);
             }
         }
-        Ok(zelf)
+        zelf
     }
 
     #[pymethod]

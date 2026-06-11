@@ -14,7 +14,7 @@ use rustpython_literal::{float, format::Case};
 
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CFormatErrorType {
     UnmatchedKeyParentheses,
     MissingModuloSign,
@@ -27,7 +27,7 @@ pub enum CFormatErrorType {
 // also contains how many chars the parsing function consumed
 pub type ParsingError = (CFormatErrorType, usize);
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CFormatError {
     pub typ: CFormatErrorType, // FIXME
     pub index: usize,
@@ -54,7 +54,7 @@ impl fmt::Display for CFormatError {
 
 pub type CFormatConversion = super::format::FormatConversion;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CNumberType {
     DecimalD = b'd',
@@ -65,7 +65,7 @@ pub enum CNumberType {
     HexUpper = b'X',
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CFloatType {
     ExponentLower = b'e',
@@ -87,13 +87,13 @@ impl CFloatType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[repr(u8)]
 pub enum CCharacterType {
     Character = b'c',
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatType {
     Number(CNumberType),
     Float(CFloatType),
@@ -113,7 +113,7 @@ impl CFormatType {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatPrecision {
     Quantity(CFormatQuantity),
     Dot,
@@ -126,7 +126,7 @@ impl From<CFormatQuantity> for CFormatPrecision {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CConversionFlags: u32 {
         const ALTERNATE_FORM = 0b0000_0001;
         const ZERO_PAD = 0b0000_0010;
@@ -150,7 +150,7 @@ impl CConversionFlags {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum CFormatQuantity {
     Amount(usize),
     FromValuesTuple,
@@ -160,16 +160,22 @@ pub trait FormatBuf:
     Extend<Self::Char> + Default + FromIterator<Self::Char> + From<String>
 {
     type Char: FormatChar;
+
     fn chars(&self) -> impl Iterator<Item = Self::Char>;
+
     fn len(&self) -> usize;
+
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    #[must_use]
     fn concat(self, other: Self) -> Self;
 }
 
 pub trait FormatChar: Copy + Into<CodePoint> + From<u8> {
     fn to_char_lossy(self) -> char;
+
     fn eq_char(self, c: char) -> bool;
 }
 
@@ -254,7 +260,7 @@ impl FormatChar for u8 {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CFormatSpec {
     pub flags: CConversionFlags,
     pub min_field_width: Option<CFormatQuantity>,
@@ -263,7 +269,7 @@ pub struct CFormatSpec {
     // chars_consumed: usize,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatSpecKeyed<T> {
     pub mapping_key: Option<T>,
     pub spec: CFormatSpec,
@@ -620,7 +626,7 @@ where
     let (index, c) = iter.next().ok_or_else(|| {
         (
             CFormatErrorType::IncompleteFormat,
-            iter.peek().map(|x| x.0).unwrap_or(0),
+            iter.peek().map_or(0, |x| x.0),
         )
     })?;
     let format_type = match c.to_char_lossy() {
@@ -718,7 +724,7 @@ where
     Some(contained_text)
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum CFormatPart<T> {
     Literal(T),
     Spec(CFormatSpecKeyed<T>),
@@ -739,7 +745,7 @@ impl<T> CFormatPart<T> {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Eq, PartialEq)]
 pub struct CFormatStrOrBytes<S> {
     parts: Vec<(usize, CFormatPart<S>)>,
 }
@@ -788,21 +794,23 @@ impl<S> CFormatStrOrBytes<S> {
                         iter.next().unwrap();
                         literal.extend([second]);
                         continue;
-                    } else {
-                        if !literal.is_empty() {
-                            parts.push((
-                                part_index,
-                                CFormatPart::Literal(core::mem::take(&mut literal)),
-                            ));
-                        }
-                        let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
-                            typ: err.0,
-                            index: err.1,
-                        })?;
-                        parts.push((index, CFormatPart::Spec(spec)));
-                        if let Some(&(index, _)) = iter.peek() {
-                            part_index = index;
-                        }
+                    }
+
+                    if !literal.is_empty() {
+                        parts.push((
+                            part_index,
+                            CFormatPart::Literal(core::mem::take(&mut literal)),
+                        ));
+                    }
+
+                    let spec = CFormatSpecKeyed::parse(iter).map_err(|err| CFormatError {
+                        typ: err.0,
+                        index: err.1,
+                    })?;
+
+                    parts.push((index, CFormatPart::Spec(spec)));
+                    if let Some(&(index, _)) = iter.peek() {
+                        part_index = index;
                     }
                 } else {
                     return Err(CFormatError {
@@ -864,7 +872,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_fill_and_align() {
+    fn fill_and_align() {
         assert_eq!(
             "%10s"
                 .parse::<CFormatSpec>()
@@ -896,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_key() {
+    fn parse_key() {
         let expected = Ok(CFormatSpecKeyed {
             mapping_key: Some("amount".to_owned()),
             spec: CFormatSpec {
@@ -924,7 +932,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse_key_fail() {
+    fn format_parse_key_fail() {
         assert_eq!(
             "%(aged".parse::<CFormatString>(),
             Err(CFormatError {
@@ -935,7 +943,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse_type_fail() {
+    fn format_parse_type_fail() {
         assert_eq!(
             "Hello %n".parse::<CFormatString>(),
             Err(CFormatError {
@@ -946,7 +954,7 @@ mod tests {
     }
 
     #[test]
-    fn test_incomplete_format_fail() {
+    fn incomplete_format_fail() {
         assert_eq!(
             "Hello %".parse::<CFormatString>(),
             Err(CFormatError {
@@ -957,7 +965,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_flags() {
+    fn parse_flags() {
         let expected = Ok(CFormatSpec {
             format_type: CFormatType::Number(CNumberType::DecimalD),
             min_field_width: Some(CFormatQuantity::Amount(10)),
@@ -973,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_string() {
+    fn parse_and_format_string() {
         assert_eq!(
             "%5.4s"
                 .parse::<CFormatSpec>()
@@ -1005,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_unicode_string() {
+    fn parse_and_format_unicode_string() {
         assert_eq!(
             "%.2s"
                 .parse::<CFormatSpec>()
@@ -1016,7 +1024,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_number() {
+    fn parse_and_format_number() {
         assert_eq!(
             "%5d"
                 .parse::<CFormatSpec>()
@@ -1090,7 +1098,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_and_format_float() {
+    fn parse_and_format_float() {
         assert_eq!(
             "%f".parse::<CFormatSpec>().unwrap().format_float(1.2345),
             "1.234500"
@@ -1128,7 +1136,7 @@ mod tests {
     }
 
     #[test]
-    fn test_format_parse() {
+    fn format_parse() {
         let fmt = "Hello, my name is %s and I'm %d years old";
         let expected = Ok(CFormatString {
             parts: vec![

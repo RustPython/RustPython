@@ -245,7 +245,6 @@ impl PyList {
         Self::from(self.borrow_vec().to_vec()).into_ref(&vm.ctx)
     }
 
-    #[allow(clippy::len_without_is_empty)]
     pub fn __len__(&self) -> usize {
         self.borrow_vec().len()
     }
@@ -534,7 +533,7 @@ impl AsSequence for PyList {
                 }
                 .map_err(|e| {
                     if e.class().is(vm.ctx.exceptions.index_error) {
-                        vm.new_index_error("list assignment index out of range".to_owned())
+                        vm.new_index_error("list assignment index out of range")
                     } else {
                         e
                     }

@@ -26,6 +26,7 @@ mod _window {
     use super::{js_module, wasm_builtins};
     use rustpython_vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
         __module_exec(vm, module);
         extend_module!(vm, module, {
@@ -36,7 +37,7 @@ mod _window {
 }
 
 impl StoredVirtualMachine {
-    fn new(id: String, inject_browser_module: bool) -> StoredVirtualMachine {
+    fn new(id: String, inject_browser_module: bool) -> Self {
         let mut settings = Settings::default();
         settings.allow_external_library = false;
 
@@ -70,7 +71,7 @@ impl StoredVirtualMachine {
 
         let scope = interp.enter(|vm| vm.new_scope_with_builtins());
 
-        StoredVirtualMachine {
+        Self {
             interp,
             scope,
             held_objects: RefCell::new(Vec::new()),

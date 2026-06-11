@@ -19,7 +19,6 @@ rustpython-wtf8 = { workspace = true }
 ruff_python_ast = { workspace = true }
 ruff_text_size = { workspace = true }
 
-ahash = { workspace = true }
 bitflags = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
@@ -29,6 +28,7 @@ num-traits = { workspace = true }
 thiserror = { workspace = true }
 malachite-bigint = { workspace = true }
 memchr = { workspace = true }
+rapidhash = { workspace = true }
 unicode_names2 = { workspace = true }
 
 [dev-dependencies]

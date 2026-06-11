@@ -10,6 +10,7 @@ use crate::vm::{
     PyObject, PyResult, VirtualMachine, builtins::PyStr, convert::TryFromBorrowedObject,
 };
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum NormalizeForm {
     Nfc,
     Nfkc,
@@ -191,9 +192,9 @@ mod unicodedata {
         }
 
         #[pymethod]
-        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<Wtf8Buf> {
+        fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> Wtf8Buf {
             let text = unistr.as_wtf8();
-            let normalized_text = match form {
+            match form {
                 Nfc => {
                     let normalizer = ComposingNormalizerBorrowed::new_nfc();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
@@ -214,12 +215,11 @@ mod unicodedata {
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-            };
-            Ok(normalized_text)
+            }
         }
 
         #[pymethod]
-        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> PyResult<bool> {
+        fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> bool {
             let text = unistr.as_wtf8();
             let normalized: Wtf8Buf = match form {
                 Nfc => {
@@ -243,7 +243,7 @@ mod unicodedata {
                         .collect()
                 }
             };
-            Ok(text == &*normalized)
+            text == &*normalized
         }
 
         #[pymethod]
@@ -274,11 +274,10 @@ mod unicodedata {
 
         #[pymethod]
         fn decomposition(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<String> {
-            let ch = match self.extract_char(character, vm)?.and_then(|c| c.to_char()) {
-                Some(ch) => ch,
-                None => return Ok(String::new()),
+            let Some(ch) = self.extract_char(character, vm)?.and_then(|c| c.to_char()) else {
+                return Ok(String::new());
             };
-            let chars: Vec<char> = ch.decomposition_map().collect();
+            let chars = ch.decomposition_map().collect::<Vec<char>>();
             // If decomposition maps to just the character itself, there's no decomposition
             if chars.len() == 1 && chars[0] == ch {
                 return Ok(String::new());
@@ -356,7 +355,7 @@ mod unicodedata {
         }
     }
 
-    fn decomposition_type_tag(dt: DecompositionType) -> &'static str {
+    const fn decomposition_type_tag(dt: DecompositionType) -> &'static str {
         match dt {
             DecompositionType::Canonical => "canonical",
             DecompositionType::Compat => "compat",

@@ -198,7 +198,7 @@ impl From<Literal> for PyObjectRef {
 
 impl From<PyObjectRef> for Literal {
     fn from(obj: PyObjectRef) -> Self {
-        Literal(obj)
+        Self(obj)
     }
 }
 
@@ -505,7 +505,7 @@ impl PyCode {
     }
 
     pub fn new_ref_with_bag(vm: &VirtualMachine, code: CodeObject) -> PyRef<Self> {
-        PyRef::new_ref(PyCode::new(code), vm.ctx.types.code_type.to_owned(), None)
+        PyRef::new_ref(Self::new(code), vm.ctx.types.code_type.to_owned(), None)
     }
 
     pub fn new_ref_from_bytecode(vm: &VirtualMachine, code: bytecode::CodeObject) -> PyRef<Self> {
@@ -748,7 +748,7 @@ impl Constructor for PyCode {
         // Parse and validate bytecode from bytes
         let bytecode_bytes = args.co_code.as_bytes();
         let instructions = CodeUnits::try_from(bytecode_bytes)
-            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?;
+            .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?;
 
         // Convert constants
         let constants = args
@@ -836,7 +836,7 @@ impl Constructor for PyCode {
             exceptiontable: args.exceptiontable.as_bytes().to_vec().into_boxed_slice(),
         };
 
-        Ok(PyCode::new(code))
+        Ok(Self::new(code))
     }
 }
 
@@ -1342,7 +1342,7 @@ impl PyCode {
             OptionalArg::Present(code_bytes) => {
                 // Parse and validate bytecode from bytes
                 CodeUnits::try_from(code_bytes.as_bytes())
-                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {}", e)))?
+                    .map_err(|e| vm.new_value_error(format!("invalid bytecode: {e}")))?
             }
             OptionalArg::Missing => self.code.instructions.clone(),
         };
@@ -1418,7 +1418,7 @@ impl PyCode {
             exceptiontable,
         };
 
-        Ok(PyCode::new(new_code))
+        Ok(Self::new(new_code))
     }
 
     #[pymethod]

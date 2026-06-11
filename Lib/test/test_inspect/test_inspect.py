@@ -237,7 +237,6 @@ class TestPredicates(IsTestBase):
 
         self.assertFalse(inspect.ispackage(FakePackage()))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_iscoroutine(self):
         async_gen_coro = async_generator_function_example(1)
         gen_coro = gen_coroutine_function_example(1)
@@ -888,7 +887,6 @@ class TestRetrievingSourceCode(GetSourceBase):
         self.assertRaises(OSError, inspect.getsourcelines, A)
         self.assertIsNone(inspect.getcomments(A))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by getsource
     def test_getsource_on_class_without_firstlineno(self):
         __firstlineno__ = 1
         class C:

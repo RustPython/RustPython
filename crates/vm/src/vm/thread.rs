@@ -724,12 +724,13 @@ impl VirtualMachine {
             state: self.state.clone(),
             initialized: self.initialized,
             recursion_depth: Cell::new(0),
-            c_stack_soft_limit: Cell::new(VirtualMachine::calculate_c_stack_soft_limit()),
+            c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
             asyncio_running_loop: RefCell::new(None),
             asyncio_running_task: RefCell::new(None),
             callable_cache: self.callable_cache.clone(),
+            audit_hooks: RefCell::new(vec![]),
         };
         ThreadedVirtualMachine { vm }
     }

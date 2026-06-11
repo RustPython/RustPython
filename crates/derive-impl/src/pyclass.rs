@@ -13,7 +13,7 @@ use syn::{Attribute, Ident, Item, Result, parse_quote, spanned::Spanned};
 use syn_ext::ext::*;
 use syn_ext::types::*;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum AttrName {
     Method,
     ClassMethod,
@@ -331,8 +331,7 @@ fn validate_base_field(item: &Item, base_path: &syn::Path) -> Result<Option<Toke
     let base_name = base_path
         .segments
         .last()
-        .map(|s| s.ident.to_string())
-        .unwrap_or_else(|| quote!(#base_path).to_string());
+        .map_or_else(|| quote!(#base_path).to_string(), |s| s.ident.to_string());
 
     match &item_struct.fields {
         syn::Fields::Named(fields) => {
@@ -645,8 +644,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
     // 1. no `clear`: HAS_CLEAR = HAS_TRAVERSE (default: same as traverse)
     // 2. `clear` or `clear = true`: HAS_CLEAR = true, try_clear calls Traverse::clear
     // 3. `clear = false`: HAS_CLEAR = false (rare: traverse without clear)
-    let has_traverse = class_meta.inner()._has_key("traverse")?;
-    let has_clear = if class_meta.inner()._has_key("clear")? {
+    let has_traverse = class_meta.inner().contains_key("traverse");
+    let has_clear = if class_meta.inner().contains_key("clear") {
         // If clear attribute is present, use its value
         class_meta.inner()._bool("clear")?
     } else {
@@ -781,8 +780,8 @@ pub(crate) fn impl_pyclass(attr: PunctuatedNestedMeta, item: Item) -> Result<Tok
 /// But, inside `macro_rules` we don't have an opportunity
 /// to add non-literal attributes to `pyclass`.
 /// That's why we have to use this proxy.
-pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
-    let (ident, _attrs) = pyexception_ident_and_attrs(&item)?;
+pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Result<TokenStream> {
+    let (ident, _attrs) = pyexception_ident_and_attrs(item)?;
     let fake_ident = Ident::new("pyclass", item.span());
     let class_meta = ExceptionItemMeta::from_nested(ident.clone(), fake_ident, attr.into_iter())?;
     let class_name = class_meta.class_name()?;
@@ -805,9 +804,9 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: Item) -> Result
     Ok(ret)
 }
 
-pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> Result<TokenStream> {
+pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> TokenStream {
     let Item::Impl(imp) = item else {
-        return Ok(item.into_token_stream());
+        return item.into_token_stream();
     };
 
     // Check if with(Constructor) is specified. If Constructor trait is used, don't generate slot_new
@@ -873,21 +872,17 @@ pub(crate) fn impl_pyexception_impl(attr: PunctuatedNestedMeta, item: Item) -> R
     // their own __init__ in __dict__.
     let slot_init = quote!();
 
-    let extra_attrs_tokens = if extra_attrs.is_empty() {
-        quote!()
-    } else {
-        quote!(, #(#extra_attrs),*)
-    };
+    let extra_attrs_tokens = quote!(#(#extra_attrs),*);
 
-    Ok(quote! {
-        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*) #extra_attrs_tokens)]
+    quote! {
+        #[pyclass(flags(BASETYPE, HAS_DICT), with(#(#with_items),*), #extra_attrs_tokens)]
         impl #generics #self_ty {
             #(#items)*
         }
 
         #slot_new
         #slot_init
-    })
+    }
 }
 
 macro_rules! define_content_item {
@@ -1132,7 +1127,7 @@ where
 
         args.context
             .getset_items
-            .add_item(py_name, args.cfgs.to_vec(), kind, ident.clone())?;
+            .add_item(&py_name, args.cfgs.to_vec(), kind, ident.clone())?;
         Ok(())
     }
 }
@@ -1190,7 +1185,7 @@ where
             args.cfgs.to_vec(),
             tokens,
             2,
-        )?;
+        );
 
         Ok(())
     }
@@ -1236,7 +1231,7 @@ where
 
         args.context
             .attribute_items
-            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1)?;
+            .add_item(ident.clone(), vec![py_name], cfgs, tokens, 1);
 
         Ok(())
     }
@@ -1299,7 +1294,7 @@ where
         }
 
         args.context.member_items.add_item(
-            py_name,
+            &py_name,
             member_item_kind,
             member_kind,
             ident.clone(),
@@ -1403,6 +1398,7 @@ struct GetSetNursery {
     validated: bool,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum GetSetItemKind {
     Get,
     Set,
@@ -1411,7 +1407,7 @@ enum GetSetItemKind {
 impl GetSetNursery {
     fn add_item(
         &mut self,
-        name: String,
+        name: &str,
         cfgs: Vec<Attribute>,
         kind: GetSetItemKind,
         item_ident: Ident,
@@ -1419,7 +1415,7 @@ impl GetSetNursery {
         assert!(!self.validated, "new item is not allowed after validation");
         // Note: Both getter and setter can have #[cfg], but they must have matching cfgs
         // since the map key is (name, cfgs). This ensures getter and setter are paired correctly.
-        let entry = self.map.entry((name.clone(), cfgs)).or_default();
+        let entry = self.map.entry((name.to_string(), cfgs)).or_default();
         let func = match kind {
             GetSetItemKind::Get => &mut entry.0,
             GetSetItemKind::Set => &mut entry.1,
@@ -1493,6 +1489,7 @@ struct MemberNurseryEntry {
     setter: Option<Ident>,
 }
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum MemberItemKind {
     Get,
     Set,
@@ -1501,7 +1498,7 @@ enum MemberItemKind {
 impl MemberNursery {
     fn add_item(
         &mut self,
-        name: String,
+        name: &str,
         kind: MemberItemKind,
         member_kind: MemberKindStr,
         item_ident: Ident,
@@ -1509,7 +1506,7 @@ impl MemberNursery {
         assert!(!self.validated, "new item is not allowed after validation");
         let entry = self
             .map
-            .entry(name.clone())
+            .entry(name.to_string())
             .or_insert_with(|| MemberNurseryEntry {
                 kind: member_kind,
                 getter: None,
@@ -1674,11 +1671,14 @@ impl ItemMeta for SlotItemMeta {
         I: core::iter::Iterator<Item = NestedMeta>,
     {
         let meta_map = if let Some(nested_meta) = nested.next() {
-            match nested_meta {
-                NestedMeta::Meta(meta) => {
-                    Some([("name".to_owned(), (0, meta))].iter().cloned().collect())
-                }
-                _ => None,
+            if let NestedMeta::Meta(meta) = nested_meta {
+                Some(
+                    core::iter::once(&("name".to_owned(), (0, meta)))
+                        .cloned()
+                        .collect(),
+                )
+            } else {
+                None
             }
         } else {
             Some(HashMap::default())
@@ -1945,12 +1945,12 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
 fn impl_item_new<Item>(
     index: usize,
     attr_name: AttrName,
-) -> Result<Box<dyn ImplItem<Item, AttrName = AttrName>>>
+) -> Box<dyn ImplItem<Item, AttrName = AttrName>>
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
     use AttrName::*;
-    Ok(match attr_name {
+    match attr_name {
         attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
             inner: ContentItemInner { index, attr_name },
         }),
@@ -1969,7 +1969,7 @@ where
         Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
-    })
+    }
 }
 
 fn attrs_to_content_items<F, R>(
@@ -1977,7 +1977,7 @@ fn attrs_to_content_items<F, R>(
     item_new: F,
 ) -> Result<(Vec<R>, Vec<Attribute>)>
 where
-    F: Fn(usize, AttrName) -> Result<R>,
+    F: Fn(usize, AttrName) -> R,
 {
     let mut cfgs: Vec<Attribute> = Vec::new();
     let mut result = Vec::new();
@@ -2019,7 +2019,7 @@ where
             }
         };
 
-        result.push(item_new(i, attr_name)?);
+        result.push(item_new(i, attr_name));
     }
     Ok((result, cfgs))
 }

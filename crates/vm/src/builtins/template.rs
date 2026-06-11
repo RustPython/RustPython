@@ -55,7 +55,7 @@ impl Constructor for PyTemplate {
         let mut interpolations: Vec<PyObjectRef> = Vec::new();
         let mut last_was_str = false;
 
-        for item in args.args.iter() {
+        for item in &args.args {
             if let Ok(s) = item.clone().downcast::<PyStr>() {
                 if last_was_str {
                     // Concatenate adjacent strings
@@ -89,7 +89,7 @@ impl Constructor for PyTemplate {
             strings.push(vm.ctx.empty_str.to_owned().into());
         }
 
-        Ok(PyTemplate {
+        Ok(Self {
             strings: vm.ctx.new_tuple(strings),
             interpolations: vm.ctx.new_tuple(interpolations),
         })
@@ -116,15 +116,14 @@ impl PyTemplate {
             .map(|interp| {
                 interp
                     .downcast_ref::<PyInterpolation>()
-                    .map(|i| i.value.clone())
-                    .unwrap_or_else(|| interp.clone())
+                    .map_or_else(|| interp.clone(), |i| i.value.clone())
             })
             .collect();
         vm.ctx.new_tuple(values)
     }
 
     fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let other = other.downcast_ref::<PyTemplate>().ok_or_else(|| {
+        let other = other.downcast_ref::<Self>().ok_or_else(|| {
             vm.new_type_error(format!(
                 "can only concatenate Template (not '{}') to Template",
                 other.class().name()
@@ -174,7 +173,7 @@ impl PyTemplate {
             new_interps.push(interp.clone());
         }
 
-        let template = PyTemplate {
+        let template = Self {
             strings: vm.ctx.new_tuple(new_strings),
             interpolations: vm.ctx.new_tuple(new_interps),
         };
@@ -315,17 +314,15 @@ impl IterNext for PyTemplateIter {
                         continue;
                     }
                     return Ok(PyIterReturn::Return(item.clone()));
-                } else {
-                    return Ok(PyIterReturn::StopIteration(None));
                 }
+                return Ok(PyIterReturn::StopIteration(None));
             } else if index < zelf.template.interpolations.len() {
                 let item = zelf.template.interpolations.get(index).unwrap();
                 zelf.index.fetch_add(1, Ordering::SeqCst);
                 zelf.from_strings.store(true, Ordering::SeqCst);
                 return Ok(PyIterReturn::Return(item.clone()));
-            } else {
-                return Ok(PyIterReturn::StopIteration(None));
             }
+            return Ok(PyIterReturn::StopIteration(None));
         }
     }
 }

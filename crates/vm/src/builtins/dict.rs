@@ -143,11 +143,17 @@ impl PyDict {
         self.entries.items()
     }
 
-    // Used in update and ior.
-    pub(crate) fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn merge_object_with_override(
+        &self,
+        other: PyObjectRef,
+        override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
         let other = match casted {
-            Ok(dict_other) => return self.merge_dict(dict_other.into_pyref(), vm),
+            Ok(dict_other) => {
+                return self.merge_dict(dict_other.into_pyref(), override_existing, vm);
+            }
             Err(other) => other,
         };
         let dict = &self.entries;
@@ -157,6 +163,9 @@ impl PyDict {
             Ok(keys_method) => {
                 let keys = keys_method.call((), vm)?.get_iter(vm)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
+                    if !override_existing && dict.contains(vm, &*key)? {
+                        continue;
+                    }
                     let val = other.get_item(&*key, vm)?;
                     dict.insert(vm, &*key, val)?;
                 }
@@ -166,31 +175,62 @@ impl PyDict {
             Err(e) => return Err(e),
         };
         if !has_keys {
-            let iter = other.get_iter(vm)?;
-            loop {
-                fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                    vm.new_value_error("Iterator must have exactly two elements")
-                }
-                let element = match iter.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(_) => break,
-                };
-                let elem_iter = element.get_iter(vm)?;
-                let key = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-                let value = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-                if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
-                    return Err(err(vm));
-                }
-                dict.insert(vm, &*key, value)?;
-            }
+            return self.merge_from_seq2(other, override_existing, vm);
         }
         Ok(())
     }
 
-    fn merge_dict(&self, dict_other: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+    // Used in update and ior.
+    pub fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.merge_object_with_override(other, true, vm)
+    }
+
+    pub fn merge_object_if_missing(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.merge_object_with_override(other, false, vm)
+    }
+
+    pub fn merge_from_seq2(
+        &self,
+        seq2: PyObjectRef,
+        override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let iter = seq2.get_iter(vm)?;
+        let dict = &self.entries;
+        loop {
+            fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
+                vm.new_value_error("Iterator must have exactly two elements")
+            }
+            let element = match iter.next(vm)? {
+                PyIterReturn::Return(obj) => obj,
+                PyIterReturn::StopIteration(_) => break,
+            };
+            let elem_iter = element.get_iter(vm)?;
+            let key = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
+            let value = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
+            if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
+                return Err(err(vm));
+            }
+            if !override_existing && dict.contains(vm, &*key)? {
+                continue;
+            }
+            dict.insert(vm, &*key, value)?;
+        }
+        Ok(())
+    }
+
+    fn merge_dict(
+        &self,
+        dict_other: PyDictRef,
+        override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let dict = &self.entries;
         let dict_size = &dict_other.size();
         for (key, value) in &dict_other {
+            if !override_existing && dict.contains(vm, &*key)? {
+                continue;
+            }
             dict.insert(vm, &*key, value)?;
         }
         if dict_other.entries.has_changed_size(dict_size) {
@@ -205,7 +245,7 @@ impl PyDict {
 
     /// Set item variant which can be called with multiple
     /// key types, such as str to name a notable one.
-    pub(crate) fn inner_setitem<K: DictKey + ?Sized>(
+    pub fn inner_setitem<K: DictKey + ?Sized>(
         &self,
         key: &K,
         value: PyObjectRef,
@@ -248,10 +288,21 @@ impl PyDict {
     pub fn size(&self) -> dict_inner::DictSize {
         self.entries.size()
     }
+
+    pub fn next_entry(&self, position: usize) -> Option<(usize, PyObjectRef, PyObjectRef)> {
+        self.entries.next_entry(position)
+    }
+
+    pub fn inner_getitem_opt<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        self.entries.get(vm, key)
+    }
 }
 
 // Python dict methods:
-#[allow(clippy::len_without_is_empty)]
 #[pyclass(
     with(
         Py,
@@ -331,10 +382,10 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.get(vm, &*key)? {
-            Some(value) => Ok(value),
-            None => Ok(default.unwrap_or_none(vm)),
-        }
+        Ok(self
+            .entries
+            .get(vm, &*key)?
+            .unwrap_or_else(|| default.unwrap_or_none(vm)))
     }
 
     #[pymethod]
@@ -349,6 +400,7 @@ impl PyDict {
     }
 
     #[pymethod]
+    #[must_use]
     pub fn copy(&self) -> Self {
         Self {
             entries: self.entries.clone(),
@@ -375,7 +427,7 @@ impl PyDict {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
             let self_cp = self.copy();
-            self_cp.merge_dict(other, vm)?;
+            self_cp.merge_dict(other, true, vm)?;
             return Ok(self_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -488,7 +540,7 @@ impl PyRef<PyDict> {
         let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
             let other_cp = other.copy();
-            other_cp.merge_dict(self, vm)?;
+            other_cp.merge_dict(self, true, vm)?;
             return Ok(other_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -844,6 +896,7 @@ impl Iterator for DictIntoIter {
         (l, Some(l))
     }
 }
+
 impl ExactSizeIterator for DictIntoIter {
     fn len(&self) -> usize {
         self.dict.entries.len_from_entry_index(self.position)
@@ -875,6 +928,7 @@ impl Iterator for DictIter<'_> {
         (l, Some(l))
     }
 }
+
 impl ExactSizeIterator for DictIter<'_> {
     fn len(&self) -> usize {
         self.dict.entries.len_from_entry_index(self.position)
@@ -929,7 +983,6 @@ macro_rules! dict_view {
             }
 
             fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
-                #[allow(clippy::redundant_closure_call)]
                 $result_fn(vm, key, value)
             }
 
@@ -1005,7 +1058,6 @@ macro_rules! dict_view {
                 self.internal.lock().length_hint(|_| self.size.entries_size)
             }
 
-            #[allow(clippy::redundant_closure_call)]
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_iter(vm);
@@ -1024,7 +1076,6 @@ macro_rules! dict_view {
         impl SelfIter for $iter_name {}
 
         impl IterNext for $iter_name {
-            #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 let next = if let IterStatus::Active(dict) = &internal.status {
@@ -1076,7 +1127,6 @@ macro_rules! dict_view {
                 }
             }
 
-            #[allow(clippy::redundant_closure_call)]
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
                 let iter = builtins_reversed(vm);
@@ -1103,7 +1153,6 @@ macro_rules! dict_view {
         impl SelfIter for $reverse_iter_name {}
 
         impl IterNext for $reverse_iter_name {
-            #[allow(clippy::redundant_closure_call)]
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
                 let mut internal = zelf.internal.lock();
                 let next = if let IterStatus::Active(dict) = &internal.status {
@@ -1260,6 +1309,7 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
+
 #[pyclass(
     flags(DISALLOW_INSTANTIATION),
     with(

@@ -363,7 +363,7 @@ class TestJointOps:
         gc.collect()
         self.assertTrue(ref() is None, "Cycle was not collected")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skipIf("RUSTPYTHON_SKIP_ENV_POLLUTERS" in __import__("os").environ, "TODO: RUSTPYTHON")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 

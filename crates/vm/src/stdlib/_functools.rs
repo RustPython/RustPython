@@ -44,11 +44,7 @@ mod _functools {
         } else {
             // initial was not provided at all
             iter.next().transpose()?.ok_or_else(|| {
-                let exc_type = vm.ctx.exceptions.type_error.to_owned();
-                vm.new_exception_msg(
-                    exc_type,
-                    "reduce() of empty sequence with no initial value".into(),
-                )
+                vm.new_type_error("reduce() of empty iterable with no initial value")
             })?
         };
 
@@ -88,12 +84,12 @@ mod _functools {
                 return Ok(instance);
             }
             // Fallback: create a new instance (shouldn't happen for base type after module init)
-            Ok(PyPlaceholderType.into_pyobject(vm))
+            Ok(Self.into_pyobject(vm))
         }
 
         fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
             // This is never called because we override slot_new
-            Ok(PyPlaceholderType)
+            Ok(Self)
         }
     }
 
@@ -164,8 +160,7 @@ mod _functools {
         fn __dict__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyDictRef {
             zelf.as_object()
                 .instance_dict()
-                .map(|d| d.get_or_insert(vm))
-                .unwrap_or_else(|| vm.ctx.new_dict())
+                .map_or_else(|| vm.ctx.new_dict(), |d| d.get_or_insert(vm))
         }
 
         #[pygetset(setter)]
@@ -178,7 +173,7 @@ mod _functools {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult {
+        fn __reduce__(zelf: &Py<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let inner = zelf.inner.read();
             let partial_type = zelf.class();
 
@@ -194,14 +189,13 @@ mod _functools {
                 inner.keywords.clone().into(),
                 dict_obj,
             ]);
-            Ok(vm
-                .ctx
+            vm.ctx
                 .new_tuple(vec![
                     partial_type.to_owned().into(),
                     vm.ctx.new_tuple(vec![inner.func.clone()]).into(),
                     state.into(),
                 ])
-                .into())
+                .into()
         }
 
         #[pymethod]
@@ -335,8 +329,7 @@ mod _functools {
                 if is_placeholder(value) {
                     return Err(vm.new_type_error(format!(
                         "Placeholder cannot be passed as a keyword argument to partial(). \
-                         Did you mean partial(..., {}=Placeholder, ...)(value)?",
-                        key
+                         Did you mean partial(..., {key}=Placeholder, ...)(value)?"
                     )));
                 }
             }
@@ -492,8 +485,10 @@ mod _functools {
                 let qualname = zelf.class().__qualname__(vm);
                 let qualname_wtf8 = qualname
                     .downcast_ref::<crate::builtins::PyStr>()
-                    .map(|s| s.as_wtf8().to_owned())
-                    .unwrap_or_else(|| Wtf8Buf::from(zelf.class().name().to_owned()));
+                    .map_or_else(
+                        || Wtf8Buf::from(zelf.class().name().to_owned()),
+                        |s| s.as_wtf8().to_owned(),
+                    );
                 let module = zelf.class().__module__(vm);
 
                 let mut result = Wtf8Buf::new();

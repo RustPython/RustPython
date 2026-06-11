@@ -81,7 +81,6 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "TypeVar", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct TypeVar {
         name: PyObjectRef, // TODO PyStrRef?
         bound: PyMutex<PyObjectRef>,
@@ -94,6 +93,7 @@ pub(crate) mod typevar {
         contravariant: bool,
         infer_variance: bool,
     }
+
     #[pyclass(
         flags(HAS_DICT, HAS_WEAKREF),
         with(AsNumber, Constructor, Representable)
@@ -173,40 +173,46 @@ pub(crate) mod typevar {
         }
 
         #[pygetset]
-        fn evaluate_bound(&self, vm: &VirtualMachine) -> PyResult {
+        fn evaluate_bound(&self, vm: &VirtualMachine) -> PyObjectRef {
             if !vm.is_none(&self.evaluate_bound) {
-                return Ok(self.evaluate_bound.clone());
+                return self.evaluate_bound.clone();
             }
+
             let bound = self.bound.lock();
             if !vm.is_none(&bound) {
-                return Ok(const_evaluator_alloc(bound.clone(), vm));
+                return const_evaluator_alloc(bound.clone(), vm);
             }
-            Ok(vm.ctx.none())
+
+            vm.ctx.none()
         }
 
         #[pygetset]
-        fn evaluate_constraints(&self, vm: &VirtualMachine) -> PyResult {
+        fn evaluate_constraints(&self, vm: &VirtualMachine) -> PyObjectRef {
             if !vm.is_none(&self.evaluate_constraints) {
-                return Ok(self.evaluate_constraints.clone());
+                return self.evaluate_constraints.clone();
             }
+
             let constraints = self.constraints.lock();
             if !vm.is_none(&constraints) {
-                return Ok(const_evaluator_alloc(constraints.clone(), vm));
+                return const_evaluator_alloc(constraints.clone(), vm);
             }
-            Ok(vm.ctx.none())
+
+            vm.ctx.none()
         }
 
         #[pygetset]
-        fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyObjectRef {
             let evaluator = self.evaluate_default.lock().clone();
             if !vm.is_none(&evaluator) {
-                return Ok(evaluator);
+                return evaluator;
             }
+
             let default_value = self.default_value.lock().clone();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(const_evaluator_alloc(default_value, vm));
+                return const_evaluator_alloc(default_value, vm);
             }
-            Ok(vm.ctx.none())
+
+            vm.ctx.none()
         }
 
         #[pymethod]
@@ -261,7 +267,7 @@ pub(crate) mod typevar {
                 // Check if we have enough arguments
                 if args_tuple.len() <= index && zelf.has_default(vm) {
                     // Need to add default value
-                    let mut new_args: Vec<PyObjectRef> = args_tuple.iter().cloned().collect();
+                    let mut new_args = args_tuple.iter().cloned().collect::<Vec<PyObjectRef>>();
 
                     // Add default value at the correct position
                     while new_args.len() <= index {
@@ -361,7 +367,7 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if !kwargs.is_empty() {
-                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
                 return Err(vm.new_type_error(format!(
                     "TypeVar() got unexpected keyword argument(s): {}",
                     unexpected_keys.join(", ")
@@ -453,7 +459,6 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "ParamSpec", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct ParamSpec {
         name: PyObjectRef,
         bound: Option<PyObjectRef>,
@@ -480,21 +485,21 @@ pub(crate) mod typevar {
         }
 
         #[pygetset]
-        fn args(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn args(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let self_obj: PyObjectRef = zelf.into();
             let psa = ParamSpecArgs {
                 __origin__: self_obj,
             };
-            Ok(psa.into_ref(&vm.ctx).into())
+            psa.into_ref(&vm.ctx).into()
         }
 
         #[pygetset]
-        fn kwargs(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+        fn kwargs(zelf: crate::PyRef<Self>, vm: &VirtualMachine) -> PyObjectRef {
             let self_obj: PyObjectRef = zelf.into();
             let psk = ParamSpecKwargs {
                 __origin__: self_obj,
             };
-            Ok(psk.into_ref(&vm.ctx).into())
+            psk.into_ref(&vm.ctx).into()
         }
 
         #[pygetset]
@@ -539,21 +544,23 @@ pub(crate) mod typevar {
         }
 
         #[pygetset]
-        fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyObjectRef {
             let evaluator = self.evaluate_default.lock().clone();
             if !vm.is_none(&evaluator) {
-                return Ok(evaluator);
+                return evaluator;
             }
+
             let default_value = self.default_value.lock().clone();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(const_evaluator_alloc(default_value, vm));
+                return const_evaluator_alloc(default_value, vm);
             }
-            Ok(vm.ctx.none())
+
+            vm.ctx.none()
         }
 
         #[pymethod]
-        fn __reduce__(&self) -> PyResult {
-            Ok(self.name.clone())
+        fn __reduce__(&self) -> PyObjectRef {
+            self.name.clone()
         }
 
         #[pymethod]
@@ -643,7 +650,7 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if !kwargs.is_empty() {
-                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
                 return Err(vm.new_type_error(format!(
                     "ParamSpec() got unexpected keyword argument(s): {}",
                     unexpected_keys.join(", ")
@@ -713,12 +720,12 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "TypeVarTuple", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct TypeVarTuple {
         name: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
     }
+
     #[pyclass(
         flags(HAS_DICT, HAS_WEAKREF),
         with(Constructor, Representable, Iterable)
@@ -748,16 +755,18 @@ pub(crate) mod typevar {
         }
 
         #[pygetset]
-        fn evaluate_default(&self, vm: &VirtualMachine) -> PyResult {
+        fn evaluate_default(&self, vm: &VirtualMachine) -> PyObjectRef {
             let evaluator = self.evaluate_default.lock().clone();
             if !vm.is_none(&evaluator) {
-                return Ok(evaluator);
+                return evaluator;
             }
+
             let default_value = self.default_value.lock().clone();
             if !default_value.is(&vm.ctx.typing_no_default) {
-                return Ok(const_evaluator_alloc(default_value, vm));
+                return const_evaluator_alloc(default_value, vm);
             }
-            Ok(vm.ctx.none())
+
+            vm.ctx.none()
         }
 
         #[pymethod]
@@ -835,7 +844,7 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if !kwargs.is_empty() {
-                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
                 return Err(vm.new_type_error(format!(
                     "TypeVarTuple() got unexpected keyword argument(s): {}",
                     unexpected_keys.join(", ")
@@ -888,10 +897,10 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "ParamSpecArgs", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct ParamSpecArgs {
         __origin__: PyObjectRef,
     }
+
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecArgs {
         #[pymethod]
@@ -934,7 +943,7 @@ pub(crate) mod typevar {
         ) -> PyResult<PyComparisonValue> {
             op.eq_only(|| {
                 if other.class().is(zelf.class())
-                    && let Some(other_args) = other.downcast_ref::<ParamSpecArgs>()
+                    && let Some(other_args) = other.downcast_ref::<Self>()
                 {
                     let eq = zelf.__origin__.rich_compare_bool(
                         &other_args.__origin__,
@@ -951,10 +960,10 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct ParamSpecKwargs {
         __origin__: PyObjectRef,
     }
+
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecKwargs {
         #[pymethod]
@@ -997,7 +1006,7 @@ pub(crate) mod typevar {
         ) -> PyResult<PyComparisonValue> {
             op.eq_only(|| {
                 if other.class().is(zelf.class())
-                    && let Some(other_kwargs) = other.downcast_ref::<ParamSpecKwargs>()
+                    && let Some(other_kwargs) = other.downcast_ref::<Self>()
                 {
                     let eq = zelf.__origin__.rich_compare_bool(
                         &other_kwargs.__origin__,
@@ -1038,7 +1047,6 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "Generic", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct Generic;
 
     #[pyclass(flags(BASETYPE, HEAPTYPE))]

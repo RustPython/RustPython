@@ -290,7 +290,7 @@ class BugsTestCase(unittest.TestCase):
         run_tests(2**20, check)
 
     @unittest.skipIf(support.is_android, "TODO: RUSTPYTHON; segfault")
-    @unittest.skipIf(os.name == 'nt', "TODO: RUSTPYTHON; write depth limit is 2000 not 1000")
+    @unittest.skipIf(os.name == "nt", "TODO: RUSTPYTHON; write depth limit is 2000 not 1000")
     def test_recursion_limit(self):
         # Create a deeply nested structure.
         head = last = []
@@ -318,6 +318,136 @@ class BugsTestCase(unittest.TestCase):
 
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_reference_loop_list(self):
+        a = []
+        a.append(a)
+        for v in range(3):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+        for v in range(3, marshal.version + 1):
+            d = marshal.dumps(a, v)
+            b = marshal.loads(d)
+            self.assertIsInstance(b, list)
+            self.assertIs(b[0], b)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_reference_loop_dict(self):
+        a = {}
+        a[None] = a
+        for v in range(3):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+        for v in range(3, marshal.version + 1):
+            d = marshal.dumps(a, v)
+            b = marshal.loads(d)
+            self.assertIsInstance(b, dict)
+            self.assertIs(b[None], b)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_reference_loop_tuple(self):
+        a = ([],)
+        a[0].append(a)
+        for v in range(3):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+        for v in range(3, marshal.version + 1):
+            d = marshal.dumps(a, v)
+            b = marshal.loads(d)
+            self.assertIsInstance(b, tuple)
+            self.assertIsInstance(b[0], list)
+            self.assertIs(b[0][0], b)
+
+    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
+    def test_reference_loop_code(self):
+        def f():
+            return 1234.5
+        code = f.__code__
+        a = []
+        code = code.replace(co_consts=code.co_consts + (a,))
+        # This test creates a reference loop which leads to reference leaks,
+        # so we need to break the loop manually. See gh-148722.
+        self.addCleanup(a.clear)
+        a.append(code)
+        for v in range(marshal.version + 1):
+            self.assertRaises(ValueError, marshal.dumps, code, v)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by dumps
+    def test_reference_loop_slice(self):
+        a = slice([], None)
+        a.start.append(a)
+        for v in range(marshal.version + 1):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+
+        a = slice(None, [])
+        a.stop.append(a)
+        for v in range(marshal.version + 1):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+
+        a = slice(None, None, [])
+        a.step.append(a)
+        for v in range(marshal.version + 1):
+            self.assertRaises(ValueError, marshal.dumps, a, v)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_loads_reference_loop_list(self):
+        data = b'\xdb\x01\x00\x00\x00r\x00\x00\x00\x00' # [<R>]
+        a = marshal.loads(data)
+        self.assertIsInstance(a, list)
+        self.assertIs(a[0], a)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_loads_reference_loop_dict(self):
+        data = b'\xfbNr\x00\x00\x00\x000' # {None: <R>}
+        a = marshal.loads(data)
+        self.assertIsInstance(a, dict)
+        self.assertIs(a[None], a)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
+    def test_loads_abnormal_reference_loops(self):
+        # Indirect self-references of tuples.
+        data = b'\xa8\x01\x00\x00\x00[\x01\x00\x00\x00r\x00\x00\x00\x00' # ([<R>],)
+        a = marshal.loads(data)
+        self.assertIsInstance(a, tuple)
+        self.assertIsInstance(a[0], list)
+        self.assertIs(a[0][0], a)
+
+        data = b'\xa8\x01\x00\x00\x00{Nr\x00\x00\x00\x000' # ({None: <R>},)
+        a = marshal.loads(data)
+        self.assertIsInstance(a, tuple)
+        self.assertIsInstance(a[0], dict)
+        self.assertIs(a[0][None], a)
+
+        # Direct self-reference which cannot be created in Python.
+        # This creates a reference loop which cannot be collected.
+        if False:
+            data = b'\xa8\x01\x00\x00\x00r\x00\x00\x00\x00' # (<R>,)
+            a = marshal.loads(data)
+            self.assertIsInstance(a, tuple)
+            self.assertIs(a[0], a)
+
+        # Direct self-references which cannot be created in Python
+        # because of unhashability.
+        data = b'\xfbr\x00\x00\x00\x00N0' # {<R>: None}
+        self.assertRaises(TypeError, marshal.loads, data)
+        data = b'\xbc\x01\x00\x00\x00r\x00\x00\x00\x00' # {<R>}
+        self.assertRaises(TypeError, marshal.loads, data)
+
+        for data in [
+            # Indirect self-references of immutable objects.
+            b'\xba[\x01\x00\x00\x00r\x00\x00\x00\x00NN', # slice([<R>], None)
+            b'\xbaN[\x01\x00\x00\x00r\x00\x00\x00\x00N', # slice(None, [<R>])
+            b'\xbaNN[\x01\x00\x00\x00r\x00\x00\x00\x00', # slice(None, None, [<R>])
+            b'\xba{Nr\x00\x00\x00\x000NN', # slice({None: <R>}, None)
+            b'\xbaN{Nr\x00\x00\x00\x000N', # slice(None, {None: <R>})
+            b'\xbaNN{Nr\x00\x00\x00\x000', # slice(None, None, {None: <R>})
+
+            # Direct self-references which cannot be created in Python.
+            b'\xbe\x01\x00\x00\x00r\x00\x00\x00\x00', # frozenset({<R>})
+            b'\xbar\x00\x00\x00\x00NN', # slice(<R>, None)
+            b'\xbaNr\x00\x00\x00\x00N', # slice(None, <R>)
+            b'\xbaNNr\x00\x00\x00\x00', # slice(None, None, <R>)
+        ]:
+            with self.subTest(data=data):
+                self.assertRaises(ValueError, marshal.loads, data)
 
     def test_exact_type_match(self):
         # Former bug:

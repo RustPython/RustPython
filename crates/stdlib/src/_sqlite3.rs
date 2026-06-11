@@ -44,6 +44,7 @@ mod _sqlite3 {
         sqlite3_value_text, sqlite3_value_type,
     };
     use malachite_bigint::Sign;
+    use num_traits::ToPrimitive;
     use rustpython_common::{
         atomic::{Ordering, PyAtomic, Radium},
         hash::PyHash,
@@ -897,11 +898,11 @@ mod _sqlite3 {
 
             // For non-subclassed Connection, initialize in __new__
             // For subclassed Connection, leave db as None and require __init__ to be called
-            let is_base_class = cls.is(Connection::class(&vm.ctx));
+            let is_base_class = cls.is(Self::class(&vm.ctx));
 
             let db = if is_base_class {
                 // Initialize immediately for base class
-                Some(Connection::initialize_db(&args, vm)?)
+                Some(Self::initialize_db(&args, vm)?)
             } else {
                 // For subclasses, require __init__ to be called
                 None
@@ -1736,8 +1737,7 @@ mod _sqlite3 {
                 st.bind_parameters(&parameters, vm)?;
             } else if params_needed > 0 {
                 let msg = format!(
-                    "Incorrect number of bindings supplied. The current statement uses {}, and 0 were supplied.",
-                    params_needed
+                    "Incorrect number of bindings supplied. The current statement uses {params_needed}, and 0 were supplied."
                 );
                 return Err(new_programming_error(vm, msg));
             }
@@ -1904,7 +1904,7 @@ mod _sqlite3 {
             let mut list = vec![];
             let mut remaining = max_rows;
             while remaining > 0 {
-                match Cursor::next(zelf, vm)? {
+                match Self::next(zelf, vm)? {
                     PyIterReturn::Return(row) => {
                         list.push(row);
                         remaining -= 1;
@@ -1946,6 +1946,7 @@ mod _sqlite3 {
 
         #[pymethod]
         fn setinputsizes(&self, _sizes: PyObjectRef) {}
+
         #[pymethod]
         fn setoutputsize(&self, _size: PyObjectRef, _column: OptionalArg<PyObjectRef>) {}
 
@@ -2211,12 +2212,11 @@ mod _sqlite3 {
     )]
     impl Row {
         #[pymethod]
-        fn keys(&self, _vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-            Ok(self
-                .description
+        fn keys(&self, _vm: &VirtualMachine) -> Vec<PyObjectRef> {
+            self.description
                 .iter()
                 .map(|x| x.downcast_ref::<PyTuple>().unwrap().as_slice()[0].clone())
-                .collect())
+                .collect()
         }
 
         fn subscript(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
@@ -2552,28 +2552,35 @@ mod _sqlite3 {
             value: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let Some(value) = value else {
-                return Err(vm.new_type_error("Blob doesn't support slice deletion"));
-            };
             self.ensure_connection_open(vm)?;
             let inner = self.inner(vm)?;
 
             if let Some(index) = needle.try_index_opt(vm) {
                 // Handle single item assignment: blob[i] = b
-                let Some(value) = value.downcast_ref::<PyInt>() else {
+                let Some(value) = value else {
+                    return Err(vm.new_type_error("Blob doesn't support item deletion"));
+                };
+                let Some(int_val) = value.downcast_ref::<PyInt>() else {
                     return Err(vm.new_type_error(format!(
                         "'{}' object cannot be interpreted as an integer",
                         value.class()
                     )));
                 };
-                let value = value.try_to_primitive::<u8>(vm)?;
                 let blob_len = inner.blob.bytes();
                 let index = Self::wrapped_index(index?, blob_len, vm)?;
-                Self::expect_write(blob_len, 1, index, vm)?;
-                let ret = inner.blob.write_single(value, index);
+                // Mirror CPython ass_subscript_index: use PyLong_AsLong, treat any
+                // overflow (e.g. 2**65) as -1, then validate the [0, 255] range.
+                let val = int_val.as_bigint().to_i64().unwrap_or(-1);
+                if !(0..=255).contains(&val) {
+                    return Err(vm.new_value_error("byte must be in range(0, 256)"));
+                }
+                let ret = inner.blob.write_single(val as u8, index);
                 self.check(ret, vm)
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 // Handle slice assignment: blob[a:b:c] = b"..."
+                let Some(value) = value else {
+                    return Err(vm.new_type_error("Blob doesn't support slice deletion"));
+                };
                 let value_buf = PyBuffer::try_from_borrowed_object(vm, &value)?;
 
                 let buf = value_buf
@@ -2605,25 +2612,25 @@ mod _sqlite3 {
                     self.check(ret, vm)
                 } else {
                     let span_len = range.end - range.start;
+                    let range_start = range.start;
                     let mut temp_buf = vec![0u8; span_len];
 
                     let ret = inner.blob.read(
                         temp_buf.as_mut_ptr().cast(),
                         span_len as c_int,
-                        range.start as c_int,
+                        range_start as c_int,
                     );
                     self.check(ret, vm)?;
 
-                    let mut i_in_temp: usize = 0;
-                    for i_in_src in 0..slice_len {
-                        temp_buf[i_in_temp] = buf[i_in_src];
-                        i_in_temp += step as usize;
+                    let iter = SaturatedSliceIter::from_adjust_indices(range, step, slice_len);
+                    for (i_in_src, abs_idx) in iter.enumerate() {
+                        temp_buf[abs_idx - range_start] = buf[i_in_src];
                     }
 
                     let ret = inner.blob.write(
                         temp_buf.as_ptr().cast(),
                         span_len as c_int,
-                        range.start as c_int,
+                        range_start as c_int,
                     );
                     self.check(ret, vm)
                 }
@@ -3035,7 +3042,7 @@ mod _sqlite3 {
 
     impl From<*mut sqlite3_stmt> for SqliteStatementRaw {
         fn from(st: *mut sqlite3_stmt) -> Self {
-            SqliteStatementRaw { st }
+            Self { st }
         }
     }
 
@@ -3176,8 +3183,7 @@ mod _sqlite3 {
                 return Err(new_programming_error(
                     vm,
                     format!(
-                        "Incorrect number of bindings supplied. The current statement uses {}, and {} were supplied.",
-                        num_needed, num_supplied
+                        "Incorrect number of bindings supplied. The current statement uses {num_needed}, and {num_supplied} were supplied."
                     ),
                 ));
             }

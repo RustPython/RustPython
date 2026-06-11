@@ -68,7 +68,6 @@ class FinalizationTest(unittest.TestCase):
         del frame
         support.gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_refcycle(self):
         # A generator caught in a refcycle gets finalized anyway.
         old_garbage = gc.garbage[:]
@@ -114,7 +113,6 @@ class FinalizationTest(unittest.TestCase):
                 gen.send(2)
             self.assertEqual(cm.exception.value, 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 1
     def test_generator_resurrect(self):
         # Test that a resurrected generator still has a valid gi_code
         resurrected = []
@@ -2527,7 +2525,7 @@ Traceback (most recent call last):
   ...
 SyntaxError: 'yield from' outside function
 
->>> def f(): x = yield = y  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+>>> def f(): x = yield = y
 Traceback (most recent call last):
   ...
 SyntaxError: assignment to yield expression not possible

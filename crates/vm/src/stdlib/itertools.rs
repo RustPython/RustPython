@@ -109,12 +109,11 @@ mod decl {
                     }
                 }
             };
-            match next {
-                Err(_) | Ok(PyIterReturn::StopIteration(_)) => {
-                    *zelf.source.write() = None;
-                }
-                _ => {}
+
+            if matches!(next, Err(_) | Ok(PyIterReturn::StopIteration(_))) {
+                *zelf.source.write() = None;
             };
+
             next
         }
     }
@@ -956,12 +955,12 @@ mod decl {
     }
 
     impl PyItertoolsTeeData {
-        fn new(iterable: PyIter, _vm: &VirtualMachine) -> PyResult<PyRc<Self>> {
-            Ok(PyRc::new(Self {
+        fn new(iterable: PyIter, _vm: &VirtualMachine) -> PyRc<Self> {
+            PyRc::new(Self {
                 iterable,
                 values: PyMutex::new(vec![]),
                 running: AtomicBool::new(false),
-            }))
+            })
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
@@ -1043,7 +1042,7 @@ mod decl {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {
-                tee_data: PyItertoolsTeeData::new(iterator, vm)?,
+                tee_data: PyItertoolsTeeData::new(iterator, vm),
                 index: AtomicCell::new(0),
             }
             .into_ref_with_type(vm, class.to_owned())?
@@ -1249,26 +1248,26 @@ mod decl {
                 if idx < 0 {
                     zelf.exhausted.store(true);
                     return Ok(PyIterReturn::StopIteration(None));
-                } else {
-                    // Increment the current index which we know is not at its
-                    // maximum.  Then move back to the right setting each index
-                    // to its lowest possible value (one higher than the index
-                    // to its left -- this maintains the sort order invariant).
-                    indices[idx as usize] += 1;
-                    for j in idx as usize + 1..r {
-                        indices[j] = indices[j - 1] + 1;
-                    }
-
-                    // Update the result tuple for the new indices
-                    // starting with i, the leftmost index that changed
-                    for i in idx as usize..r {
-                        let index = indices[i];
-                        let elem = &zelf.pool[index];
-                        elem.clone_into(&mut result[i]);
-                    }
-
-                    result.to_vec()
                 }
+
+                // Increment the current index which we know is not at its
+                // maximum.  Then move back to the right setting each index
+                // to its lowest possible value (one higher than the index
+                // to its left -- this maintains the sort order invariant).
+                indices[idx as usize] += 1;
+                for j in idx as usize + 1..r {
+                    indices[j] = indices[j - 1] + 1;
+                }
+
+                // Update the result tuple for the new indices
+                // starting with i, the leftmost index that changed
+                for i in idx as usize..r {
+                    let index = indices[i];
+                    let elem = &zelf.pool[index];
+                    elem.clone_into(&mut result[i]);
+                }
+
+                result.to_vec()
             } else {
                 let res = zelf.pool[0..r].to_vec();
                 *result_lock = Some(res.clone());

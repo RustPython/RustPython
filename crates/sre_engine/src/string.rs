@@ -75,7 +75,7 @@ impl StrDrive for &[u8] {
 
     #[inline]
     fn back_peek(cursor: &StringCursor) -> u32 {
-        unsafe { *cursor.ptr.offset(-1) as u32 }
+        unsafe { *cursor.ptr.sub(1) as u32 }
     }
 
     #[inline]
@@ -227,7 +227,7 @@ impl StrDrive for &Wtf8 {
 const unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
     let x = unsafe { **ptr };
-    *ptr = unsafe { ptr.offset(1) };
+    *ptr = unsafe { ptr.add(1) };
 
     if x < 128 {
         return x as u32;
@@ -240,7 +240,7 @@ const unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
     // SAFETY: `bytes` produces an UTF-8-like string,
     // so the iterator must produce a value here.
     let y = unsafe { **ptr };
-    *ptr = unsafe { ptr.offset(1) };
+    *ptr = unsafe { ptr.add(1) };
     let mut ch = utf8_acc_cont_byte(init, y);
     if x >= 0xE0 {
         // [[x y z] w] case
@@ -248,7 +248,7 @@ const unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
         // SAFETY: `bytes` produces an UTF-8-like string,
         // so the iterator must produce a value here.
         let z = unsafe { **ptr };
-        *ptr = unsafe { ptr.offset(1) };
+        *ptr = unsafe { ptr.add(1) };
         let y_z = utf8_acc_cont_byte((y & CONT_MASK) as u32, z);
         ch = (init << 12) | y_z;
         if x >= 0xF0 {
@@ -257,7 +257,7 @@ const unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
             // SAFETY: `bytes` produces an UTF-8-like string,
             // so the iterator must produce a value here.
             let w = unsafe { **ptr };
-            *ptr = unsafe { ptr.offset(1) };
+            *ptr = unsafe { ptr.add(1) };
             ch = ((init & 7) << 18) | utf8_acc_cont_byte(y_z, w);
         }
     }
@@ -274,7 +274,7 @@ const unsafe fn next_code_point(ptr: &mut *const u8) -> u32 {
 #[inline]
 const unsafe fn next_code_point_reverse(ptr: &mut *const u8) -> u32 {
     // Decode UTF-8
-    *ptr = unsafe { ptr.offset(-1) };
+    *ptr = unsafe { ptr.sub(1) };
     let w = match unsafe { **ptr } {
         next_byte if next_byte < 128 => return next_byte as u32,
         back_byte => back_byte,
@@ -285,19 +285,19 @@ const unsafe fn next_code_point_reverse(ptr: &mut *const u8) -> u32 {
     let mut ch;
     // SAFETY: `bytes` produces an UTF-8-like string,
     // so the iterator must produce a value here.
-    *ptr = unsafe { ptr.offset(-1) };
+    *ptr = unsafe { ptr.sub(1) };
     let z = unsafe { **ptr };
     ch = utf8_first_byte(z, 2);
     if utf8_is_cont_byte(z) {
         // SAFETY: `bytes` produces an UTF-8-like string,
         // so the iterator must produce a value here.
-        *ptr = unsafe { ptr.offset(-1) };
+        *ptr = unsafe { ptr.sub(1) };
         let y = unsafe { **ptr };
         ch = utf8_first_byte(y, 3);
         if utf8_is_cont_byte(y) {
             // SAFETY: `bytes` produces an UTF-8-like string,
             // so the iterator must produce a value here.
-            *ptr = unsafe { ptr.offset(-1) };
+            *ptr = unsafe { ptr.sub(1) };
             let x = unsafe { **ptr };
             ch = utf8_first_byte(x, 4);
             ch = utf8_acc_cont_byte(ch, y);
@@ -339,29 +339,20 @@ const fn is_py_ascii_whitespace(b: u8) -> bool {
 
 #[inline]
 pub(crate) fn is_word(ch: u32) -> bool {
-    ch == '_' as u32
-        || u8::try_from(ch)
-            .map(|x| x.is_ascii_alphanumeric())
-            .unwrap_or(false)
+    ch == '_' as u32 || u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
 }
 #[inline]
 pub(crate) fn is_space(ch: u32) -> bool {
-    u8::try_from(ch)
-        .map(is_py_ascii_whitespace)
-        .unwrap_or(false)
+    u8::try_from(ch).is_ok_and(is_py_ascii_whitespace)
 }
 #[inline]
 pub(crate) fn is_digit(ch: u32) -> bool {
-    u8::try_from(ch)
-        .map(|x| x.is_ascii_digit())
-        .unwrap_or(false)
+    u8::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
 }
 #[inline]
 pub(crate) fn is_loc_alnum(ch: u32) -> bool {
     // FIXME: Ignore the locales
-    u8::try_from(ch)
-        .map(|x| x.is_ascii_alphanumeric())
-        .unwrap_or(false)
+    u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
 }
 #[inline]
 pub(crate) fn is_loc_word(ch: u32) -> bool {
@@ -374,9 +365,7 @@ pub(crate) const fn is_linebreak(ch: u32) -> bool {
 #[inline]
 #[must_use]
 pub fn lower_ascii(ch: u32) -> u32 {
-    u8::try_from(ch)
-        .map(|x| x.to_ascii_lowercase() as u32)
-        .unwrap_or(ch)
+    u8::try_from(ch).map_or(ch, |x| x.to_ascii_lowercase() as u32)
 }
 #[inline]
 pub(crate) fn lower_locate(ch: u32) -> u32 {
@@ -386,16 +375,12 @@ pub(crate) fn lower_locate(ch: u32) -> u32 {
 #[inline]
 pub(crate) fn upper_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
-    u8::try_from(ch)
-        .map(|x| x.to_ascii_uppercase() as u32)
-        .unwrap_or(ch)
+    u8::try_from(ch).map_or(ch, |x| x.to_ascii_uppercase() as u32)
 }
 #[inline]
 pub(crate) fn is_uni_digit(ch: u32) -> bool {
     // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.is_ascii_digit())
-        .unwrap_or(false)
+    char::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
 }
 #[inline]
 pub(crate) fn is_uni_space(ch: u32) -> bool {
@@ -444,13 +429,11 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
-    char::try_from(ch)
-        .map(|c| {
-            GeneralCategoryGroup::Letter
-                .union(GeneralCategoryGroup::Number)
-                .contains(GeneralCategory::for_char(c))
-        })
-        .unwrap_or(false)
+    char::try_from(ch).is_ok_and(|c| {
+        GeneralCategoryGroup::Letter
+            .union(GeneralCategoryGroup::Number)
+            .contains(GeneralCategory::for_char(c))
+    })
 }
 #[inline]
 pub(crate) fn is_uni_word(ch: u32) -> bool {
@@ -460,15 +443,11 @@ pub(crate) fn is_uni_word(ch: u32) -> bool {
 #[must_use]
 pub fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.to_lowercase().next().unwrap() as u32)
-        .unwrap_or(ch)
+    char::try_from(ch).map_or(ch, |x| x.to_lowercase().next().unwrap() as u32)
 }
 #[inline]
 #[must_use]
 pub fn upper_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
-    char::try_from(ch)
-        .map(|x| x.to_uppercase().next().unwrap() as u32)
-        .unwrap_or(ch)
+    char::try_from(ch).map_or(ch, |x| x.to_uppercase().next().unwrap() as u32)
 }

@@ -42,6 +42,22 @@ impl Constructor for PyWeakProxy {
         Self::Args { referent, callback }: Self::Args,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        let weak = Self::new_weak(referent.as_ref(), callback.into_option(), vm)?;
+        // TODO: PyWeakProxy should use the same payload as PyWeak
+        Ok(Self { weak })
+    }
+}
+
+crate::common::static_cell! {
+    static WEAK_SUBCLASS: PyTypeRef;
+}
+
+impl PyWeakProxy {
+    fn new_weak(
+        referent: &PyObject,
+        callback: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyWeak>> {
         // using an internal subclass as the class prevents us from getting the generic weakref,
         // which would mess up the weakref count
         let weak_cls = WEAK_SUBCLASS.get_or_init(|| {
@@ -52,15 +68,22 @@ impl Constructor for PyWeakProxy {
                 super::PyWeak::make_slots(),
             )
         });
-        // TODO: PyWeakProxy should use the same payload as PyWeak
-        Ok(Self {
-            weak: referent.downgrade_with_typ(callback.into_option(), weak_cls.clone(), vm)?,
-        })
+        referent.downgrade_with_typ(callback, weak_cls.clone(), vm)
     }
-}
 
-crate::common::static_cell! {
-    static WEAK_SUBCLASS: PyTypeRef;
+    pub fn new_weakproxy(
+        referent: &PyObject,
+        callback: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let weak = Self::new_weak(referent, callback, vm)?;
+        Ok(Self { weak }.into_ref(&vm.ctx))
+    }
+
+    #[must_use]
+    pub fn get_weak(&self) -> &PyRef<PyWeak> {
+        &self.weak
+    }
 }
 
 #[pyclass(with(
@@ -136,7 +159,7 @@ impl IterNext for PyWeakProxy {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let obj = zelf.try_upgrade(vm)?;
         if obj.class().slots.iternext.load().is_none() {
-            return Err(vm.new_type_error("Weakref proxy referenced a non-iterator".to_owned()));
+            return Err(vm.new_type_error("Weakref proxy referenced a non-iterator"));
         }
         PyIter::new(obj).next(vm)
     }

@@ -74,7 +74,7 @@ pub use shell::run_shell;
     not(any(feature = "ssl-rustls", feature = "ssl-openssl"))
 ))]
 compile_error!(
-    "Feature \"ssl\" is now enabled by either \"ssl-rustls\" or \"ssl-openssl\" to be enabled. Do not manually pass \"ssl\" feature. To enable ssl-openssl, use --no-default-features to disable ssl-rustls"
+    "Feature \"ssl\" is now enabled by either \"ssl-rustls\" or \"ssl-openssl\". Do not manually pass \"ssl\" feature. To enable ssl-openssl, use --no-default-features to disable ssl-rustls*"
 );
 
 /// The main cli of the `rustpython` interpreter. This function will return `std::process::ExitCode`
@@ -121,7 +121,7 @@ pub fn run(mut builder: InterpreterBuilder) -> ExitCode {
     let exitcode = cfg_select! {
         feature = "capi" => {{
             let local_vm = interp.enter(|vm| vm.new_thread());
-            *(rustpython_capi::get_main_interpreter()) = Some(interp);
+            rustpython_capi::init_main_interpreter(interp);
             let result = local_vm.run(|vm| run_rustpython(vm, run_mode));
             rustpython_capi::get_main_interpreter().take().unwrap().finalize(result.err())
         }},
@@ -152,10 +152,9 @@ __import__("io").TextIOWrapper(
 
 fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     if !cfg!(feature = "ssl") {
-        return Err(vm.new_exception_msg(
-            vm.ctx.exceptions.system_error.to_owned(),
-            "install-pip requires rustpython be build with '--features=ssl'".into(),
-        ));
+        return Err(
+            vm.new_system_error("install-pip requires rustpython be build with '--features=ssl'")
+        );
     }
 
     match installer {

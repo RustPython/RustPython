@@ -114,7 +114,7 @@ fn get_warnings_attr(
     vm: &VirtualMachine,
     attr_name: &'static PyStrInterned,
     try_import: bool,
-) -> PyResult<Option<PyObjectRef>> {
+) -> Option<PyObjectRef> {
     let module = if try_import
         && !vm
             .state
@@ -123,38 +123,36 @@ fn get_warnings_attr(
     {
         match vm.import("warnings", 0) {
             Ok(module) => module,
-            Err(_) => return Ok(None),
+            Err(_) => return None,
         }
     } else {
         match vm.sys_module.get_attr(identifier!(vm, modules), vm) {
             Ok(modules) => match modules.get_item(vm.ctx.intern_str("warnings"), vm) {
                 Ok(module) => module,
-                Err(_) => return Ok(None),
+                Err(_) => return None,
             },
-            Err(_) => return Ok(None),
+            Err(_) => return None,
         }
     };
-    match module.get_attr(attr_name, vm) {
-        Ok(attr) => Ok(Some(attr)),
-        Err(_) => Ok(None),
-    }
+
+    module.get_attr(attr_name, vm).ok()
 }
 
 /// Get the warnings filters list from sys.modules['warnings'].filters,
 /// falling back to vm.state.warnings.filters.
-fn get_warnings_filters(vm: &VirtualMachine) -> PyResult<PyListRef> {
-    if let Some(filters_obj) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false)?
+fn get_warnings_filters(vm: &VirtualMachine) -> PyListRef {
+    if let Some(filters_obj) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false)
         && let Ok(filters) = filters_obj.try_into_value::<PyListRef>(vm)
     {
-        return Ok(filters);
+        return filters;
     }
-    Ok(vm.state.warnings.filters.clone())
+    vm.state.warnings.filters.clone()
 }
 
 /// Get the default action from sys.modules['warnings']._defaultaction,
 /// falling back to vm.state.warnings.default_action.
 fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    if let Some(action) = get_warnings_attr(vm, identifier!(&vm.ctx, defaultaction), false)? {
+    if let Some(action) = get_warnings_attr(vm, identifier!(&vm.ctx, defaultaction), false) {
         if !action.class().is(vm.ctx.types.str_type) {
             return Err(vm.new_type_error(format!(
                 "_warnings.defaultaction must be a string, not '{}'",
@@ -169,7 +167,7 @@ fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
 /// Get the once registry from sys.modules['warnings']._onceregistry,
 /// falling back to vm.state.warnings.once_registry.
 fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-    if let Some(registry) = get_warnings_attr(vm, identifier!(&vm.ctx, onceregistry), false)? {
+    if let Some(registry) = get_warnings_attr(vm, identifier!(&vm.ctx, onceregistry), false) {
         if !registry.class().is(vm.ctx.types.dict_type) {
             return Err(vm.new_type_error(format!(
                 "_warnings.onceregistry must be a dict, not '{}'",
@@ -196,8 +194,7 @@ fn already_warned(
 
     let version_matches = version_obj.as_ref().is_some_and(|v| {
         v.try_int(vm)
-            .map(|i| i.as_u32_mask() as usize == current_version)
-            .unwrap_or(false)
+            .is_ok_and(|i| i.as_u32_mask() as usize == current_version)
     });
 
     if version_matches {
@@ -266,7 +263,7 @@ fn get_filter(
     module: PyObjectRef,
     vm: &VirtualMachine,
 ) -> PyResult {
-    let filters = get_warnings_filters(vm)?;
+    let filters = get_warnings_filters(vm);
 
     // filters could change while we are iterating over it.
     // Re-check list length each iteration (matches C behavior).
@@ -332,7 +329,7 @@ pub fn warn_with_skip(
 
 /// Core warning logic matching `warn_explicit()` in `_warnings.c`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn warn_explicit(
+pub fn warn_explicit(
     category: Option<PyTypeRef>,
     message: PyObjectRef,
     filename: PyStrRef,
@@ -464,15 +461,17 @@ fn call_show_warning(
     source: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let Some(show_fn) =
-        get_warnings_attr(vm, identifier!(&vm.ctx, _showwarnmsg), source.is_some())?
+    let Some(show_fn) = get_warnings_attr(vm, identifier!(&vm.ctx, _showwarnmsg), source.is_some())
     else {
-        return show_warning(filename, lineno, text, category, source_line, vm);
+        show_warning(filename, lineno, text, category, source_line, vm);
+        return Ok(());
     };
+
     if !show_fn.is_callable() {
         return Err(vm.new_type_error("warnings._showwarnmsg() must be set to a callable"));
     }
-    let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)?
+
+    let Some(warnmsg_cls) = get_warnings_attr(vm, identifier!(&vm.ctx, WarningMessage), false)
     else {
         return Err(vm.new_runtime_error("unable to get warnings.WarningMessage"));
     };
@@ -489,6 +488,7 @@ fn call_show_warning(
         ],
         vm,
     )?;
+
     show_fn.call((msg,), vm)?;
     Ok(())
 }
@@ -500,7 +500,7 @@ fn show_warning(
     category: PyTypeRef,
     _source_line: Option<PyObjectRef>,
     vm: &VirtualMachine,
-) -> PyResult<()> {
+) {
     let stderr = crate::stdlib::sys::PyStderr(vm);
     writeln!(
         stderr,
@@ -510,7 +510,6 @@ fn show_warning(
         category.name(),
         text
     );
-    Ok(())
 }
 
 /// Check if a frame's filename starts with any of the given prefixes.

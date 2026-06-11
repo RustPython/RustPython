@@ -54,13 +54,13 @@ mod _operator {
     }
 
     #[pyfunction]
-    fn is_(a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        Ok(a.is(&b))
+    fn is_(a: PyObjectRef, b: PyObjectRef) -> bool {
+        a.is(&b)
     }
 
     #[pyfunction]
-    fn is_not(a: PyObjectRef, b: PyObjectRef) -> PyResult<bool> {
-        Ok(!a.is(&b))
+    fn is_not(a: PyObjectRef, b: PyObjectRef) -> bool {
+        !a.is(&b)
     }
 
     #[pyfunction]
@@ -363,11 +363,11 @@ mod _operator {
         }
 
         #[pymethod]
-        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<(PyTypeRef, PyTupleRef)> {
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef) {
             let attrs = vm
                 .ctx
                 .new_tuple(zelf.attrs.iter().map(|v| v.clone().into()).collect());
-            Ok((zelf.class().to_owned(), attrs))
+            (zelf.class().to_owned(), attrs)
         }
 
         // Go through dotted parts of string and call getattr on whatever is returned.

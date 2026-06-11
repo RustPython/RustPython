@@ -43,7 +43,7 @@ mod _abc {
     #[pyclass(with(Constructor))]
     impl AbcData {
         fn new() -> Self {
-            AbcData {
+            Self {
                 registry: PyRwLock::new(None),
                 cache: PyRwLock::new(None),
                 negative_cache: PyRwLock::new(None),
@@ -68,7 +68,7 @@ mod _abc {
             _args: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            Ok(AbcData::new())
+            Ok(Self::new())
         }
     }
 
@@ -361,9 +361,8 @@ mod _abc {
             return Ok(false);
         }
         if !ok.is(&vm.ctx.not_implemented) {
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.assertion_error.to_owned(),
-                "__subclasshook__ must return either False, True, or NotImplemented".into(),
+            return Err(vm.new_assertion_error(
+                "__subclasshook__ must return either False, True, or NotImplemented",
             ));
         }
 

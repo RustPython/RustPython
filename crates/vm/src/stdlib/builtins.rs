@@ -128,7 +128,7 @@ mod builtins {
             let hash_pos = line.iter().position(|&b| b == b'#')?;
             if !line[..hash_pos]
                 .iter()
-                .all(|&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
+                .all(|&b| matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
             {
                 return None;
             }
@@ -139,8 +139,7 @@ mod builtins {
             let after_coding = &after_hash[coding_pos + 6..];
 
             // Next char must be ':' or '='
-            let rest = if after_coding.first() == Some(&b':') || after_coding.first() == Some(&b'=')
-            {
+            let rest = if matches!(after_coding.first(), Some(b':' | b'=')) {
                 &after_coding[1..]
             } else {
                 return None;
@@ -150,17 +149,21 @@ mod builtins {
             let rest = rest
                 .iter()
                 .copied()
-                .skip_while(|&b| b == b' ' || b == b'\t')
+                .skip_while(|&b| matches!(b, b' ' | b'\t'))
                 .collect::<Vec<_>>();
 
             // Read encoding name: [-\w.]+
-            let name: String = rest
+            let name = rest
                 .iter()
-                .take_while(|&&b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
+                .take_while(|&&b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.'))
                 .map(|&b| b as char)
-                .collect();
+                .collect::<String>();
 
-            if name.is_empty() { None } else { Some(name) }
+            if name.is_empty() {
+                None
+            } else {
+                Some(normalize_source_encoding(&name))
+            }
         }
 
         // Split into lines (first two only)
@@ -175,10 +178,10 @@ mod builtins {
             // Only check second line if first line is blank or a comment
             let trimmed = first
                 .iter()
-                .skip_while(|&&b| b == b' ' || b == b'\t' || b == b'\x0c' || b == b'\r')
-                .copied()
-                .collect::<Vec<_>>();
-            if !trimmed.is_empty() && trimmed[0] != b'#' {
+                .find(|&&b| !matches!(b, b' ' | b'\t' | b'\x0c' | b'\r'))
+                .copied();
+
+            if trimmed.is_some_and(|b| b != b'#') {
                 return None;
             }
         }
@@ -186,15 +189,39 @@ mod builtins {
         lines.next().and_then(find_encoding_in_line)
     }
 
+    /// Match CPython's Parser/tokenizer/helpers.c:get_normal_name().
+    #[cfg(feature = "parser")]
+    fn normalize_source_encoding(name: &str) -> String {
+        let mut normalized = String::with_capacity(name.len().min(12));
+        for ch in name.chars().take(12) {
+            if ch == '_' {
+                normalized.push('-');
+            } else {
+                normalized.push(ch.to_ascii_lowercase());
+            }
+        }
+
+        if normalized == "utf-8" || normalized.starts_with("utf-8-") {
+            "utf-8".to_owned()
+        } else if normalized == "latin-1"
+            || normalized == "iso-8859-1"
+            || normalized == "iso-latin-1"
+            || normalized.starts_with("latin-1-")
+            || normalized.starts_with("iso-8859-1-")
+            || normalized.starts_with("iso-latin-1-")
+        {
+            "iso-8859-1".to_owned()
+        } else {
+            name.to_owned()
+        }
+    }
+
     /// Decode source bytes to a string, handling PEP 263 encoding declarations
     /// and BOM. Raises SyntaxError for invalid UTF-8 without an encoding
     /// declaration.
-    /// Check if an encoding name is a UTF-8 variant after normalization.
-    /// Matches: utf-8, utf_8, utf8, UTF-8, etc.
     #[cfg(feature = "parser")]
     fn is_utf8_encoding(name: &str) -> bool {
-        let normalized: String = name.chars().filter(|&c| c != '-' && c != '_').collect();
-        normalized.eq_ignore_ascii_case("utf8")
+        name == "utf-8"
     }
 
     #[cfg(feature = "parser")]
@@ -206,9 +233,10 @@ mod builtins {
 
         // Validate BOM + encoding combination
         if has_bom && !is_utf8 {
+            let enc = encoding.as_deref().unwrap_or("utf-8");
             return Err(vm.new_exception_msg(
                 vm.ctx.exceptions.syntax_error.to_owned(),
-                format!("encoding problem for '{filename}': utf-8").into(),
+                format!("encoding problem: {enc} with BOM").into(),
             ));
         }
 
@@ -321,7 +349,7 @@ mod builtins {
 
                 #[cfg(not(feature = "rustpython-codegen"))]
                 {
-                    return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned()));
+                    return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED));
                 }
                 #[cfg(feature = "rustpython-codegen")]
                 {
@@ -339,10 +367,10 @@ mod builtins {
             }
 
             #[cfg(not(feature = "parser"))]
-            {
-                const PARSER_NOT_SUPPORTED: &str = "can't compile() source code when the `parser` feature of rustpython is disabled";
-                Err(vm.new_type_error(PARSER_NOT_SUPPORTED.to_owned()))
-            }
+            return Err(vm.new_type_error(
+                "can't compile() source code when the `parser` feature of rustpython is disabled",
+            ));
+
             #[cfg(feature = "parser")]
             {
                 use crate::convert::ToPyException;
@@ -369,7 +397,7 @@ mod builtins {
                 if (flags & _ast::PY_CF_ONLY_AST).is_zero() {
                     #[cfg(not(feature = "compiler"))]
                     {
-                        Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED.to_owned()))
+                        Err(vm.new_value_error(CODEGEN_NOT_SUPPORTED))
                     }
                     #[cfg(feature = "compiler")]
                     {
@@ -441,23 +469,22 @@ mod builtins {
         feature_version: OptionalArg<i32>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<ruff_python_ast::PythonVersion>> {
-        let minor = match feature_version.into_option() {
-            Some(minor) => minor,
-            None => return Ok(None),
+        let Some(minor) = feature_version.into_option() else {
+            return Ok(None);
         };
 
         if minor < 0 {
             return Ok(None);
         }
 
-        let minor = u8::try_from(minor)
-            .map_err(|_| vm.new_value_error("compile() _feature_version out of range"))?;
-        Ok(Some(ruff_python_ast::PythonVersion { major: 3, minor }))
+        u8::try_from(minor)
+            .map(|v| Some(ruff_python_ast::PythonVersion { major: 3, minor: v }))
+            .map_err(|_| vm.new_value_error("compile() _feature_version out of range"))
     }
 
     #[pyfunction]
     fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
                 attr.class().name()
@@ -485,40 +512,42 @@ mod builtins {
     }
 
     impl ScopeArgs {
+        fn validate_globals_dict(
+            globals: &PyObject,
+            vm: &VirtualMachine,
+            func_name: &'static str,
+        ) -> PyResult<()> {
+            if globals.fast_isinstance(vm.ctx.types.dict_type) {
+                return Ok(());
+            }
+
+            let msg = match func_name {
+                "eval" => {
+                    let is_mapping = globals.mapping_unchecked().check();
+                    if is_mapping {
+                        "globals must be a real dict; try eval(expr, {}, mapping)".into()
+                    } else {
+                        "globals must be a dict".into()
+                    }
+                }
+                "exec" => format!(
+                    "exec() globals must be a dict, not {}",
+                    globals.class().name()
+                ),
+                _ => "globals must be a dict".into(),
+            };
+
+            Err(vm.new_type_error(msg))
+        }
+
         fn make_scope(
             self,
             vm: &VirtualMachine,
             func_name: &'static str,
         ) -> PyResult<crate::scope::Scope> {
-            fn validate_globals_dict(
-                globals: &PyObject,
-                vm: &VirtualMachine,
-                func_name: &'static str,
-            ) -> PyResult<()> {
-                if !globals.fast_isinstance(vm.ctx.types.dict_type) {
-                    return Err(match func_name {
-                        "eval" => {
-                            let is_mapping = globals.mapping_unchecked().check();
-                            vm.new_type_error(if is_mapping {
-                                "globals must be a real dict; try eval(expr, {}, mapping)"
-                                    .to_owned()
-                            } else {
-                                "globals must be a dict".to_owned()
-                            })
-                        }
-                        "exec" => vm.new_type_error(format!(
-                            "exec() globals must be a dict, not {}",
-                            globals.class().name()
-                        )),
-                        _ => vm.new_type_error("globals must be a dict"),
-                    });
-                }
-                Ok(())
-            }
-
             let (globals, locals) = match self.globals {
                 Some(globals) => {
-                    validate_globals_dict(&globals, vm, func_name)?;
+                    Self::validate_globals_dict(&globals, vm, func_name)?;
 
                     let globals = PyDictRef::try_from_object(vm, globals)?;
                     if !globals.contains_key(identifier!(vm, __builtins__), vm) {
@@ -607,7 +636,7 @@ mod builtins {
                     .map_err(|err| vm.new_syntax_error(&err, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]
-            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED.to_owned())),
+            Either::A(_) => return Err(vm.new_type_error(CODEGEN_NOT_SUPPORTED)),
             Either::B(code_obj) => code_obj,
         };
 
@@ -737,7 +766,7 @@ mod builtins {
                 }
                 ReadlineResult::Io(e) => Err(vm.new_os_error(e.to_string())),
                 #[cfg(unix)]
-                ReadlineResult::OsError(num) => Err(vm.new_os_error(num.to_string())),
+                ReadlineResult::OsError(num) => Err(vm.new_os_error(num)),
                 ReadlineResult::Other(e) => Err(vm.new_runtime_error(e.to_string())),
             }
         } else {
@@ -754,9 +783,7 @@ mod builtins {
     /// In this case, rustyline may hang because it uses raw mode.
     #[cfg(unix)]
     fn is_pty_child() -> bool {
-        use nix::unistd::{getpid, getsid};
-        // If this process is a session leader, we're likely in a PTY child
-        getsid(None) == Ok(getpid())
+        crate::host_env::posix::is_session_leader()
     }
 
     #[cfg(not(unix))]
@@ -928,7 +955,7 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyResult {
+    fn oct(number: ArgIndex, vm: &VirtualMachine) -> PyObjectRef {
         let number = number.into_int_ref();
         let n = number.as_bigint();
         let s = if n.is_negative() {
@@ -937,7 +964,7 @@ mod builtins {
             format!("0o{n:o}")
         };
 
-        Ok(vm.ctx.new_str(s).into())
+        vm.ctx.new_str(s).into()
     }
 
     #[pyfunction]
@@ -979,10 +1006,6 @@ mod builtins {
             exp: y,
             modulus,
         } = args;
-        #[expect(
-            clippy::unnecessary_option_map_or_else,
-            reason = "changing this won't compile"
-        )]
         let modulus = modulus
             .as_ref()
             .map_or_else(|| vm.ctx.none.as_object(), |m| m);
@@ -1121,6 +1144,10 @@ mod builtins {
         start: OptionalArg<PyObjectRef>,
     }
 
+    #[expect(
+        clippy::redundant_else,
+        reason = "match_class! macro expansion arms has a `return` inside"
+    )]
     #[pyfunction]
     fn sum(SumArgs { iterable, start }: SumArgs, vm: &VirtualMachine) -> PyResult {
         // Start with zero and add at will:
@@ -1130,17 +1157,13 @@ mod builtins {
 
         match_class!(match sum {
             PyStr =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum strings [use ''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum strings [use ''.join(seq) instead]")),
             PyBytes =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytes [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(vm.new_type_error("sum() can't sum bytes [use b''.join(seq) instead]")),
             PyByteArray =>
-                return Err(vm.new_type_error(
-                    "sum() can't sum bytearray [use b''.join(seq) instead]".to_owned()
-                )),
+                return Err(
+                    vm.new_type_error("sum() can't sum bytearray [use b''.join(seq) instead]")
+                ),
             _ => (),
         });
 
@@ -1225,21 +1248,21 @@ mod builtins {
         };
 
         // Use downcast_exact to keep ref to old object on error.
-        let metaclass = kwargs
-            .pop_kwarg("metaclass")
-            .map(|metaclass| {
-                metaclass
-                    .downcast_exact::<PyType>(vm)
-                    .map(|m| m.into_pyref())
-            })
-            .unwrap_or_else(|| {
+        let metaclass = kwargs.pop_kwarg("metaclass").map_or_else(
+            || {
                 // if there are no bases, use type; else get the type of the first base
                 Ok(if bases.is_empty() {
                     vm.ctx.types.type_type.to_owned()
                 } else {
                     bases.first().unwrap().class().to_owned()
                 })
-            });
+            },
+            |metaclass| {
+                metaclass
+                    .downcast_exact::<PyType>(vm)
+                    .map(|m| m.into_pyref())
+            },
+        );
 
         let (metaclass, meta_name) = match metaclass {
             Ok(mut metaclass) => {
@@ -1336,15 +1359,13 @@ mod builtins {
         {
             let cell_value = classcell.get().ok_or_else(|| {
                 vm.new_runtime_error(format!(
-                    "__class__ not set defining {:?} as {:?}. Was __classcell__ propagated to type.__new__?",
-                    name, class
+                    "__class__ not set defining {name:?} as {class:?}. Was __classcell__ propagated to type.__new__?"
                 ))
             })?;
 
             if !cell_value.is(&class) {
                 return Err(vm.new_type_error(format!(
-                    "__class__ set to {:?} defining {:?} as {:?}",
-                    cell_value, name, class
+                    "__class__ set to {cell_value:?} defining {name:?} as {class:?}"
                 )));
             }
         }
@@ -1449,6 +1470,7 @@ pub fn init_module(vm: &VirtualMachine, module: &Py<PyModule>) {
         "TimeoutError" => ctx.exceptions.timeout_error.to_owned(),
         "ReferenceError" => ctx.exceptions.reference_error.to_owned(),
         "RuntimeError" => ctx.exceptions.runtime_error.to_owned(),
+        "PythonFinalizationError" => ctx.exceptions.python_finalization_error.to_owned(),
         "NotImplementedError" => ctx.exceptions.not_implemented_error.to_owned(),
         "RecursionError" => ctx.exceptions.recursion_error.to_owned(),
         "SyntaxError" =>  ctx.exceptions.syntax_error.to_owned(),

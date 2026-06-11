@@ -275,7 +275,7 @@ impl PyRange {
     }
 
     #[pymethod]
-    fn __reversed__(&self, vm: &VirtualMachine) -> PyResult {
+    fn __reversed__(&self, vm: &VirtualMachine) -> PyObjectRef {
         let start = self.start.as_bigint();
         let step = self.step.as_bigint();
 
@@ -285,29 +285,27 @@ impl PyRange {
         let start = &new_stop + length.clone() * step;
         let step = -step;
 
-        Ok(
-            if let (Some(start), Some(step), Some(_)) =
-                (start.to_isize(), step.to_isize(), new_stop.to_isize())
-            {
-                PyRangeIterator {
-                    index: AtomicCell::new(0),
-                    start,
-                    step,
-                    // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
-                    // always fit in a usize.
-                    length: length.to_usize().unwrap_or(0),
-                }
-                .into_pyobject(vm)
-            } else {
-                PyLongRangeIterator {
-                    index: AtomicCell::new(0),
-                    start,
-                    step,
-                    length,
-                }
-                .into_pyobject(vm)
-            },
-        )
+        if let (Some(start), Some(step), Some(_)) =
+            (start.to_isize(), step.to_isize(), new_stop.to_isize())
+        {
+            PyRangeIterator {
+                index: AtomicCell::new(0),
+                start,
+                step,
+                // Cannot fail. If start, stop and step all successfully convert to isize, then result of zelf.len will
+                // always fit in a usize.
+                length: length.to_usize().unwrap_or(0),
+            }
+            .into_pyobject(vm)
+        } else {
+            PyLongRangeIterator {
+                index: AtomicCell::new(0),
+                start,
+                step,
+                length,
+            }
+            .into_pyobject(vm)
+        }
     }
 
     fn __len__(&self) -> BigInt {
@@ -618,7 +616,7 @@ impl PyLongRangeIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         range_iter_reduce(
             self.start.clone(),
             self.length.clone(),
@@ -680,7 +678,7 @@ impl PyRangeIterator {
     }
 
     #[pymethod]
-    fn __reduce__(&self, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
         range_iter_reduce(
             BigInt::from(self.start),
             BigInt::from(self.length),
@@ -721,7 +719,7 @@ fn range_iter_reduce(
     step: BigInt,
     index: usize,
     vm: &VirtualMachine,
-) -> PyResult<PyTupleRef> {
+) -> PyTupleRef {
     let iter = builtins_iter(vm);
     let stop = start.clone() + length * step.clone();
     let range = PyRange {
@@ -729,7 +727,7 @@ fn range_iter_reduce(
         stop: PyInt::from(stop).into_ref(&vm.ctx),
         step: PyInt::from(step).into_ref(&vm.ctx),
     };
-    Ok(vm.new_tuple((iter, (range,), index)))
+    vm.new_tuple((iter, (range,), index))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].

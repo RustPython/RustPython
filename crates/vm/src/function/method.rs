@@ -10,7 +10,7 @@ use crate::{
 
 bitflags::bitflags! {
     // METH_XXX flags in CPython
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct PyMethodFlags: u32 {
         const VARARGS = 0x0001;
         const KEYWORDS = 0x0002;
@@ -299,9 +299,14 @@ impl Py<HeapMethodDef> {
         unsafe { &*(&self.method as *const _) }
     }
 
-    pub fn build_function(&self, vm: &VirtualMachine) -> PyRef<PyNativeFunction> {
+    pub fn build_function(
+        &self,
+        vm: &VirtualMachine,
+        zelf: Option<PyObjectRef>,
+    ) -> PyRef<PyNativeFunction> {
         let mut function = unsafe { self.method() }.to_function();
         function._method_def_owner = Some(self.to_owned().into());
+        function.zelf = zelf;
         PyRef::new_ref(
             function,
             vm.ctx.types.builtin_function_or_method_type.to_owned(),

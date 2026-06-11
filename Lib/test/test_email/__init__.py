@@ -5,7 +5,6 @@ import email
 from email.message import Message
 from email._policybase import compat32
 from test.support import load_package_tests
-from test.support.testcase import ExtraAssertions
 from test.test_email import __file__ as landmark
 
 # Load all tests in package
@@ -21,7 +20,7 @@ def openfile(filename, *args, **kws):
 
 
 # Base test class
-class TestEmailBase(unittest.TestCase, ExtraAssertions):
+class TestEmailBase(unittest.TestCase):
 
     maxDiff = None
     # Currently the default policy is compat32.  By setting that as the default

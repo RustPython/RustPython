@@ -407,21 +407,15 @@ impl PyBytesInner {
         let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
         if let Some((first, second)) = self.elements.split_first() {
             new.push(first.to_ascii_uppercase());
-            second.iter().for_each(|x| new.push(x.to_ascii_lowercase()));
+            for x in second {
+                new.push(x.to_ascii_lowercase());
+            }
         }
         new
     }
 
     pub fn swapcase(&self) -> Vec<u8> {
-        let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
-        for w in &self.elements {
-            match w {
-                b'A'..=b'Z' => new.push(w.to_ascii_lowercase()),
-                b'a'..=b'z' => new.push(w.to_ascii_uppercase()),
-                x => new.push(*x),
-            }
-        }
-        new
+        swapcase_ascii(self.as_bytes())
     }
 
     pub fn hex(
@@ -805,9 +799,8 @@ impl PyBytesInner {
             new[offset..offset + len].clone_from_slice(to.elements.as_slice());
             if max_count == Some(1) {
                 return new;
-            } else {
-                new
             }
+            new
         } else {
             return self.elements.clone();
         };
@@ -1237,4 +1230,11 @@ pub(crate) fn title_ascii(bytes: &[u8]) -> Vec<u8> {
         out.push(b);
     }
     out
+}
+
+pub(crate) fn swapcase_ascii(bytes: &[u8]) -> Vec<u8> {
+    bytes
+        .iter()
+        .map(|&b| if b.is_ascii_alphabetic() { b ^ 0x20 } else { b })
+        .collect()
 }

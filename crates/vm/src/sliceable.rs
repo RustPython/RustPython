@@ -160,7 +160,7 @@ impl<T: Clone> SliceableSequenceMutOp for Vec<T> {
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
+#[expect(clippy::len_without_is_empty, reason = "Doesn't match CPython code")]
 pub trait SliceableSequenceOp {
     type Item;
     type Sliced;
@@ -347,6 +347,26 @@ pub struct SaturatedSlice {
 }
 
 impl SaturatedSlice {
+    #[must_use]
+    pub const fn from_parts(start: isize, stop: isize, step: isize) -> Self {
+        Self { start, stop, step }
+    }
+
+    #[must_use]
+    pub const fn start(&self) -> isize {
+        self.start
+    }
+
+    #[must_use]
+    pub const fn stop(&self) -> isize {
+        self.stop
+    }
+
+    #[must_use]
+    pub const fn step(&self) -> isize {
+        self.step
+    }
+
     // Equivalent to PySlice_Unpack.
     pub fn with_slice(slice: &PySlice, vm: &VirtualMachine) -> PyResult<Self> {
         let step = to_isize_index(vm, slice.step_ref(vm))?.unwrap_or(1);

@@ -21,8 +21,8 @@ use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
     instruction::{
-        AnyInstruction, AnyOpcode, Arg, Instruction, InstructionMetadata, Opcode,
-        PseudoInstruction, PseudoOpcode, StackEffect,
+        AnyInstruction, AnyOpcode, Arg, Instruction, Opcode, PseudoInstruction, PseudoOpcode,
+        StackEffect,
     },
     oparg::{
         BinaryOperator, BuildSliceArgCount, CommonConstant, ComparisonOperator, ConvertValueOparg,
@@ -33,6 +33,8 @@ pub use crate::bytecode::{
 };
 
 mod instruction;
+mod opcode_metadata;
+
 pub mod oparg;
 
 /// Exception table entry for zero-cost exception handling
@@ -413,6 +415,10 @@ impl<T> IndexMut<oparg::VarNum> for [T] {
 }
 
 /// Per-slot kind flags for localsplus (co_localspluskinds).
+pub const CO_FAST_ARG_POS: u8 = 0x02;
+pub const CO_FAST_ARG_KW: u8 = 0x04;
+pub const CO_FAST_ARG_VAR: u8 = 0x08;
+pub const CO_FAST_ARG: u8 = CO_FAST_ARG_POS | CO_FAST_ARG_KW | CO_FAST_ARG_VAR;
 pub const CO_FAST_HIDDEN: u8 = 0x10;
 pub const CO_FAST_LOCAL: u8 = 0x20;
 pub const CO_FAST_CELL: u8 = 0x40;
@@ -441,7 +447,8 @@ pub struct CodeObject<C: Constant = ConstantData> {
     pub varnames: Box<[C::Name]>,
     pub cellvars: Box<[C::Name]>,
     pub freevars: Box<[C::Name]>,
-    /// Per-slot kind flags: CO_FAST_LOCAL, CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN.
+    /// Per-slot kind flags: CO_FAST_ARG_*, CO_FAST_LOCAL, CO_FAST_CELL,
+    /// CO_FAST_FREE, CO_FAST_HIDDEN.
     /// Length = nlocalsplus (nlocals + ncells + nfrees).
     pub localspluskinds: Box<[u8]>,
     /// Line number table (CPython 3.11+ format)
@@ -451,7 +458,7 @@ pub struct CodeObject<C: Constant = ConstantData> {
 }
 
 bitflags! {
-    #[derive(Copy, Clone, Debug, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct CodeFlags: u32 {
         const OPTIMIZED = 0x0001;
         const NEWLOCALS = 0x0002;
@@ -461,9 +468,12 @@ bitflags! {
         const GENERATOR = 0x0020;
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
+        const ASYNC_GENERATOR = 0x0200;
+        const FUTURE_ANNOTATIONS = 0x1000000;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
         const HAS_DOCSTRING = 0x4000000;
+        const METHOD = 0x8000000;
     }
 }
 
@@ -653,7 +663,7 @@ impl CodeUnits {
     /// Disable adaptive specialization by setting all counters to unreachable.
     /// Used for CPython-compiled bytecode where specialization may not be safe.
     pub fn disable_specialization(&self) {
-        for counter in self.adaptive_counters.iter() {
+        for counter in &self.adaptive_counters {
             counter.store(UNREACHABLE_BACKOFF, Ordering::Relaxed);
         }
     }
@@ -867,7 +877,7 @@ impl CodeUnits {
 #[derive(Debug, Clone)]
 pub enum ConstantData {
     Tuple {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     Integer {
         value: BigInt,
@@ -892,10 +902,10 @@ pub enum ConstantData {
     },
     /// Constant slice(start, stop, step)
     Slice {
-        elements: Box<[ConstantData; 3]>,
+        elements: Box<[Self; 3]>,
     },
     Frozenset {
-        elements: Vec<ConstantData>,
+        elements: Vec<Self>,
     },
     None,
     Ellipsis,
@@ -907,8 +917,6 @@ impl PartialEq for ConstantData {
 
         match (self, other) {
             (Integer { value: a }, Integer { value: b }) => a == b,
-            // we want to compare floats *by actual value* - if we have the *exact same* float
-            // already in a constant cache, we want to use that
             (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
             (Complex { value: a }, Complex { value: b }) => {
                 a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()
@@ -1287,7 +1295,7 @@ mod tests {
     use alloc::{vec, vec::Vec};
 
     #[test]
-    fn test_exception_table_encode_decode() {
+    fn exception_table_encode_decode() {
         let entries = vec![
             ExceptionTableEntry::new(0, 10, 20, 2, false),
             ExceptionTableEntry::new(15, 25, 30, 1, true),
@@ -1325,7 +1333,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exception_table_empty() {
+    fn exception_table_empty() {
         let entries: Vec<ExceptionTableEntry> = vec![];
         let encoded = encode_exception_table(&entries);
         assert!(encoded.is_empty());
@@ -1333,7 +1341,7 @@ mod tests {
     }
 
     #[test]
-    fn test_exception_table_single_entry() {
+    fn exception_table_single_entry() {
         let entries = vec![ExceptionTableEntry::new(5, 15, 100, 3, true)];
         let encoded = encode_exception_table(&entries);
 

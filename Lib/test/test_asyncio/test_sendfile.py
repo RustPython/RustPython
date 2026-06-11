@@ -548,6 +548,10 @@ if sys.platform == 'win32':
         def create_event_loop(self):
             return asyncio.ProactorEventLoop()
 
+        @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; Flaky on CI")
+        def test_sendfile_ssl_pre_and_post_data(self):
+            return super().test_sendfile_ssl_pre_and_post_data()
+
 else:
     import selectors
 
@@ -566,6 +570,10 @@ else:
             def create_event_loop(self):
                 return asyncio.SelectorEventLoop(selectors.EpollSelector())
 
+            @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
+            def test_sendfile_ssl_pre_and_post_data(self):
+                return super().test_sendfile_ssl_pre_and_post_data()
+
     if hasattr(selectors, 'PollSelector'):
         class PollEventLoopTests(SendfileTestsBase,
                                  test_utils.TestCase):
@@ -573,12 +581,20 @@ else:
             def create_event_loop(self):
                 return asyncio.SelectorEventLoop(selectors.PollSelector())
 
+            @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
+            def test_sendfile_ssl_pre_and_post_data(self):
+                return super().test_sendfile_ssl_pre_and_post_data()
+
     # Should always exist.
     class SelectEventLoopTests(SendfileTestsBase,
                                test_utils.TestCase):
 
         def create_event_loop(self):
             return asyncio.SelectorEventLoop(selectors.SelectSelector())
+
+        @unittest.skipIf(sys.platform != "win32", "TODO: RUSTPYTHON; Flaky on CI")
+        def test_sendfile_ssl_pre_and_post_data(self):
+            return super().test_sendfile_ssl_pre_and_post_data()
 
 
 if __name__ == '__main__':

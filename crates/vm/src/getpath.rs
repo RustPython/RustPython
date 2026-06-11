@@ -26,7 +26,7 @@ mod platform {
 
     pub(super) fn stdlib_landmarks() -> [String; 2] {
         let subdir = stdlib_subdir();
-        [format!("{}/os.py", subdir), format!("{}/os.pyc", subdir)]
+        [format!("{subdir}/os.py"), format!("{subdir}/os.pyc")]
     }
 
     pub(super) fn platstdlib_landmark() -> String {
@@ -145,10 +145,10 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     // Step 5: Set prefix and base_prefix
     if venv_prefix.is_some() {
         // In venv: prefix = venv directory, base_prefix = original Python's prefix
-        paths.prefix = venv_prefix
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| calculated_prefix.clone());
+        paths.prefix = venv_prefix.as_ref().map_or_else(
+            || calculated_prefix.clone(),
+            |p| p.to_string_lossy().into_owned(),
+        );
         paths.base_prefix = calculated_prefix;
     } else {
         // Not in venv: prefix == base_prefix
@@ -369,9 +369,11 @@ fn get_executable_path() -> Option<PathBuf> {
 }
 
 /// Parse pyvenv.cfg and extract the 'home' key value
-#[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
 fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
+    #[cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))]
     let content = crate::host_env::fs::read_to_string(pyvenv_cfg).ok()?;
+    #[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
+    let content = std::fs::read_to_string(pyvenv_cfg).ok()?;
 
     for line in content.lines() {
         if let Some((key, value)) = line.split_once('=')
@@ -384,17 +386,12 @@ fn parse_pyvenv_home(pyvenv_cfg: &Path) -> Option<String> {
     None
 }
 
-#[cfg(all(target_arch = "wasm32", not(target_os = "wasi")))]
-fn parse_pyvenv_home(_pyvenv_cfg: &Path) -> Option<String> {
-    None
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_init_path_config() {
+    fn init_path_config_basic() {
         let settings = Settings::default();
         let paths = init_path_config(&settings);
         // Just verify it doesn't panic and returns valid paths
@@ -402,7 +399,7 @@ mod tests {
     }
 
     #[test]
-    fn test_search_up() {
+    fn search_up() {
         // Test with a path that doesn't have any landmarks
         let result = search_up_file(
             crate::host_env::os::temp_dir(),
@@ -412,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_default_prefix() {
+    fn default_prefix_basic() {
         let prefix = default_prefix();
         assert!(!prefix.is_empty());
     }

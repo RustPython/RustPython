@@ -2,8 +2,8 @@ import contextlib
 import errno
 import os.path
 import socket
-import subprocess
 import sys
+import subprocess
 import tempfile
 import unittest
 

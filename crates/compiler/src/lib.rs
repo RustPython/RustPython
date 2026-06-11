@@ -1,4 +1,9 @@
+pub use ruff_python_ast::token::TokenKind;
+use ruff_python_parser::{LexicalErrorType, ParseErrorType};
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
+use ruff_text_size::TextSlice;
+use thiserror::Error;
+
 use rustpython_codegen::{compile, symboltable};
 
 pub use rustpython_codegen::compile::CompileOpts;
@@ -9,20 +14,19 @@ pub use ruff_python_ast as ast;
 pub use ruff_python_parser as parser;
 pub use rustpython_codegen as codegen;
 pub use rustpython_compiler_core as core;
-use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum CompileErrorType {
     #[error(transparent)]
     Codegen(#[from] codegen::error::CodegenErrorType),
     #[error(transparent)]
-    Parse(#[from] parser::ParseErrorType),
+    Parse(#[from] ParseErrorType),
 }
 
 #[derive(Error, Debug)]
 pub struct ParseError {
     #[source]
-    pub error: parser::ParseErrorType,
+    pub error: ParseErrorType,
     pub raw_location: ruff_text_size::TextRange,
     pub location: SourceLocation,
     pub end_location: SourceLocation,
@@ -54,57 +58,140 @@ impl CompileError {
         // For EOF errors (unclosed brackets), find the unclosed bracket position
         // and adjust both the error location and message
         let mut is_unclosed_bracket = false;
-        let (error_type, location, end_location) = if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
-        ) {
-            if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
-                let bracket_text_size = ruff_text_size::TextSize::new(bracket_offset as u32);
-                let loc = source_code.source_location(bracket_text_size, PositionEncoding::Utf8);
-                let end_loc = SourceLocation {
-                    line: loc.line,
-                    character_offset: loc.character_offset.saturating_add(1),
-                };
-                let msg = format!("'{}' was never closed", bracket_char);
-                is_unclosed_bracket = true;
-                (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-            } else {
+        let (error_type, location, end_location) = match &error.error {
+            ParseErrorType::Lexical(LexicalErrorType::Eof) => {
+                if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
+                    let bracket_text_size = ruff_text_size::TextSize::new(bracket_offset as u32);
+                    let loc =
+                        source_code.source_location(bracket_text_size, PositionEncoding::Utf8);
+                    let end_loc = SourceLocation {
+                        line: loc.line,
+                        character_offset: loc.character_offset.saturating_add(1),
+                    };
+                    let msg = format!("'{bracket_char}' was never closed");
+                    is_unclosed_bracket = true;
+                    (ParseErrorType::OtherError(msg), loc, end_loc)
+                } else {
+                    let loc =
+                        source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                    let end_loc =
+                        source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+                    (error.error, loc, end_loc)
+                }
+            }
+
+            ParseErrorType::Lexical(LexicalErrorType::IndentationError) => {
+                // For IndentationError, point the offset to the end of the line content
+                // instead of the beginning
                 let loc =
                     source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-                let end_loc =
+                let line_idx = loc.line.to_zero_indexed();
+                let line = source_text.split('\n').nth(line_idx).unwrap_or("");
+                let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
+                let end_loc = SourceLocation {
+                    line: loc.line,
+                    character_offset: ruff_source_file::OneIndexed::new(line_end_col)
+                        .unwrap_or(loc.character_offset),
+                };
+                (error.error, end_loc, end_loc)
+            }
+            ParseErrorType::ExpectedToken { expected, found }
+                if matches!((expected, found), (TokenKind::Comma, TokenKind::Int)) =>
+            {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
                     source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+                let msg = "invalid syntax. Perhaps you forgot a comma?".into();
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
+
+            ParseErrorType::InvalidAssignmentTarget => {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+
+                let expr_str = source_file.source_text().slice(error.location);
+
+                let msg = parser::parse_expression(expr_str).map_or_else(
+                    |_| match expr_str {
+                        "yield" => "assignment to yield expression not possible".into(),
+                        _ => format!("cannot assign to {expr_str}"),
+                    },
+                    |parsed| match *parsed.syntax().body {
+                        ast::Expr::Call(_) => "cannot assign to function call".into(),
+                        ast::Expr::BinOp(_) => "cannot assign to expression".into(),
+                        ast::Expr::If(_) => "cannot assign to conditional expression".into(),
+                        ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+                        ast::Expr::StringLiteral(_)
+                        | ast::Expr::BytesLiteral(_)
+                        | ast::Expr::NumberLiteral(_) => {
+                            "cannot assign to literal here. Maybe you meant '==' instead of '='?"
+                                .into()
+                        }
+                        ast::Expr::EllipsisLiteral(_) => {
+                            "cannot assign to ellipsis here. Maybe you meant '==' instead of '='?"
+                                .into()
+                        }
+                        _ => format!("cannot assign to {expr_str}"),
+                    },
+                );
+
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
+
+            ParseErrorType::InvalidNamedAssignmentTarget => {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+
+                let target = source_file.source_text().slice(error.location);
+                let msg = format!("cannot use assignment expressions with {target}");
+                (ParseErrorType::OtherError(msg), loc, end_loc)
+            }
+
+            _ => {
+                let loc =
+                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
+                let mut end_loc =
+                    source_code.source_location(error.location.end(), PositionEncoding::Utf8);
+
+                // If the error range ends at the start of a new line (column 1),
+                // adjust it to the end of the previous line
+                if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
+                    let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
+                    end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
+                    end_loc.character_offset = end_loc.character_offset.saturating_add(1);
+                }
+
                 (error.error, loc, end_loc)
             }
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
-        ) {
-            // For IndentationError, point the offset to the end of the line content
-            // instead of the beginning
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let line_idx = loc.line.to_zero_indexed();
-            let line = source_text.split('\n').nth(line_idx).unwrap_or("");
-            let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
-            let end_loc = SourceLocation {
-                line: loc.line,
-                character_offset: ruff_source_file::OneIndexed::new(line_end_col)
-                    .unwrap_or(loc.character_offset),
-            };
-            (error.error, end_loc, end_loc)
-        } else {
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let mut end_loc =
-                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
-
-            // If the error range ends at the start of a new line (column 1),
-            // adjust it to the end of the previous line
-            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
-                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
-            }
-
-            (error.error, loc, end_loc)
         };
 
         Self::Parse(ParseError {
@@ -137,8 +224,8 @@ impl CompileError {
     #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
-            CompileError::Codegen(_) => None,
-            CompileError::Parse(parse_error) => Some((
+            Self::Codegen(_) => None,
+            Self::Parse(parse_error) => Some((
                 parse_error.end_location.line.get(),
                 parse_error.end_location.character_offset.get(),
             )),
@@ -339,29 +426,33 @@ pub fn _compile_symtable(
     res.map_err(|e| e.into_codegen_error(source_file.name().to_owned()).into())
 }
 
-#[test]
-fn test_compile() {
-    let code = "x = 'abc'";
-    let compiled = compile(code, Mode::Single, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[test]
-fn test_compile_phello() {
-    let code = r#"
+    #[test]
+    fn basic_compile() {
+        let code = "x = 'abc'";
+        let compiled = compile(code, Mode::Single, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
+
+    #[test]
+    fn compile_phello() {
+        let code = r#"
 initialized = True
 def main():
     print("Hello world!")
 if __name__ == '__main__':
     main()
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_if_elif_else() {
-    let code = r#"
+    #[test]
+    fn compile_if_elif_else() {
+        let code = r#"
 if False:
     pass
 elif False:
@@ -371,31 +462,31 @@ elif False:
 else:
     pass
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_lambda() {
-    let code = r#"
+    #[test]
+    fn compile_lambda() {
+        let code = r#"
 lambda: 'a'
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_lambda2() {
-    let code = r#"
+    #[test]
+    fn compile_lambda2() {
+        let code = r#"
 (lambda x: f'hello, {x}')('world}')
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_lambda3() {
-    let code = r#"
+    #[test]
+    fn compile_lambda3() {
+        let code = r#"
 def g():
     pass
 def f():
@@ -406,69 +497,69 @@ def f():
     else:
         return g
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_int() {
-    let code = r#"
+    #[test]
+    fn compile_int() {
+        let code = r#"
 a = 0xFF
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_bigint() {
-    let code = r#"
+    #[test]
+    fn compile_bigint() {
+        let code = r#"
 a = 0xFFFFFFFFFFFFFFFFFFFFFFFF
 "#;
-    let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_compile_fstring() {
-    let code1 = r#"
+    #[test]
+    fn compile_fstring() {
+        let code1 = r#"
 assert f"1" == '1'
     "#;
-    let compiled = compile(code1, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
+        let compiled = compile(code1, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
 
-    let code2 = r#"
+        let code2 = r#"
 assert f"{1}" == '1'
     "#;
-    let compiled = compile(code2, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-    let code3 = r#"
+        let compiled = compile(code2, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+        let code3 = r#"
 assert f"{1+1}" == '2'
     "#;
-    let compiled = compile(code3, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
+        let compiled = compile(code3, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
 
-    let code4 = r#"
+        let code4 = r#"
 assert f"{{{(lambda: f'{1}')}" == '{1'
     "#;
-    let compiled = compile(code4, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
+        let compiled = compile(code4, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
 
-    let code5 = r#"
+        let code5 = r#"
 assert f"a{1}" == 'a1'
     "#;
-    let compiled = compile(code5, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
+        let compiled = compile(code5, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
 
-    let code6 = r#"
+        let code6 = r#"
 assert f"{{{(lambda x: f'hello, {x}')('world}')}" == '{hello, world}'
     "#;
-    let compiled = compile(code6, Mode::Exec, "<>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
-}
+        let compiled = compile(code6, Mode::Exec, "<>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 
-#[test]
-fn test_simple_enum() {
-    let code = r#"
+    #[test]
+    fn simple_enum() {
+        let code = r#"
 import enum
 @enum._simple_enum(enum.IntFlag, boundary=enum.KEEP)
 class RegexFlag:
@@ -476,6 +567,7 @@ class RegexFlag:
     DEBUG = 1
 print(RegexFlag.NOFLAG & RegexFlag.DEBUG)
 "#;
-    let compiled = compile(code, Mode::Exec, "<string>", CompileOpts::default());
-    dbg!(compiled.expect("compile error"));
+        let compiled = compile(code, Mode::Exec, "<string>", CompileOpts::default());
+        dbg!(compiled.expect("compile error"));
+    }
 }

@@ -1249,7 +1249,6 @@ class TestSpecifics(unittest.TestCase):
                 last_line = line
         return res
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_lineno_attribute(self):
         def load_attr():
             return (
@@ -1294,7 +1293,6 @@ class TestSpecifics(unittest.TestCase):
                 code_lines = self.get_code_lines(func.__code__)
                 self.assertEqual(lines, code_lines)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [0]
     def test_line_number_genexp(self):
 
         def return_genexp():
@@ -2582,7 +2580,6 @@ class TestExpressionStackSize(unittest.TestCase):
     def test_dict(self):
         self.check_stack_size("{" + "x:x, " * self.N + "x:x}")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 102 not less than or equal to 6
     def test_func_args(self):
         self.check_stack_size("f(" + "x, " * self.N + ")")
 
@@ -2590,7 +2587,6 @@ class TestExpressionStackSize(unittest.TestCase):
         kwargs = (f'a{i}=x' for i in range(self.N))
         self.check_stack_size("f(" +  ", ".join(kwargs) + ")")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 102 not less than or equal to 6
     def test_meth_args(self):
         self.check_stack_size("o.m(" + "x, " * self.N + ")")
 
