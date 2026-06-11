@@ -1,3 +1,8 @@
+//! [Sequence Protocol](https://docs.python.org/3/c-api/sequence.html)
+
+use crossbeam_utils::atomic::AtomicCell;
+use itertools::Itertools;
+
 use crate::{
     AsObject, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     builtins::{PyList, PyListRef, PySlice, PyTuple, PyTupleRef},
@@ -6,13 +11,8 @@ use crate::{
     object::{Traverse, TraverseFn},
     protocol::PyNumberBinaryOp,
 };
-use crossbeam_utils::atomic::AtomicCell;
-use itertools::Itertools;
 
-// Sequence Protocol
-// https://docs.python.org/3/c-api/sequence.html
-
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PySequenceSlots {
     pub length: AtomicCell<Option<fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>>>,
@@ -45,31 +45,38 @@ impl PySequenceSlots {
         if let Some(f) = methods.length {
             self.length.store(Some(f));
         }
+
         if let Some(f) = methods.concat {
             self.concat.store(Some(f));
         }
+
         if let Some(f) = methods.repeat {
             self.repeat.store(Some(f));
         }
+
         if let Some(f) = methods.item {
             self.item.store(Some(f));
         }
+
         if let Some(f) = methods.ass_item {
             self.ass_item.store(Some(f));
         }
+
         if let Some(f) = methods.contains {
             self.contains.store(Some(f));
         }
+
         if let Some(f) = methods.inplace_concat {
             self.inplace_concat.store(Some(f));
         }
+
         if let Some(f) = methods.inplace_repeat {
             self.inplace_repeat.store(Some(f));
         }
     }
 }
 
-#[allow(clippy::type_complexity)]
+#[expect(clippy::type_complexity)]
 #[derive(Default)]
 pub struct PySequenceMethods {
     pub length: Option<fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>>,
@@ -104,7 +111,7 @@ impl PySequenceMethods {
 
 impl PyObject {
     #[inline]
-    pub fn sequence_unchecked(&self) -> PySequence<'_> {
+    pub const fn sequence_unchecked(&self) -> PySequence<'_> {
         PySequence { obj: self }
     }
 
@@ -215,6 +222,7 @@ impl PySequence<'_> {
         if let Some(f) = self.slots().inplace_repeat.load() {
             return f(self, n, vm);
         }
+
         if let Some(f) = self.slots().repeat.load() {
             return f(self, n, vm);
         }
@@ -233,6 +241,7 @@ impl PySequence<'_> {
         if let Some(f) = self.slots().item.load() {
             return f(self, i, vm);
         }
+
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or does not support indexing",
             self.obj.class()
@@ -243,6 +252,7 @@ impl PySequence<'_> {
         if let Some(f) = self.slots().ass_item.load() {
             return f(self, i, value, vm);
         }
+
         Err(vm.new_type_error(format!(
             "'{}' is not a sequence or doesn't support item {}",
             self.obj.class(),
@@ -330,8 +340,7 @@ impl PySequence<'_> {
     }
 
     pub fn list(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let list = vm.ctx.new_list(self.obj.try_to_value(vm)?);
-        Ok(list)
+        Ok(vm.ctx.new_list(self.obj.try_to_value(vm)?))
     }
 
     pub fn count(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
@@ -354,20 +363,17 @@ impl PySequence<'_> {
     }
 
     pub fn index(&self, target: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
-        let mut index: isize = -1;
-
         let iter = self.obj.to_owned().get_iter(vm)?;
         let iter = iter.iter::<PyObjectRef>(vm)?;
 
-        for elem in iter {
-            if index == isize::MAX {
+        for (index, elem) in iter.enumerate() {
+            if isize::try_from(index).is_err() {
                 return Err(vm.new_overflow_error("index exceeds C integer size"));
             }
-            index += 1;
 
             let elem = elem?;
             if vm.bool_eq(&elem, target)? {
-                return Ok(index as usize);
+                return Ok(index);
             }
         }
 

@@ -175,9 +175,8 @@ mod _multiprocessing {
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.kind == RECURSIVE_MUTEX {
                 if !ismine!(self) {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.assertion_error.to_owned(),
-                        "attempt to release recursive lock not owned by thread".into(),
+                    return Err(vm.new_assertion_error(
+                        "attempt to release recursive lock not owned by thread",
                     ));
                 }
                 if self.count.load(Ordering::Acquire) > 1 {
@@ -597,9 +596,8 @@ mod _multiprocessing {
             if self.kind == RECURSIVE_MUTEX {
                 // if (!ISMINE(self))
                 if !ismine!(self) {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.assertion_error.to_owned(),
-                        "attempt to release recursive lock not owned by thread".into(),
+                    return Err(vm.new_assertion_error(
+                        "attempt to release recursive lock not owned by thread",
                     ));
                 }
                 // if (self->count > 1) { --self->count; Py_RETURN_NONE; }
