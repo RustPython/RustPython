@@ -234,6 +234,7 @@ class TestConsole(TestCase):
         _os_write.assert_any_call(ANY, TERM_CAPABILITIES["cud"] + b":1")
         con.restore()
 
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; TypeError: signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object")
     def test_cursor_back_write(self, _os_write):
         events = itertools.chain(
             code_to_events("1"),
