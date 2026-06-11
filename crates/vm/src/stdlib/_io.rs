@@ -89,6 +89,12 @@ impl TryFromObject for Fildes {
     }
 }
 
+impl From<Fildes> for i32 {
+    fn from(fildes: Fildes) -> Self {
+        fildes.0
+    }
+}
+
 #[cfg(unix)]
 impl std::os::fd::AsFd for Fildes {
     fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
@@ -97,6 +103,7 @@ impl std::os::fd::AsFd for Fildes {
         unsafe { std::os::fd::BorrowedFd::borrow_raw(self.0) }
     }
 }
+
 #[cfg(unix)]
 impl std::os::fd::AsRawFd for Fildes {
     fn as_raw_fd(&self) -> std::os::fd::RawFd {
