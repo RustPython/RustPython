@@ -482,7 +482,7 @@ pub(crate) mod _signal {
                 .ok_or_else(|| {
                     vm.new_value_error(format!(
                         "signal number out of range [1, {}]",
-                        SIGNUM_RANGE.end
+                        SIGNUM_RANGE.end - 1
                     ))
                 })?;
 
