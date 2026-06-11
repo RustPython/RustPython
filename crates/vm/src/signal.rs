@@ -1,28 +1,24 @@
-#![cfg_attr(target_os = "wasi", allow(dead_code))]
 use crate::{PyObjectRef, PyResult, VirtualMachine};
 use alloc::fmt;
 use core::cell::{Cell, RefCell};
-#[cfg(windows)]
-use core::sync::atomic::AtomicIsize;
 use core::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
-pub(crate) const NSIG: usize = 64;
+#[cfg(windows)]
+use core::sync::atomic::AtomicIsize;
 
-pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
-    Box::new(const { RefCell::new([const { None }; NSIG]) })
-}
 static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
-// hack to get around const array repeat expressions, rust issue #79270
-#[allow(
-    clippy::declare_interior_mutable_const,
-    reason = "workaround for const array repeat limitation (rust issue #79270)"
-)]
+
+pub(crate) const NSIG: usize = 64;
 const ATOMIC_FALSE: AtomicBool = AtomicBool::new(false);
 pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
+
+pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
+    Box::new(const { RefCell::new([const { None }; NSIG]) })
+}
 
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
@@ -50,6 +46,7 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
     if !ANY_TRIGGERED.load(Ordering::Relaxed) {
         return Ok(());
     }
+
     // Atomic RMW only when a signal is actually pending.
     if !ANY_TRIGGERED.swap(false, Ordering::Acquire) {
         return Ok(());
@@ -99,8 +96,7 @@ pub(crate) fn is_triggered() -> bool {
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
-#[cfg(unix)]
-#[cfg(feature = "host_env")]
+#[cfg(all(unix, feature = "host_env"))]
 pub(crate) fn clear_after_fork() {
     ANY_TRIGGERED.store(false, Ordering::Release);
     for trigger in &TRIGGERS {
