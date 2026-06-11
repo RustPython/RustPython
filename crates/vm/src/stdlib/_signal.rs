@@ -6,27 +6,40 @@ pub(crate) use _signal::module_def;
 pub(crate) mod _signal {
     #![allow(unreachable_pub)]
 
-    #[cfg(any(unix, windows))]
-    use crate::convert::{IntoPyException, TryFromBorrowedObject};
     use crate::{Py, PyObjectRef, PyResult, VirtualMachine, signal};
-    #[cfg(unix)]
-    use crate::{
-        builtins::{PyBaseExceptionRef, PyTypeRef},
-        function::{ArgIntoFloat, OptionalArg},
+    use core::{
+        ops::Range,
+        sync::atomic::{self, Ordering},
     };
-    use core::sync::atomic::{self, Ordering};
-    #[cfg(any(unix, windows))]
-    use rustpython_host_env::signal as host_signal;
-    #[cfg(unix)]
-    use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
-    #[cfg(unix)]
-    use std::os::fd::AsFd;
+
+    cfg_select! {
+        any(unix, windows) => {
+            use crate::convert::{IntoPyException, TryFromBorrowedObject};
+            use rustpython_host_env::signal as host_signal;
+        }
+        _ => {}
+    }
+
+    cfg_select! {
+        unix => {
+            use crate::{
+                builtins::{PyBaseExceptionRef, PyTypeRef},
+                function::{ArgIntoFloat, OptionalArg},
+            };
+            use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
+
+            use std::os::fd::AsFd;
+        },
+        _ => {}
+    }
 
     #[allow(non_camel_case_types)]
     type sighandler_t = cfg_select! {
         any(unix, windows) => libc::sighandler_t,
         _ => usize,
     };
+
+    const SIGNUM_RANGE: Range<i32> = 1..signal::NSIG as i32;
 
     cfg_select! {
         windows => {
@@ -150,9 +163,13 @@ pub(crate) mod _signal {
         )
     }
 
+    #[cfg(unix)]
     fn new_itimer_error(msg: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_exception_msg(itimer_error(vm), msg.into())
     }
+
+    const _: () = assert!(SIGNUM_RANGE.start.is_positive());
+    const _: () = assert!(SIGNUM_RANGE.end.is_positive());
 
     #[cfg(any(unix, windows))]
     pub(super) fn init_signal_handlers(
@@ -163,8 +180,8 @@ pub(crate) mod _signal {
             let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
-            for signum in 1..NSIG {
-                let Some(handler) = (unsafe { host_signal::probe_handler(signum as i32) }) else {
+            for signum in SIGNUM_RANGE {
+                let Some(handler) = (unsafe { host_signal::probe_handler(signum) }) else {
                     continue;
                 };
                 let py_handler = if handler == SIG_DFL {
@@ -174,9 +191,10 @@ pub(crate) mod _signal {
                 } else {
                     None
                 };
+
                 vm.signal_handlers
                     .get_or_init(signal::new_signal_handlers)
-                    .borrow_mut()[signum] = py_handler;
+                    .borrow_mut()[signum as usize] = py_handler;
             }
 
             let int_handler = module
@@ -402,9 +420,10 @@ pub(crate) mod _signal {
     #[cfg(any(unix, windows))]
     #[pyfunction]
     fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
-        if signalnum < 1 || signalnum >= signal::NSIG as i32 {
+        if !SIGNUM_RANGE.contains(&signalnum) {
             return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
         }
+
         Ok(host_signal::strsignal(signalnum))
     }
 
@@ -430,7 +449,7 @@ pub(crate) mod _signal {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
-        for signum in 1..signal::NSIG {
+        for signum in SIGNUM_RANGE {
             if host_signal::sigset_contains(mask, signum as i32) {
                 set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
             }
@@ -459,11 +478,11 @@ pub(crate) mod _signal {
             let signum = sig
                 .try_to_value::<i32>(vm)
                 .ok()
-                .filter(|v| (1..signal::NSIG as i32).contains(v))
+                .filter(|v| SIGNUM_RANGE.contains(v))
                 .ok_or_else(|| {
                     vm.new_value_error(format!(
                         "signal number out of range [1, {}]",
-                        signal::NSIG - 1
+                        SIGNUM_RANGE.end
                     ))
                 })?;
 
