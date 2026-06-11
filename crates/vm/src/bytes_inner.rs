@@ -407,7 +407,9 @@ impl PyBytesInner {
         let mut new: Vec<u8> = Vec::with_capacity(self.elements.len());
         if let Some((first, second)) = self.elements.split_first() {
             new.push(first.to_ascii_uppercase());
-            second.iter().for_each(|x| new.push(x.to_ascii_lowercase()));
+            for x in second {
+                new.push(x.to_ascii_lowercase());
+            }
         }
         new
     }

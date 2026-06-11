@@ -69,10 +69,9 @@ impl PyType {
         if let Some(stg_info) = self.get_type_data::<StgInfo>()
             && stg_info.initialized
         {
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.system_error.to_owned(),
-                format!("class \"{}\" already initialized", self.name()).into(),
-            ));
+            return Err(
+                vm.new_system_error(format!(r#"class "{}" already initialized"#, self.name()))
+            );
         }
         Ok(())
     }

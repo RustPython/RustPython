@@ -504,10 +504,7 @@ mod decl {
 
         let result =
             marshal::deserialize_value(&mut &buf[..], PyMarshalBag(vm)).map_err(|e| match e {
-                marshal::MarshalError::Eof => vm.new_exception_msg(
-                    vm.ctx.exceptions.eof_error.to_owned(),
-                    "marshal data too short".into(),
-                ),
+                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
                 _ => vm.new_value_error("bad marshal data"),
             })?;
         if !allow_code {

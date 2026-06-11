@@ -89,6 +89,12 @@ impl TryFromObject for Fildes {
     }
 }
 
+impl From<Fildes> for i32 {
+    fn from(fildes: Fildes) -> Self {
+        fildes.0
+    }
+}
+
 #[cfg(unix)]
 impl std::os::fd::AsFd for Fildes {
     fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
@@ -97,6 +103,7 @@ impl std::os::fd::AsFd for Fildes {
         unsafe { std::os::fd::BorrowedFd::borrow_raw(self.0) }
     }
 }
+
 #[cfg(unix)]
 impl std::os::fd::AsRawFd for Fildes {
     fn as_raw_fd(&self) -> std::os::fd::RawFd {
@@ -188,18 +195,18 @@ mod _io {
         result.map(Some)
     }
 
-    pub(super) fn new_unsupported_operation(
+    pub(super) fn new_unsupported_operation<T: Into<String>>(
+        msg: T,
         vm: &VirtualMachine,
-        msg: String,
     ) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg)
+        vm.new_os_subtype_error(unsupported_operation().to_owned(), None, msg.into())
             .upcast()
     }
 
     fn _unsupported<T>(vm: &VirtualMachine, zelf: &PyObject, operation: &str) -> PyResult<T> {
         Err(new_unsupported_operation(
-            vm,
             format!("{}.{}() not supported", zelf.class().name(), operation),
+            vm,
         ))
     }
 
@@ -363,8 +370,8 @@ mod _io {
             Ok(())
         } else {
             Err(new_unsupported_operation(
+                "File or stream is not readable",
                 vm,
-                "File or stream is not readable".to_owned(),
             ))
         }
     }
@@ -374,8 +381,8 @@ mod _io {
             Ok(())
         } else {
             Err(new_unsupported_operation(
+                "File or stream is not writable.",
                 vm,
-                "File or stream is not writable.".to_owned(),
             ))
         }
     }
@@ -385,8 +392,8 @@ mod _io {
             Ok(())
         } else {
             Err(new_unsupported_operation(
+                "File or stream is not seekable",
                 vm,
-                "File or stream is not seekable".to_owned(),
             ))
         }
     }
@@ -1680,7 +1687,7 @@ mod _io {
             let mut data = zelf.lock(vm)?;
             data.check_init(vm)?;
             if !data.writable() {
-                return Err(new_unsupported_operation(vm, "truncate".to_owned()));
+                return Err(new_unsupported_operation("truncate", vm));
             }
             data.flush_rewind(vm)?;
             let res = vm.call_method(data.raw.as_ref().unwrap(), "truncate", (pos,))?;
@@ -3063,9 +3070,8 @@ mod _io {
                     || data.decoded_chars_used.chars != 0)
             {
                 return Err(new_unsupported_operation(
+                    "cannot reconfigure encoding or newline after reading from the stream",
                     vm,
-                    "cannot reconfigure encoding or newline after reading from the stream"
-                        .to_owned(),
                 ));
             }
 
@@ -3203,8 +3209,8 @@ mod _io {
 
             if !textio.seekable {
                 return Err(new_unsupported_operation(
+                    "underlying stream is not seekable",
                     vm,
-                    "underlying stream is not seekable".to_owned(),
                 ));
             }
 
@@ -3217,8 +3223,8 @@ mod _io {
                         vm.call_method(&textio.buffer, "tell", ())?
                     } else {
                         return Err(new_unsupported_operation(
+                            "can't do nonzero cur-relative seeks",
                             vm,
-                            "can't do nonzero cur-relative seeks".to_owned(),
                         ));
                     }
                 }
@@ -3241,8 +3247,8 @@ mod _io {
                         return Ok(res);
                     }
                     return Err(new_unsupported_operation(
+                        "can't do nonzero end-relative seeks",
                         vm,
-                        "can't do nonzero end-relative seeks".to_owned(),
                     ));
                 }
                 _ => {
@@ -3312,8 +3318,8 @@ mod _io {
             let mut textio = zelf.lock(vm)?;
             if !textio.seekable {
                 return Err(new_unsupported_operation(
+                    "underlying stream is not seekable",
                     vm,
-                    "underlying stream is not seekable".to_owned(),
                 ));
             }
             if !textio.telling {
@@ -3444,7 +3450,7 @@ mod _io {
             let decoder = textio
                 .decoder
                 .clone()
-                .ok_or_else(|| new_unsupported_operation(vm, "not readable".to_owned()))?;
+                .ok_or_else(|| new_unsupported_operation("not readable", vm))?;
 
             textio.write_pending(vm)?;
 
@@ -3495,7 +3501,7 @@ mod _io {
             let (encoder, encode_func) = textio
                 .encoder
                 .as_ref()
-                .ok_or_else(|| new_unsupported_operation(vm, "not writable".to_owned()))?;
+                .ok_or_else(|| new_unsupported_operation("not writable", vm))?;
 
             let char_len = obj.char_len();
 
@@ -3861,7 +3867,7 @@ mod _io {
             let decoder = self
                 .decoder
                 .as_ref()
-                .ok_or_else(|| new_unsupported_operation(vm, "not readable".to_owned()))?;
+                .ok_or_else(|| new_unsupported_operation("not readable", vm))?;
 
             let dec_state = if self.telling {
                 let state = vm.call_method(decoder, "getstate", ())?;
@@ -5101,8 +5107,8 @@ mod _io {
         }
         .ok_or_else(|| {
             new_unsupported_operation(
+                "Couldn't get FileIO, io.open likely isn't supported on your platform",
                 vm,
-                "Couldn't get FileIO, io.open likely isn't supported on your platform".to_owned(),
             )
         })?;
         let raw = PyType::call(
@@ -5586,8 +5592,8 @@ mod fileio {
         ) -> PyResult<Option<Vec<u8>>> {
             if !zelf.mode.load().contains(host_io::FileMode::READABLE) {
                 return Err(new_unsupported_operation(
+                    "File or stream is not readable",
                     vm,
-                    "File or stream is not readable".to_owned(),
                 ));
             }
             let handle = zelf.get_fd(vm)?;
@@ -5644,8 +5650,8 @@ mod fileio {
         ) -> PyResult<Option<usize>> {
             if !zelf.mode.load().contains(host_io::FileMode::READABLE) {
                 return Err(new_unsupported_operation(
+                    "File or stream is not readable",
                     vm,
-                    "File or stream is not readable".to_owned(),
                 ));
             }
 
@@ -5679,8 +5685,8 @@ mod fileio {
         ) -> PyResult<Option<usize>> {
             if !zelf.mode.load().contains(host_io::FileMode::WRITABLE) {
                 return Err(new_unsupported_operation(
+                    "File or stream is not writable",
                     vm,
-                    "File or stream is not writable".to_owned(),
                 ));
             }
 
@@ -6219,8 +6225,8 @@ mod winconsoleio {
             let fd = self.get_fd(vm)?;
             if !self.readable.load() {
                 return Err(new_unsupported_operation(
+                    "Console buffer does not support reading",
                     vm,
-                    "Console buffer does not support reading".to_owned(),
                 ));
             }
             let mut buf_ref = buffer.borrow_buf_mut();
@@ -6267,8 +6273,8 @@ mod winconsoleio {
             }
             if !self.readable.load() {
                 return Err(new_unsupported_operation(
+                    "Console buffer does not support reading",
                     vm,
-                    "Console buffer does not support reading".to_owned(),
                 ));
             }
             let size = size.unwrap_or(-1);
@@ -6310,8 +6316,8 @@ mod winconsoleio {
             }
             if !self.writable.load() {
                 return Err(new_unsupported_operation(
+                    "Console buffer does not support writing",
                     vm,
-                    "Console buffer does not support writing".to_owned(),
                 ));
             }
 

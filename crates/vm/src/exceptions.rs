@@ -1593,6 +1593,7 @@ pub(super) mod types {
         },
         convert::ToPyResult,
         function::{ArgBytesLike, FuncArgs, KwArgs},
+        set_attrs,
         types::{Constructor, Initializer},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1694,6 +1695,7 @@ pub(super) mod types {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyFloatingPointError(PyArithmeticError);
+
     #[pyexception(name, base = PyArithmeticError, ctx = "overflow_error", impl)]
     #[derive(Debug)]
     #[repr(transparent)]
@@ -1738,8 +1740,10 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set attributes
-            zelf.set_attr("name", vm.unwrap_or_none(name), vm)?;
-            zelf.set_attr("obj", vm.unwrap_or_none(obj), vm)?;
+            set_attrs!(zelf, vm,
+                "name" => vm.unwrap_or_none(name),
+                "obj" => vm.unwrap_or_none(obj),
+            );
             Ok(())
         }
 
@@ -2653,12 +2657,13 @@ pub(super) mod types {
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("encoding", encoding, vm)?;
-            let object_as_bytes = vm.ctx.new_bytes(object.borrow_buf().to_vec());
-            zelf.set_attr("object", object_as_bytes, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
+            set_attrs!(zelf, vm,
+                "encoding" => encoding,
+                "object" => vm.ctx.new_bytes(object.borrow_buf().to_vec()),
+                "start" => vm.ctx.new_int(start),
+                "end" => vm.ctx.new_int(end),
+                "reason" => reason,
+            );
             Ok(())
         }
 
@@ -2711,11 +2716,13 @@ pub(super) mod types {
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("encoding", encoding, vm)?;
-            zelf.set_attr("object", object, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
+            set_attrs!(zelf, vm,
+                "encoding" => encoding,
+                "object" => object,
+                "start" => vm.ctx.new_int(start),
+                "end" => vm.ctx.new_int(end),
+                "reason" => reason,
+            );
             Ok(())
         }
 
@@ -2766,10 +2773,12 @@ pub(super) mod types {
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, isize, isize, PyStrRef);
             let (object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("object", object, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
+            set_attrs!(zelf, vm,
+                "object" => object,
+                "start" => vm.ctx.new_int(start),
+                "end" => vm.ctx.new_int(end),
+                "reason" => reason,
+            );
             Ok(())
         }
 

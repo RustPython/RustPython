@@ -882,10 +882,7 @@ pub mod array {
             self._from_bytes(b.as_bytes(), itemsize, vm)?;
 
             if not_enough_bytes {
-                Err(vm.new_exception_msg(
-                    vm.ctx.exceptions.eof_error.to_owned(),
-                    "read() didn't return enough bytes".into(),
-                ))
+                Err(vm.new_eof_error("read() didn't return enough bytes"))
             } else {
                 Ok(())
             }

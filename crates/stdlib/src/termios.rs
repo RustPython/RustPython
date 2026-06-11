@@ -8,6 +8,7 @@ mod termios {
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
         convert::ToPyObject,
+        stdlib::_io::Fildes,
     };
     use rustpython_host_env::{os::ErrorExt, termios as host_termios};
 
@@ -166,7 +167,8 @@ mod termios {
     };
 
     #[pyfunction]
-    fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn tcgetattr(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         let termios = host_termios::tcgetattr(fd).map_err(|e| termios_error(e, vm))?;
         let noncanon = (termios.c_lflag & host_termios::ICANON) == 0;
         let cc = termios
@@ -191,7 +193,13 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcsetattr(fd: i32, when: i32, attributes: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcsetattr(
+        fd: PyObjectRef,
+        when: i32,
+        attributes: PyListRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         let [iflag, oflag, cflag, lflag, ispeed, ospeed, cc] =
             <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_vec())
                 .map_err(|_| vm.new_type_error("tcsetattr, arg 3: must be 7 element list"))?
@@ -233,25 +241,29 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcsendbreak(fd: i32, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcsendbreak(fd: PyObjectRef, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcsendbreak(fd, duration).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcdrain(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcdrain(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcdrain(fd).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcflush(fd: i32, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcflush(fd: PyObjectRef, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcflush(fd, queue).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcflow(fd: i32, action: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcflow(fd: PyObjectRef, action: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcflow(fd, action).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
