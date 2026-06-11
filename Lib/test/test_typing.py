@@ -3265,7 +3265,6 @@ class ProtocolTests(BaseTestCase):
         self.assertIsSubclass(NotAProtocolButAnImplicitSubclass2, CallableMembersProto)
         self.assertIsSubclass(NotAProtocolButAnImplicitSubclass3, CallableMembersProto)
 
-    @unittest.skip("TODO: RUSTPYTHON; (no gc)")
     def test_isinstance_checks_not_at_whim_of_gc(self):
         self.addCleanup(gc.enable)
         gc.disable()
