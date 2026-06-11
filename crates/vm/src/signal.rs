@@ -1,15 +1,19 @@
-use crate::{PyObjectRef, PyResult, VirtualMachine};
-use alloc::fmt;
-use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    cell::{Cell, RefCell},
+    fmt,
+    ops::Range,
+    sync::atomic::{AtomicBool, Ordering},
+};
 use std::sync::mpsc;
 
 #[cfg(windows)]
 use core::sync::atomic::AtomicIsize;
 
-static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
+use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
 
 pub(crate) const NSIG: usize = 64;
+
+static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -22,14 +26,14 @@ pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
 
-pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
-    Box::new(const { RefCell::new([const { None }; NSIG]) })
-}
-
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
     /// handler is running, new signals are deferred until it completes.
     static IN_SIGNAL_HANDLER: Cell<bool> = const { Cell::new(false) };
+}
+
+pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
+    Box::new(const { RefCell::new([const { None }; NSIG]) })
 }
 
 struct SignalHandlerGuard;
@@ -110,28 +114,86 @@ pub(crate) fn clear_after_fork() {
     }
 }
 
-pub fn assert_in_range(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
-    if (1..NSIG as i32).contains(&signum) {
-        Ok(())
-    } else {
-        Err(vm.new_value_error("signal number out of range"))
+/// A valid signal number.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+pub struct SignalNum(i32);
+
+impl SignalNum {
+    const VALID_RANGE: Range<i32> = 1..NSIG as i32;
+
+    /// [`libc::SIGINT`] converted to [`Self`].
+    pub(crate) const SIGINT: Self = Self(libc::SIGINT);
+
+    /// Construct [`Self`] without any validation on the signalnum value.
+    ///
+    /// SAFETY:
+    /// Caller's responsibility to ensure the signal num is valid.
+    #[must_use]
+    pub const unsafe fn new_unchecked(value: i32) -> Self {
+        Self(value)
+    }
+
+    /// Get the self as an [`i32`].
+    #[must_use]
+    pub const fn as_i32(&self) -> i32 {
+        self.0
+    }
+
+    /// Get the self as an [`usize`].
+    #[must_use]
+    pub const fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl fmt::Display for SignalNum {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl From<SignalNum> for i32 {
+    fn from(signalnum: SignalNum) -> Self {
+        signalnum.as_i32()
+    }
+}
+
+impl TryFrom<i32> for SignalNum {
+    type Error = String;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        let bounds = cfg_select! {
+            all(windows, feature = "host_env") => rustpython_host_env::signal::VALID_SIGNALS,
+            _ => Self::VALID_RANGE,
+        };
+
+        if bounds.contains(&value) {
+            return Ok(Self(value));
+        } else {
+            Err("signal number out of range".into())
+        }
+    }
+}
+
+impl TryFromObject for SignalNum {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        Self::try_from(i32::try_from_borrowed_object(vm, &obj)?)
+            .map_err(|msg| vm.new_value_error(msg))
     }
 }
 
 /// Similar to `PyErr_SetInterruptEx` in CPython
 ///
 /// Missing signal handler for the given signal number is silently ignored.
-#[allow(dead_code)]
 #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
-pub fn set_interrupt_ex(signum: i32, vm: &VirtualMachine) -> PyResult<()> {
+pub fn set_interrupt_ex(signum: SignalNum) -> PyResult<()> {
     use crate::stdlib::_signal::_signal::{SIG_DFL, SIG_IGN, run_signal};
-    assert_in_range(signum, vm)?;
 
-    match signum as usize {
+    match signum.as_usize() {
         SIG_DFL | SIG_IGN => Ok(()),
         _ => {
             // interrupt the main thread with given signal number
-            run_signal(signum);
+            run_signal(signum.into());
             Ok(())
         }
     }

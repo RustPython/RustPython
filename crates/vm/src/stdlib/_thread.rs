@@ -19,6 +19,7 @@ pub(crate) mod _thread {
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        signal::SignalNum,
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
     use alloc::{
@@ -614,8 +615,9 @@ pub(crate) mod _thread {
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
-    fn interrupt_main(signum: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
-        crate::signal::set_interrupt_ex(signum.unwrap_or(libc::SIGINT), vm)
+    fn interrupt_main(signum: OptionalArg<SignalNum>) -> PyResult<()> {
+        let sig = signum.unwrap_or(SignalNum::SIGINT);
+        crate::signal::set_interrupt_ex(sig)
     }
 
     #[pyfunction]
