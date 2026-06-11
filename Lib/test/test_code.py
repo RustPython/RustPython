@@ -215,7 +215,7 @@ from test.support.script_helper import assert_python_ok
 from test.support import threading_helper, import_helper
 from test.support.bytecode_helper import instructions_with_positions
 from opcode import opmap, opname
-try:
+try:  # TODO: RUSTPYTHON
     from _testcapi import code_offset_to_line
 except ModuleNotFoundError:
     code_offset_to_line = None
@@ -427,8 +427,7 @@ class CodeTest(unittest.TestCase):
         new_code = code = func.__code__.replace(co_linetable=b'')
         self.assertEqual(list(new_code.co_lines()), [])
 
-    # TODO: RUSTPYTHON; co_lnotab intentionally not implemented (deprecated since 3.12)
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; co_lnotab intentionally not implemented (deprecated since 3.12)
     def test_co_lnotab_is_deprecated(self):  # TODO: remove in 3.14
         def func():
             pass
@@ -491,8 +490,7 @@ class CodeTest(unittest.TestCase):
                 res = _testinternalcapi.code_returns_only_none(func.__code__)
                 self.assertFalse(res)
 
-    # TODO: RUSTPYTHON; replace() rejects invalid bytecodes for safety
-    @unittest.expectedFailure
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; replace() rejects invalid bytecodes for safety
     def test_invalid_bytecode(self):
         def foo():
             pass
@@ -508,7 +506,7 @@ class CodeTest(unittest.TestCase):
         with self.assertRaisesRegex(SystemError, msg):
             foo()
 
-    # @requires_debug_ranges()
+    @requires_debug_ranges()
     def test_co_positions_artificial_instructions(self):
         import dis
 
@@ -1491,7 +1489,7 @@ class CodeLocationTest(unittest.TestCase):
 
         rc, out, err = assert_python_ok('-OO', '-c', code)
 
-    @unittest.skipUnless(code_offset_to_line, '_testcapi required')
+    @unittest.expectedFailureIf(code_offset_to_line is None, "TODO: RUSTPYTHON")
     def test_co_branches(self):
 
         def get_line_branches(func):

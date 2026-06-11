@@ -345,6 +345,32 @@ class TestFoo(unittest.TestCase):
         self.assertIn("@unittest.expectedFailure", result)
         self.assertIn(COMMENT, result)
 
+    def test_round_trip_with_patches_on_class(self):
+        """Test that extracted patches can be re-applied."""
+        original = f"""import unittest
+
+@unittest.skipIf(a == b, "{COMMENT}")
+@unittest.expectedFailure  # {COMMENT}
+class TestFoo(unittest.TestCase):
+    ...
+"""
+        # Extract patches
+        patches = extract_patches(original)
+
+        # Apply to clean code
+        clean = """import unittest
+
+class TestFoo(unittest.TestCase):
+    def test_one(self):
+        pass
+"""
+        result = apply_patches(clean, patches)
+
+        # Should have the decorator
+        self.assertIn("@unittest.expectedFailure", result)
+        self.assertIn("@unittest.skipIf", result)
+        self.assertIn(COMMENT, result)
+
 
 class TestFindImportInsertLine(unittest.TestCase):
     """Tests for _find_import_insert_line function."""

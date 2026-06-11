@@ -2038,10 +2038,9 @@ impl ExecutingFrame<'_> {
         } else {
             // Both merged cells (LOCAL|CELL) and non-merged cells get unbound local error
             let name = self.localsplus_name(localsplus_idx);
-            vm.new_exception_msg(
-                vm.ctx.exceptions.unbound_local_error.to_owned(),
-                format!("local variable '{name}' referenced before assignment").into(),
-            )
+            vm.new_unbound_local_error(format!(
+                "local variable '{name}' referenced before assignment"
+            ))
         }
     }
 
@@ -2378,14 +2377,10 @@ impl ExecutingFrame<'_> {
                 let fastlocals = self.localsplus.fastlocals_mut();
                 let idx = var_num.get(arg);
                 if fastlocals[idx].is_none() {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
-                        )
-                        .into(),
-                    ));
+                    return Err(vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx]
+                    )));
                 }
                 fastlocals[idx] = None;
                 Ok(None)
@@ -2884,10 +2879,9 @@ impl ExecutingFrame<'_> {
                     varname: &'static PyStrInterned,
                     vm: &VirtualMachine,
                 ) -> PyBaseExceptionRef {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!("local variable '{varname}' referenced before assignment").into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{varname}' referenced before assignment"
+                    ))
                 }
                 let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals()[idx]
@@ -2910,14 +2904,10 @@ impl ExecutingFrame<'_> {
                 // (LoadFast in RustPython already does this check)
                 let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
-                        )
-                        .into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx]
+                    ))
                 })?;
                 self.push_value(x);
                 Ok(None)
@@ -2929,24 +2919,16 @@ impl ExecutingFrame<'_> {
                 let (idx1, idx2) = oparg.indexes();
                 let fastlocals = self.localsplus.fastlocals();
                 let x1 = fastlocals[idx1].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx1]
-                        )
-                        .into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx1]
+                    ))
                 })?;
                 let x2 = fastlocals[idx2].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx2]
-                        )
-                        .into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx2]
+                    ))
                 })?;
                 self.push_value(x1);
                 self.push_value(x2);
@@ -2958,14 +2940,10 @@ impl ExecutingFrame<'_> {
             Instruction::LoadFastBorrow { var_num } => {
                 let idx = var_num.get(arg);
                 let x = self.localsplus.fastlocals()[idx].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx]
-                        )
-                        .into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx]
+                    ))
                 })?;
                 self.push_value(x);
                 Ok(None)
@@ -2975,24 +2953,16 @@ impl ExecutingFrame<'_> {
                 let (idx1, idx2) = oparg.indexes();
                 let fastlocals = self.localsplus.fastlocals();
                 let x1 = fastlocals[idx1].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx1]
-                        )
-                        .into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx1]
+                    ))
                 })?;
                 let x2 = fastlocals[idx2].clone().ok_or_else(|| {
-                    vm.new_exception_msg(
-                        vm.ctx.exceptions.unbound_local_error.to_owned(),
-                        format!(
-                            "local variable '{}' referenced before assignment",
-                            self.code.varnames[idx2]
-                        )
-                        .into(),
-                    )
+                    vm.new_unbound_local_error(format!(
+                        "local variable '{}' referenced before assignment",
+                        self.code.varnames[idx2]
+                    ))
                 })?;
                 self.push_value(x1);
                 self.push_value(x2);
@@ -8933,7 +8903,7 @@ impl ExecutingFrame<'_> {
         } else if iter.downcast_ref_if_exact::<PyTupleIterator>(vm).is_some() {
             Some(Instruction::ForIterTuple)
         } else if iter.downcast_ref_if_exact::<PyGenerator>(vm).is_some()
-            && jump_delta <= i16::MAX as u32
+            && i16::try_from(jump_delta).is_ok()
             && self.for_iter_has_end_for_shape(instr_idx, jump_delta)
             && !self.specialization_eval_frame_active(vm)
         {
