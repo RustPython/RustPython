@@ -261,3 +261,17 @@ except json.JSONDecodeError as e:
     assert e.pos == 5, f"expected pos=5, got {e.pos}"
 else:
     raise AssertionError("expected JSONDecodeError")
+
+# Test that json.loads honors sys.int_max_str_digits
+import sys
+
+_min_limit = sys.int_info.str_digits_check_threshold
+_orig_limit = sys.get_int_max_str_digits()
+try:
+    sys.set_int_max_str_digits(_min_limit)
+    with assert_raises(ValueError):
+        json.loads("1" * (_min_limit + 1))
+    assert json.loads("1" * _min_limit) == int("1" * _min_limit)
+    assert json.loads('42') == 42
+finally:
+    sys.set_int_max_str_digits(_orig_limit)

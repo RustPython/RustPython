@@ -9,12 +9,11 @@ mod _json {
         builtins::{PyBaseExceptionRef, PyStrRef, PyType},
         convert::ToPyResult,
         function::{IntoFuncArgs, OptionalArg},
-        protocol::PyIterReturn,
+        protocol::{handle_bytes_to_int_err, PyIterReturn},
         types::{Callable, Constructor},
     };
     use core::str::FromStr;
-    use malachite_bigint::BigInt;
-    use rustpython_common::wtf8::Wtf8Buf;
+    use rustpython_common::{int::bytes_to_int, wtf8::Wtf8Buf};
     use std::collections::HashMap;
 
     /// Skip JSON whitespace characters (space, tab, newline, carriage return).
@@ -243,7 +242,12 @@ mod _json {
             } else if let Some(ref parse_int) = self.parse_int {
                 parse_int.call((buf,), vm)
             } else {
-                Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
+                let value = bytes_to_int(buf.as_bytes(), 10, vm.state.int_max_str_digits.load())
+                    .map_err(|e| {
+                        let obj = vm.ctx.new_str(buf);
+                        handle_bytes_to_int_err(e, obj.as_object(), vm)
+                    })?;
+                Ok(vm.new_pyobj(value))
             };
             Some((ret, buf.len()))
         }
