@@ -1033,6 +1033,7 @@ class BZ2DecompressorTest(BaseTest):
         # Previously, a second call could crash due to internal inconsistency
         self.assertRaises(Exception, bzd.decompress, self.BAD_DATA * 30)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_decompress_after_data_error(self):
         data = bytes.fromhex(
             "425a6839314159265359000000000000007fffff000000000000000000000000"

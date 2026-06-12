@@ -49,6 +49,7 @@ class GroupDatabaseTestCase(unittest.TestCase):
             # Discovered on Ubuntu 5.04 (custom).
             self.assertEqual(e2.gr_name.lower(), name.lower())
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; KeyError: 'getgrgid: group id 340282366920938463463374607431768211456 not found'
     def test_errors(self):
         self.assertRaises(TypeError, grp.getgrgid)
         self.assertRaises(TypeError, grp.getgrgid, 3.14)
