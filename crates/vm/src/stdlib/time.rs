@@ -685,8 +685,8 @@ mod decl {
 
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let times = host_time::process_times()
-            .map_err(|_| vm.new_os_error("Failed to get clock time".to_owned()))?;
+        let times =
+            host_time::process_times().map_err(|_| vm.new_os_error("Failed to get clock time"))?;
         Ok(Duration::from_secs_f64(times.user + times.system))
     }
 
@@ -1336,13 +1336,13 @@ mod platform {
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let total = host_time::get_thread_time_100ns()
-            .ok_or_else(|| vm.new_os_error("Failed to get clock time".to_owned()))?;
+            .ok_or_else(|| vm.new_os_error("Failed to get clock time"))?;
         Ok(Duration::from_nanos(total * 100))
     }
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let total = host_time::get_process_time_100ns()
-            .ok_or_else(|| vm.new_os_error("Failed to get clock time".to_owned()))?;
+            .ok_or_else(|| vm.new_os_error("Failed to get clock time"))?;
         Ok(Duration::from_nanos(total * 100))
     }
 }

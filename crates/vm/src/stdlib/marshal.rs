@@ -187,7 +187,7 @@ mod decl {
     ) -> PyResult<()> {
         use marshal::Write;
         if depth == 0 {
-            return Err(vm.new_value_error("object too deeply nested to marshal".to_string()));
+            return Err(vm.new_value_error("object too deeply nested to marshal"));
         }
 
         // Singletons: no FLAG_REF needed
@@ -325,7 +325,7 @@ mod decl {
             marshal::serialize_code(buf, &co.code);
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
-                return Err(vm.new_value_error("unmarshallable object".to_string()));
+                return Err(vm.new_value_error("unmarshallable object"));
             }
             buf.write_u8(b':');
             let none: PyObjectRef = vm.ctx.none();
@@ -352,7 +352,7 @@ mod decl {
             buf.write_u32(data.len() as u32);
             buf.write_slice(&data);
         } else {
-            return Err(vm.new_value_error("unmarshallable object".to_string()));
+            return Err(vm.new_value_error("unmarshallable object"));
         }
 
         if use_ref {
@@ -558,7 +558,7 @@ mod decl {
     /// Recursively check that no code objects are present.
     fn check_no_code(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if obj.downcast_ref::<PyCode>().is_some() {
-            return Err(vm.new_value_error("unmarshalling code objects is disallowed".to_string()));
+            return Err(vm.new_value_error("unmarshalling code objects is disallowed"));
         }
         if let Some(tup) = obj.downcast_ref::<PyTuple>() {
             for elem in tup.as_slice() {
@@ -602,7 +602,7 @@ mod decl {
             PyFrozenSet::static_type(),
         ] {
             if cls.fast_issubclass(base) && !cls.is(base) {
-                return Err(vm.new_value_error("unmarshallable object".to_string()));
+                return Err(vm.new_value_error("unmarshallable object"));
             }
         }
         Ok(())

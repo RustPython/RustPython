@@ -1678,7 +1678,7 @@ pub(super) mod _os {
         #[cfg(unix)]
         {
             let times = crate::host_env::time::process_times()
-                .map_err(|_| vm.new_os_error("Fail to get times".to_string()))?;
+                .map_err(|_| vm.new_os_error("Fail to get times"))?;
 
             let times_result = TimesResultData {
                 user: times.user,
@@ -1767,7 +1767,7 @@ pub(super) mod _os {
     #[pyfunction]
     fn getloadavg(vm: &VirtualMachine) -> PyResult<(f64, f64, f64)> {
         let loadavg = crate::host_env::time::getloadavg()
-            .map_err(|_| vm.new_os_error("Load averages are unobtainable".to_string()))?;
+            .map_err(|_| vm.new_os_error("Load averages are unobtainable"))?;
         Ok((loadavg[0], loadavg[1], loadavg[2]))
     }
 

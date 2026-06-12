@@ -100,9 +100,7 @@ pub unsafe extern "C" fn PyObject_VectorcallMethod(
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
 
         if args_len == 0 {
-            return Err(
-                vm.new_system_error("PyObject_VectorcallMethod called with no receiver".to_owned())
-            );
+            return Err(vm.new_system_error("PyObject_VectorcallMethod called with no receiver"));
         }
 
         let (receiver, args) = unsafe { slice::from_raw_parts(args, args_len) }

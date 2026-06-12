@@ -647,7 +647,7 @@ impl VirtualMachine {
             .types
             .list_type
             .get_attr(self.ctx.intern_str("append"))
-            .ok_or_else(|| self.new_runtime_error("failed to cache list.append".to_owned()))?;
+            .ok_or_else(|| self.new_runtime_error("failed to cache list.append"))?;
         self.callable_cache.list_append = Some(list_append);
         self.callable_cache.builtin_all = Some(self.builtins.get_attr("all", self)?);
         self.callable_cache.builtin_any = Some(self.builtins.get_attr("any", self)?);
