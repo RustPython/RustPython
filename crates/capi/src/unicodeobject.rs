@@ -158,7 +158,7 @@ pub unsafe extern "C" fn PyUnicode_FromEncodedObject(
         let obj = unsafe { &*obj };
 
         if obj.downcast_ref::<PyStr>().is_some() {
-            return Err(vm.new_type_error("decoding str is not supported".to_owned()));
+            return Err(vm.new_type_error("decoding str is not supported"));
         }
 
         let encoding = if encoding.is_null() {

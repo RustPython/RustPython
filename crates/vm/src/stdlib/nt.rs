@@ -963,7 +963,7 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn getlogin(vm: &VirtualMachine) -> PyResult<String> {
-        host_nt::getlogin().map_err(|_| vm.new_os_error("Error code: 0".to_owned()))
+        host_nt::getlogin().map_err(|_| vm.new_os_error("Error code: 0"))
     }
 
     pub fn raw_set_handle_inheritable(handle: intptr_t, inheritable: bool) -> std::io::Result<()> {
@@ -1087,5 +1087,11 @@ pub(crate) mod module {
         __module_exec(vm, module);
         super::super::os::module_exec(vm, module)?;
         Ok(())
+    }
+
+    #[pyfunction]
+    fn _is_inputhook_installed() -> bool {
+        // TODO: Implement the actual logic here
+        false
     }
 }

@@ -536,7 +536,7 @@ impl PyCode {
     }
     #[cfg(not(feature = "host_env"))]
     pub fn from_pyc_path(_path: &std::path::Path, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        Err(vm.new_runtime_error("loading a pyc file requires the `host_env` feature".to_owned()))
+        Err(vm.new_runtime_error("loading a pyc file requires the `host_env` feature"))
     }
     pub fn from_pyc(
         pyc_bytes: &[u8],

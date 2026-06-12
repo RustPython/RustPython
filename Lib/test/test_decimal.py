@@ -4775,7 +4775,6 @@ class PyCoverage(Coverage, unittest.TestCase):
         sys.set_int_max_str_digits(self._previous_int_limit)
         super().tearDown()
 
-
 class PyFunctionality(unittest.TestCase):
     """Extra functionality in decimal.py"""
 
