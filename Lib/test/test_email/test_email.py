@@ -4988,6 +4988,7 @@ class TestCharset(unittest.TestCase):
         c = Charset('utf-8')
         eq(c.header_encode(s), '=?utf-8?b?wqTCosKkwqTCpMKmwqTCqMKkwqo=?=')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso_2022_jp
     def test_body_encode(self):
         eq = self.assertEqual
         # Try a charset with QP body encoding
