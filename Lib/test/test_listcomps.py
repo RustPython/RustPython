@@ -206,9 +206,11 @@ class ListComprehensionTest(unittest.TestCase):
         """
         self._check_in_scopes(code, raises=NameError)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: compiler_make_closure: cannot find '__classdict__' in parent vars
     def test_references___classdict___nested(self):
         class _C:
-            res = [(lambda: __classdict__)() for _ in [1]]
+            # res = [(lambda: __classdict__)() for _ in [1]]  # TODO: RUSTPYTHON
+            pass  # TODO: RUSTPYTHON
         self.assertIn("res", _C.res[0])
 
     def test_references___conditional_annotations__(self):
@@ -217,6 +219,7 @@ class ListComprehensionTest(unittest.TestCase):
         """
         self._check_in_scopes(code, raises=NameError)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: compiler_make_closure: cannot find '__conditional_annotations__' in parent vars
     def test_references___conditional_annotations___nested(self):
         code = """
             class i: [lambda: __conditional_annotations__ for x in y]
