@@ -1123,7 +1123,7 @@ mod _socket {
                         ArgStrOrBytesLike::Str(s) => vm.fsencode(s)?,
                     };
                     socket2::SockAddr::unix(path)
-                        .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
+                        .map_err(|_| vm.new_os_error("AF_UNIX path too long").into())
                 }
                 c::AF_INET => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -1206,12 +1206,10 @@ mod _socket {
                     } else {
                         // Check interface name length (IFNAMSIZ is typically 16)
                         if ifname.len() >= 16 {
-                            return Err(vm
-                                .new_os_error("interface name too long".to_owned())
-                                .into());
+                            return Err(vm.new_os_error("interface name too long").into());
                         }
                         let cstr = alloc::ffi::CString::new(ifname)
-                            .map_err(|_| vm.new_os_error("invalid interface name".to_owned()))?;
+                            .map_err(|_| vm.new_os_error("invalid interface name"))?;
                         host_socket::if_nametoindex_checked(cstr.as_c_str())? as i32
                     };
 
@@ -2052,9 +2050,7 @@ mod _socket {
                 Ok(vm.ctx.new_int(flag).into())
             } else {
                 if buflen <= 0 || buflen > 1024 {
-                    return Err(vm
-                        .new_os_error("getsockopt buflen out of range".to_owned())
-                        .into());
+                    return Err(vm.new_os_error("getsockopt buflen out of range").into());
                 }
                 let buf = host_socket::getsockopt_bytes(fd as _, level, name, buflen as usize)?;
                 Ok(vm.ctx.new_bytes(buf).into())
@@ -2341,16 +2337,14 @@ mod _socket {
             .as_str()
             .parse::<Ipv4Addr>()
             .map(|ip_addr| Vec::<u8>::from(ip_addr.octets()))
-            .map_err(|_| {
-                vm.new_os_error("illegal IP address string passed to inet_aton".to_owned())
-            })
+            .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton"))
     }
 
     #[pyfunction]
     fn inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let packed_ip = packed_ip.borrow_buf();
         let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
-            .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
+            .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa"))?;
         Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
     }
 
@@ -2372,7 +2366,7 @@ mod _socket {
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
         let serv = unsafe { c::getservbyname(cstr_name.as_ptr() as _, cstr_proto as _) };
         if serv.is_null() {
-            return Err(vm.new_os_error("service/proto not found".to_owned()));
+            return Err(vm.new_os_error("service/proto not found"));
         }
         let port = unsafe { (*serv).s_port };
         Ok(u16::from_be(port as u16))
@@ -2394,7 +2388,7 @@ mod _socket {
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
         let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto as _) };
         if serv.is_null() {
-            return Err(vm.new_os_error("port/proto not found".to_owned()));
+            return Err(vm.new_os_error("port/proto not found"));
         }
         let s = unsafe { ffi::CStr::from_ptr((*serv).s_name as _) };
         Ok(s.to_string_lossy().into_owned())
@@ -2729,7 +2723,7 @@ mod _socket {
                 .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
                 .octets()
                 .to_vec(),
-            _ => return Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
+            _ => return Err(vm.new_os_error("Address family not supported by protocol")),
         };
         Ok(ip_addr)
     }
@@ -2759,7 +2753,7 @@ mod _socket {
         let cstr = name.to_cstring(vm)?;
         let proto = unsafe { c::getprotobyname(cstr.as_ptr() as _) };
         if proto.is_null() {
-            return Err(vm.new_os_error("protocol not found".to_owned()));
+            return Err(vm.new_os_error("protocol not found"));
         }
         let num = unsafe { (*proto).p_proto };
         Ok(vm.ctx.new_int(num).into())
@@ -2792,15 +2786,13 @@ mod _socket {
         let mut ainfo = res.next().unwrap();
         if res.next().is_some() {
             return Err(vm
-                .new_os_error("sockaddr resolved to multiple addresses".to_owned())
+                .new_os_error("sockaddr resolved to multiple addresses")
                 .into());
         }
         match &mut ainfo.sockaddr {
             SocketAddr::V4(_) => {
                 if address.len() != 2 {
-                    return Err(vm
-                        .new_os_error("IPv4 sockaddr must be 2 tuple".to_owned())
-                        .into());
+                    return Err(vm.new_os_error("IPv4 sockaddr must be 2 tuple").into());
                 }
             }
             SocketAddr::V6(addr) => {
@@ -2931,7 +2923,7 @@ mod _socket {
             let ainfo = res.next().unwrap()?;
             if res.next().is_some() {
                 return Err(vm
-                    .new_os_error("wildcard resolved to multiple address".to_owned())
+                    .new_os_error("wildcard resolved to multiple address")
                     .into());
             }
             return Ok(ainfo.sockaddr);
@@ -2940,9 +2932,7 @@ mod _socket {
             match af {
                 c::AF_INET | c::AF_UNSPEC => {}
                 _ => {
-                    return Err(vm
-                        .new_os_error("address family mismatched".to_owned())
-                        .into());
+                    return Err(vm.new_os_error("address family mismatched").into());
                 }
             }
             return Ok(SocketAddr::V4(net::SocketAddrV4::new(

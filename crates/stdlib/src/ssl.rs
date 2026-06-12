@@ -2824,7 +2824,7 @@ mod _ssl {
         ) -> PyResult<PyBytesRef> {
             let obj_to_bytes = |bytes_obj| {
                 PyBytesRef::try_from_object(vm, bytes_obj)
-                    .map_err(|_| vm.new_os_error("Expected bytes from recv".to_string()))
+                    .map_err(|_| vm.new_os_error("Expected bytes from recv"))
             };
 
             let tls_record_header_buf = self

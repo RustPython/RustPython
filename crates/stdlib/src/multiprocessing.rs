@@ -496,7 +496,7 @@ mod _multiprocessing {
                 let timeout: f64 = timeout_obj.try_float(vm)?.to_f64();
                 Some(
                     host_multiprocessing::deadline_from_timeout(timeout)
-                        .map_err(|_| vm.new_os_error("gettimeofday failed".to_string()))?,
+                        .map_err(|_| vm.new_os_error("gettimeofday failed"))?,
                 )
             } else {
                 None

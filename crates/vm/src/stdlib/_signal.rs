@@ -222,7 +222,7 @@ pub(crate) mod _signal {
         let _old = match old {
             Ok(old) => old,
             Err(_) => {
-                return Err(vm.new_os_error("Failed to set signal".to_owned()));
+                return Err(vm.new_os_error("Failed to set signal"));
             }
         };
 
@@ -440,7 +440,7 @@ pub(crate) mod _signal {
         let set = PySet::default().into_ref(&vm.ctx);
         #[cfg(any(unix, windows))]
         for signum in host_signal::valid_signals(signal::NSIG)
-            .map_err(|_| vm.new_os_error("sigfillset failed".to_owned()))?
+            .map_err(|_| vm.new_os_error("sigfillset failed"))?
         {
             set.add(vm.ctx.new_int(signum).into(), vm)?;
         }

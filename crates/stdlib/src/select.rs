@@ -393,7 +393,7 @@ mod decl {
                     return Err(vm.new_value_error("negative sizehint"));
                 }
                 if !matches!(args.flags, 0 | libc::EPOLL_CLOEXEC) {
-                    return Err(vm.new_os_error("invalid flags".to_owned()));
+                    return Err(vm.new_os_error("invalid flags"));
                 }
                 Self::new().map_err(|e| e.into_pyexception(vm))
             }
