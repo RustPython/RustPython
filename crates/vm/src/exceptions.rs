@@ -2536,7 +2536,7 @@ pub(super) mod types {
                     4 | 6 => {}
                     5 => {
                         return Err(vm.new_type_error(
-                            "end_offset must be provided when end_lineno is provided".to_owned(),
+                            "end_offset must be provided when end_lineno is provided",
                         ));
                     }
                     _ => {
