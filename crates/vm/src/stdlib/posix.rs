@@ -2312,6 +2312,12 @@ pub mod module {
         super::super::os::module_exec(vm, module)?;
         Ok(())
     }
+
+    #[pyfunction]
+    fn _is_inputhook_installed() -> bool {
+        // TODO: Implement the actual logic here
+        false
+    }
 }
 
 #[cfg(any(
