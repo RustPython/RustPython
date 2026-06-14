@@ -1835,7 +1835,8 @@ impl PyObject {
                 result.push(dict_ref.into());
             }
             for slot in &ext.slots {
-                if let Some(val) = slot.write().take() {
+                let value = slot.write().take();
+                if let Some(val) = value {
                     result.push(val);
                 }
             }

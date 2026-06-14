@@ -709,7 +709,8 @@ impl PyCData {
         let key = self.unique_key(index);
 
         // If we have a base object, find root and store there
-        if let Some(base_obj) = self.base.read().clone() {
+        let base = self.base.read().clone();
+        if let Some(base_obj) = base {
             // Find root by walking up the base chain
             let root_obj = Self::find_root_object(&base_obj);
             Self::store_in_object(&root_obj, &key, keep, vm)?;
@@ -761,7 +762,8 @@ impl PyCData {
     /// Uses unique_key (hierarchical) so nested fields don't collide.
     pub fn keep_alive(&self, index: usize, obj: PyObjectRef) {
         let key = self.unique_key(index);
-        if let Some(base_obj) = self.base.read().clone() {
+        let base = self.base.read().clone();
+        if let Some(base_obj) = base {
             let root = Self::find_root_object(&base_obj);
             if let Some(cdata) = root.downcast_ref::<Self>() {
                 cdata.kept_refs.write().insert(key, obj);
