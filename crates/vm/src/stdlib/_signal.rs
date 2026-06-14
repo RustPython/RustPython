@@ -6,7 +6,10 @@ pub(crate) use _signal::module_def;
 pub(crate) mod _signal {
     #![allow(unreachable_pub)]
 
-    use crate::{Py, PyObjectRef, PyResult, VirtualMachine, signal};
+    use crate::{
+        Py, PyObjectRef, PyResult, VirtualMachine,
+        signal::{self, SignalHandlers},
+    };
     use core::{
         ops::Range,
         sync::atomic::{self, Ordering},
@@ -193,7 +196,7 @@ pub(crate) mod _signal {
                 };
 
                 vm.signal_handlers
-                    .get_or_init(signal::new_signal_handlers)
+                    .get_or_init(SignalHandlers::default)
                     .borrow_mut()[signum as usize] = py_handler;
             }
 
@@ -247,7 +250,7 @@ pub(crate) mod _signal {
         unsafe { host_signal::install_handler(signalnum, sig_handler) }
             .map_err(|_| vm.new_os_error("Failed to set signal"))?;
 
-        let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
+        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
         let old_handler = signal_handlers.borrow_mut()[signalnum as usize].replace(handler);
         Ok(old_handler)
     }
@@ -255,7 +258,7 @@ pub(crate) mod _signal {
     #[pyfunction]
     fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
         signal::assert_in_range(signalnum, vm)?;
-        let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
+        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
         let handler = signal_handlers.borrow()[signalnum as usize]
             .clone()
             .unwrap_or_else(|| vm.ctx.none());

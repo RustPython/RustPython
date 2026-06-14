@@ -1,7 +1,10 @@
 use crate::{PyObjectRef, PyResult, VirtualMachine};
-use alloc::fmt;
-use core::cell::{Cell, RefCell};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    cell::{Cell, RefCell},
+    fmt,
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicBool, Ordering},
+};
 use std::sync::mpsc;
 
 #[cfg(windows)]
@@ -21,10 +24,6 @@ pub(crate) static TRIGGERS: [AtomicBool; NSIG] = [ATOMIC_FALSE; NSIG];
 
 #[cfg(windows)]
 static SIGINT_EVENT: AtomicIsize = AtomicIsize::new(0);
-
-pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
-    Box::new(const { RefCell::new([const { None }; NSIG]) })
-}
 
 thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
@@ -189,4 +188,26 @@ pub fn set_sigint_event(handle: isize) {
 pub fn get_sigint_event() -> Option<isize> {
     let handle = SIGINT_EVENT.load(Ordering::Acquire);
     if handle == 0 { None } else { Some(handle) }
+}
+
+pub struct SignalHandlers(Box<RefCell<[Option<PyObjectRef>; NSIG]>>);
+
+impl Default for SignalHandlers {
+    fn default() -> Self {
+        Self(Box::new(const { RefCell::new([const { None }; NSIG]) }))
+    }
+}
+
+impl Deref for SignalHandlers {
+    type Target = Box<RefCell<[Option<PyObjectRef>; NSIG]>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for SignalHandlers {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }
