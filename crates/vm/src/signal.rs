@@ -121,7 +121,11 @@ pub struct SignalNum(i32);
 impl SignalNum {
     const VALID_RANGE: Range<i32> = 1..NSIG as i32;
 
-    /// [`libc::SIGINT`] converted to [`Self`].
+    /// Alias for:
+    /// ```rust
+    /// unsafe { SignalNum::new_unchecked(libc::SIGINT) }
+    /// ```
+    #[cfg(any(unix, windows))]
     pub(crate) const SIGINT: Self = Self(libc::SIGINT);
 
     /// Construct [`Self`] without any validation on the signalnum value.
