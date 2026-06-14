@@ -470,24 +470,33 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
     })
 }
 
-///like textwrap.dedent; for processing -c argument
+/// Remove common whitespace prefix from all lines in a string.
+///
+/// This is like textwrap.dedent, and is used to process -c's code
+/// argument.  It's different from ruff's dedent, which does not
+/// distinguish between tab and space characters when dedenting.
 fn dedent(input: &str) -> String {
     let mut prefix: Option<String> = None;
     let isspace = |c| c == ' ' || c == '\t';
 
-    //all-whitespace lines become empty
+    // All-whitespace lines become empty.
     let deblanked: Vec<&str> = input
         .lines()
         .map(|line| if line.chars().all(isspace) { "" } else { line })
         .collect();
 
-    //find maximum common whitespace prefix, if any
+    // Find maximum common whitespace prefix, if any.
     for line in deblanked.iter() {
         if line.is_empty() {
             continue;
         }
         if let Some(ref mut pstr) = prefix {
             for (i, (c, pc)) in line.chars().zip(pstr.chars()).enumerate() {
+                // It's okay if `line` is shorter than `pstr`.  At
+                // least one char in `line` must be non-whitespace,
+                // and if `line` is shorter than `pstr`, this
+                // non-whitespace char will be compared to a
+                // whitespace char, and loop will terminate.
                 if c != pc {
                     pstr.truncate(i);
                     break;
@@ -508,22 +517,22 @@ fn dedent(input: &str) -> String {
     }
 
     if let Some(pstr) = prefix {
-        //strip prefix
+        // Strip common prefix.
         deblanked
             .iter()
             .map(|line| {
                 if line.is_empty() {
                     String::from("")
                 } else {
-                    //all non-empty lines start with pstr, must be at
-                    // least pstr.len() long
+                    // All non-empty lines start with pstr, must be at
+                    // least pstr.len() long.
                     String::from(line.get(pstr.len()..).unwrap())
                 }
             })
             .collect::<Vec<_>>()
             .join("\n")
     } else {
-        //no prefix: all lines blank
+        // No prefix found: all lines blank.
         deblanked.join("\n")
     }
 }
