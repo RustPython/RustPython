@@ -199,7 +199,7 @@ pub(crate) mod _signal {
                 };
 
                 vm.signal_handlers
-                    .get_or_init(signal::new_signal_handlers)
+                    .get_or_init(SignalHandlers::default)
                     .borrow_mut()[signum as usize] = py_handler;
             }
 
@@ -251,15 +251,14 @@ pub(crate) mod _signal {
         unsafe { host_signal::install_handler(signalnum.into(), sig_handler) }
             .map_err(|_| vm.new_os_error("Failed to set signal"))?;
 
-        let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
-        let old_handler = signal_handlers.borrow_mut()[signalnum.as_usize()].replace(handler);
-
+        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
+        let old_handler = signal_handlers.borrow_mut()[signalnum as usize].replace(handler);
         Ok(old_handler)
     }
 
     #[pyfunction]
     fn getsignal(signalnum: SignalNum, vm: &VirtualMachine) -> PyResult {
-        let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
+        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
         let handler = signal_handlers.borrow()[signalnum.as_usize()]
             .clone()
             .unwrap_or_else(|| vm.ctx.none());
