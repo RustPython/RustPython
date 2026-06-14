@@ -3413,7 +3413,8 @@ mod _ssl {
             // Initialize connection if not already done
             if conn_guard.is_none() {
                 // Check for pending context change (from SNI callback)
-                if let Some(new_ctx) = self.pending_context.write().take() {
+                let pending_context = self.pending_context.write().take();
+                if let Some(new_ctx) = pending_context {
                     *self.context.write() = new_ctx;
                 }
 
