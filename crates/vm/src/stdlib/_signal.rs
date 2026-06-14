@@ -8,7 +8,7 @@ pub(crate) mod _signal {
 
     use crate::{
         Py, PyObjectRef, PyResult, VirtualMachine,
-        signal::{self, SignalNum},
+        signal::{self, SignalHandlers, SignalNum},
     };
     use core::{
         ops::Range,
@@ -198,9 +198,12 @@ pub(crate) mod _signal {
                     None
                 };
 
+                // SAFETY: Trust `SIGNUM_RANGE`
+                let signum = unsafe { SignalNum::new_unchecked(signum) };
+
                 vm.signal_handlers
                     .get_or_init(SignalHandlers::default)
-                    .borrow_mut()[signum as usize] = py_handler;
+                    .borrow_mut()[signum] = py_handler;
             }
 
             let int_handler = module
@@ -252,14 +255,14 @@ pub(crate) mod _signal {
             .map_err(|_| vm.new_os_error("Failed to set signal"))?;
 
         let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
-        let old_handler = signal_handlers.borrow_mut()[signalnum as usize].replace(handler);
+        let old_handler = signal_handlers.borrow_mut()[signalnum].replace(handler);
         Ok(old_handler)
     }
 
     #[pyfunction]
     fn getsignal(signalnum: SignalNum, vm: &VirtualMachine) -> PyResult {
         let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
-        let handler = signal_handlers.borrow()[signalnum.as_usize()]
+        let handler = signal_handlers.borrow()[signalnum]
             .clone()
             .unwrap_or_else(|| vm.ctx.none());
         Ok(handler)

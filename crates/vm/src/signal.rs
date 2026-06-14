@@ -1,7 +1,7 @@
 use core::{
     cell::{Cell, RefCell},
     fmt,
-    ops::{Deref, DerefMut, Range},
+    ops::{Deref, DerefMut, Index, IndexMut, Range},
     sync::atomic::{AtomicBool, Ordering},
 };
 use std::sync::mpsc;
@@ -30,10 +30,6 @@ thread_local! {
     /// Prevent recursive signal handler invocation. When a Python signal
     /// handler is running, new signals are deferred until it completes.
     static IN_SIGNAL_HANDLER: Cell<bool> = const { Cell::new(false) };
-}
-
-pub(crate) fn new_signal_handlers() -> Box<RefCell<[Option<PyObjectRef>; NSIG]>> {
-    Box::new(const { RefCell::new([const { None }; NSIG]) })
 }
 
 struct SignalHandlerGuard;
@@ -79,11 +75,16 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     let signal_handlers = vm.signal_handlers.get().unwrap().borrow();
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
+
+        let signum = (signum as i32)
+            .try_into()
+            .expect("TRIGGERS has the same length as the signal_handlers");
+
         if triggered
             && let Some(handler) = &signal_handlers[signum]
             && let Some(callable) = handler.to_callable()
         {
-            callable.invoke((signum, vm.ctx.none()), vm)?;
+            callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
         }
     }
     if let Some(signal_rx) = &vm.signal_rx {
@@ -257,16 +258,38 @@ pub fn get_sigint_event() -> Option<isize> {
     if handle == 0 { None } else { Some(handle) }
 }
 
-pub struct SignalHandlers(Box<RefCell<[Option<PyObjectRef>; NSIG]>>);
+pub struct SignalHandlersInner([Option<PyObjectRef>; NSIG]);
+
+impl Default for SignalHandlersInner {
+    fn default() -> Self {
+        Self([const { None }; NSIG])
+    }
+}
+
+impl Index<SignalNum> for SignalHandlersInner {
+    type Output = Option<PyObjectRef>;
+
+    fn index(&self, index: SignalNum) -> &Self::Output {
+        &self.0[index.as_usize()]
+    }
+}
+
+impl IndexMut<SignalNum> for SignalHandlersInner {
+    fn index_mut(&mut self, index: SignalNum) -> &mut Self::Output {
+        &mut self.0[index.as_usize()]
+    }
+}
+
+pub struct SignalHandlers(Box<RefCell<SignalHandlersInner>>);
 
 impl Default for SignalHandlers {
     fn default() -> Self {
-        Self(Box::new(const { RefCell::new([const { None }; NSIG]) }))
+        Self(Box::new(RefCell::new(SignalHandlersInner::default())))
     }
 }
 
 impl Deref for SignalHandlers {
-    type Target = Box<RefCell<[Option<PyObjectRef>; NSIG]>>;
+    type Target = Box<RefCell<SignalHandlersInner>>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
