@@ -408,10 +408,8 @@ pub(crate) mod _signal {
             }
         })?;
 
-        vm.allow_threads(|| {
-            host_signal::raise_signal(signalnum.into())
-                .map_err(|_| vm.new_os_error(format!("raise_signal failed for signal {signalnum}")))
-        })?;
+        vm.allow_threads(|| host_signal::raise_signal(signalnum.into()))
+            .map_err(|_| vm.new_os_error(format!("raise_signal failed for signal {signalnum}")))?;
 
         // Check if a signal was triggered and handle it
 
