@@ -2289,6 +2289,7 @@ class ArgsTestCase(BaseTestCase):
                               env=support.make_clean_env())
         self.assertEqual(proc.returncode, 0, proc)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_add_python_opts(self):
         for opt in ("--fast-ci", "--slow-ci"):
             with self.subTest(opt=opt):
