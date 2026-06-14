@@ -151,7 +151,7 @@ impl PyInterned<PyStr> {
     pub fn as_str(&self) -> &str {
         self.inner
             .to_str()
-            .unwrap_or_else(|| panic!("interned str is always valid UTF-8"))
+            .expect("interned str is always valid UTF-8")
     }
 }
 
@@ -257,6 +257,7 @@ mod sealed {
 /// A sealed marker trait for `DictKey` types that always become an exact instance of `str`
 pub trait InternableString: sealed::SealedInternable + ToPyObject + AsRef<Self::Interned> {
     type Interned: MaybeInternedString + ?Sized;
+
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr>;
 }
 
@@ -271,6 +272,7 @@ impl InternableString for String {
 
 impl InternableString for &str {
     type Interned = str;
+
     #[inline]
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
         self.to_owned().into_pyref_exact(str_type)
@@ -279,6 +281,7 @@ impl InternableString for &str {
 
 impl InternableString for Wtf8Buf {
     type Interned = Wtf8;
+
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
         let obj = PyRef::new_ref(PyStr::from(self), str_type, None);
         unsafe { PyRefExact::new_unchecked(obj) }
@@ -287,6 +290,7 @@ impl InternableString for Wtf8Buf {
 
 impl InternableString for &Wtf8 {
     type Interned = Wtf8;
+
     fn into_pyref_exact(self, str_type: PyTypeRef) -> PyRefExact<PyStr> {
         self.to_owned().into_pyref_exact(str_type)
     }
@@ -294,6 +298,7 @@ impl InternableString for &Wtf8 {
 
 impl InternableString for PyRefExact<PyStr> {
     type Interned = Py<PyStr>;
+
     #[inline]
     fn into_pyref_exact(self, _str_type: PyTypeRef) -> PyRefExact<PyStr> {
         self
