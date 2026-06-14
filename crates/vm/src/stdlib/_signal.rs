@@ -10,10 +10,7 @@ pub(crate) mod _signal {
         Py, PyObjectRef, PyResult, VirtualMachine,
         signal::{self, SignalHandlers, SignalNum},
     };
-    use core::{
-        ops::Range,
-        sync::atomic::{self, Ordering},
-    };
+    use core::sync::atomic::{self, Ordering};
 
     cfg_select! {
         any(unix, windows) => {
