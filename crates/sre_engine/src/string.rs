@@ -428,7 +428,6 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
 }
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
-    // TODO: check with cpython
     char::try_from(ch).is_ok_and(|c| {
         GeneralCategoryGroup::Letter
             .union(GeneralCategoryGroup::Number)
