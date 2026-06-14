@@ -122,7 +122,7 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
                 let cmd = parser.value()?.string()?;
-                return Ok((args, RunMode::Command(cmd), argv("-c".to_owned(), parser)?));
+                return Ok((args, RunMode::Command(dedent(&cmd)), argv("-c".to_owned(), parser)?));
             }
             Short('d') => args.debug += 1,
             Short('E') => args.ignore_environment = true,
@@ -464,4 +464,62 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
             .to_owned()
             .into()
     })
+}
+
+///like textwrap.dedent; for processing -c argument
+fn dedent(input: &str) -> String {
+    let mut prefix: Option<String> = None;
+    let isspace = |c| c == ' ' || c == '\t';
+
+    //all-whitespace lines become empty
+    let deblanked: Vec<&str> = input
+        .lines()
+        .map(|line| if line.chars().all(isspace) { "" } else { line })
+        .collect();
+
+    //find maximum common whitespace prefix, if any
+    for line in deblanked.iter() {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(ref mut pstr) = prefix {
+            for (i, (c, pc)) in line.chars().zip(pstr.chars()).enumerate() {
+                if c != pc {
+                    pstr.truncate(i);
+                    break;
+                }
+            }
+        } else {
+            let mut pstr = String::new();
+            for c in line.chars() {
+                if isspace(c) {
+                    pstr.push(c);
+                } else {
+                    break;
+                }
+            }
+            prefix = Some(pstr);
+            continue;
+        }
+    }
+
+    if let Some(pstr) = prefix {
+        //strip prefix
+        deblanked
+            .iter()
+            .map(|line| {
+                if line.is_empty() {
+                    String::from("")
+                } else {
+                    //all non-empty lines start with pstr, must be at
+                    // least pstr.len() long
+                    String::from(line.get(pstr.len()..).unwrap())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        //no prefix: all lines blank
+        deblanked.join("\n")
+    }
 }
