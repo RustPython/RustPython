@@ -146,7 +146,7 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py".to_owned())?;
+    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py")?;
     Ok(())
 }
 
@@ -294,8 +294,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_string(scope.clone(), &command, "<string>".to_owned())
-                .map(drop)
+            vm.run_string(scope.clone(), &command, "<string>").map(drop)
         }
         RunMode::Module(module) => {
             debug!("Running module {module}");

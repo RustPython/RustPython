@@ -38,7 +38,7 @@ pub unsafe extern "C" fn Py_CompileString(
             }
         };
 
-        vm.compile(code, mode, filename.to_owned())
+        vm.compile(code, mode, filename)
             .map_err(|err| vm.new_syntax_error(&err, Some(code)))
     })
 }
