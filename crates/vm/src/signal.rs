@@ -120,13 +120,13 @@ pub(crate) fn clear_after_fork() {
 pub struct SignalNum(i32);
 
 impl SignalNum {
-    const VALID_RANGE: Range<i32> = 1..NSIG as i32;
+    pub(crate) const VALID_RANGE: Range<i32> = 1..NSIG as i32;
 
     /// Alias for:
     /// ```rust
     /// # use rustpython_vm::signal::SignalNum;
     ///
-    /// unsafe { SignalNum::new_unchecked(libc::SIGINT) }
+    /// unsafe { SignalNum::new_unchecked(libc::SIGINT) };
     /// ```
     #[cfg(any(unix, windows))]
     #[allow(dead_code, reason = "Not used on all platforms")]

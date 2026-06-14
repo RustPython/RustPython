@@ -42,8 +42,6 @@ pub(crate) mod _signal {
         _ => usize,
     };
 
-    const SIGNUM_RANGE: Range<i32> = 1..signal::NSIG as i32;
-
     cfg_select! {
         windows => {
             type WakeupFdRaw = libc::SOCKET;
@@ -174,8 +172,8 @@ pub(crate) mod _signal {
             .upcast()
     }
 
-    const _: () = assert!(SIGNUM_RANGE.start.is_positive());
-    const _: () = assert!(SIGNUM_RANGE.end.is_positive());
+    const _: () = assert!(SignalNum::VALID_RANGE.start.is_positive());
+    const _: () = assert!(SignalNum::VALID_RANGE.end.is_positive());
 
     #[cfg(any(unix, windows))]
     pub(super) fn init_signal_handlers(
@@ -186,7 +184,7 @@ pub(crate) mod _signal {
             let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
-            for signum in SIGNUM_RANGE {
+            for signum in SignalNum::VALID_RANGE {
                 let Some(handler) = (unsafe { host_signal::probe_handler(signum) }) else {
                     continue;
                 };
@@ -198,7 +196,7 @@ pub(crate) mod _signal {
                     None
                 };
 
-                // SAFETY: Trust `SIGNUM_RANGE`
+                // SAFETY: Trust `SignalNum::VALID_RANGE`
                 let signum = unsafe { SignalNum::new_unchecked(signum) };
 
                 vm.signal_handlers
@@ -404,12 +402,12 @@ pub(crate) mod _signal {
     #[cfg(any(unix, windows))]
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
-        let signalnum = SignalNum::try_from(signalnum).map_err(|msg| {
-            cfg_select! {
-                windows => {
-                    vm.new_errno_error(libc::EINVAL, "Invalid argument").upcast()
-                },
-                _ => vm.new_value_error(msg)
+        let signalnum = SignalNum::try_from(signalnum).map_err(cfg_select! {
+            windows => {
+                |_| vm.new_errno_error(libc::EINVAL, "Invalid argument").upcast()
+            },
+            _ => {
+                |msg| vm.new_value_error(msg)
             }
         })?;
 
@@ -453,7 +451,7 @@ pub(crate) mod _signal {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
-        for signum in SIGNUM_RANGE {
+        for signum in SignalNum::VALID_RANGE {
             if host_signal::sigset_contains(mask, signum) {
                 set.add(vm.ctx.new_int(signum).into(), vm)?;
             }
@@ -480,11 +478,11 @@ pub(crate) mod _signal {
             let signum = sig
                 .try_to_value::<i32>(vm)
                 .ok()
-                .filter(|v| SIGNUM_RANGE.contains(v))
+                .filter(|v| SignalNum::VALID_RANGE.contains(v))
                 .ok_or_else(|| {
                     vm.new_value_error(format!(
                         "signal number out of range [1, {}]",
-                        SIGNUM_RANGE.end - 1
+                        SignalNum::VALID_RANGE.end - 1
                     ))
                 })?;
 
