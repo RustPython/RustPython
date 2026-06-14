@@ -190,7 +190,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
             // The VM itself has no filesystem access.
             let path = if path.is_empty() { "???" } else { path };
             match std::fs::read_to_string(path) {
-                Ok(source) => vm.run_string(scope, &source, path.to_owned()).map(drop),
+                Ok(source) => vm.run_string(scope, &source, path).map(drop),
                 Err(err) => Err(vm.new_os_error(err.to_string())),
             }
         }
