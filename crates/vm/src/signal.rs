@@ -71,14 +71,17 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
     }
     let _guard = SignalHandlerGuard;
 
-    // unwrap should never fail since we check above
-    let signal_handlers = vm.signal_handlers.get().unwrap().borrow();
+    let signal_handlers = vm
+        .signal_handlers
+        .get()
+        .expect("should never fail since we check above")
+        .borrow();
+
     for (signum, trigger) in TRIGGERS.iter().enumerate().skip(1) {
         let triggered = trigger.swap(false, Ordering::Relaxed);
 
-        let signum = (signum as i32)
-            .try_into()
-            .expect("TRIGGERS has the same length as the signal_handlers");
+        // SAFETY: TRIGGERS has the same length as the signal_handlers
+        let signum = unsafe { SignalNum::new_unchecked(signum as i32) };
 
         if triggered
             && let Some(handler) = &signal_handlers[signum]
@@ -87,11 +90,13 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
             callable.invoke((signum.as_i32(), vm.ctx.none()), vm)?;
         }
     }
+
     if let Some(signal_rx) = &vm.signal_rx {
         for f in signal_rx.rx.try_iter() {
             f(vm)?;
         }
     }
+
     Ok(())
 }
 
