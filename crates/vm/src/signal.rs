@@ -124,7 +124,7 @@ impl SignalNum {
 
     /// Alias for:
     /// ```rust
-    /// # use rustpython_vm::signal::SigalNum;
+    /// # use rustpython_vm::signal::SignalNum;
     ///
     /// unsafe { SignalNum::new_unchecked(libc::SIGINT) }
     /// ```
