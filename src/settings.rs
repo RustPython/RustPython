@@ -122,7 +122,11 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
                 let cmd = parser.value()?.string()?;
-                return Ok((args, RunMode::Command(dedent(&cmd)), argv("-c".to_owned(), parser)?));
+                return Ok((
+                    args,
+                    RunMode::Command(dedent(&cmd)),
+                    argv("-c".to_owned(), parser)?,
+                ));
             }
             Short('d') => args.debug += 1,
             Short('E') => args.ignore_environment = true,
