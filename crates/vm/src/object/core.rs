@@ -1489,7 +1489,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn class(&self) -> &Py<PyType> {
-        self.0.typ.deref()
+        &self.0.typ
     }
 
     pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) {
@@ -2130,7 +2130,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
+        self.deref().eq(&**other)
     }
 }
 
@@ -2407,7 +2407,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
+        self.deref().eq(&**other)
     }
 }
 
