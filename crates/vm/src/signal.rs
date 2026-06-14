@@ -129,7 +129,7 @@ impl SignalNum {
     /// unsafe { SignalNum::new_unchecked(libc::SIGINT) }
     /// ```
     #[cfg(any(unix, windows))]
-    #![allow(dead_code, reason="Not used on all platforms")]
+    #[allow(dead_code, reason = "Not used on all platforms")]
     pub(crate) const SIGINT: Self = Self(libc::SIGINT);
 
     /// Construct [`Self`] without any validation on the signalnum value.
