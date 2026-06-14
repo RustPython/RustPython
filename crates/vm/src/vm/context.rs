@@ -699,7 +699,7 @@ impl Context {
     where
         F: IntoPyGetterFunc<T>,
     {
-        let getset = PyGetSet::new(&name, class).with_get(f);
+        let getset = PyGetSet::new(name, class).with_get(f);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
@@ -714,7 +714,7 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let getset = PyGetSet::new(&name, class).with_get(g).with_set(s);
+        let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 

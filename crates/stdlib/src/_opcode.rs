@@ -192,7 +192,7 @@ mod tests {
     ///
     /// Memory addresses in the output are replaced with `0xdeadbeef` for consistency.
     fn dis(source: &str) -> String {
-        let fname = String::from("<?>");
+        const FNAME: &str = "<?>";
 
         let builder = vm::Interpreter::builder(Default::default());
         let stdlib_defs = crate::stdlib_module_defs(&builder.ctx);
@@ -204,7 +204,7 @@ mod tests {
         interp.enter(|vm| {
             let scope = vm.new_scope_with_builtins();
             let code_obj = vm
-                .compile(source.trim(), Mode::Exec, fname.clone())
+                .compile(source.trim(), Mode::Exec, FNAME)
                 .map_err(|err| vm.new_syntax_error(&err, Some(source)))
                 .unwrap();
             scope.globals.set_item("code", code_obj.into(), vm).unwrap();
@@ -227,7 +227,7 @@ output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp
 "#;
 
             let py_code_obj = vm
-                .compile(py_source, Mode::Exec, fname)
+                .compile(py_source, Mode::Exec, FNAME)
                 .map_err(|err| vm.new_syntax_error(&err, Some(py_source)))
                 .unwrap();
 
