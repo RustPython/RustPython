@@ -170,7 +170,7 @@ pub(crate) mod _signal {
 
     #[cfg(unix)]
     fn new_itimer_error(msg: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_os_subtype_error(itimer_error(vm).to_owned(), None, msg)
+        vm.new_os_subtype_error(itimer_error(vm), None, msg)
             .upcast()
     }
 
@@ -260,12 +260,11 @@ pub(crate) mod _signal {
     }
 
     #[pyfunction]
-    fn getsignal(signalnum: SignalNum, vm: &VirtualMachine) -> PyResult {
+    fn getsignal(signalnum: SignalNum, vm: &VirtualMachine) -> PyObjectRef {
         let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
-        let handler = signal_handlers.borrow()[signalnum]
+        signal_handlers.borrow()[signalnum]
             .clone()
-            .unwrap_or_else(|| vm.ctx.none());
-        Ok(handler)
+            .unwrap_or_else(|| vm.ctx.none())
     }
 
     #[cfg(unix)]
@@ -277,7 +276,7 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[pyfunction]
     fn pause(vm: &VirtualMachine) -> PyResult<()> {
-        vm.allow_threads(|| host_signal::pause());
+        vm.allow_threads(host_signal::pause);
         signal::check_signals(vm)?;
         Ok(())
     }
@@ -428,8 +427,8 @@ pub(crate) mod _signal {
 
     #[cfg(any(unix, windows))]
     #[pyfunction]
-    fn strsignal(signalnum: SignalNum) -> PyResult<Option<String>> {
-        Ok(host_signal::strsignal(signalnum.into()))
+    fn strsignal(signalnum: SignalNum) -> Option<String> {
+        host_signal::strsignal(signalnum.into())
     }
 
     #[pyfunction]

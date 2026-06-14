@@ -124,6 +124,8 @@ impl SignalNum {
 
     /// Alias for:
     /// ```rust
+    /// # use rustpython_vm::signal::SigalNum;
+    ///
     /// unsafe { SignalNum::new_unchecked(libc::SIGINT) }
     /// ```
     #[cfg(any(unix, windows))]
@@ -131,7 +133,8 @@ impl SignalNum {
 
     /// Construct [`Self`] without any validation on the signalnum value.
     ///
-    /// SAFETY:
+    /// # Safety
+    ///
     /// Caller's responsibility to ensure the signal num is valid.
     #[must_use]
     pub const unsafe fn new_unchecked(value: i32) -> Self {
@@ -173,7 +176,7 @@ impl TryFrom<i32> for SignalNum {
         };
 
         if bounds.contains(&value) {
-            return Ok(Self(value));
+            Ok(Self(value))
         } else {
             Err("signal number out of range".into())
         }
