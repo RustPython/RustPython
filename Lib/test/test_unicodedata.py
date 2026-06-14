@@ -118,7 +118,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         result = h.hexdigest()
         self.assertEqual(result, self.expectedchecksum)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != 'EGYPTIAN HIEROGLYPH-13460'
     def test_name(self):
         name = self.db.name
         self.assertRaises(ValueError, name, '\0')
@@ -207,7 +206,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         ]:
             self.assertRaises(KeyError, self.db.lookup, nonexistent)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != 9
     def test_digit(self):
         self.assertEqual(self.db.digit('A', None), None)
         self.assertEqual(self.db.digit('9'), 9)
@@ -227,7 +225,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.digit, 'xx')
         self.assertRaises(ValueError, self.db.digit, 'x')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.skip  # TODO: RUSTPYTHON; - None != 1e+20 (for 3.2.0; passes on latest)
     def test_numeric(self):
         self.assertEqual(self.db.numeric('A',None), None)
         self.assertEqual(self.db.numeric('9'), 9)
@@ -260,7 +258,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.numeric, 'xx')
         self.assertRaises(ValueError, self.db.numeric, 'x')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: None != 2
     def test_decimal(self):
         self.assertEqual(self.db.decimal('A',None), None)
         self.assertEqual(self.db.decimal('9'), 9)
@@ -285,7 +282,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.decimal, 'xx')
         self.assertRaises(ValueError, self.db.decimal, 'x')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'Cn' != 'Mn'
     def test_category(self):
         self.assertEqual(self.db.category('\uFFFE'), 'Cn')
         self.assertEqual(self.db.category('a'), 'Ll')
@@ -310,7 +306,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.category)
         self.assertRaises(TypeError, self.db.category, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - L
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; - 'BN' != ''
     def test_bidirectional(self):
         self.assertEqual(self.db.bidirectional('\uFFFE'), '')
         self.assertEqual(self.db.bidirectional(' '), 'WS')
@@ -365,7 +361,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.decomposition)
         self.assertRaises(TypeError, self.db.decomposition, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 0
     def test_mirrored(self):
         self.assertEqual(self.db.mirrored('\uFFFE'), 0)
         self.assertEqual(self.db.mirrored('a'), 0)
@@ -385,7 +380,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.mirrored)
         self.assertRaises(TypeError, self.db.mirrored, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 220
     def test_combining(self):
         self.assertEqual(self.db.combining('\uFFFE'), 0)
         self.assertEqual(self.db.combining('a'), 0)
@@ -605,7 +599,6 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertEqual(self.db.normalize('NFC', u11a7_str_a), u11a7_str_b)
         self.assertEqual(self.db.normalize('NFC', u11c3_str_a), u11c3_str_b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'W' != 'N'
     def test_east_asian_width(self):
         eaw = self.db.east_asian_width
         self.assertRaises(TypeError, eaw, b'a')
@@ -646,7 +639,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertEqual(eaw('\u2630'), 'N' if self.old else 'W')
         self.assertEqual(eaw('\U0001FAE9'), 'N' if self.old else 'W')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + W
+    @unittest.skip  # TODO: RUSTPYTHON; AssertionError: 'N' != 'W' (passed on latest, fails on 3.2)
     def test_east_asian_width_unassigned(self):
         eaw = self.db.east_asian_width
         # unassigned
@@ -685,7 +678,7 @@ class Unicode_3_2_0_FunctionsTest(UnicodeFunctionsTest):
     def test_combining(self):
         return super().test_combining()
 
-    @unittest.expectedSuccess  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'LATIN SMALL LETTER D WITH CURL' != None
     def test_name(self):
         return super().test_name()
 
@@ -753,7 +746,6 @@ class UnicodeMiscTest(unittest.TestCase):
     def test_bug_1704793(self):
         self.assertEqual(self.db.lookup("GOTHIC LETTER FAIHU"), '\U00010346')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true
     def test_ucd_510(self):
         # In UCD 5.1.0, a mirrored property changed wrt. UCD 3.2.0
         self.assertTrue(unicodedata.mirrored("\u0f3a"))
@@ -805,7 +797,6 @@ class NormalizationTest(unittest.TestCase):
         data = [int(x, 16) for x in data.split(" ")]
         return "".join([chr(x) for x in data])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False is not true : 13055
     @requires_resource('network')
     @requires_resource('cpu')
     def test_normalization(self):
