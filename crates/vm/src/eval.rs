@@ -1,7 +1,7 @@
 use crate::{PyResult, VirtualMachine, compiler, scope::Scope};
 
 pub fn eval(vm: &VirtualMachine, source: &str, scope: Scope, source_path: &str) -> PyResult {
-    match vm.compile(source, compiler::Mode::Eval, source_path.to_owned()) {
+    match vm.compile(source, compiler::Mode::Eval, source_path) {
         Ok(bytecode) => {
             debug!("Code object: {bytecode:?}");
             vm.run_code_obj(bytecode, scope)

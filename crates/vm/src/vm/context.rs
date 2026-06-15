@@ -333,9 +333,11 @@ impl Context {
                 )
             })
             .collect();
-        let latin1_char_cache: Vec<PyRef<PyStr>> = (0u8..=255)
+
+        let latin1_char_cache = (u8::MIN..=u8::MAX)
             .map(|b| create_object(PyStr::from(char::from(b)), types.str_type))
-            .collect();
+            .collect::<Vec<PyRef<PyStr>>>();
+
         let ascii_char_cache = latin1_char_cache[..128].to_vec();
 
         let true_value = create_object(PyBool(PyInt::from(1)), types.bool_type);
@@ -519,19 +521,20 @@ impl Context {
     fn latin1_singleton_index(s: &PyStr) -> Option<u8> {
         let mut cps = s.as_wtf8().code_points();
         let cp = cps.next()?;
-        if cps.next().is_some() {
-            return None;
-        }
-        u8::try_from(cp.to_u32()).ok()
+
+        cps.next()
+            .is_none()
+            .then(|| u8::try_from(cp.to_u32()).ok())?
     }
 
     #[inline]
     pub fn new_str(&self, s: impl Into<pystr::PyStr>) -> PyRef<PyStr> {
         let s = s.into();
         if let Some(ch) = Self::latin1_singleton_index(&s) {
-            return self.latin1_char(ch);
+            self.latin1_char(ch)
+        } else {
+            s.into_ref(self)
         }
-        s.into_ref(self)
     }
 
     #[inline]
@@ -544,9 +547,10 @@ impl Context {
         S: Into<PyStr> + AsRef<M>,
         M: MaybeInternedString,
     {
-        match self.interned_str(s.as_ref()) {
-            Some(s) => s.to_owned(),
-            None => self.new_str(s),
+        if let Some(s) = self.interned_str(s.as_ref()) {
+            s.to_owned()
+        } else {
+            self.new_str(s)
         }
     }
 
@@ -617,11 +621,7 @@ impl Context {
         name: &str,
         bases: Option<Vec<PyTypeRef>>,
     ) -> PyTypeRef {
-        let bases = if let Some(bases) = bases {
-            bases
-        } else {
-            vec![self.exceptions.exception_type.to_owned()]
-        };
+        let bases = bases.unwrap_or_else(|| vec![self.exceptions.exception_type.to_owned()]);
         let mut attrs = PyAttributes::default();
         attrs.insert(identifier!(self, __module__), self.new_str(module).into());
 
@@ -692,21 +692,20 @@ impl Context {
 
     pub fn new_readonly_getset<F, T>(
         &self,
-        name: impl Into<String>,
+        name: &str,
         class: &'static Py<PyType>,
         f: F,
     ) -> PyRef<PyGetSet>
     where
         F: IntoPyGetterFunc<T>,
     {
-        let name = name.into();
         let getset = PyGetSet::new(name, class).with_get(f);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
     pub fn new_static_getset<G, S, T, U>(
         &self,
-        name: impl Into<String>,
+        name: &str,
         class: &'static Py<PyType>,
         g: G,
         s: S,
@@ -715,19 +714,18 @@ impl Context {
         G: IntoPyGetterFunc<T>,
         S: IntoPySetterFunc<U>,
     {
-        let name = name.into();
         let getset = PyGetSet::new(name, class).with_get(g).with_set(s);
         PyRef::new_ref(getset, self.types.getset_type.to_owned(), None)
     }
 
-    /// Creates a new `PyGetSet` with a heap type.
+    /// Creates a new [`PyGetSet`] with a heap type.
     ///
     /// # Safety
     /// In practice, this constructor is safe because a getset is always owned by its `class` type.
     /// However, it can be broken if used unconventionally.
     pub unsafe fn new_getset<G, S, T, U>(
         &self,
-        name: impl Into<String>,
+        name: &str,
         class: &Py<PyType>,
         g: G,
         s: S,
