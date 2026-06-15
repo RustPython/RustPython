@@ -5,7 +5,7 @@ mod builtin;
 mod either;
 mod fspath;
 mod getset;
-mod method;
+pub(crate) mod method;
 mod number;
 mod protocol;
 mod time;
