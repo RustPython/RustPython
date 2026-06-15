@@ -5,12 +5,17 @@ use super::{
     IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
     PyTypeRef, builtins_iter,
 };
-use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
-    common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc, wtf8::Wtf8Buf},
+    common::{
+        ascii,
+        hash::PyHash,
+        lock::{LazyLock, PyMutex},
+        rc::PyRc,
+        wtf8::Wtf8Buf,
+    },
     convert::ToPyResult,
     dict_inner::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
@@ -24,9 +29,7 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use alloc::fmt;
-use core::borrow::Borrow;
-use core::ops::Deref;
+use core::{borrow::Borrow, fmt};
 use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
@@ -924,10 +927,12 @@ impl Representable for PySet {
     fn repr_wtf8(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let class = zelf.class();
         let borrowed_name = class.name();
-        let class_name = borrowed_name.deref();
+        let class_name = &*borrowed_name;
+
         if zelf.inner.len() == 0 {
             return Ok(Wtf8Buf::from(format!("{class_name}()")));
         }
+
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let name = (class_name != "set").then_some(class_name);
             zelf.inner.repr(name, vm)

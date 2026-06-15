@@ -1054,7 +1054,7 @@ impl FormatSpec {
             cmp::max(0, (w as i32) - (num_chars as i32) - (sign_str.len() as i32))
         });
 
-        let magnitude_str = magnitude_str.deref();
+        let magnitude_str = &**magnitude_str;
         match align {
             FormatAlign::Left => format!(
                 "{}{}{}",

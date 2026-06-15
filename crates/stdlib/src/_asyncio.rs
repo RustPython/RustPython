@@ -224,10 +224,12 @@ pub(crate) mod _asyncio {
                 }
                 FutureState::Finished => {
                     self.fut_log_tb.store(false, Ordering::Relaxed);
-                    if let Some(exc) = self.fut_exception.read().clone() {
+                    let fut_exception = self.fut_exception.read().clone();
+                    if let Some(exc) = fut_exception {
                         let exc: PyBaseExceptionRef = exc.downcast().unwrap();
                         // Restore the original traceback to prevent traceback accumulation
-                        if let Some(tb) = self.fut_exception_tb.read().clone() {
+                        let fut_exception_tb = self.fut_exception_tb.read().clone();
+                        if let Some(tb) = fut_exception_tb {
                             let _ = exc.set___traceback__(tb, vm);
                         }
                         Err(exc)
@@ -612,7 +614,8 @@ pub(crate) mod _asyncio {
         fn _callbacks(&self, vm: &VirtualMachine) -> PyObjectRef {
             let mut result = Vec::new();
 
-            if let Some(cb0) = self.fut_callback0.read().clone() {
+            let fut_callback0 = self.fut_callback0.read().clone();
+            if let Some(cb0) = fut_callback0 {
                 let ctx0 = self
                     .fut_context0
                     .read()
@@ -621,7 +624,8 @@ pub(crate) mod _asyncio {
                 result.push(vm.ctx.new_tuple(vec![cb0, ctx0]).into());
             }
 
-            if let Some(callbacks) = self.fut_callbacks.read().clone() {
+            let fut_callbacks = self.fut_callbacks.read().clone();
+            if let Some(callbacks) = fut_callbacks {
                 let list: PyListRef = callbacks.downcast().unwrap();
                 for item in list.borrow_vec().iter() {
                     result.push(item.clone());
@@ -792,16 +796,12 @@ pub(crate) mod _asyncio {
                 return Ok(());
             }
 
-            let exc = zelf.fut_exception.read().clone();
-            let exc = match exc {
-                Some(e) => e,
-                None => return Ok(()),
+            let Some(exc) = zelf.fut_exception.read().clone() else {
+                return Ok(());
             };
 
-            let loop_obj = zelf.fut_loop.read().clone();
-            let loop_obj = match loop_obj {
-                Some(l) => l,
-                None => return Ok(()),
+            let Some(loop_obj) = zelf.fut_loop.read().clone() else {
+                return Ok(());
             };
 
             // Create context dict for call_exception_handler
@@ -816,7 +816,8 @@ pub(crate) mod _asyncio {
             context.set_item(vm.ctx.intern_str("exception"), exc, vm)?;
             context.set_item(vm.ctx.intern_str("future"), zelf.to_owned().into(), vm)?;
 
-            if let Some(tb) = zelf.fut_source_tb.read().clone() {
+            let fut_source_tb = zelf.fut_source_tb.read().clone();
+            if let Some(tb) = fut_source_tb {
                 context.set_item(vm.ctx.intern_str("source_traceback"), tb, vm)?;
             }
 
@@ -1248,12 +1249,15 @@ pub(crate) mod _asyncio {
                 FutureState::Cancelled => Err(self.make_cancelled_error_impl(vm)),
                 FutureState::Finished => {
                     self.base.fut_log_tb.store(false, Ordering::Relaxed);
-                    if let Some(exc) = self.base.fut_exception.read().clone() {
+                    let fut_exception = self.base.fut_exception.read().clone();
+                    if let Some(exc) = fut_exception {
                         let exc: PyBaseExceptionRef = exc.downcast().unwrap();
                         // Restore the original traceback to prevent traceback accumulation
-                        if let Some(tb) = self.base.fut_exception_tb.read().clone() {
+                        let fut_exception_tb = self.base.fut_exception_tb.read().clone();
+                        if let Some(tb) = fut_exception_tb {
                             let _ = exc.set___traceback__(tb, vm);
                         }
+
                         Err(exc)
                     } else {
                         Ok(self
@@ -1517,7 +1521,8 @@ pub(crate) mod _asyncio {
 
             let msg_value = args.msg.flatten();
 
-            if let Some(fut_waiter) = self.task_fut_waiter.read().clone() {
+            let task_fut_waiter = self.task_fut_waiter.read().clone();
+            if let Some(fut_waiter) = task_fut_waiter {
                 // Call cancel with msg=msg keyword argument
                 let cancel_args = if let Some(ref m) = msg_value {
                     FuncArgs::new(
@@ -1795,7 +1800,9 @@ pub(crate) mod _asyncio {
         #[pygetset]
         fn _callbacks(&self, vm: &VirtualMachine) -> PyObjectRef {
             let mut result: Vec<PyObjectRef> = Vec::new();
-            if let Some(cb) = self.base.fut_callback0.read().clone() {
+
+            let fut_callback0 = self.base.fut_callback0.read().clone();
+            if let Some(cb) = fut_callback0 {
                 let ctx = self
                     .base
                     .fut_context0
@@ -1804,6 +1811,7 @@ pub(crate) mod _asyncio {
                     .unwrap_or_else(|| vm.ctx.none());
                 result.push(vm.ctx.new_tuple(vec![cb, ctx]).into());
             }
+
             if let Some(callbacks) = self.base.fut_callbacks.read().clone()
                 && let Ok(list) = callbacks.downcast::<PyList>()
             {
@@ -1811,6 +1819,7 @@ pub(crate) mod _asyncio {
                     result.push(item.clone());
                 }
             }
+
             // Return None if no callbacks
             if result.is_empty() {
                 vm.ctx.none()
@@ -1859,7 +1868,8 @@ pub(crate) mod _asyncio {
                     )?;
                     context.set_item(vm.ctx.intern_str("task"), zelf.to_owned().into(), vm)?;
 
-                    if let Some(tb) = zelf.base.fut_source_tb.read().clone() {
+                    let fut_source_tb = zelf.base.fut_source_tb.read().clone();
+                    if let Some(tb) = fut_source_tb {
                         context.set_item(vm.ctx.intern_str("source_traceback"), tb, vm)?;
                     }
 
@@ -1896,7 +1906,8 @@ pub(crate) mod _asyncio {
             context.set_item(vm.ctx.intern_str("exception"), exc, vm)?;
             context.set_item(vm.ctx.intern_str("future"), zelf.to_owned().into(), vm)?;
 
-            if let Some(tb) = zelf.base.fut_source_tb.read().clone() {
+            let fut_source_tb = zelf.base.fut_source_tb.read().clone();
+            if let Some(tb) = fut_source_tb {
                 context.set_item(vm.ctx.intern_str("source_traceback"), tb, vm)?;
             }
 

@@ -947,7 +947,8 @@ pub(crate) mod _thread {
             let thread_id = current_thread_id();
 
             // Fast path: check if dict exists under lock
-            if let Some(dict) = self.inner.data.lock().get(&thread_id).cloned() {
+            let value = self.inner.data.lock().get(&thread_id).cloned();
+            if let Some(dict) = value {
                 return dict;
             }
 
