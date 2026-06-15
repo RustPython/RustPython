@@ -67,19 +67,7 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
 pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_ulonglong {
     with_vm::<PyResult<c_ulonglong>, _>(|vm| {
         let int = unsafe { &*obj }.to_owned().try_index(vm)?;
-        let text = int.to_str_radix_10();
-        let (is_negative, digits) = text
-            .strip_prefix('-')
-            .map_or((false, text.as_str()), |digits| (true, digits));
-        let masked = digits.bytes().fold(0u64, |acc, b| {
-            acc.wrapping_mul(10).wrapping_add(u64::from(b - b'0'))
-        });
-        let masked = if is_negative {
-            masked.wrapping_neg()
-        } else {
-            masked
-        };
-        Ok(masked)
+        Ok(int.as_u64_mask())
     })
 }
 
@@ -103,6 +91,15 @@ mod tests {
             let number = PyInt::new(py, 123u64);
             assert!(number.is_instance_of::<PyInt>());
             assert_eq!(number.extract::<u64>().unwrap(), 123);
+        })
+    }
+
+    #[test]
+    fn py_int_u128() {
+        Python::attach(|py| {
+            let value = 1u128 << 100;
+            let number = PyInt::new(py, value);
+            assert_eq!(number.extract::<u128>().unwrap(), value);
         })
     }
 }
