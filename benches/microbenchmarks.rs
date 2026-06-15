@@ -118,10 +118,10 @@ fn bench_rustpython_code(group: &mut BenchmarkGroup<WallTime>, bench: &MicroBenc
     let interp = builder.add_native_modules(&defs).build();
     interp.enter(|vm| {
         let setup_code = vm
-            .compile(&bench.setup, Mode::Exec, bench.name.to_owned())
+            .compile(&bench.setup, Mode::Exec, &bench.name)
             .expect("Error compiling setup code");
         let bench_code = vm
-            .compile(&bench.code, Mode::Exec, bench.name.to_owned())
+            .compile(&bench.code, Mode::Exec, &bench.name)
             .expect("Error compiling bench code");
 
         let bench_func = |scope| {
