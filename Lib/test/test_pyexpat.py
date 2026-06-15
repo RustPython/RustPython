@@ -228,9 +228,9 @@ class ParseTest(unittest.TestCase):
             "Character data: '\xb5'",
             "End element: 'root'",
         ]
-        for operation, expected_operation in zip(operations, expected_operations):
-            self.assertEqual(operation, expected_operation)
+        self.assertEqual(operations, expected_operations)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_bytes(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -243,6 +243,7 @@ class ParseTest(unittest.TestCase):
         # Issue #6697.
         self.assertRaises(AttributeError, getattr, parser, '\uD800')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_str(self):
         out = self.Outputter()
         parser = expat.ParserCreate(namespace_separator='!')
@@ -253,6 +254,7 @@ class ParseTest(unittest.TestCase):
         operations = out.out
         self._verify_parse_output(operations)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parse_file(self):
         # Try parsing a file
         out = self.Outputter()
@@ -277,6 +279,126 @@ class ParseTest(unittest.TestCase):
             parser.ParseFile(file)
         self.assertEqual(expat.ErrorString(cm.exception.code),
                           expat.errors.XML_ERROR_FINISHED)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @support.subTests('encoding', [
+        'utf-8', 'utf-16', 'utf-16be', 'utf-16le',
+        'iso8859-1', 'iso8859-2', 'iso8859-3', 'iso8859-4', 'iso8859-5',
+        'iso8859-6', 'iso8859-7', 'iso8859-8', 'iso8859-9', 'iso8859-10',
+        'iso8859-13', 'iso8859-14', 'iso8859-15', 'iso8859-16',
+        'cp437', 'cp720', 'cp737', 'cp775', 'cp850', 'cp852',
+        'cp855', 'cp856', 'cp857', 'cp858', 'cp860', 'cp861', 'cp862',
+        'cp863', 'cp865', 'cp866', 'cp869', 'cp874', 'cp1006', 'cp1125',
+        'cp1250', 'cp1251', 'cp1252', 'cp1253', 'cp1254', 'cp1255',
+        'cp1256', 'cp1257', 'cp1258',
+        'mac-cyrillic', 'mac-greek', 'mac-iceland', 'mac-latin2',
+        'mac-roman', 'mac-turkish',
+        'koi8-r', 'koi8-t', 'koi8-u', 'kz1048', 'ptcp154',
+    ])
+    def test_supported_encodings(self, encoding):
+        out = self.Outputter()
+        parser = expat.ParserCreate()
+        self._hookup_callbacks(parser, out)
+        c = 'éπя\u05d0\u060c€'.encode(encoding, 'ignore').decode(encoding)[0]
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                f'<root>{c}</root>').encode(encoding)
+        parser.Parse(data, True)
+        self.assertEqual(out.out, [
+            ('XML declaration', ('1.0', encoding, -1)),
+            "Start element: 'root' {}",
+            f'Character data: {c!r}',
+            "End element: 'root'",
+        ])
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @support.subTests('encoding', [
+        'UTF-8', 'utf-8', 'utf-16', 'utf-16le', 'utf-16be',
+        'koi8-u', 'cp1125', 'cp1251', 'iso8859-5', 'mac-cyrillic',
+    ])
+    def test_supported_encodings2(self, encoding):
+        out = self.Outputter()
+        parser = expat.ParserCreate()
+        self._hookup_callbacks(parser, out)
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                '<!-- коментар -->'
+                '<корінь атрибут="значення">зміст</корінь>').encode(encoding)
+        parser.Parse(data, True)
+        self.assertEqual(out.out, [
+            ('XML declaration', ('1.0', encoding, -1)),
+            "Comment: ' коментар '",
+            "Start element: 'корінь' {'атрибут': 'значення'}",
+            "Character data: 'зміст'",
+            "End element: 'корінь'",
+        ])
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised
+    @support.subTests('encoding', [
+        'UTF-7',
+        "Big5-HKSCS", "Big5",
+        "cp932", "cp949", "cp950",
+        "EUC_JIS-2004", "EUC_JISX0213", "EUC-JP", "EUC-KR",
+        "GB18030", "GB2312", "GBK",
+        "ISO-2022-KR",
+        "johab",
+        "Shift_JIS", "Shift_JIS-2004", "Shift_JISX0213",
+    ])
+    def test_unsupported_encodings(self, encoding):
+        parser = expat.ParserCreate()
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                '<root></root>').encode(encoding)
+        with self.assertRaises(ValueError):
+            parser.Parse(data, True)
+
+        parser = expat.ParserCreate()
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                '<root></root>').encode()
+        with self.assertRaises(ValueError):
+            parser.Parse(data, True)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ExpatError not raised
+    @support.subTests('encoding', [
+        'cp037', 'cp273', 'cp424', 'cp500', 'cp864', 'cp875',
+        'cp1026', 'cp1140',
+        'mac_arabic', 'mac_farsi',
+    ])
+    def test_incompatible_encodings(self, encoding):
+        parser = expat.ParserCreate()
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                '<root></root>').encode(encoding)
+        with self.assertRaises(expat.ExpatError):
+            parser.Parse(data, True)
+
+        parser = expat.ParserCreate()
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                '<root></root>').encode()
+        with self.assertRaisesRegex(expat.ExpatError, 'unknown encoding'):
+            parser.Parse(data, True)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
+    @support.subTests('encoding', [
+        'hex_codec', 'rot_13',
+    ])
+    def test_non_text_encodings(self, encoding):
+        parser = expat.ParserCreate()
+        data = (f'<?xml version="1.0" encoding="{encoding}"?>\n'
+                '<root></root>').encode()
+        with self.assertRaises(LookupError):
+            parser.Parse(data, True)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: UnicodeError not raised
+    def test_undefined_encoding(self):
+        parser = expat.ParserCreate()
+        data = b'<?xml version="1.0" encoding="undefined"?>\n<root></root>'
+        with self.assertRaises(UnicodeError):
+            parser.Parse(data, True)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: LookupError not raised
+    def test_unknown_encoding(self):
+        parser = expat.ParserCreate()
+        data = b'<?xml version="1.0" encoding="xyz"?>\n<root></root>'
+        with self.assertRaises(LookupError):
+            parser.Parse(data, True)
+
 
 class NamespaceSeparatorTest(unittest.TestCase):
     def test_legal(self):
@@ -688,6 +810,20 @@ class ChardataBufferTest(unittest.TestCase):
         parser.Parse(xml2, True)
         self.assertEqual(self.n, 4)
 
+    @support.requires_resource('cpu')
+    @support.requires_resource('walltime')
+    @support.bigmemtest(size=2**31, memuse=4, dry_run=False)
+    def test_large_character_data_does_not_crash(self):
+        # See https://github.com/python/cpython/issues/148441
+        parser = expat.ParserCreate()
+        parser.buffer_text = True
+        parser.buffer_size = 2**31 - 1  # INT_MAX
+        N = 2049 * (1 << 20) - 3  # Character data greater than INT_MAX
+        self.assertGreater(N, parser.buffer_size)
+        parser.CharacterDataHandler = lambda text: None
+        xml_data = b"<r>" + b"A" * N + b"</r>"
+        self.assertEqual(parser.Parse(xml_data, True), 1)
+
 class ElementDeclHandlerTest(unittest.TestCase):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by Parse
     def test_trigger_leak(self):
@@ -1085,6 +1221,92 @@ class AttackProtectionTestBase(abc.ABC):
         subparser = parser.ExternalEntityParserCreate(None)
         setter = functools.partial(self.set_maximum_amplification, subparser)
         self.assert_root_parser_failure(setter, 123.45)
+
+
+@unittest.skipIf(expat.version_info < (2, 4, 0), "requires Expat >= 2.4.0")
+class ExpansionProtectionTest(AttackProtectionTestBase, unittest.TestCase):
+
+    def assert_rejected(self, func, /, *args, **kwargs):
+        """Check that func(*args, **kwargs) hits the allocation limit."""
+        msg = (
+            r"limit on input amplification factor \(from DTD and entities\) "
+            r"breached: line \d+, column \d+"
+        )
+        self.assertRaisesRegex(expat.ExpatError, msg, func, *args, **kwargs)
+
+    def set_activation_threshold(self, parser, threshold):
+        return parser.SetBillionLaughsAttackProtectionActivationThreshold(threshold)
+
+    def set_maximum_amplification(self, parser, max_factor):
+        return parser.SetBillionLaughsAttackProtectionMaximumAmplification(max_factor)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_activation_threshold__threshold_reached(self):
+        parser = expat.ParserCreate()
+        # Choose a threshold expected to be always reached.
+        self.set_activation_threshold(parser, 3)
+        # Check that the threshold is reached by choosing a small factor
+        # and a payload whose peak amplification factor exceeds it.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
+        payload = self.exponential_expansion_payload(ncols=10, nrows=4)
+        self.assert_rejected(parser.Parse, payload, True)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_activation_threshold__threshold_not_reached(self):
+        parser = expat.ParserCreate()
+        # Choose a threshold expected to be never reached.
+        self.set_activation_threshold(parser, pow(10, 5))
+        # Check that the threshold is reached by choosing a small factor
+        # and a payload whose peak amplification factor exceeds it.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
+        payload = self.exponential_expansion_payload(ncols=10, nrows=4)
+        self.assertIsNotNone(parser.Parse(payload, True))
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__amplification_exceeded(self):
+        parser = expat.ParserCreate()
+        # Unconditionally enable maximum activation factor.
+        self.set_activation_threshold(parser, 0)
+        # Choose a max amplification factor expected to always be exceeded.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1.0))
+        # Craft a payload for which the peak amplification factor is > 1.0.
+        payload = self.exponential_expansion_payload(ncols=1, nrows=2)
+        self.assert_rejected(parser.Parse, payload, True)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__amplification_not_exceeded(self):
+        parser = expat.ParserCreate()
+        # Unconditionally enable maximum activation factor.
+        self.set_activation_threshold(parser, 0)
+        # Choose a max amplification factor expected to never be exceeded.
+        self.assertIsNone(self.set_maximum_amplification(parser, 1e4))
+        # Craft a payload for which the peak amplification factor is < 1e4.
+        payload = self.exponential_expansion_payload(ncols=1, nrows=2)
+        self.assertIsNotNone(parser.Parse(payload, True))
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_activation_threshold__fail_for_subparser(self):
+        return super().test_set_activation_threshold__fail_for_subparser()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_activation_threshold__invalid_threshold_type(self):
+        return super().test_set_activation_threshold__invalid_threshold_type()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__fail_for_subparser(self):
+        return super().test_set_maximum_amplification__fail_for_subparser()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__infinity(self):
+        return super().test_set_maximum_amplification__infinity()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__invalid_max_factor_range(self):
+        return super().test_set_maximum_amplification__invalid_max_factor_range()
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetBillionLaughsAttackProtectionMaximumAmplification'
+    def test_set_maximum_amplification__invalid_max_factor_type(self):
+        return super().test_set_maximum_amplification__invalid_max_factor_type()
 
 
 @unittest.skipIf(not hasattr(expat.XMLParserType,
