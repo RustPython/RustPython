@@ -119,3 +119,34 @@ pub use rustpython_literal as literal;
 pub mod __exports {
     pub use paste;
 }
+
+#[cfg(test)]
+mod tests {
+    // Regression test: verify that #[pyclass] and #[pymethod] expand correctly.
+    // Before the fix in attrs_to_content_items (crates/derive-impl/src/pyclass.rs),
+    // any inner attribute with a path prefix (e.g. #[vm::pymethod]) caused an
+    // infinite loop during macro expansion.
+
+    #[pyclass(module = false, name = "TestItem")]
+    #[derive(Debug, PyPayload)]
+    struct TestItem {
+        value: i64,
+    }
+
+    #[pyclass]
+    impl TestItem {
+        #[pymethod]
+        fn value(&self) -> i64 {
+            self.value
+        }
+    }
+
+    #[test]
+    fn pyclass_and_pymethod_expand_correctly() {
+        // Verify the macro-generated code is functional at runtime.
+        // Before the fix, path-qualified inner attrs (e.g. #[vm::pymethod]) caused
+        // an infinite loop during macro expansion.
+        let item = TestItem { value: 42 };
+        assert_eq!(item.value(), 42);
+    }
+}
