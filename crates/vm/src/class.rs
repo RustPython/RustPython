@@ -153,6 +153,8 @@ pub trait PyClassImpl: PyClassDef {
     where
         Self: Sized,
     {
+        // NOTE: `is_created_with_flags` if only available when debug_assertions is true
+        #[cfg(debug_assertions)]
         debug_assert!(class.slots.flags.is_created_with_flags());
 
         let _ = ctx.intern_str(Self::NAME); // intern type name
