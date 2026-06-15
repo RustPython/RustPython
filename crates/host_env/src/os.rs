@@ -256,30 +256,14 @@ pub fn system(command: &CStr) -> libc::c_int {
 #[cfg(target_os = "linux")]
 pub fn copy_file_range(
     src: crt_fd::Borrowed<'_>,
-    offset_src: Option<&mut crt_fd::Offset>,
+    offset_src: Option<&mut u64>,
     dst: crt_fd::Borrowed<'_>,
-    offset_dst: Option<&mut crt_fd::Offset>,
+    offset_dst: Option<&mut u64>,
     count: usize,
-) -> io::Result<usize> {
-    #[allow(clippy::unnecessary_option_map_or_else)]
-    let p_offset_src = offset_src.map_or_else(core::ptr::null_mut, |x| x as *mut _);
-    #[allow(clippy::unnecessary_option_map_or_else)]
-    let p_offset_dst = offset_dst.map_or_else(core::ptr::null_mut, |x| x as *mut _);
-
-    // Why not use `libc::copy_file_range`: On musl, the libc wrapper may be missing.
-    let ret = unsafe {
-        libc::syscall(
-            libc::SYS_copy_file_range,
-            src.as_raw(),
-            p_offset_src,
-            dst.as_raw(),
-            p_offset_dst,
-            count,
-            0u32,
-        )
-    };
-
-    usize::try_from(ret).map_err(|_| io::Error::last_os_error())
+) -> rustix::io::Result<usize> {
+    // `copy_file_range` isn't wrapped in every libc (i.e. musl).
+    // However, Rustix is a safe wrapper around the syscall that bypasses libc.
+    rustix::fs::copy_file_range(src, offset_src, dst, offset_dst, count)
 }
 
 pub fn rename(
@@ -366,6 +350,13 @@ impl ErrorExt for io::Error {
     fn posix_errno(&self) -> i32 {
         let winerror = self.raw_os_error().unwrap_or(0);
         winerror_to_errno(winerror)
+    }
+}
+
+#[cfg(all(not(windows), not(target_arch = "wasm32")))]
+impl ErrorExt for rustix::io::Errno {
+    fn posix_errno(&self) -> i32 {
+        self.raw_os_error()
     }
 }
 
