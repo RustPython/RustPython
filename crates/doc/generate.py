@@ -185,23 +185,7 @@ def find_doc_entries() -> "Iterable[DocEntry]":
     )
     yield from (doc_entry for doc_entry in traverse(__builtins__, __builtins__))
 
-    builtin_types = [
-        type(None),
-        type(bytearray().__iter__()),
-        type(bytes().__iter__()),
-        type(dict().__iter__()),
-        type(dict().items()),
-        type(dict().items().__iter__()),
-        type(dict().values()),
-        type(dict().values().__iter__()),
-        type(lambda: ...),
-        type(list().__iter__()),
-        type(memoryview(b"").__iter__()),
-        type(range(0).__iter__()),
-        type(set().__iter__()),
-        type(str().__iter__()),
-        type(tuple().__iter__()),
-    ]
+    builtin_types = object.__subclasses__()
 
     # Add types from the types module (e.g., ModuleType, FunctionType, etc.)
     for name in dir(types):
