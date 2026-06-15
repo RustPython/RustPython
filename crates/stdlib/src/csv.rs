@@ -1177,7 +1177,7 @@ mod _csv {
                     format!("'{}' object is not iterable", row.class().name()),
                 )
             })?;
-            let fields: Vec<_> = row.iter(vm)?.collect::<PyResult<_>>()?;
+            let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
             let single_field = fields.len() == 1;
             let mut output = Vec::new();
 
