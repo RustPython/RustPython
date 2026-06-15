@@ -322,12 +322,9 @@ impl PyInt {
         v.to_u32()
             .or_else(|| v.to_i32().map(|i| i as u32))
             .unwrap_or_else(|| {
-                let mut out = 0u32;
-                for digit in v.iter_u32_digits() {
-                    out = out.wrapping_shl(32) | digit;
-                }
+                let out = v.iter_u32_digits().next().unwrap_or(0);
                 match v.sign() {
-                    Sign::Minus => out * -1i32 as u32,
+                    Sign::Minus => out.wrapping_neg(),
                     _ => out,
                 }
             })
