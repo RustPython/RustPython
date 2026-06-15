@@ -55,10 +55,10 @@ mod ffi {
     }
 }
 
-#[cfg(any(unix, windows))]
 /// # Safety
 ///
 /// The caller must ensure `signalnum` is a valid platform signal number.
+#[cfg(any(unix, windows))]
 pub unsafe fn probe_handler(signalnum: i32) -> Option<sighandler_t> {
     let handler = unsafe { libc::signal(signalnum, libc::SIG_IGN) };
     if handler == libc::SIG_ERR as sighandler_t {
@@ -69,11 +69,11 @@ pub unsafe fn probe_handler(signalnum: i32) -> Option<sighandler_t> {
     }
 }
 
-#[cfg(any(unix, windows))]
 /// # Safety
 ///
 /// The caller must ensure `signalnum` is a valid platform signal number and
 /// `handler` is accepted by the platform signal ABI.
+#[cfg(any(unix, windows))]
 pub unsafe fn install_handler(signalnum: i32, handler: sighandler_t) -> io::Result<sighandler_t> {
     let old = unsafe { libc::signal(signalnum, handler) };
     if old == libc::SIG_ERR as sighandler_t {
@@ -158,7 +158,7 @@ pub fn pthread_sigmask(how: i32, set: &libc::sigset_t) -> io::Result<libc::sigse
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "android", target_os = "linux"))]
 pub fn pidfd_send_signal(pidfd: i32, sig: i32, flags: u32) -> io::Result<()> {
     let ret = unsafe {
         libc::syscall(
@@ -198,11 +198,6 @@ pub const CTRL_C_EVENT: u32 = 0;
 pub const CTRL_BREAK_EVENT: u32 = 1;
 #[cfg(windows)]
 pub const INVALID_SOCKET: libc::SOCKET = windows_sys::Win32::Networking::WinSock::INVALID_SOCKET;
-
-#[cfg(windows)]
-pub fn is_valid_signal(signalnum: i32) -> bool {
-    VALID_SIGNALS.contains(&signalnum)
-}
 
 #[cfg(windows)]
 fn init_winsock() {
