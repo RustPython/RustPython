@@ -1709,20 +1709,30 @@ pub(super) mod _os {
 
     #[cfg(target_os = "linux")]
     #[pyfunction]
-    fn copy_file_range(mut args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
+    fn copy_file_range(args: CopyFileRangeArgs<'_>, vm: &VirtualMachine) -> PyResult<usize> {
         let count: usize = args
             .count
             .try_into()
             .map_err(|_| vm.new_value_error("count should >= 0"))?;
+        let mut offset_src = args
+            .offset_src
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(|_| vm.new_value_error("offset_src should be >= 0"))?;
+        let mut offset_dst = args
+            .offset_dst
+            .map(TryInto::try_into)
+            .transpose()
+            .map_err(|_| vm.new_value_error("offset_dst should be >= 0"))?;
 
         crate::host_env::os::copy_file_range(
             args.src,
-            args.offset_src.as_mut(),
+            offset_src.as_mut(),
             args.dst,
-            args.offset_dst.as_mut(),
+            offset_dst.as_mut(),
             count,
         )
-        .map_err(|_| vm.new_last_errno_error())
+        .map_err(|e| vm.new_errno_error(e.raw_os_error(), e.to_string()).upcast())
     }
 
     #[pyfunction]
