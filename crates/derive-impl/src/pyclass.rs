@@ -1993,9 +1993,16 @@ where
             } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
                 break;
             }
+        } else if attr
+            .path()
+            .segments
+            .last()
+            .is_some_and(|s| ALL_ALLOWED_NAMES.contains(&s.ident.to_string().as_str()))
+        {
+            // Multi-segment path whose last segment is a py* name (e.g. `vm::pymethod`).
+            // Stop here so the for-loop below can emit a diagnostic with the correct span.
+            break;
         }
-        // Always advance; multi-segment paths (e.g. vm::pymethod) return None
-        // from get_ident() and must be skipped rather than looping forever.
         iter.next();
     }
 
@@ -2004,6 +2011,28 @@ where
         let attr_name = if let Some(ident) = attr.get_ident() {
             ident.to_string()
         } else {
+            // Multi-segment path: if the last segment is a known py* name, the user
+            // likely wrote `#[vm::pymethod]` instead of `#[pymethod]`.  Proc-macros
+            // cannot resolve namespace aliases, so the qualified form is never supported.
+            if let Some(last_seg) = attr.path().segments.last() {
+                let last_name = last_seg.ident.to_string();
+                if ALL_ALLOWED_NAMES.contains(&last_name.as_str()) {
+                    let full_path = attr
+                        .path()
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    bail_span!(
+                        attr,
+                        "found `#[{}]`, use `#[{}]` instead; \
+                         proc-macros cannot resolve namespace aliases",
+                        full_path,
+                        last_name
+                    );
+                }
+            }
             continue;
         };
         if attr_name == "cfg" {
