@@ -1,15 +1,16 @@
+use core::ops::Range;
+
+use icu_properties::props::{
+    BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
+};
+use num_traits::{cast::ToPrimitive, sign::Signed};
+
 use crate::{
     Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
     function::OptionalOption,
 };
-use icu_properties::props::{
-    BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
-};
-use num_traits::{cast::ToPrimitive, sign::Signed};
-
-use core::ops::Range;
 
 #[derive(FromArgs)]
 pub struct SplitArgs<T: TryFromObject> {
@@ -410,36 +411,20 @@ pub(crate) trait AnyStr {
 
     // _Py_bytes_islower
     fn py_islower(&self) -> bool {
-        let mut lower = false;
-        for byte in self
-            .as_bytes()
+        self.as_bytes()
             .iter()
             .copied()
             .filter(u8::is_ascii_alphabetic)
-        {
-            if byte.is_ascii_uppercase() {
-                return false;
-            }
-            lower = true;
-        }
-        lower
+            .all(|byte| byte.is_ascii_lowercase())
     }
 
     // Py_bytes_isupper
     fn py_isupper(&self) -> bool {
-        let mut upper = false;
-        for byte in self
-            .as_bytes()
+        self.as_bytes()
             .iter()
             .copied()
             .filter(u8::is_ascii_alphabetic)
-        {
-            if byte.is_ascii_lowercase() {
-                return false;
-            }
-            upper = true;
-        }
-        upper
+            .all(|byte| byte.is_ascii_uppercase())
     }
 
     // Unified form of CPython functions:
@@ -484,18 +469,17 @@ where
     F: Fn(T) -> PyResult<bool>,
     M: Fn(&PyObject) -> String,
 {
-    match obj.try_to_value::<T>(vm) {
-        Ok(single) => (predicate)(single),
-        Err(_) => {
-            let tuple: &Py<PyTuple> = obj
-                .try_to_value(vm)
-                .map_err(|_| vm.new_type_error((message)(obj)))?;
-            for obj in tuple {
-                if single_or_tuple_any(obj, predicate, message, vm)? {
-                    return Ok(true);
-                }
+    if let Ok(single) = obj.try_to_value::<T>(vm) {
+        (predicate)(single)
+    } else {
+        let tuple: &Py<PyTuple> = obj
+            .try_to_value(vm)
+            .map_err(|_| vm.new_type_error((message)(obj)))?;
+        for obj in tuple {
+            if single_or_tuple_any(obj, predicate, message, vm)? {
+                return Ok(true);
             }
-            Ok(false)
         }
+        Ok(false)
     }
 }
