@@ -230,7 +230,6 @@ impl PyObject {
         dict: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.as_wtf8();
         let obj_cls = self.class();
         let cls_attr_name = vm.ctx.interned_str(name_str);
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
@@ -251,7 +250,9 @@ impl PyObject {
         let dict = dict.or_else(|| self.dict());
 
         let attr = if let Some(dict) = dict {
-            dict.get_item_opt(name, vm)?
+            // Look up by the `PyStr` object (cached hash + pointer-equality fast
+            // path) rather than its `&Wtf8` content, which re-hashes every call.
+            dict.get_item_opt(name_str, vm)?
         } else {
             None
         };
