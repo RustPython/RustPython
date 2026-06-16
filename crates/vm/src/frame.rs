@@ -26,7 +26,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Either, FuncArgs, PyMethodFlags},
+    function::{ArgMapping, Either, FuncArgs, KwArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn, PyMapping},
@@ -42,7 +42,6 @@ use core::cell::UnsafeCell;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::{Acquire, Relaxed};
-use indexmap::IndexMap;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::Zero;
@@ -6460,7 +6459,7 @@ impl ExecutingFrame<'_> {
     fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {
         FuncArgs {
             args: self.pop_multiple(nargs as usize).collect(),
-            kwargs: IndexMap::new(),
+            ..Default::default()
         }
     }
 
@@ -6483,9 +6482,8 @@ impl ExecutingFrame<'_> {
 
     fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
         let kwargs_or_null = self.pop_value_opt();
-        let kwargs = if let Some(kw_obj) = kwargs_or_null {
-            let mut kwargs = IndexMap::new();
-
+        let mut kwargs = KwArgs::default();
+        if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
             let func_str = Self::object_function_str(callable, vm);
@@ -6497,11 +6495,9 @@ impl ExecutingFrame<'_> {
                 let value = kw_obj.get_item(&*key, vm)?;
                 kwargs.insert(key_str.as_str().to_owned(), value);
                 Ok(())
-            })?;
-            kwargs
-        } else {
-            IndexMap::new()
+            })?
         };
+
         let args_obj = self.pop_value();
         let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
             tuple.as_slice().to_vec()
