@@ -818,4 +818,5 @@ pub(crate) fn init(ctx: &'static Context) {
     PyAsyncGenASend::extend_class(ctx, ctx.types.async_generator_asend);
     PyAsyncGenAThrow::extend_class(ctx, ctx.types.async_generator_athrow);
     PyAnextAwaitable::extend_class(ctx, ctx.types.anext_awaitable);
+    PyAsyncGenWrappedValue::extend_class(ctx, ctx.types.async_generator_wrapped_value);
 }
