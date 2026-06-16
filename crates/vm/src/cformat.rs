@@ -360,9 +360,9 @@ pub(crate) fn cformat_bytes(
 
     if num_specifiers == 0 {
         if !is_mapping
-            || !values_obj
+            && values_obj
                 .downcast_ref::<tuple::PyTuple>()
-                .is_some_and(|e| e.is_empty())
+                .is_none_or(|e| !e.is_empty())
         {
             return Err(vm.new_type_error("not all arguments converted during bytes formatting"));
         }
@@ -457,9 +457,9 @@ pub(crate) fn cformat_string(
 
     if num_specifiers == 0 {
         if !is_mapping
-            || !values_obj
+            && values_obj
                 .downcast_ref::<tuple::PyTuple>()
-                .is_some_and(|e| e.is_empty())
+                .is_none_or(|e| !e.is_empty())
         {
             return Err(vm.new_type_error("not all arguments converted during string formatting"));
         }
