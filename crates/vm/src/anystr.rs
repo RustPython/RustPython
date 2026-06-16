@@ -411,20 +411,38 @@ pub(crate) trait AnyStr {
 
     // _Py_bytes_islower
     fn py_islower(&self) -> bool {
-        self.as_bytes()
+        let mut lower = false;
+        for byte in self
+            .as_bytes()
             .iter()
             .copied()
             .filter(u8::is_ascii_alphabetic)
-            .all(|byte| byte.is_ascii_lowercase())
+        {
+            if byte.is_ascii_uppercase() {
+                return false;
+            }
+            lower = true;
+        }
+
+        lower
     }
 
     // Py_bytes_isupper
     fn py_isupper(&self) -> bool {
-        self.as_bytes()
+        let mut upper = false;
+        for byte in self
+            .as_bytes()
             .iter()
             .copied()
             .filter(u8::is_ascii_alphabetic)
-            .all(|byte| byte.is_ascii_uppercase())
+        {
+            if byte.is_ascii_lowercase() {
+                return false;
+            }
+            upper = true;
+        }
+
+        upper
     }
 
     // Unified form of CPython functions:
@@ -446,10 +464,12 @@ pub(crate) trait AnyStr {
             {
                 return false;
             }
+
             if !all_cased && VALID::for_char(c) {
                 all_cased = true;
             }
         }
+
         all_cased
     }
 }
@@ -475,11 +495,13 @@ where
         let tuple: &Py<PyTuple> = obj
             .try_to_value(vm)
             .map_err(|_| vm.new_type_error((message)(obj)))?;
+
         for obj in tuple {
             if single_or_tuple_any(obj, predicate, message, vm)? {
                 return Ok(true);
             }
         }
+
         Ok(false)
     }
 }
