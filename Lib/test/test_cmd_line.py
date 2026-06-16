@@ -1110,7 +1110,6 @@ class CmdLineTest(unittest.TestCase):
         )
         self.assertEqual(res2int(res), (6000, 6000))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cmd_dedent(self):
         # test that -c auto-dedents its arguments
         test_cases = [
