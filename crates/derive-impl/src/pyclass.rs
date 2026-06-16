@@ -2073,3 +2073,27 @@ fn parse_vec_ident(
         })?
         .to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test: path-qualified inner attrs like `#[vm::pymethod]` must return an error.
+    // Before the fix, `attrs_to_content_items` looped forever on such attributes.
+    #[test]
+    fn path_qualified_py_attr_returns_error() {
+        let attr: syn::Attribute = syn::parse_quote!(#[vm::pymethod]);
+        let result =
+            attrs_to_content_items(&[attr], |i, name| (i, name));
+        let err = result.expect_err("expected error for path-qualified #[vm::pymethod]");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("vm::pymethod"),
+            "error should mention the full path; got: {msg}"
+        );
+        assert!(
+            msg.contains("pymethod"),
+            "error should mention the unqualified name; got: {msg}"
+        );
+    }
+}
