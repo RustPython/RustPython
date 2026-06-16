@@ -1949,24 +1949,25 @@ fn impl_item_new<Item>(
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
-    use AttrName::*;
     match attr_name {
-        attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
+        attr_name @ (AttrName::Method | AttrName::ClassMethod | AttrName::StaticMethod) => {
+            Box::new(MethodItem {
+                inner: ContentItemInner { index, attr_name },
+            })
+        }
+        AttrName::GetSet => Box::new(GetSetItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        GetSet => Box::new(GetSetItem {
+        AttrName::Slot => Box::new(SlotItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        Slot => Box::new(SlotItem {
+        AttrName::Attr => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        Attr => Box::new(AttributeItem {
+        AttrName::ExtendClass => Box::new(ExtendClassItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        ExtendClass => Box::new(ExtendClassItem {
-            inner: ContentItemInner { index, attr_name },
-        }),
-        Member => Box::new(MemberItem {
+        AttrName::Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
     }

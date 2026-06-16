@@ -162,7 +162,7 @@ mod unicodedata {
 
     use super::{
         BIDI_CLASS, BIDI_MIRRORED, COMBINING_CLASS, DECOMP_COMPAT, DECOMP_RANGE, DECOMP_UPDATES,
-        EAST_ASIAN_WIDTH, GENERAL_CATEGORY, NUMERIC_TYPE_DIFF, NormalizeForm::*, UNICODE_VERSION,
+        EAST_ASIAN_WIDTH, GENERAL_CATEGORY, NUMERIC_TYPE_DIFF, NormalizeForm, UNICODE_VERSION,
         UnicodeVersion, lookup_numeric_val, lookup_property,
     };
     use crate::vm::{
@@ -337,22 +337,22 @@ mod unicodedata {
         fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> Wtf8Buf {
             let text = unistr.as_wtf8();
             match form {
-                Nfc => {
+                NormalizeForm::Nfc => {
                     let normalizer = ComposingNormalizerBorrowed::new_nfc();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-                Nfkc => {
+                NormalizeForm::Nfkc => {
                     let normalizer = ComposingNormalizerBorrowed::new_nfkc();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-                Nfd => {
+                NormalizeForm::Nfd => {
                     let normalizer = DecomposingNormalizerBorrowed::new_nfd();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-                Nfkd => {
+                NormalizeForm::Nfkd => {
                     let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
@@ -364,22 +364,22 @@ mod unicodedata {
         fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> bool {
             let text = unistr.as_wtf8();
             let normalized: Wtf8Buf = match form {
-                Nfc => {
+                NormalizeForm::Nfc => {
                     let normalizer = ComposingNormalizerBorrowed::new_nfc();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-                Nfkc => {
+                NormalizeForm::Nfkc => {
                     let normalizer = ComposingNormalizerBorrowed::new_nfkc();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-                Nfd => {
+                NormalizeForm::Nfd => {
                     let normalizer = DecomposingNormalizerBorrowed::new_nfd();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()
                 }
-                Nfkd => {
+                NormalizeForm::Nfkd => {
                     let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
                     text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
                         .collect()

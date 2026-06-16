@@ -123,14 +123,13 @@ enum FrozenError {
 
 impl FrozenError {
     fn to_pyexception(&self, mod_name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        use FrozenError::*;
         let msg = match self {
-            BadName | NotFound => format!("No such frozen object named {mod_name}"),
-            Disabled => format!(
+            Self::BadName | Self::NotFound => format!("No such frozen object named {mod_name}"),
+            Self::Disabled => format!(
                 "Frozen modules are disabled and the frozen object named {mod_name} is not essential"
             ),
-            Excluded => format!("Excluded frozen object named {mod_name}"),
-            Invalid => format!("Frozen object named {mod_name} is invalid"),
+            Self::Excluded => format!("Excluded frozen object named {mod_name}"),
+            Self::Invalid => format!("Frozen object named {mod_name} is invalid"),
         };
         vm.new_import_error(msg, vm.ctx.new_utf8_str(mod_name))
     }
@@ -172,6 +171,8 @@ mod _imp {
         function::OptionalArg,
         import, version,
     };
+
+    use super::FrozenError;
 
     #[pyattr]
     fn check_hash_based_pycs(vm: &VirtualMachine) -> PyStrRef {
@@ -312,8 +313,6 @@ mod _imp {
         withdata: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
-        use super::FrozenError::*;
-
         if withdata.into_option().is_some() {
             // this is keyword-only argument in CPython
             unimplemented!();
@@ -322,7 +321,9 @@ mod _imp {
         let name_str = name.as_str();
         let info = match super::find_frozen(name_str, vm) {
             Ok(info) => info,
-            Err(NotFound | Disabled | BadName) => return Ok(None),
+            Err(FrozenError::NotFound | FrozenError::Disabled | FrozenError::BadName) => {
+                return Ok(None);
+            }
             Err(e) => return Err(e.to_pyexception(name_str, vm)),
         };
 

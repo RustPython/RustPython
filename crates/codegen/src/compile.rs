@@ -7005,23 +7005,42 @@ impl Compiler {
 
     /// [CPython `compiler_addcompare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L2880-L2924)
     fn compile_addcompare(&mut self, op: &ast::CmpOp) {
-        use bytecode::ComparisonOperator::*;
         match op {
-            ast::CmpOp::Eq => emit!(self, Instruction::CompareOp { opname: Equal }),
-            ast::CmpOp::NotEq => emit!(self, Instruction::CompareOp { opname: NotEqual }),
-            ast::CmpOp::Lt => emit!(self, Instruction::CompareOp { opname: Less }),
+            ast::CmpOp::Eq => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::Equal
+                }
+            ),
+            ast::CmpOp::NotEq => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::NotEqual
+                }
+            ),
+            ast::CmpOp::Lt => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::Less
+                }
+            ),
             ast::CmpOp::LtE => emit!(
                 self,
                 Instruction::CompareOp {
-                    opname: LessOrEqual
+                    opname: ComparisonOperator::LessOrEqual
                 }
             ),
-            ast::CmpOp::Gt => emit!(self, Instruction::CompareOp { opname: Greater }),
+            ast::CmpOp::Gt => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::Greater
+                }
+            ),
             ast::CmpOp::GtE => {
                 emit!(
                     self,
                     Instruction::CompareOp {
-                        opname: GreaterOrEqual
+                        opname: ComparisonOperator::GreaterOrEqual
                     }
                 )
             }
