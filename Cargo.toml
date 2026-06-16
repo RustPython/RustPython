@@ -382,6 +382,7 @@ use_self = "warn"
 useless_let_if_seq = "warn"
 
 # pedantic lints to enforce gradually
+bool_to_int_with_if = "warn"
 checked_conversions = "warn"
 cloned_instead_of_copied = "warn"
 collapsible_else_if = "warn"
