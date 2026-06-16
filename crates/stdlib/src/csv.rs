@@ -660,7 +660,10 @@ mod _csv {
                         |_| { vm.new_type_error(r#""quotechar" must be a 1-character string"#) }
                     )?)),
                     PyNone => {
-                        if res.quoting.is_some_and(|quoting|  quoting != QuoteStyle::None) {
+                        if res
+                            .quoting
+                            .is_some_and(|quoting| quoting != QuoteStyle::None)
+                        {
                             return Err(ArgumentError::Exception(
                                 vm.new_type_error("quotechar must be set if quoting enabled"),
                             ));
