@@ -806,8 +806,8 @@ impl PyType {
         // Note: inherit_slots is called in PyClassImpl::init_class after
         // slots are fully initialized by make_slots()
 
-        Self::set_new(&new_type.slots, &new_type.base);
-        Self::set_alloc(&new_type.slots, &new_type.base);
+        Self::set_new(&new_type.slots, new_type.base.as_ref());
+        Self::set_alloc(&new_type.slots, new_type.base.as_ref());
 
         let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().iter() {
@@ -853,25 +853,23 @@ impl PyType {
             self.update_slot::<true>(attr_name, ctx);
         }
 
-        Self::set_new(&self.slots, &self.base);
-        Self::set_alloc(&self.slots, &self.base);
+        Self::set_new(&self.slots, self.base.as_ref());
+        Self::set_alloc(&self.slots, self.base.as_ref());
     }
 
-    fn set_new(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+    fn set_new(slots: &PyTypeSlots, base: Option<&PyTypeRef>) {
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {
-            slots
-                .new
-                .store(base.as_ref().and_then(|base| base.slots.new.load()))
+            slots.new.store(base.and_then(|base| base.slots.new.load()))
         }
     }
 
-    fn set_alloc(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+    fn set_alloc(slots: &PyTypeSlots, base: Option<&PyTypeRef>) {
         if slots.alloc.load().is_none() {
             slots
                 .alloc
-                .store(base.as_ref().and_then(|base| base.slots.alloc.load()));
+                .store(base.and_then(|base| base.slots.alloc.load()));
         }
     }
 
