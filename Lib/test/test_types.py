@@ -660,7 +660,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(int.from_bytes, types.BuiltinMethodType)
         self.assertIsInstance(int.__new__, types.BuiltinMethodType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: type object '_io._TextIOBase' has no attribute 'read'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: descriptor 'read' needs a type, not 'StringIO', as arg 2
     def test_method_descriptor_crash(self):
         # gh-132747: The default __get__() implementation in C was unable
         # to handle a second argument of None when called from Python
