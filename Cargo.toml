@@ -363,6 +363,7 @@ std_instead_of_core = "warn"
 tests_outside_test_module = "warn"
 
 # nursery lints to enforce gradually
+collection_is_never_read = "warn"
 debug_assert_with_mut_call = "warn"
 derive_partial_eq_without_eq = "warn"
 imprecise_flops = "warn"
