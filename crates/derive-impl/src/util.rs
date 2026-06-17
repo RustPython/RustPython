@@ -2,7 +2,7 @@ use itertools::Itertools;
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, quote};
 use std::collections::{HashMap, HashSet};
-use syn::{Attribute, Ident, Result, Signature, UseTree, spanned::Spanned};
+use syn::{Attribute, FnArg, Ident, Result, Signature, UseTree, spanned::Spanned};
 use syn_ext::{
     ext::{AttributeExt as SynAttributeExt, *},
     types::*,
@@ -609,11 +609,10 @@ impl AttributeExt for Attribute {
 }
 
 pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
-    use syn::Item::*;
     Ok(match item {
-        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
-        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
-        Use(item_use) => (
+        syn::Item::Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Use(item_use) => (
             iter_use_idents(item_use, |ident, _is_unique| Ok(ident))?
                 .into_iter()
                 .exactly_one()
@@ -635,10 +634,9 @@ pub(crate) fn pyclass_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Att
 }
 
 pub(crate) fn pyexception_ident_and_attrs(item: &syn::Item) -> Result<(&Ident, &[Attribute])> {
-    use syn::Item::*;
     Ok(match item {
-        Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
-        Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Struct(syn::ItemStruct { ident, attrs, .. }) => (ident, attrs),
+        syn::Item::Enum(syn::ItemEnum { ident, attrs, .. }) => (ident, attrs),
         other => {
             bail_span!(other, "#[pyexception] can only be on a struct or enum",)
         }
@@ -741,7 +739,7 @@ pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) 
     // METH_* calling convention flags used by CALL specialization.
     let mut typed_args = Vec::new();
     for arg in &sig.inputs {
-        let syn::FnArg::Typed(typed) = arg else {
+        let FnArg::Typed(typed) = arg else {
             continue;
         };
         let ty_tokens = &typed.ty;
@@ -811,10 +809,9 @@ fn func_sig(sig: &Signature) -> String {
     sig.inputs
         .iter()
         .filter_map(|arg| {
-            use syn::FnArg::*;
             let arg = match arg {
-                Typed(typed) => typed,
-                Receiver(_) => return Some("$self".to_owned()),
+                FnArg::Typed(typed) => typed,
+                FnArg::Receiver(_) => return Some("$self".to_owned()),
             };
             let ty = arg.ty.as_ref();
             let ty = quote!(#ty).to_string();

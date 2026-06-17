@@ -2568,16 +2568,15 @@ impl SymbolTableBuilder {
     }
 
     fn scan_pattern(&mut self, pattern: &ast::Pattern) -> SymbolTableResult {
-        use ast::Pattern::*;
         match pattern {
-            MatchValue(ast::PatternMatchValue { value, .. }) => {
+            ast::Pattern::MatchValue(ast::PatternMatchValue { value, .. }) => {
                 self.scan_expression(value, ExpressionContext::Load)?
             }
-            MatchSingleton(_) => {}
-            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
+            ast::Pattern::MatchSingleton(_) => {}
+            ast::Pattern::MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
                 self.scan_patterns(patterns)?
             }
-            MatchMapping(ast::PatternMatchMapping {
+            ast::Pattern::MatchMapping(ast::PatternMatchMapping {
                 keys,
                 patterns,
                 rest,
@@ -2589,19 +2588,19 @@ impl SymbolTableBuilder {
                     self.register_ident(rest, SymbolUsage::Assigned)?;
                 }
             }
-            MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
+            ast::Pattern::MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
                 self.scan_expression(cls, ExpressionContext::Load)?;
                 self.scan_patterns(&arguments.patterns)?;
                 for kw in &arguments.keywords {
                     self.scan_pattern(&kw.pattern)?;
                 }
             }
-            MatchStar(ast::PatternMatchStar { name, .. }) => {
+            ast::Pattern::MatchStar(ast::PatternMatchStar { name, .. }) => {
                 if let Some(name) = name {
                     self.register_ident(name, SymbolUsage::Assigned)?;
                 }
             }
-            MatchAs(ast::PatternMatchAs { pattern, name, .. }) => {
+            ast::Pattern::MatchAs(ast::PatternMatchAs { pattern, name, .. }) => {
                 if let Some(pattern) = pattern {
                     self.scan_pattern(pattern)?;
                 }
@@ -2609,7 +2608,9 @@ impl SymbolTableBuilder {
                     self.register_ident(name, SymbolUsage::Assigned)?;
                 }
             }
-            MatchOr(ast::PatternMatchOr { patterns, .. }) => self.scan_patterns(patterns)?,
+            ast::Pattern::MatchOr(ast::PatternMatchOr { patterns, .. }) => {
+                self.scan_patterns(patterns)?
+            }
         }
         Ok(())
     }
