@@ -1,7 +1,6 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-#[cfg(any(unix, windows, target_os = "wasi"))]
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
@@ -10,6 +9,8 @@ use core::ffi::CStr;
 use core::str::Utf8Error;
 #[cfg(windows)]
 use core::time::Duration;
+#[cfg(unix)]
+use rustix::fd::AsFd;
 use std::{
     env,
     ffi::{OsStr, OsString},
@@ -266,11 +267,39 @@ pub fn copy_file_range(
     rustix::fs::copy_file_range(src, offset_src, dst, offset_dst, count)
 }
 
+#[cfg(not(unix))]
 pub fn rename(
     from: impl AsRef<std::path::Path>,
+    from_fd: Option<crt_fd::Borrowed<'_>>,
     to: impl AsRef<std::path::Path>,
+    to_fd: Option<crt_fd::Borrowed<'_>>,
 ) -> io::Result<()> {
-    std::fs::rename(from, to)
+    if from_fd.is_none() && to_fd.is_none() {
+        // TODO: Rust's implementation always overwrites the file so ensure consistency between
+        // operating systems. We need to use windows-sys directly to distinguish between
+        // os.rename and os.replace.
+        std::fs::rename(from, to)
+    } else {
+        core::hint::cold_path();
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "renameat is not available on this platform",
+        ))
+    }
+}
+
+#[cfg(unix)]
+pub fn rename(
+    from: impl AsRef<std::path::Path>,
+    from_fd: Option<crt_fd::Borrowed<'_>>,
+    to: impl AsRef<std::path::Path>,
+    to_fd: Option<crt_fd::Borrowed<'_>>,
+) -> io::Result<()> {
+    let from = from.as_ref();
+    let from_fd = from_fd.as_ref().map_or(rustix::fs::CWD, AsFd::as_fd);
+    let to = to.as_ref();
+    let to_fd = to_fd.as_ref().map_or(rustix::fs::CWD, AsFd::as_fd);
+    rustix::fs::renameat(from_fd, from, to_fd, to).map_err(Into::into)
 }
 
 #[cfg(windows)]

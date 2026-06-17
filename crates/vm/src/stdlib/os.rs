@@ -189,6 +189,7 @@ pub(super) mod _os {
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const UNLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    const RENAME_DIR_FD: bool = cfg!(unix);
     const RMDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const SCANDIR_FD: bool = cfg!(all(unix, not(target_os = "redox")));
 
@@ -1377,19 +1378,37 @@ pub(super) mod _os {
         FsPath::try_from_path_like(path, false, vm)
     }
 
+    #[derive(FromArgs)]
+    struct RenameArgs<'fd> {
+        #[pyarg(positional)]
+        src: PyObjectRef,
+        #[pyarg(positional)]
+        dst: PyObjectRef,
+        #[pyarg(any, default)]
+        src_dir_fd: OptionalArg<crt_fd::Borrowed<'fd>>,
+        #[pyarg(any, default)]
+        dst_dir_fd: OptionalArg<crt_fd::Borrowed<'fd>>,
+    }
+
     #[pyfunction]
     #[pyfunction(name = "replace")]
-    fn rename(src: PyObjectRef, dst: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn rename(args: RenameArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
         let src = PathConverter::new()
             .function("rename")
             .argument("src")
-            .try_path(src, vm)?;
+            .try_path(args.src, vm)?;
         let dst = PathConverter::new()
             .function("rename")
             .argument("dst")
-            .try_path(dst, vm)?;
+            .try_path(args.dst, vm)?;
 
-        crate::host_env::os::rename(&src.path, &dst.path).map_err(|err| {
+        crate::host_env::os::rename(
+            &src,
+            args.src_dir_fd.into_option(),
+            &dst,
+            args.dst_dir_fd.into_option(),
+        )
+        .map_err(|err| {
             let builder = err.to_os_error_builder(vm);
             let builder = builder.filename(src.filename(vm));
             let builder = builder.filename2(dst.filename(vm));
@@ -1932,8 +1951,8 @@ pub(super) mod _os {
             SupportFunc::new("readlink", Some(false), None, Some(false)),
             SupportFunc::new("remove", Some(false), Some(UNLINK_DIR_FD), Some(false)),
             SupportFunc::new("unlink", Some(false), Some(UNLINK_DIR_FD), Some(false)),
-            SupportFunc::new("rename", Some(false), None, Some(false)),
-            SupportFunc::new("replace", Some(false), None, Some(false)), // TODO: Fix replace
+            SupportFunc::new("rename", Some(false), Some(RENAME_DIR_FD), Some(false)),
+            SupportFunc::new("replace", Some(false), Some(RENAME_DIR_FD), Some(false)), // TODO: Fix replace
             SupportFunc::new("rmdir", Some(false), Some(RMDIR_DIR_FD), Some(false)),
             SupportFunc::new("scandir", Some(SCANDIR_FD), Some(false), Some(false)),
             SupportFunc::new("stat", Some(true), Some(STAT_DIR_FD), Some(true)),
