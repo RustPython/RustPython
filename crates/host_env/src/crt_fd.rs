@@ -112,7 +112,7 @@ mod win {
         }
 
         #[inline]
-        pub(super) fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(self) -> Raw {
             self.fd
         }
     }
