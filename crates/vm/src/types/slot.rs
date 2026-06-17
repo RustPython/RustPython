@@ -663,7 +663,7 @@ impl PyType {
         // NOTE: Collect into Vec first to avoid issues during iteration
         let defs: Vec<_> = find_slot_defs_by_name(name.as_str()).collect();
         for def in defs {
-            self.update_one_slot::<ADD>(&def.accessor, name, ctx);
+            self.update_one_slot::<ADD>(def.accessor, name, ctx);
         }
 
         // Recursively update subclasses that don't have their own definition
@@ -689,7 +689,7 @@ impl PyType {
 
             // Update subclass's slots
             for def in find_slot_defs_by_name(name.as_str()) {
-                subclass.update_one_slot::<ADD>(&def.accessor, name, ctx);
+                subclass.update_one_slot::<ADD>(def.accessor, name, ctx);
             }
 
             // Recurse into subclass's subclasses
@@ -700,7 +700,7 @@ impl PyType {
     /// Update a single slot
     fn update_one_slot<const ADD: bool>(
         &self,
-        accessor: &SlotAccessor,
+        accessor: SlotAccessor,
         name: &'static PyStrInterned,
         ctx: &Context,
     ) {

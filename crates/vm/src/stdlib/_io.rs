@@ -2310,7 +2310,7 @@ mod _io {
     impl Newlines {
         /// returns position where the new line starts if found, otherwise position at which to
         /// continue the search after more is read into the buffer
-        fn find_newline(&self, s: &Wtf8) -> Result<usize, usize> {
+        fn find_newline(self, s: &Wtf8) -> Result<usize, usize> {
             let len = s.len();
             match self {
                 Self::Universal | Self::Lf => s.find("\n".as_ref()).map(|p| p + 1).ok_or(len),

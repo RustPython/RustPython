@@ -720,11 +720,12 @@ fn fold_expr(expr: &mut ast::Expr) {
         let Expr::NumberLiteral(left) = binop.left.as_ref() else {
             return;
         };
+
         let Expr::NumberLiteral(right) = binop.right.as_ref() else {
             return;
         };
 
-        if let Some(number) = fold_number_binop(&left.value, &binop.op, &right.value) {
+        if let Some(number) = fold_number_binop(&left.value, binop.op, &right.value) {
             *expr = Expr::NumberLiteral(ast::ExprNumberLiteral {
                 node_index: binop.node_index.clone(),
                 range: binop.range,
@@ -737,7 +738,7 @@ fn fold_expr(expr: &mut ast::Expr) {
 #[cfg(feature = "parser")]
 fn fold_number_binop(
     left: &ast::Number,
-    op: &ast::Operator,
+    op: ast::Operator,
     right: &ast::Number,
 ) -> Option<ast::Number> {
     let (left_real, left_imag, left_is_complex) = number_to_complex(left)?;

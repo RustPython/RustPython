@@ -151,7 +151,7 @@ pub(crate) enum TraceEvent {
 impl TraceEvent {
     /// Whether sys.settrace receives this event.
     #[must_use]
-    const fn is_trace_event(&self) -> bool {
+    const fn is_trace_event(self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::Exception | Self::Line | Self::Opcode
@@ -162,7 +162,7 @@ impl TraceEvent {
     /// In legacy_tracing.c, profile callbacks are only registered for
     /// PY_RETURN, PY_UNWIND, C_CALL, C_RETURN, C_RAISE.
     #[must_use]
-    const fn is_profile_event(&self) -> bool {
+    const fn is_profile_event(self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::CCall | Self::CReturn | Self::CException
@@ -171,7 +171,7 @@ impl TraceEvent {
 
     /// Whether this event is dispatched only when f_trace_opcodes is set.
     #[must_use]
-    pub(crate) const fn is_opcode_event(&self) -> bool {
+    pub(crate) const fn is_opcode_event(self) -> bool {
         matches!(self, Self::Opcode)
     }
 }
