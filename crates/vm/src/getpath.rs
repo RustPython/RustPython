@@ -132,15 +132,15 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     };
 
     // Step 2: Check for venv (pyvenv.cfg) and get 'home'
-    let (venv_prefix, home_dir) = detect_venv(&exe_dir);
+    let (venv_prefix, home_dir) = detect_venv(exe_dir.as_ref());
     let search_dir = home_dir.clone().or(exe_dir);
 
     // Step 3: Check for build directory
-    let build_prefix = detect_build_directory(&search_dir);
+    let build_prefix = detect_build_directory(search_dir.as_ref());
 
     // Step 4: Calculate prefix via landmark search
     // When in venv, search_dir is home_dir, so this gives us the base Python's prefix
-    let calculated_prefix = calculate_prefix(&search_dir, &build_prefix);
+    let calculated_prefix = calculate_prefix(search_dir.as_ref(), build_prefix.as_ref());
 
     // Step 5: Set prefix and base_prefix
     if venv_prefix.is_some() {
@@ -161,13 +161,13 @@ pub fn init_path_config(settings: &Settings) -> Paths {
         // In venv: exec_prefix = prefix (venv directory)
         paths.prefix.clone()
     } else {
-        calculate_exec_prefix(&search_dir, &paths.prefix)
+        calculate_exec_prefix(search_dir.as_ref(), paths.prefix.as_ref())
     };
     paths.base_exec_prefix = paths.base_prefix.clone();
 
     // Step 7: Calculate base_executable (if not already set by __PYVENV_LAUNCHER__)
     if paths.base_executable.is_empty() {
-        paths.base_executable = calculate_base_executable(executable.as_ref(), &home_dir);
+        paths.base_executable = calculate_base_executable(executable.as_ref(), home_dir.as_ref());
     }
 
     // Step 8: Build module_search_paths
@@ -195,7 +195,7 @@ fn default_prefix() -> String {
 
 /// Detect virtual environment by looking for pyvenv.cfg
 /// Returns (venv_prefix, home_dir from pyvenv.cfg)
-fn detect_venv(exe_dir: &Option<PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) {
+fn detect_venv(exe_dir: Option<&PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) {
     // Try exe_dir/../pyvenv.cfg first (standard venv layout: venv/bin/python)
     if let Some(dir) = exe_dir
         && let Some(venv_dir) = dir.parent()
@@ -222,8 +222,8 @@ fn detect_venv(exe_dir: &Option<PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) 
 }
 
 /// Detect if running from a build directory
-fn detect_build_directory(exe_dir: &Option<PathBuf>) -> Option<PathBuf> {
-    let dir = exe_dir.as_ref()?;
+fn detect_build_directory(exe_dir: Option<&PathBuf>) -> Option<PathBuf> {
+    let dir = exe_dir?;
 
     // Check for pybuilddir.txt (indicates build directory)
     if dir.join(platform::BUILDDIR_TXT).exists() {
@@ -240,7 +240,7 @@ fn detect_build_directory(exe_dir: &Option<PathBuf>) -> Option<PathBuf> {
 }
 
 /// Calculate prefix by searching for landmarks
-fn calculate_prefix(exe_dir: &Option<PathBuf>, build_prefix: &Option<PathBuf>) -> String {
+fn calculate_prefix(exe_dir: Option<&PathBuf>, build_prefix: Option<&PathBuf>) -> String {
     // 1. If build directory detected, use it
     if let Some(bp) = build_prefix {
         return bp.to_string_lossy().into_owned();
@@ -266,7 +266,7 @@ fn calculate_prefix(exe_dir: &Option<PathBuf>, build_prefix: &Option<PathBuf>) -
 }
 
 /// Calculate exec_prefix
-fn calculate_exec_prefix(exe_dir: &Option<PathBuf>, prefix: &str) -> String {
+fn calculate_exec_prefix(exe_dir: Option<&PathBuf>, prefix: &str) -> String {
     #[cfg(windows)]
     {
         // Windows: exec_prefix == prefix
@@ -289,7 +289,7 @@ fn calculate_exec_prefix(exe_dir: &Option<PathBuf>, prefix: &str) -> String {
 }
 
 /// Calculate base_executable
-fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: &Option<PathBuf>) -> String {
+fn calculate_base_executable(executable: Option<&PathBuf>, home_dir: Option<&PathBuf>) -> String {
     // If in venv and we have home, construct base_executable from home
     if let (Some(exe), Some(home)) = (executable, home_dir)
         && let Some(exe_name) = exe.file_name()
