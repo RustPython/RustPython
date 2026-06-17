@@ -202,10 +202,13 @@ impl PyTypeSlots {
 
     #[must_use]
     pub fn heap_default() -> Self {
+        /*
         Self {
-            // init: AtomicCell::new(Some(init_wrapper)),
+            init: AtomicCell::new(Some(init_wrapper)),
             ..Default::default()
         }
+        */
+        Self::default()
     }
 }
 
