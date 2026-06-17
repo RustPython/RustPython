@@ -387,7 +387,7 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn setdefault(
+    pub(crate) fn setdefault(
         &self,
         key: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
@@ -406,7 +406,7 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn update(
+    pub(crate) fn update(
         &self,
         dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
