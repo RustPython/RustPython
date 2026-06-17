@@ -512,14 +512,17 @@ pub(crate) fn parse_func_type(
 fn type_ignores_from_source(vm: &VirtualMachine, source: &str) -> Vec<PyObjectRef> {
     let mut ignores = Vec::new();
     for (idx, line) in source.lines().enumerate() {
-        let Some(pos) = line.find("#") else {
+        let Some(pos) = line.find('#') else {
             continue;
         };
+
         let comment = &line[pos + 1..];
         let comment = comment.trim_start();
+
         let Some(rest) = comment.strip_prefix("type: ignore") else {
             continue;
         };
+
         let tag = rest.trim_start();
         let tag = if tag.is_empty() { "" } else { tag };
         let node = NodeAst

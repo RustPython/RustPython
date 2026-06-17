@@ -1111,11 +1111,7 @@ impl PyCData {
     fn _b_needsfree_(&self) -> i32 {
         // Borrowed (from_address) or has base object → 0 (don't free)
         // Owned and no base → 1 (need to free)
-        if self.is_borrowed() || self.base.read().is_some() {
-            0
-        } else {
-            1
-        }
+        i32::from(!(self.is_borrowed() || self.base.read().is_some()))
     }
 
     // CDataType_methods - shared across all ctypes types
