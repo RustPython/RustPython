@@ -267,10 +267,11 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
 
 /// Get origin path from a module spec, checking has_location first.
 pub(crate) fn get_spec_file_origin(
-    spec: &Option<PyObjectRef>,
+    spec: Option<&PyObjectRef>,
     vm: &VirtualMachine,
 ) -> Option<String> {
-    let spec = spec.as_ref()?;
+    let spec = spec?;
+
     let has_location = spec
         .get_attr("has_location", vm)
         .ok()

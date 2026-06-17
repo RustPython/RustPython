@@ -9,12 +9,12 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue::*,
-        PyComparisonValue,
+        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+
 use core::cell::Cell;
 use core::ptr::NonNull;
 use malachite_bigint::{BigInt, ToBigInt};
@@ -446,9 +446,9 @@ impl Comparable for PyFloat {
                 PyComparisonOp::Gt => float_ops::gt_int(a, b),
             }
         } else {
-            return Ok(NotImplemented);
+            return Ok(PyArithmeticValue::NotImplemented);
         };
-        Ok(Implemented(ret))
+        Ok(PyArithmeticValue::Implemented(ret))
     }
 }
 
