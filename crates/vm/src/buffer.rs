@@ -112,7 +112,6 @@ impl fmt::Debug for FormatType {
 
 impl FormatType {
     fn info(self, e: Endianness) -> &'static FormatInfo {
-        use FormatType::*;
         use mem::{align_of, size_of};
 
         macro_rules! native_info {
@@ -140,71 +139,71 @@ impl FormatType {
         macro_rules! match_nonnative {
             ($zelf:expr, $end:ty) => {{
                 match $zelf {
-                    Pad | Str | Pascal => &FormatInfo {
+                    Self::Pad | Self::Str | Self::Pascal => &FormatInfo {
                         size: size_of::<u8>(),
                         align: 0,
                         pack: None,
                         unpack: None,
                     },
-                    SByte => nonnative_info!(i8, $end),
-                    UByte => nonnative_info!(u8, $end),
-                    Char => &FormatInfo {
+                    Self::SByte => nonnative_info!(i8, $end),
+                    Self::UByte => nonnative_info!(u8, $end),
+                    Self::Char => &FormatInfo {
                         size: size_of::<u8>(),
                         align: 0,
                         pack: Some(pack_char),
                         unpack: Some(unpack_char),
                     },
-                    Short => nonnative_info!(i16, $end),
-                    UShort => nonnative_info!(u16, $end),
-                    Int | Long => nonnative_info!(i32, $end),
-                    UInt | ULong => nonnative_info!(u32, $end),
-                    LongLong => nonnative_info!(i64, $end),
-                    ULongLong => nonnative_info!(u64, $end),
-                    Bool => nonnative_info!(bool, $end),
-                    Half => nonnative_info!(f16, $end),
-                    Float => nonnative_info!(f32, $end),
-                    Double => nonnative_info!(f64, $end),
-                    LongDouble => nonnative_info!(f64, $end), // long double same as double
-                    PyObject => nonnative_info!(usize, $end), // pointer size
-                    _ => unreachable!(),                      // size_t or void*
+                    Self::Short => nonnative_info!(i16, $end),
+                    Self::UShort => nonnative_info!(u16, $end),
+                    Self::Int | Self::Long => nonnative_info!(i32, $end),
+                    Self::UInt | Self::ULong => nonnative_info!(u32, $end),
+                    Self::LongLong => nonnative_info!(i64, $end),
+                    Self::ULongLong => nonnative_info!(u64, $end),
+                    Self::Bool => nonnative_info!(bool, $end),
+                    Self::Half => nonnative_info!(f16, $end),
+                    Self::Float => nonnative_info!(f32, $end),
+                    Self::Double => nonnative_info!(f64, $end),
+                    Self::LongDouble => nonnative_info!(f64, $end), // long double same as double
+                    Self::PyObject => nonnative_info!(usize, $end), // pointer size
+                    _ => unreachable!(),                            // size_t or void*
                 }
             }};
         }
 
         match e {
             Endianness::Native => match self {
-                Pad | Str | Pascal => &FormatInfo {
+                Self::Pad | Self::Str | Self::Pascal => &FormatInfo {
                     size: size_of::<raw::c_char>(),
                     align: 0,
                     pack: None,
                     unpack: None,
                 },
-                SByte => native_info!(raw::c_schar),
-                UByte => native_info!(raw::c_uchar),
-                Char => &FormatInfo {
+                Self::SByte => native_info!(raw::c_schar),
+                Self::UByte => native_info!(raw::c_uchar),
+                Self::Char => &FormatInfo {
                     size: size_of::<raw::c_char>(),
                     align: 0,
                     pack: Some(pack_char),
                     unpack: Some(unpack_char),
                 },
-                WideChar => native_info!(wchar_t),
-                Short => native_info!(raw::c_short),
-                UShort => native_info!(raw::c_ushort),
-                Int => native_info!(raw::c_int),
-                UInt => native_info!(raw::c_uint),
-                Long => native_info!(raw::c_long),
-                ULong => native_info!(raw::c_ulong),
-                SSizeT => native_info!(isize), // ssize_t == isize
-                SizeT => native_info!(usize),  //  size_t == usize
-                LongLong => native_info!(raw::c_longlong),
-                ULongLong => native_info!(raw::c_ulonglong),
-                Bool => native_info!(bool),
-                Half => native_info!(f16),
-                Float => native_info!(raw::c_float),
-                Double => native_info!(raw::c_double),
-                LongDouble => native_info!(raw::c_double), // long double same as double for now
-                VoidP => native_info!(*mut raw::c_void),
-                PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
+                Self::WideChar => native_info!(wchar_t),
+                Self::Short => native_info!(raw::c_short),
+                Self::UShort => native_info!(raw::c_ushort),
+                Self::Int => native_info!(raw::c_int),
+                Self::UInt => native_info!(raw::c_uint),
+                Self::Long => native_info!(raw::c_long),
+                Self::ULong => native_info!(raw::c_ulong),
+                Self::SSizeT => native_info!(isize), // ssize_t == isize
+                Self::SizeT => native_info!(usize),  //  size_t == usize
+                Self::LongLong => native_info!(raw::c_longlong),
+                Self::ULongLong => native_info!(raw::c_ulonglong),
+                Self::Bool => native_info!(bool),
+                Self::Half => native_info!(f16),
+                Self::Float => native_info!(raw::c_float),
+                Self::Double => native_info!(raw::c_double),
+                Self::LongDouble => native_info!(raw::c_double), // long double same as double for now
+                Self::VoidP => native_info!(*mut raw::c_void),
+                Self::PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
             },
             Endianness::Big => match_nonnative!(self, BigEndian),
             Endianness::Little => match_nonnative!(self, LittleEndian),
