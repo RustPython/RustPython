@@ -5,6 +5,7 @@ use crate::{
         builtin_func::{PyNativeFunction, PyNativeMethod},
         descriptor::PyMethodDescriptor,
     },
+    class::PyClassDef,
     function::{IntoPyNativeFn, PyNativeFn},
 };
 
@@ -331,3 +332,10 @@ impl Py<HeapMethodDef> {
 
 #[pyclass]
 impl HeapMethodDef {}
+
+pub(crate) fn init(ctx: &'static Context) {
+    // TODO: Should we extend the class instead of interning only the name?
+    // HeapMethodDef::extend_class(ctx, ctx.types.method_def);
+
+    let _ = ctx.intern_str(HeapMethodDef::NAME);
+}

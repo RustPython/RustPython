@@ -424,12 +424,7 @@ mod builtins {
                         opts.optimize = optimize;
 
                         let code = vm
-                            .compile_with_opts(
-                                source,
-                                mode,
-                                filename.to_string_lossy().into_owned(),
-                                opts,
-                            )
+                            .compile_with_opts(source, mode, &filename.to_string_lossy(), opts)
                             .map_err(|err| {
                                 (err, Some(source), allow_incomplete).to_pyexception(vm)
                             })?;
@@ -632,7 +627,7 @@ mod builtins {
             #[cfg(feature = "rustpython-compiler")]
             Either::A(string) => {
                 let source = string.as_str();
-                vm.compile(source, mode, "<string>".to_owned())
+                vm.compile(source, mode, "<string>")
                     .map_err(|err| vm.new_syntax_error(&err, Some(source)))?
             }
             #[cfg(not(feature = "rustpython-compiler"))]

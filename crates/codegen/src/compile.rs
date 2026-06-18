@@ -4411,10 +4411,10 @@ impl Compiler {
             .chain(parameters.kwonlyargs.iter().map(|x| &x.parameter))
             .chain(parameters.kwarg.as_deref());
 
-        let num_annotations: u32 =
+        let num_annotations =
             u32::try_from(parameters_iter.filter(|p| p.annotation.is_some()).count())
                 .expect("too many annotations")
-                + if returns.is_some() { 1 } else { 0 };
+                + u32::from(returns.is_some());
 
         // Compile annotations inside the annotation scope
         let parameters_iter = parameters
@@ -6925,7 +6925,7 @@ impl Compiler {
         let has_default =
             num_cases > 1 && is_trailing_wildcard_default(&cases.last().unwrap().pattern);
 
-        let case_count = num_cases - if has_default { 1 } else { 0 };
+        let case_count = num_cases - usize::from(has_default);
         for (i, m) in cases.iter().enumerate().take(case_count) {
             // Only copy the subject if not on the last case
             if i != case_count - 1 {
@@ -7005,23 +7005,42 @@ impl Compiler {
 
     /// [CPython `compiler_addcompare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L2880-L2924)
     fn compile_addcompare(&mut self, op: &ast::CmpOp) {
-        use bytecode::ComparisonOperator::*;
         match op {
-            ast::CmpOp::Eq => emit!(self, Instruction::CompareOp { opname: Equal }),
-            ast::CmpOp::NotEq => emit!(self, Instruction::CompareOp { opname: NotEqual }),
-            ast::CmpOp::Lt => emit!(self, Instruction::CompareOp { opname: Less }),
+            ast::CmpOp::Eq => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::Equal
+                }
+            ),
+            ast::CmpOp::NotEq => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::NotEqual
+                }
+            ),
+            ast::CmpOp::Lt => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::Less
+                }
+            ),
             ast::CmpOp::LtE => emit!(
                 self,
                 Instruction::CompareOp {
-                    opname: LessOrEqual
+                    opname: ComparisonOperator::LessOrEqual
                 }
             ),
-            ast::CmpOp::Gt => emit!(self, Instruction::CompareOp { opname: Greater }),
+            ast::CmpOp::Gt => emit!(
+                self,
+                Instruction::CompareOp {
+                    opname: ComparisonOperator::Greater
+                }
+            ),
             ast::CmpOp::GtE => {
                 emit!(
                     self,
                     Instruction::CompareOp {
-                        opname: GreaterOrEqual
+                        opname: ComparisonOperator::GreaterOrEqual
                     }
                 )
             }

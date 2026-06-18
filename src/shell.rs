@@ -32,7 +32,7 @@ fn shell_exec(
     // was actually compiled.
     #[cfg(windows)]
     let source = &source.replace("\r\n", "\n");
-    match vm.compile(source, compiler::Mode::Single, "<stdin>".to_owned()) {
+    match vm.compile(source, compiler::Mode::Single, "<stdin>") {
         Ok(code) => {
             if empty_line_given || !continuing_block {
                 // We want to execute the full code

@@ -178,16 +178,15 @@ impl TraceEvent {
 
 impl core::fmt::Display for TraceEvent {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use TraceEvent::*;
         match self {
-            Call => write!(f, "call"),
-            Return => write!(f, "return"),
-            Exception => write!(f, "exception"),
-            Line => write!(f, "line"),
-            Opcode => write!(f, "opcode"),
-            CCall => write!(f, "c_call"),
-            CReturn => write!(f, "c_return"),
-            CException => write!(f, "c_exception"),
+            Self::Call => write!(f, "call"),
+            Self::Return => write!(f, "return"),
+            Self::Exception => write!(f, "exception"),
+            Self::Line => write!(f, "line"),
+            Self::Opcode => write!(f, "opcode"),
+            Self::CCall => write!(f, "c_call"),
+            Self::CReturn => write!(f, "c_return"),
+            Self::CException => write!(f, "c_exception"),
         }
     }
 }

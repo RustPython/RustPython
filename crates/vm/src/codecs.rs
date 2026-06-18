@@ -816,16 +816,20 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for StandardError {
         range: Range<StrSize>,
         reason: Option<&str>,
     ) -> PyResult<(EncodeReplace<PyEncodeContext<'a>>, StrSize)> {
-        use StandardError::*;
-        // use errors::*;
         match self {
-            Strict => errors::Strict.handle_encode_error(ctx, range, reason),
-            Ignore => errors::Ignore.handle_encode_error(ctx, range, reason),
-            Replace => errors::Replace.handle_encode_error(ctx, range, reason),
-            XmlCharRefReplace => errors::XmlCharRefReplace.handle_encode_error(ctx, range, reason),
-            BackslashReplace => errors::BackslashReplace.handle_encode_error(ctx, range, reason),
-            SurrogatePass => SurrogatePass.handle_encode_error(ctx, range, reason),
-            SurrogateEscape => errors::SurrogateEscape.handle_encode_error(ctx, range, reason),
+            Self::Strict => errors::Strict.handle_encode_error(ctx, range, reason),
+            Self::Ignore => errors::Ignore.handle_encode_error(ctx, range, reason),
+            Self::Replace => errors::Replace.handle_encode_error(ctx, range, reason),
+            Self::XmlCharRefReplace => {
+                errors::XmlCharRefReplace.handle_encode_error(ctx, range, reason)
+            }
+            Self::BackslashReplace => {
+                errors::BackslashReplace.handle_encode_error(ctx, range, reason)
+            }
+            Self::SurrogatePass => SurrogatePass.handle_encode_error(ctx, range, reason),
+            Self::SurrogateEscape => {
+                errors::SurrogateEscape.handle_encode_error(ctx, range, reason)
+            }
         }
     }
 }
@@ -837,19 +841,20 @@ impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for StandardError {
         byte_range: Range<usize>,
         reason: Option<&str>,
     ) -> PyResult<(PyStrRef, usize)> {
-        use StandardError::*;
         match self {
-            Strict => errors::Strict.handle_decode_error(ctx, byte_range, reason),
-            Ignore => errors::Ignore.handle_decode_error(ctx, byte_range, reason),
-            Replace => errors::Replace.handle_decode_error(ctx, byte_range, reason),
-            XmlCharRefReplace => Err(ctx
+            Self::Strict => errors::Strict.handle_decode_error(ctx, byte_range, reason),
+            Self::Ignore => errors::Ignore.handle_decode_error(ctx, byte_range, reason),
+            Self::Replace => errors::Replace.handle_decode_error(ctx, byte_range, reason),
+            Self::XmlCharRefReplace => Err(ctx
                 .vm
                 .new_type_error("don't know how to handle UnicodeDecodeError in error callback")),
-            BackslashReplace => {
+            Self::BackslashReplace => {
                 errors::BackslashReplace.handle_decode_error(ctx, byte_range, reason)
             }
-            SurrogatePass => self::SurrogatePass.handle_decode_error(ctx, byte_range, reason),
-            SurrogateEscape => errors::SurrogateEscape.handle_decode_error(ctx, byte_range, reason),
+            Self::SurrogatePass => self::SurrogatePass.handle_decode_error(ctx, byte_range, reason),
+            Self::SurrogateEscape => {
+                errors::SurrogateEscape.handle_decode_error(ctx, byte_range, reason)
+            }
         }
     }
 }
@@ -858,6 +863,7 @@ pub(crate) struct ErrorsHandler<'a> {
     errors: &'a Py<PyUtf8Str>,
     resolved: OnceCell<ResolvedError>,
 }
+
 enum ResolvedError {
     Standard(StandardError),
     Handler(PyObjectRef),

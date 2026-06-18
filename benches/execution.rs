@@ -30,7 +30,7 @@ fn bench_rustpython_code(b: &mut Bencher, name: &str, source: &str) {
         // Note: bench_cpython is both compiling and executing the code.
         // As such we compile the code in the benchmark loop as well.
         b.iter(|| {
-            let code = vm.compile(source, Mode::Exec, name.to_owned()).unwrap();
+            let code = vm.compile(source, Mode::Exec, name).unwrap();
             let scope = vm.new_scope_with_builtins();
             let res: PyResult = vm.run_code_obj(code.clone(), scope);
             vm.unwrap_pyresult(res);

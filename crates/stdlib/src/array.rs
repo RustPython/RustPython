@@ -660,7 +660,8 @@ pub mod array {
 
             if let OptionalArg::Present(init) = init {
                 if let Some(init) = init.downcast_ref::<Self>() {
-                    match (spec, init.read().typecode()) {
+                    let value = init.read().typecode();
+                    match (spec, value) {
                         (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
                         (spec, 'u') => {
                             return Err(vm.new_type_error(format!(
@@ -1406,12 +1407,15 @@ pub mod array {
     }
 
     impl SelfIter for PyArrayIter {}
+
     impl IterNext for PyArrayIter {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             zelf.internal.lock().next(|array, pos| {
-                Ok(match array.read().get(pos, vm) {
-                    Some(item) => PyIterReturn::Return(item?),
-                    None => PyIterReturn::StopIteration(None),
+                let value = array.read().get(pos, vm);
+                Ok(if let Some(item) = value {
+                    PyIterReturn::Return(item?)
+                } else {
+                    PyIterReturn::StopIteration(None)
                 })
             })
         }
@@ -1444,16 +1448,21 @@ pub mod array {
 
     impl From<MachineFormatCode> for u8 {
         fn from(code: MachineFormatCode) -> Self {
-            use MachineFormatCode::*;
             match code {
-                Int8 { signed } => signed as Self,
-                Int16 { signed, big_endian } => 2 + signed as Self * 2 + big_endian as Self,
-                Int32 { signed, big_endian } => 6 + signed as Self * 2 + big_endian as Self,
-                Int64 { signed, big_endian } => 10 + signed as Self * 2 + big_endian as Self,
-                Ieee754Float { big_endian } => 14 + big_endian as Self,
-                Ieee754Double { big_endian } => 16 + big_endian as Self,
-                Utf16 { big_endian } => 18 + big_endian as Self,
-                Utf32 { big_endian } => 20 + big_endian as Self,
+                MachineFormatCode::Int8 { signed } => signed as Self,
+                MachineFormatCode::Int16 { signed, big_endian } => {
+                    2 + signed as Self * 2 + big_endian as Self
+                }
+                MachineFormatCode::Int32 { signed, big_endian } => {
+                    6 + signed as Self * 2 + big_endian as Self
+                }
+                MachineFormatCode::Int64 { signed, big_endian } => {
+                    10 + signed as Self * 2 + big_endian as Self
+                }
+                MachineFormatCode::Ieee754Float { big_endian } => 14 + big_endian as Self,
+                MachineFormatCode::Ieee754Double { big_endian } => 16 + big_endian as Self,
+                MachineFormatCode::Utf16 { big_endian } => 18 + big_endian as Self,
+                MachineFormatCode::Utf32 { big_endian } => 20 + big_endian as Self,
             }
         }
     }

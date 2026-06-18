@@ -138,7 +138,7 @@ fn get_warnings_attr(
     module.get_attr(attr_name, vm).ok()
 }
 
-/// Get the warnings filters list from sys.modules['warnings'].filters,
+/// Get the warnings filters list from `sys.modules['warnings'].filters`,
 /// falling back to vm.state.warnings.filters.
 fn get_warnings_filters(vm: &VirtualMachine) -> PyListRef {
     if let Some(filters_obj) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false)
@@ -149,7 +149,7 @@ fn get_warnings_filters(vm: &VirtualMachine) -> PyListRef {
     vm.state.warnings.filters.clone()
 }
 
-/// Get the default action from sys.modules['warnings']._defaultaction,
+/// Get the default action from `sys.modules['warnings']._defaultaction`,
 /// falling back to vm.state.warnings.default_action.
 fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     if let Some(action) = get_warnings_attr(vm, identifier!(&vm.ctx, defaultaction), false) {
@@ -164,7 +164,7 @@ fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     Ok(vm.state.warnings.default_action.clone().into())
 }
 
-/// Get the once registry from sys.modules['warnings']._onceregistry,
+/// Get the once registry from `sys.modules['warnings']._onceregistry`,
 /// falling back to vm.state.warnings.once_registry.
 fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     if let Some(registry) = get_warnings_attr(vm, identifier!(&vm.ctx, onceregistry), false) {

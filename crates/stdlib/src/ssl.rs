@@ -3413,7 +3413,8 @@ mod _ssl {
             // Initialize connection if not already done
             if conn_guard.is_none() {
                 // Check for pending context change (from SNI callback)
-                if let Some(new_ctx) = self.pending_context.write().take() {
+                let pending_context = self.pending_context.write().take();
+                if let Some(new_ctx) = pending_context {
                     *self.context.write() = new_ctx;
                 }
 
@@ -3495,7 +3496,7 @@ mod _ssl {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
                         ServerName::IpAddress(
-                            core::net::IpAddr::V4(core::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            core::net::IpAddr::V4(core::net::Ipv4Addr::LOCALHOST).into(),
                         )
                     };
 
