@@ -1,4 +1,5 @@
 import json
+import sys
 from io import BytesIO, StringIO
 
 from testutils import assert_raises
@@ -263,8 +264,6 @@ else:
     raise AssertionError("expected JSONDecodeError")
 
 # Test that json.loads honors sys.int_max_str_digits
-import sys
-
 _min_limit = sys.int_info.str_digits_check_threshold
 _orig_limit = sys.get_int_max_str_digits()
 try:
