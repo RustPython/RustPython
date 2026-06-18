@@ -242,12 +242,12 @@ mod _json {
             } else if let Some(ref parse_int) = self.parse_int {
                 parse_int.call((buf,), vm)
             } else {
-                let value = bytes_to_int(buf.as_bytes(), 10, vm.state.int_max_str_digits.load())
+                bytes_to_int(buf.as_bytes(), 10, vm.state.int_max_str_digits.load())
+                    .map(|value| vm.new_pyobj(value))
                     .map_err(|e| {
                         let obj = vm.ctx.new_str(buf);
                         handle_bytes_to_int_err(e, obj.as_object(), vm)
-                    })?;
-                Ok(vm.new_pyobj(value))
+                    })
             };
             Some((ret, buf.len()))
         }
