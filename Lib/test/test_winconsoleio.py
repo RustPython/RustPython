@@ -142,6 +142,7 @@ class WindowsConsoleIOTests(unittest.TestCase):
         with ConIO('CONOUT$', 'w') as f:
             self.assertEqual(f.write(b''), 0)
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON")
     @requires_resource('console')
     def test_write(self):
         testcases = []
