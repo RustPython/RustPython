@@ -24,13 +24,14 @@ use num_complex::Complex;
 use num_traits::{Num, ToPrimitive, Zero};
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
+
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, AnyInstruction, AnyOpcode, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount,
         CodeObject, ComparisonOperator, ConstantData, ConvertValueOparg, Instruction,
-        IntrinsicFunction1, Invert, LoadAttr, LoadSuperAttr, OpArg, OpArgType, PseudoInstruction,
-        SpecialMethod, UnpackExArgs, oparg,
+        IntrinsicFunction1, Invert, LoadAttr, LoadSuperAttr, MakeFunctionFlag, MakeFunctionFlags,
+        OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs, oparg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -63,12 +64,9 @@ impl ExprExt for ast::Expr {
     fn is_constant_slice(&self) -> bool {
         match self {
             Self::Slice(s) => {
-                let lower_const =
-                    s.lower.is_none() || s.lower.as_deref().is_some_and(|e| e.is_constant());
-                let upper_const =
-                    s.upper.is_none() || s.upper.as_deref().is_some_and(|e| e.is_constant());
-                let step_const =
-                    s.step.is_none() || s.step.as_deref().is_some_and(|e| e.is_constant());
+                let lower_const = s.lower.as_deref().is_none_or(|e| e.is_constant());
+                let upper_const = s.upper.as_deref().is_none_or(|e| e.is_constant());
+                let step_const = s.step.as_deref().is_none_or(|e| e.is_constant());
                 lower_const && upper_const && step_const
             }
             _ => false,
@@ -2485,11 +2483,13 @@ impl Compiler {
             let current_table = self.current_symbol_table();
             if current_table.typ == CompilerScope::Class
                 && !self.current_code_info().in_inlined_comp
-                && ((usage == NameUsage::Load
-                    && (name == "__class__"
-                        || name == "__classdict__"
-                        || name == "__conditional_annotations__"))
-                    || (name == "__conditional_annotations__" && usage == NameUsage::Store))
+                && matches!(
+                    (usage, name.as_ref()),
+                    (
+                        NameUsage::Load,
+                        "__class__" | "__classdict__" | "__conditional_annotations__"
+                    ) | (NameUsage::Store, "__conditional_annotations__")
+                )
             {
                 Some(SymbolScope::Cell)
             } else {
@@ -3150,7 +3150,7 @@ impl Compiler {
 
                     let code = self.exit_scope();
                     self.ctx = prev_ctx;
-                    self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
+                    self.make_closure(code, MakeFunctionFlags::new())?;
                     emit!(self, Instruction::PushNull);
                     emit!(self, Instruction::Call { argc: 0 });
                 } else {
@@ -3333,10 +3333,7 @@ impl Compiler {
         self.ctx = prev_ctx;
 
         self.set_source_range(expr_range);
-        self.make_closure(
-            code,
-            bytecode::MakeFunctionFlags::from([bytecode::MakeFunctionFlag::Defaults]),
-        )?;
+        self.make_closure(code, MakeFunctionFlags::from([MakeFunctionFlag::Defaults]))?;
 
         Ok(())
     }
@@ -3376,10 +3373,7 @@ impl Compiler {
         let code = self.exit_scope();
         self.ctx = prev_ctx;
         self.set_source_range(alias_range);
-        self.make_closure(
-            code,
-            bytecode::MakeFunctionFlags::from([bytecode::MakeFunctionFlag::Defaults]),
-        )?;
+        self.make_closure(code, MakeFunctionFlags::from([MakeFunctionFlag::Defaults]))?;
 
         Ok(())
     }
@@ -4206,7 +4200,7 @@ impl Compiler {
         parameters: &ast::Parameters,
         loc: TextRange,
     ) -> CompileResult<bytecode::MakeFunctionFlags> {
-        let mut funcflags = bytecode::MakeFunctionFlags::new();
+        let mut funcflags = MakeFunctionFlags::new();
 
         // Handle positional defaults
         let defaults: Vec<_> = core::iter::empty()
@@ -4227,7 +4221,7 @@ impl Compiler {
                     count: defaults.len().to_u32()
                 }
             );
-            funcflags.insert(bytecode::MakeFunctionFlag::Defaults);
+            funcflags.insert(MakeFunctionFlag::Defaults);
         }
 
         // Handle keyword-only defaults
@@ -4254,7 +4248,7 @@ impl Compiler {
                     count: kw_with_defaults.len().to_u32(),
                 }
             );
-            funcflags.insert(bytecode::MakeFunctionFlag::KwOnlyDefaults);
+            funcflags.insert(MakeFunctionFlag::KwOnlyDefaults);
         }
 
         Ok(funcflags)
@@ -4460,7 +4454,7 @@ impl Compiler {
 
         // Make a closure from the code object
         self.set_source_range(func_range);
-        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::new())?;
+        self.make_closure(annotate_code, MakeFunctionFlags::new())?;
 
         Ok(true)
     }
@@ -4684,7 +4678,7 @@ impl Compiler {
 
         // Make a closure from the code object
         self.set_source_range(loc);
-        self.make_closure(annotate_code, bytecode::MakeFunctionFlags::new())?;
+        self.make_closure(annotate_code, MakeFunctionFlags::new())?;
 
         // Store as __annotate_func__ for classes, __annotate__ for modules
         let name = if parent_scope_type == CompilerScope::Class {
@@ -4737,10 +4731,10 @@ impl Compiler {
 
         if is_generic {
             // Count args to pass to type params scope
-            if funcflags.contains(&bytecode::MakeFunctionFlag::Defaults) {
+            if funcflags.contains(&MakeFunctionFlag::Defaults) {
                 num_typeparam_args += 1;
             }
-            if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
+            if funcflags.contains(&MakeFunctionFlag::KwOnlyDefaults) {
                 num_typeparam_args += 1;
             }
             if num_typeparam_args == 2 {
@@ -4767,13 +4761,13 @@ impl Compiler {
             // Add parameter names to varnames for the type params scope
             // These will be passed as arguments when the closure is called
             let current_info = self.current_code_info();
-            if funcflags.contains(&bytecode::MakeFunctionFlag::Defaults) {
+            if funcflags.contains(&MakeFunctionFlag::Defaults) {
                 current_info
                     .metadata
                     .varnames
                     .insert(".defaults".to_owned());
             }
-            if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
+            if funcflags.contains(&MakeFunctionFlag::KwOnlyDefaults) {
                 current_info
                     .metadata
                     .varnames
@@ -4791,9 +4785,9 @@ impl Compiler {
         }
 
         // Compile annotations as closure (PEP 649)
-        let mut annotations_flag = bytecode::MakeFunctionFlags::new();
+        let mut annotations_flag = MakeFunctionFlags::new();
         if self.compile_annotations_closure(name, parameters, returns, def_source_range)? {
-            annotations_flag.insert(bytecode::MakeFunctionFlag::Annotate);
+            annotations_flag.insert(MakeFunctionFlag::Annotate);
         }
 
         // Compile function body
@@ -4834,7 +4828,7 @@ impl Compiler {
             self.ctx = saved_ctx;
 
             // Make closure for type params code
-            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
+            self.make_closure(type_params_code, MakeFunctionFlags::new())?;
 
             if num_typeparam_args > 0 {
                 emit!(
@@ -4879,9 +4873,10 @@ impl Compiler {
         // This should only apply when we're actually IN a class body,
         // not when we're in a method nested inside a class.
         if table.typ == CompilerScope::Class
-            && (name == "__class__"
-                || name == "__classdict__"
-                || name == "__conditional_annotations__")
+            && matches!(
+                name,
+                "__class__" | "__classdict__" | "__conditional_annotations__"
+            )
         {
             return Ok(SymbolScope::Cell);
         }
@@ -4990,57 +4985,57 @@ impl Compiler {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlag::Closure
+                    flag: MakeFunctionFlag::Closure
                 }
             );
         }
 
         // Set annotations if present
-        if flags.contains(&bytecode::MakeFunctionFlag::Annotations) {
+        if flags.contains(&MakeFunctionFlag::Annotations) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlag::Annotations
+                    flag: MakeFunctionFlag::Annotations
                 }
             );
         }
 
         // Set __annotate__ closure if present (PEP 649)
-        if flags.contains(&bytecode::MakeFunctionFlag::Annotate) {
+        if flags.contains(&MakeFunctionFlag::Annotate) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlag::Annotate
+                    flag: MakeFunctionFlag::Annotate
                 }
             );
         }
 
         // Set kwdefaults if present
-        if flags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
+        if flags.contains(&MakeFunctionFlag::KwOnlyDefaults) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlag::KwOnlyDefaults
+                    flag: MakeFunctionFlag::KwOnlyDefaults
                 }
             );
         }
 
         // Set defaults if present
-        if flags.contains(&bytecode::MakeFunctionFlag::Defaults) {
+        if flags.contains(&MakeFunctionFlag::Defaults) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlag::Defaults
+                    flag: MakeFunctionFlag::Defaults
                 }
             );
         }
 
         // Set type_params if present
-        if flags.contains(&bytecode::MakeFunctionFlag::TypeParams) {
+        if flags.contains(&MakeFunctionFlag::TypeParams) {
             emit!(
                 self,
                 Instruction::SetFunctionAttribute {
-                    flag: bytecode::MakeFunctionFlag::TypeParams
+                    flag: MakeFunctionFlag::TypeParams
                 }
             );
         }
@@ -5345,7 +5340,7 @@ impl Compiler {
 
             // Create the class body function with the .type_params closure
             // captured through the class code object's freevars.
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
+            self.make_closure(class_code, MakeFunctionFlags::new())?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             // Create .generic_base after the class function and name are on the
@@ -5496,7 +5491,7 @@ impl Compiler {
 
             // Execute the type params function
             self.set_source_range(class_source_range);
-            self.make_closure(type_params_code, bytecode::MakeFunctionFlags::new())?;
+            self.make_closure(type_params_code, MakeFunctionFlags::new())?;
             self.set_source_range(class_source_range);
             emit!(self, Instruction::PushNull);
             self.set_source_range(class_source_range);
@@ -5507,7 +5502,7 @@ impl Compiler {
             emit!(self, Instruction::PushNull);
 
             // Create class function with closure
-            self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
+            self.make_closure(class_code, MakeFunctionFlags::new())?;
             self.emit_load_const(ConstantData::Str { value: name.into() });
 
             if let Some(arguments) = arguments {
@@ -8225,12 +8220,12 @@ impl Compiler {
                 }
 
                 self.enter_function(&name, params)?;
-                let mut func_flags = bytecode::MakeFunctionFlags::new();
+                let mut func_flags = MakeFunctionFlags::new();
                 if have_defaults {
-                    func_flags.insert(bytecode::MakeFunctionFlag::Defaults);
+                    func_flags.insert(MakeFunctionFlag::Defaults);
                 }
                 if have_kwdefaults {
-                    func_flags.insert(bytecode::MakeFunctionFlag::KwOnlyDefaults);
+                    func_flags.insert(MakeFunctionFlag::KwOnlyDefaults);
                 }
 
                 // Set qualname for lambda
@@ -9593,7 +9588,7 @@ impl Compiler {
 
         // Create comprehension function with closure
         self.set_source_range(comprehension_range);
-        self.make_closure(code, bytecode::MakeFunctionFlags::new())?;
+        self.make_closure(code, MakeFunctionFlags::new())?;
 
         // Evaluate iterated item and get its iterator.
         self.compile_comprehension_iter(outermost)?;
