@@ -456,22 +456,6 @@ enum CollectionType {
 const STACK_USE_GUIDELINE: u32 = 30;
 
 impl Compiler {
-    fn constant_truthiness(constant: &ConstantData) -> bool {
-        match constant {
-            ConstantData::Tuple { elements } | ConstantData::Frozenset { elements } => {
-                !elements.is_empty()
-            }
-            ConstantData::Integer { value } => !value.is_zero(),
-            ConstantData::Float { value } => *value != 0.0,
-            ConstantData::Complex { value } => value.re != 0.0 || value.im != 0.0,
-            ConstantData::Boolean { value } => *value,
-            ConstantData::Str { value } => !value.is_empty(),
-            ConstantData::Bytes { value } => !value.is_empty(),
-            ConstantData::Code { .. } | ConstantData::Slice { .. } | ConstantData::Ellipsis => true,
-            ConstantData::None => false,
-        }
-    }
-
     fn new(opts: CompileOpts, source_file: SourceFile, code_name: &str) -> Self {
         let module_code = ir::CodeInfo {
             // CPython convention: top-level module / interactive /
@@ -10550,7 +10534,7 @@ impl Compiler {
                     }
                     (ast::UnaryOp::Not, ConstantData::Tuple { .. }) => return Ok(None),
                     (ast::UnaryOp::Not, value) => ConstantData::Boolean {
-                        value: !Self::constant_truthiness(&value),
+                        value: !value.truthiness(),
                     },
                     _ => return Ok(None),
                 }
@@ -10570,9 +10554,9 @@ impl Compiler {
                 let mut selected = first;
                 match op {
                     ast::BoolOp::Or => {
-                        if !Self::constant_truthiness(&selected) {
+                        if !selected.truthiness() {
                             for constant in iter {
-                                let is_truthy = Self::constant_truthiness(&constant);
+                                let is_truthy = constant.truthiness();
                                 selected = constant;
                                 if is_truthy {
                                     break;
@@ -10581,9 +10565,9 @@ impl Compiler {
                         }
                     }
                     ast::BoolOp::And => {
-                        if Self::constant_truthiness(&selected) {
+                        if selected.truthiness() {
                             for constant in iter {
-                                let is_truthy = Self::constant_truthiness(&constant);
+                                let is_truthy = constant.truthiness();
                                 selected = constant;
                                 if !is_truthy {
                                     break;
