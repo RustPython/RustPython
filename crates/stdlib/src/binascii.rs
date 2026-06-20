@@ -849,20 +849,21 @@ fn new_binascii_error<T: Into<Wtf8Buf>>(msg: T, vm: &VirtualMachine) -> PyBaseEx
 
 impl ToPyException for Base64DecodeError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        use base64::DecodeError::*;
+        use base64::DecodeError;
+
         let message = match &self.0 {
-            InvalidByte(0, PAD) => "Leading padding not allowed".to_owned(),
-            InvalidByte(_, PAD) => "Discontinuous padding not allowed".to_owned(),
-            InvalidByte(_, _) => "Only base64 data is allowed".to_owned(),
-            InvalidLastSymbol(_, PAD) => "Excess data after padding".to_owned(),
-            InvalidLastSymbol(length, _) => {
+            DecodeError::InvalidByte(0, PAD) => "Leading padding not allowed".to_owned(),
+            DecodeError::InvalidByte(_, PAD) => "Discontinuous padding not allowed".to_owned(),
+            DecodeError::InvalidByte(_, _) => "Only base64 data is allowed".to_owned(),
+            DecodeError::InvalidLastSymbol(_, PAD) => "Excess data after padding".to_owned(),
+            DecodeError::InvalidLastSymbol(length, _) => {
                 format!(
                     "Invalid base64-encoded string: number of data characters {length} cannot be 1 more than a multiple of 4"
                 )
             }
             // TODO: clean up errors
-            InvalidLength(_) => "Incorrect padding".to_owned(),
-            InvalidPadding => "Incorrect padding".to_owned(),
+            DecodeError::InvalidLength(_) => "Incorrect padding".to_owned(),
+            DecodeError::InvalidPadding => "Incorrect padding".to_owned(),
         };
         new_binascii_error(format!("error decoding base64: {message}"), vm)
     }

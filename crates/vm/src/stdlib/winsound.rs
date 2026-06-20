@@ -5,12 +5,12 @@ pub(crate) use winsound::module_def;
 
 #[pymodule]
 mod winsound {
-    use crate::builtins::{PyBytes, PyStr};
+    use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
     use crate::convert::{IntoPyException, TryFromBorrowedObject};
     use crate::host_env::windows::ToWideString;
     use crate::protocol::PyBuffer;
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
-    use rustpython_host_env::winsound::{PlaySoundSource, play_sound};
+    use rustpython_host_env::winsound::{PlaySoundError, PlaySoundSource, play_sound};
 
     // PlaySound flags
     #[pyattr]
@@ -68,16 +68,14 @@ mod winsound {
         flags: i32,
     }
 
-    fn map_play_err(
-        vm: &VirtualMachine,
-    ) -> impl FnOnce(
-        rustpython_host_env::winsound::PlaySoundError,
-    ) -> crate::builtins::PyBaseExceptionRef
-    + '_ {
-        use rustpython_host_env::winsound::PlaySoundError::*;
+    fn map_play_err(vm: &VirtualMachine) -> impl FnOnce(PlaySoundError) -> PyBaseExceptionRef + '_ {
         |err| match err {
-            MemoryAsyncRejected => vm.new_runtime_error("Cannot play asynchronously from memory"),
-            MemoryFlagWithoutBuffer | CallFailed => vm.new_runtime_error("Failed to play sound"),
+            PlaySoundError::MemoryAsyncRejected => {
+                vm.new_runtime_error("Cannot play asynchronously from memory")
+            }
+            PlaySoundError::MemoryFlagWithoutBuffer | PlaySoundError::CallFailed => {
+                vm.new_runtime_error("Failed to play sound")
+            }
         }
     }
 

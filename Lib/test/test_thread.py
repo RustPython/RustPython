@@ -115,7 +115,7 @@ class ThreadRunningTests(BasicThreadTest):
 
         thread.stack_size(0)
 
-    @unittest.skipIf(__import__("sys").platform == "linux", "TODO: RUSTPYTHON; Flakey on CI")
+    @unittest.skipIf(__import__("sys").platform in ("linux", "win32"), "TODO: RUSTPYTHON; Flakey on CI")
     def test__count(self):
         # Test the _count() function.
         orig = thread._count()

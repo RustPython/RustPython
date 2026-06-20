@@ -134,7 +134,9 @@ impl VirtualMachine {
         exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let vm = self;
-        if let Some(tb) = exc.traceback.read().clone() {
+
+        let traceback = exc.traceback.read().clone();
+        if let Some(tb) = traceback {
             writeln!(output, "Traceback (most recent call last):")?;
             for tb in tb.iter() {
                 write_traceback_entry(output, &tb)?;
@@ -162,9 +164,10 @@ impl VirtualMachine {
             ),
         }?;
 
-        match offer_suggestions(exc, vm) {
-            Some(suggestions) => writeln!(output, ". Did you mean: '{suggestions}'?"),
-            None => writeln!(output),
+        if let Some(suggestions) = offer_suggestions(exc, vm) {
+            writeln!(output, ". Did you mean: '{suggestions}'?")
+        } else {
+            writeln!(output)
         }
     }
 

@@ -1489,7 +1489,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn class(&self) -> &Py<PyType> {
-        self.0.typ.deref()
+        &self.0.typ
     }
 
     pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) {
@@ -1835,7 +1835,8 @@ impl PyObject {
                 result.push(dict_ref.into());
             }
             for slot in &ext.slots {
-                if let Some(val) = slot.write().take() {
+                let value = slot.write().take();
+                if let Some(val) = value {
                     result.push(val);
                 }
             }
@@ -2130,7 +2131,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
+        self.deref().eq(&**other)
     }
 }
 
@@ -2407,7 +2408,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
+        self.deref().eq(&**other)
     }
 }
 

@@ -279,7 +279,7 @@ fn validate_typeparam(vm: &VirtualMachine, tp: &ast::TypeParam) -> PyResult<()> 
 
 fn validate_type_params(
     vm: &VirtualMachine,
-    type_params: &Option<Box<ast::TypeParams>>,
+    type_params: Option<&ast::TypeParams>,
 ) -> PyResult<()> {
     if let Some(type_params) = type_params {
         for tp in &type_params.type_params {
@@ -478,7 +478,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 "FunctionDef"
             };
             validate_body(vm, &func.body, owner)?;
-            validate_type_params(vm, &func.type_params)?;
+            validate_type_params(vm, func.type_params.as_deref())?;
             validate_parameters(vm, &func.parameters)?;
             validate_decorators(vm, &func.decorator_list)?;
             if let Some(returns) = &func.returns {
@@ -488,7 +488,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
         }
         ast::Stmt::ClassDef(class_def) => {
             validate_body(vm, &class_def.body, "ClassDef")?;
-            validate_type_params(vm, &class_def.type_params)?;
+            validate_type_params(vm, class_def.type_params.as_deref())?;
             if let Some(arguments) = &class_def.arguments {
                 validate_exprs(vm, &arguments.args, ast::ExprContext::Load, false)?;
                 validate_keywords(vm, &arguments.keywords)?;
@@ -525,7 +525,7 @@ fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
                 return Err(vm.new_type_error("TypeAlias with non-Name name"));
             }
             validate_expr(vm, &alias.name, ast::ExprContext::Store)?;
-            validate_type_params(vm, &alias.type_params)?;
+            validate_type_params(vm, alias.type_params.as_deref())?;
             validate_expr(vm, &alias.value, ast::ExprContext::Load)
         }
         ast::Stmt::For(for_stmt) => {

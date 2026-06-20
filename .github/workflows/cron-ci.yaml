@@ -27,13 +27,13 @@ jobs:
     env:
       INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: taiki-e/install-action@e49978b799e49ff429d162b7a30601a569ab6538 # v2.81.1
+      - uses: taiki-e/install-action@0631aa6515c7d545823c67cfae7ef4fc7f490154 # v2.81.8
         with:
           tool: cargo-llvm-cov
 
@@ -57,7 +57,7 @@ jobs:
 
       - name: Upload to Codecov
         if: ${{ github.event_name != 'pull_request' }}
-        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./codecov.lcov
 
@@ -67,7 +67,7 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: true
 
@@ -105,7 +105,7 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: true
 
@@ -168,7 +168,7 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: true
 

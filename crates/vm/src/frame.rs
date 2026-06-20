@@ -26,7 +26,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     coroutine::Coro,
     exceptions::ExceptionCtor,
-    function::{ArgMapping, Either, FuncArgs, PyMethodFlags},
+    function::{ArgMapping, Either, FuncArgs, KwArgs, PyMethodFlags},
     object::PyAtomicBorrow,
     object::{Traverse, TraverseFn},
     protocol::{PyIter, PyIterReturn, PyMapping},
@@ -42,7 +42,6 @@ use core::cell::UnsafeCell;
 use core::sync::atomic;
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::{Acquire, Relaxed};
-use indexmap::IndexMap;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_traits::Zero;
@@ -341,11 +340,11 @@ impl LocalsPlus {
 
     /// Get a reference to a stack slot by index from the bottom.
     #[inline(always)]
-    fn stack_index(&self, idx: usize) -> &Option<PyStackRef> {
+    fn stack_index(&self, idx: usize) -> Option<&PyStackRef> {
         debug_assert!(idx < self.stack_top as usize);
         let data = self.data_as_slice();
         let raw_idx = self.nlocalsplus as usize + idx;
-        unsafe { &*(data.as_ptr().add(raw_idx) as *const Option<PyStackRef>) }
+        unsafe { (*(data.as_ptr().add(raw_idx) as *const Option<PyStackRef>)).as_ref() }
     }
 
     /// Get a mutable reference to a stack slot by index from the bottom.
@@ -359,7 +358,7 @@ impl LocalsPlus {
 
     /// Get the last stack element (top of stack).
     #[inline(always)]
-    fn stack_last(&self) -> Option<&Option<PyStackRef>> {
+    fn stack_last(&self) -> Option<Option<&PyStackRef>> {
         if self.stack_top == 0 {
             None
         } else {
@@ -2344,8 +2343,8 @@ impl ExecutingFrame<'_> {
                 let idx = index.get(arg) as usize;
                 let stack_len = self.localsplus.stack_len();
                 debug_assert!(stack_len >= idx, "CopyItem: stack underflow");
-                let value = self.localsplus.stack_index(stack_len - idx).clone();
-                self.push_stackref_opt(value);
+                let value = self.localsplus.stack_index(stack_len - idx);
+                self.push_stackref_opt(value.cloned());
                 Ok(None)
             }
             Instruction::CopyFreeVars { n } => {
@@ -3568,10 +3567,10 @@ impl ExecutingFrame<'_> {
 
                 let stack_len = self.localsplus.stack_len();
                 let exit_func = expect_unchecked(
-                    self.localsplus.stack_index(stack_len - 5).clone(),
+                    self.localsplus.stack_index(stack_len - 5),
                     "WithExceptStart: exit_func is NULL",
                 );
-                let self_or_null = self.localsplus.stack_index(stack_len - 4).clone();
+                let self_or_null = self.localsplus.stack_index(stack_len - 4);
 
                 let (tp, val, tb) = if let Some(ref exc) = exc {
                     vm.split_exception(exc.clone())
@@ -3580,7 +3579,7 @@ impl ExecutingFrame<'_> {
                 };
 
                 let exit_res = if let Some(self_exit) = self_or_null {
-                    exit_func.call((self_exit.to_pyobj(), tp, val, tb), vm)?
+                    exit_func.call((self_exit.clone().to_pyobj(), tp, val, tb), vm)?
                 } else {
                     exit_func.call((tp, val, tb), vm)?
                 };
@@ -6234,7 +6233,7 @@ impl ExecutingFrame<'_> {
             .ok()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(&spec, vm);
+        let origin = get_spec_file_origin(spec.as_ref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -6460,7 +6459,7 @@ impl ExecutingFrame<'_> {
     fn collect_positional_args(&mut self, nargs: u32) -> FuncArgs {
         FuncArgs {
             args: self.pop_multiple(nargs as usize).collect(),
-            kwargs: IndexMap::new(),
+            ..Default::default()
         }
     }
 
@@ -6483,9 +6482,8 @@ impl ExecutingFrame<'_> {
 
     fn collect_ex_args(&mut self, vm: &VirtualMachine) -> PyResult<FuncArgs> {
         let kwargs_or_null = self.pop_value_opt();
-        let kwargs = if let Some(kw_obj) = kwargs_or_null {
-            let mut kwargs = IndexMap::new();
-
+        let mut kwargs = KwArgs::default();
+        if let Some(kw_obj) = kwargs_or_null {
             // Stack: [callable, self_or_null, args_tuple]
             let callable = self.nth_value(2);
             let func_str = Self::object_function_str(callable, vm);
@@ -6497,11 +6495,9 @@ impl ExecutingFrame<'_> {
                 let value = kw_obj.get_item(&*key, vm)?;
                 kwargs.insert(key_str.as_str().to_owned(), value);
                 Ok(())
-            })?;
-            kwargs
-        } else {
-            IndexMap::new()
+            })?
         };
+
         let args_obj = self.pop_value();
         let args = if let Some(tuple) = args_obj.downcast_ref::<PyTuple>() {
             tuple.as_slice().to_vec()

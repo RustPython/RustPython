@@ -293,21 +293,19 @@ impl Constant for ConstantData {
     type Name = String;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
-        use BorrowedConstant::*;
-
         match self {
-            Self::Integer { value } => Integer { value },
-            Self::Float { value } => Float { value: *value },
-            Self::Complex { value } => Complex { value: *value },
-            Self::Boolean { value } => Boolean { value: *value },
-            Self::Str { value } => Str { value },
-            Self::Bytes { value } => Bytes { value },
-            Self::Code { code } => Code { code },
-            Self::Tuple { elements } => Tuple { elements },
-            Self::Slice { elements } => Slice { elements },
-            Self::Frozenset { elements } => Frozenset { elements },
-            Self::None => None,
-            Self::Ellipsis => Ellipsis,
+            Self::Integer { value } => BorrowedConstant::Integer { value },
+            Self::Float { value } => BorrowedConstant::Float { value: *value },
+            Self::Complex { value } => BorrowedConstant::Complex { value: *value },
+            Self::Boolean { value } => BorrowedConstant::Boolean { value: *value },
+            Self::Str { value } => BorrowedConstant::Str { value },
+            Self::Bytes { value } => BorrowedConstant::Bytes { value },
+            Self::Code { code } => BorrowedConstant::Code { code },
+            Self::Tuple { elements } => BorrowedConstant::Tuple { elements },
+            Self::Slice { elements } => BorrowedConstant::Slice { elements },
+            Self::Frozenset { elements } => BorrowedConstant::Frozenset { elements },
+            Self::None => BorrowedConstant::None,
+            Self::Ellipsis => BorrowedConstant::Ellipsis,
         }
     }
 }
@@ -913,23 +911,23 @@ pub enum ConstantData {
 
 impl PartialEq for ConstantData {
     fn eq(&self, other: &Self) -> bool {
-        use ConstantData::*;
-
         match (self, other) {
-            (Integer { value: a }, Integer { value: b }) => a == b,
-            (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
-            (Complex { value: a }, Complex { value: b }) => {
+            (Self::Integer { value: a }, Self::Integer { value: b }) => a == b,
+            (Self::Float { value: a }, Self::Float { value: b }) => a.to_bits() == b.to_bits(),
+            (Self::Complex { value: a }, Self::Complex { value: b }) => {
                 a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()
             }
-            (Boolean { value: a }, Boolean { value: b }) => a == b,
-            (Str { value: a }, Str { value: b }) => a == b,
-            (Bytes { value: a }, Bytes { value: b }) => a == b,
-            (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
-            (Tuple { elements: a }, Tuple { elements: b }) => a == b,
-            (Slice { elements: a }, Slice { elements: b }) => a == b,
-            (Frozenset { elements: a }, Frozenset { elements: b }) => a == b,
-            (None, None) => true,
-            (Ellipsis, Ellipsis) => true,
+            (Self::Boolean { value: a }, Self::Boolean { value: b }) => a == b,
+            (Self::Str { value: a }, Self::Str { value: b }) => a == b,
+            (Self::Bytes { value: a }, Self::Bytes { value: b }) => a == b,
+            (Self::Code { code: a }, Self::Code { code: b }) => {
+                core::ptr::eq(a.as_ref(), b.as_ref())
+            }
+            (Self::Tuple { elements: a }, Self::Tuple { elements: b }) => a == b,
+            (Self::Slice { elements: a }, Self::Slice { elements: b }) => a == b,
+            (Self::Frozenset { elements: a }, Self::Frozenset { elements: b }) => a == b,
+            (Self::None, Self::None) => true,
+            (Self::Ellipsis, Self::Ellipsis) => true,
             _ => false,
         }
     }
@@ -939,25 +937,24 @@ impl Eq for ConstantData {}
 
 impl hash::Hash for ConstantData {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        use ConstantData::*;
-
         mem::discriminant(self).hash(state);
+
         match self {
-            Integer { value } => value.hash(state),
-            Float { value } => value.to_bits().hash(state),
-            Complex { value } => {
+            Self::Integer { value } => value.hash(state),
+            Self::Float { value } => value.to_bits().hash(state),
+            Self::Complex { value } => {
                 value.re.to_bits().hash(state);
                 value.im.to_bits().hash(state);
             }
-            Boolean { value } => value.hash(state),
-            Str { value } => value.hash(state),
-            Bytes { value } => value.hash(state),
-            Code { code } => core::ptr::hash(code.as_ref(), state),
-            Tuple { elements } => elements.hash(state),
-            Slice { elements } => elements.hash(state),
-            Frozenset { elements } => elements.hash(state),
-            None => {}
-            Ellipsis => {}
+            Self::Boolean { value } => value.hash(state),
+            Self::Str { value } => value.hash(state),
+            Self::Bytes { value } => value.hash(state),
+            Self::Code { code } => core::ptr::hash(code.as_ref(), state),
+            Self::Tuple { elements } => elements.hash(state),
+            Self::Slice { elements } => elements.hash(state),
+            Self::Frozenset { elements } => elements.hash(state),
+            Self::None => {}
+            Self::Ellipsis => {}
         }
     }
 }
@@ -1040,41 +1037,39 @@ impl<C: Constant> BorrowedConstant<'_, C> {
 
     #[must_use]
     pub fn to_owned(self) -> ConstantData {
-        use ConstantData::*;
-
         match self {
-            BorrowedConstant::Integer { value } => Integer {
+            BorrowedConstant::Integer { value } => ConstantData::Integer {
                 value: value.clone(),
             },
-            BorrowedConstant::Float { value } => Float { value },
-            BorrowedConstant::Complex { value } => Complex { value },
-            BorrowedConstant::Boolean { value } => Boolean { value },
-            BorrowedConstant::Str { value } => Str {
+            BorrowedConstant::Float { value } => ConstantData::Float { value },
+            BorrowedConstant::Complex { value } => ConstantData::Complex { value },
+            BorrowedConstant::Boolean { value } => ConstantData::Boolean { value },
+            BorrowedConstant::Str { value } => ConstantData::Str {
                 value: value.to_owned(),
             },
-            BorrowedConstant::Bytes { value } => Bytes {
+            BorrowedConstant::Bytes { value } => ConstantData::Bytes {
                 value: value.to_owned(),
             },
-            BorrowedConstant::Code { code } => Code {
+            BorrowedConstant::Code { code } => ConstantData::Code {
                 code: Box::new(code.map_clone_bag(&BasicBag)),
             },
-            BorrowedConstant::Tuple { elements } => Tuple {
+            BorrowedConstant::Tuple { elements } => ConstantData::Tuple {
                 elements: elements
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
             },
-            BorrowedConstant::Slice { elements } => Slice {
+            BorrowedConstant::Slice { elements } => ConstantData::Slice {
                 elements: Box::new(elements.each_ref().map(|c| c.borrow_constant().to_owned())),
             },
-            BorrowedConstant::Frozenset { elements } => Frozenset {
+            BorrowedConstant::Frozenset { elements } => ConstantData::Frozenset {
                 elements: elements
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
             },
-            BorrowedConstant::None => None,
-            BorrowedConstant::Ellipsis => Ellipsis,
+            BorrowedConstant::None => ConstantData::None,
+            BorrowedConstant::Ellipsis => ConstantData::Ellipsis,
         }
     }
 }

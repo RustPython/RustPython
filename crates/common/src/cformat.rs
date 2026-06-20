@@ -35,18 +35,17 @@ pub struct CFormatError {
 
 impl fmt::Display for CFormatError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use CFormatErrorType::*;
         match self.typ {
-            UnmatchedKeyParentheses => write!(f, "incomplete format key"),
-            IncompleteFormat => write!(f, "incomplete format"),
-            UnsupportedFormatChar(c) => write!(
+            CFormatErrorType::UnmatchedKeyParentheses => write!(f, "incomplete format key"),
+            CFormatErrorType::IncompleteFormat => write!(f, "incomplete format"),
+            CFormatErrorType::UnsupportedFormatChar(c) => write!(
                 f,
                 "unsupported format character '{}' ({:#x}) at index {}",
                 c,
                 c.to_u32(),
                 self.index
             ),
-            IntTooBig => write!(f, "width/precision too big"),
+            CFormatErrorType::IntTooBig => write!(f, "width/precision too big"),
             _ => write!(f, "unexpected error parsing format string"),
         }
     }
@@ -78,11 +77,9 @@ pub enum CFloatType {
 
 impl CFloatType {
     const fn case(self) -> Case {
-        use CFloatType::*;
-
         match self {
-            ExponentLower | PointDecimalLower | GeneralLower => Case::Lower,
-            ExponentUpper | PointDecimalUpper | GeneralUpper => Case::Upper,
+            Self::ExponentLower | Self::PointDecimalLower | Self::GeneralLower => Case::Lower,
+            Self::ExponentUpper | Self::PointDecimalUpper | Self::GeneralUpper => Case::Upper,
         }
     }
 }
@@ -443,16 +440,16 @@ impl CFormatSpec {
 
     #[must_use]
     pub fn format_number(&self, num: &BigInt) -> String {
-        use CNumberType::*;
         let CFormatType::Number(format_type) = self.format_type else {
             unreachable!()
         };
+
         let magnitude = num.abs();
         let prefix = if self.flags.contains(CConversionFlags::ALTERNATE_FORM) {
             match format_type {
-                Octal => "0o",
-                HexLower => "0x",
-                HexUpper => "0X",
+                CNumberType::Octal => "0o",
+                CNumberType::HexLower => "0x",
+                CNumberType::HexUpper => "0X",
                 _ => "",
             }
         } else {
@@ -460,10 +457,12 @@ impl CFormatSpec {
         };
 
         let magnitude_string: String = match format_type {
-            DecimalD | DecimalI | DecimalU => magnitude.to_str_radix(10),
-            Octal => magnitude.to_str_radix(8),
-            HexLower => magnitude.to_str_radix(16),
-            HexUpper => {
+            CNumberType::DecimalD | CNumberType::DecimalI | CNumberType::DecimalU => {
+                magnitude.to_str_radix(10)
+            }
+            CNumberType::Octal => magnitude.to_str_radix(8),
+            CNumberType::HexLower => magnitude.to_str_radix(16),
+            CNumberType::HexUpper => {
                 let mut result = magnitude.to_str_radix(16);
                 result.make_ascii_uppercase();
                 result
@@ -621,35 +620,33 @@ where
     C: FormatChar,
     I: Iterator<Item = C>,
 {
-    use CFloatType::*;
-    use CNumberType::*;
     let (index, c) = iter.next().ok_or_else(|| {
         (
             CFormatErrorType::IncompleteFormat,
             iter.peek().map_or(0, |x| x.0),
         )
     })?;
-    let format_type = match c.to_char_lossy() {
-        'd' => CFormatType::Number(DecimalD),
-        'i' => CFormatType::Number(DecimalI),
-        'u' => CFormatType::Number(DecimalU),
-        'o' => CFormatType::Number(Octal),
-        'x' => CFormatType::Number(HexLower),
-        'X' => CFormatType::Number(HexUpper),
-        'e' => CFormatType::Float(ExponentLower),
-        'E' => CFormatType::Float(ExponentUpper),
-        'f' => CFormatType::Float(PointDecimalLower),
-        'F' => CFormatType::Float(PointDecimalUpper),
-        'g' => CFormatType::Float(GeneralLower),
-        'G' => CFormatType::Float(GeneralUpper),
+
+    Ok(match c.to_char_lossy() {
+        'd' => CFormatType::Number(CNumberType::DecimalD),
+        'i' => CFormatType::Number(CNumberType::DecimalI),
+        'u' => CFormatType::Number(CNumberType::DecimalU),
+        'o' => CFormatType::Number(CNumberType::Octal),
+        'x' => CFormatType::Number(CNumberType::HexLower),
+        'X' => CFormatType::Number(CNumberType::HexUpper),
+        'e' => CFormatType::Float(CFloatType::ExponentLower),
+        'E' => CFormatType::Float(CFloatType::ExponentUpper),
+        'f' => CFormatType::Float(CFloatType::PointDecimalLower),
+        'F' => CFormatType::Float(CFloatType::PointDecimalUpper),
+        'g' => CFormatType::Float(CFloatType::GeneralLower),
+        'G' => CFormatType::Float(CFloatType::GeneralUpper),
         'c' => CFormatType::Character(CCharacterType::Character),
         'r' => CFormatType::String(CFormatConversion::Repr),
         's' => CFormatType::String(CFormatConversion::Str),
         'b' => CFormatType::String(CFormatConversion::Bytes),
         'a' => CFormatType::String(CFormatConversion::Ascii),
         _ => return Err((CFormatErrorType::UnsupportedFormatChar(c.into()), index)),
-    };
-    Ok(format_type)
+    })
 }
 
 fn parse_quantity<C, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatQuantity>, ParsingError>

@@ -1,6 +1,5 @@
-/*! Python `attribute` descriptor class. (PyGetSet)
+//! Python `attribute` descriptor class. (PyGetSet)
 
-*/
 use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
@@ -71,9 +70,9 @@ impl GetDescriptor for PyGetSet {
 
 impl PyGetSet {
     #[must_use]
-    pub fn new(name: String, class: &'static Py<PyType>) -> Self {
+    pub fn new(name: &str, class: &'static Py<PyType>) -> Self {
         Self {
-            name,
+            name: name.into(),
             class: PointerSlot::from(class),
             getter: None,
             setter: None,

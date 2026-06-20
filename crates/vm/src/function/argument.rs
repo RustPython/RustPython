@@ -4,7 +4,7 @@ use crate::{
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
 };
-use core::ops::RangeInclusive;
+use core::ops::{Deref, DerefMut, RangeInclusive};
 use indexmap::IndexMap;
 use itertools::Itertools;
 
@@ -60,20 +60,14 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6
 // The number of limitation came from:
 // https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
 
-/// The `FuncArgs` struct is one of the most used structs then creating
+/// The `FuncArgs` struct is one of the most used structs when creating
 /// a rust function that can be called from python. It holds both positional
 /// arguments, as well as keyword arguments passed to the function.
 #[derive(Debug, Default, Clone, Traverse)]
 pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
-    pub kwargs: IndexMap<String, PyObjectRef>,
-}
-
-unsafe impl Traverse for IndexMap<String, PyObjectRef> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.values().for_each(|v| v.traverse(tracer_fn));
-    }
+    pub kwargs: KwArgs,
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -84,7 +78,7 @@ where
     fn from(args: A) -> Self {
         Self {
             args: args.into().into_vec(),
-            kwargs: IndexMap::new(),
+            ..Default::default()
         }
     }
 }
@@ -92,8 +86,8 @@ where
 impl From<KwArgs> for FuncArgs {
     fn from(kwargs: KwArgs) -> Self {
         Self {
-            args: Vec::new(),
-            kwargs: kwargs.0,
+            kwargs,
+            ..Default::default()
         }
     }
 }
@@ -111,8 +105,10 @@ impl FuncArgs {
         K: Into<KwArgs>,
     {
         let PosArgs(args) = args.into();
-        let KwArgs(kwargs) = kwargs.into();
-        Self { args, kwargs }
+        Self {
+            args,
+            kwargs: kwargs.into(),
+        }
     }
 
     pub fn with_kwargs_names<A, KW>(mut args: A, kwarg_names: KW) -> Self
@@ -127,7 +123,7 @@ impl FuncArgs {
 
         let pos_args = args.by_ref().take(pos_arg_count).collect();
 
-        let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _>>();
+        let kwargs = kwarg_names.zip_eq(args).collect();
 
         Self {
             args: pos_args,
@@ -147,8 +143,10 @@ impl FuncArgs {
     ) -> Self {
         debug_assert!(nargs <= args.len());
         debug_assert!(kwnames.is_none_or(|kw| nargs + kw.len() <= args.len()));
+
         let pos_args = args[..nargs].to_vec();
-        let kwargs = if let Some(names) = kwnames {
+
+        let kwargs = kwnames.map_or_else(KwArgs::default, |names| {
             names
                 .iter()
                 .zip(&args[nargs..nargs + names.len()])
@@ -161,9 +159,8 @@ impl FuncArgs {
                     (key, val.clone())
                 })
                 .collect()
-        } else {
-            IndexMap::new()
-        };
+        });
+
         Self {
             args: pos_args,
             kwargs,
@@ -179,7 +176,7 @@ impl FuncArgs {
     ) -> Self {
         debug_assert!(nargs <= args.len());
         debug_assert!(kwnames.is_none_or(|kw| nargs + kw.len() <= args.len()));
-        let kwargs = if let Some(names) = kwnames {
+        let kwargs = kwnames.map_or_else(KwArgs::default, |names| {
             let kw_count = names.len();
             names
                 .iter()
@@ -193,9 +190,8 @@ impl FuncArgs {
                     (key, val)
                 })
                 .collect()
-        } else {
-            IndexMap::new()
-        };
+        });
+
         args.truncate(nargs);
         Self { args, kwargs }
     }
@@ -404,15 +400,35 @@ impl<T: TryFromObject> FromArgOptional for T {
 /// KwArgs is only for functions that accept arbitrary keyword arguments. For
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
+
+impl<T> Default for KwArgs<T> {
+    fn default() -> Self {
+        Self(IndexMap::new())
+    }
+}
+
+impl<T> Deref for KwArgs<T> {
+    type Target = IndexMap<String, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for KwArgs<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 unsafe impl<T> Traverse for KwArgs<T>
 where
     T: Traverse,
 {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.iter().map(|(_, v)| v.traverse(tracer_fn)).count();
+        self.values().for_each(|v| v.traverse(tracer_fn));
     }
 }
 
@@ -423,12 +439,7 @@ impl<T> KwArgs<T> {
     }
 
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
-        self.0.swap_remove(name)
-    }
-
-    #[must_use]
-    pub fn is_empty(self) -> bool {
-        self.0.is_empty()
+        self.swap_remove(name)
     }
 }
 
@@ -438,9 +449,21 @@ impl<T> FromIterator<(String, T)> for KwArgs<T> {
     }
 }
 
-impl<T> Default for KwArgs<T> {
-    fn default() -> Self {
-        Self(IndexMap::new())
+impl<'a, T> IntoIterator for &'a KwArgs<T> {
+    type Item = (&'a String, &'a T);
+    type IntoIter = indexmap::map::Iter<'a, String, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<T> IntoIterator for KwArgs<T> {
+    type Item = (String, T);
+    type IntoIter = indexmap::map::IntoIter<String, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -454,15 +477,6 @@ where
             kwargs.insert(name, value.try_into_value(vm)?);
         }
         Ok(Self(kwargs))
-    }
-}
-
-impl<T> IntoIterator for KwArgs<T> {
-    type Item = (String, T);
-    type IntoIter = indexmap::map::IntoIter<String, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
     }
 }
 

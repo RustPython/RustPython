@@ -373,7 +373,8 @@ impl PyCPointer {
         zelf.0.keep_ref(1, value.clone(), vm)?;
 
         // KeepRef: store GetKeepedObjects(dst) at index 0
-        if let Some(kept) = cdata.objects.read().clone() {
+        let objects = cdata.objects.read().clone();
+        if let Some(kept) = objects {
             zelf.0.keep_ref(0, kept, vm)?;
         }
 
