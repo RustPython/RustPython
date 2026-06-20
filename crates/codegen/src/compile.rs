@@ -31,7 +31,8 @@ use rustpython_compiler_core::{
         self, AnyInstruction, AnyOpcode, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount,
         CodeObject, ComparisonOperator, ConstantData, ConvertValueOparg, Instruction,
         IntrinsicFunction1, Invert, LoadAttr, LoadSuperAttr, MakeFunctionFlag, MakeFunctionFlags,
-        OpArg, OpArgType, PseudoInstruction, SpecialMethod, UnpackExArgs, oparg,
+        OpArg, OpArgType, Opcode, PseudoInstruction, PseudoOpcode, SpecialMethod, UnpackExArgs,
+        oparg,
     },
 };
 use rustpython_wtf8::Wtf8Buf;
@@ -1178,13 +1179,10 @@ impl Compiler {
         let source_path = self.source_file.name().to_owned();
 
         // Lookup symbol table entry using key (_PySymtable_Lookup)
-        let ste = match self.symbol_table_stack.get(key) {
-            Some(v) => v,
-            None => {
-                return Err(self.error(CodegenErrorType::SyntaxError(
-                    "unknown symbol table entry".to_owned(),
-                )));
-            }
+        let Some(ste) = self.symbol_table_stack.get(key) else {
+            return Err(self.error(CodegenErrorType::SyntaxError(
+                "unknown symbol table entry".into(),
+            )));
         };
 
         // Use varnames from symbol table (already collected in definition order)
@@ -1255,16 +1253,21 @@ impl Compiler {
                     .collect()
             })
             .unwrap_or_default();
-        let mut free_names: Vec<_> = ste
+
+        let mut free_names = ste
             .symbols
             .iter()
             .filter(|(_, s)| {
-                s.scope == SymbolScope::Free
-                    || (scope_type != CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS))
-                    || (scope_type == CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS)
-                        && self.has_enclosing_non_module_code_scope())
+                if s.scope == SymbolScope::Free {
+                    return true;
+                }
+
+                let has_free_class = s.flags.contains(SymbolFlags::FREE_CLASS);
+                if scope_type == CompilerScope::Class {
+                    has_free_class && self.has_enclosing_non_module_code_scope()
+                } else {
+                    has_free_class
+                }
             })
             .filter(|(name, symbol)| {
                 if !matches!(
@@ -1276,7 +1279,8 @@ impl Compiler {
                 !(annotation_free_names.contains(*name) && symbol.flags.is_empty())
             })
             .map(|(name, _)| name.clone())
-            .collect();
+            .collect::<Vec<_>>();
+
         free_names.sort();
         for name in free_names {
             freevar_cache.insert(name);
@@ -1418,10 +1422,7 @@ impl Compiler {
         let except_handler = None;
 
         self.cpython_cfg_builder_addop(ir::InstructionInfo {
-            instr: Instruction::Resume {
-                context: OpArgMarker::marker(),
-            }
-            .into(),
+            instr: Opcode::Resume.into(),
             arg: OpArg::new(oparg::ResumeLocation::AtFuncStart.into()),
             target: BlockIdx::NULL,
             location,
@@ -4851,7 +4852,7 @@ impl Compiler {
     /// Determines if a variable should be CELL or FREE type
     // = get_ref_type
     fn get_ref_type(&self, name: &str) -> Result<SymbolScope, CodegenErrorType> {
-        let table = self.symbol_table_stack.last().unwrap();
+        let table = self.current_symbol_table();
 
         // Special handling for __class__, __classdict__, and __conditional_annotations__ in class scope
         // This should only apply when we're actually IN a class body,
@@ -4864,19 +4865,23 @@ impl Compiler {
         {
             return Ok(SymbolScope::Cell);
         }
-        match table.lookup(name) {
-            Some(symbol) => match symbol.scope {
-                SymbolScope::Cell => Ok(SymbolScope::Cell),
-                SymbolScope::Free => Ok(SymbolScope::Free),
-                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => Ok(SymbolScope::Free),
-                _ => Err(CodegenErrorType::SyntaxError(format!(
-                    "get_ref_type: invalid scope for '{name}'"
-                ))),
-            },
-            None => Err(CodegenErrorType::SyntaxError(format!(
+
+        let Some(symbol) = table.lookup(name) else {
+            return Err(CodegenErrorType::SyntaxError(format!(
                 "get_ref_type: cannot find symbol '{name}'"
-            ))),
-        }
+            )));
+        };
+
+        Ok(match symbol.scope {
+            SymbolScope::Cell => SymbolScope::Cell,
+            SymbolScope::Free => SymbolScope::Free,
+            _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => SymbolScope::Free,
+            _ => {
+                return Err(CodegenErrorType::SyntaxError(format!(
+                    "get_ref_type: invalid scope for '{name}'"
+                )));
+            }
+        })
     }
 
     /// Loads closure variables if needed and creates a function object
@@ -8249,12 +8254,7 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<listcomp>",
-                    Some(
-                        Instruction::BuildList {
-                            count: OpArgMarker::marker(),
-                        }
-                        .into(),
-                    ),
+                    Some(Opcode::BuildList.into()),
                     generators,
                     &|compiler, collection_add_i| {
                         compiler.compile_comprehension_element(elt)?;
@@ -8282,12 +8282,7 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<setcomp>",
-                    Some(
-                        Instruction::BuildSet {
-                            count: OpArgMarker::marker(),
-                        }
-                        .into(),
-                    ),
+                    Some(Opcode::BuildSet.into()),
                     generators,
                     &|compiler, collection_add_i| {
                         compiler.compile_comprehension_element(elt)?;
@@ -8316,12 +8311,7 @@ impl Compiler {
             }) => {
                 self.compile_comprehension(
                     "<dictcomp>",
-                    Some(
-                        Instruction::BuildMap {
-                            count: OpArgMarker::marker(),
-                        }
-                        .into(),
-                    ),
+                    Some(Opcode::BuildMap.into()),
                     generators,
                     &|compiler, collection_add_i| {
                         // changed evaluation order for Py38 named expression PEP 572
@@ -10071,18 +10061,22 @@ impl Compiler {
         }
         let instr = instr.into();
         let opcode = AnyOpcode::from(instr);
+
         debug_assert!(
             !instr.is_assembler(),
             "CPython codegen_addop_* must not emit assembler-only opcodes"
         );
+
         debug_assert!(
             opcode.has_arg() || instr.has_target() || u32::from(arg) == 0,
             "CPython _PyInstructionSequence_Addop requires either OPCODE_HAS_ARG, HAS_TARGET, or oparg == 0"
         );
+
         debug_assert!(
             target == BlockIdx::NULL || instr.has_target(),
             "CPython codegen_addop_j only accepts HAS_TARGET opcodes"
         );
+
         let range = self.current_source_range;
         let source = self.source_file.to_source_code();
         let location = source.source_location(range.start(), PositionEncoding::Utf8);
@@ -10166,6 +10160,7 @@ impl Compiler {
             .blocks
             .first_mut()
             .expect("code unit must have an entry block");
+
         debug_assert!(
             entry
                 .used_instructions()
@@ -10179,14 +10174,11 @@ impl Compiler {
                 }),
             "scope entry must start with a function-start RESUME"
         );
+
         debug_assert!(
             !entry.used_instructions().iter().any(|info| matches!(
-                info.instr.real(),
-                Some(
-                    Instruction::ReturnGenerator
-                        | Instruction::MakeCell { .. }
-                        | Instruction::CopyFreeVars { .. }
-                )
+                info.instr.real_opcode(),
+                Some(Opcode::ReturnGenerator | Opcode::MakeCell | Opcode::CopyFreeVars)
             )),
             "CPython inserts StopIteration cleanup before CFG prefix instructions"
         );
@@ -10893,12 +10885,17 @@ impl Compiler {
                     _ => {}
                 }
             }
+
             if !found_loop {
-                if is_break {
-                    return Err(self.error_ranged(CodegenErrorType::InvalidBreak, range));
-                }
-                return Err(self.error_ranged(CodegenErrorType::InvalidContinue, range));
+                let err_type = if is_break {
+                    CodegenErrorType::InvalidBreak
+                } else {
+                    CodegenErrorType::InvalidContinue
+                };
+
+                return Err(self.error_ranged(err_type, range));
             }
+
             return Ok(());
         }
 
@@ -10935,12 +10932,7 @@ impl Compiler {
         } else {
             self.set_source_range(range);
         };
-        self.emit_jump_label(
-            PseudoInstruction::Jump {
-                delta: OpArgMarker::marker(),
-            },
-            target_label,
-        );
+        self.emit_jump_label(PseudoOpcode::Jump, target_label);
         if unwind_loc.is_none() {
             self.set_no_location();
         }
