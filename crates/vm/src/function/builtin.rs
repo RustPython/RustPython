@@ -11,8 +11,9 @@ pub trait PyNativeFn:
     Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static
 {
 }
-impl<F: Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static> PyNativeFn
-    for F
+
+impl<F> PyNativeFn for F where
+    F: Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static
 {
 }
 
@@ -103,8 +104,10 @@ use sealed::PyNativeFnInternal;
 
 #[doc(hidden)]
 pub struct OwnedParam<T>(PhantomData<T>);
+
 #[doc(hidden)]
 pub struct BorrowedParam<T>(PhantomData<T>);
+
 #[doc(hidden)]
 pub struct RefParam<T>(PhantomData<T>);
 

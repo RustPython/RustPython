@@ -919,6 +919,7 @@ impl ConstantData {
     /// bool([]) # False
     /// bool(...) # True
     /// ```
+    #[must_use]
     pub fn truthiness(&self) -> bool {
         match self {
             Self::Tuple { elements } | Self::Frozenset { elements } => !elements.is_empty(),
