@@ -29,7 +29,7 @@ use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
     bytecode::{
         self, AnyInstruction, AnyOpcode, Arg as OpArgMarker, BinaryOperator, BuildSliceArgCount,
-        CodeObject, ComparisonOperator, ConstantData, ConvertValueOparg, Instruction,
+        CodeFlags, CodeObject, ComparisonOperator, ConstantData, ConvertValueOparg, Instruction,
         IntrinsicFunction1, Invert, LoadAttr, LoadSuperAttr, MakeFunctionFlag, MakeFunctionFlags,
         OpArg, OpArgType, Opcode, PseudoInstruction, PseudoOpcode, SpecialMethod, UnpackExArgs,
         oparg,
@@ -467,7 +467,7 @@ impl Compiler {
             // empty flags.  frame.rs:725-731 then binds locals to globals
             // for module/REPL frames whose `scope.locals` is None - the
             // correct semantics for `exec(code, globals)` and module init.
-            flags: bytecode::CodeFlags::empty(),
+            flags: CodeFlags::empty(),
             source_path: source_file.name().to_owned(),
             private: None,
             blocks: vec![ir::Block::default()],
@@ -1288,28 +1288,23 @@ impl Compiler {
 
         // Initialize u_metadata fields
         let (mut flags, posonlyarg_count, arg_count, kwonlyarg_count) = match scope_type {
-            CompilerScope::Module => (bytecode::CodeFlags::empty(), 0, 0, 0),
-            CompilerScope::Class => (bytecode::CodeFlags::empty(), 0, 0, 0),
+            CompilerScope::Module => (CodeFlags::empty(), 0, 0, 0),
+            CompilerScope::Class => (CodeFlags::empty(), 0, 0, 0),
             CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => (
-                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
+                CodeFlags::NEWLOCALS | CodeFlags::OPTIMIZED,
                 0, // Will be set later in enter_function
                 0, // Will be set later in enter_function
                 0, // Will be set later in enter_function
             ),
             CompilerScope::Comprehension => (
-                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
+                CodeFlags::NEWLOCALS | CodeFlags::OPTIMIZED,
                 0,
                 1, // comprehensions take one argument (.0)
                 0,
             ),
-            CompilerScope::TypeParams => (
-                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
-                0,
-                0,
-                0,
-            ),
+            CompilerScope::TypeParams => (CodeFlags::NEWLOCALS | CodeFlags::OPTIMIZED, 0, 0, 0),
             CompilerScope::Annotation => (
-                bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
+                CodeFlags::NEWLOCALS | CodeFlags::OPTIMIZED,
                 1, // format is positional-only
                 1, // annotation scope takes one argument (format)
                 0,
@@ -1317,7 +1312,7 @@ impl Compiler {
         };
 
         if ste.is_method {
-            flags |= bytecode::CodeFlags::METHOD;
+            flags |= CodeFlags::METHOD;
         }
 
         // CPython sets CO_NESTED from symtable's ste_nested, not merely
@@ -1333,12 +1328,12 @@ impl Compiler {
                     | CompilerScope::Annotation
                     | CompilerScope::TypeParams
             ) {
-            flags | bytecode::CodeFlags::NESTED
+            flags | CodeFlags::NESTED
         } else {
             flags
         };
         if self.future_annotations {
-            flags |= bytecode::CodeFlags::FUTURE_ANNOTATIONS;
+            flags |= CodeFlags::FUTURE_ANNOTATIONS;
         }
 
         // Get private name from parent scope
@@ -1460,9 +1455,7 @@ impl Compiler {
             // Preserve flags computed from the symbol-table context.
             info.flags = flags
                 | (info.flags
-                    & (bytecode::CodeFlags::NESTED
-                        | bytecode::CodeFlags::METHOD
-                        | bytecode::CodeFlags::FUTURE_ANNOTATIONS));
+                    & (CodeFlags::NESTED | CodeFlags::METHOD | CodeFlags::FUTURE_ANNOTATIONS));
             info.metadata.argcount = arg_count;
             info.metadata.posonlyargcount = posonlyarg_count;
             info.metadata.kwonlyargcount = kwonlyarg_count;
@@ -2057,7 +2050,7 @@ impl Compiler {
         if self.future_annotations {
             self.current_code_info()
                 .flags
-                .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+                .insert(CodeFlags::FUTURE_ANNOTATIONS);
         }
 
         // Module-level __conditional_annotations__ cell
@@ -2128,7 +2121,7 @@ impl Compiler {
         if self.future_annotations {
             self.current_code_info()
                 .flags
-                .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+                .insert(CodeFlags::FUTURE_ANNOTATIONS);
         }
         self.symbol_table_stack.push(symbol_table);
         let module_start_loc = self.module_start_location(body);
@@ -3213,7 +3206,7 @@ impl Compiler {
         }
 
         self.push_output(
-            bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED,
+            CodeFlags::NEWLOCALS | CodeFlags::OPTIMIZED,
             parameters.posonlyargs.len().to_u32(),
             (parameters.posonlyargs.len() + parameters.args.len()).to_u32(),
             parameters.kwonlyargs.len().to_u32(),
@@ -3231,11 +3224,11 @@ impl Compiler {
         }
 
         if let Some(name) = parameters.vararg.as_deref() {
-            self.current_code_info().flags |= bytecode::CodeFlags::VARARGS;
+            self.current_code_info().flags |= CodeFlags::VARARGS;
             self.varname(name.name.as_str());
         }
         if let Some(name) = parameters.kwarg.as_deref() {
-            self.current_code_info().flags |= bytecode::CodeFlags::VARKEYWORDS;
+            self.current_code_info().flags |= CodeFlags::VARKEYWORDS;
             self.varname(name.name.as_str());
         }
 
@@ -4254,7 +4247,7 @@ impl Compiler {
         self.enter_function(name, parameters)?;
         self.current_code_info()
             .flags
-            .set(bytecode::CodeFlags::COROUTINE, is_async);
+            .set(CodeFlags::COROUTINE, is_async);
 
         // Set up context
         let prev_ctx = self.ctx;
@@ -4283,7 +4276,7 @@ impl Compiler {
                 .insert_full(ConstantData::Str {
                     value: (*doc).to_string().into(),
                 });
-            self.current_code_info().flags |= bytecode::CodeFlags::HAS_DOCSTRING;
+            self.current_code_info().flags |= CodeFlags::HAS_DOCSTRING;
         }
 
         let start_label = self.use_cpython_function_start_label();
@@ -4729,7 +4722,7 @@ impl Compiler {
             // Enter type params scope
             let type_params_name = format!("<generic parameters of {name}>");
             self.push_output(
-                bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
+                CodeFlags::OPTIMIZED | CodeFlags::NEWLOCALS,
                 0,
                 num_typeparam_args,
                 0,
@@ -5286,7 +5279,7 @@ impl Compiler {
         if is_generic {
             let type_params_name = format!("<generic parameters of {name}>");
             self.push_output(
-                bytecode::CodeFlags::OPTIMIZED | bytecode::CodeFlags::NEWLOCALS,
+                CodeFlags::OPTIMIZED | CodeFlags::NEWLOCALS,
                 0,
                 0,
                 0,
@@ -9278,9 +9271,7 @@ impl Compiler {
         if let Some(info) = self.code_stack.last_mut() {
             info.flags = flags
                 | (info.flags
-                    & (bytecode::CodeFlags::NESTED
-                        | bytecode::CodeFlags::METHOD
-                        | bytecode::CodeFlags::FUTURE_ANNOTATIONS));
+                    & (CodeFlags::NESTED | CodeFlags::METHOD | CodeFlags::FUTURE_ANNOTATIONS));
             info.metadata.argcount = arg_count;
             info.metadata.posonlyargcount = posonlyarg_count;
             info.metadata.kwonlyargcount = kwonlyarg_count;
@@ -9364,9 +9355,9 @@ impl Compiler {
             in_async_scope: prev_ctx.in_async_scope || is_async,
         };
 
-        let flags = bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED;
+        let flags = CodeFlags::NEWLOCALS | CodeFlags::OPTIMIZED;
         let flags = if is_async {
-            flags | bytecode::CodeFlags::COROUTINE
+            flags | CodeFlags::COROUTINE
         } else {
             flags
         };
@@ -11162,10 +11153,10 @@ impl Compiler {
         let is_async = self.ctx.func == FunctionContext::AsyncFunction;
         let flags = &mut self.current_code_info().flags;
         if is_async {
-            flags.remove(bytecode::CodeFlags::COROUTINE);
-            flags.insert(bytecode::CodeFlags::ASYNC_GENERATOR);
+            flags.remove(CodeFlags::COROUTINE);
+            flags.insert(CodeFlags::ASYNC_GENERATOR);
         } else {
-            flags.insert(bytecode::CodeFlags::GENERATOR);
+            flags.insert(CodeFlags::GENERATOR);
         }
     }
 
@@ -12209,10 +12200,8 @@ mod tests {
     fn assert_scope_exit_locations(code: &CodeObject) {
         for (instr, (location, _)) in code.instructions.iter().zip(code.locations.iter()) {
             if matches!(
-                instr.op,
-                Instruction::ReturnValue
-                    | Instruction::RaiseVarargs { .. }
-                    | Instruction::Reraise { .. }
+                instr.op.into(),
+                Opcode::ReturnValue | Opcode::RaiseVarargs | Opcode::Reraise
             ) {
                 assert!(
                     location.line.get() > 0,
@@ -12410,7 +12399,7 @@ def f(x, y, z):
         compiler
             .current_code_info()
             .flags
-            .set(bytecode::CodeFlags::COROUTINE, is_async);
+            .set(CodeFlags::COROUTINE, is_async);
 
         let prev_ctx = compiler.ctx;
         compiler.ctx = CompileContext {
@@ -14728,13 +14717,13 @@ def f():
 
         for code in [method, async_method, lambda, genexpr] {
             assert!(
-                code.flags.contains(bytecode::CodeFlags::METHOD),
+                code.flags.contains(CodeFlags::METHOD),
                 "class-scope function-like code should carry CO_METHOD like CPython 3.14, got {:?}",
                 code.flags
             );
         }
         assert!(
-            !module_function.flags.contains(bytecode::CodeFlags::METHOD),
+            !module_function.flags.contains(CodeFlags::METHOD),
             "module-scope function must not carry CO_METHOD"
         );
     }
@@ -14753,11 +14742,11 @@ class C:
         let class_code = find_code(&code, "C").expect("missing class code");
         let lambda = find_code(class_code, "<lambda>").expect("missing lambda code");
         assert!(
-            lambda.flags.contains(bytecode::CodeFlags::NESTED),
+            lambda.flags.contains(CodeFlags::NESTED),
             "lambda under inlined class comprehension should stay nested"
         );
         assert!(
-            !lambda.flags.contains(bytecode::CodeFlags::METHOD),
+            !lambda.flags.contains(CodeFlags::METHOD),
             "CPython creates this lambda while the current symtable block is the comprehension, not the class"
         );
     }
@@ -14793,37 +14782,17 @@ async def ag():
         let coroutine = find_code(&code, "c").expect("missing coroutine code");
         let async_generator = find_code(&code, "ag").expect("missing async generator code");
 
-        assert!(generator.flags.contains(bytecode::CodeFlags::GENERATOR));
-        assert!(!generator.flags.contains(bytecode::CodeFlags::COROUTINE));
-        assert!(
-            !generator
-                .flags
-                .contains(bytecode::CodeFlags::ASYNC_GENERATOR)
-        );
+        assert!(generator.flags.contains(CodeFlags::GENERATOR));
+        assert!(!generator.flags.contains(CodeFlags::COROUTINE));
+        assert!(!generator.flags.contains(CodeFlags::ASYNC_GENERATOR));
 
-        assert!(coroutine.flags.contains(bytecode::CodeFlags::COROUTINE));
-        assert!(!coroutine.flags.contains(bytecode::CodeFlags::GENERATOR));
-        assert!(
-            !coroutine
-                .flags
-                .contains(bytecode::CodeFlags::ASYNC_GENERATOR)
-        );
+        assert!(coroutine.flags.contains(CodeFlags::COROUTINE));
+        assert!(!coroutine.flags.contains(CodeFlags::GENERATOR));
+        assert!(!coroutine.flags.contains(CodeFlags::ASYNC_GENERATOR));
 
-        assert!(
-            async_generator
-                .flags
-                .contains(bytecode::CodeFlags::ASYNC_GENERATOR)
-        );
-        assert!(
-            !async_generator
-                .flags
-                .contains(bytecode::CodeFlags::GENERATOR)
-        );
-        assert!(
-            !async_generator
-                .flags
-                .contains(bytecode::CodeFlags::COROUTINE)
-        );
+        assert!(async_generator.flags.contains(CodeFlags::ASYNC_GENERATOR));
+        assert!(!async_generator.flags.contains(CodeFlags::GENERATOR));
+        assert!(!async_generator.flags.contains(CodeFlags::COROUTINE));
     }
 
     #[test]
@@ -24064,15 +24033,11 @@ def f():
     return C
 ",
         );
-        assert!(code.flags.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS));
+        assert!(code.flags.contains(CodeFlags::FUTURE_ANNOTATIONS));
         let f = find_code(&code, "f").expect("missing f code");
-        assert!(f.flags.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS));
+        assert!(f.flags.contains(CodeFlags::FUTURE_ANNOTATIONS));
         let class_code = find_code(f, "C").expect("missing C code");
-        assert!(
-            class_code
-                .flags
-                .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS)
-        );
+        assert!(class_code.flags.contains(CodeFlags::FUTURE_ANNOTATIONS));
     }
 
     #[test]
@@ -24091,7 +24056,7 @@ def outer():
         let class_annotate =
             find_code(class_code, "__annotate__").expect("missing class annotation code");
         assert!(
-            !class_annotate.flags.contains(bytecode::CodeFlags::NESTED),
+            !class_annotate.flags.contains(CodeFlags::NESTED),
             "module-level class annotation scope should not be nested"
         );
 
@@ -24100,7 +24065,7 @@ def outer():
         let nested_annotate =
             find_code(nested_class, "__annotate__").expect("missing nested annotation code");
         assert!(
-            nested_annotate.flags.contains(bytecode::CodeFlags::NESTED),
+            nested_annotate.flags.contains(CodeFlags::NESTED),
             "annotation scope under a nested class should be nested"
         );
     }
@@ -24115,25 +24080,25 @@ type A[T] = T
         );
         let outer_lambda = find_code(&code, "<lambda>").expect("missing outer lambda code");
         assert!(
-            !outer_lambda.flags.contains(bytecode::CodeFlags::NESTED),
+            !outer_lambda.flags.contains(CodeFlags::NESTED),
             "module-level lambda should not be nested"
         );
         let inner_lambda =
             find_direct_child_code(outer_lambda, "<lambda>").expect("missing inner lambda code");
         assert!(
-            inner_lambda.flags.contains(bytecode::CodeFlags::NESTED),
+            inner_lambda.flags.contains(CodeFlags::NESTED),
             "lambda inside lambda should be nested"
         );
 
         let type_params =
             find_code(&code, "<generic parameters of A>").expect("missing type params code");
         assert!(
-            !type_params.flags.contains(bytecode::CodeFlags::NESTED),
+            !type_params.flags.contains(CodeFlags::NESTED),
             "module-level type-parameter scope should not be nested"
         );
         let type_alias = find_direct_child_code(type_params, "A").expect("missing type alias code");
         assert!(
-            type_alias.flags.contains(bytecode::CodeFlags::NESTED),
+            type_alias.flags.contains(CodeFlags::NESTED),
             "type alias body inside type-parameter scope should be nested"
         );
     }
