@@ -1096,7 +1096,7 @@ pub fn simple_storage_value_to_bytes_endian(
             result
         }
         "?" => match value {
-            SimpleStorageValue::Bool(value) => vec![if value { 1 } else { 0 }],
+            SimpleStorageValue::Bool(value) => vec![u8::from(value)],
             _ => vec![0],
         },
         "v" => match value {
@@ -1435,11 +1435,7 @@ pub fn ffi_value_from_type_code(type_code: &str, buffer: &[u8]) -> FfiValue {
                 .map_or(0.0, f64::from_ne_bytes),
         ),
         "z" | "Z" | "P" | "O" => FfiValue::Pointer(read_pointer_from_buffer(buffer)),
-        "?" => FfiValue::U8(if buffer.first().is_some_and(|&b| b != 0) {
-            1
-        } else {
-            0
-        }),
+        "?" => FfiValue::U8(u8::from(buffer.first().is_some_and(|&b| b != 0))),
         "u" => FfiValue::U32(buffer.first_chunk().copied().map_or(0, u32::from_ne_bytes)),
         _ => FfiValue::Pointer(0),
     }

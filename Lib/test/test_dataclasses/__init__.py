@@ -3977,7 +3977,6 @@ class TestSlots(unittest.TestCase):
         # that we create internally.
         self.assertEqual(CorrectSuper.args, ["default", "default"])
 
-    @unittest.skip("TODO: RUSTPYTHON; Crash - static type name must be already interned but async_generator_wrapped_value is not")
     def test_original_class_is_gced(self):
         # gh-135228: Make sure when we replace the class with slots=True, the original class
         # gets garbage collected.

@@ -18,7 +18,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout base branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           # Use base branch for scripts (security: don't run PR code with elevated permissions)
           ref: ${{ github.event.pull_request.base.ref }}
@@ -41,7 +41,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout CPython
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: python/cpython
           path: cpython

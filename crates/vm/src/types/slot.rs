@@ -1552,7 +1552,8 @@ impl PyType {
         let mro = self.mro.read();
 
         // Look up in self's dict first
-        if let Some(attr) = self.attributes.read().get(name).cloned() {
+        let attr_name = self.attributes.read().get(name).cloned();
+        if let Some(attr) = attr_name {
             if let Some(func) = try_extract(&attr, &mro) {
                 return SlotLookupResult::NativeSlot(func);
             }
@@ -1561,7 +1562,8 @@ impl PyType {
 
         // Look up in MRO (mro[0] is self, so skip it)
         for (i, cls) in mro[1..].iter().enumerate() {
-            if let Some(attr) = cls.attributes.read().get(name).cloned() {
+            let attr_name = cls.attributes.read().get(name).cloned();
+            if let Some(attr) = attr_name {
                 // Use the slice starting from this class in MRO
                 if let Some(func) = try_extract(&attr, &mro[i + 1..]) {
                     return SlotLookupResult::NativeSlot(func);

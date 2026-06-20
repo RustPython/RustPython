@@ -43,7 +43,7 @@ jobs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -87,7 +87,7 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -203,7 +203,7 @@ jobs:
           target: x86_64-apple-darwin
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -313,7 +313,7 @@ jobs:
           timeout: 50
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -457,7 +457,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -495,13 +495,13 @@ jobs:
       needs.determine_changes.outputs.rust_code == 'true' ||
       github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
+      - uses: cargo-bins/cargo-binstall@30b5ca8b54e1dcffd9548bc87ede1531310fdc67 # v1.20.0
 
       - name: cargo shear
         run: |
@@ -518,7 +518,7 @@ jobs:
       pull-requests: write
       security-events: write # for zizmor
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -558,7 +558,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Clone CPython
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           repository: python/cpython
           path: cpython
@@ -596,7 +596,7 @@ jobs:
     env:
       NIGHTLY_CHANNEL: nightly
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -631,7 +631,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -746,7 +746,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 
@@ -798,7 +798,7 @@ jobs:
     name: cargo doc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           persist-credentials: false
 

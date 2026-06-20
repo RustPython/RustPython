@@ -13,6 +13,11 @@ pub(crate) use _thread::{
 
 #[pymodule]
 pub(crate) mod _thread {
+    use parking_lot::{
+        RawMutex, RawThreadId,
+        lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
+    };
+
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
@@ -21,19 +26,17 @@ pub(crate) mod _thread {
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
-    use alloc::{
-        fmt,
-        sync::{Arc, Weak},
-    };
-    use core::{cell::RefCell, time::Duration};
-    use parking_lot::{
-        RawMutex, RawThreadId,
-        lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
-    };
+
+    use alloc::sync::{Arc, Weak};
+    use core::{cell::RefCell, fmt, time::Duration};
+    use std::thread;
+
     use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
     #[cfg(any(unix, windows))]
     use rustpython_host_env::thread as host_thread;
-    use std::thread;
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
+    use crate::signal::SignalNum;
 
     // PYTHREAD_NAME: show current thread name
     pub(crate) const PYTHREAD_NAME: Option<&str> = cfg_select! {
@@ -43,12 +46,11 @@ pub(crate) mod _thread {
         _ => None,
     };
 
-    // TIMEOUT_MAX_IN_MICROSECONDS is a value in microseconds
-    #[cfg(not(target_os = "windows"))]
-    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = i64::MAX / 1_000;
-
-    #[cfg(target_os = "windows")]
-    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = 0xffffffff * 1_000;
+    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = if cfg!(target_os = "windows") {
+        0xffffffff * 1_000
+    } else {
+        i64::MAX / 1_000
+    };
 
     /// [CPython `SYSTEM_PAGE_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_obmalloc.h#L170)
     const SYSTEM_PAGE_SIZE: usize = 4 * 1024;
@@ -614,8 +616,9 @@ pub(crate) mod _thread {
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
-    fn interrupt_main(signum: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
-        crate::signal::set_interrupt_ex(signum.unwrap_or(libc::SIGINT), vm)
+    fn interrupt_main(signum: OptionalArg<SignalNum>) -> PyResult<()> {
+        let sig = signum.unwrap_or(SignalNum::SIGINT);
+        crate::signal::set_interrupt_ex(sig)
     }
 
     #[pyfunction]
@@ -944,7 +947,8 @@ pub(crate) mod _thread {
             let thread_id = current_thread_id();
 
             // Fast path: check if dict exists under lock
-            if let Some(dict) = self.inner.data.lock().get(&thread_id).cloned() {
+            let value = self.inner.data.lock().get(&thread_id).cloned();
+            if let Some(dict) = value {
                 return dict;
             }
 

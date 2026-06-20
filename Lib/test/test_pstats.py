@@ -58,7 +58,7 @@ class StatsTestCase(unittest.TestCase):
             temp_storage_new.close()
             os.remove(temp_storage_new.name)
 
-    @unittest.skipUnless(cProfile, 'TODO: RUSTPYTHON; _lsprof not implemented')
+    @unittest.skipUnless(cProfile, "TODO: RUSTPYTHON; _lsprof not implemented")
     def test_load_equivalent_to_init(self):
         stats = pstats.Stats()
         self.temp_storage = tempfile.NamedTemporaryFile(delete=False)
@@ -136,7 +136,7 @@ class StatsTestCase(unittest.TestCase):
                           SortKey.TIME,
                           'calls')
 
-    @unittest.skipUnless(cProfile, 'TODO: RUSTPYTHON; _lsprof not implemented')
+    @unittest.skipUnless(cProfile, "TODO: RUSTPYTHON; _lsprof not implemented")
     def test_get_stats_profile(self):
         def pass1(): pass
         def pass2(): pass

@@ -180,7 +180,7 @@ impl Py<PyModule> {
             .flatten()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(&spec, vm);
+        let origin = get_spec_file_origin(spec.as_ref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()

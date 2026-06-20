@@ -1085,7 +1085,7 @@ mod _socket {
             loop {
                 if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
                     let sock = self.sock()?;
-                    sock_wait_deadline(&sock, wait_kind, &deadline, vm)?;
+                    sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
                 let err = loop {
@@ -2452,7 +2452,7 @@ mod _socket {
         timeout: Option<Duration>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match sock_wait_deadline(sock, wait_kind, &timeout.map(Deadline::new), vm) {
+        match sock_wait_deadline(sock, wait_kind, timeout.map(Deadline::new).as_ref(), vm) {
             Ok(()) => Ok(false),
             Err(IoOrPyException::Timeout) => Ok(true),
             Err(e) => Err(e.into_pyexception(vm)),
@@ -2463,7 +2463,7 @@ mod _socket {
     fn sock_wait_deadline(
         sock: &Socket,
         wait_kind: SockWaitKind,
-        deadline: &Option<Deadline>,
+        deadline: Option<&Deadline>,
         vm: &VirtualMachine,
     ) -> Result<(), IoOrPyException> {
         #[cfg(unix)]
