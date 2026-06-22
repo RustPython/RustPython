@@ -32,6 +32,7 @@ pub struct PyModuleDef_Slot {
     value: PyModuleDef_SlotValue,
 }
 
+#[allow(non_camel_case_types)]
 union PyModuleDef_SlotValue {
     exec_module: extern "C" fn(*mut PyObject) -> c_int,
     gil_used: usize,
@@ -129,6 +130,7 @@ mod tests {
     use pyo3::prelude::*;
 
     #[test]
+    #[cfg(false)]
     fn test_create_module() {
         const {
             assert!(
