@@ -3553,6 +3553,7 @@ dependencies = [
  "lz4_flex",
  "malachite-bigint",
  "num-complex",
+ "num-traits",
  "rustpython-ruff_source_file",
  "rustpython-wtf8",
 ]

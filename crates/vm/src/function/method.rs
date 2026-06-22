@@ -254,6 +254,7 @@ impl PyMethodDef {
         all_methods
     }
 
+    #[must_use]
     const fn const_copy(&self) -> Self {
         Self {
             name: self.name,
