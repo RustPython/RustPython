@@ -789,8 +789,38 @@ mod _io {
 
     #[pyclass(flags(BASETYPE, HAS_WEAKREF))]
     impl _TextIOBase {
+        #[pymethod]
+        fn read(zelf: PyObjectRef, _size: OptionalArg, vm: &VirtualMachine) -> PyResult {
+            _unsupported(vm, &zelf, "read")
+        }
+
+        #[pymethod]
+        fn write(zelf: PyObjectRef, _b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            _unsupported(vm, &zelf, "write")
+        }
+
+        #[pymethod]
+        fn truncate(zelf: PyObjectRef, _pos: OptionalArg, vm: &VirtualMachine) -> PyResult {
+            _unsupported(vm, &zelf, "truncate")
+        }
+
+        #[pymethod]
+        fn readline(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            _unsupported(vm, &zelf, "readline")
+        }
+
+        #[pymethod]
+        fn detach(zelf: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            _unsupported(vm, &zelf, "detach")
+        }
+
         #[pygetset]
         fn encoding(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+            vm.ctx.none()
+        }
+
+        #[pygetset]
+        fn newlines(_zelf: PyObjectRef, vm: &VirtualMachine) -> PyObjectRef {
             vm.ctx.none()
         }
 
