@@ -18,6 +18,18 @@ impl PySlot {
     const SLOT_STATIC: u16 = 0x0002;
     const SLOT_INTPTR: u16 = 0x0004;
 
+    pub(crate) fn iter<'a>(mut slots: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let slot = unsafe { &*slots };
+            if slot.sl_id == 0 {
+                None
+            } else {
+                slots = unsafe { slots.add(1) };
+                Some(slot)
+            }
+        })
+    }
+
     #[must_use]
     pub fn is_optional(&self) -> bool {
         self.sl_flags & Self::SLOT_OPTIONAL != 0
@@ -73,6 +85,7 @@ impl PyABIInfo {
 }
 
 #[allow(dead_code)]
+#[derive(Debug)]
 pub(crate) enum PySlotKind {
     ModuleCreate(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
     ModuleExec(unsafe extern "C" fn(*mut PyObject) -> c_int),
@@ -162,49 +175,6 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
         let value_ptr = unsafe { slot.value.sl_ptr };
         let is_static = slot.is_static();
         let kind = match slot.sl_id {
-            1 => {
-                let create = unsafe {
-                    core::mem::transmute::<
-                        unsafe extern "C" fn(),
-                        unsafe extern "C" fn(
-                            spec: *mut PyObject,
-                            def: *mut c_void,
-                        ) -> *mut PyObject,
-                    >(slot.value.sl_func)
-                };
-                Self::ModuleCreate(create)
-            }
-            2 => {
-                let exec = unsafe {
-                    core::mem::transmute::<
-                        unsafe extern "C" fn(),
-                        unsafe extern "C" fn(*mut rustpython_vm::PyObject) -> i32,
-                    >(slot.value.sl_func)
-                };
-                Self::ModuleExec(exec)
-            }
-            // Module slots
-            3 => Self::ModuleMultipleInterpreters {
-                value: value_ptr,
-                is_static,
-            },
-            4 => Self::ModuleGil {
-                gil_used: !value_ptr.is_null(),
-                is_static,
-            },
-            5 => Self::ModuleAbi {
-                value: value_ptr.cast(),
-                is_static,
-            },
-            6 => Self::ModuleName {
-                value: value_ptr.cast(),
-                is_static,
-            },
-            7 => Self::ModuleDoc {
-                value: value_ptr.cast(),
-                is_static,
-            },
-            9 => Self::ModuleMethods(value_ptr.cast()),
             // Type slots
             48 => Self::TypeBase {
                 value: value_ptr.cast(),
@@ -216,6 +186,35 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
             },
             83 => Self::TypeToken {
                 value: value_ptr,
+                is_static,
+            },
+            84 => {
+                let create = unsafe {
+                    core::mem::transmute::<
+                        unsafe extern "C" fn(),
+                        unsafe extern "C" fn(
+                            spec: *mut PyObject,
+                            def: *mut c_void,
+                        ) -> *mut PyObject,
+                    >(slot.value.sl_func)
+                };
+                Self::ModuleCreate(create)
+            }
+            85 => {
+                let exec = unsafe {
+                    core::mem::transmute::<
+                        unsafe extern "C" fn(),
+                        unsafe extern "C" fn(*mut rustpython_vm::PyObject) -> i32,
+                    >(slot.value.sl_func)
+                };
+                Self::ModuleExec(exec)
+            }
+            86 => Self::ModuleMultipleInterpreters {
+                value: value_ptr,
+                is_static,
+            },
+            87 => Self::ModuleGil {
+                gil_used: !value_ptr.is_null(),
                 is_static,
             },
             93 => Self::TypeSlots {
@@ -234,6 +233,19 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
                 value: value_ptr.cast(),
                 is_static,
             },
+            109 => Self::ModuleAbi {
+                value: value_ptr.cast(),
+                is_static,
+            },
+            100 => Self::ModuleName {
+                value: value_ptr.cast(),
+                is_static,
+            },
+            101 => Self::ModuleDoc {
+                value: value_ptr.cast(),
+                is_static,
+            },
+            103 => Self::ModuleMethods(value_ptr.cast()),
             id => {
                 if slot.is_optional() {
                     Self::Unknown {
