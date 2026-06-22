@@ -68,6 +68,7 @@ impl PyStaticMethod {
             callable: PyMutex::new(callable),
         }
     }
+
     #[deprecated(note = "use PyStaticMethod::new(...).into_ref() instead")]
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         Self::new(callable).into_ref(ctx)

@@ -1,14 +1,19 @@
+use alloc::borrow::Cow;
+use core::ops::{Deref, Range};
+use std::collections::HashMap;
+
 use rustpython_common::{
+    ascii,
     borrow::BorrowedValue,
     encodings::{
         CodecContext, DecodeContext, DecodeErrorHandler, EncodeContext, EncodeErrorHandler,
         EncodeReplace, StrBuffer, StrSize, errors,
     },
+    lock::{OnceCell, PyRwLock},
     str::StrKind,
     wtf8::{CodePoint, Wtf8, Wtf8Buf},
 };
 
-use crate::common::lock::OnceCell;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
@@ -16,13 +21,9 @@ use crate::{
         PyBaseExceptionRef, PyBytes, PyBytesRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyUtf8Str,
         PyUtf8StrRef,
     },
-    common::{ascii, lock::PyRwLock},
     convert::ToPyObject,
     function::{ArgBytesLike, PyMethodDef},
 };
-use alloc::borrow::Cow;
-use core::ops::{self, Range};
-use std::collections::HashMap;
 
 pub struct CodecsRegistry {
     inner: PyRwLock<RegistryInner>,
@@ -39,6 +40,7 @@ pub(crate) const DEFAULT_ENCODING: &str = "utf-8";
 #[derive(Clone)]
 #[repr(transparent)]
 pub struct PyCodec(PyTupleRef);
+
 impl PyCodec {
     #[inline]
     pub fn from_tuple(tuple: PyTupleRef) -> Result<Self, PyTupleRef> {
@@ -48,10 +50,12 @@ impl PyCodec {
             Err(tuple)
         }
     }
+
     #[inline]
     pub fn into_tuple(self) -> PyTupleRef {
         self.0
     }
+
     #[inline]
     pub fn as_tuple(&self) -> &Py<PyTuple> {
         &self.0
@@ -61,6 +65,7 @@ impl PyCodec {
     pub fn get_encode_func(&self) -> &PyObject {
         &self.0[0]
     }
+
     #[inline]
     pub fn get_decode_func(&self) -> &PyObject {
         &self.0[1]
@@ -116,10 +121,7 @@ impl PyCodec {
         errors: Option<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let args = match errors {
-            Some(e) => vec![e.into()],
-            None => vec![],
-        };
+        let args = errors.map_or_else(Vec::new, |e| vec![e.into()]);
         vm.call_method(self.0.as_object(), "incrementalencoder", args)
     }
 
@@ -128,10 +130,7 @@ impl PyCodec {
         errors: Option<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let args = match errors {
-            Some(e) => vec![e.into()],
-            None => vec![],
-        };
+        let args = errors.map_or_else(Vec::new, |e| vec![e.into()]);
         vm.call_method(self.0.as_object(), "incrementaldecoder", args)
     }
 }
@@ -191,16 +190,17 @@ impl CodecsRegistry {
             ("namereplace", methods[5].build_function(ctx)),
             ("surrogatepass", methods[6].build_function(ctx)),
             ("surrogateescape", methods[7].build_function(ctx)),
-        ];
-        let errors = errors
-            .into_iter()
-            .map(|(name, f)| (name.to_owned(), f.into()))
-            .collect();
+        ]
+        .into_iter()
+        .map(|(name, f)| (name.to_owned(), f.into()))
+        .collect();
+
         let inner = RegistryInner {
             search_path: Vec::new(),
             search_cache: HashMap::new(),
             errors,
         };
+
         Self {
             inner: PyRwLock::new(inner),
         }
@@ -210,6 +210,7 @@ impl CodecsRegistry {
         if !search_function.is_callable() {
             return Err(vm.new_type_error("argument must be callable"));
         }
+
         self.inner.write().search_path.push(search_function);
         Ok(())
     }
@@ -250,6 +251,7 @@ impl CodecsRegistry {
             }
             inner.search_path.clone()
         };
+
         let encoding: PyUtf8StrRef = vm.ctx.new_utf8_str(encoding.as_ref());
         for func in search_path {
             let res = func.call((encoding.clone(),), vm)?;
@@ -264,6 +266,7 @@ impl CodecsRegistry {
                 return Ok(codec.clone());
             }
         }
+
         Err(vm.new_lookup_error(format!("unknown encoding: {encoding}")))
     }
 
@@ -274,6 +277,7 @@ impl CodecsRegistry {
         vm: &VirtualMachine,
     ) -> PyResult<PyCodec> {
         let codec = self.lookup(encoding, vm)?;
+
         if codec.is_text_codec(vm)? {
             Ok(codec)
         } else {
@@ -430,7 +434,7 @@ fn normalize_encoding_name(encoding: &str) -> Cow<'_, str> {
     out.into()
 }
 
-#[derive(Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 enum StandardEncoding {
     Utf8,
     Utf16Be,
@@ -455,12 +459,14 @@ impl StandardEncoding {
             let encoding = encoding
                 .strip_prefix(|c| ['-', '_'].contains(&c))
                 .unwrap_or(encoding);
+
             if encoding == "8" {
                 Some(Self::Utf8)
             } else if let Some(encoding) = encoding.strip_prefix("16") {
                 if encoding.is_empty() {
                     return Some(Self::UTF_16_NE);
                 }
+
                 let encoding = encoding.strip_prefix(['-', '_']).unwrap_or(encoding);
                 match encoding {
                     "be" => Some(Self::Utf16Be),
@@ -471,6 +477,7 @@ impl StandardEncoding {
                 if encoding.is_empty() {
                     return Some(Self::UTF_32_NE);
                 }
+
                 let encoding = encoding.strip_prefix(['-', '_']).unwrap_or(encoding);
                 match encoding {
                     "be" => Some(Self::Utf32Be),
@@ -504,10 +511,12 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for SurrogatePass {
         let mut out: Vec<u8> = Vec::with_capacity(num_chars * 4);
         for ch in err_str.code_points() {
             let c = ch.to_u32();
-            let 0xd800..=0xdfff = c else {
+
+            if !(0xd800..=0xdfff).contains(&c) {
                 // Not a surrogate, fail with original exception
                 return Err(ctx.error_encoding(range, reason));
-            };
+            }
+
             match standard_encoding {
                 StandardEncoding::Utf8 => out.extend(ch.encode_wtf8(&mut [0; 4]).as_bytes()),
                 StandardEncoding::Utf16Le => out.extend((c as u16).to_le_bytes()),
@@ -601,7 +610,9 @@ impl<'a> PyEncodeContext<'a> {
 
 impl CodecContext for PyEncodeContext<'_> {
     type Error = PyBaseExceptionRef;
+
     type StrBuf = PyStrRef;
+
     type BytesBuf = PyBytesRef;
 
     fn string(&self, s: Wtf8Buf) -> Self::StrBuf {
@@ -612,6 +623,7 @@ impl CodecContext for PyEncodeContext<'_> {
         self.vm.ctx.new_bytes(b)
     }
 }
+
 impl EncodeContext for PyEncodeContext<'_> {
     fn full_data(&self) -> &Wtf8 {
         self.data.as_wtf8()
@@ -690,12 +702,15 @@ pub(crate) struct PyDecodeContext<'a> {
     pos: usize,
     exception: OnceCell<PyBaseExceptionRef>,
 }
+
 enum PyDecodeData<'a> {
     Original(BorrowedValue<'a, [u8]>),
     Modified(PyBytesRef),
 }
-impl ops::Deref for PyDecodeData<'_> {
+
+impl Deref for PyDecodeData<'_> {
     type Target = [u8];
+
     fn deref(&self) -> &Self::Target {
         match self {
             PyDecodeData::Original(data) => data,
@@ -719,7 +734,9 @@ impl<'a> PyDecodeContext<'a> {
 
 impl CodecContext for PyDecodeContext<'_> {
     type Error = PyBaseExceptionRef;
+
     type StrBuf = PyStrRef;
+
     type BytesBuf = PyBytesRef;
 
     fn string(&self, s: Wtf8Buf) -> Self::StrBuf {
@@ -730,6 +747,7 @@ impl CodecContext for PyDecodeContext<'_> {
         self.vm.ctx.new_bytes(b)
     }
 }
+
 impl DecodeContext for PyDecodeContext<'_> {
     fn full_data(&self) -> &[u8] {
         &self.data
@@ -872,17 +890,19 @@ enum ResolvedError {
 impl<'a> ErrorsHandler<'a> {
     #[inline]
     pub(crate) fn new(errors: Option<&'a Py<PyUtf8Str>>, vm: &VirtualMachine) -> Self {
-        match errors {
-            Some(errors) => Self {
+        if let Some(errors) = errors {
+            Self {
                 errors,
                 resolved: OnceCell::new(),
-            },
-            None => Self {
+            }
+        } else {
+            Self {
                 errors: identifier_utf8!(vm, strict),
                 resolved: OnceCell::from(ResolvedError::Standard(StandardError::Strict)),
-            },
+            }
         }
     }
+
     #[inline]
     fn resolve(&self, vm: &VirtualMachine) -> PyResult<&ResolvedError> {
         if let Some(val) = self.resolved.get() {
@@ -901,11 +921,13 @@ impl<'a> ErrorsHandler<'a> {
         Ok(self.resolved.get().unwrap())
     }
 }
+
 impl StrBuffer for PyStrRef {
     fn is_compatible_with(&self, kind: StrKind) -> bool {
         self.kind() <= kind
     }
 }
+
 impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
     fn handle_encode_error(
         &self,
@@ -956,6 +978,7 @@ impl<'a> EncodeErrorHandler<PyEncodeContext<'a>> for ErrorsHandler<'_> {
         Ok((replace, restart))
     }
 }
+
 impl<'a> DecodeErrorHandler<PyDecodeContext<'a>> for ErrorsHandler<'_> {
     fn handle_decode_error(
         &self,
@@ -1110,8 +1133,10 @@ where
 fn extract_unicode_error_range(err: &PyObject, vm: &VirtualMachine) -> PyResult<Range<usize>> {
     let start = err.get_attr("start", vm)?;
     let start = start.try_into_value(vm)?;
+
     let end = err.get_attr("end", vm)?;
     let end = end.try_into_value(vm)?;
+
     Ok(Range { start, end })
 }
 
@@ -1134,10 +1159,12 @@ fn update_unicode_error_attrs(
 fn is_encode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.unicode_encode_error)
 }
+
 #[inline]
 fn is_decode_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.unicode_decode_error)
 }
+
 #[inline]
 fn is_translate_err(err: &PyObject, vm: &VirtualMachine) -> bool {
     err.fast_isinstance(vm.ctx.exceptions.unicode_translate_error)
@@ -1151,10 +1178,9 @@ fn bad_err_type(err: PyObjectRef, vm: &VirtualMachine) -> PyBaseExceptionRef {
 }
 
 fn strict_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-    let err = err
+    Err(err
         .downcast()
-        .unwrap_or_else(|_| vm.new_type_error("codec must pass exception instance"));
-    Err(err)
+        .unwrap_or_else(|_| vm.new_type_error("codec must pass exception instance")))
 }
 
 fn ignore_errors(err: PyObjectRef, vm: &VirtualMachine) -> PyResult<(PyObjectRef, usize)> {
