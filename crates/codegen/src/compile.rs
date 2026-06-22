@@ -12,7 +12,7 @@
 use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
-    ir::{self, BlockIdx},
+    ir::{self, BlockIdx, Blocks},
     preprocess,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
@@ -470,7 +470,7 @@ impl Compiler {
             flags: CodeFlags::empty(),
             source_path: source_file.name().to_owned(),
             private: None,
-            blocks: vec![ir::Block::default()],
+            blocks: Blocks::default(),
             current_block: BlockIdx::new(0),
             instr_sequence: ir::InstructionSequence::new(),
             instr_sequence_label_map: ir::InstructionSequenceLabelMap::new(),
@@ -548,7 +548,7 @@ impl Compiler {
         ) = {
             let code = self.current_code_info();
             (
-                mem::replace(&mut code.blocks, vec![ir::Block::default()]),
+                mem::replace(&mut code.blocks, Blocks::default()),
                 mem::replace(&mut code.current_block, BlockIdx::new(0)),
                 mem::replace(&mut code.instr_sequence, ir::InstructionSequence::new()),
                 mem::replace(
@@ -1348,7 +1348,7 @@ impl Compiler {
             flags,
             source_path,
             private,
-            blocks: vec![ir::Block::default()],
+            blocks: Blocks::default(),
             current_block: BlockIdx::new(0),
             instr_sequence: ir::InstructionSequence::new(),
             instr_sequence_label_map: ir::InstructionSequenceLabelMap::new(),

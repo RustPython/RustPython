@@ -1,4 +1,4 @@
-use core::ops;
+use core::ops::{Deref, DerefMut, Index, IndexMut};
 
 use crate::{IndexMap, IndexSet, error::InternalError};
 use malachite_bigint::BigInt;
@@ -141,7 +141,7 @@ impl ConstantPool {
     }
 }
 
-impl ops::Index<usize> for ConstantPool {
+impl Index<usize> for ConstantPool {
     type Output = ConstantData;
 
     fn index(&self, idx: usize) -> &Self::Output {
@@ -190,44 +190,34 @@ impl BlockIdx {
         Self(value)
     }
 
+    /// Returns the inner [`u32`] value.
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// Returns the inner value as a [`usize`].
+    #[must_use]
+    pub const fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+
     /// Returns the inner value as a [`usize`].
     #[must_use]
     pub const fn idx(self) -> usize {
-        self.0 as usize
+        self.as_usize()
     }
 }
 
 impl From<BlockIdx> for u32 {
     fn from(block_idx: BlockIdx) -> Self {
-        block_idx.0
+        block_idx.as_u32()
     }
 }
 
-impl ops::Index<BlockIdx> for [Block] {
-    type Output = Block;
-
-    fn index(&self, idx: BlockIdx) -> &Block {
-        &self[idx.idx()]
-    }
-}
-
-impl ops::IndexMut<BlockIdx> for [Block] {
-    fn index_mut(&mut self, idx: BlockIdx) -> &mut Block {
-        &mut self[idx.idx()]
-    }
-}
-
-impl ops::Index<BlockIdx> for Vec<Block> {
-    type Output = Block;
-
-    fn index(&self, idx: BlockIdx) -> &Block {
-        &self[idx.idx()]
-    }
-}
-
-impl ops::IndexMut<BlockIdx> for Vec<Block> {
-    fn index_mut(&mut self, idx: BlockIdx) -> &mut Block {
-        &mut self[idx.idx()]
+impl From<BlockIdx> for usize {
+    fn from(block_idx: BlockIdx) -> Self {
+        block_idx.as_usize()
     }
 }
 
@@ -449,7 +439,7 @@ fn basicblock_insert_instruction(
 
 /// flowgraph.c basicblock_append_instructions
 fn basicblock_append_block_instructions(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     to: BlockIdx,
     from: BlockIdx,
 ) -> crate::InternalResult<()> {
@@ -765,7 +755,7 @@ fn instruction_sequence_apply_label_map(
 
 /// flowgraph.c _PyCfg_ToInstructionSequence
 fn cfg_to_instruction_sequence(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     instr_sequence: &mut InstructionSequence,
 ) -> crate::InternalResult<()> {
     let mut label_id = 0;
@@ -1314,6 +1304,100 @@ impl Block {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct Blocks(Vec<Block>);
+
+impl Blocks {
+    pub fn try_reserve(
+        &mut self,
+        additional: usize,
+    ) -> Result<(), std::collections::TryReserveError> {
+        self.0.try_reserve(additional)
+    }
+
+    pub fn push(&mut self, value: Block) {
+        self.0.push(value)
+    }
+}
+
+impl From<Vec<Block>> for Blocks {
+    fn from(value: Vec<Block>) -> Self {
+        Self(value)
+    }
+}
+
+impl From<Box<[Block]>> for Blocks {
+    fn from(value: Box<[Block]>) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<&[Block]> for Blocks {
+    fn from(value: &[Block]) -> Self {
+        Self(value.to_vec())
+    }
+}
+
+impl From<&mut [Block]> for Blocks {
+    fn from(value: &mut [Block]) -> Self {
+        Self(value.to_vec())
+    }
+}
+
+impl<const N: usize> From<[Block; N]> for Blocks {
+    fn from(value: [Block; N]) -> Self {
+        Self(value.into())
+    }
+}
+
+impl<const N: usize> From<&[Block; N]> for Blocks {
+    fn from(value: &[Block; N]) -> Self {
+        Self(value.to_vec())
+    }
+}
+
+impl Deref for Blocks {
+    type Target = [Block];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for Blocks {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Index<usize> for Blocks {
+    type Output = Block;
+
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.0[idx]
+    }
+}
+
+impl IndexMut<usize> for Blocks {
+    fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
+        &mut self.0[idx]
+    }
+}
+
+impl Index<BlockIdx> for Blocks {
+    type Output = Block;
+
+    fn index(&self, block_idx: BlockIdx) -> &Self::Output {
+        &self[block_idx.as_usize()]
+    }
+}
+
+impl IndexMut<BlockIdx> for Blocks {
+    fn index_mut(&mut self, block_idx: BlockIdx) -> &mut Self::Output {
+        &mut self[block_idx.as_usize()]
+    }
+}
+
 pub(crate) const START_DEPTH_UNSET: i32 = i32::MIN;
 const CO_MAXBLOCKS: usize = 20;
 
@@ -1541,7 +1625,7 @@ pub struct CodeInfo {
     pub source_path: String,
     pub private: Option<String>, // For private name mangling, mostly for class
 
-    pub blocks: Vec<Block>,
+    pub blocks: Blocks,
     pub current_block: BlockIdx,
     pub(crate) instr_sequence: InstructionSequence,
     pub(crate) instr_sequence_label_map: InstructionSequenceLabelMap,
@@ -1751,7 +1835,7 @@ impl CodeInfo {
 
 fn optimize_code_unit(
     metadata: &mut CodeUnitMetadata,
-    blocks: &mut Vec<Block>,
+    blocks: &mut Blocks,
     instr_sequence: InstructionSequence,
     nlocals: usize,
     nparams: usize,
@@ -1776,7 +1860,7 @@ fn optimize_code_unit(
 
 fn optimize_cfg(
     metadata: &mut CodeUnitMetadata,
-    blocks: &mut Vec<Block>,
+    blocks: &mut Blocks,
     firstlineno: OneIndexed,
 ) -> crate::InternalResult<()> {
     // flowgraph.c optimize_cfg
@@ -1816,7 +1900,7 @@ fn optimize_cfg(
 fn optimized_cfg_to_instruction_sequence(
     metadata: &CodeUnitMetadata,
     flags: CodeFlags,
-    blocks: &mut Vec<Block>,
+    blocks: &mut Blocks,
 ) -> crate::InternalResult<(u32, usize, InstructionSequence)> {
     // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
     convert_pseudo_conditional_jumps(blocks)?;
@@ -1938,7 +2022,7 @@ fn is_generator(flags: CodeFlags) -> bool {
 /// flowgraph.c insert_prefix_instructions
 fn insert_prefix_instructions(
     metadata: &CodeUnitMetadata,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     cellfixedoffsets: &[i32],
     nfreevars: usize,
     flags: CodeFlags,
@@ -2036,7 +2120,7 @@ fn insert_prefix_instructions(
 /// flowgraph.c prepare_localsplus
 fn prepare_localsplus(
     metadata: &CodeUnitMetadata,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     flags: CodeFlags,
 ) -> crate::InternalResult<usize> {
     let nlocals = metadata.varnames.len();
@@ -2060,7 +2144,7 @@ fn prepare_localsplus(
 }
 
 /// flowgraph.c remove_unreachable
-fn remove_unreachable(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn remove_unreachable(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         blocks[block_idx.idx()].predecessors = 0;
@@ -3612,7 +3696,7 @@ fn basicblock_optimize_load_const(
 /// flowgraph.c optimize_load_const
 fn optimize_load_const(
     metadata: &mut CodeUnitMetadata,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
 ) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
@@ -3626,7 +3710,7 @@ fn optimize_load_const(
 
 /// flowgraph.c optimize_basic_block
 fn optimize_basic_block(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     metadata: &mut CodeUnitMetadata,
     block_idx: BlockIdx,
 ) -> crate::InternalResult<()> {
@@ -3871,7 +3955,7 @@ fn optimize_basic_block(
 
 /// flowgraph.c remove_redundant_nops_and_pairs
 #[allow(clippy::unnecessary_wraps)]
-fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn remove_redundant_nops_and_pairs(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut done = false;
 
     while !done {
@@ -3933,7 +4017,7 @@ fn remove_redundant_nops_and_pairs(blocks: &mut [Block]) -> crate::InternalResul
 /// flowgraph.c remove_unused_consts
 #[allow(clippy::needless_range_loop)]
 fn remove_unused_consts(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     consts: &mut ConstantPool,
 ) -> crate::InternalResult<()> {
     let nconsts = consts.len();
@@ -4031,7 +4115,7 @@ fn remove_unused_consts(
     Ok(())
 }
 
-fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn optimize_load_fast(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut max_instrs = 0;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -4280,7 +4364,7 @@ fn optimize_load_fast(blocks: &mut [Block]) -> crate::InternalResult<()> {
 }
 
 /// flowgraph.c calculate_stackdepth
-fn calculate_stackdepth(blocks: &mut [Block]) -> crate::InternalResult<u32> {
+fn calculate_stackdepth(blocks: &mut Blocks) -> crate::InternalResult<u32> {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         blocks[current.idx()].start_depth = START_DEPTH_UNSET;
@@ -4536,7 +4620,7 @@ fn make_super_instruction(
 }
 
 /// flowgraph.c insert_superinstructions
-fn insert_superinstructions(blocks: &mut [Block]) -> crate::InternalResult<usize> {
+fn insert_superinstructions(blocks: &mut Blocks) -> crate::InternalResult<usize> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next_block = blocks[block_idx.idx()].next;
@@ -4685,7 +4769,7 @@ fn local_as_ref_local(local: usize) -> isize {
 /// flowgraph.c load_fast_push_block
 fn load_fast_push_block(
     worklist: &mut CfgTraversalStack,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     target: BlockIdx,
     start_depth: usize,
 ) {
@@ -4700,7 +4784,7 @@ fn load_fast_push_block(
 
 fn stackdepth_push(
     stack: &mut CfgTraversalStack,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     target: BlockIdx,
     depth: i32,
 ) -> crate::InternalResult<()> {
@@ -5060,7 +5144,7 @@ fn assemble_exception_table(
 /// Mark exception handler target blocks.
 /// flowgraph.c mark_except_handlers
 #[allow(clippy::unnecessary_wraps)]
-pub(crate) fn mark_except_handlers(blocks: &mut [Block]) -> crate::InternalResult<()> {
+pub(crate) fn mark_except_handlers(blocks: &mut Blocks) -> crate::InternalResult<()> {
     #[cfg(debug_assertions)]
     {
         let mut block_idx = BlockIdx(0);
@@ -5103,7 +5187,7 @@ pub(crate) fn mark_except_handlers(blocks: &mut [Block]) -> crate::InternalResul
 /// optimize_cfg). This matches CPython's behavior and is necessary for
 /// optimize_load_fast to terminate fall-through at those placeholders.
 /// flowgraph.c mark_warm
-fn mark_warm(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut stack = make_cfg_traversal_stack(blocks)?;
     stack.push(BlockIdx(0));
     blocks[0].visited = true;
@@ -5135,7 +5219,7 @@ fn mark_warm(blocks: &mut [Block]) -> crate::InternalResult<()> {
     Ok(())
 }
 
-fn mark_cold(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let block = &mut blocks[block_idx.idx()];
@@ -5189,7 +5273,7 @@ fn mark_cold(blocks: &mut [Block]) -> crate::InternalResult<()> {
 }
 
 /// flowgraph.c push_cold_blocks_to_end
-fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
+fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
     if blocks[0].next == BlockIdx::NULL {
         return Ok(());
     }
@@ -5289,7 +5373,7 @@ fn push_cold_blocks_to_end(blocks: &mut Vec<Block>) -> crate::InternalResult<()>
 }
 
 /// flowgraph.c check_cfg
-fn check_cfg(blocks: &[Block]) -> crate::InternalResult<()> {
+fn check_cfg(blocks: &Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let block = &blocks[block_idx.idx()];
@@ -5307,7 +5391,7 @@ fn check_cfg(blocks: &[Block]) -> crate::InternalResult<()> {
 
 /// flowgraph.c jump_thread
 fn jump_thread(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     block_idx: BlockIdx,
     instr_idx: usize,
     target: &InstructionInfo,
@@ -5328,7 +5412,7 @@ fn jump_thread(
 
 /// flowgraph.c basicblock_add_jump
 fn basicblock_add_jump(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     block_idx: BlockIdx,
     instr: AnyInstruction,
     target: BlockIdx,
@@ -5382,7 +5466,7 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
 }
 
 /// flowgraph.c convert_pseudo_conditional_jumps
-fn convert_pseudo_conditional_jumps(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn convert_pseudo_conditional_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next = blocks[block_idx.idx()].next;
@@ -5440,10 +5524,7 @@ fn convert_pseudo_conditional_jumps(blocks: &mut [Block]) -> crate::InternalResu
 }
 
 /// flowgraph.c normalize_jumps_in_block
-fn normalize_jumps_in_block(
-    blocks: &mut Vec<Block>,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<()> {
+fn normalize_jumps_in_block(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<()> {
     let idx = block_idx.idx();
     let Some(last_ins) = basicblock_last_instr(&blocks[idx]).copied() else {
         return Ok(());
@@ -5521,7 +5602,7 @@ fn normalize_jumps_in_block(
 }
 
 /// flowgraph.c normalize_jumps
-fn normalize_jumps(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
+fn normalize_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         blocks[current.idx()].visited = false;
@@ -5540,7 +5621,7 @@ fn normalize_jumps(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
 
 /// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
 fn basicblock_inline_small_or_no_lineno_blocks(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     block_idx: BlockIdx,
 ) -> crate::InternalResult<bool> {
     let Some(last) = basicblock_last_instr(&blocks[block_idx.idx()]).copied() else {
@@ -5581,7 +5662,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
 }
 
 /// flowgraph.c inline_small_or_no_lineno_blocks
-fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResult<bool> {
+fn inline_small_or_no_lineno_blocks(blocks: &mut Blocks) -> crate::InternalResult<bool> {
     loop {
         let mut changes = false;
         let mut current = BlockIdx(0);
@@ -5603,7 +5684,7 @@ fn inline_small_or_no_lineno_blocks(blocks: &mut [Block]) -> crate::InternalResu
 /// flowgraph.c basicblock_remove_redundant_nops
 #[allow(clippy::unnecessary_wraps)]
 fn basicblock_remove_redundant_nops(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     block_idx: BlockIdx,
 ) -> crate::InternalResult<usize> {
     let bi = block_idx.idx();
@@ -5674,7 +5755,7 @@ fn basicblock_remove_redundant_nops(
 
 /// flowgraph.c remove_redundant_nops
 #[allow(clippy::unnecessary_wraps)]
-fn remove_redundant_nops(blocks: &mut [Block]) -> crate::InternalResult<usize> {
+fn remove_redundant_nops(blocks: &mut Blocks) -> crate::InternalResult<usize> {
     let mut changes = 0;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -5688,12 +5769,12 @@ fn remove_redundant_nops(blocks: &mut [Block]) -> crate::InternalResult<usize> {
 
 /// flowgraph.c no_redundant_nops
 #[cfg(debug_assertions)]
-fn no_redundant_nops(blocks: &mut [Block]) -> bool {
+fn no_redundant_nops(blocks: &mut Blocks) -> bool {
     matches!(remove_redundant_nops(blocks), Ok(0))
 }
 
 /// flowgraph.c remove_redundant_jumps
-fn remove_redundant_jumps(blocks: &mut [Block]) -> crate::InternalResult<usize> {
+fn remove_redundant_jumps(blocks: &mut Blocks) -> crate::InternalResult<usize> {
     let mut changes = 0;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -5722,7 +5803,7 @@ fn remove_redundant_jumps(blocks: &mut [Block]) -> crate::InternalResult<usize> 
 
 /// flowgraph.c no_redundant_jumps
 #[cfg(debug_assertions)]
-fn no_redundant_jumps(blocks: &[Block]) -> bool {
+fn no_redundant_jumps(blocks: &Blocks) -> bool {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let block = &blocks[current.idx()];
@@ -5750,7 +5831,7 @@ fn no_redundant_jumps(blocks: &[Block]) -> bool {
     true
 }
 
-fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
     loop {
         // Convergence is guaranteed because the number of redundant jumps and
         // nops only decreases.
@@ -5764,7 +5845,7 @@ fn remove_redundant_nops_and_jumps(blocks: &mut [Block]) -> crate::InternalResul
 }
 
 /// flowgraph.c make_cfg_traversal_stack
-fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<CfgTraversalStack> {
+fn make_cfg_traversal_stack(blocks: &mut Blocks) -> crate::InternalResult<CfgTraversalStack> {
     debug_assert!(!blocks.is_empty());
     let mut nblocks = 0;
     let mut current = BlockIdx(0);
@@ -5784,7 +5865,7 @@ fn make_cfg_traversal_stack(blocks: &mut [Block]) -> crate::InternalResult<CfgTr
     Ok(stack)
 }
 
-fn blocks_new_block(blocks: &mut Vec<Block>) -> crate::InternalResult<BlockIdx> {
+fn blocks_new_block(blocks: &mut Blocks) -> crate::InternalResult<BlockIdx> {
     blocks
         .try_reserve(1)
         .map_err(|_| InternalError::MalformedControlFlowGraph)?;
@@ -5800,7 +5881,7 @@ fn blocks_new_block(blocks: &mut Vec<Block>) -> crate::InternalResult<BlockIdx> 
 
 /// flowgraph.c struct _PyCfgBuilder
 struct CfgBuilder {
-    blocks: Vec<Block>,
+    blocks: Blocks,
     entry: BlockIdx,
     block_list: BlockIdx,
     current: BlockIdx,
@@ -5837,7 +5918,7 @@ fn init_cfg_builder(g: &mut CfgBuilder) -> crate::InternalResult<()> {
 /// flowgraph.c _PyCfgBuilder_New
 fn cfg_builder_new() -> crate::InternalResult<CfgBuilder> {
     let mut builder = CfgBuilder {
-        blocks: Vec::new(),
+        blocks: Blocks::default(),
         entry: BlockIdx::NULL,
         block_list: BlockIdx::NULL,
         current: BlockIdx::NULL,
@@ -5935,7 +6016,7 @@ fn cfg_builder_check_size(g: &CfgBuilder) -> crate::InternalResult<()> {
 }
 
 /// flowgraph.c translate_jump_labels_to_targets
-fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResult<()> {
+fn translate_jump_labels_to_targets(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let max_label = get_max_label(blocks);
     let label_count = (max_label + 1) as usize;
     if label_count > usize::MAX / core::mem::size_of::<usize>() {
@@ -5947,7 +6028,7 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
 
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let block = &blocks[block_idx.idx()];
+        let block = &blocks[block_idx];
         if is_label(block.cpython_label) {
             let label_id = block.cpython_label;
             debug_assert!(label_id.0 <= max_label);
@@ -5958,20 +6039,17 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
 
     block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx.idx()].next;
-        for i in 0..blocks[block_idx.idx()].instruction_used {
-            let info = &mut blocks[block_idx.idx()].instructions[i];
+        let next = blocks[block_idx].next;
+        for i in 0..blocks[block_idx].instruction_used {
+            let info = &mut blocks[block_idx].instructions[i];
             debug_assert_eq!(info.target, BlockIdx::NULL);
             if info.instr.has_target() {
                 let lbl = u32::from(info.arg) as i32;
                 debug_assert!(lbl >= 0 && lbl <= max_label);
                 let target = label_to_block[lbl as usize];
                 debug_assert!(target != BlockIdx::NULL);
-                debug_assert_eq!(
-                    blocks[target.idx()].cpython_label,
-                    InstructionSequenceLabel(lbl)
-                );
                 info.target = target;
+                debug_assert_eq!(blocks[target].cpython_label, InstructionSequenceLabel(lbl));
             }
         }
         block_idx = next;
@@ -5982,7 +6060,7 @@ fn translate_jump_labels_to_targets(blocks: &mut [Block]) -> crate::InternalResu
 /// flowgraph.c _PyCfg_FromInstructionSequence
 fn cfg_from_instruction_sequence(
     mut instr_sequence: InstructionSequence,
-) -> crate::InternalResult<Vec<Block>> {
+) -> crate::InternalResult<Blocks> {
     instruction_sequence_apply_label_map(&mut instr_sequence)?;
     let mut builder = cfg_builder_new()?;
 
@@ -6061,7 +6139,7 @@ fn cfg_from_instruction_sequence(
 
 /// flowgraph.c maybe_push
 fn maybe_push(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     worklist: &mut CfgTraversalStack,
     block: BlockIdx,
     unsafe_mask: u64,
@@ -6081,7 +6159,7 @@ fn maybe_push(
 
 /// flowgraph.c scan_block_for_locals
 fn scan_block_for_locals(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     block_idx: BlockIdx,
     worklist: &mut CfgTraversalStack,
 ) {
@@ -6150,7 +6228,7 @@ fn scan_block_for_locals(
 }
 
 /// flowgraph.c fast_scan_many_locals
-fn fast_scan_many_locals(blocks: &mut [Block], nlocals: usize) -> crate::InternalResult<()> {
+fn fast_scan_many_locals(blocks: &mut Blocks, nlocals: usize) -> crate::InternalResult<()> {
     debug_assert!(nlocals > LOCAL_UNSAFE_MASK_BITS);
     let mut states = Vec::new();
     states
@@ -6198,7 +6276,7 @@ fn fast_scan_many_locals(blocks: &mut [Block], nlocals: usize) -> crate::Interna
 
 /// flowgraph.c add_checks_for_loads_of_uninitialized_variables
 fn add_checks_for_loads_of_uninitialized_variables(
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     mut nlocals: usize,
     nparams: usize,
 ) -> crate::InternalResult<()> {
@@ -6232,7 +6310,7 @@ fn add_checks_for_loads_of_uninitialized_variables(
 }
 
 /// Follow chain of empty blocks to find first non-empty block.
-fn next_nonempty_block(blocks: &[Block], mut idx: BlockIdx) -> BlockIdx {
+fn next_nonempty_block(blocks: &Blocks, mut idx: BlockIdx) -> BlockIdx {
     while idx != BlockIdx::NULL && blocks[idx.idx()].instruction_used == 0 {
         idx = blocks[idx.idx()].next;
     }
@@ -6333,10 +6411,7 @@ fn basicblock_has_no_lineno(block: &Block) -> bool {
 }
 
 /// flowgraph.c copy_basicblock
-fn copy_basicblock(
-    blocks: &mut Vec<Block>,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<BlockIdx> {
+fn copy_basicblock(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
     debug_assert!(bb_no_fallthrough(&blocks[block_idx.idx()]));
     let result = blocks_new_block(blocks)?;
     basicblock_append_block_instructions(blocks, result, block_idx)?;
@@ -6344,7 +6419,7 @@ fn copy_basicblock(
 }
 
 /// flowgraph.c get_max_label
-fn get_max_label(blocks: &[Block]) -> i32 {
+fn get_max_label(blocks: &Blocks) -> i32 {
     let mut lbl = -1;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -6355,7 +6430,7 @@ fn get_max_label(blocks: &[Block]) -> i32 {
     lbl
 }
 
-fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) -> crate::InternalResult<()> {
+fn duplicate_exits_without_lineno(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut next_lbl = get_max_label(blocks) + 1;
 
     let entryblock = BlockIdx(0);
@@ -6409,7 +6484,7 @@ fn duplicate_exits_without_lineno(blocks: &mut Vec<Block>) -> crate::InternalRes
     Ok(())
 }
 
-fn propagate_line_numbers(blocks: &mut [Block]) {
+fn propagate_line_numbers(blocks: &mut Blocks) {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let idx = current.idx();
@@ -6454,7 +6529,7 @@ fn propagate_line_numbers(blocks: &mut [Block]) {
 }
 
 fn resolve_line_numbers(
-    blocks: &mut Vec<Block>,
+    blocks: &mut Blocks,
     _firstlineno: OneIndexed,
 ) -> crate::InternalResult<()> {
     duplicate_exits_without_lineno(blocks)?;
@@ -6481,7 +6556,7 @@ fn copy_except_stack(stack: &CfgExceptStack) -> crate::InternalResult<CfgExceptS
 }
 
 /// flowgraph.c except_stack_top
-fn except_stack_top(stack: &CfgExceptStack, blocks: &[Block]) -> Option<ExceptHandlerInfo> {
+fn except_stack_top(stack: &CfgExceptStack, blocks: &Blocks) -> Option<ExceptHandlerInfo> {
     debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
     let handler_block = stack.handlers[stack.depth];
     if handler_block == BlockIdx::NULL {
@@ -6497,7 +6572,7 @@ fn except_stack_top(stack: &CfgExceptStack, blocks: &[Block]) -> Option<ExceptHa
 fn push_except_block(
     stack: &mut CfgExceptStack,
     setup: InstructionInfo,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
 ) -> Option<ExceptHandlerInfo> {
     debug_assert!(is_block_push(&setup));
     let instr = setup.instr;
@@ -6517,14 +6592,14 @@ fn push_except_block(
 }
 
 /// flowgraph.c pop_except_block
-fn pop_except_block(stack: &mut CfgExceptStack, blocks: &[Block]) -> Option<ExceptHandlerInfo> {
+fn pop_except_block(stack: &mut CfgExceptStack, blocks: &Blocks) -> Option<ExceptHandlerInfo> {
     debug_assert!(stack.depth > 0);
     stack.depth -= 1;
     debug_assert!(stack.depth <= CO_MAXBLOCKS);
     except_stack_top(stack, blocks)
 }
 
-pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalResult<()> {
+pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut todo = make_cfg_traversal_stack(blocks)?;
 
     todo.push(BlockIdx(0));
@@ -6635,7 +6710,7 @@ pub(crate) fn label_exception_targets(blocks: &mut [Block]) -> crate::InternalRe
 
 /// Convert remaining pseudo ops to real instructions or NOP.
 /// flowgraph.c convert_pseudo_ops
-pub(crate) fn convert_pseudo_ops(blocks: &mut [Block]) -> crate::InternalResult<()> {
+pub(crate) fn convert_pseudo_ops(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next = blocks[block_idx.idx()].next;
@@ -6703,7 +6778,7 @@ pub(crate) fn build_cellfixedoffsets(
 #[allow(clippy::needless_range_loop)]
 pub(crate) fn fix_cell_offsets(
     metadata: &CodeUnitMetadata,
-    blocks: &mut [Block],
+    blocks: &mut Blocks,
     cellfixedoffsets: &mut [i32],
 ) -> usize {
     let nlocals = metadata.varnames.len();
