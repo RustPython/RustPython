@@ -4442,55 +4442,28 @@ impl Compiler {
     /// order as symbol-table construction so the annotation scope's
     /// `sub_tables` cursor stays aligned.
     fn collect_annotations(body: &[ast::Stmt]) -> Vec<&ast::StmtAnnAssign> {
-        fn walk<'a>(stmts: &'a [ast::Stmt], out: &mut Vec<&'a ast::StmtAnnAssign>) {
-            for stmt in stmts {
+        use ast::visitor::Visitor;
+
+        #[derive(Default)]
+        struct AnnotationsVisitor<'a> {
+            annotations: Vec<&'a ast::StmtAnnAssign>,
+        }
+
+        impl<'a> Visitor<'a> for AnnotationsVisitor<'a> {
+            fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
                 match stmt {
-                    ast::Stmt::AnnAssign(stmt) => out.push(stmt),
-                    ast::Stmt::If(ast::StmtIf {
-                        body,
-                        elif_else_clauses,
-                        ..
-                    }) => {
-                        walk(body, out);
-                        for clause in elif_else_clauses {
-                            walk(&clause.body, out);
-                        }
-                    }
-                    ast::Stmt::For(ast::StmtFor { body, orelse, .. })
-                    | ast::Stmt::While(ast::StmtWhile { body, orelse, .. }) => {
-                        walk(body, out);
-                        walk(orelse, out);
-                    }
-                    ast::Stmt::With(ast::StmtWith { body, .. }) => walk(body, out),
-                    ast::Stmt::Try(ast::StmtTry {
-                        body,
-                        handlers,
-                        orelse,
-                        finalbody,
-                        ..
-                    }) => {
-                        walk(body, out);
-                        for handler in handlers {
-                            let ast::ExceptHandler::ExceptHandler(
-                                ast::ExceptHandlerExceptHandler { body, .. },
-                            ) = handler;
-                            walk(body, out);
-                        }
-                        walk(orelse, out);
-                        walk(finalbody, out);
-                    }
-                    ast::Stmt::Match(ast::StmtMatch { cases, .. }) => {
-                        for case in cases {
-                            walk(&case.body, out);
-                        }
-                    }
-                    _ => {}
+                    ast::Stmt::AnnAssign(ann_assign) => self.annotations.push(ann_assign),
+                    ast::Stmt::ClassDef(_) | ast::Stmt::FunctionDef(_) => {}
+                    _ => ast::visitor::walk_stmt(self, stmt),
                 }
             }
         }
-        let mut annotations = Vec::new();
-        walk(body, &mut annotations);
-        annotations
+
+        let mut visitor = AnnotationsVisitor::default();
+        for stmt in body {
+            visitor.visit_stmt(stmt);
+        }
+        visitor.annotations
     }
 
     fn compile_annotation_for_symbol_cursor_only(
