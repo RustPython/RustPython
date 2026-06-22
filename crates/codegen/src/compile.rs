@@ -12,7 +12,7 @@
 use crate::{
     IndexMap, IndexSet, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError, PatternUnreachableReason},
-    ir::{self, BlockIdx},
+    ir::{self, Block, BlockIdx, Blocks},
     preprocess,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
@@ -470,7 +470,7 @@ impl Compiler {
             flags: CodeFlags::empty(),
             source_path: source_file.name().to_owned(),
             private: None,
-            blocks: vec![ir::Block::default()],
+            blocks: Blocks::from([Block::default()]),
             current_block: BlockIdx::new(0),
             instr_sequence: ir::InstructionSequence::new(),
             instr_sequence_label_map: ir::InstructionSequenceLabelMap::new(),
@@ -547,8 +547,9 @@ impl Compiler {
             saved_annotations_instr_sequence,
         ) = {
             let code = self.current_code_info();
+
             (
-                mem::replace(&mut code.blocks, vec![ir::Block::default()]),
+                mem::replace(&mut code.blocks, Blocks::from([Block::default()])),
                 mem::replace(&mut code.current_block, BlockIdx::new(0)),
                 mem::replace(&mut code.instr_sequence, ir::InstructionSequence::new()),
                 mem::replace(
@@ -1348,7 +1349,7 @@ impl Compiler {
             flags,
             source_path,
             private,
-            blocks: vec![ir::Block::default()],
+            blocks: Blocks::from([Block::default()]),
             current_block: BlockIdx::new(0),
             instr_sequence: ir::InstructionSequence::new(),
             instr_sequence_label_map: ir::InstructionSequenceLabelMap::new(),
@@ -10983,7 +10984,7 @@ impl Compiler {
         unwrap_internal(self, result);
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
-        code.blocks.push(ir::Block::default());
+        code.blocks.push(Block::default());
         let result = code.push_unmapped_instr_sequence_label();
         unwrap_internal(self, result);
         idx
@@ -10998,7 +10999,7 @@ impl Compiler {
         unwrap_internal(self, result);
         let code = self.current_code_info();
         let idx = BlockIdx::new(code.blocks.len().to_u32());
-        code.blocks.push(ir::Block::default());
+        code.blocks.push(Block::default());
         let result = code.push_unlabeled_instr_sequence_block();
         unwrap_internal(self, result);
         idx
