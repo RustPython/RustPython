@@ -631,18 +631,6 @@ impl Deref for PyNumber<'_> {
     }
 }
 
-impl<'a> PyNumber<'a> {
-    // PyNumber_Check - slots are now inherited
-    #[must_use]
-    pub fn check(obj: &PyObject) -> bool {
-        let methods = &obj.class().slots.as_number;
-        let has_number = methods.int.load().is_some()
-            || methods.index.load().is_some()
-            || methods.float.load().is_some();
-        has_number || obj.downcastable::<PyComplex>()
-    }
-}
-
 impl PyNumber<'_> {
     // PyIndex_Check
     #[must_use]
@@ -735,6 +723,16 @@ and may be removed in a future version of Python."
                 )))
             }
         })
+    }
+
+    // PyNumber_Check - slots are now inherited
+    #[must_use]
+    pub fn check(obj: &PyObject) -> bool {
+        let methods = &obj.class().slots.as_number;
+        let has_number = methods.int.load().is_some()
+            || methods.index.load().is_some()
+            || methods.float.load().is_some();
+        has_number || obj.downcastable::<PyComplex>()
     }
 }
 

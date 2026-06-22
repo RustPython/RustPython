@@ -254,6 +254,10 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Needs to comply with a signature"
+)]
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(Comparable, Hashable, Constructor, AsNumber, Representable)

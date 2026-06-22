@@ -442,7 +442,7 @@ pub(crate) mod _signal {
     }
 
     #[cfg(unix)]
-    fn sigset_to_pyset(mask: &libc::sigset_t, vm: &VirtualMachine) -> PyResult {
+    fn sigset_to_pyset(mask: libc::sigset_t, vm: &VirtualMachine) -> PyResult {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
@@ -491,7 +491,7 @@ pub(crate) mod _signal {
         signal::check_signals(vm)?;
 
         // Convert old mask to Python set
-        sigset_to_pyset(&old_mask, vm)
+        sigset_to_pyset(old_mask, vm)
     }
 
     #[cfg(any(unix, windows))]

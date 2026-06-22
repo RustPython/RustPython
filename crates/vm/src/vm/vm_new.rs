@@ -65,8 +65,8 @@ impl SyntaxErrorInfo {
 
     #[cfg(feature = "parser")]
     #[must_use]
-    const fn handle_expected_token(expected: &TokenKind, found: &TokenKind) -> &'static str {
-        match (*expected, *found) {
+    const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
+        match (expected, found) {
             (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
 
             (TokenKind::Lpar, _) => "expected '('",
@@ -110,7 +110,7 @@ impl SyntaxErrorInfo {
             ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
 
             ParseErrorType::ExpectedToken { expected, found } => {
-                Self::handle_expected_token(expected, found).into()
+                Self::handle_expected_token(*expected, *found).into()
             }
 
             ParseErrorType::InvalidStarredExpressionUsage => {

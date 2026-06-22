@@ -165,8 +165,8 @@ pub mod windows {
         (time_out, nsec_out as _)
     }
 
-    fn file_time_to_time_t_nsec(in_ptr: &FILETIME) -> (libc::time_t, libc::c_int) {
-        let in_val: i64 = unsafe { core::mem::transmute_copy(in_ptr) };
+    fn file_time_to_time_t_nsec(in_ptr: FILETIME) -> (libc::time_t, libc::c_int) {
+        let in_val: i64 = unsafe { core::mem::transmute_copy(&in_ptr) };
         let nsec_out = (in_val % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
         let time_out = (in_val / 10_000_000) - SECS_BETWEEN_EPOCHS;
         (time_out, nsec_out as _)
@@ -196,10 +196,10 @@ pub mod windows {
             )
         } else {
             (
-                file_time_to_time_t_nsec(&info.ftCreationTime),
+                file_time_to_time_t_nsec(info.ftCreationTime),
                 (0, 0),
-                file_time_to_time_t_nsec(&info.ftLastWriteTime),
-                file_time_to_time_t_nsec(&info.ftLastAccessTime),
+                file_time_to_time_t_nsec(info.ftLastWriteTime),
+                file_time_to_time_t_nsec(info.ftLastAccessTime),
             )
         };
         let st_nlink = info.nNumberOfLinks as i32;

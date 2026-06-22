@@ -141,12 +141,18 @@ impl FormatParse for FormatGrouping {
     }
 }
 
-impl From<&FormatGrouping> for char {
-    fn from(fg: &FormatGrouping) -> Self {
+impl From<FormatGrouping> for char {
+    fn from(fg: FormatGrouping) -> Self {
         match fg {
             FormatGrouping::Comma => ',',
             FormatGrouping::Underscore => '_',
         }
+    }
+}
+
+impl From<&FormatGrouping> for char {
+    fn from(fg: &FormatGrouping) -> Self {
+        Self::from(*fg)
     }
 }
 
@@ -322,7 +328,7 @@ impl FormatSpec {
             return Err(FormatSpecError::DecimalDigitsTooMany);
         }
         let (grouping_option, text) = FormatGrouping::parse(text);
-        if let Some(grouping) = &grouping_option {
+        if let Some(grouping) = grouping_option {
             Self::validate_separator(grouping, text)?;
         }
         let (precision, text) = parse_precision(text)?;
@@ -349,11 +355,12 @@ impl FormatSpec {
         })
     }
 
-    fn validate_separator(grouping: &FormatGrouping, text: &Wtf8) -> Result<(), FormatSpecError> {
+    fn validate_separator(grouping: FormatGrouping, text: &Wtf8) -> Result<(), FormatSpecError> {
         let mut chars = text.code_points().peekable();
+        let grouping_char = char::from(grouping);
         match chars.peek().and_then(|cp| CodePoint::to_char(*cp)) {
             Some(c) if c == ',' || c == '_' => {
-                if c == char::from(grouping) {
+                if c == grouping_char {
                     Err(FormatSpecError::UnspecifiedFormat(c, c))
                 } else {
                     Err(FormatSpecError::ExclusiveFormat(',', '_'))

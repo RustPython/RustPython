@@ -386,18 +386,18 @@ mod decl {
     }
 
     #[inline]
-    fn uu_a2b_read(c: &u8, vm: &VirtualMachine) -> PyResult<u8> {
+    fn uu_a2b_read(c: u8, vm: &VirtualMachine) -> PyResult<u8> {
         // Check the character for legality
         // The 64 instead of the expected 63 is because
         // there are a few uuencodes out there that use
         // '`' as zero instead of space.
-        if !(b' '..=(b' ' + 64)).contains(c) {
-            if [b'\r', b'\n'].contains(c) {
+        if !(b' '..=(b' ' + 64)).contains(&c) {
+            if [b'\r', b'\n'].contains(&c) {
                 return Ok(0);
             }
             return Err(super::new_binascii_error("Illegal char", vm));
         }
-        Ok((*c - b' ') & 0x3f)
+        Ok((c - b' ') & 0x3f)
     }
 
     #[derive(FromArgs)]
@@ -407,6 +407,7 @@ mod decl {
         #[pyarg(named, default = false)]
         header: bool,
     }
+
     #[pyfunction]
     fn a2b_qp(args: A2bQpArgs) -> PyResult<Vec<u8>> {
         let s = args.data;
@@ -760,7 +761,7 @@ mod decl {
                 let (char_a, char_b, char_c, char_d) = {
                     let mut chunk = chunk
                         .iter()
-                        .map(|x| uu_a2b_read(x, vm))
+                        .map(|&x| uu_a2b_read(x, vm))
                         .collect::<Result<Vec<_>, _>>()?;
                     while chunk.len() < 4 {
                         chunk.push(0);

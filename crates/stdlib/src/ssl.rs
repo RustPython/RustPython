@@ -461,7 +461,7 @@ mod _ssl {
 
     // Generate a synthetic session ID from server name and timestamp
     // NOTE: This is NOT the actual TLS session ID, just a unique identifier
-    fn generate_session_id_from_metadata(server_name: &str, time: &SystemTime) -> Vec<u8> {
+    fn generate_session_id_from_metadata(server_name: &str, time: SystemTime) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(server_name.as_bytes());
         hasher.update(
@@ -507,7 +507,7 @@ mod _ssl {
                 _server_name: server_name_str.as_ref().to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
-                    &creation_time,
+                    creation_time,
                 ),
                 creation_time,
                 lifetime: 7200, // TLS 1.2 default session lifetime
@@ -551,7 +551,7 @@ mod _ssl {
                 _server_name: server_name_str.to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
-                    &creation_time,
+                    creation_time,
                 ),
                 creation_time,
                 lifetime: 7200, // Default TLS 1.3 ticket lifetime (Rustls uses this)
@@ -2501,7 +2501,7 @@ mod _ssl {
                 } else {
                     // Create new session ID if not in cache
                     let time = std::time::SystemTime::now();
-                    (generate_session_id_from_metadata(name, &time), time, 7200)
+                    (generate_session_id_from_metadata(name, time), time, 7200)
                 }
             } else {
                 // No server name, use defaults
