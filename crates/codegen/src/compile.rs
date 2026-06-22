@@ -4482,12 +4482,11 @@ impl Compiler {
     ) -> CompileResult<bool> {
         let loc = loc.unwrap_or(self.current_source_range);
         let annotations = Self::collect_annotations(body);
-        let simple_annotation_count = annotations
+        let has_simple_annotation = annotations
             .iter()
-            .filter(|stmt| stmt.simple && matches!(stmt.target.as_ref(), ast::Expr::Name(_)))
-            .count();
+            .any(|stmt| stmt.simple && matches!(stmt.target.as_ref(), ast::Expr::Name(_)));
 
-        if simple_annotation_count == 0 {
+        if !has_simple_annotation {
             return Ok(false);
         }
 
