@@ -19,4 +19,11 @@ mod tests {
             let _module = py.import("sys").unwrap();
         })
     }
+
+    #[test]
+    fn import_stdlib() {
+        Python::attach(|py| {
+            let _module = py.import("types").unwrap();
+        })
+    }
 }
