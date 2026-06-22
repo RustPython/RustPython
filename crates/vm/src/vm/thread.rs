@@ -671,8 +671,7 @@ impl VirtualMachine {
     #[cfg(feature = "threading")]
     pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
     where
-        F: FnOnce(&Self) -> R,
-        F: Send + 'static,
+        F: Send + 'static + FnOnce(&Self) -> R,
         R: Send + 'static,
     {
         let func = self.new_thread().make_spawn_func(f);
