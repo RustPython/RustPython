@@ -1,90 +1,72 @@
 use crate::PyObject;
-use crate::methodobject::PyMethodDef;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use rustpython_vm::AsObject;
-use rustpython_vm::builtins::{PyModule, PyStr};
-use std::ffi::{CStr, c_char, c_int, c_void};
+use crate::slots::{PySlot, PySlotKind};
+use core::ffi::c_int;
+use rustpython_vm::builtins::{PyModule, PyModuleDef, PyStr};
 
 define_py_check!(fn PyModule_Check, types.module_type);
 define_py_check!(exact fn PyModule_CheckExact, types.module_type);
 
-const PY_MOD_CREATE: c_int = 1;
-const PY_MOD_EXEC: c_int = 2;
-const PY_MOD_GIL: c_int = 4;
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
+    slots: *const PySlot,
+    spec: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let name = unsafe { &*spec }
+            .get_attr("name", vm)?
+            .downcast_exact::<PyStr>(vm)
+            .unwrap();
 
-#[repr(C)]
-pub struct PyModuleDef {
-    m_base: [u8; 40],
-    m_name: *const c_char,
-    m_doc: *const c_char,
-    m_size: isize,
-    m_methods: *mut PyMethodDef,
-    m_slots: *mut PyModuleDef_Slot,
-    m_traverse: *mut c_void,
-    m_clear: *mut c_void,
-    m_free: *mut c_void,
-}
+        let mut exec = None;
+        let mut create = None;
 
-#[repr(C)]
-pub struct PyModuleDef_Slot {
-    id: c_int,
-    value: PyModuleDef_SlotValue,
-}
+        for slot in PySlot::iter(slots) {
+            match (slot, vm).try_into()? {
+                PySlotKind::ModuleCreate(mod_create) => create = Some(mod_create),
+                PySlotKind::ModuleExec(mod_exec) => {
+                    if exec.replace(mod_exec).is_some() {
+                        return Err(vm.new_system_error("Multiple module exec slots found"));
+                    }
+                }
+                PySlotKind::ModuleName { .. } => {}
+                PySlotKind::ModuleDoc { .. } => {}
+                PySlotKind::ModuleMethods(_) => {}
+                PySlotKind::ModuleAbi { .. } => {}
+                PySlotKind::ModuleMultipleInterpreters { .. } => {}
+                PySlotKind::ModuleGil { .. } => {}
+                kind @ (PySlotKind::TypeBase { .. }
+                | PySlotKind::TypeBases { .. }
+                | PySlotKind::TypeToken { .. }
+                | PySlotKind::TypeSlots { .. }
+                | PySlotKind::TypeName { .. }
+                | PySlotKind::TypeMetaclass { .. }
+                | PySlotKind::TypeModule { .. }) => {
+                    return Err(vm.new_system_error(format!(
+                        "Got type slot while module slots are expected: {kind:?}"
+                    )));
+                }
+                PySlotKind::Unknown { .. } => {}
+            }
+        }
 
-#[allow(non_camel_case_types)]
-union PyModuleDef_SlotValue {
-    exec_module: extern "C" fn(*mut PyObject) -> c_int,
-    gil_used: usize,
+        let def = PyModuleDef::from_slots(vm.ctx.intern_str(name), None, create, exec);
+
+        def.create_module_owned(vm)
+    })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyModuleDef_Init(def: *mut PyModuleDef) -> *mut PyObject {
+pub unsafe extern "C" fn PyModule_Exec(module: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let name = unsafe { CStr::from_ptr((&*def).m_name) }
-            .to_str()
-            .expect("Module name is not valid UTF-8");
-        let doc = unsafe { CStr::from_ptr((*def).m_doc) }
-            .to_str()
-            .expect("Module doc is not valid UTF-8");
-        let dict = vm.ctx.new_dict();
-
-        let module = vm.new_module(name, dict, Some(vm.ctx.new_str(doc)));
-
-        let mut slot_ptr = unsafe { (*def).m_slots };
-        while let slot = unsafe { &*slot_ptr }
-            && slot.id != 0
-        {
-            match slot.id {
-                PY_MOD_CREATE => {
-                    return Err(vm.new_import_error(
-                        "RustPython does not support modules that define a create slot",
-                        vm.ctx.new_str(name),
-                    ));
-                }
-                PY_MOD_EXEC => {
-                    let exec_module = unsafe { slot.value.exec_module };
-                    if exec_module(module.as_object().as_raw().cast_mut()) != 0 {
-                        return Err(vm
-                            .take_raised_exception()
-                            .expect("Module exec function failed without setting an exception"));
-                    }
-                }
-                PY_MOD_GIL => {
-                    if unsafe { slot.value.gil_used == 0 } {
-                        return Err(vm.new_import_error(
-                            "RustPython does not support modules that require the GIL",
-                            vm.ctx.new_str(name),
-                        ));
-                    }
-                }
-                _ => todo!("Got unknown PyModuleDef_Slot with id {}", slot.id),
-            }
-
-            slot_ptr = unsafe { slot_ptr.add(1) };
-        }
-
-        Ok(module)
+        let module = unsafe { &*module }.try_downcast_ref::<PyModule>(vm)?;
+        let def = module
+            .def
+            .as_deref()
+            .ok_or_else(|| vm.new_system_error("Empty module"))?;
+        def.exec_module(vm, module)?;
+        Ok(())
     })
 }
 
@@ -125,20 +107,11 @@ pub unsafe extern "C" fn PyModule_NewObject(name: *mut PyObject) -> *mut PyObjec
 
 #[cfg(test)]
 mod tests {
-    use super::PyModuleDef;
-    use core::mem::offset_of;
+    use pyo3::ffi;
     use pyo3::prelude::*;
 
     #[test]
-    #[cfg(false)]
     fn test_create_module() {
-        const {
-            assert!(
-                offset_of!(PyModuleDef, m_name) == size_of::<pyo3::ffi::PyModuleDef_Base>(),
-                "PyModuleDef::m_base was not the expected size"
-            );
-        };
-
         #[pymodule]
         mod my_extension {
             use pyo3::prelude::*;
@@ -152,10 +125,23 @@ mod tests {
             }
         }
 
-        Python::attach(|py| {
+        fn create_module(py: Python<'_>) -> PyResult<Bound<'_, PyModule>> {
+            let spec = py.import("types")?.getattr("SimpleNamespace")?.call0()?;
+            spec.setattr("name", "my_extension")?;
+            let slots = unsafe { my_extension::__pyo3_export() };
             let module = unsafe {
-                Borrowed::from_ptr(py, my_extension::__pyo3_init()).cast_unchecked::<PyModule>()
+                Bound::from_owned_ptr_or_err(
+                    py,
+                    ffi::PyModule_FromSlotsAndSpec(slots, spec.as_ptr()),
+                )?
+                .cast_into_unchecked::<PyModule>()
             };
+            unsafe { ffi::PyModule_Exec(module.as_ptr()) };
+            Ok(module)
+        }
+
+        Python::attach(|py| {
+            let module = create_module(py).unwrap();
             assert_eq!(module.name().unwrap(), "my_extension");
 
             module.getattr("PI").unwrap().extract::<f64>().unwrap();

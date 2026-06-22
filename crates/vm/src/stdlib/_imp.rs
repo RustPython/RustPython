@@ -166,7 +166,9 @@ fn find_frozen(name: &str, vm: &VirtualMachine) -> Result<FrozenModule, FrozenEr
 mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
+        builtins::{
+            ModuleCreate, PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef,
+        },
         convert::TryFromBorrowedObject,
         function::OptionalArg,
         import, version,
@@ -211,12 +213,12 @@ mod _imp {
         let name_str = name.as_str();
         if let Some(&def) = vm.state.module_defs.get(name_str) {
             // Phase 1: Create module (use create slot if provided, else default creation)
-            let module = if let Some(create) = def.slots.create {
-                // Custom module creation
-                create(vm, &spec, def)?
-            } else {
-                // Default module creation
-                PyModule::from_def(def).into_ref(&vm.ctx)
+            let module = match def.slots.create {
+                Some(ModuleCreate::Rust(create)) => create(vm, &spec, def)?,
+                Some(ModuleCreate::C(_)) => {
+                    return Err(vm.new_system_error("C module create slot is not supported here"));
+                }
+                None => PyModule::from_def(def).into_ref(&vm.ctx),
             };
 
             // Initialize module dict and methods
@@ -228,9 +230,7 @@ mod _imp {
             sys_modules.set_item(name.as_pystr(), module.clone().into(), vm)?;
 
             // Phase 2: Call exec slot (can safely import other modules now)
-            if let Some(exec) = def.slots.exec {
-                exec(vm, &module)?;
-            }
+            def.exec_module(vm, &module)?;
 
             return Ok(module.into());
         }

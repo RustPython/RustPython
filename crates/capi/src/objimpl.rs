@@ -3,7 +3,7 @@ use crate::pystate::with_vm;
 use rustpython_vm::gc_state;
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_GC_UnTrack(op: *mut PyObject) {
+pub unsafe extern "C" fn PyObject_GC_UnTrack(op: *mut PyObject) {
     with_vm(|_vm| {
         let obj = unsafe { &*op };
         if obj.is_gc_tracked() {
