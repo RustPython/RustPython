@@ -39,7 +39,7 @@ use rustpython_wtf8::Wtf8Buf;
 
 /// Extension trait for `ast::Expr` to add constant checking methods
 trait ExprExt {
-    /// Check if an expression is a constant literal
+    /// Returns true if the expression is a constant literal with no side effects.
     fn is_constant(&self) -> bool;
 
     /// Check if a slice expression has all constant elements
@@ -2782,7 +2782,7 @@ impl Compiler {
                 // In interactive mode, always compile (to print the result).
                 let dominated_by_interactive =
                     self.interactive && !self.ctx.in_func() && !self.ctx.in_class;
-                if !dominated_by_interactive && Self::is_const_expression(value) {
+                if !dominated_by_interactive && value.is_constant() {
                     emit!(self, Instruction::Nop);
                 } else {
                     self.compile_expression(value)?;
@@ -7879,19 +7879,6 @@ impl Compiler {
         emit!(self, Instruction::EndSend);
 
         send_block
-    }
-
-    /// Returns true if the expression is a constant with no side effects.
-    fn is_const_expression(expr: &ast::Expr) -> bool {
-        matches!(
-            expr,
-            ast::Expr::StringLiteral(_)
-                | ast::Expr::BytesLiteral(_)
-                | ast::Expr::NumberLiteral(_)
-                | ast::Expr::BooleanLiteral(_)
-                | ast::Expr::NoneLiteral(_)
-                | ast::Expr::EllipsisLiteral(_)
-        )
     }
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
