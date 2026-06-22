@@ -6,7 +6,7 @@ updates:
       - "/"
       - "crates/*"
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
       semver-major-days: 30
@@ -157,13 +157,13 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
   - package-ecosystem: npm
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
       semver-major-days: 30
@@ -172,6 +172,6 @@ updates:
   - package-ecosystem: pre-commit
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
