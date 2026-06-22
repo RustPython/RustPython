@@ -236,10 +236,7 @@ fn inner_truediv(i1: &BigInt, i2: &BigInt, vm: &VirtualMachine) -> PyResult {
     let float = true_div(i1, i2);
 
     if float.is_infinite() {
-        Err(vm.new_exception_msg(
-            vm.ctx.exceptions.overflow_error.to_owned(),
-            "integer division result too large for a float".into(),
-        ))
+        Err(vm.new_overflow_error("integer division result too large for a float"))
     } else {
         Ok(vm.ctx.new_float(float).into())
     }
@@ -325,12 +322,26 @@ impl PyInt {
         v.to_u32()
             .or_else(|| v.to_i32().map(|i| i as u32))
             .unwrap_or_else(|| {
-                let mut out = 0u32;
-                for digit in v.iter_u32_digits() {
-                    out = out.wrapping_shl(32) | digit;
-                }
+                let out = v.iter_u32_digits().next().unwrap_or(0);
                 match v.sign() {
-                    Sign::Minus => out * -1i32 as u32,
+                    Sign::Minus => out.wrapping_neg(),
+                    _ => out,
+                }
+            })
+    }
+
+    // _PyLong_AsUnsignedLongLongMask
+    #[must_use]
+    pub fn as_u64_mask(&self) -> u64 {
+        let v = self.as_bigint();
+        v.to_u64()
+            .or_else(|| v.to_i64().map(|i| i as u64))
+            .unwrap_or_else(|| {
+                let mut digits = v.iter_u32_digits();
+                let out = u64::from(digits.next().unwrap_or(0))
+                    | (u64::from(digits.next().unwrap_or(0)) << 32);
+                match v.sign() {
+                    Sign::Minus => out.wrapping_neg(),
                     _ => out,
                 }
             })

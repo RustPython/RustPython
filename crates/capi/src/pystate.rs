@@ -1,11 +1,12 @@
+use crate::get_main_interpreter;
 use crate::pylifecycle::request_vm_from_interpreter;
 use crate::util::FfiResult;
 use core::ffi::c_int;
 use core::ptr;
-use rustpython_vm::VirtualMachine;
 use rustpython_vm::vm::thread::{
     CurrentVmAttachState, attach_current_thread, release_current_thread, with_current_vm,
 };
+use rustpython_vm::{Interpreter, VirtualMachine};
 
 pub(crate) fn with_vm<R: FfiResult<O>, O>(f: impl FnOnce(&VirtualMachine) -> R) -> O {
     with_current_vm(|vm| f(vm).into_output(vm))
@@ -16,9 +17,11 @@ type PyGILState_STATE = c_int;
 const PYGILSTATE_LOCKED: PyGILState_STATE = 0;
 const PYGILSTATE_UNLOCKED: PyGILState_STATE = 1;
 
+pub type PyInterpreterState = Interpreter;
+
 #[repr(C)]
 pub struct PyThreadState {
-    _interp: *mut core::ffi::c_void,
+    pub interp: *mut PyInterpreterState,
 }
 
 /// Make sure this thread has a running vm attached. This only creates a new vm if we don't already
@@ -49,6 +52,25 @@ pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_RestoreThread(_state: *mut PyThreadState) {}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyInterpreterState_Get() -> *mut PyInterpreterState {
+    get_main_interpreter()
+        .as_ref()
+        .map(|interp| interp as *const PyInterpreterState)
+        .expect("PyInterpreterState_Get called but no main interpreter was found")
+        .cast_mut()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyInterpreterState_GetID(interp: *mut PyInterpreterState) -> i64 {
+    with_vm(|vm| {
+        if interp.is_null() {
+            return Err(vm.new_system_error("PyInterpreterState_GetID called with null interp"));
+        }
+        Ok(interp as usize as i64)
+    })
+}
 
 #[cfg(test)]
 mod tests {

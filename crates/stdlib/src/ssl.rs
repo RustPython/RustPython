@@ -461,7 +461,7 @@ mod _ssl {
 
     // Generate a synthetic session ID from server name and timestamp
     // NOTE: This is NOT the actual TLS session ID, just a unique identifier
-    fn generate_session_id_from_metadata(server_name: &str, time: &SystemTime) -> Vec<u8> {
+    fn generate_session_id_from_metadata(server_name: &str, time: SystemTime) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(server_name.as_bytes());
         hasher.update(
@@ -507,7 +507,7 @@ mod _ssl {
                 _server_name: server_name_str.as_ref().to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
-                    &creation_time,
+                    creation_time,
                 ),
                 creation_time,
                 lifetime: 7200, // TLS 1.2 default session lifetime
@@ -551,7 +551,7 @@ mod _ssl {
                 _server_name: server_name_str.to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
-                    &creation_time,
+                    creation_time,
                 ),
                 creation_time,
                 lifetime: 7200, // Default TLS 1.3 ticket lifetime (Rustls uses this)
@@ -2501,7 +2501,7 @@ mod _ssl {
                 } else {
                     // Create new session ID if not in cache
                     let time = std::time::SystemTime::now();
-                    (generate_session_id_from_metadata(name, &time), time, 7200)
+                    (generate_session_id_from_metadata(name, time), time, 7200)
                 }
             } else {
                 // No server name, use defaults
@@ -2824,7 +2824,7 @@ mod _ssl {
         ) -> PyResult<PyBytesRef> {
             let obj_to_bytes = |bytes_obj| {
                 PyBytesRef::try_from_object(vm, bytes_obj)
-                    .map_err(|_| vm.new_os_error("Expected bytes from recv".to_string()))
+                    .map_err(|_| vm.new_os_error("Expected bytes from recv"))
             };
 
             let tls_record_header_buf = self
@@ -3413,7 +3413,8 @@ mod _ssl {
             // Initialize connection if not already done
             if conn_guard.is_none() {
                 // Check for pending context change (from SNI callback)
-                if let Some(new_ctx) = self.pending_context.write().take() {
+                let pending_context = self.pending_context.write().take();
+                if let Some(new_ctx) = pending_context {
                     *self.context.write() = new_ctx;
                 }
 
@@ -3495,7 +3496,7 @@ mod _ssl {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
                         ServerName::IpAddress(
-                            core::net::IpAddr::V4(core::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            core::net::IpAddr::V4(core::net::Ipv4Addr::LOCALHOST).into(),
                         )
                     };
 
@@ -4657,10 +4658,7 @@ mod _ssl {
                 // It's a memoryview, check if contiguous
                 let is_contiguous: bool = mem_view.try_to_bool(vm)?;
                 if !is_contiguous {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.buffer_error.to_owned(),
-                        "non-contiguous buffer is not supported".into(),
-                    ));
+                    return Err(vm.new_buffer_error("non-contiguous buffer is not supported"));
                 }
             }
 

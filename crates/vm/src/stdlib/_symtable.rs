@@ -13,6 +13,9 @@ mod _symtable {
         CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
     };
 
+    /// [CPython's `SCOPE_OFFSET`](https://github.com/python/cpython/blob/v3.14.6/Include/internal/pycore_symtable.h#L176)
+    const SCOPE_OFFSET: i32 = 12;
+
     // Consts as defined at
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
 
@@ -56,31 +59,22 @@ mod _symtable {
     pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
 
     #[pyattr]
-    pub(super) const SCOPE_OFFSET: i32 = 12;
-
-    #[pyattr]
     pub(super) const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
 
     #[pyattr]
-    pub(super) const LOCAL: i32 = 1;
+    pub(super) const LOCAL: i32 = SymbolScope::Local.as_i32();
 
     #[pyattr]
-    pub(super) const GLOBAL_EXPLICIT: i32 = 2;
+    pub(super) const GLOBAL_EXPLICIT: i32 = SymbolScope::GlobalExplicit.as_i32();
 
     #[pyattr]
-    pub(super) const GLOBAL_IMPLICIT: i32 = 3;
+    pub(super) const GLOBAL_IMPLICIT: i32 = SymbolScope::GlobalImplicit.as_i32();
 
     #[pyattr]
-    pub(super) const FREE: i32 = 4;
+    pub(super) const FREE: i32 = SymbolScope::Free.as_i32();
 
     #[pyattr]
-    pub(super) const CELL: i32 = 5;
-
-    #[pyattr]
-    pub(super) const GENERATOR: i32 = 1;
-
-    #[pyattr]
-    pub(super) const GENERATOR_EXPRESSION: i32 = 2;
+    pub(super) const CELL: i32 = SymbolScope::Cell.as_i32();
 
     #[pyattr]
     pub(super) const SCOPE_OFF: i32 = SCOPE_OFFSET;
@@ -98,16 +92,13 @@ mod _symtable {
     pub(super) const TYPE_ANNOTATION: i32 = 3;
 
     #[pyattr]
-    pub(super) const TYPE_TYPE_VAR_BOUND: i32 = 4;
+    pub(super) const TYPE_TYPE_ALIAS: i32 = 4;
 
     #[pyattr]
-    pub(super) const TYPE_TYPE_ALIAS: i32 = 5;
+    pub(super) const TYPE_TYPE_PARAMETERS: i32 = 5;
 
     #[pyattr]
-    pub(super) const TYPE_TYPE_PARAMETERS: i32 = 6;
-
-    #[pyattr]
-    pub(super) const TYPE_TYPE_VARIABLE: i32 = 7;
+    pub(super) const TYPE_TYPE_VARIABLE: i32 = 6;
 
     #[pyfunction]
     fn symtable(

@@ -13,13 +13,13 @@ impl VirtualMachine {
     /// Execute a string of Python code in a new scope with builtins.
     pub fn run_simple_string(&self, source: &str) -> PyResult {
         let scope = self.new_scope_with_builtins();
-        self.run_string(scope, source, "<string>".to_owned())
+        self.run_string(scope, source, "<string>")
     }
 
     /// PyRun_String
     ///
     /// Execute a string of Python code with explicit scope and source path.
-    pub fn run_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
+    pub fn run_string(&self, scope: Scope, source: &str, source_path: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path)
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
@@ -40,13 +40,13 @@ impl VirtualMachine {
     }
 
     #[deprecated(note = "use run_string instead")]
-    pub fn run_code_string(&self, scope: Scope, source: &str, source_path: String) -> PyResult {
+    pub fn run_code_string(&self, scope: Scope, source: &str, source_path: &str) -> PyResult {
         self.run_string(scope, source, source_path)
     }
 
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
-            .compile(source, compiler::Mode::BlockExpr, "<embedded>".to_owned())
+            .compile(source, compiler::Mode::BlockExpr, "<embedded>")
             .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
         self.run_code_obj(code_obj, scope)
     }
@@ -108,7 +108,7 @@ mod file_run {
                 match crate::host_env::fs::read_to_string(path) {
                     Ok(source) => {
                         let code_obj = self
-                            .compile(&source, compiler::Mode::Exec, path.to_owned())
+                            .compile(&source, compiler::Mode::Exec, path)
                             .map_err(|err| self.new_syntax_error(&err, Some(&source)))?;
                         self.run_code_obj(code_obj, scope)?;
                     }

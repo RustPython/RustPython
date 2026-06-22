@@ -263,7 +263,7 @@ impl WASMVirtualMachine {
     ) -> Result<(), JsValue> {
         self.with_vm(|vm, _| {
             let code = vm
-                .compile(source, Mode::Exec, name.clone())
+                .compile(source, Mode::Exec, &name)
                 .map_err(convert::syntax_err)?;
             let attrs = vm.ctx.new_dict();
             attrs
@@ -327,7 +327,7 @@ impl WASMVirtualMachine {
     ) -> Result<JsValue, JsValue> {
         self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
-            let code = vm.compile(source, mode, source_path);
+            let code = vm.compile(source, mode, &source_path);
             let code = code.map_err(convert::syntax_err)?;
             let result = vm.run_code_obj(code, scope.clone());
             convert::pyresult_to_js_result(vm, result)

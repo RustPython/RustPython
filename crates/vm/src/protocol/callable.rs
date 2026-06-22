@@ -7,11 +7,13 @@ use crate::{
 
 impl PyObject {
     #[inline]
+    #[must_use]
     pub fn to_callable(&self) -> Option<PyCallable<'_>> {
         PyCallable::new(self)
     }
 
     #[inline]
+    #[must_use]
     pub fn is_callable(&self) -> bool {
         self.to_callable().is_some()
     }
@@ -134,6 +136,7 @@ impl<'a> PyCallable<'a> {
 }
 
 /// Trace events for sys.settrace and sys.setprofile.
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub(crate) enum TraceEvent {
     Call,
     Return,
@@ -147,7 +150,8 @@ pub(crate) enum TraceEvent {
 
 impl TraceEvent {
     /// Whether sys.settrace receives this event.
-    fn is_trace_event(&self) -> bool {
+    #[must_use]
+    const fn is_trace_event(self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::Exception | Self::Line | Self::Opcode
@@ -157,7 +161,8 @@ impl TraceEvent {
     /// Whether sys.setprofile receives this event.
     /// In legacy_tracing.c, profile callbacks are only registered for
     /// PY_RETURN, PY_UNWIND, C_CALL, C_RETURN, C_RAISE.
-    fn is_profile_event(&self) -> bool {
+    #[must_use]
+    const fn is_profile_event(self) -> bool {
         matches!(
             self,
             Self::Call | Self::Return | Self::CCall | Self::CReturn | Self::CException
@@ -165,23 +170,23 @@ impl TraceEvent {
     }
 
     /// Whether this event is dispatched only when f_trace_opcodes is set.
-    pub(crate) fn is_opcode_event(&self) -> bool {
+    #[must_use]
+    pub(crate) const fn is_opcode_event(self) -> bool {
         matches!(self, Self::Opcode)
     }
 }
 
 impl core::fmt::Display for TraceEvent {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        use TraceEvent::*;
         match self {
-            Call => write!(f, "call"),
-            Return => write!(f, "return"),
-            Exception => write!(f, "exception"),
-            Line => write!(f, "line"),
-            Opcode => write!(f, "opcode"),
-            CCall => write!(f, "c_call"),
-            CReturn => write!(f, "c_return"),
-            CException => write!(f, "c_exception"),
+            Self::Call => write!(f, "call"),
+            Self::Return => write!(f, "return"),
+            Self::Exception => write!(f, "exception"),
+            Self::Line => write!(f, "line"),
+            Self::Opcode => write!(f, "opcode"),
+            Self::CCall => write!(f, "c_call"),
+            Self::CReturn => write!(f, "c_return"),
+            Self::CException => write!(f, "c_exception"),
         }
     }
 }

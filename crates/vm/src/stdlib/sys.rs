@@ -103,7 +103,7 @@ pub mod sys {
         #[pymethod]
         fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.fd == 0 {
-                return Err(vm.new_os_error("not writable".to_owned()));
+                return Err(vm.new_os_error("not writable"));
             }
             let bytes = s.as_bytes();
             if self.fd == 2 {
@@ -121,7 +121,7 @@ pub mod sys {
         #[pymethod]
         fn readline(&self, size: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<String> {
             if self.fd != 0 {
-                return Err(vm.new_os_error("not readable".to_owned()));
+                return Err(vm.new_os_error("not readable"));
             }
             let size = size.unwrap_or(-1);
             if size == 0 {
@@ -750,7 +750,7 @@ pub mod sys {
         handle
             .read_to_string(&mut source)
             .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
+        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
             .map_err(|e| vm.new_os_error(format!("Error running stdin: {e}")))?;
         Ok(())
     }

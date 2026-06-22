@@ -202,10 +202,13 @@ impl PyTypeSlots {
 
     #[must_use]
     pub fn heap_default() -> Self {
+        /*
         Self {
-            // init: AtomicCell::new(Some(init_wrapper)),
+            init: AtomicCell::new(Some(init_wrapper)),
             ..Default::default()
         }
+        */
+        Self::default()
     }
 }
 
@@ -663,7 +666,7 @@ impl PyType {
         // NOTE: Collect into Vec first to avoid issues during iteration
         let defs: Vec<_> = find_slot_defs_by_name(name.as_str()).collect();
         for def in defs {
-            self.update_one_slot::<ADD>(&def.accessor, name, ctx);
+            self.update_one_slot::<ADD>(def.accessor, name, ctx);
         }
 
         // Recursively update subclasses that don't have their own definition
@@ -689,7 +692,7 @@ impl PyType {
 
             // Update subclass's slots
             for def in find_slot_defs_by_name(name.as_str()) {
-                subclass.update_one_slot::<ADD>(&def.accessor, name, ctx);
+                subclass.update_one_slot::<ADD>(def.accessor, name, ctx);
             }
 
             // Recurse into subclass's subclasses
@@ -700,7 +703,7 @@ impl PyType {
     /// Update a single slot
     fn update_one_slot<const ADD: bool>(
         &self,
-        accessor: &SlotAccessor,
+        accessor: SlotAccessor,
         name: &'static PyStrInterned,
         ctx: &Context,
     ) {
@@ -1552,7 +1555,8 @@ impl PyType {
         let mro = self.mro.read();
 
         // Look up in self's dict first
-        if let Some(attr) = self.attributes.read().get(name).cloned() {
+        let attr_name = self.attributes.read().get(name).cloned();
+        if let Some(attr) = attr_name {
             if let Some(func) = try_extract(&attr, &mro) {
                 return SlotLookupResult::NativeSlot(func);
             }
@@ -1561,7 +1565,8 @@ impl PyType {
 
         // Look up in MRO (mro[0] is self, so skip it)
         for (i, cls) in mro[1..].iter().enumerate() {
-            if let Some(attr) = cls.attributes.read().get(name).cloned() {
+            let attr_name = cls.attributes.read().get(name).cloned();
+            if let Some(attr) = attr_name {
                 // Use the slice starting from this class in MRO
                 if let Some(func) = try_extract(&attr, &mro[i + 1..]) {
                     return SlotLookupResult::NativeSlot(func);

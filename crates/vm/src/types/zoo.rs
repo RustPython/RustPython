@@ -266,5 +266,8 @@ impl TypeZoo {
         template::init(context);
         descriptor::init(context);
         crate::stdlib::_typing::init(context);
+
+        // RustPython specific
+        crate::function::method::init(context);
     }
 }

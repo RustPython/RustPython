@@ -675,6 +675,26 @@ class BasicTest(BaseTest):
         self.assertEqual(out, "".encode())
         self.assertEqual(err, "".encode())
 
+    # gh-149701: Test exit code is zero even when hashing is disabled
+    @unittest.skipIf(os.name == 'nt', 'not relevant on Windows')
+    def test_deactivate_with_strict_bash_opts_and_hashing_disabled(self):
+        bash = shutil.which("bash")
+        if bash is None:
+            self.skipTest("bash required for this test")
+        rmtree(self.env_dir)
+        builder = venv.EnvBuilder(clear=True)
+        builder.create(self.env_dir)
+        activate = os.path.join(self.env_dir, self.bindir, "activate")
+        test_script = os.path.join(self.env_dir, "test_hash_disabled.sh")
+        with open(test_script, "w") as f:
+            f.write("set -euo pipefail\n"
+                    "set +h\n"  # disable hashing
+                    f"source {activate}\n"
+                    "deactivate")
+        out, err = check_output([bash, test_script])
+        self.assertEqual(out, "".encode())
+        self.assertEqual(err, "".encode())
+
 
     @unittest.skipUnless(sys.platform == 'darwin', 'only relevant on macOS')
     def test_macos_env(self):
@@ -1074,6 +1094,7 @@ class EnsurePipTest(BaseTest):
                 f"**Subprocess Error**\n{err}"
             )
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; FileNotFoundError: [WinError 2] No such file or directory")
     @requires_venv_with_pip()
     @requires_resource('cpu')
     def test_with_pip(self):

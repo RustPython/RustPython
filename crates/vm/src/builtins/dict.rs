@@ -15,9 +15,7 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::ascii,
     dict_inner::{self, DictKey},
-    function::{
-        ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
-    },
+    function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -478,7 +476,7 @@ impl Py<PyDict> {
                 .map(|x| x.map(|eq| !eq));
         }
         if !op.eval_ord(self.__len__().cmp(&other.__len__())) {
-            return Ok(Implemented(false));
+            return Ok(PyArithmeticValue::Implemented(false));
         }
         let (superset, subset) = if self.__len__() < other.__len__() {
             (other, self)
@@ -492,15 +490,15 @@ impl Py<PyDict> {
                         continue;
                     }
                     if item && !vm.bool_eq(&v1, &v2)? {
-                        return Ok(Implemented(false));
+                        return Ok(PyArithmeticValue::Implemented(false));
                     }
                 }
                 None => {
-                    return Ok(Implemented(false));
+                    return Ok(PyArithmeticValue::Implemented(false));
                 }
             }
         }
-        Ok(Implemented(true))
+        Ok(PyArithmeticValue::Implemented(true))
     }
 
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
@@ -1289,7 +1287,7 @@ trait ViewSetOps: DictView {
             ref _dictitems @ PyDictItems => {}
             ref _dictkeys @ PyDictKeys => {}
             _ => {
-                return Ok(NotImplemented);
+                return Ok(PyArithmeticValue::NotImplemented);
             }
         });
         let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;

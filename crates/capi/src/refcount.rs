@@ -15,12 +15,12 @@ pub unsafe extern "C" fn _Py_IncRef(op: *mut PyObject) {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_NewRef(op: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn Py_NewRef(op: *mut PyObject) -> *mut PyObject {
     with_vm(|_vm| unsafe { (*op).to_owned() })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
+pub unsafe extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
     with_vm(|_vm| unsafe { &*op }.strong_count())
 }
 
@@ -31,7 +31,7 @@ mod tests {
     use pyo3::{PyTypeInfo, ffi};
 
     #[test]
-    fn test_refcount() {
+    fn refcount() {
         Python::attach(|py| unsafe {
             let obj = PyInt::type_object(py);
             let ref_count = ffi::Py_REFCNT(obj.as_ptr());

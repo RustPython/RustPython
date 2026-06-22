@@ -230,7 +230,7 @@ mod tests {
     use pyo3::types::{IntoPyDict, PyDict, PyDictMethods, PyInt, PyList};
 
     #[test]
-    fn test_create_empty_dict() {
+    fn create_empty_dict() {
         Python::attach(|py| {
             let dict = PyDict::new(py);
             assert!(dict.is_instance_of::<PyDict>());
@@ -238,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_dict_with_items() {
+    fn create_dict_with_items() {
         Python::attach(|py| {
             let dict = [(1, 2), (3, 4)].into_py_dict(py)?;
             let value = dict.get_item(1)?.unwrap().cast_into::<PyInt>()?;
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dict_iter() {
+    fn dict_iter() {
         Python::attach(|py| {
             let dict = [(1, 2), (3, 4)].into_py_dict(py).unwrap();
             let values = dict

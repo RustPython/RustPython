@@ -109,7 +109,7 @@ mod tests {
     use pyo3::types::PyTuple;
 
     #[test]
-    fn test_empty_tuple() {
+    fn empty_tuple() {
         Python::attach(|py| {
             let tuple = PyTuple::empty(py);
             assert_eq!(tuple.len(), 0);
@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tuple_into_python() {
+    fn tuple_into_python() {
         Python::attach(|py| {
             let tuple = (1, 2, 3).into_pyobject(py).unwrap();
             assert_eq!(tuple.len(), 3);
@@ -125,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tuple_get_slice() {
+    fn tuple_get_slice() {
         Python::attach(|py| {
             let tuple = (1, 2, 3).into_pyobject(py).unwrap();
             let slice = tuple.get_slice(1, 2);

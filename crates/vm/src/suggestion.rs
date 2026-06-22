@@ -1,13 +1,14 @@
 //! This module provides functionality to suggest similar names for attributes or variables.
 //! This is used during tracebacks.
 
+use core::iter::ExactSizeIterator;
+
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, VirtualMachine,
     builtins::{PyStr, PyStrRef},
     exceptions::types::PyBaseException,
     sliceable::SliceableSequenceOp,
 };
-use core::iter::ExactSizeIterator;
 use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
 
 const MAX_CANDIDATE_ITEMS: usize = 750;

@@ -23,7 +23,7 @@ mod tests {
             dict.set_item("x", 7).unwrap();
 
             let mapping = dict.as_mapping();
-            let proxy = PyMappingProxy::new(py, &mapping);
+            let proxy = PyMappingProxy::new(py, mapping);
             let value = proxy.get_item("x").unwrap().cast_into::<PyInt>().unwrap();
             assert_eq!(value, 7);
         })

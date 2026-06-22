@@ -45,7 +45,6 @@ def clear_typing_caches():
 
 class TypesTests(unittest.TestCase):
 
-    @unittest.skipUnless(c_types, "TODO: RUSTPYTHON; requires _types module")
     def test_names(self):
         c_only_names = {'CapsuleType'}
         ignored = {'new_class', 'resolve_bases', 'prepare_class',
@@ -636,7 +635,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(object.__lt__, types.WrapperDescriptorType)
         self.assertIsInstance(int.__lt__, types.WrapperDescriptorType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; No signature found in builtin method __get__ of 'method_descriptor' objects.
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: no signature found for builtin <method-wrapper '__get__' of wrapper_descriptor object
     @unittest.skipIf(MISSING_C_DOCSTRINGS,
                      "Signature information for builtins requires docstrings")
     def test_dunder_get_signature(self):
@@ -661,7 +660,7 @@ class TypesTests(unittest.TestCase):
         self.assertIsInstance(int.from_bytes, types.BuiltinMethodType)
         self.assertIsInstance(int.__new__, types.BuiltinMethodType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ModuleNotFoundError: No module named '_queue'
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: descriptor 'read' needs a type, not 'StringIO', as arg 2
     def test_method_descriptor_crash(self):
         # gh-132747: The default __get__() implementation in C was unable
         # to handle a second argument of None when called from Python

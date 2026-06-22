@@ -146,16 +146,15 @@ __import__("io").TextIOWrapper(
         .downcast()
         .expect("TextIOWrapper.read() should return str");
     eprintln!("running get-pip.py...");
-    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py".to_owned())?;
+    vm.run_string(scope, getpip_code.expect_str(), "get-pip.py")?;
     Ok(())
 }
 
 fn install_pip(installer: InstallPipMode, scope: Scope, vm: &VirtualMachine) -> PyResult<()> {
     if !cfg!(feature = "ssl") {
-        return Err(vm.new_exception_msg(
-            vm.ctx.exceptions.system_error.to_owned(),
-            "install-pip requires rustpython be build with '--features=ssl'".into(),
-        ));
+        return Err(
+            vm.new_system_error("install-pip requires rustpython be build with '--features=ssl'")
+        );
     }
 
     match installer {
@@ -191,7 +190,7 @@ fn run_file(vm: &VirtualMachine, scope: Scope, path: &str) -> PyResult<()> {
             // The VM itself has no filesystem access.
             let path = if path.is_empty() { "???" } else { path };
             match std::fs::read_to_string(path) {
-                Ok(source) => vm.run_string(scope, &source, path.to_owned()).map(drop),
+                Ok(source) => vm.run_string(scope, &source, path).map(drop),
                 Err(err) => Err(vm.new_os_error(err.to_string())),
             }
         }
@@ -295,8 +294,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
     let res = match run_mode {
         RunMode::Command(command) => {
             debug!("Running command {command}");
-            vm.run_string(scope.clone(), &command, "<string>".to_owned())
-                .map(drop)
+            vm.run_string(scope.clone(), &command, "<string>").map(drop)
         }
         RunMode::Module(module) => {
             debug!("Running module {module}");

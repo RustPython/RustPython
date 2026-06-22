@@ -3,6 +3,7 @@ use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
+use core::slice;
 use rustpython_vm::builtins::{PyBaseException, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
@@ -300,20 +301,81 @@ pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyOb
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
+pub unsafe extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
     with_vm(|vm| {
-        let exc = unsafe { &*exc };
-        let cause = unsafe { cause.as_ref() }.map(|obj| obj.to_owned());
-        exc.set_attr("__cause__", vm.unwrap_or_none(cause), vm)
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let cause = NonNull::new(cause)
+            .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
+        exc.set___cause__(cause);
+        Ok(())
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
+pub unsafe extern "C" fn PyException_SetContext(exc: *mut PyObject, context: *mut PyObject) {
     with_vm(|vm| {
-        let exc = unsafe { &*exc };
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let context = NonNull::new(context)
+            .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
+        exc.set___context__(context);
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
+    encoding: *const c_char,
+    object: *const c_char,
+    length: isize,
+    start: isize,
+    end: isize,
+    reason: *const c_char,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let encoding = unsafe { CStr::from_ptr(encoding) }
+            .to_str()
+            .map_err(|_| vm.new_system_error("encoding must be valid UTF-8"))?;
+        let reason = unsafe { CStr::from_ptr(reason) }
+            .to_str()
+            .map_err(|_| vm.new_system_error("reason must be valid UTF-8"))?;
+        let length: usize = length
+            .try_into()
+            .map_err(|_| vm.new_system_error("length must be non-negative"))?;
+        let start: usize = start
+            .try_into()
+            .map_err(|_| vm.new_system_error("start must be non-negative"))?;
+        let end: usize = end
+            .try_into()
+            .map_err(|_| vm.new_system_error("end must be non-negative"))?;
+
+        let bytes = if object.is_null() {
+            if length != 0 {
+                return Err(vm.new_system_error(
+                    "PyUnicodeDecodeError_Create called with null object and non-zero length",
+                ));
+            }
+            Vec::new()
+        } else {
+            unsafe { slice::from_raw_parts(object.cast::<u8>(), length) }.to_vec()
+        };
+
+        let exc = vm.new_unicode_decode_error_real(
+            vm.ctx.new_str(encoding),
+            vm.ctx.new_bytes(bytes),
+            start,
+            end,
+            vm.ctx.new_str(reason),
+        );
+        Ok(exc)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
         let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
-        exc.set_attr("__traceback__", vm.unwrap_or_none(traceback), vm)
+        exc.set___traceback__(vm.unwrap_or_none(traceback), vm)
     })
 }
 
@@ -343,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn test_new_exception_type() {
+    fn new_exception_type() {
         create_exception!(my_module, MyError, PyException, "Some description.");
 
         Python::attach(|py| {

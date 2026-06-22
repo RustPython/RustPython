@@ -184,6 +184,30 @@ pub enum SymbolScope {
     Cell,
 }
 
+impl SymbolScope {
+    /// Returns the [`i32`] representation of this symbol scope.
+    ///
+    /// # See also
+    /// [CPython's definition](https://github.com/python/cpython/blob/v3.14.6/Include/internal/pycore_symtable.h#L180-L184)
+    #[must_use]
+    pub const fn as_i32(&self) -> i32 {
+        match self {
+            Self::Unknown => 0,
+            Self::Local => 1,
+            Self::GlobalExplicit => 2,
+            Self::GlobalImplicit => 3,
+            Self::Free => 4,
+            Self::Cell => 5,
+        }
+    }
+}
+
+impl From<SymbolScope> for i32 {
+    fn from(scope: SymbolScope) -> Self {
+        scope.as_i32()
+    }
+}
+
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
@@ -1510,7 +1534,7 @@ impl SymbolTableBuilder {
                 // annotation scopes are nested inside and can see type parameters.
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
-                        &format!("<generic parameters of {}>", name.as_str()),
+                        name.as_str(),
                         self.line_index_start(type_params.range),
                         false,
                         true,
@@ -1563,7 +1587,7 @@ impl SymbolTableBuilder {
                 let prev_class = self.class_name.take();
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
-                        &format!("<generic parameters of {}>", name.as_str()),
+                        name.as_str(),
                         self.line_index_start(type_params.range),
                         true, // for_class: enable selective mangling
                         false,
@@ -1876,7 +1900,7 @@ impl SymbolTableBuilder {
                 let is_generic = type_params.is_some();
                 if let Some(type_params) = type_params {
                     self.enter_type_param_block(
-                        &format!("<generic parameters of {alias_name}>"),
+                        &alias_name,
                         self.line_index_start(type_params.range),
                         false,
                         false,
@@ -2568,16 +2592,15 @@ impl SymbolTableBuilder {
     }
 
     fn scan_pattern(&mut self, pattern: &ast::Pattern) -> SymbolTableResult {
-        use ast::Pattern::*;
         match pattern {
-            MatchValue(ast::PatternMatchValue { value, .. }) => {
+            ast::Pattern::MatchValue(ast::PatternMatchValue { value, .. }) => {
                 self.scan_expression(value, ExpressionContext::Load)?
             }
-            MatchSingleton(_) => {}
-            MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
+            ast::Pattern::MatchSingleton(_) => {}
+            ast::Pattern::MatchSequence(ast::PatternMatchSequence { patterns, .. }) => {
                 self.scan_patterns(patterns)?
             }
-            MatchMapping(ast::PatternMatchMapping {
+            ast::Pattern::MatchMapping(ast::PatternMatchMapping {
                 keys,
                 patterns,
                 rest,
@@ -2589,19 +2612,19 @@ impl SymbolTableBuilder {
                     self.register_ident(rest, SymbolUsage::Assigned)?;
                 }
             }
-            MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
+            ast::Pattern::MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
                 self.scan_expression(cls, ExpressionContext::Load)?;
                 self.scan_patterns(&arguments.patterns)?;
                 for kw in &arguments.keywords {
                     self.scan_pattern(&kw.pattern)?;
                 }
             }
-            MatchStar(ast::PatternMatchStar { name, .. }) => {
+            ast::Pattern::MatchStar(ast::PatternMatchStar { name, .. }) => {
                 if let Some(name) = name {
                     self.register_ident(name, SymbolUsage::Assigned)?;
                 }
             }
-            MatchAs(ast::PatternMatchAs { pattern, name, .. }) => {
+            ast::Pattern::MatchAs(ast::PatternMatchAs { pattern, name, .. }) => {
                 if let Some(pattern) = pattern {
                     self.scan_pattern(pattern)?;
                 }
@@ -2609,7 +2632,9 @@ impl SymbolTableBuilder {
                     self.register_ident(name, SymbolUsage::Assigned)?;
                 }
             }
-            MatchOr(ast::PatternMatchOr { patterns, .. }) => self.scan_patterns(patterns)?,
+            ast::Pattern::MatchOr(ast::PatternMatchOr { patterns, .. }) => {
+                self.scan_patterns(patterns)?
+            }
         }
         Ok(())
     }
