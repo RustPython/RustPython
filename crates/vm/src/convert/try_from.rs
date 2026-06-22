@@ -1,10 +1,11 @@
+use malachite_bigint::Sign;
+use num_traits::ToPrimitive;
+
 use crate::{
     Py, VirtualMachine,
     builtins::PyFloat,
     object::{AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult},
 };
-use malachite_bigint::Sign;
-use num_traits::ToPrimitive;
 
 /// Implemented by any type that can be created from a Python object.
 ///
@@ -62,7 +63,7 @@ impl PyObject {
     }
 }
 
-/// Lower-cost variation of `TryFromObject`
+/// Lower-cost variation of [`TryFromObject`].
 pub trait TryFromBorrowedObject<'a>: Sized
 where
     Self: 'a,
@@ -126,12 +127,15 @@ impl TryFromObject for core::time::Duration {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
         if let Some(float) = obj.downcast_ref::<PyFloat>() {
             let f = float.to_f64();
+
             if f.is_nan() {
                 return Err(vm.new_value_error("Invalid value NaN (not a number)"));
             }
+
             if f < 0.0 {
                 return Err(vm.new_value_error("negative duration"));
             }
+
             if !f.is_finite() || f > u64::MAX as f64 {
                 return Err(vm.new_overflow_error("timestamp too large to convert to C PyTime_t"));
             }

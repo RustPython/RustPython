@@ -327,8 +327,8 @@ pub fn valid_signals(max_signum: usize) -> io::Result<Vec<i32>> {
 }
 
 #[cfg(unix)]
-pub fn sigset_contains(mask: &libc::sigset_t, signum: i32) -> bool {
-    unsafe { libc::sigismember(mask, signum) == 1 }
+pub fn sigset_contains(mask: libc::sigset_t, signum: i32) -> bool {
+    unsafe { libc::sigismember(&mask, signum) == 1 }
 }
 
 #[cfg(windows)]

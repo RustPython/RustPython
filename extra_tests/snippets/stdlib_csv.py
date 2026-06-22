@@ -1,4 +1,5 @@
 import csv
+import io
 
 from testutils import assert_raises
 
@@ -47,3 +48,27 @@ def test_delim():
 
 
 test_delim()
+
+
+def test_quote_strings_and_notnull_writer():
+    string_buf = io.StringIO()
+    csv.writer(string_buf, quoting=csv.QUOTE_STRINGS).writerow(["x", 1, None, ""])
+    assert string_buf.getvalue() == '"x",1,,""\r\n'
+
+    notnull_buf = io.StringIO()
+    csv.writer(notnull_buf, quoting=csv.QUOTE_NOTNULL).writerow(["x", 1, None, ""])
+    assert notnull_buf.getvalue() == '"x","1",,""\r\n'
+
+    for quoting in (csv.QUOTE_STRINGS, csv.QUOTE_NOTNULL):
+        buf = io.StringIO()
+        csv.writer(buf, quoting=quoting).writerow([None, None])
+        assert buf.getvalue() == ",\r\n"
+
+        with assert_raises(csv.Error):
+            csv.writer(io.StringIO(), quoting=quoting).writerow([None])
+
+        with assert_raises(TypeError):
+            csv.writer(io.StringIO(), quoting=quoting, quotechar=None)
+
+
+test_quote_strings_and_notnull_writer()

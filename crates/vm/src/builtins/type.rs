@@ -370,7 +370,7 @@ unsafe impl<T> Sync for PointerSlot<T> {}
 unsafe impl<T> Send for PointerSlot<T> {}
 
 impl<T> PointerSlot<T> {
-    pub(crate) const unsafe fn borrow_static(&self) -> &'static T {
+    pub(crate) const unsafe fn borrow_static(self) -> &'static T {
         unsafe { self.0.as_ref() }
     }
 }

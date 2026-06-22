@@ -286,7 +286,7 @@ impl PySequence<'_> {
     }
 
     fn _ass_slice(
-        &self,
+        self,
         start: isize,
         stop: isize,
         value: Option<PyObjectRef>,

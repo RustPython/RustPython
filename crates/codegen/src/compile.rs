@@ -2091,7 +2091,7 @@ impl Compiler {
         self.emit_resume_for_scope(CompilerScope::Module, 1);
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
-        let (doc, statements) = split_doc_with_range(&body.body, &self.opts);
+        let (doc, statements) = split_doc_with_range(&body.body, self.opts);
         let module_start_loc = self.module_start_location(&body.body);
         // Handle annotation bookkeeping before the docstring assignment, as
         // codegen_body() does after _PyCodegen_Module() inserts the prefix set.
@@ -3075,7 +3075,7 @@ impl Compiler {
             }
             ast::Stmt::AugAssign(ast::StmtAugAssign {
                 target, op, value, ..
-            }) => self.compile_augassign(target, op, value)?,
+            }) => self.compile_augassign(target, *op, value)?,
             ast::Stmt::AnnAssign(ast::StmtAnnAssign {
                 target,
                 annotation,
@@ -4294,7 +4294,7 @@ impl Compiler {
         self.set_qualname();
 
         // Handle docstring - store in co_consts[0] if present
-        let (doc_info, body) = split_doc_with_range(body, &self.opts);
+        let (doc_info, body) = split_doc_with_range(body, self.opts);
         let doc_str = doc_info.as_ref().map(|(doc, _)| doc);
         if let Some(doc) = &doc_str {
             // Docstring present: store in co_consts[0] and set HAS_DOCSTRING flag
@@ -5137,7 +5137,7 @@ impl Compiler {
         self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
 
         // 2. Set up class namespace
-        let (doc_str, body) = split_doc_with_range(body, &self.opts);
+        let (doc_str, body) = split_doc_with_range(body, self.opts);
         let class_body_prefix_range = self.source_line_start_range(firstlineno);
         self.set_source_range(class_body_prefix_range);
 
@@ -7004,7 +7004,7 @@ impl Compiler {
     }
 
     /// [CPython `compiler_addcompare`](https://github.com/python/cpython/blob/627894459a84be3488a1789919679c997056a03c/Python/compile.c#L2880-L2924)
-    fn compile_addcompare(&mut self, op: &ast::CmpOp) {
+    fn compile_addcompare(&mut self, op: ast::CmpOp) {
         match op {
             ast::CmpOp::Eq => emit!(
                 self,
@@ -7096,7 +7096,7 @@ impl Compiler {
         if mid_comparators.is_empty() {
             self.compile_expression(last_comparator)?;
             self.set_source_range(compare_range);
-            self.compile_addcompare(last_op);
+            self.compile_addcompare(*last_op);
 
             return Ok(());
         }
@@ -7112,7 +7112,7 @@ impl Compiler {
             emit!(self, Instruction::Swap { i: 2 });
             emit!(self, Instruction::Copy { i: 2 });
 
-            self.compile_addcompare(op);
+            self.compile_addcompare(*op);
 
             // if comparison result is false, we break with this value; if true, try the next one.
             emit!(self, Instruction::Copy { i: 1 });
@@ -7123,7 +7123,7 @@ impl Compiler {
 
         self.compile_expression(last_comparator)?;
         self.set_source_range(compare_range);
-        self.compile_addcompare(last_op);
+        self.compile_addcompare(*last_op);
 
         let end = self.new_block();
         emit!(self, PseudoInstruction::JumpNoInterrupt { delta: end });
@@ -7154,7 +7154,7 @@ impl Compiler {
             self.compile_expression(left)?;
             self.compile_expression(last_comparator)?;
             self.set_source_range(compare_range);
-            self.compile_addcompare(last_op);
+            self.compile_addcompare(*last_op);
             self.emit_pop_jump_by_condition(condition, target_block);
             return Ok(());
         }
@@ -7167,14 +7167,14 @@ impl Compiler {
             self.set_source_range(compare_range);
             emit!(self, Instruction::Swap { i: 2 });
             emit!(self, Instruction::Copy { i: 2 });
-            self.compile_addcompare(op);
+            self.compile_addcompare(*op);
             emit!(self, Instruction::ToBool);
             emit!(self, Instruction::PopJumpIfFalse { delta: cleanup });
         }
 
         self.compile_expression(last_comparator)?;
         self.set_source_range(compare_range);
-        self.compile_addcompare(last_op);
+        self.compile_addcompare(*last_op);
         emit!(self, Instruction::ToBool);
         self.emit_pop_jump_by_condition(condition, target_block);
         let end = self.new_block();
@@ -7446,7 +7446,7 @@ impl Compiler {
     fn compile_augassign(
         &mut self,
         target: &ast::Expr,
-        op: &ast::Operator,
+        op: ast::Operator,
         value: &ast::Expr,
     ) -> CompileResult<()> {
         let stmt_range = self.current_source_range;
@@ -7559,7 +7559,7 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_op(&mut self, op: &ast::Operator, inplace: bool) {
+    fn compile_op(&mut self, op: ast::Operator, inplace: bool) {
         let bin_op = match op {
             ast::Operator::Add => BinaryOperator::Add,
             ast::Operator::Sub => BinaryOperator::Subtract,
@@ -7687,7 +7687,7 @@ impl Compiler {
 
     /// Compile a boolean operation as an expression.
     /// This means, that the last value remains on the stack.
-    fn compile_bool_op(&mut self, op: &ast::BoolOp, values: &[ast::Expr]) -> CompileResult<()> {
+    fn compile_bool_op(&mut self, op: ast::BoolOp, values: &[ast::Expr]) -> CompileResult<()> {
         let boolop_range = self.current_source_range;
         let after_block = self.new_block();
         let (last_value, prefix_values) = values.split_last().unwrap();
@@ -7707,7 +7707,7 @@ impl Compiler {
 
     /// Emit CPython-style pseudo conditional jump for short-circuit evaluation.
     /// flowgraph.c lowers it to `COPY 1; TO_BOOL; POP_JUMP_IF_*`.
-    fn emit_short_circuit_test(&mut self, op: &ast::BoolOp, target: BlockIdx) {
+    fn emit_short_circuit_test(&mut self, op: ast::BoolOp, target: BlockIdx) {
         match op {
             ast::BoolOp::And => {
                 emit!(self, PseudoInstruction::JumpIfFalse { delta: target });
@@ -7962,7 +7962,7 @@ impl Compiler {
                 func, arguments, ..
             }) => self.compile_call(func, arguments)?,
             ast::Expr::BoolOp(ast::ExprBoolOp { op, values, .. }) => {
-                self.compile_bool_op(op, values)?
+                self.compile_bool_op(*op, values)?
             }
             ast::Expr::BinOp(ast::ExprBinOp {
                 left, op, right, ..
@@ -7972,7 +7972,7 @@ impl Compiler {
 
                 // Restore full expression range before emitting the operation
                 self.set_source_range(range);
-                self.compile_op(op, false);
+                self.compile_op(*op, false);
             }
             ast::Expr::Subscript(ast::ExprSubscript {
                 value, slice, ctx, ..
@@ -12000,10 +12000,10 @@ fn expandtabs(input: &str, tab_size: usize) -> String {
     expanded_str
 }
 
-fn split_doc_with_range<'a>(
-    body: &'a [ast::Stmt],
-    opts: &CompileOpts,
-) -> (Option<(String, TextRange)>, &'a [ast::Stmt]) {
+fn split_doc_with_range(
+    body: &[ast::Stmt],
+    opts: CompileOpts,
+) -> (Option<(String, TextRange)>, &[ast::Stmt]) {
     if let Some((ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
         let doc_comment = match &*expr.value {
             ast::Expr::StringLiteral(value) => Some((&value.value, expr.value.range())),
@@ -12023,7 +12023,7 @@ fn split_doc_with_range<'a>(
 }
 
 #[cfg(test)]
-fn split_doc<'a>(body: &'a [ast::Stmt], opts: &CompileOpts) -> (Option<String>, &'a [ast::Stmt]) {
+fn split_doc(body: &[ast::Stmt], opts: CompileOpts) -> (Option<String>, &[ast::Stmt]) {
     let (doc, body) = split_doc_with_range(body, opts);
     (doc.map(|(doc, _)| doc), body)
 }
@@ -12452,7 +12452,7 @@ def f(x, y, z):
             in_async_scope: is_async,
         };
         compiler.set_qualname();
-        let (_doc_str, body) = split_doc(body, &compiler.opts);
+        let (_doc_str, body) = split_doc(body, compiler.opts);
         let start_label = compiler.use_cpython_function_start_label();
         let is_gen = is_async || compiler.current_symbol_table().is_generator;
         let stop_iteration_block = if is_gen {

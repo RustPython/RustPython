@@ -5,8 +5,10 @@ use crate::{
     convert::ToPyObject,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
-use alloc::fmt;
-use core::{iter::Peekable, mem};
+
+use rustpython_common::wtf8::Wtf8Buf;
+
+use core::{fmt, iter::Peekable, mem};
 use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -736,9 +738,8 @@ pub fn struct_error_type(vm: &VirtualMachine) -> &'static PyTypeRef {
     INSTANCE.get_or_init(|| vm.ctx.new_exception_type("struct", "error", None))
 }
 
-pub fn new_struct_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {
+pub fn new_struct_error<T: Into<Wtf8Buf>>(vm: &VirtualMachine, msg: T) -> PyBaseExceptionRef {
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
-    let msg: String = msg.into();
     vm.new_exception_msg(struct_error_type(vm).clone(), msg.into())
 }
