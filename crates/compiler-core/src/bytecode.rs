@@ -17,6 +17,7 @@ use core::{
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
+use num_traits::Zero;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
@@ -907,6 +908,31 @@ pub enum ConstantData {
     },
     None,
     Ellipsis,
+}
+
+impl ConstantData {
+    /// Whether or not python would return True/False for the given constant data.
+    ///
+    /// ```py
+    /// bool(0) # False
+    /// bool(1) # True
+    /// bool([]) # False
+    /// bool(...) # True
+    /// ```
+    #[must_use]
+    pub fn truthiness(&self) -> bool {
+        match self {
+            Self::Tuple { elements } | Self::Frozenset { elements } => !elements.is_empty(),
+            Self::Integer { value } => !value.is_zero(),
+            Self::Float { value } => *value != 0.0,
+            Self::Complex { value } => value.re != 0.0 || value.im != 0.0,
+            Self::Boolean { value } => *value,
+            Self::Str { value } => !value.is_empty(),
+            Self::Bytes { value } => !value.is_empty(),
+            Self::Code { .. } | Self::Slice { .. } | Self::Ellipsis => true,
+            Self::None => false,
+        }
+    }
 }
 
 impl PartialEq for ConstantData {

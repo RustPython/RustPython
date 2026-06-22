@@ -13,6 +13,7 @@ use rustpython_wtf8::{CodePoint, Wtf8, Wtf8Buf};
 // use ruff_python_parser::{LexicalError, LexicalErrorType};
 type LexicalError = Infallible;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum EscapedChar {
     Literal(CodePoint),
     Escape(char),

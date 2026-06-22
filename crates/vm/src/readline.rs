@@ -12,7 +12,7 @@ pub enum ReadlineResult {
     Line(String),
     Eof,
     Interrupt,
-    Io(std::io::Error),
+    Io(io::Error),
     #[cfg(unix)]
     OsError(String),
     Other(OtherError),

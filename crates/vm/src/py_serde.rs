@@ -111,8 +111,9 @@ pub struct PyObjectDeserializer<'c> {
 }
 
 impl<'c> PyObjectDeserializer<'c> {
-    pub fn new(vm: &'c VirtualMachine) -> Self {
-        PyObjectDeserializer { vm }
+    #[must_use]
+    pub const fn new(vm: &'c VirtualMachine) -> Self {
+        Self { vm }
     }
 }
 
