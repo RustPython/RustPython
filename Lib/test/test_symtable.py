@@ -190,20 +190,15 @@ class SymtableTest(unittest.TestCase):
     foo = find_block(top, "foo")
     Alias = find_block(top, "Alias")
     GenericAlias = find_block(top, "GenericAlias")
-    # XXX: RUSTPYTHON
-    # GenericAlias_inner = find_block(GenericAlias, "GenericAlias")
+    GenericAlias_inner = find_block(GenericAlias, "GenericAlias")
     generic_spam = find_block(top, "generic_spam")
-    # XXX: RUSTPYTHON
-    # generic_spam_inner = find_block(generic_spam, "generic_spam")
+    generic_spam_inner = find_block(generic_spam, "generic_spam")
     GenericMine = find_block(top, "GenericMine")
-    # XXX: RUSTPYTHON
-    # GenericMine_inner = find_block(GenericMine, "GenericMine")
-    # XXX: RUSTPYTHON
-    # T = find_block(GenericMine, "T")
-    # XXX: RUSTPYTHON
-    # U = find_block(GenericMine, "U")
+    GenericMine_inner = find_block(GenericMine, "GenericMine")
+    T = find_block(GenericMine, "T")
+    U = find_block(GenericMine, "U")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <SymbolTableType.ANNOTATION: 'annotation'> != 'type alias'
     def test_type(self):
         self.assertEqual(self.top.get_type(), "module")
         self.assertEqual(self.Mine.get_type(), "class")
@@ -221,7 +216,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.T.get_type(), "type variable")
         self.assertEqual(self.U.get_type(), "type variable")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_id(self):
         self.assertGreater(self.top.get_id(), 0)
         self.assertGreater(self.Mine.get_id(), 0)
@@ -254,7 +248,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.top.get_lineno(), 0)
         self.assertEqual(self.spam.get_lineno(), 14)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ: [] != ['a', 'b', 'internal', 'kw', 'other_internal', 'some_var', 'var', 'x']
     def test_function_info(self):
         func = self.spam
         self.assertEqual(sorted(func.get_parameters()), ["a", "b", "kw", "var"])
@@ -337,7 +331,7 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.Mine.lookup("a_method").is_assigned())
         self.assertFalse(self.internal.lookup("x").is_assigned())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: list index out of range
     def test_annotated(self):
         st1 = symtable.symtable('def f():\n    x: int\n', 'test', 'exec')
         st2 = st1.get_children()[1]
@@ -375,7 +369,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.spam.lookup("x").get_name(), "x")
         self.assertEqual(self.Mine.get_name(), "Mine")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Tuples differ: () != ('a_method',)
     def test_class_get_methods(self):
         deprecation_mess = (
             re.escape('symtable.Class.get_methods() is deprecated '
@@ -457,7 +451,7 @@ class SymtableTest(unittest.TestCase):
                         check_body('\n'.join((gen, func)), ('genexpr',))
                         check_body('\n'.join((func, gen)), ('genexpr',))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError: name 'x' is parameter and global
     def test_filename_correct(self):
         ### Bug tickler: SyntaxError file name correct whether error raised
         ### while parsing or building symbol table.
@@ -489,7 +483,7 @@ class SymtableTest(unittest.TestCase):
     def test_exec(self):
         symbols = symtable.symtable("def f(x): return x", "?", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_bytes(self):
         top = symtable.symtable(TEST_CODE.encode('utf8'), "?", "exec")
         self.assertIsNotNone(find_block(top, "Mine"))
@@ -503,7 +497,7 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(str(self.top), "<SymbolTable for module ?>")
         self.assertEqual(str(self.spam), "<Function SymbolTable for spam in ?>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AssertionError: "<symbol 'glob': 0, DEF_GLOBAL>" != "<symbol 'glob': GLOBAL_IMPLICIT, USE>"
     def test_symbol_repr(self):
         self.assertEqual(repr(self.spam.lookup("glob")),
                          "<symbol 'glob': GLOBAL_IMPLICIT, USE>")
@@ -579,7 +573,7 @@ class ComprehensionTests(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     maxDiff = None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Expected type 'str' but 'bytes' found.
     def test_file(self):
         filename = os_helper.TESTFN
         self.addCleanup(os_helper.unlink, filename)
