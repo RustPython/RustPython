@@ -2,10 +2,11 @@
 use super::FramePtr;
 #[cfg(feature = "threading")]
 use crate::builtins::PyBaseExceptionRef;
-use crate::frame::Frame;
-use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
+
+use crate::frame::Frame;
+use crate::{AsObject, PyObject, VirtualMachine};
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
@@ -129,6 +130,7 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
             detach_thread();
         }
     }
+
     set_current_vm(vm, f)
 }
 
@@ -538,6 +540,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     } else {
         None
     };
+
     #[cfg(all(unix, feature = "threading"))]
     if let Some(slot) = &_removed
         && vm.state.stop_the_world.requested.load(Ordering::Acquire)
@@ -668,8 +671,7 @@ impl VirtualMachine {
     #[cfg(feature = "threading")]
     pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
     where
-        F: FnOnce(&Self) -> R,
-        F: Send + 'static,
+        F: Send + 'static + FnOnce(&Self) -> R,
         R: Send + 'static,
     {
         let func = self.new_thread().make_spawn_func(f);

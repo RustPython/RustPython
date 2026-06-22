@@ -556,7 +556,6 @@ class PydocDocTest(unittest.TestCase):
         self.assertEqual(stripid("<type 'exceptions.Exception'>"),
                          "<type 'exceptions.Exception'>")
 
-    @unittest.skip("TODO: RUSTPYTHON; Panic")
     def test_builtin_with_more_than_four_children(self):
         """Tests help on builtin object which have more than four child classes.
 

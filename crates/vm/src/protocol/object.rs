@@ -1,5 +1,4 @@
-//! Object Protocol
-//! <https://docs.python.org/3/c-api/object.html>
+//! [Object Protocol](https://docs.python.org/3/c-api/object.html)
 
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult, TryFromObject, VirtualMachine,
@@ -33,13 +32,13 @@ impl PyObjectRef {
 
     pub fn bytes(self, vm: &VirtualMachine) -> PyResult {
         let bytes_type = vm.ctx.types.bytes_type;
-        match self.downcast_exact::<PyInt>(vm) {
-            Ok(int) => Err(vm.new_downcast_type_error(bytes_type, &int)),
-            Err(obj) => {
+        self.downcast_exact::<PyInt>(vm).map_or_else(
+            |obj| {
                 let args = FuncArgs::from(vec![obj]);
                 <PyBytes as Constructor>::slot_new(bytes_type.to_owned(), args, vm)
-            }
-        }
+            },
+            |int| Err(vm.new_downcast_type_error(bytes_type, &int)),
+        )
     }
 
     // const hash_not_implemented: fn(&PyObject, &VirtualMachine) ->PyResult<PyHash> = crate::types::Unhashable::slot_hash;
@@ -70,7 +69,7 @@ impl PyObjectRef {
             )?;
         }
 
-        let attributes: Vec<_> = dict.into_iter().map(|(k, _v)| k).collect();
+        let attributes = dict.into_iter().map(|(k, _v)| k).collect::<Vec<_>>();
 
         Ok(PyList::from(attributes))
     }
@@ -103,10 +102,8 @@ impl PyObject {
 
         // Check that __aiter__ did not return a coroutine
         if iterator.downcast_ref::<PyCoroutine>().is_some() {
-            return Err(vm.new_type_error(
-                "'async_iterator' object cannot be interpreted as an async iterable; \
-                perhaps you forgot to call aiter()?",
-            ));
+            const MSG: &str = "'async_iterator' object cannot be interpreted as an async iterable; perhaps you forgot to call aiter()?";
+            return Err(vm.new_type_error(MSG));
         }
 
         // Check that the result is an async iterator (has __anext__)
@@ -318,6 +315,7 @@ impl PyObject {
             let other_class = other.class();
             !self_class.is(other_class) && other_class.fast_issubclass(self_class)
         };
+
         if is_strict_subclass {
             let res = call_cmp(other, self, swapped)?;
             checked_reverse_op = true;
@@ -325,15 +323,18 @@ impl PyObject {
                 return Ok(x);
             }
         }
+
         if let PyArithmeticValue::Implemented(x) = call_cmp(self, other, op)? {
             return Ok(x);
         }
+
         if !checked_reverse_op {
             let res = call_cmp(other, self, swapped)?;
             if let PyArithmeticValue::Implemented(x) = res {
                 return Ok(x);
             }
         }
+
         match op {
             PyComparisonOp::Eq => Ok(Either::B(self.is(&other))),
             PyComparisonOp::Ne => Ok(Either::B(!self.is(&other))),
@@ -345,6 +346,7 @@ impl PyObject {
             ))),
         }
     }
+
     #[inline(always)]
     pub fn rich_compare_bool(
         &self,
@@ -366,6 +368,7 @@ impl PyObject {
                 _ => {}
             }
         }
+
         match self._cmp(other, op_id, vm)? {
             Either::A(obj) => obj.try_to_bool(vm),
             Either::B(other) => Ok(other),
@@ -392,21 +395,23 @@ impl PyObject {
 
     pub fn ascii(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let repr = self.repr(vm)?;
-        if repr.as_wtf8().is_ascii() {
-            Ok(repr)
+        Ok(if repr.as_wtf8().is_ascii() {
+            repr
         } else {
-            Ok(vm.ctx.new_str(to_ascii(repr.as_wtf8())))
-        }
+            vm.ctx.new_str(to_ascii(repr.as_wtf8()))
+        })
     }
 
     pub fn str_utf8(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyUtf8Str>> {
         self.str(vm)?.try_into_utf8(vm)
     }
+
     pub fn str(&self, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
         let obj = match self.to_owned().downcast_exact::<PyStr>(vm) {
             Ok(s) => return Ok(s.into_pyref()),
             Err(obj) => obj,
         };
+
         // Fast path for exact int: skip __str__ method resolution
         let obj = match obj.downcast_exact::<PyInt>(vm) {
             Ok(int) => {
@@ -415,11 +420,12 @@ impl PyObject {
             }
             Err(obj) => obj,
         };
+
         // TODO: replace to obj.class().slots.str
-        let str_method = match vm.get_special_method(&obj, identifier!(vm, __str__))? {
-            Some(str_method) => str_method,
-            None => return obj.repr(vm),
+        let Some(str_method) = vm.get_special_method(&obj, identifier!(vm, __str__))? else {
+            return obj.repr(vm);
         };
+
         let s = str_method.invoke((), vm)?;
         s.downcast::<PyStr>().map_err(|obj| {
             vm.new_type_error(format!(
@@ -435,13 +441,12 @@ impl PyObject {
     where
         F: Fn() -> String,
     {
-        let cls = self;
-        match cls.abstract_get_bases(vm)? {
-            Some(_bases) => Ok(()), // Has __bases__, it's a valid class
-            None => {
-                // No __bases__ or __bases__ is not a tuple
-                Err(vm.new_type_error(msg()))
-            }
+        if self.abstract_get_bases(vm)?.is_some() {
+            // Has __bases__, it's a valid class
+            Ok(())
+        } else {
+            // No __bases__ or __bases__ is not a tuple
+            Err(vm.new_type_error(msg()))
         }
     }
 
@@ -455,16 +460,13 @@ impl PyObject {
     /// If an object other than a tuple comes out of __bases__, then again, None is returned.
     /// Other exceptions are propagated.
     fn abstract_get_bases(&self, vm: &VirtualMachine) -> PyResult<Option<PyTupleRef>> {
-        match vm.get_attribute_opt(self.to_owned(), identifier!(vm, __bases__))? {
-            Some(bases) => {
+        Ok(vm
+            .get_attribute_opt(self.to_owned(), identifier!(vm, __bases__))?
+            // If we get `None` then AttributeError was masked.
+            .and_then(|bases| {
                 // Check if it's a tuple
-                match PyTupleRef::try_from_object(vm, bases) {
-                    Ok(tuple) => Ok(Some(tuple)),
-                    Err(_) => Ok(None), // Not a tuple, return None
-                }
-            }
-            None => Ok(None), // AttributeError was masked
-        }
+                PyTupleRef::try_from_object(vm, bases).ok()
+            }))
     }
 
     fn abstract_issubclass(&self, cls: &Self, vm: &VirtualMachine) -> PyResult<bool> {
@@ -507,6 +509,7 @@ impl PyObject {
             let result = vm.with_recursion("in __issubclass__", || {
                 bases.as_slice()[i].abstract_issubclass(cls, vm)
             })?;
+
             if result {
                 return Ok(true);
             }
@@ -523,6 +526,7 @@ impl PyObject {
             // PyType_IsSubtype equivalent
             return Ok(derived.is_subtype(cls));
         }
+
         // Check if derived is a class
         self.check_class(vm, || {
             format!("issubclass() arg 1 must be a class, not {}", self.class())
@@ -693,10 +697,7 @@ impl PyObject {
             return hash(self, vm);
         }
 
-        Err(vm.new_exception_msg(
-            vm.ctx.exceptions.type_error.to_owned(),
-            format!("unhashable type: '{}'", self.class().name()).into(),
-        ))
+        Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().name())))
     }
 
     // type protocol

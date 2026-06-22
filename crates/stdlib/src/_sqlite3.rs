@@ -1520,7 +1520,8 @@ mod _sqlite3 {
 
         #[pygetset]
         fn autocommit(&self, vm: &VirtualMachine) -> PyObjectRef {
-            match *self.autocommit.lock() {
+            let mode = *self.autocommit.lock();
+            match mode {
                 AutocommitMode::Enabled => vm.ctx.true_value.clone().into(),
                 AutocommitMode::Disabled => vm.ctx.false_value.clone().into(),
                 AutocommitMode::Legacy => vm.ctx.new_int(LEGACY_TRANSACTION_CONTROL).into(),

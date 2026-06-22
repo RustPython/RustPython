@@ -46,9 +46,8 @@ impl PyInterpolation {
                 .downcast_ref::<PyStr>()
                 .is_some_and(|s| matches!(s.to_str(), Some("s" | "r" | "a")));
         if !is_valid {
-            return Err(vm.new_exception_msg(
-                vm.ctx.exceptions.system_error.to_owned(),
-                "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'".into(),
+            return Err(vm.new_system_error(
+                "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'",
             ));
         }
         Ok(Self {

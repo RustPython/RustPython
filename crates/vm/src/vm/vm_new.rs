@@ -65,8 +65,8 @@ impl SyntaxErrorInfo {
 
     #[cfg(feature = "parser")]
     #[must_use]
-    const fn handle_expected_token(expected: &TokenKind, found: &TokenKind) -> &'static str {
-        match (*expected, *found) {
+    const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
+        match (expected, found) {
             (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
 
             (TokenKind::Lpar, _) => "expected '('",
@@ -110,7 +110,7 @@ impl SyntaxErrorInfo {
             ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
 
             ParseErrorType::ExpectedToken { expected, found } => {
-                Self::handle_expected_token(expected, found).into()
+                Self::handle_expected_token(*expected, *found).into()
             }
 
             ParseErrorType::InvalidStarredExpressionUsage => {
@@ -930,4 +930,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
     define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
+    define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
+    define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
 }

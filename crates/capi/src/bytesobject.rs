@@ -51,7 +51,7 @@ mod tests {
     use pyo3::types::PyBytes;
 
     #[test]
-    fn test_bytes() {
+    fn bytes() {
         Python::attach(|py| {
             let bytes = PyBytes::new(py, b"Hello, World!");
             assert_eq!(bytes.as_bytes(), b"Hello, World!");
@@ -59,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_uninit() {
+    fn bytes_uninit() {
         Python::attach(|py| {
             let bytes = PyBytes::new_with(py, 13, |data| {
                 data.copy_from_slice(b"Hello, World!");

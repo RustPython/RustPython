@@ -6,21 +6,32 @@ pub(crate) use _signal::module_def;
 pub(crate) mod _signal {
     #![allow(unreachable_pub)]
 
-    #[cfg(any(unix, windows))]
-    use crate::convert::{IntoPyException, TryFromBorrowedObject};
-    use crate::{Py, PyObjectRef, PyResult, VirtualMachine, signal};
-    #[cfg(unix)]
     use crate::{
-        builtins::PyTypeRef,
-        function::{ArgIntoFloat, OptionalArg},
+        Py, PyObjectRef, PyResult, VirtualMachine,
+        signal::{self, SignalHandlers, SignalNum},
     };
     use core::sync::atomic::{self, Ordering};
-    #[cfg(any(unix, windows))]
-    use rustpython_host_env::signal as host_signal;
-    #[cfg(unix)]
-    use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
-    #[cfg(unix)]
-    use std::os::fd::AsFd;
+
+    cfg_select! {
+        any(unix, windows) => {
+            use crate::convert::{IntoPyException, TryFromBorrowedObject};
+            use rustpython_host_env::signal as host_signal;
+        }
+        _ => {}
+    }
+
+    cfg_select! {
+        unix => {
+            use crate::{
+                builtins::{PyBaseExceptionRef, PyTypeRef},
+                function::{ArgIntoFloat, OptionalArg},
+            };
+            use rustpython_host_env::signal::{double_to_timeval, itimerval_to_tuple};
+
+            use std::os::fd::AsFd;
+        },
+        _ => {}
+    }
 
     #[allow(non_camel_case_types)]
     type sighandler_t = cfg_select! {
@@ -78,9 +89,11 @@ pub(crate) mod _signal {
     #[cfg(not(unix))]
     #[pyattr]
     pub const SIG_DFL: sighandler_t = 0;
+
     #[cfg(not(unix))]
     #[pyattr]
     pub const SIG_IGN: sighandler_t = 1;
+
     #[cfg(not(unix))]
     #[allow(dead_code)]
     pub const SIG_ERR: sighandler_t = -1 as _;
@@ -100,6 +113,7 @@ pub(crate) mod _signal {
     #[cfg(windows)]
     #[pyattr]
     const CTRL_C_EVENT: u32 = host_signal::CTRL_C_EVENT;
+
     #[cfg(windows)]
     #[pyattr]
     const CTRL_BREAK_EVENT: u32 = host_signal::CTRL_BREAK_EVENT;
@@ -130,9 +144,11 @@ pub(crate) mod _signal {
     #[cfg(target_os = "android")]
     #[pyattr]
     const ITIMER_REAL: libc::c_int = 0;
+
     #[cfg(target_os = "android")]
     #[pyattr]
     const ITIMER_VIRTUAL: libc::c_int = 1;
+
     #[cfg(target_os = "android")]
     #[pyattr]
     const ITIMER_PROF: libc::c_int = 2;
@@ -147,6 +163,15 @@ pub(crate) mod _signal {
         )
     }
 
+    #[cfg(unix)]
+    fn new_itimer_error(msg: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_os_subtype_error(itimer_error(vm), None, msg)
+            .upcast()
+    }
+
+    const _: () = assert!(SignalNum::VALID_RANGE.start.is_positive());
+    const _: () = assert!(SignalNum::VALID_RANGE.end.is_positive());
+
     #[cfg(any(unix, windows))]
     pub(super) fn init_signal_handlers(
         module: &Py<crate::builtins::PyModule>,
@@ -156,8 +181,8 @@ pub(crate) mod _signal {
             let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
-            for signum in 1..NSIG {
-                let Some(handler) = (unsafe { host_signal::probe_handler(signum as i32) }) else {
+            for signum in SignalNum::VALID_RANGE {
+                let Some(handler) = (unsafe { host_signal::probe_handler(signum) }) else {
                     continue;
                 };
                 let py_handler = if handler == SIG_DFL {
@@ -167,15 +192,20 @@ pub(crate) mod _signal {
                 } else {
                     None
                 };
+
+                // SAFETY: Trust `SignalNum::VALID_RANGE`
+                let signum = unsafe { SignalNum::new_unchecked(signum) };
+
                 vm.signal_handlers
-                    .get_or_init(signal::new_signal_handlers)
+                    .get_or_init(SignalHandlers::default)
                     .borrow_mut()[signum] = py_handler;
             }
 
             let int_handler = module
                 .get_attr("default_int_handler", vm)
                 .expect("_signal does not have this attr?");
-            signal(libc::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
+
+            signal(SignalNum::SIGINT, int_handler, vm).expect("Failed to set sigint handler");
         }
     }
 
@@ -192,53 +222,44 @@ pub(crate) mod _signal {
     #[cfg(any(unix, windows))]
     #[pyfunction]
     pub fn signal(
-        signalnum: i32,
+        signalnum: SignalNum,
         handler: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        signal::assert_in_range(signalnum, vm)?;
-        #[cfg(windows)]
-        {
-            if !host_signal::is_valid_signal(signalnum) {
-                return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
-            }
-        }
         if !vm.is_main_thread() {
-            return Err(vm.new_value_error("signal only works in main thread"));
+            return Err(
+                vm.new_value_error("signal only works in main thread of the main interpreter")
+            );
         }
 
-        let sig_handler =
-            match usize::try_from_borrowed_object(vm, &handler).ok() {
-                Some(SIG_DFL) => SIG_DFL,
-                Some(SIG_IGN) => SIG_IGN,
-                None if handler.is_callable() => run_signal as *const () as sighandler_t,
-                _ => return Err(vm.new_type_error(
-                    "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object",
-                )),
-            };
-        signal::check_signals(vm)?;
+        let sig_handler = if handler.is_callable() {
+            run_signal as *const () as sighandler_t
+        } else {
+            const MSG: &str =
+                "signal handler must be signal.SIG_IGN, signal.SIG_DFL, or a callable object";
 
-        let old = unsafe { host_signal::install_handler(signalnum, sig_handler) };
-        let _old = match old {
-            Ok(old) => old,
-            Err(_) => {
-                return Err(vm.new_os_error("Failed to set signal".to_owned()));
-            }
+            usize::try_from_borrowed_object(vm, &handler)
+                .ok()
+                .filter(|&v| matches!(v, SIG_DFL | SIG_IGN))
+                .ok_or_else(|| vm.new_type_error(MSG))?
         };
 
-        let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
-        let old_handler = signal_handlers.borrow_mut()[signalnum as usize].replace(handler);
+        signal::check_signals(vm)?;
+
+        unsafe { host_signal::install_handler(signalnum.into(), sig_handler) }
+            .map_err(|_| vm.new_os_error("Failed to set signal"))?;
+
+        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
+        let old_handler = signal_handlers.borrow_mut()[signalnum].replace(handler);
         Ok(old_handler)
     }
 
     #[pyfunction]
-    fn getsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult {
-        signal::assert_in_range(signalnum, vm)?;
-        let signal_handlers = vm.signal_handlers.get_or_init(signal::new_signal_handlers);
-        let handler = signal_handlers.borrow()[signalnum as usize]
+    fn getsignal(signalnum: SignalNum, vm: &VirtualMachine) -> PyObjectRef {
+        let signal_handlers = vm.signal_handlers.get_or_init(SignalHandlers::default);
+        signal_handlers.borrow()[signalnum]
             .clone()
-            .unwrap_or_else(|| vm.ctx.none());
-        Ok(handler)
+            .unwrap_or_else(|| vm.ctx.none())
     }
 
     #[cfg(unix)]
@@ -250,7 +271,7 @@ pub(crate) mod _signal {
     #[cfg(unix)]
     #[pyfunction]
     fn pause(vm: &VirtualMachine) -> PyResult<()> {
-        host_signal::pause();
+        vm.allow_threads(host_signal::pause);
         signal::check_signals(vm)?;
         Ok(())
     }
@@ -269,25 +290,17 @@ pub(crate) mod _signal {
             it_value: double_to_timeval(seconds),
             it_interval: double_to_timeval(interval),
         };
-        match host_signal::setitimer(which, &new) {
-            Ok(old) => Ok(itimerval_to_tuple(&old)),
-            Err(err) => {
-                let itimer_error = itimer_error(vm);
-                Err(vm.new_exception_msg(itimer_error, err.to_string().into()))
-            }
-        }
+        host_signal::setitimer(which, &new)
+            .map(|old| itimerval_to_tuple(&old))
+            .map_err(|err| new_itimer_error(&err.to_string(), vm))
     }
 
     #[cfg(unix)]
     #[pyfunction]
     fn getitimer(which: i32, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
-        match host_signal::getitimer(which) {
-            Ok(old) => Ok(itimerval_to_tuple(&old)),
-            Err(err) => {
-                let itimer_error = itimer_error(vm);
-                Err(vm.new_exception_msg(itimer_error, err.to_string().into()))
-            }
-        }
+        host_signal::getitimer(which)
+            .map(|old| itimerval_to_tuple(&old))
+            .map_err(|err| new_itimer_error(&err.to_string(), vm))
     }
 
     #[pyfunction]
@@ -310,13 +323,15 @@ pub(crate) mod _signal {
     fn set_wakeup_fd(args: SetWakeupFdArgs, vm: &VirtualMachine) -> PyResult<i64> {
         // TODO: implement warn_on_full_buffer
         let _ = args.warn_on_full_buffer;
-        #[cfg(windows)]
-        let fd = args.fd.0;
-        #[cfg(not(windows))]
-        let fd = args.fd;
+        let fd = cfg_select! {
+        windows => args.fd.0,
+        _ => args.fd,
+            };
 
         if !vm.is_main_thread() {
-            return Err(vm.new_value_error("set_wakeup_fd only works in main thread"));
+            return Err(vm.new_value_error(
+                "set_wakeup_fd only works in main thread of the main interpreter",
+            ));
         }
 
         #[cfg(windows)]
@@ -343,33 +358,27 @@ pub(crate) mod _signal {
         }
 
         let old_fd = WAKEUP.swap(fd, Ordering::Relaxed);
+
         #[cfg(windows)]
         WAKEUP_IS_SOCKET.store(is_socket, Ordering::Relaxed);
 
         #[cfg(windows)]
-        {
-            if old_fd == INVALID_WAKEUP {
-                Ok(-1)
-            } else {
-                Ok(old_fd as i64)
-            }
+        if old_fd == INVALID_WAKEUP {
+            return Ok(-1);
         }
-        #[cfg(not(windows))]
-        {
-            Ok(old_fd as i64)
-        }
+
+        Ok(old_fd as i64)
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "android", target_os = "linux"))]
     #[pyfunction]
     fn pidfd_send_signal(
         pidfd: i32,
-        sig: i32,
+        sig: SignalNum,
         siginfo: OptionalArg<PyObjectRef>,
         flags: OptionalArg<u32>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        signal::assert_in_range(sig, vm)?;
         if let OptionalArg::Present(obj) = siginfo
             && !vm.is_none(&obj)
         {
@@ -377,89 +386,69 @@ pub(crate) mod _signal {
         }
 
         let flags = flags.unwrap_or(0);
-        host_signal::pidfd_send_signal(pidfd, sig, flags).map_err(|_| vm.new_last_errno_error())
+        host_signal::pidfd_send_signal(pidfd, sig.into(), flags)
+            .map_err(|_| vm.new_last_errno_error())
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "siginterrupt")]
-    fn py_siginterrupt(signum: i32, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
-        signal::assert_in_range(signum, vm)?;
-        host_signal::siginterrupt(signum, flag).map_err(|_| vm.new_last_errno_error())
+    fn py_siginterrupt(signum: SignalNum, flag: i32, vm: &VirtualMachine) -> PyResult<()> {
+        host_signal::siginterrupt(signum.into(), flag).map_err(|_| vm.new_last_errno_error())
     }
 
-    /// CPython: signal_raise_signal (signalmodule.c)
     #[cfg(any(unix, windows))]
     #[pyfunction]
     fn raise_signal(signalnum: i32, vm: &VirtualMachine) -> PyResult<()> {
-        signal::assert_in_range(signalnum, vm)?;
-
-        // On Windows, only certain signals are supported
-        #[cfg(windows)]
-        {
-            if !host_signal::is_valid_signal(signalnum) {
-                return Err(vm
-                    .new_errno_error(libc::EINVAL, "Invalid argument")
-                    .upcast());
+        let signalnum = SignalNum::try_from(signalnum).map_err(cfg_select! {
+            windows => {
+                |_| vm.new_errno_error(libc::EINVAL, "Invalid argument").upcast()
+            },
+            _ => {
+                |msg| vm.new_value_error(msg)
             }
-        }
+        })?;
 
-        if host_signal::raise_signal(signalnum).is_err() {
-            return Err(vm.new_os_error(format!("raise_signal failed for signal {signalnum}")));
-        }
+        vm.allow_threads(|| host_signal::raise_signal(signalnum.into()))
+            .map_err(|_| vm.new_os_error(format!("raise_signal failed for signal {signalnum}")))?;
 
         // Check if a signal was triggered and handle it
+
         signal::check_signals(vm)?;
 
         Ok(())
     }
 
-    /// CPython: signal_strsignal (signalmodule.c)
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[pyfunction]
-    fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
-        if signalnum < 1 || signalnum >= signal::NSIG as i32 {
-            return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
-        }
-        Ok(host_signal::strsignal(signalnum))
+    fn strsignal(signalnum: SignalNum) -> Option<String> {
+        host_signal::strsignal(signalnum.into())
     }
 
-    #[cfg(windows)]
-    #[pyfunction]
-    fn strsignal(signalnum: i32, vm: &VirtualMachine) -> PyResult<Option<String>> {
-        if signalnum < 1 || signalnum >= signal::NSIG as i32 {
-            return Err(vm.new_value_error(format!("signal number {signalnum} out of range")));
-        }
-        Ok(host_signal::strsignal(signalnum))
-    }
-
-    /// CPython: signal_valid_signals (signalmodule.c)
     #[pyfunction]
     fn valid_signals(vm: &VirtualMachine) -> PyResult {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
+
+        // Empty set for platforms without signal support (e.g., WASM)
         #[cfg(any(unix, windows))]
         for signum in host_signal::valid_signals(signal::NSIG)
-            .map_err(|_| vm.new_os_error("sigfillset failed".to_owned()))?
+            .map_err(|_| vm.new_os_error("sigfillset failed"))?
         {
             set.add(vm.ctx.new_int(signum).into(), vm)?;
         }
-        #[cfg(not(any(unix, windows)))]
-        {
-            // Empty set for platforms without signal support (e.g., WASM)
-            let _ = &set;
-        }
+
         Ok(set.into())
     }
 
     #[cfg(unix)]
-    fn sigset_to_pyset(mask: &libc::sigset_t, vm: &VirtualMachine) -> PyResult {
+    fn sigset_to_pyset(mask: libc::sigset_t, vm: &VirtualMachine) -> PyResult {
         use crate::PyPayload;
         use crate::builtins::PySet;
         let set = PySet::default().into_ref(&vm.ctx);
-        for signum in 1..signal::NSIG {
-            if host_signal::sigset_contains(mask, signum as i32) {
-                set.add(vm.ctx.new_int(signum as i32).into(), vm)?;
+        for signum in SignalNum::VALID_RANGE {
+            if host_signal::sigset_contains(mask, signum) {
+                set.add(vm.ctx.new_int(signum).into(), vm)?;
             }
         }
         Ok(set.into())
@@ -472,29 +461,26 @@ pub(crate) mod _signal {
         mask: crate::function::ArgIterable,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use crate::convert::IntoPyException;
-
         // Initialize sigset
         let mut sigset = host_signal::sigemptyset().map_err(|e| e.into_pyexception(vm))?;
 
         // Add signals to the set
         for sig in mask.iter(vm)? {
             let sig = sig?;
-            // Convert to i32, handling overflow by returning ValueError
-            let signum: i32 = sig.try_to_value(vm).map_err(|_| {
-                vm.new_value_error(format!(
-                    "signal number out of range [1, {}]",
-                    signal::NSIG - 1
-                ))
-            })?;
-            // Validate signal number is in range [1, NSIG)
-            if signum < 1 || signum >= signal::NSIG as i32 {
-                return Err(vm.new_value_error(format!(
-                    "signal number {} out of range [1, {}]",
-                    signum,
-                    signal::NSIG - 1
-                )));
-            }
+            // Convert to i32
+            // - handling overflow by returning ValueError
+            // - validate signal number is in range [1, NSIG)
+            let signum = sig
+                .try_to_value::<i32>(vm)
+                .ok()
+                .filter(|v| SignalNum::VALID_RANGE.contains(v))
+                .ok_or_else(|| {
+                    vm.new_value_error(format!(
+                        "signal number out of range [1, {}]",
+                        SignalNum::VALID_RANGE.end - 1
+                    ))
+                })?;
+
             host_signal::sigaddset(&mut sigset, signum).map_err(|e| e.into_pyexception(vm))?;
         }
 
@@ -505,22 +491,22 @@ pub(crate) mod _signal {
         signal::check_signals(vm)?;
 
         // Convert old mask to Python set
-        sigset_to_pyset(&old_mask, vm)
+        sigset_to_pyset(old_mask, vm)
     }
 
     #[cfg(any(unix, windows))]
     pub extern "C" fn run_signal(signum: i32) {
         signal::TRIGGERS[signum as usize].store(true, Ordering::Relaxed);
         signal::set_triggered();
-        #[cfg(windows)]
+
         host_signal::notify_signal(
             signum,
             WAKEUP.load(Ordering::Relaxed),
+            #[cfg(windows)]
             WAKEUP_IS_SOCKET.load(Ordering::Relaxed),
+            #[cfg(windows)]
             signal::get_sigint_event(),
         );
-        #[cfg(unix)]
-        host_signal::notify_signal(signum, WAKEUP.load(Ordering::Relaxed));
     }
 
     /// Reset wakeup fd after fork in child process.

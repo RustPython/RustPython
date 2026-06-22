@@ -295,7 +295,7 @@ impl PyList {
                 .setitem_by_index(vm, index, value)
                 .map_err(|e| {
                     if e.class().is(vm.ctx.exceptions.index_error) {
-                        vm.new_index_error("list assignment index out of range".to_owned())
+                        vm.new_index_error("list assignment index out of range")
                     } else {
                         e
                     }
@@ -398,13 +398,13 @@ impl PyList {
         let (mut elements, version_before) = {
             let mut guard = self.elements.write();
             let version_before = self.mutation_counter.load(Ordering::Relaxed);
-            (core::mem::take(guard.deref_mut()), version_before)
+            (core::mem::take(&mut *guard), version_before)
         };
         let res = do_sort(vm, &mut elements, options.key, options.reverse);
         let mutated = {
             let mut guard = self.elements.write();
             let mutated = self.mutation_counter.load(Ordering::Relaxed) != version_before;
-            core::mem::swap(guard.deref_mut(), &mut elements);
+            core::mem::swap(&mut *guard, &mut elements);
             mutated
         };
         res?;

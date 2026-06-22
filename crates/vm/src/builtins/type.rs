@@ -370,7 +370,7 @@ unsafe impl<T> Sync for PointerSlot<T> {}
 unsafe impl<T> Send for PointerSlot<T> {}
 
 impl<T> PointerSlot<T> {
-    pub(crate) const unsafe fn borrow_static(&self) -> &'static T {
+    pub(crate) const unsafe fn borrow_static(self) -> &'static T {
         unsafe { self.0.as_ref() }
     }
 }
@@ -806,8 +806,8 @@ impl PyType {
         // Note: inherit_slots is called in PyClassImpl::init_class after
         // slots are fully initialized by make_slots()
 
-        Self::set_new(&new_type.slots, &new_type.base);
-        Self::set_alloc(&new_type.slots, &new_type.base);
+        Self::set_new(&new_type.slots, new_type.base.as_ref());
+        Self::set_alloc(&new_type.slots, new_type.base.as_ref());
 
         let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().iter() {
@@ -853,25 +853,23 @@ impl PyType {
             self.update_slot::<true>(attr_name, ctx);
         }
 
-        Self::set_new(&self.slots, &self.base);
-        Self::set_alloc(&self.slots, &self.base);
+        Self::set_new(&self.slots, self.base.as_ref());
+        Self::set_alloc(&self.slots, self.base.as_ref());
     }
 
-    fn set_new(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+    fn set_new(slots: &PyTypeSlots, base: Option<&PyTypeRef>) {
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {
-            slots
-                .new
-                .store(base.as_ref().and_then(|base| base.slots.new.load()))
+            slots.new.store(base.and_then(|base| base.slots.new.load()))
         }
     }
 
-    fn set_alloc(slots: &PyTypeSlots, base: &Option<PyTypeRef>) {
+    fn set_alloc(slots: &PyTypeSlots, base: Option<&PyTypeRef>) {
         if slots.alloc.load().is_none() {
             slots
                 .alloc
-                .store(base.as_ref().and_then(|base| base.slots.alloc.load()));
+                .store(base.and_then(|base| base.slots.alloc.load()));
         }
     }
 
@@ -1281,14 +1279,14 @@ impl Py<PyType> {
     where
         F: Fn(&Self) -> R,
     {
-        self.mro.read().iter().map(|x| x.deref()).map(f).collect()
+        self.mro.read().iter().map(|x| &**x).map(f).collect()
     }
 
     pub fn mro_collect(&self) -> Vec<PyRef<PyType>> {
         self.mro
             .read()
             .iter()
-            .map(|x| x.deref())
+            .map(|x| &**x)
             .map(|x| x.to_owned())
             .collect()
     }
@@ -2926,12 +2924,12 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
         let candidate = solid_base(base_i, vm);
         if winner.is_none() {
             winner = Some(candidate);
-            base = Some(base_i.deref());
+            base = Some(&**base_i);
         } else if winner.unwrap().fast_issubclass(candidate) {
             // Do nothing
         } else if candidate.fast_issubclass(winner.unwrap()) {
             winner = Some(candidate);
-            base = Some(base_i.deref());
+            base = Some(&**base_i);
         } else {
             return Err(vm.new_type_error("multiple bases have instance layout conflict"));
         }

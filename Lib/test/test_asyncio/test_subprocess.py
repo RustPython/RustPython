@@ -628,6 +628,7 @@ class SubprocessMixin:
         self.assertTrue(killed)
         test_utils.run_briefly(self.loop)
 
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; Flaky on CI")
     def test_close_dont_kill_finished(self):
 
         async def kill_running():

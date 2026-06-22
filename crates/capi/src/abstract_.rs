@@ -119,9 +119,7 @@ pub unsafe extern "C" fn PyObject_VectorcallMethod(
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
 
         if args_len == 0 {
-            return Err(
-                vm.new_system_error("PyObject_VectorcallMethod called with no receiver".to_owned())
-            );
+            return Err(vm.new_system_error("PyObject_VectorcallMethod called with no receiver"));
         }
 
         let (receiver, args) = unsafe { slice::from_raw_parts(args, args_len) }
@@ -218,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn test_call_method1() {
+    fn call_method1() {
         Python::attach(|py| {
             let string = PyString::new(py, "Hello, World!");
             assert!(
@@ -232,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_object_set_get_del_item() {
+    fn object_set_get_del_item() {
         Python::attach(|py| {
             let obj = PyDict::new(py).into_any();
             obj.set_item("key", "value").unwrap();

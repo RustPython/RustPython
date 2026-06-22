@@ -42,7 +42,7 @@ mod tests {
     use pyo3::types::PyComplex;
 
     #[test]
-    fn test_py_int() {
+    fn py_int() {
         Python::attach(|py| {
             let number = PyComplex::from_doubles(py, 1.0, 2.0);
             assert_eq!(number.real(), 1.0);

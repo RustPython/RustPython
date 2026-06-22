@@ -13,7 +13,7 @@ impl VirtualMachine {
         &self,
         source: &str,
         mode: compiler::Mode,
-        source_path: String,
+        source_path: &str,
     ) -> Result<PyRef<PyCode>, CompileError> {
         self.compile_with_opts(source, mode, source_path, self.compile_opts())
     }
@@ -22,15 +22,17 @@ impl VirtualMachine {
         &self,
         source: &str,
         mode: compiler::Mode,
-        source_path: String,
+        source_path: &str,
         opts: CompileOpts,
     ) -> Result<PyRef<PyCode>, CompileError> {
-        let code = compiler::compile(source, mode, &source_path, opts)
+        let code = compiler::compile(source, mode, source_path, opts)
             .map(|code| PyCode::new_ref_from_bytecode(self, code));
+
         #[cfg(feature = "parser")]
         if code.is_ok() {
-            self.emit_string_escape_warnings(source, &source_path);
+            self.emit_string_escape_warnings(source, source_path);
         }
+
         code
     }
 }

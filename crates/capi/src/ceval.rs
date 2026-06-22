@@ -38,7 +38,7 @@ pub unsafe extern "C" fn Py_CompileString(
             }
         };
 
-        vm.compile(code, mode, filename.to_owned())
+        vm.compile(code, mode, filename)
             .map_err(|err| vm.new_syntax_error(&err, Some(code)))
     })
 }
@@ -78,7 +78,7 @@ mod tests {
     use pyo3::prelude::*;
 
     #[test]
-    fn test_code_eval() {
+    fn code_eval() {
         Python::attach(|py| {
             let result = py.eval(c"1 + 1", None, None).unwrap();
             assert_eq!(result.extract::<u32>().unwrap(), 2);
@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn test_code_run_exception() {
+    fn code_run_exception() {
         Python::attach(|py| {
             let err = py.run(c"raise Exception()", None, None).unwrap_err();
             assert!(err.is_instance_of::<PyException>(py));

@@ -63,13 +63,21 @@ pub unsafe extern "C" fn PyLong_AsUnsignedLongLong(obj: *mut PyObject) -> c_ulon
     })
 }
 
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_AsUnsignedLongLongMask(obj: *mut PyObject) -> c_ulonglong {
+    with_vm::<PyResult<c_ulonglong>, _>(|vm| {
+        let int = unsafe { &*obj }.to_owned().try_index(vm)?;
+        Ok(int.as_u64_mask())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyInt;
 
     #[test]
-    fn test_py_int_u32() {
+    fn py_int_u32() {
         Python::attach(|py| {
             let number = PyInt::new(py, 123);
             assert!(number.is_instance_of::<PyInt>());
@@ -78,11 +86,20 @@ mod tests {
     }
 
     #[test]
-    fn test_py_int_u64() {
+    fn py_int_u64() {
         Python::attach(|py| {
             let number = PyInt::new(py, 123u64);
             assert!(number.is_instance_of::<PyInt>());
             assert_eq!(number.extract::<u64>().unwrap(), 123);
+        })
+    }
+
+    #[test]
+    fn py_int_u128() {
+        Python::attach(|py| {
+            let value = 1u128 << 100;
+            let number = PyInt::new(py, value);
+            assert_eq!(number.extract::<u128>().unwrap(), value);
         })
     }
 }

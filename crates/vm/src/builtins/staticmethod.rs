@@ -68,6 +68,7 @@ impl PyStaticMethod {
             callable: PyMutex::new(callable),
         }
     }
+
     #[deprecated(note = "use PyStaticMethod::new(...).into_ref() instead")]
     pub fn new_ref(callable: PyObjectRef, ctx: &Context) -> PyRef<Self> {
         Self::new(callable).into_ref(ctx)
@@ -144,9 +145,12 @@ impl PyStaticMethod {
 
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
-            Ok(Some(is_abstract)) => is_abstract,
-            _ => vm.ctx.new_bool(false).into(),
+        let callable = self.callable.lock().clone();
+
+        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(callable, "__isabstractmethod__") {
+            is_abstract
+        } else {
+            vm.ctx.new_bool(false).into()
         }
     }
 

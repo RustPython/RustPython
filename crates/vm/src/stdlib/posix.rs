@@ -670,7 +670,7 @@ pub mod module {
         // Initialize signal handlers for the child's main thread.
         // When forked from a worker thread, the OnceCell is empty.
         vm.signal_handlers
-            .get_or_init(crate::signal::new_signal_handlers);
+            .get_or_init(crate::signal::SignalHandlers::default);
 
         // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
@@ -2311,6 +2311,12 @@ pub mod module {
         __module_exec(vm, module);
         super::super::os::module_exec(vm, module)?;
         Ok(())
+    }
+
+    #[pyfunction]
+    fn _is_inputhook_installed() -> bool {
+        // TODO: Implement the actual logic here
+        false
     }
 }
 

@@ -36,7 +36,8 @@ use crate::{
     import,
     protocol::PyIterIter,
     scope::Scope,
-    signal, stdlib,
+    signal::{self, SignalHandlers},
+    stdlib,
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
@@ -82,7 +83,7 @@ pub struct VirtualMachine {
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
     pub recursion_limit: Cell<usize>,
-    pub(crate) signal_handlers: OnceCell<Box<RefCell<[Option<PyObjectRef>; signal::NSIG]>>>,
+    pub(crate) signal_handlers: OnceCell<SignalHandlers>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
     pub repr_guards: RefCell<HashSet<usize>>,
     pub state: PyRc<PyGlobalState>,
@@ -647,7 +648,7 @@ impl VirtualMachine {
             .types
             .list_type
             .get_attr(self.ctx.intern_str("append"))
-            .ok_or_else(|| self.new_runtime_error("failed to cache list.append".to_owned()))?;
+            .ok_or_else(|| self.new_runtime_error("failed to cache list.append"))?;
         self.callable_cache.list_append = Some(list_append);
         self.callable_cache.builtin_all = Some(self.builtins.get_attr("all", self)?);
         self.callable_cache.builtin_any = Some(self.builtins.get_attr("any", self)?);
@@ -723,7 +724,7 @@ impl VirtualMachine {
         let importlib = ctx.none();
         let profile_func = RefCell::new(ctx.none());
         let trace_func = RefCell::new(ctx.none());
-        let signal_handlers = OnceCell::from(signal::new_signal_handlers());
+        let signal_handlers = OnceCell::from(SignalHandlers::default());
 
         let vm = Self {
             builtins,
@@ -2284,7 +2285,7 @@ mod tests {
 
                 let source = "from dir_module.dir_module_inner import value2";
                 let code_obj = vm
-                    .compile(source, vm::compiler::Mode::Exec, "<embedded>".to_owned())
+                    .compile(source, vm::compiler::Mode::Exec, "<embedded>")
                     .map_err(|err| vm.new_syntax_error(&err, Some(source)))
                     .unwrap();
 

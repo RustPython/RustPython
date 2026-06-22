@@ -314,7 +314,7 @@ mod tests {
     use pyo3::types::{PyCFunction, PyInt, PyString};
 
     #[test]
-    fn test_closure_function() {
+    fn closure_function() {
         Python::attach(|py| {
             let f = PyCFunction::new_closure(py, None, None, |_args, _kwargs| "Hello from Rust!")
                 .unwrap();
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn test_function_no_args() {
+    fn function_no_args() {
         Python::attach(|py| {
             unsafe extern "C" fn c_fn(_self: *mut PyObject, _args: *mut PyObject) -> *mut PyObject {
                 assert!(_self.is_null());
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn test_closure_function_error() {
+    fn closure_function_error() {
         Python::attach(|py| {
             let f = PyCFunction::new_closure(py, None, None, |_args, _kwargs| {
                 Err::<(), _>(PyException::new_err("Something went wrong"))

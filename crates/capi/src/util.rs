@@ -109,6 +109,15 @@ impl FfiResult for c_long {
     }
 }
 
+#[cfg(windows)]
+impl FfiResult for i64 {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 impl FfiResult for c_ulonglong {
     const ERR_VALUE: Self = Self::MAX;
 

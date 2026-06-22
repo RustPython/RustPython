@@ -131,7 +131,7 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
 pub fn import_file(
     vm: &VirtualMachine,
     module_name: &str,
-    file_path: String,
+    file_path: &str,
     content: &str,
 ) -> PyResult {
     let code = vm
@@ -151,7 +151,7 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
         .compile_with_opts(
             content,
             crate::compiler::Mode::Exec,
-            "<source>".to_owned(),
+            "<source>",
             vm.compile_opts(),
         )
         .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
@@ -267,10 +267,11 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
 
 /// Get origin path from a module spec, checking has_location first.
 pub(crate) fn get_spec_file_origin(
-    spec: &Option<PyObjectRef>,
+    spec: Option<&PyObjectRef>,
     vm: &VirtualMachine,
 ) -> Option<String> {
-    let spec = spec.as_ref()?;
+    let spec = spec?;
+
     let has_location = spec
         .get_attr("has_location", vm)
         .ok()

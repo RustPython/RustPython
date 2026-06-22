@@ -791,6 +791,7 @@ class EventLoopTestsMixin:
             self.assertEqual(port, expected)
             tr.close()
 
+    @unittest.skipIf(sys.platform == "linux", "TODO: RUSTPYTHON; Flaky on CI")
     @socket_helper.skip_if_tcp_blackhole
     def test_create_connection_local_addr_skip_different_family(self):
         # See https://github.com/python/cpython/issues/86508

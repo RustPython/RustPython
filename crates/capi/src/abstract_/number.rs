@@ -11,6 +11,11 @@ pub unsafe extern "C" fn PyNumber_Index(obj: *mut PyObject) -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyNumber_Long(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*obj }.try_int(vm))
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyNumber_Lshift(o1: *mut PyObject, o2: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| vm._lshift(unsafe { &*o1 }, unsafe { &*o2 }))
 }

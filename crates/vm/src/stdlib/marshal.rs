@@ -19,7 +19,7 @@ mod decl {
     };
     use malachite_bigint::BigInt;
     use num_traits::Zero;
-    use rustpython_compiler_core::marshal;
+    use rustpython_compiler_core::marshal::{self, DumpableValue};
 
     #[pyattr(name = "version")]
     use marshal::FORMAT_VERSION;
@@ -32,57 +32,57 @@ mod decl {
 
         fn with_dump<R>(
             &self,
-            f: impl FnOnce(marshal::DumpableValue<'_, Self>) -> R,
+            f: impl FnOnce(DumpableValue<'_, Self>) -> R,
         ) -> Result<R, Self::Error> {
-            use marshal::DumpableValue::*;
             if self.is(PyStopIteration::static_type()) {
-                return Ok(f(StopIter));
+                return Ok(f(DumpableValue::StopIter));
             }
+
             let ret = match_class!(match self {
-                PyNone => f(None),
-                PyEllipsis => f(Ellipsis),
+                PyNone => f(DumpableValue::None),
+                PyEllipsis => f(DumpableValue::Ellipsis),
                 ref pyint @ PyInt => {
                     if self.class().is(PyBool::static_type()) {
-                        f(Boolean(!pyint.as_bigint().is_zero()))
+                        f(DumpableValue::Boolean(!pyint.as_bigint().is_zero()))
                     } else {
-                        f(Integer(pyint.as_bigint()))
+                        f(DumpableValue::Integer(pyint.as_bigint()))
                     }
                 }
                 ref pyfloat @ PyFloat => {
-                    f(Float(pyfloat.to_f64()))
+                    f(DumpableValue::Float(pyfloat.to_f64()))
                 }
                 ref pycomplex @ PyComplex => {
-                    f(Complex(pycomplex.to_complex64()))
+                    f(DumpableValue::Complex(pycomplex.to_complex64()))
                 }
                 ref pystr @ PyStr => {
-                    f(Str(pystr.as_wtf8()))
+                    f(DumpableValue::Str(pystr.as_wtf8()))
                 }
                 ref pylist @ PyList => {
-                    f(List(&pylist.borrow_vec()))
+                    f(DumpableValue::List(&pylist.borrow_vec()))
                 }
                 ref pyset @ PySet => {
                     let elements = pyset.elements();
-                    f(Set(&elements))
+                    f(DumpableValue::Set(&elements))
                 }
                 ref pyfrozen @ PyFrozenSet => {
                     let elements = pyfrozen.elements();
-                    f(Frozenset(&elements))
+                    f(DumpableValue::Frozenset(&elements))
                 }
                 ref pytuple @ PyTuple => {
-                    f(Tuple(pytuple.as_slice()))
+                    f(DumpableValue::Tuple(pytuple.as_slice()))
                 }
                 ref pydict @ PyDict => {
                     let entries = pydict.into_iter().collect::<Vec<_>>();
-                    f(Dict(&entries))
+                    f(DumpableValue::Dict(&entries))
                 }
                 ref bytes @ PyBytes => {
-                    f(Bytes(bytes.as_bytes()))
+                    f(DumpableValue::Bytes(bytes.as_bytes()))
                 }
                 ref bytes @ PyByteArray => {
-                    f(Bytes(&bytes.borrow_buf()))
+                    f(DumpableValue::Bytes(&bytes.borrow_buf()))
                 }
                 ref co @ PyCode => {
-                    f(Code(co))
+                    f(DumpableValue::Code(co))
                 }
                 _ => return Err(DumpError),
             });
@@ -187,7 +187,7 @@ mod decl {
     ) -> PyResult<()> {
         use marshal::Write;
         if depth == 0 {
-            return Err(vm.new_value_error("object too deeply nested to marshal".to_string()));
+            return Err(vm.new_value_error("object too deeply nested to marshal"));
         }
 
         // Singletons: no FLAG_REF needed
@@ -325,7 +325,7 @@ mod decl {
             marshal::serialize_code(buf, &co.code);
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
-                return Err(vm.new_value_error("unmarshallable object".to_string()));
+                return Err(vm.new_value_error("unmarshallable object"));
             }
             buf.write_u8(b':');
             let none: PyObjectRef = vm.ctx.none();
@@ -352,7 +352,7 @@ mod decl {
             buf.write_u32(data.len() as u32);
             buf.write_slice(&data);
         } else {
-            return Err(vm.new_value_error("unmarshallable object".to_string()));
+            return Err(vm.new_value_error("unmarshallable object"));
         }
 
         if use_ref {
@@ -504,10 +504,7 @@ mod decl {
 
         let result =
             marshal::deserialize_value(&mut &buf[..], PyMarshalBag(vm)).map_err(|e| match e {
-                marshal::MarshalError::Eof => vm.new_exception_msg(
-                    vm.ctx.exceptions.eof_error.to_owned(),
-                    "marshal data too short".into(),
-                ),
+                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
                 _ => vm.new_value_error("bad marshal data"),
             })?;
         if !allow_code {
@@ -561,7 +558,7 @@ mod decl {
     /// Recursively check that no code objects are present.
     fn check_no_code(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if obj.downcast_ref::<PyCode>().is_some() {
-            return Err(vm.new_value_error("unmarshalling code objects is disallowed".to_string()));
+            return Err(vm.new_value_error("unmarshalling code objects is disallowed"));
         }
         if let Some(tup) = obj.downcast_ref::<PyTuple>() {
             for elem in tup.as_slice() {
@@ -605,7 +602,7 @@ mod decl {
             PyFrozenSet::static_type(),
         ] {
             if cls.fast_issubclass(base) && !cls.is(base) {
-                return Err(vm.new_value_error("unmarshallable object".to_string()));
+                return Err(vm.new_value_error("unmarshallable object"));
             }
         }
         Ok(())
