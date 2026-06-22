@@ -78,14 +78,131 @@ impl ConstantPool {
         }
     }
 
+    fn frozenset_key_contains(elements: &[ConstantData], needle: &ConstantData) -> bool {
+        if Self::constant_contains_nan(needle) {
+            return false;
+        }
+        elements.iter().any(|element| {
+            !Self::constant_contains_nan(element) && Self::constant_key_eq(element, needle)
+        })
+    }
+
+    fn frozenset_key_eq(left: &[ConstantData], right: &[ConstantData]) -> bool {
+        left.iter()
+            .all(|element| Self::frozenset_key_contains(right, element))
+            && right
+                .iter()
+                .all(|element| Self::frozenset_key_contains(left, element))
+    }
+
+    fn constant_key_eq(left: &ConstantData, right: &ConstantData) -> bool {
+        match (left, right) {
+            (ConstantData::Tuple { elements: left }, ConstantData::Tuple { elements: right }) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right.iter())
+                        .all(|(left, right)| Self::constant_key_eq(left, right))
+            }
+            (
+                ConstantData::Frozenset { elements: left },
+                ConstantData::Frozenset { elements: right },
+            ) => Self::frozenset_key_eq(left, right),
+            (ConstantData::Slice { elements: left }, ConstantData::Slice { elements: right }) => {
+                left.iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| Self::constant_key_eq(left, right))
+            }
+            _ => left == right,
+        }
+    }
+
+    fn canonicalize_constant_key(constant: ConstantData) -> crate::InternalResult<ConstantData> {
+        match constant {
+            ConstantData::Tuple { elements } => {
+                let mut canonical = Vec::new();
+                canonical
+                    .try_reserve_exact(elements.len())
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                for element in elements {
+                    canonical.push(Self::canonicalize_constant_key(element)?);
+                }
+                Ok(ConstantData::Tuple {
+                    elements: canonical,
+                })
+            }
+            ConstantData::Slice { elements } => {
+                let [start, stop, step] = *elements;
+                Ok(ConstantData::Slice {
+                    elements: Box::new([
+                        Self::canonicalize_constant_key(start)?,
+                        Self::canonicalize_constant_key(stop)?,
+                        Self::canonicalize_constant_key(step)?,
+                    ]),
+                })
+            }
+            ConstantData::Frozenset { elements } => {
+                let mut canonical = Vec::new();
+                canonical
+                    .try_reserve_exact(elements.len())
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                for element in elements {
+                    let element = Self::canonicalize_constant_key(element)?;
+                    if !Self::frozenset_key_contains(&canonical, &element) {
+                        canonical.push(element);
+                    }
+                }
+                Ok(ConstantData::Frozenset {
+                    elements: canonical,
+                })
+            }
+            other => Ok(other),
+        }
+    }
+
+    fn canonicalize_constant_key_infallible(constant: ConstantData) -> ConstantData {
+        match constant {
+            ConstantData::Tuple { elements } => ConstantData::Tuple {
+                elements: elements
+                    .into_iter()
+                    .map(Self::canonicalize_constant_key_infallible)
+                    .collect(),
+            },
+            ConstantData::Slice { elements } => {
+                let [start, stop, step] = *elements;
+                ConstantData::Slice {
+                    elements: Box::new([
+                        Self::canonicalize_constant_key_infallible(start),
+                        Self::canonicalize_constant_key_infallible(stop),
+                        Self::canonicalize_constant_key_infallible(step),
+                    ]),
+                }
+            }
+            ConstantData::Frozenset { elements } => {
+                let mut canonical = Vec::with_capacity(elements.len());
+                for element in elements {
+                    let element = Self::canonicalize_constant_key_infallible(element);
+                    if !Self::frozenset_key_contains(&canonical, &element) {
+                        canonical.push(element);
+                    }
+                }
+                ConstantData::Frozenset {
+                    elements: canonical,
+                }
+            }
+            other => other,
+        }
+    }
+
     pub fn insert_full(&mut self, constant: ConstantData) -> (usize, bool) {
+        let constant = Self::canonicalize_constant_key_infallible(constant);
         // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
         // because Python-level NaN keys do not compare equal.
         if !Self::constant_contains_nan(&constant)
             && let Some(idx) = self
                 .constants
                 .iter()
-                .position(|existing| existing == &constant)
+                .position(|existing| Self::constant_key_eq(existing, &constant))
         {
             return (idx, false);
         }
@@ -95,13 +212,14 @@ impl ConstantPool {
     }
 
     fn try_insert_full(&mut self, constant: ConstantData) -> crate::InternalResult<(usize, bool)> {
+        let constant = Self::canonicalize_constant_key(constant)?;
         // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
         // because Python-level NaN keys do not compare equal.
         if !Self::constant_contains_nan(&constant)
             && let Some(idx) = self
                 .constants
                 .iter()
-                .position(|existing| existing == &constant)
+                .position(|existing| Self::constant_key_eq(existing, &constant))
         {
             return Ok((idx, false));
         }
@@ -1485,6 +1603,7 @@ impl Blocks {
                     | PseudoInstruction::JumpIfTrue { .. }),
                 ) => {
                     let opcode = pseudo.into();
+                    let opcode_is_false = matches!(pseudo, PseudoInstruction::JumpIfFalse { .. });
                     match target.instr.pseudo().map(Into::into) {
                         Some(PseudoOpcode::Jump)
                             if self.jump_thread(block_idx, i, &target, opcode)? =>
@@ -1492,22 +1611,25 @@ impl Blocks {
                             continue;
                         }
                         Some(PseudoOpcode::JumpIfFalse)
-                            if matches!(
-                                opcode,
-                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
-                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
+                            if opcode_is_false
+                                && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
                         Some(PseudoOpcode::JumpIfTrue)
-                            if matches!(
-                                opcode,
-                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
-                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
+                            if !opcode_is_false
+                                && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
-                        Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
+                        Some(PseudoOpcode::JumpIfTrue) if opcode_is_false => {
+                            let next = self[inst.target].next;
+                            debug_assert!(next != BlockIdx::NULL);
+                            debug_assert!(next != inst.target);
+                            self[block_idx].instructions[i].target = next;
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfFalse) if !opcode_is_false => {
                             let next = self[inst.target].next;
                             debug_assert!(next != BlockIdx::NULL);
                             debug_assert!(next != inst.target);
@@ -3060,7 +3182,7 @@ impl IndexMut<BlockIdx> for Blocks {
 }
 
 pub(crate) const START_DEPTH_UNSET: i32 = i32::MIN;
-const CO_MAXBLOCKS: usize = 20;
+const CO_MAXBLOCKS: usize = 21;
 
 /// flowgraph.c struct _PyCfgExceptStack
 #[derive(Clone, Debug)]
@@ -3636,6 +3758,9 @@ impl CodeInfo {
             kwonlyargcount: kwonlyarg_count,
             firstlineno: first_line_number,
         } = metadata;
+        let code_arg_count = posonlyarg_count
+            .checked_add(arg_count)
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
 
         resolve_unconditional_jumps(&mut instr_sequence)?;
         resolve_jump_offsets(&mut instr_sequence)?;
@@ -3653,7 +3778,7 @@ impl CodeInfo {
         Ok(CodeObject {
             flags,
             posonlyarg_count,
-            arg_count,
+            arg_count: code_arg_count,
             kwonlyarg_count,
             source_path,
             first_line_number: Some(first_line_number),
@@ -4109,8 +4234,13 @@ fn const_folding_safe_multiply(left: &ConstantData, right: &ConstantData) -> Opt
             const_folding_safe_multiply(right, left)
         }
         (ConstantData::Tuple { elements }, ConstantData::Integer { value: n }) => {
+            if elements.is_empty() {
+                return Some(ConstantData::Tuple {
+                    elements: Vec::new(),
+                });
+            }
             let n = n.to_usize()?;
-            if n != 0 && !elements.is_empty() {
+            if n != 0 {
                 if n > MAX_COLLECTION_SIZE / elements.len() {
                     return None;
                 }
@@ -4889,8 +5019,7 @@ fn optimize_lists_and_sets(
 
     if !contains_or_iter {
         debug_assert!(i >= 2);
-        let folded_loc = block.instructions[i].location;
-        let end_loc = block.instructions[i].end_location;
+        let folded_loc = instr_location(&block.instructions[i]);
 
         nop_out(block, &operand_indices);
 
@@ -4901,9 +5030,7 @@ fn optimize_lists_and_sets(
         }
         .into();
         instr_set_op1(&mut block.instructions[i - 2], build_instr, OpArg::new(0));
-        block.instructions[i - 2].location = folded_loc;
-        block.instructions[i - 2].end_location = end_loc;
-        block.instructions[i - 2].lineno_override = None;
+        instr_set_location(&mut block.instructions[i - 2], folded_loc);
 
         instr_set_op1(
             &mut block.instructions[i - 1],
@@ -5152,7 +5279,7 @@ fn basicblock_optimize_load_const(
     block: &mut Block,
 ) -> crate::InternalResult<()> {
     let mut i = 0;
-    let mut effective_opcode = None;
+    let mut effective_opcode = Instruction::Nop.into();
     let mut effective_oparg = OpArg::new(0);
     while i < block.instruction_used {
         if matches!(
@@ -5166,21 +5293,19 @@ fn basicblock_optimize_load_const(
         let curr = block.instructions[i];
         let curr_arg = curr.arg;
 
-        // Only combine if the source is a real instruction.
-        let Some(curr_instr) = curr.instr.real() else {
-            i += 1;
-            continue;
-        };
-
         let is_copy_of_load_const = matches!(
-            (effective_opcode, curr_instr),
-            (Some(Instruction::LoadConst { .. }), Instruction::Copy { i }) if i.get(curr_arg) == 1
+            (effective_opcode, curr.instr.real()),
+            (AnyInstruction::Real(Instruction::LoadConst { .. }), Some(Instruction::Copy { i }))
+                if i.get(curr_arg) == 1
         );
         if !is_copy_of_load_const {
-            effective_opcode = Some(curr_instr);
+            effective_opcode = curr.instr;
             effective_oparg = curr_arg;
         }
-        let Some(const_instr) = effective_opcode else {
+        debug_assert!(!effective_opcode.is_assembler());
+        let Some(const_instr @ (Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. })) =
+            effective_opcode.real()
+        else {
             i += 1;
             continue;
         };
@@ -5273,7 +5398,7 @@ fn basicblock_optimize_load_const(
                     Opcode::PopJumpIfNone
                 }
                 .into();
-                i = jump_idx;
+                i += 1;
                 continue;
             }
         }
@@ -6852,6 +6977,58 @@ pub(crate) fn fix_cell_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustpython_compiler_core::bytecode::Arg;
+
+    fn int_const(value: i32) -> ConstantData {
+        ConstantData::Integer {
+            value: BigInt::from(value),
+        }
+    }
+
+    fn nan_const() -> ConstantData {
+        ConstantData::Float { value: f64::NAN }
+    }
+
+    #[test]
+    fn constant_pool_frozenset_key_ignores_order_and_duplicates_like_cpython() {
+        let mut pool = ConstantPool::default();
+        let (first, inserted) = pool.insert_full(ConstantData::Frozenset {
+            elements: vec![int_const(1), int_const(2)],
+        });
+        assert_eq!(first, 0);
+        assert!(inserted);
+
+        let (second, inserted) = pool.insert_full(ConstantData::Frozenset {
+            elements: vec![int_const(2), int_const(1), int_const(1)],
+        });
+        assert_eq!(
+            second, first,
+            "CPython _PyCode_ConstantKey uses frozenset item keys, not insertion order"
+        );
+        assert!(!inserted);
+        assert!(matches!(
+            &pool.constants[first],
+            ConstantData::Frozenset { elements } if elements.len() == 2
+        ));
+    }
+
+    #[test]
+    fn constant_pool_frozenset_key_preserves_nan_duplicates_like_cpython() {
+        let mut pool = ConstantPool::default();
+        let (idx, inserted) = pool.insert_full(ConstantData::Frozenset {
+            elements: vec![nan_const(), nan_const()],
+        });
+
+        assert_eq!(idx, 0);
+        assert!(inserted);
+        assert!(matches!(
+            &pool.constants[idx],
+            ConstantData::Frozenset { elements }
+                if elements.iter().filter(|constant| {
+                    matches!(constant, ConstantData::Float { value } if value.is_nan())
+                }).count() == 2
+        ));
+    }
 
     fn test_location(line: u32) -> SourceLocation {
         SourceLocation {
@@ -6882,6 +7059,13 @@ mod tests {
     fn test_cond_jump(target: BlockIdx, line: u32) -> InstructionInfo {
         let mut instr = test_instr(Instruction::Nop, line);
         instr.instr = PseudoOpcode::JumpIfFalse.into();
+        instr.target = target;
+        instr
+    }
+
+    fn test_true_cond_jump(target: BlockIdx, line: u32) -> InstructionInfo {
+        let mut instr = test_instr(Instruction::Nop, line);
+        instr.instr = PseudoOpcode::JumpIfTrue.into();
         instr.target = target;
         instr
     }
@@ -7400,6 +7584,52 @@ mod tests {
     }
 
     #[test]
+    fn optimize_load_const_pseudo_opcode_breaks_effective_load_const() {
+        let mut block = Block::default();
+        test_block_push(
+            &mut block,
+            test_instr(
+                Instruction::LoadConst {
+                    consti: Arg::marker(),
+                },
+                90,
+            ),
+        );
+        test_block_push(&mut block, test_true_cond_jump(BlockIdx::new(0), 90));
+        let mut copy = test_instr(Instruction::Copy { i: Arg::marker() }, 90);
+        copy.arg = OpArg::new(1);
+        test_block_push(&mut block, copy);
+        test_block_push(&mut block, test_instr(Instruction::ToBool, 90));
+
+        let mut code = test_code_info(block);
+        let (const_idx, _) = code.metadata.consts.insert_full(ConstantData::Tuple {
+            elements: vec![ConstantData::Integer {
+                value: BigInt::from(1),
+            }],
+        });
+        code.blocks[0].instructions[0].arg = OpArg::new(const_idx as u32);
+
+        optimize_load_const(&mut code.metadata, &mut code.blocks)
+            .expect("optimize_load_const succeeds");
+
+        // CPython `basicblock_optimize_load_const()` assigns the current
+        // pseudo opcode to its effective opcode slot, so the following COPY 1
+        // is not treated as a copy of the earlier LOAD_CONST.
+        assert!(matches!(
+            code.blocks[0].instructions[1].instr.pseudo(),
+            Some(PseudoInstruction::Jump { .. })
+        ));
+        assert!(matches!(
+            code.blocks[0].instructions[2].instr.real(),
+            Some(Instruction::Copy { .. })
+        ));
+        assert!(matches!(
+            code.blocks[0].instructions[3].instr.real(),
+            Some(Instruction::ToBool)
+        ));
+    }
+
+    #[test]
     fn optimize_load_fast_records_no_input_opcode_ref_at_cpython_produced_index() {
         let mut block = Block::default();
         test_block_push(&mut block, test_instr(Opcode::LoadFast.into(), 10));
@@ -7485,6 +7715,24 @@ mod tests {
         assert!(matches!(
             &metadata.consts[u32::from(folded.arg) as usize],
             ConstantData::Tuple { elements } if elements.len() == 2
+        ));
+    }
+
+    #[test]
+    fn empty_tuple_repeat_folds_negative_count_like_cpython() {
+        let folded = const_folding_safe_multiply(
+            &ConstantData::Tuple {
+                elements: Vec::new(),
+            },
+            &ConstantData::Integer {
+                value: BigInt::from(-1),
+            },
+        )
+        .expect("CPython skips repeat-count checks for empty tuples");
+
+        assert!(matches!(
+            folded,
+            ConstantData::Tuple { elements } if elements.is_empty()
         ));
     }
 
@@ -7620,5 +7868,50 @@ mod tests {
         ));
         assert_eq!(threaded.target, BlockIdx::new(3));
         assert_eq!(u32::from(threaded.arg), 3);
+    }
+
+    #[test]
+    fn same_direction_pseudo_conditional_jump_thread_false_keeps_target() {
+        let mut blocks = Blocks::from([Block::default(), Block::default(), Block::default()]);
+        for (i, block) in blocks.iter_mut().enumerate() {
+            block.cpython_label = InstructionSequenceLabel::from_index(i as i32);
+        }
+        blocks[0].next = BlockIdx::new(1);
+        blocks[1].next = BlockIdx::new(2);
+        test_block_push(&mut blocks[0], test_cond_jump(BlockIdx::new(1), 10));
+        test_block_push(&mut blocks[1], test_cond_jump(BlockIdx::new(1), 20));
+        test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
+
+        let mut metadata = test_code_info(Block::default()).metadata;
+        optimize_basic_block(&mut blocks, &mut metadata, BlockIdx::new(0))
+            .expect("valid conditional jump chain");
+
+        // CPython only rewrites JUMP_IF_FALSE -> JUMP_IF_TRUE through
+        // target->b_next. For same-direction jumps, a failed jump_thread()
+        // leaves the original target unchanged.
+        assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(1));
+        assert!(matches!(
+            blocks[0].instructions[0].instr.pseudo(),
+            Some(PseudoInstruction::JumpIfFalse { .. })
+        ));
+    }
+
+    #[test]
+    fn opposite_direction_pseudo_conditional_uses_target_fallthrough() {
+        let mut blocks = Blocks::from([Block::default(), Block::default(), Block::default()]);
+        for (i, block) in blocks.iter_mut().enumerate() {
+            block.cpython_label = InstructionSequenceLabel::from_index(i as i32);
+        }
+        blocks[0].next = BlockIdx::new(1);
+        blocks[1].next = BlockIdx::new(2);
+        test_block_push(&mut blocks[0], test_cond_jump(BlockIdx::new(1), 10));
+        test_block_push(&mut blocks[1], test_true_cond_jump(BlockIdx::new(2), 20));
+        test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
+
+        let mut metadata = test_code_info(Block::default()).metadata;
+        optimize_basic_block(&mut blocks, &mut metadata, BlockIdx::new(0))
+            .expect("valid conditional jump chain");
+
+        assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(2));
     }
 }

@@ -5,7 +5,7 @@ use rustpython_compiler_core::SourceFile;
 impl Node for ast::Parameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
-            node_index: _,
+            node_index,
             posonlyargs,
             args,
             vararg,
@@ -40,8 +40,12 @@ impl Node for ast::Parameters {
         .unwrap();
         dict.set_item("kwarg", kwarg.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("defaults", defaults.ast_to_object(vm, source_file), vm)
-            .unwrap();
+        let defaults = super::constant::public_ast_expr_option_list_object(node_index.load())
+            .map_or_else(
+                || defaults.ast_to_object(vm, source_file),
+                |values| values.values.ast_to_object(vm, source_file),
+            );
+        dict.set_item("defaults", defaults, vm).unwrap();
         let _ = range;
         node.into()
     }
@@ -51,47 +55,57 @@ impl Node for ast::Parameters {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let kwonlyargs = Node::ast_from_object(
+        let posonlyargs = PositionalParameters::ast_from_field(
             vm,
             source_file,
-            get_node_field(vm, &object, "kwonlyargs", "arguments")?,
+            &object,
+            "posonlyargs",
+            "arguments",
         )?;
-        let kw_defaults = Node::ast_from_object(
+        let args =
+            PositionalParameters::ast_from_field(vm, source_file, &object, "args", "arguments")?;
+        let vararg = get_node_field_opt(vm, &object, "vararg")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
+            .transpose()?;
+        let kwonlyargs =
+            KeywordParameters::ast_from_field(vm, source_file, &object, "kwonlyargs", "arguments")?;
+        let kw_defaults = ParameterDefaults::ast_from_field(
             vm,
             source_file,
-            get_node_field(vm, &object, "kw_defaults", "arguments")?,
+            &object,
+            "kw_defaults",
+            "arguments",
         )?;
-        let kwonlyargs = merge_keyword_parameter_defaults(vm, kwonlyargs, kw_defaults)?;
+        let kwarg = get_node_field_opt(vm, &object, "kwarg")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
+            .transpose()?;
+        let defaults = ParameterDefaults::ast_from_field_preserve_none(
+            vm,
+            source_file,
+            &object,
+            "defaults",
+            "arguments",
+        )?;
 
-        let posonlyargs = Node::ast_from_object(
-            vm,
-            source_file,
-            get_node_field(vm, &object, "posonlyargs", "arguments")?,
-        )?;
-        let args = Node::ast_from_object(
-            vm,
-            source_file,
-            get_node_field(vm, &object, "args", "arguments")?,
-        )?;
-        let defaults = Node::ast_from_object(
-            vm,
-            source_file,
-            get_node_field(vm, &object, "defaults", "arguments")?,
-        )?;
+        let kwonlyargs = merge_keyword_parameter_defaults(vm, kwonlyargs, kw_defaults)?;
+        let defaults_node_index = defaults.node_index;
         let (posonlyargs, args) =
             merge_positional_parameter_defaults(vm, posonlyargs, args, defaults)?;
+        let node_index = {
+            let node_index = ast::AtomicNodeIndex::NONE;
+            if defaults_node_index != ast::NodeIndex::NONE {
+                node_index.set(defaults_node_index);
+            }
+            node_index
+        };
 
         Ok(Self {
-            node_index: Default::default(),
+            node_index,
             posonlyargs,
             args,
-            vararg: get_node_field_opt(vm, &object, "vararg")?
-                .map(|obj| Node::ast_from_object(vm, source_file, obj))
-                .transpose()?,
+            vararg,
             kwonlyargs,
-            kwarg: get_node_field_opt(vm, &object, "kwarg")?
-                .map(|obj| Node::ast_from_object(vm, source_file, obj))
-                .transpose()?,
+            kwarg,
             range: Default::default(),
         })
     }
@@ -105,7 +119,7 @@ impl Node for ast::Parameters {
 impl Node for ast::Parameter {
     fn ast_to_object(self, _vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
-            node_index: _,
+            node_index,
             name,
             annotation,
             // type_comment,
@@ -127,8 +141,9 @@ impl Node for ast::Parameter {
             _vm,
         )
         .unwrap();
-        // Ruff AST doesn't track type_comment, so always set to None
-        dict.set_item("type_comment", _vm.ctx.none(), _vm).unwrap();
+        let type_comment = super::constant::public_ast_arg_type_comment_object(node_index.load())
+            .unwrap_or_else(|| _vm.ctx.none());
+        dict.set_item("type_comment", type_comment, _vm).unwrap();
         node_add_location(&dict, range, _vm, source_file);
         node.into()
     }
@@ -138,20 +153,23 @@ impl Node for ast::Parameter {
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
+        let name = get_required_identifier_field(_vm, source_file, &_object, "arg", "arg")?;
+        let annotation = get_node_field_opt(_vm, &_object, "annotation")?
+            .map(|obj| Node::ast_from_object(_vm, source_file, obj))
+            .transpose()?;
+        let type_comment = get_ast_string_field_opt(_vm, &_object, "type_comment")?;
+        let node_index = ast::AtomicNodeIndex::NONE;
+        if let Some(type_comment) = type_comment {
+            node_index.set(super::constant::register_public_ast_arg_type_comment(
+                type_comment,
+            ));
+        }
+        let range = range_from_object(_vm, source_file, _object, "arg")?;
         Ok(Self {
-            node_index: Default::default(),
-            name: Node::ast_from_object(
-                _vm,
-                source_file,
-                get_node_field_required(_vm, &_object, "arg", "arg")?,
-            )?,
-            annotation: get_node_field_opt(_vm, &_object, "annotation")?
-                .map(|obj| Node::ast_from_object(_vm, source_file, obj))
-                .transpose()?,
-            // type_comment: get_node_field_opt(_vm, &_object, "type_comment")?
-            //     .map(|obj| Node::ast_from_object(_vm, obj))
-            //     .transpose()?,
-            range: range_from_object(_vm, source_file, _object, "arg")?,
+            node_index,
+            name,
+            annotation,
+            range,
         })
     }
 }
@@ -186,11 +204,7 @@ impl Node for ast::Keyword {
             arg: get_node_field_opt(_vm, &_object, "arg")?
                 .map(|obj| Node::ast_from_object(_vm, source_file, obj))
                 .transpose()?,
-            value: Node::ast_from_object(
-                _vm,
-                source_file,
-                get_node_field_required(_vm, &_object, "value", "keyword")?,
-            )?,
+            value: get_required_node_field(_vm, source_file, &_object, "value", "keyword")?,
             range: range_from_object(_vm, source_file, _object, "keyword")?,
         })
     }
@@ -199,6 +213,21 @@ impl Node for ast::Keyword {
 struct PositionalParameters {
     pub _range: TextRange, // TODO: Use this
     pub args: Box<[ast::Parameter]>,
+}
+
+impl PositionalParameters {
+    fn ast_from_field(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: &PyObject,
+        field: &'static str,
+        typ: &str,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            args: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
+            _range: TextRange::default(),
+        })
+    }
 }
 
 impl Node for PositionalParameters {
@@ -224,6 +253,21 @@ struct KeywordParameters {
     pub keywords: Box<[ast::Parameter]>,
 }
 
+impl KeywordParameters {
+    fn ast_from_field(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: &PyObject,
+        field: &'static str,
+        typ: &str,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            keywords: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
+            _range: TextRange::default(),
+        })
+    }
+}
+
 impl Node for KeywordParameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         BoxedSlice(self.keywords).ast_to_object(vm, source_file)
@@ -244,7 +288,50 @@ impl Node for KeywordParameters {
 
 struct ParameterDefaults {
     pub _range: TextRange, // TODO: Use this
+    node_index: ast::NodeIndex,
     defaults: Box<[Option<Box<ast::Expr>>]>,
+}
+
+impl ParameterDefaults {
+    fn ast_from_field(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: &PyObject,
+        field: &'static str,
+        typ: &str,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            defaults: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
+            node_index: ast::NodeIndex::NONE,
+            _range: TextRange::default(),
+        })
+    }
+
+    fn ast_from_field_preserve_none(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: &PyObject,
+        field: &'static str,
+        typ: &str,
+    ) -> PyResult<Self> {
+        let defaults: Vec<Option<Box<ast::Expr>>> =
+            get_node_list_field(vm, source_file, object, field, typ)?;
+        let node_index = if defaults.iter().any(Option::is_none) {
+            super::constant::register_public_ast_expr_option_list(
+                defaults
+                    .iter()
+                    .map(|default| default.as_deref().cloned())
+                    .collect(),
+            )
+        } else {
+            ast::NodeIndex::NONE
+        };
+        Ok(Self {
+            defaults: defaults.into_boxed_slice(),
+            node_index,
+            _range: TextRange::default(),
+        })
+    }
 }
 
 impl Node for ParameterDefaults {
@@ -260,14 +347,15 @@ impl Node for ParameterDefaults {
         let defaults: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             defaults: defaults.0,
+            node_index: ast::NodeIndex::NONE,
             _range: TextRange::default(), // TODO
         })
     }
 }
 
 fn extract_positional_parameter_defaults(
-    pos_only_args: Vec<ast::ParameterWithDefault>,
-    args: Vec<ast::ParameterWithDefault>,
+    pos_only_args: ast::ParameterWithDefaults,
+    args: ast::ParameterWithDefaults,
 ) -> (
     PositionalParameters,
     PositionalParameters,
@@ -287,6 +375,7 @@ fn extract_positional_parameter_defaults(
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
             .unwrap_or_default(),
+        node_index: ast::NodeIndex::NONE,
         defaults: defaults.into_boxed_slice(),
     };
 
@@ -326,10 +415,7 @@ fn merge_positional_parameter_defaults(
     posonlyargs: PositionalParameters,
     args: PositionalParameters,
     defaults: ParameterDefaults,
-) -> PyResult<(
-    Vec<ast::ParameterWithDefault>,
-    Vec<ast::ParameterWithDefault>,
-)> {
+) -> PyResult<(ast::ParameterWithDefaults, ast::ParameterWithDefaults)> {
     let posonlyargs = posonlyargs.args;
     let args = args.args;
     let defaults = defaults.defaults;
@@ -368,11 +454,11 @@ fn merge_positional_parameter_defaults(
         arg.default = default;
     }
 
-    Ok((posonlyargs, args))
+    Ok((posonlyargs.into(), args.into()))
 }
 
 fn extract_keyword_parameter_defaults(
-    kw_only_args: Vec<ast::ParameterWithDefault>,
+    kw_only_args: ast::ParameterWithDefaults,
 ) -> (KeywordParameters, ParameterDefaults) {
     let mut defaults = vec![];
     defaults.extend(kw_only_args.iter().map(|item| item.default.clone()));
@@ -383,6 +469,7 @@ fn extract_keyword_parameter_defaults(
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
             .unwrap_or_default(),
+        node_index: ast::NodeIndex::NONE,
         defaults: defaults.into_boxed_slice(),
     };
 
@@ -409,7 +496,7 @@ fn merge_keyword_parameter_defaults(
     vm: &VirtualMachine,
     kw_only_args: KeywordParameters,
     defaults: ParameterDefaults,
-) -> PyResult<Vec<ast::ParameterWithDefault>> {
+) -> PyResult<ast::ParameterWithDefaults> {
     if kw_only_args.keywords.len() != defaults.defaults.len() {
         return Err(
             vm.new_value_error("length of kwonlyargs is not the same as kw_defaults on arguments")
@@ -422,5 +509,6 @@ fn merge_keyword_parameter_defaults(
             default,
             range: Default::default(),
         })
-        .collect())
+        .collect::<Vec<_>>()
+        .into())
 }

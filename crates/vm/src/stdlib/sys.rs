@@ -751,7 +751,7 @@ pub mod sys {
             .read_to_string(&mut source)
             .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
         vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
-            .map_err(|e| vm.new_os_error(format!("Error running stdin: {e}")))?;
+            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
         Ok(())
     }
 
@@ -1228,7 +1228,7 @@ pub mod sys {
             vm.state.int_max_str_digits.store(maxdigits);
             Ok(())
         } else {
-            let error = format!("maxdigits must be 0 or larger than {threshold:?}");
+            let error = format!("maxdigits must be >= {threshold} or 0 for unlimited");
             Err(vm.new_value_error(error))
         }
     }

@@ -5,6 +5,9 @@
 
 #[cfg(feature = "rustpython-compiler")]
 mod compile;
+pub(crate) mod compile_mode;
+#[cfg(feature = "rustpython-compiler")]
+pub use compile::VmCompileError;
 mod context;
 mod interpreter;
 mod method;
@@ -1095,30 +1098,22 @@ impl VirtualMachine {
     }
 
     pub fn run_code_obj(&self, code: PyRef<PyCode>, scope: Scope) -> PyResult {
-        use crate::builtins::{PyFunction, PyModule};
+        self.run_code_obj_with_closure(code, scope, None)
+    }
+
+    pub(crate) fn run_code_obj_with_closure(
+        &self,
+        code: PyRef<PyCode>,
+        scope: Scope,
+        closure: Option<PyRef<crate::builtins::PyTuple<crate::builtins::function::PyCellRef>>>,
+    ) -> PyResult {
+        use crate::builtins::PyFunction;
 
         // Create a function object for module code, similar to CPython's PyEval_EvalCode
-        let func = PyFunction::new(code.clone(), scope.globals.clone(), self)?;
-        let func_obj = func.into_ref(&self.ctx).into();
-
-        // Extract builtins from globals["__builtins__"], like PyEval_EvalCode
-        let builtins = match scope
-            .globals
-            .get_item_opt(identifier!(self, __builtins__), self)?
-        {
-            Some(b) => {
-                if let Some(module) = b.downcast_ref::<PyModule>() {
-                    module.dict().into()
-                } else {
-                    b
-                }
-            }
-            None => self.builtins.dict().into(),
-        };
-
-        let frame =
-            Frame::new(code, scope, builtins, &[], Some(func_obj), false, self).into_ref(&self.ctx);
-        self.run_frame(frame)
+        let mut func = PyFunction::new(code, scope.globals.clone(), self)?;
+        func.closure = closure;
+        let func = func.into_ref(&self.ctx);
+        func.invoke_with_locals(FuncArgs::default(), scope.locals, self)
     }
 
     #[cold]
@@ -1434,9 +1429,11 @@ impl VirtualMachine {
     }
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
-    /// 2048 * sizeof(void*) = 16KB for 64-bit.
+    /// CPython doubles the margin for debug/sanitized builds because frame
+    /// evaluation consumes more native stack in those configurations.
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
-    const STACK_MARGIN_BYTES: usize = 2048 * core::mem::size_of::<usize>();
+    const STACK_MARGIN_BYTES: usize =
+        (if cfg!(debug_assertions) { 4096 } else { 2048 }) * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -1711,6 +1708,16 @@ impl VirtualMachine {
         crate::compiler::CompileOpts {
             optimize: self.state.config.settings.optimize,
             debug_ranges: self.state.config.settings.code_debug_ranges,
+            int_max_str_digits: self.state.int_max_str_digits.load(),
+            allow_top_level_await: false,
+            future_features: crate::bytecode::CodeFlags::empty(),
+            dont_imply_dedent: false,
+            recursion_limit: self.recursion_limit.get(),
+            ast_constant_overrides: None,
+            ast_interpolation_overrides: None,
+            ast_formatted_value_overrides: None,
+            ast_joined_str_overrides: None,
+            ast_template_str_overrides: None,
         }
     }
 
@@ -2286,7 +2293,7 @@ mod tests {
                 let source = "from dir_module.dir_module_inner import value2";
                 let code_obj = vm
                     .compile(source, vm::compiler::Mode::Exec, "<embedded>")
-                    .map_err(|err| vm.new_syntax_error(&err, Some(source)))
+                    .map_err(|err| err.into_pyexception(vm, Some(source)))
                     .unwrap();
 
                 if let Err(e) = vm.run_code_obj(code_obj, scope) {

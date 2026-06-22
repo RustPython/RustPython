@@ -253,8 +253,12 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 range: _range,
             }) => {
                 self.p("{")?;
-                self.unparse_expr(key, precedence::TEST)?;
-                self.p(": ")?;
+                if let Some(key) = key {
+                    self.unparse_expr(key, precedence::TEST)?;
+                    self.p(": ")?;
+                } else {
+                    self.p("**")?;
+                }
                 self.unparse_expr(value, precedence::TEST)?;
                 self.unparse_comp(generators)?;
                 self.p("}")?;
@@ -554,7 +558,9 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         let buffered =
             fmt::from_fn(|f| Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1))
                 .to_string();
-        if let Some(ast::DebugText { leading, trailing }) = debug_text {
+        if let Some(debug_text) = debug_text {
+            let leading = debug_text.leading();
+            let trailing = debug_text.trailing();
             self.p(leading)?;
             self.p(self.source.slice(val.range()))?;
             self.p(trailing)?;

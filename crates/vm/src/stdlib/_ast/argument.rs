@@ -2,14 +2,48 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
+    pub node_index: ast::AtomicNodeIndex,
+    pub field: super::constant::PublicAstExprListField,
     pub range: TextRange,
     pub args: Box<[ast::Expr]>,
 }
 
+impl PositionalArguments {
+    pub(super) fn ast_from_field(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: &PyObject,
+        field: &'static str,
+        typ: &str,
+    ) -> PyResult<Self> {
+        let args: Vec<Option<ast::Expr>> =
+            get_node_list_field(vm, source_file, object, field, typ)?;
+        let public_field = match field {
+            "bases" => super::constant::PublicAstExprListField::Bases,
+            _ => super::constant::PublicAstExprListField::Args,
+        };
+        let (node_index, args) = public_expr_boxed_slice_from_values(public_field, args);
+        Ok(Self {
+            node_index,
+            field: public_field,
+            args,
+            range: TextRange::default(),
+        })
+    }
+}
+
 impl Node for PositionalArguments {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { args, range: _ } = self;
-        BoxedSlice(args).ast_to_object(vm, source_file)
+        let Self {
+            node_index,
+            field,
+            args,
+            range: _,
+        } = self;
+        super::constant::public_ast_expr_list_object(node_index.load(), field).map_or_else(
+            || BoxedSlice(args).ast_to_object(vm, source_file),
+            |values| values.values.ast_to_object(vm, source_file),
+        )
     }
 
     fn ast_from_object(
@@ -19,6 +53,8 @@ impl Node for PositionalArguments {
     ) -> PyResult<Self> {
         let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
+            node_index: Default::default(),
+            field: super::constant::PublicAstExprListField::Args,
             args: args.0,
             range: TextRange::default(), // TODO
         })
@@ -28,6 +64,21 @@ impl Node for PositionalArguments {
 pub(super) struct KeywordArguments {
     pub range: TextRange,
     pub keywords: Box<[ast::Keyword]>,
+}
+
+impl KeywordArguments {
+    pub(super) fn ast_from_field(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: &PyObject,
+        field: &'static str,
+        typ: &str,
+    ) -> PyResult<Self> {
+        Ok(Self {
+            keywords: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
+            range: TextRange::default(),
+        })
+    }
 }
 
 impl Node for KeywordArguments {
@@ -57,10 +108,10 @@ pub(super) fn merge_function_call_arguments(
     let range = pos_args.range.cover(key_args.range);
 
     ast::Arguments {
-        node_index: Default::default(),
+        node_index: pos_args.node_index,
         range,
         args: pos_args.args,
-        keywords: key_args.keywords,
+        keywords: key_args.keywords.into(),
     }
 }
 
@@ -68,7 +119,7 @@ pub(super) fn split_function_call_arguments(
     args: ast::Arguments,
 ) -> (PositionalArguments, KeywordArguments) {
     let ast::Arguments {
-        node_index: _,
+        node_index,
         range: _,
         args,
         keywords,
@@ -81,6 +132,8 @@ pub(super) fn split_function_call_arguments(
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
+        node_index,
+        field: super::constant::PublicAstExprListField::Args,
         range: positional_arguments_range,
         args,
     };
@@ -93,7 +146,7 @@ pub(super) fn split_function_call_arguments(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords,
+        keywords: keywords.into(),
     };
 
     (positional_arguments, keyword_arguments)
@@ -107,7 +160,7 @@ pub(super) fn split_class_def_args(
         Some(args) => *args,
     };
     let ast::Arguments {
-        node_index: _,
+        node_index,
         range: _,
         args,
         keywords,
@@ -120,6 +173,8 @@ pub(super) fn split_class_def_args(
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
+        node_index,
+        field: super::constant::PublicAstExprListField::Bases,
         range: positional_arguments_range,
         args,
     };
@@ -132,7 +187,7 @@ pub(super) fn split_class_def_args(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords,
+        keywords: keywords.into(),
     };
 
     (Some(positional_arguments), Some(keyword_arguments))
@@ -146,10 +201,10 @@ pub(super) fn merge_class_def_args(
         return None;
     }
 
-    let args = if let Some(positional_arguments) = positional_arguments {
-        positional_arguments.args
+    let (node_index, args) = if let Some(positional_arguments) = positional_arguments {
+        (positional_arguments.node_index, positional_arguments.args)
     } else {
-        vec![].into_boxed_slice()
+        (Default::default(), vec![].into_boxed_slice())
     };
     let keywords = if let Some(keyword_arguments) = keyword_arguments {
         keyword_arguments.keywords
@@ -158,9 +213,9 @@ pub(super) fn merge_class_def_args(
     };
 
     Some(Box::new(ast::Arguments {
-        node_index: Default::default(),
+        node_index,
         range: Default::default(), // TODO
         args,
-        keywords,
+        keywords: keywords.into(),
     }))
 }

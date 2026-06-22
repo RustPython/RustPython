@@ -8,13 +8,15 @@ extern crate log;
 
 extern crate alloc;
 
+use rustpython_compiler_core::bytecode::ConstantData;
+
 type IndexMap<K, V> = indexmap::IndexMap<K, V, rapidhash::quality::RandomState>;
 type IndexSet<T> = indexmap::IndexSet<T, rapidhash::quality::RandomState>;
 
 pub mod compile;
 pub mod error;
 pub mod ir;
-mod preprocess;
+pub mod preprocess;
 mod string_parser;
 pub mod symboltable;
 mod unparse;
@@ -23,6 +25,73 @@ pub use compile::CompileOpts;
 use ruff_python_ast as ast;
 
 pub(crate) use compile::InternalResult;
+
+#[derive(Clone, Debug)]
+pub struct PublicAstInterpolation {
+    pub str: ConstantData,
+    pub format_spec: Option<Box<ast::Expr>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublicAstFormattedValue {
+    pub format_spec: Option<Box<ast::Expr>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PublicAstExprList {
+    pub values: Vec<ast::Expr>,
+}
+
+/// Dense side table keyed by public-AST `NodeIndex`.
+///
+/// Public `_ast` constructors allocate synthetic node indexes from zero, so a
+/// `Vec<Option<T>>` gives O(1) lookup without hashing or insertion-order state.
+#[derive(Clone, Debug, Default)]
+pub struct PublicAstNodeMap<T> {
+    values: Vec<Option<T>>,
+}
+
+impl<T> PublicAstNodeMap<T> {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { values: Vec::new() }
+    }
+
+    pub fn insert(&mut self, index: ast::NodeIndex, value: T) -> Option<T> {
+        let index = index
+            .as_u32()
+            .expect("public AST side table cannot store NodeIndex::NONE")
+            as usize;
+        if self.values.len() <= index {
+            self.values.resize_with(index + 1, || None);
+        }
+        self.values[index].replace(value)
+    }
+
+    #[must_use]
+    pub fn get(&self, index: &ast::NodeIndex) -> Option<&T> {
+        let index = index.as_u32()? as usize;
+        self.values.get(index)?.as_ref()
+    }
+
+    pub fn get_mut(&mut self, index: &ast::NodeIndex) -> Option<&mut T> {
+        let index = index.as_u32()? as usize;
+        self.values.get_mut(index)?.as_mut()
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, index: &ast::NodeIndex) -> bool {
+        self.get(index).is_some()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        self.values.iter().filter_map(Option::as_ref)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.values.iter().all(Option::is_none)
+    }
+}
 
 pub trait ToPythonName {
     /// Returns a short name for the node suitable for use in error messages.
@@ -65,7 +134,7 @@ impl ToPythonName for ast::Expr {
             Self::Lambda { .. } => "lambda",
             Self::If { .. } => "conditional expression",
             Self::Named { .. } => "named expression",
-            Self::IpyEscapeCommand(_) => todo!(),
+            Self::IpyEscapeCommand(_) => "expression",
         }
     }
 }
