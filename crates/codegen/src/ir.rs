@@ -444,11 +444,11 @@ fn basicblock_append_block_instructions(
     from: BlockIdx,
 ) -> crate::InternalResult<()> {
     debug_assert_ne!(to, from);
-    let from_len = blocks[from.idx()].instruction_used;
+    let from_len = blocks[from].instruction_used;
     for i in 0..from_len {
-        let info = blocks[from.idx()].instructions[i];
-        let off = basicblock_next_instr(&mut blocks[to.idx()])?;
-        blocks[to.idx()].instructions[off] = info;
+        let info = blocks[from].instructions[i];
+        let off = basicblock_next_instr(&mut blocks[to])?;
+        blocks[to].instructions[off] = info;
     }
     Ok(())
 }
@@ -1882,7 +1882,7 @@ fn optimize_cfg(
     optimize_load_const(metadata, blocks)?;
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let next_block = blocks[block_idx.idx()].next;
+        let next_block = blocks[block_idx].next;
         optimize_basic_block(blocks, metadata, block_idx)?;
         block_idx = next_block;
     }
@@ -2147,8 +2147,8 @@ fn prepare_localsplus(
 fn remove_unreachable(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        blocks[block_idx.idx()].predecessors = 0;
-        block_idx = blocks[block_idx.idx()].next;
+        blocks[block_idx].predecessors = 0;
+        block_idx = blocks[block_idx].next;
     }
 
     let mut stack = make_cfg_traversal_stack(blocks)?;
@@ -2159,12 +2159,12 @@ fn remove_unreachable(blocks: &mut Blocks) -> crate::InternalResult<()> {
         let idx = current.idx();
         let next = blocks[idx].next;
         if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
-            if !blocks[next.idx()].visited {
-                debug_assert_eq!(blocks[next.idx()].predecessors, 0);
+            if !blocks[next].visited {
+                debug_assert_eq!(blocks[next].predecessors, 0);
                 stack.push(next);
-                blocks[next.idx()].visited = true;
+                blocks[next].visited = true;
             }
-            blocks[next.idx()].predecessors += 1;
+            blocks[next].predecessors += 1;
         }
 
         let instr_count = blocks[idx].instruction_used;
@@ -3994,17 +3994,17 @@ fn remove_redundant_nops_and_pairs(blocks: &mut Blocks) -> crate::InternalResult
                 if is_redundant_pair {
                     let (prev_block, prev_instr_idx) =
                         prev_instr.expect("redundant pair has previous");
-                    set_to_nop(&mut blocks[prev_block.idx()].instructions[prev_instr_idx]);
-                    set_to_nop(&mut blocks[block_idx.idx()].instructions[instr_idx]);
+                    set_to_nop(&mut blocks[prev_block].instructions[prev_instr_idx]);
+                    set_to_nop(&mut blocks[block_idx].instructions[instr_idx]);
                     done = false;
                 }
             }
 
             let instr_is_jump = instr.is_some_and(|(instr_block, instr_idx)| {
-                is_jump(&blocks[instr_block.idx()].instructions[instr_idx])
+                is_jump(&blocks[instr_block].instructions[instr_idx])
             });
 
-            let block = &blocks[block_idx.idx()];
+            let block = &blocks[block_idx];
             if instr_is_jump || !bb_has_fallthrough(block) {
                 instr = None;
             }
@@ -4499,7 +4499,7 @@ impl CodeInfo {
         ));
         let mut block_idx = BlockIdx(0);
         while block_idx != BlockIdx::NULL {
-            let next_block = self.blocks[block_idx.idx()].next;
+            let next_block = self.blocks[block_idx].next;
             optimize_basic_block(&mut self.blocks, &mut self.metadata, block_idx)?;
             block_idx = next_block;
         }
@@ -4774,10 +4774,10 @@ fn load_fast_push_block(
     start_depth: usize,
 ) {
     debug_assert!(target != BlockIdx::NULL);
-    debug_assert!(blocks[target.idx()].start_depth >= 0);
-    debug_assert_eq!(blocks[target.idx()].start_depth as usize, start_depth,);
-    if !blocks[target.idx()].visited {
-        blocks[target.idx()].visited = true;
+    debug_assert!(blocks[target].start_depth >= 0);
+    debug_assert_eq!(blocks[target].start_depth as usize, start_depth,);
+    if !blocks[target].visited {
+        blocks[target].visited = true;
         worklist.push(target);
     }
 }
@@ -5149,20 +5149,20 @@ pub(crate) fn mark_except_handlers(blocks: &mut Blocks) -> crate::InternalResult
     {
         let mut block_idx = BlockIdx(0);
         while block_idx != BlockIdx::NULL {
-            assert!(!blocks[block_idx.idx()].except_handler);
-            block_idx = blocks[block_idx.idx()].next;
+            assert!(!blocks[block_idx].except_handler);
+            block_idx = blocks[block_idx].next;
         }
     }
 
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx.idx()].next;
-        let instr_count = blocks[block_idx.idx()].instruction_used;
+        let next = blocks[block_idx].next;
+        let instr_count = blocks[block_idx].instruction_used;
         for i in 0..instr_count {
-            let instr = blocks[block_idx.idx()].instructions[i];
+            let instr = blocks[block_idx].instructions[i];
             if is_block_push(&instr) {
                 debug_assert!(instr.target != BlockIdx::NULL);
-                blocks[instr.target.idx()].except_handler = true;
+                blocks[instr.target].except_handler = true;
             }
         }
         block_idx = next;
@@ -5197,8 +5197,7 @@ fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
         blocks[idx].warm = true;
 
         let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) && !blocks[next.idx()].visited
-        {
+        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) && !blocks[next].visited {
             stack.push(next);
             blocks[next.idx()].visited = true;
         }
@@ -5284,21 +5283,21 @@ fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
     // If a cold block falls through to a warm block, add an explicit jump
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx.idx()].next;
-        if blocks[block_idx.idx()].cold
-            && bb_has_fallthrough(&blocks[block_idx.idx()])
+        let next = blocks[block_idx].next;
+        if blocks[block_idx].cold
+            && bb_has_fallthrough(&blocks[block_idx])
             && next != BlockIdx::NULL
-            && blocks[next.idx()].warm
+            && blocks[next].warm
         {
             let explicit_jump = blocks_new_block(blocks)?;
-            if !is_label(blocks[next.idx()].cpython_label) {
-                blocks[next.idx()].cpython_label = InstructionSequenceLabel::from_index(next_label);
+            if !is_label(blocks[next].cpython_label) {
+                blocks[next].cpython_label = InstructionSequenceLabel::from_index(next_label);
                 next_label += 1;
             }
-            let jump_label = blocks[next.idx()].cpython_label;
+            let jump_label = blocks[next].cpython_label;
             debug_assert!(is_label(jump_label));
             basicblock_addop(
-                &mut blocks[explicit_jump.idx()],
+                &mut blocks[explicit_jump],
                 InstructionInfo {
                     instr: PseudoOpcode::JumpNoInterrupt.into(),
                     arg: instruction_sequence_label_oparg(jump_label),
@@ -5309,16 +5308,16 @@ fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
                     lineno_override: Some(NO_LOCATION_OVERRIDE),
                 },
             )?;
-            blocks[explicit_jump.idx()].cold = true;
-            blocks[explicit_jump.idx()].next = next;
-            blocks[explicit_jump.idx()].predecessors = 1;
-            blocks[block_idx.idx()].next = explicit_jump;
-            let target = blocks[explicit_jump.idx()].next;
-            let last = basicblock_last_instr_mut(&mut blocks[explicit_jump.idx()])
+            blocks[explicit_jump].cold = true;
+            blocks[explicit_jump].next = next;
+            blocks[explicit_jump].predecessors = 1;
+            blocks[block_idx].next = explicit_jump;
+            let target = blocks[explicit_jump].next;
+            let last = basicblock_last_instr_mut(&mut blocks[explicit_jump])
                 .expect("missing explicit jump");
             last.target = target;
         }
-        block_idx = blocks[block_idx.idx()].next;
+        block_idx = blocks[block_idx].next;
     }
 
     assert!(!blocks[0].cold);
@@ -5326,45 +5325,41 @@ fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut cold_blocks_tail: BlockIdx = BlockIdx::NULL;
     let mut block_idx = BlockIdx(0);
 
-    while blocks[block_idx.idx()].next != BlockIdx::NULL {
-        debug_assert!(!blocks[block_idx.idx()].cold);
-        while blocks[block_idx.idx()].next != BlockIdx::NULL
-            && !blocks[blocks[block_idx.idx()].next.idx()].cold
-        {
-            block_idx = blocks[block_idx.idx()].next;
+    while blocks[block_idx].next != BlockIdx::NULL {
+        debug_assert!(!blocks[block_idx].cold);
+        while blocks[block_idx].next != BlockIdx::NULL && !blocks[blocks[block_idx].next].cold {
+            block_idx = blocks[block_idx].next;
         }
-        if blocks[block_idx.idx()].next == BlockIdx::NULL {
+        if blocks[block_idx].next == BlockIdx::NULL {
             break;
         }
 
-        debug_assert!(!blocks[block_idx.idx()].cold);
-        debug_assert!(blocks[blocks[block_idx.idx()].next.idx()].cold);
+        debug_assert!(!blocks[block_idx].cold);
+        debug_assert!(blocks[blocks[block_idx].next].cold);
 
-        let mut block_end = blocks[block_idx.idx()].next;
-        while blocks[block_end.idx()].next != BlockIdx::NULL
-            && blocks[blocks[block_end.idx()].next.idx()].cold
-        {
-            block_end = blocks[block_end.idx()].next;
+        let mut block_end = blocks[block_idx].next;
+        while blocks[block_end].next != BlockIdx::NULL && blocks[blocks[block_end].next].cold {
+            block_end = blocks[block_end].next;
         }
 
-        debug_assert!(blocks[block_end.idx()].cold);
+        debug_assert!(blocks[block_end].cold);
         debug_assert!(
-            blocks[block_end.idx()].next == BlockIdx::NULL
-                || !blocks[blocks[block_end.idx()].next.idx()].cold
+            blocks[block_end].next == BlockIdx::NULL || !blocks[blocks[block_end].next].cold
         );
 
         if cold_blocks == BlockIdx::NULL {
-            cold_blocks = blocks[block_idx.idx()].next;
+            cold_blocks = blocks[block_idx].next;
         } else {
-            blocks[cold_blocks_tail.idx()].next = blocks[block_idx.idx()].next;
+            blocks[cold_blocks_tail].next = blocks[block_idx].next;
         }
+
         cold_blocks_tail = block_end;
-        blocks[block_idx.idx()].next = blocks[block_end.idx()].next;
-        blocks[block_end.idx()].next = BlockIdx::NULL;
+        blocks[block_idx].next = blocks[block_end].next;
+        blocks[block_end].next = BlockIdx::NULL;
     }
 
-    debug_assert!(blocks[block_idx.idx()].next == BlockIdx::NULL);
-    blocks[block_idx.idx()].next = cold_blocks;
+    debug_assert!(blocks[block_idx].next == BlockIdx::NULL);
+    blocks[block_idx].next = cold_blocks;
 
     if cold_blocks != BlockIdx::NULL {
         remove_redundant_nops_and_jumps(blocks)?;
@@ -5376,7 +5371,7 @@ fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
 fn check_cfg(blocks: &Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let block = &blocks[block_idx.idx()];
+        let block = &blocks[block_idx];
         for i in 0..block.instruction_used {
             let opcode = block.instructions[i].instr;
             debug_assert!(!opcode.is_assembler());
@@ -5624,7 +5619,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
     blocks: &mut Blocks,
     block_idx: BlockIdx,
 ) -> crate::InternalResult<bool> {
-    let Some(last) = basicblock_last_instr(&blocks[block_idx.idx()]).copied() else {
+    let Some(last) = basicblock_last_instr(&blocks[block_idx]).copied() else {
         return Ok(false);
     };
     if !last.instr.is_unconditional_jump() {
@@ -5633,19 +5628,19 @@ fn basicblock_inline_small_or_no_lineno_blocks(
 
     let target = last.target;
     debug_assert!(target != BlockIdx::NULL);
-    let small_exit_block = basicblock_exits_scope(&blocks[target.idx()])
-        && blocks[target.idx()].instruction_used <= MAX_COPY_SIZE;
-    let no_lineno_no_fallthrough = basicblock_has_no_lineno(&blocks[target.idx()])
-        && !bb_has_fallthrough(&blocks[target.idx()]);
+    let small_exit_block =
+        basicblock_exits_scope(&blocks[target]) && blocks[target].instruction_used <= MAX_COPY_SIZE;
+    let no_lineno_no_fallthrough =
+        basicblock_has_no_lineno(&blocks[target]) && !bb_has_fallthrough(&blocks[target]);
     if small_exit_block || no_lineno_no_fallthrough {
         debug_assert!(is_jump(&last));
         let removed_jump_opcode = last.instr;
-        let last = basicblock_last_instr_mut(&mut blocks[block_idx.idx()])
+        let last = basicblock_last_instr_mut(&mut blocks[block_idx])
             .expect("non-empty block has last instruction");
         set_to_nop(last);
         basicblock_append_block_instructions(blocks, block_idx, target)?;
         if no_lineno_no_fallthrough {
-            let last = basicblock_last_instr_mut(&mut blocks[block_idx.idx()]).unwrap();
+            let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
             if last.instr.is_unconditional_jump()
                 && matches!(
                     removed_jump_opcode.into(),
@@ -5655,7 +5650,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
                 last.instr = PseudoOpcode::Jump.into();
             }
         }
-        blocks[target.idx()].predecessors -= 1;
+        blocks[target].predecessors -= 1;
         return Ok(true);
     }
     Ok(false)
@@ -6436,50 +6431,47 @@ fn duplicate_exits_without_lineno(blocks: &mut Blocks) -> crate::InternalResult<
     let entryblock = BlockIdx(0);
     let mut b = entryblock;
     while b != BlockIdx::NULL {
-        let Some(last) = basicblock_last_instr(&blocks[b.idx()]).copied() else {
-            b = blocks[b.idx()].next;
+        let Some(last) = basicblock_last_instr(&blocks[b]).copied() else {
+            b = blocks[b].next;
             continue;
         };
         if is_jump(&last) {
             debug_assert!(last.target != BlockIdx::NULL);
             let target = next_nonempty_block(blocks, last.target);
             debug_assert!(target != BlockIdx::NULL);
-            if is_exit_or_eval_check_without_lineno(&blocks[target.idx()])
-                && blocks[target.idx()].predecessors > 1
+            if is_exit_or_eval_check_without_lineno(&blocks[target])
+                && blocks[target].predecessors > 1
             {
                 let new_target = copy_basicblock(blocks, target)?;
                 instr_set_location(
-                    &mut blocks[new_target.idx()].instructions[0],
+                    &mut blocks[new_target].instructions[0],
                     instr_location(&last),
                 );
-                let last_mut = basicblock_last_instr_mut(&mut blocks[b.idx()]).unwrap();
+                let last_mut = basicblock_last_instr_mut(&mut blocks[b]).unwrap();
                 last_mut.target = new_target;
-                blocks[target.idx()].predecessors -= 1;
-                blocks[new_target.idx()].predecessors = 1;
-                blocks[new_target.idx()].next = blocks[target.idx()].next;
-                blocks[new_target.idx()].cpython_label = InstructionSequenceLabel(next_lbl);
+                blocks[target].predecessors -= 1;
+                blocks[new_target].predecessors = 1;
+                blocks[new_target].next = blocks[target].next;
+                blocks[new_target].cpython_label = InstructionSequenceLabel(next_lbl);
                 next_lbl += 1;
-                blocks[target.idx()].next = new_target;
+                blocks[target].next = new_target;
             }
         }
-        b = blocks[b.idx()].next;
+        b = blocks[b].next;
     }
 
     b = entryblock;
     while b != BlockIdx::NULL {
-        let next = blocks[b.idx()].next;
-        if bb_has_fallthrough(&blocks[b.idx()])
+        let next = blocks[b].next;
+        if bb_has_fallthrough(&blocks[b])
             && next != BlockIdx::NULL
-            && blocks[b.idx()].instruction_used != 0
-            && is_exit_or_eval_check_without_lineno(&blocks[next.idx()])
+            && blocks[b].instruction_used != 0
+            && is_exit_or_eval_check_without_lineno(&blocks[next])
         {
-            let last = *basicblock_last_instr(&blocks[b.idx()]).expect("block has instructions");
-            instr_set_location(
-                &mut blocks[next.idx()].instructions[0],
-                instr_location(&last),
-            );
+            let last = *basicblock_last_instr(&blocks[b]).expect("block has instructions");
+            instr_set_location(&mut blocks[next].instructions[0], instr_location(&last));
         }
-        b = blocks[b.idx()].next;
+        b = blocks[b].next;
     }
     Ok(())
 }
@@ -6506,25 +6498,25 @@ fn propagate_line_numbers(blocks: &mut Blocks) {
         if bb_has_fallthrough(&blocks[idx]) {
             debug_assert!(next != BlockIdx::NULL);
             if next != BlockIdx::NULL
-                && blocks[next.idx()].predecessors == 1
-                && blocks[next.idx()].instruction_used != 0
-                && instruction_is_no_location(&blocks[next.idx()].instructions[0])
+                && blocks[next].predecessors == 1
+                && blocks[next].instruction_used != 0
+                && instruction_is_no_location(&blocks[next].instructions[0])
             {
-                instr_set_location(&mut blocks[next.idx()].instructions[0], prev_location);
+                instr_set_location(&mut blocks[next].instructions[0], prev_location);
             }
         }
 
         if is_jump(&last) {
             let target = last.target;
             debug_assert!(target != BlockIdx::NULL);
-            if blocks[target.idx()].predecessors == 1 {
-                let instr = basicblock_raw_first_instr_mut(&mut blocks[target.idx()]);
+            if blocks[target].predecessors == 1 {
+                let instr = basicblock_raw_first_instr_mut(&mut blocks[target]);
                 if instruction_is_no_location(instr) {
                     instr_set_location(instr, prev_location);
                 }
             }
         }
-        current = blocks[current.idx()].next;
+        current = blocks[current].next;
     }
 }
 
@@ -6564,7 +6556,7 @@ fn except_stack_top(stack: &CfgExceptStack, blocks: &Blocks) -> Option<ExceptHan
     }
     Some(ExceptHandlerInfo {
         handler_block,
-        preserve_lasti: blocks[handler_block.idx()].preserve_lasti,
+        preserve_lasti: blocks[handler_block].preserve_lasti,
     })
 }
 
@@ -6582,7 +6574,7 @@ fn push_except_block(
         instr.pseudo(),
         Some(PseudoInstruction::SetupWith { .. } | PseudoInstruction::SetupCleanup { .. })
     ) {
-        blocks[target.idx()].preserve_lasti = true;
+        blocks[target].preserve_lasti = true;
     }
     debug_assert!(stack.depth <= CO_MAXBLOCKS);
     stack.depth += 1;
@@ -6628,12 +6620,12 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
 
             if is_block_push(&info) {
                 debug_assert!(target != BlockIdx::NULL);
-                if !blocks[target.idx()].visited {
-                    blocks[target.idx()].except_stack = Some(copy_except_stack(
+                if !blocks[target].visited {
+                    blocks[target].except_stack = Some(copy_except_stack(
                         stack.as_ref().expect("active exception stack"),
                     )?);
                     todo.push(target);
-                    blocks[target.idx()].visited = true;
+                    blocks[target].visited = true;
                 }
                 handler = push_except_block(
                     stack.as_mut().expect("active exception stack"),
@@ -6651,20 +6643,20 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
                 // when this block can also fall through, otherwise transfer it
                 // to the jump target.
                 debug_assert!(target != BlockIdx::NULL);
-                if !blocks[target.idx()].visited {
+                if !blocks[target].visited {
                     if bb_has_fallthrough(&blocks[bi]) {
-                        blocks[target.idx()].except_stack = Some(copy_except_stack(
+                        blocks[target].except_stack = Some(copy_except_stack(
                             stack.as_ref().expect("active exception stack"),
                         )?);
                     } else {
-                        blocks[target.idx()].except_stack = stack.take();
+                        blocks[target].except_stack = stack.take();
                         stack_transferred = true;
                         todo.push(target);
-                        blocks[target.idx()].visited = true;
+                        blocks[target].visited = true;
                         break;
                     }
                     todo.push(target);
-                    blocks[target.idx()].visited = true;
+                    blocks[target].visited = true;
                 }
             } else if matches!(instr.real(), Some(Instruction::YieldValue { .. })) {
                 blocks[bi].instructions[i].except_handler = handler;
@@ -6689,10 +6681,10 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
         let next = blocks[bi].next;
         if !stack_transferred && bb_has_fallthrough(&blocks[bi]) {
             debug_assert!(next != BlockIdx::NULL);
-            if next != BlockIdx::NULL && !blocks[next.idx()].visited {
-                blocks[next.idx()].except_stack = stack.take();
+            if next != BlockIdx::NULL && !blocks[next].visited {
+                blocks[next].except_stack = stack.take();
                 todo.push(next);
-                blocks[next.idx()].visited = true;
+                blocks[next].visited = true;
             }
         }
     }
@@ -6700,7 +6692,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
     {
         let mut block_idx = BlockIdx(0);
         while block_idx != BlockIdx::NULL {
-            let block = &blocks[block_idx.idx()];
+            let block = &blocks[block_idx];
             debug_assert!(block.except_stack.is_none());
             block_idx = block.next;
         }
@@ -7487,15 +7479,12 @@ mod tests {
         let duplicate = blocks[0].instructions[0].target;
         assert_ne!(duplicate, exit);
         assert_eq!(
-            blocks[duplicate.idx()].cpython_label,
+            blocks[duplicate].cpython_label,
             InstructionSequenceLabel::from_index(3)
         );
-        assert_eq!(
-            instruction_lineno(&blocks[duplicate.idx()].instructions[0]),
-            10
-        );
+        assert_eq!(instruction_lineno(&blocks[duplicate].instructions[0]), 10);
         assert_eq!(blocks[1].instructions[0].target, exit);
-        assert_eq!(instruction_lineno(&blocks[exit.idx()].instructions[0]), 20);
+        assert_eq!(instruction_lineno(&blocks[exit].instructions[0]), 20);
     }
 
     #[test]
