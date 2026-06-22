@@ -10,14 +10,14 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::collections::HashSet;
 
-#[cfg(not(target_arch = "wasm32"))]
-fn elapsed_secs(start: &std::time::Instant) -> f64 {
-    start.elapsed().as_secs_f64()
-}
-
-#[cfg(target_arch = "wasm32")]
-fn elapsed_secs(_start: &()) -> f64 {
-    0.0
+fn elapsed_secs(
+    #[cfg(target_arch = "wasm32")] _start: &(),
+    #[cfg(not(target_arch = "wasm32"))] start: &std::time::Instant,
+) -> f64 {
+    cfg_select! {
+        target_arch = "wasm32" => 0.0,
+        _ => start.elapsed().as_secs_f64(),
+    }
 }
 
 bitflags::bitflags! {
@@ -38,7 +38,7 @@ bitflags::bitflags! {
 }
 
 /// Result from a single collection run
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct CollectResult {
     pub collected: usize,
     pub uncollectable: usize,
@@ -47,7 +47,7 @@ pub struct CollectResult {
 }
 
 /// Statistics for a single generation (gc_generation_stats)
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct GcStats {
     pub collections: usize,
     pub collected: usize,
@@ -176,7 +176,7 @@ impl Default for GcState {
 
 impl GcState {
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             generations: [
                 GcGeneration::new(2000), // young
@@ -393,10 +393,10 @@ impl GcState {
             return CollectResult::default();
         };
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let start_time = std::time::Instant::now();
-        #[cfg(target_arch = "wasm32")]
-        let start_time = ();
+        let start_time = cfg_select! {
+            target_arch = "wasm32" => (),
+            _ => std::time::Instant::now(),
+        };
 
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
@@ -431,7 +431,9 @@ impl GcState {
             for i in 0..reset_end {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
+
             let duration = elapsed_secs(&start_time);
+
             self.generations[generation].update_stats(0, 0, 0, duration);
             return CollectResult {
                 collected: 0,
@@ -556,7 +558,9 @@ impl GcState {
             for i in 0..reset_end {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
+
             let duration = elapsed_secs(&start_time);
+
             self.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
                 collected: 0,
@@ -577,7 +581,9 @@ impl GcState {
             for i in 0..reset_end {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
+
             let duration = elapsed_secs(&start_time);
+
             self.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
                 collected: 0,
@@ -726,6 +732,7 @@ impl GcState {
         }
 
         let duration = elapsed_secs(&start_time);
+
         self.generations[generation].update_stats(collected, 0, candidates, duration);
 
         CollectResult {

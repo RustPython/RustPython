@@ -3291,9 +3291,9 @@ fn optimize_lists_and_sets(
 const VISITED: i32 = -1;
 
 /// flowgraph.c SWAPPABLE
-fn is_swappable(instr: &AnyInstruction) -> bool {
+fn is_swappable(instr: AnyInstruction) -> bool {
     matches!(
-        (*instr).into(),
+        instr.into(),
         AnyOpcode::Real(Opcode::StoreFast | Opcode::PopTop)
             | AnyOpcode::Pseudo(PseudoOpcode::StoreFastMaybeNull)
     )
@@ -3315,17 +3315,22 @@ fn next_swappable_instruction(block: &Block, mut i: usize, lineno: i32) -> Optio
         if i >= block.instruction_used {
             return None;
         }
+
         let info = &block.instructions[i];
         let info_lineno = instruction_lineno(info);
+
         if lineno >= 0 && info_lineno != lineno {
             return None;
         }
+
         if matches!(info.instr, AnyInstruction::Real(Instruction::Nop)) {
             continue;
         }
-        if is_swappable(&info.instr) {
+
+        if is_swappable(info.instr) {
             return Some(i);
         }
+
         return None;
     }
 }
@@ -5440,7 +5445,7 @@ fn basicblock_add_jump(
 }
 
 /// pycore_opcode_utils.h IS_CONDITIONAL_JUMP_OPCODE
-fn is_conditional_jump_opcode(instr: &AnyInstruction) -> bool {
+fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     matches!(
         instr.real().map(Into::into),
         Some(
@@ -5524,7 +5529,7 @@ fn normalize_jumps_in_block(
     let Some(last_ins) = basicblock_last_instr(&blocks[idx]).copied() else {
         return Ok(());
     };
-    if !is_conditional_jump_opcode(&last_ins.instr) {
+    if !is_conditional_jump_opcode(last_ins.instr) {
         return Ok(());
     }
     debug_assert!(!last_ins.instr.is_assembler());

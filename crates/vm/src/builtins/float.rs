@@ -84,6 +84,7 @@ impl ToPyObject for f64 {
         vm.ctx.new_float(self).into()
     }
 }
+
 impl ToPyObject for f32 {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_float(f64::from(self)).into()
@@ -156,8 +157,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 
 pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() && v2.is_sign_negative() {
-        let msg = "zero to a negative power";
-        Err(vm.new_zero_division_error(msg.to_owned()))
+        Err(vm.new_zero_division_error("zero to a negative power"))
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
@@ -254,6 +254,10 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Needs to comply with a signature"
+)]
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(Comparable, Hashable, Constructor, AsNumber, Representable)

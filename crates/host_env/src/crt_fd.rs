@@ -112,7 +112,7 @@ mod win {
         }
 
         #[inline]
-        pub(super) fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(self) -> Raw {
             self.fd
         }
     }
@@ -140,12 +140,13 @@ pub struct Borrowed<'fd> {
     inner: BorrowedInner<'fd>,
 }
 
-impl<'fd> PartialEq for Borrowed<'fd> {
+impl PartialEq for Borrowed<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.as_raw() == other.as_raw()
     }
 }
-impl<'fd> Eq for Borrowed<'fd> {}
+
+impl Eq for Borrowed<'_> {}
 
 impl fmt::Debug for Borrowed<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -250,7 +251,7 @@ impl IntoRawFd for Owned {
     }
 }
 
-impl<'fd> Borrowed<'fd> {
+impl Borrowed<'_> {
     /// Create a `crt_fd::Borrowed` from a raw file descriptor.
     ///
     /// # Safety
