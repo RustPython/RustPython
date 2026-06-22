@@ -547,8 +547,10 @@ impl Compiler {
             saved_annotations_instr_sequence,
         ) = {
             let code = self.current_code_info();
+
             (
-                mem::replace(&mut code.blocks, Blocks::default()),
+                //mem::replace(&mut code.blocks, Blocks::default()),
+                mem::take(&mut code.blocks),
                 mem::replace(&mut code.current_block, BlockIdx::new(0)),
                 mem::replace(&mut code.instr_sequence, ir::InstructionSequence::new()),
                 mem::replace(

@@ -1311,7 +1311,7 @@ impl Blocks {
     pub fn try_reserve(
         &mut self,
         additional: usize,
-    ) -> Result<(), std::collections::TryReserveError> {
+    ) -> Result<(), alloc::collections::TryReserveError> {
         self.0.try_reserve(additional)
     }
 
@@ -1388,13 +1388,13 @@ impl Index<BlockIdx> for Blocks {
     type Output = Block;
 
     fn index(&self, block_idx: BlockIdx) -> &Self::Output {
-        &self[block_idx.as_usize()]
+        &self.0[block_idx.as_usize()]
     }
 }
 
 impl IndexMut<BlockIdx> for Blocks {
     fn index_mut(&mut self, block_idx: BlockIdx) -> &mut Self::Output {
-        &mut self[block_idx.as_usize()]
+        &mut self.0[block_idx.as_usize()]
     }
 }
 
@@ -5968,7 +5968,7 @@ fn cfg_builder_use_label(
 /// flowgraph.c _PyCfgBuilder_Addop
 fn cfg_builder_addop(g: &mut CfgBuilder, info: InstructionInfo) -> crate::InternalResult<()> {
     cfg_builder_maybe_start_new_block(g)?;
-    basicblock_addop(&mut g.blocks[g.current.idx()], info)
+    basicblock_addop(&mut g.blocks[g.current], info)
 }
 
 /// flowgraph.c cfg_builder_check
@@ -6311,8 +6311,8 @@ fn add_checks_for_loads_of_uninitialized_variables(
 
 /// Follow chain of empty blocks to find first non-empty block.
 fn next_nonempty_block(blocks: &Blocks, mut idx: BlockIdx) -> BlockIdx {
-    while idx != BlockIdx::NULL && blocks[idx.idx()].instruction_used == 0 {
-        idx = blocks[idx.idx()].next;
+    while idx != BlockIdx::NULL && blocks[idx].instruction_used == 0 {
+        idx = blocks[idx].next;
     }
     idx
 }
@@ -6877,7 +6877,7 @@ mod tests {
             flags: CodeFlags::empty(),
             source_path: "source_path".to_owned(),
             private: None,
-            blocks: vec![block],
+            blocks: Blocks::from([block]),
             current_block: BlockIdx::new(0),
             instr_sequence: instruction_sequence_new(),
             instr_sequence_label_map: InstructionSequenceLabelMap::new(),
@@ -6956,7 +6956,7 @@ mod tests {
         assert_eq!(stack.handlers.len(), CO_MAXBLOCKS + 2);
         assert_eq!(stack.handlers[0], BlockIdx::NULL);
 
-        let mut blocks = vec![Block::default(), Block::default()];
+        let mut blocks = Blocks::from([Block::default(), Block::default()]);
         assert!(except_stack_top(&stack, &blocks).is_none());
 
         let setup = InstructionInfo {
@@ -7017,7 +7017,7 @@ mod tests {
 
     #[test]
     fn cfg_traversal_stack_resets_visited_and_allocates_for_blocks() {
-        let mut blocks = vec![Block::default(), Block::default()];
+        let mut blocks = Blocks::from([Block::default(), Block::default()]);
         blocks[0].next = BlockIdx::new(1);
         blocks[0].visited = true;
         blocks[1].visited = true;
@@ -7231,7 +7231,7 @@ mod tests {
             handler_block: BlockIdx::new(5),
             preserve_lasti: false,
         };
-        let mut blocks = vec![Block::default(), Block::default()];
+        let mut blocks = Blocks::from([Block::default(), Block::default()]);
         let mut stale = test_instr(Instruction::Nop, 41);
         stale.except_handler = Some(handler);
         test_block_push(&mut blocks[0], stale);
@@ -7255,7 +7255,7 @@ mod tests {
 
         assert_eq!(info.target, BlockIdx::new(1));
 
-        let mut blocks = vec![Block::default(), Block::default()];
+        let mut blocks = Blocks::from([Block::default(), Block::default()]);
         test_block_push(&mut blocks[0], info);
         blocks[0].next = BlockIdx::new(1);
 
@@ -7270,7 +7270,7 @@ mod tests {
     fn cfg_to_instruction_sequence_requires_target_for_target_opcodes() {
         let mut block = Block::default();
         test_block_push(&mut block, test_jump(BlockIdx::NULL, 51));
-        let mut blocks = vec![block];
+        let mut blocks = Blocks::from([block]);
 
         let mut instr_sequence = instruction_sequence_new();
         let _ = cfg_to_instruction_sequence(&mut blocks, &mut instr_sequence);
@@ -7468,7 +7468,7 @@ mod tests {
     #[test]
     fn resolve_line_numbers_duplicates_exit_blocks_like_cpython() {
         let exit = BlockIdx::new(2);
-        let mut blocks = vec![Block::default(), Block::default(), Block::default()];
+        let mut blocks = Blocks::from([Block::default(), Block::default(), Block::default()]);
         blocks[0].cpython_label = InstructionSequenceLabel::from_index(0);
         blocks[1].cpython_label = InstructionSequenceLabel::from_index(1);
         blocks[2].cpython_label = InstructionSequenceLabel::from_index(2);
@@ -7506,7 +7506,7 @@ mod tests {
         block.instructions[1].lineno_override = Some(NEXT_LOCATION_OVERRIDE);
         test_block_push(&mut block, test_instr(Instruction::ReturnValue, 30));
         block.instructions[2].lineno_override = Some(NO_LOCATION_OVERRIDE);
-        let mut blocks = vec![block];
+        let mut blocks = [block].into();
 
         remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
         propagate_line_numbers(&mut blocks);
@@ -7527,7 +7527,7 @@ mod tests {
 
     #[test]
     fn propagate_line_numbers_updates_empty_jump_target_raw_slot_like_cpython() {
-        let mut blocks = vec![Block::default(), Block::default(), Block::default()];
+        let mut blocks = Blocks::from([Block::default(), Block::default(), Block::default()]);
         blocks[0].next = BlockIdx::new(2);
         test_block_push(&mut blocks[0], test_cond_jump(BlockIdx::new(1), 10));
         test_block_push(&mut blocks[1], test_instr(Instruction::Nop, 20));
@@ -7561,12 +7561,12 @@ mod tests {
 
     #[test]
     fn jump_threading_rechecks_new_jump_like_cpython() {
-        let mut blocks = vec![
+        let mut blocks = Blocks::from([
             Block::default(),
             Block::default(),
             Block::default(),
             Block::default(),
-        ];
+        ]);
         for (i, block) in blocks.iter_mut().enumerate() {
             block.cpython_label = InstructionSequenceLabel::from_index(i as i32);
         }
