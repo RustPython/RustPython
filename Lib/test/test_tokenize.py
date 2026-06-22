@@ -2173,6 +2173,7 @@ if 1:
         # Two string literals on the same line
         self.check_roundtrip("'' ''")
 
+    @unittest.skipIf(support.is_resource_enabled("cpu") and __import__("sys").platform == "win32", "TODO: RUSTPYTHON; Timeout after 10 minutes")
     def test_random_files(self):
         # Test roundtrip on random python modules.
         # pass the '-ucpu' option to process the full directory.

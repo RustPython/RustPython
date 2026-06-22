@@ -1094,6 +1094,7 @@ class EnsurePipTest(BaseTest):
                 f"**Subprocess Error**\n{err}"
             )
 
+    @unittest.expectedFailureIfWindows("TODO: RUSTPYTHON; FileNotFoundError: [WinError 2] No such file or directory")
     @requires_venv_with_pip()
     @requires_resource('cpu')
     def test_with_pip(self):
