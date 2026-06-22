@@ -1026,10 +1026,6 @@ class CStringIOTest(PyStringIOTest):
     def test_flags(self):
         return super().test_flags()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'detach'
-    def test_detach(self):
-        return super().test_detach()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
     def test_newlines_property(self):
         return super().test_newlines_property()
