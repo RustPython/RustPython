@@ -3479,6 +3479,7 @@ dependencies = [
  "itertools 0.14.0",
  "num-complex",
  "pyo3",
+ "rustpython-pylib",
  "rustpython-stdlib",
  "rustpython-vm",
 ]
