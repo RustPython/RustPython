@@ -782,7 +782,8 @@ mod _collections {
 
         #[pymethod]
         fn __missing__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            let factory = self.default_factory.read().clone();
+            let factory = self.default_factory();
+
             if let Some(f) = factory {
                 let value = f.call((), vm)?;
                 self.dict.setdefault(key, value.into(), vm)
@@ -794,7 +795,7 @@ mod _collections {
         #[pymethod]
         #[pymethod(name = "__copy__")]
         fn copy(&self) -> Self {
-            let default_factory = self.default_factory.read().clone();
+            let default_factory = self.default_factory();
 
             Self {
                 dict: self.dict.copy(),
@@ -806,10 +807,10 @@ mod _collections {
         fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
             let cls = zelf.class().to_owned();
 
-            let factory_tuple = match &*zelf.default_factory.read() {
-                Some(f) => vm.ctx.new_tuple(vec![f.clone()]),
-                None => vm.ctx.new_tuple(vec![]),
-            };
+            let default_factory = zelf.default_factory();
+            let factory_tuple_elements =
+                default_factory.map_or_else(Vec::new, |factory| vec![factory]);
+            let factory_tuple = vm.ctx.new_tuple(factory_tuple_elements);
 
             let items_fn = zelf.as_object().get_attr("items", vm)?;
             let items_iter = items_fn.call((), vm)?;
@@ -831,18 +832,20 @@ mod _collections {
 
     impl PyDefaultDict {
         fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let not_implemented = || Ok(vm.ctx.not_implemented.clone().into());
+
             let (default_factory, dict) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
                 if !rhs.fast_isinstance(vm.ctx.types.dict_type) {
-                    return Ok(vm.ctx.not_implemented.clone().into());
+                    return not_implemented();
                 }
 
-                (zelf.default_factory.read().clone(), zelf.dict.copy())
+                (zelf.default_factory(), zelf.dict.copy())
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
-                if let Some(dict) = lhs.downcast_ref::<PyDict>() {
-                    (zelf.default_factory.read().clone(), dict.copy())
-                } else {
-                    return Ok(vm.ctx.not_implemented.clone().into());
-                }
+                let Some(dict) = lhs.downcast_ref::<PyDict>() else {
+                    return not_implemented();
+                };
+
+                (zelf.default_factory(), dict.copy())
             } else {
                 return Err(vm.new_type_error(format!(
                     "unsupported operand type(s) for |: '{}' and '{}'",
