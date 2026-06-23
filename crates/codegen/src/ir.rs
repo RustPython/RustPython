@@ -1307,6 +1307,7 @@ impl Block {
 #[derive(Clone, Debug, Default)]
 pub struct Blocks(Vec<Block>);
 
+// Vec like methods
 impl Blocks {
     pub fn try_reserve(
         &mut self,
@@ -1317,6 +1318,64 @@ impl Blocks {
 
     pub fn push(&mut self, value: Block) {
         self.0.push(value)
+    }
+}
+
+// CPython functions
+
+impl Blocks {
+    /// # See also
+    /// [CPython's remove_unreachable](https://github.com/python/cpython/blob/v3.14.6/Python/flowgraph.c#L995-L1041)
+    pub fn remove_unreachable(&mut self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            self[block_idx].predecessors = 0;
+            block_idx = self[block_idx].next;
+        }
+
+        let mut stack = make_cfg_traversal_stack(self)?;
+        self[0].predecessors = 1;
+        stack.push(BlockIdx(0));
+        self[0].visited = true;
+        while let Some(current) = stack.pop() {
+            let idx = current.idx();
+            let next = self[idx].next;
+            if next != BlockIdx::NULL && bb_has_fallthrough(&self[idx]) {
+                if !self[next].visited {
+                    debug_assert_eq!(self[next].predecessors, 0);
+                    stack.push(next);
+                    self[next].visited = true;
+                }
+                self[next].predecessors += 1;
+            }
+
+            let instr_count = self[idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[idx].instructions[i];
+                if is_jump(&instr) || is_block_push(&instr) {
+                    let target = instr.target;
+                    debug_assert!(target != BlockIdx::NULL);
+                    let target_idx = target.idx();
+                    if !self[target_idx].visited {
+                        stack.push(target);
+                        self[target_idx].visited = true;
+                    }
+                    self[target_idx].predecessors += 1;
+                }
+            }
+        }
+
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            if self[block_idx].predecessors == 0 {
+                let block = &mut self[block_idx];
+                basicblock_clear(block);
+                block.except_handler = false;
+            }
+            block_idx = next;
+        }
+        Ok(())
     }
 }
 
@@ -1872,7 +1931,7 @@ fn optimize_cfg(
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
-    remove_unreachable(blocks)?;
+    blocks.remove_unreachable()?;
     // CPython optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
@@ -1890,7 +1949,7 @@ fn optimize_cfg(
     // CPython optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
-    remove_unreachable(blocks)?;
+    blocks.remove_unreachable()?;
     remove_redundant_nops_and_jumps(blocks)?;
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
@@ -2141,60 +2200,6 @@ fn prepare_localsplus(
     let numdropped = fix_cell_offsets(metadata, blocks, &mut cellfixedoffsets);
     nlocalsplus -= numdropped;
     Ok(nlocalsplus)
-}
-
-/// flowgraph.c remove_unreachable
-fn remove_unreachable(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        blocks[block_idx].predecessors = 0;
-        block_idx = blocks[block_idx].next;
-    }
-
-    let mut stack = make_cfg_traversal_stack(blocks)?;
-    blocks[0].predecessors = 1;
-    stack.push(BlockIdx(0));
-    blocks[0].visited = true;
-    while let Some(current) = stack.pop() {
-        let idx = current.idx();
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
-            if !blocks[next].visited {
-                debug_assert_eq!(blocks[next].predecessors, 0);
-                stack.push(next);
-                blocks[next].visited = true;
-            }
-            blocks[next].predecessors += 1;
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) || is_block_push(&instr) {
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                let target_idx = target.idx();
-                if !blocks[target_idx].visited {
-                    stack.push(target);
-                    blocks[target_idx].visited = true;
-                }
-                blocks[target_idx].predecessors += 1;
-            }
-        }
-    }
-
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let i = block_idx.idx();
-        let next = blocks[i].next;
-        if blocks[i].predecessors == 0 {
-            let block = &mut blocks[i];
-            basicblock_clear(block);
-            block.except_handler = false;
-        }
-        block_idx = next;
-    }
-    Ok(())
 }
 
 /// flowgraph.c eval_const_unaryop
