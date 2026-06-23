@@ -1444,6 +1444,267 @@ impl Blocks {
 
         Ok(())
     }
+
+    fn resolve_line_numbers(&mut self, _firstlineno: OneIndexed) -> crate::InternalResult<()> {
+        self.duplicate_exits_without_lineno()?;
+        propagate_line_numbers(self);
+        Ok(())
+    }
+
+    /// flowgraph.c optimize_basic_block
+    fn optimize_basic_block(
+        &mut self,
+        metadata: &mut CodeUnitMetadata,
+        block_idx: BlockIdx,
+    ) -> crate::InternalResult<()> {
+        let mut nop = InstructionInfo {
+            instr: Instruction::Nop.into(),
+            arg: OpArg::NULL,
+            target: BlockIdx::NULL,
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
+            except_handler: None,
+            lineno_override: None,
+        };
+        instr_set_op0(&mut nop, Instruction::Nop.into());
+        let mut i = 0;
+        while i < self[block_idx].instruction_used {
+            let inst = self[block_idx].instructions[i];
+            debug_assert!(!inst.instr.is_assembler());
+            let target = if inst.instr.has_target() {
+                let target = inst.target;
+                debug_assert!(target != BlockIdx::NULL);
+                debug_assert!(self[target.idx()].instruction_used != 0);
+                debug_assert!(!self[target.idx()].instructions[0].instr.is_assembler());
+                self[target.idx()].instructions[0]
+            } else {
+                nop
+            };
+
+            let nextop = self[block_idx]
+                .instructions
+                .get(i + 1)
+                .and_then(|next| next.instr.real());
+
+            match inst.instr {
+                AnyInstruction::Real(Instruction::BuildTuple { .. }) => {
+                    let oparg = u32::from(inst.arg);
+                    if matches!(nextop, Some(Instruction::UnpackSequence { .. }))
+                        && u32::from(self[block_idx].instructions[i + 1].arg) == oparg
+                    {
+                        match oparg {
+                            1 => {
+                                set_to_nop(&mut self[block_idx].instructions[i]);
+                                set_to_nop(&mut self[block_idx].instructions[i + 1]);
+                                i += 1;
+                                continue;
+                            }
+                            2 | 3 => {
+                                set_to_nop(&mut self[block_idx].instructions[i]);
+                                self[block_idx].instructions[i + 1].instr = Opcode::Swap.into();
+                                i += 1;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    fold_tuple_of_constants(metadata, &mut self[block_idx], i)?;
+                }
+                AnyInstruction::Real(
+                    Instruction::BuildList { .. } | Instruction::BuildSet { .. },
+                ) => {
+                    optimize_lists_and_sets(metadata, &mut self[block_idx], i, nextop)?;
+                }
+                AnyInstruction::Real(
+                    Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
+                ) if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                    && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                {
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::PopJumpIfFalse { .. })
+                    if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                {
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::PopJumpIfTrue { .. })
+                    if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                {
+                    continue;
+                }
+                AnyInstruction::Pseudo(
+                    pseudo @ (PseudoInstruction::JumpIfFalse { .. }
+                    | PseudoInstruction::JumpIfTrue { .. }),
+                ) => {
+                    let opcode = pseudo.into();
+                    match target.instr.pseudo().map(Into::into) {
+                        Some(PseudoOpcode::Jump)
+                            if jump_thread(self, block_idx, i, &target, opcode)? =>
+                        {
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfFalse)
+                            if matches!(
+                                opcode,
+                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
+                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                        {
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfTrue)
+                            if matches!(
+                                opcode,
+                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
+                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                        {
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
+                            let next = self[inst.target.idx()].next;
+                            debug_assert!(next != BlockIdx::NULL);
+                            debug_assert!(next != inst.target);
+                            self[block_idx].instructions[i].target = next;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                AnyInstruction::Pseudo(
+                    PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. },
+                ) => match target.instr.into() {
+                    AnyOpcode::Pseudo(PseudoOpcode::Jump)
+                        if jump_thread(self, block_idx, i, &target, PseudoOpcode::Jump.into())? =>
+                    {
+                        continue;
+                    }
+                    AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
+                        if jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                    {
+                        continue;
+                    }
+                    _ => {}
+                },
+                // CPython leaves FOR_ITER jump threading disabled.
+                AnyInstruction::Real(Instruction::ForIter { .. }) => {}
+                AnyInstruction::Real(Instruction::StoreFast { .. })
+                    if matches!(nextop, Some(Instruction::StoreFast { .. }))
+                        && u32::from(inst.arg)
+                            == u32::from(self[block_idx].instructions[i + 1].arg)
+                        && instruction_lineno(&self[block_idx].instructions[i])
+                            == instruction_lineno(&self[block_idx].instructions[i + 1]) =>
+                {
+                    self[block_idx].instructions[i].instr = Instruction::PopTop.into();
+                    self[block_idx].instructions[i].arg = OpArg::NULL;
+                }
+                AnyInstruction::Real(Instruction::Swap { .. }) if u32::from(inst.arg) == 1 => {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                }
+                AnyInstruction::Real(Instruction::LoadGlobal { .. })
+                    if matches!(nextop, Some(Instruction::PushNull))
+                        && (u32::from(inst.arg) & 1) == 0 =>
+                {
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i],
+                        inst.instr,
+                        OpArg::new(u32::from(inst.arg) | 1),
+                    );
+                    set_to_nop(&mut self[block_idx].instructions[i + 1]);
+                }
+                AnyInstruction::Real(Instruction::CompareOp { .. })
+                    if matches!(nextop, Some(Instruction::ToBool)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i + 1],
+                        inst.instr,
+                        OpArg::new(u32::from(inst.arg) | oparg::COMPARE_OP_BOOL_MASK),
+                    );
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
+                    if matches!(nextop, Some(Instruction::ToBool)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i + 1],
+                        inst.instr,
+                        inst.arg,
+                    );
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
+                    if matches!(nextop, Some(Instruction::UnaryNot)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    let inverted = u32::from(inst.arg) ^ 1;
+                    debug_assert!(inverted == 0 || inverted == 1);
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i + 1],
+                        inst.instr,
+                        OpArg::new(inverted),
+                    );
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::ToBool)
+                    if matches!(nextop, Some(Instruction::ToBool)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::UnaryNot) => {
+                    if matches!(nextop, Some(Instruction::ToBool)) {
+                        set_to_nop(&mut self[block_idx].instructions[i]);
+                        instr_set_op0(&mut self[block_idx].instructions[i + 1], inst.instr);
+                        i += 1;
+                        continue;
+                    }
+                    if matches!(nextop, Some(Instruction::UnaryNot)) {
+                        set_to_nop(&mut self[block_idx].instructions[i]);
+                        set_to_nop(&mut self[block_idx].instructions[i + 1]);
+                        i += 1;
+                        continue;
+                    }
+                    fold_const_unaryop(metadata, &mut self[block_idx], i)?;
+                }
+                AnyInstruction::Real(Instruction::UnaryInvert | Instruction::UnaryNegative) => {
+                    fold_const_unaryop(metadata, &mut self[block_idx], i)?;
+                }
+                AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
+                    match func.get(inst.arg) {
+                        IntrinsicFunction1::ListToTuple => {
+                            if matches!(nextop, Some(Instruction::GetIter)) {
+                                set_to_nop(&mut self[block_idx].instructions[i]);
+                            } else {
+                                fold_constant_intrinsic_list_to_tuple(
+                                    metadata,
+                                    &mut self[block_idx],
+                                    i,
+                                )?;
+                            }
+                        }
+                        IntrinsicFunction1::UnaryPositive => {
+                            fold_const_unaryop(metadata, &mut self[block_idx], i)?;
+                        }
+                        _ => {}
+                    }
+                }
+                AnyInstruction::Real(Instruction::BinaryOp { .. }) => {
+                    fold_const_binop(metadata, &mut self[block_idx], i)?;
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+        apply_static_swaps_block(&mut self[block_idx])?;
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -1980,7 +2241,7 @@ fn optimize_code_unit(
     insert_superinstructions(blocks)?;
     push_cold_blocks_to_end(blocks)?;
     // CPython resolves line numbers again after cold-block extraction.
-    resolve_line_numbers(blocks, metadata.firstlineno)?;
+    blocks.resolve_line_numbers(metadata.firstlineno)?;
     Ok(())
 }
 
@@ -2002,14 +2263,14 @@ fn optimize_cfg(
     // CPython optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
-    resolve_line_numbers(blocks, firstlineno)?;
+    blocks.resolve_line_numbers(firstlineno)?;
     // CPython optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
     optimize_load_const(metadata, blocks)?;
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next_block = blocks[block_idx].next;
-        optimize_basic_block(blocks, metadata, block_idx)?;
+        blocks.optimize_basic_block(metadata, block_idx)?;
         block_idx = next_block;
     }
     remove_redundant_nops_and_pairs(blocks)?;
@@ -3777,251 +4038,6 @@ fn optimize_load_const(
         basicblock_optimize_load_const(metadata, block)?;
         block_idx = next_block;
     }
-    Ok(())
-}
-
-/// flowgraph.c optimize_basic_block
-fn optimize_basic_block(
-    blocks: &mut Blocks,
-    metadata: &mut CodeUnitMetadata,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<()> {
-    let bi = block_idx.idx();
-    let mut nop = InstructionInfo {
-        instr: Instruction::Nop.into(),
-        arg: OpArg::NULL,
-        target: BlockIdx::NULL,
-        location: SourceLocation::default(),
-        end_location: SourceLocation::default(),
-        except_handler: None,
-        lineno_override: None,
-    };
-    instr_set_op0(&mut nop, Instruction::Nop.into());
-    let mut i = 0;
-    while i < blocks[bi].instruction_used {
-        let inst = blocks[bi].instructions[i];
-        debug_assert!(!inst.instr.is_assembler());
-        let target = if inst.instr.has_target() {
-            let target = inst.target;
-            debug_assert!(target != BlockIdx::NULL);
-            debug_assert!(blocks[target.idx()].instruction_used != 0);
-            debug_assert!(!blocks[target.idx()].instructions[0].instr.is_assembler());
-            blocks[target.idx()].instructions[0]
-        } else {
-            nop
-        };
-
-        let nextop = blocks[bi]
-            .instructions
-            .get(i + 1)
-            .and_then(|next| next.instr.real());
-
-        match inst.instr {
-            AnyInstruction::Real(Instruction::BuildTuple { .. }) => {
-                let oparg = u32::from(inst.arg);
-                if matches!(nextop, Some(Instruction::UnpackSequence { .. }))
-                    && u32::from(blocks[bi].instructions[i + 1].arg) == oparg
-                {
-                    match oparg {
-                        1 => {
-                            set_to_nop(&mut blocks[bi].instructions[i]);
-                            set_to_nop(&mut blocks[bi].instructions[i + 1]);
-                            i += 1;
-                            continue;
-                        }
-                        2 | 3 => {
-                            set_to_nop(&mut blocks[bi].instructions[i]);
-                            blocks[bi].instructions[i + 1].instr = Opcode::Swap.into();
-                            i += 1;
-                            continue;
-                        }
-                        _ => {}
-                    }
-                }
-                fold_tuple_of_constants(metadata, &mut blocks[bi], i)?;
-            }
-            AnyInstruction::Real(Instruction::BuildList { .. } | Instruction::BuildSet { .. }) => {
-                optimize_lists_and_sets(metadata, &mut blocks[bi], i, nextop)?;
-            }
-            AnyInstruction::Real(
-                Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
-            ) if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                && jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-            {
-                continue;
-            }
-            AnyInstruction::Real(Instruction::PopJumpIfFalse { .. })
-                if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                    && jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-            {
-                continue;
-            }
-            AnyInstruction::Real(Instruction::PopJumpIfTrue { .. })
-                if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                    && jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-            {
-                continue;
-            }
-            AnyInstruction::Pseudo(
-                pseudo @ (PseudoInstruction::JumpIfFalse { .. }
-                | PseudoInstruction::JumpIfTrue { .. }),
-            ) => {
-                let opcode = pseudo.into();
-                match target.instr.pseudo().map(Into::into) {
-                    Some(PseudoOpcode::Jump)
-                        if jump_thread(blocks, block_idx, i, &target, opcode)? =>
-                    {
-                        continue;
-                    }
-                    Some(PseudoOpcode::JumpIfFalse)
-                        if matches!(
-                            opcode,
-                            AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
-                        ) && jump_thread(blocks, block_idx, i, &target, opcode)? =>
-                    {
-                        continue;
-                    }
-                    Some(PseudoOpcode::JumpIfTrue)
-                        if matches!(
-                            opcode,
-                            AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
-                        ) && jump_thread(blocks, block_idx, i, &target, opcode)? =>
-                    {
-                        continue;
-                    }
-                    Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
-                        let next = blocks[inst.target.idx()].next;
-                        debug_assert!(next != BlockIdx::NULL);
-                        debug_assert!(next != inst.target);
-                        blocks[bi].instructions[i].target = next;
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            AnyInstruction::Pseudo(
-                PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. },
-            ) => match target.instr.into() {
-                AnyOpcode::Pseudo(PseudoOpcode::Jump)
-                    if jump_thread(blocks, block_idx, i, &target, PseudoOpcode::Jump.into())? =>
-                {
-                    continue;
-                }
-                AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
-                    if jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-                {
-                    continue;
-                }
-                _ => {}
-            },
-            // CPython leaves FOR_ITER jump threading disabled.
-            AnyInstruction::Real(Instruction::ForIter { .. }) => {}
-            AnyInstruction::Real(Instruction::StoreFast { .. })
-                if matches!(nextop, Some(Instruction::StoreFast { .. }))
-                    && u32::from(inst.arg) == u32::from(blocks[bi].instructions[i + 1].arg)
-                    && instruction_lineno(&blocks[bi].instructions[i])
-                        == instruction_lineno(&blocks[bi].instructions[i + 1]) =>
-            {
-                blocks[bi].instructions[i].instr = Instruction::PopTop.into();
-                blocks[bi].instructions[i].arg = OpArg::NULL;
-            }
-            AnyInstruction::Real(Instruction::Swap { .. }) if u32::from(inst.arg) == 1 => {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-            }
-            AnyInstruction::Real(Instruction::LoadGlobal { .. })
-                if matches!(nextop, Some(Instruction::PushNull))
-                    && (u32::from(inst.arg) & 1) == 0 =>
-            {
-                instr_set_op1(
-                    &mut blocks[bi].instructions[i],
-                    inst.instr,
-                    OpArg::new(u32::from(inst.arg) | 1),
-                );
-                set_to_nop(&mut blocks[bi].instructions[i + 1]);
-            }
-            AnyInstruction::Real(Instruction::CompareOp { .. })
-                if matches!(nextop, Some(Instruction::ToBool)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                instr_set_op1(
-                    &mut blocks[bi].instructions[i + 1],
-                    inst.instr,
-                    OpArg::new(u32::from(inst.arg) | oparg::COMPARE_OP_BOOL_MASK),
-                );
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
-                if matches!(nextop, Some(Instruction::ToBool)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                instr_set_op1(&mut blocks[bi].instructions[i + 1], inst.instr, inst.arg);
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
-                if matches!(nextop, Some(Instruction::UnaryNot)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                let inverted = u32::from(inst.arg) ^ 1;
-                debug_assert!(inverted == 0 || inverted == 1);
-                instr_set_op1(
-                    &mut blocks[bi].instructions[i + 1],
-                    inst.instr,
-                    OpArg::new(inverted),
-                );
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::ToBool)
-                if matches!(nextop, Some(Instruction::ToBool)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::UnaryNot) => {
-                if matches!(nextop, Some(Instruction::ToBool)) {
-                    set_to_nop(&mut blocks[bi].instructions[i]);
-                    instr_set_op0(&mut blocks[bi].instructions[i + 1], inst.instr);
-                    i += 1;
-                    continue;
-                }
-                if matches!(nextop, Some(Instruction::UnaryNot)) {
-                    set_to_nop(&mut blocks[bi].instructions[i]);
-                    set_to_nop(&mut blocks[bi].instructions[i + 1]);
-                    i += 1;
-                    continue;
-                }
-                fold_const_unaryop(metadata, &mut blocks[bi], i)?;
-            }
-            AnyInstruction::Real(Instruction::UnaryInvert | Instruction::UnaryNegative) => {
-                fold_const_unaryop(metadata, &mut blocks[bi], i)?;
-            }
-            AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
-                match func.get(inst.arg) {
-                    IntrinsicFunction1::ListToTuple => {
-                        if matches!(nextop, Some(Instruction::GetIter)) {
-                            set_to_nop(&mut blocks[bi].instructions[i]);
-                        } else {
-                            fold_constant_intrinsic_list_to_tuple(metadata, &mut blocks[bi], i)?;
-                        }
-                    }
-                    IntrinsicFunction1::UnaryPositive => {
-                        fold_const_unaryop(metadata, &mut blocks[bi], i)?;
-                    }
-                    _ => {}
-                }
-            }
-            AnyInstruction::Real(Instruction::BinaryOp { .. }) => {
-                fold_const_binop(metadata, &mut blocks[bi], i)?;
-            }
-            _ => {}
-        }
-
-        i += 1;
-    }
-    apply_static_swaps_block(&mut blocks[block_idx])?;
     Ok(())
 }
 
@@ -6531,15 +6547,6 @@ fn propagate_line_numbers(blocks: &mut Blocks) {
         }
         current = blocks[current].next;
     }
-}
-
-fn resolve_line_numbers(
-    blocks: &mut Blocks,
-    _firstlineno: OneIndexed,
-) -> crate::InternalResult<()> {
-    blocks.duplicate_exits_without_lineno()?;
-    propagate_line_numbers(blocks);
-    Ok(())
 }
 
 /// flowgraph.c make_except_stack
