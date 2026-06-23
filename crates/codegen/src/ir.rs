@@ -1388,6 +1388,62 @@ impl Blocks {
         self.basicblock_append_block_instructions(result, block_idx)?;
         Ok(result)
     }
+
+    fn duplicate_exits_without_lineno(&mut self) -> crate::InternalResult<()> {
+        let mut next_lbl = get_max_label(self) + 1;
+
+        let entryblock = BlockIdx(0);
+        let mut b = entryblock;
+        while b != BlockIdx::NULL {
+            let Some(last) = basicblock_last_instr(&self[b]).copied() else {
+                b = self[b].next;
+                continue;
+            };
+
+            if is_jump(&last) {
+                debug_assert!(last.target != BlockIdx::NULL);
+
+                let target = next_nonempty_block(self, last.target);
+
+                debug_assert!(target != BlockIdx::NULL);
+
+                if is_exit_or_eval_check_without_lineno(&self[target])
+                    && self[target].predecessors > 1
+                {
+                    let new_target = self.copy_basicblock(target)?;
+                    instr_set_location(
+                        &mut self[new_target].instructions[0],
+                        instr_location(&last),
+                    );
+                    let last_mut = basicblock_last_instr_mut(&mut self[b]).unwrap();
+                    last_mut.target = new_target;
+                    self[target].predecessors -= 1;
+                    self[new_target].predecessors = 1;
+                    self[new_target].next = self[target].next;
+                    self[new_target].cpython_label = InstructionSequenceLabel(next_lbl);
+                    next_lbl += 1;
+                    self[target].next = new_target;
+                }
+            }
+            b = self[b].next;
+        }
+
+        b = entryblock;
+        while b != BlockIdx::NULL {
+            let next = self[b].next;
+            if bb_has_fallthrough(&self[b])
+                && next != BlockIdx::NULL
+                && self[b].instruction_used != 0
+                && is_exit_or_eval_check_without_lineno(&self[next])
+            {
+                let last = *basicblock_last_instr(&self[b]).expect("block has instructions");
+                instr_set_location(&mut self[next].instructions[0], instr_location(&last));
+            }
+            b = self[b].next;
+        }
+
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -6433,57 +6489,6 @@ fn get_max_label(blocks: &Blocks) -> i32 {
     lbl
 }
 
-fn duplicate_exits_without_lineno(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut next_lbl = get_max_label(blocks) + 1;
-
-    let entryblock = BlockIdx(0);
-    let mut b = entryblock;
-    while b != BlockIdx::NULL {
-        let Some(last) = basicblock_last_instr(&blocks[b]).copied() else {
-            b = blocks[b].next;
-            continue;
-        };
-        if is_jump(&last) {
-            debug_assert!(last.target != BlockIdx::NULL);
-            let target = next_nonempty_block(blocks, last.target);
-            debug_assert!(target != BlockIdx::NULL);
-            if is_exit_or_eval_check_without_lineno(&blocks[target])
-                && blocks[target].predecessors > 1
-            {
-                let new_target = blocks.copy_basicblock(target)?;
-                instr_set_location(
-                    &mut blocks[new_target].instructions[0],
-                    instr_location(&last),
-                );
-                let last_mut = basicblock_last_instr_mut(&mut blocks[b]).unwrap();
-                last_mut.target = new_target;
-                blocks[target].predecessors -= 1;
-                blocks[new_target].predecessors = 1;
-                blocks[new_target].next = blocks[target].next;
-                blocks[new_target].cpython_label = InstructionSequenceLabel(next_lbl);
-                next_lbl += 1;
-                blocks[target].next = new_target;
-            }
-        }
-        b = blocks[b].next;
-    }
-
-    b = entryblock;
-    while b != BlockIdx::NULL {
-        let next = blocks[b].next;
-        if bb_has_fallthrough(&blocks[b])
-            && next != BlockIdx::NULL
-            && blocks[b].instruction_used != 0
-            && is_exit_or_eval_check_without_lineno(&blocks[next])
-        {
-            let last = *basicblock_last_instr(&blocks[b]).expect("block has instructions");
-            instr_set_location(&mut blocks[next].instructions[0], instr_location(&last));
-        }
-        b = blocks[b].next;
-    }
-    Ok(())
-}
-
 fn propagate_line_numbers(blocks: &mut Blocks) {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
@@ -6532,7 +6537,7 @@ fn resolve_line_numbers(
     blocks: &mut Blocks,
     _firstlineno: OneIndexed,
 ) -> crate::InternalResult<()> {
-    duplicate_exits_without_lineno(blocks)?;
+    blocks.duplicate_exits_without_lineno()?;
     propagate_line_numbers(blocks);
     Ok(())
 }
