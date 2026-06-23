@@ -437,22 +437,6 @@ fn basicblock_insert_instruction(
     Ok(())
 }
 
-/// flowgraph.c basicblock_append_instructions
-fn basicblock_append_block_instructions(
-    blocks: &mut Blocks,
-    to: BlockIdx,
-    from: BlockIdx,
-) -> crate::InternalResult<()> {
-    debug_assert_ne!(to, from);
-    let from_len = blocks[from].instruction_used;
-    for i in 0..from_len {
-        let info = blocks[from].instructions[i];
-        let off = basicblock_next_instr(&mut blocks[to])?;
-        blocks[to].instructions[off] = info;
-    }
-    Ok(())
-}
-
 /// flowgraph.c direct `b_iused = 0`
 fn basicblock_clear(block: &mut Block) {
     block.instruction_used = 0;
@@ -750,60 +734,6 @@ fn instruction_sequence_apply_label_map(
     }
     instrs.label_map = None;
     instrs.label_map_allocation = 0;
-    Ok(())
-}
-
-/// flowgraph.c _PyCfg_ToInstructionSequence
-fn cfg_to_instruction_sequence(
-    blocks: &mut Blocks,
-    instr_sequence: &mut InstructionSequence,
-) -> crate::InternalResult<()> {
-    let mut label_id = 0;
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        blocks[block_idx.idx()].cpython_label = InstructionSequenceLabel::from_index(label_id);
-        label_id += 1;
-        block_idx = blocks[block_idx.idx()].next;
-    }
-
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block_label = blocks[block_idx.idx()].cpython_label;
-        debug_assert!(is_label(block_label));
-        instruction_sequence_use_label(instr_sequence, block_label)?;
-
-        let instr_count = blocks[block_idx.idx()].instruction_used;
-        for i in 0..instr_count {
-            if blocks[block_idx.idx()].instructions[i].instr.has_target() {
-                let target_block = blocks[block_idx.idx()].instructions[i].target;
-                debug_assert!(target_block != BlockIdx::NULL);
-                let lbl = blocks[target_block.idx()].cpython_label;
-                debug_assert!(is_label(lbl));
-                blocks[block_idx.idx()].instructions[i].arg = OpArg::new(lbl.0 as u32);
-            }
-
-            let mut info = blocks[block_idx.idx()].instructions[i];
-            info.target = BlockIdx::NULL;
-            let except_handler = info.except_handler.take();
-            let entry = instruction_sequence_addop(instr_sequence, info)?;
-            let hi = &mut entry.except_handler;
-            if let Some(handler) = except_handler {
-                debug_assert!(handler.handler_block != BlockIdx::NULL);
-                let lbl = blocks[handler.handler_block.idx()].cpython_label;
-                debug_assert!(is_label(lbl));
-                let start_depth = blocks[handler.handler_block.idx()].start_depth;
-                debug_assert!(start_depth >= 0);
-                hi.h_label = lbl.0;
-                hi.start_depth = start_depth;
-                hi.preserve_lasti = i32::from(handler.preserve_lasti);
-            } else {
-                hi.h_label = NO_EXCEPTION_HANDLER_LABEL;
-            }
-        }
-        block_idx = blocks[block_idx.idx()].next;
-    }
-
-    instruction_sequence_apply_label_map(instr_sequence)?;
     Ok(())
 }
 
@@ -1307,6 +1237,7 @@ impl Block {
 #[derive(Clone, Debug, Default)]
 pub struct Blocks(Vec<Block>);
 
+// Vec like methods
 impl Blocks {
     pub fn try_reserve(
         &mut self,
@@ -1317,6 +1248,1057 @@ impl Blocks {
 
     pub fn push(&mut self, value: Block) {
         self.0.push(value)
+    }
+}
+
+// CPython functions
+
+impl Blocks {
+    /// # See also
+    /// [CPython's remove_unreachable](https://github.com/python/cpython/blob/v3.14.6/Python/flowgraph.c#L995-L1041)
+    pub fn remove_unreachable(&mut self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            self[block_idx].predecessors = 0;
+            block_idx = self[block_idx].next;
+        }
+
+        let mut stack = self.make_cfg_traversal_stack()?;
+        self[0].predecessors = 1;
+        stack.push(BlockIdx(0));
+        self[0].visited = true;
+        while let Some(current) = stack.pop() {
+            let idx = current.idx();
+            let next = self[idx].next;
+            if next != BlockIdx::NULL && bb_has_fallthrough(&self[idx]) {
+                if !self[next].visited {
+                    debug_assert_eq!(self[next].predecessors, 0);
+                    stack.push(next);
+                    self[next].visited = true;
+                }
+                self[next].predecessors += 1;
+            }
+
+            let instr_count = self[idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[idx].instructions[i];
+                if is_jump(&instr) || is_block_push(&instr) {
+                    let target = instr.target;
+                    debug_assert!(target != BlockIdx::NULL);
+                    let target_idx = target.idx();
+                    if !self[target_idx].visited {
+                        stack.push(target);
+                        self[target_idx].visited = true;
+                    }
+                    self[target_idx].predecessors += 1;
+                }
+            }
+        }
+
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            if self[block_idx].predecessors == 0 {
+                let block = &mut self[block_idx];
+                basicblock_clear(block);
+                block.except_handler = false;
+            }
+            block_idx = next;
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c basicblock_append_instructions
+    fn basicblock_append_block_instructions(
+        &mut self,
+        to: BlockIdx,
+        from: BlockIdx,
+    ) -> crate::InternalResult<()> {
+        debug_assert_ne!(to, from);
+
+        let from_len = self[from].instruction_used;
+        for i in 0..from_len {
+            let info = self[from].instructions[i];
+            let off = basicblock_next_instr(&mut self[to])?;
+            self[to].instructions[off] = info;
+        }
+
+        Ok(())
+    }
+
+    /// flowgraph.c copy_basicblock
+    fn copy_basicblock(&mut self, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
+        debug_assert!(bb_no_fallthrough(&self[block_idx]));
+
+        let result = blocks_new_block(self)?;
+        self.basicblock_append_block_instructions(result, block_idx)?;
+        Ok(result)
+    }
+
+    fn duplicate_exits_without_lineno(&mut self) -> crate::InternalResult<()> {
+        let mut next_lbl = get_max_label(self) + 1;
+
+        let entryblock = BlockIdx(0);
+        let mut b = entryblock;
+        while b != BlockIdx::NULL {
+            let Some(last) = basicblock_last_instr(&self[b]).copied() else {
+                b = self[b].next;
+                continue;
+            };
+
+            if is_jump(&last) {
+                debug_assert!(last.target != BlockIdx::NULL);
+
+                let target = next_nonempty_block(self, last.target);
+
+                debug_assert!(target != BlockIdx::NULL);
+
+                if is_exit_or_eval_check_without_lineno(&self[target])
+                    && self[target].predecessors > 1
+                {
+                    let new_target = self.copy_basicblock(target)?;
+                    instr_set_location(
+                        &mut self[new_target].instructions[0],
+                        instr_location(&last),
+                    );
+                    let last_mut = basicblock_last_instr_mut(&mut self[b]).unwrap();
+                    last_mut.target = new_target;
+                    self[target].predecessors -= 1;
+                    self[new_target].predecessors = 1;
+                    self[new_target].next = self[target].next;
+                    self[new_target].cpython_label = InstructionSequenceLabel(next_lbl);
+                    next_lbl += 1;
+                    self[target].next = new_target;
+                }
+            }
+            b = self[b].next;
+        }
+
+        b = entryblock;
+        while b != BlockIdx::NULL {
+            let next = self[b].next;
+            if bb_has_fallthrough(&self[b])
+                && next != BlockIdx::NULL
+                && self[b].instruction_used != 0
+                && is_exit_or_eval_check_without_lineno(&self[next])
+            {
+                let last = *basicblock_last_instr(&self[b]).expect("block has instructions");
+                instr_set_location(&mut self[next].instructions[0], instr_location(&last));
+            }
+            b = self[b].next;
+        }
+
+        Ok(())
+    }
+
+    fn resolve_line_numbers(&mut self, _firstlineno: OneIndexed) -> crate::InternalResult<()> {
+        self.duplicate_exits_without_lineno()?;
+        self.propagate_line_numbers();
+        Ok(())
+    }
+
+    /// flowgraph.c optimize_basic_block
+    fn optimize_basic_block(
+        &mut self,
+        metadata: &mut CodeUnitMetadata,
+        block_idx: BlockIdx,
+    ) -> crate::InternalResult<()> {
+        let mut nop = InstructionInfo {
+            instr: Instruction::Nop.into(),
+            arg: OpArg::NULL,
+            target: BlockIdx::NULL,
+            location: SourceLocation::default(),
+            end_location: SourceLocation::default(),
+            except_handler: None,
+            lineno_override: None,
+        };
+        instr_set_op0(&mut nop, Instruction::Nop.into());
+        let mut i = 0;
+        while i < self[block_idx].instruction_used {
+            let inst = self[block_idx].instructions[i];
+            debug_assert!(!inst.instr.is_assembler());
+            let target = if inst.instr.has_target() {
+                let target = inst.target;
+                debug_assert!(target != BlockIdx::NULL);
+                debug_assert!(self[target.idx()].instruction_used != 0);
+                debug_assert!(!self[target.idx()].instructions[0].instr.is_assembler());
+                self[target.idx()].instructions[0]
+            } else {
+                nop
+            };
+
+            let nextop = self[block_idx]
+                .instructions
+                .get(i + 1)
+                .and_then(|next| next.instr.real());
+
+            match inst.instr {
+                AnyInstruction::Real(Instruction::BuildTuple { .. }) => {
+                    let oparg = u32::from(inst.arg);
+                    if matches!(nextop, Some(Instruction::UnpackSequence { .. }))
+                        && u32::from(self[block_idx].instructions[i + 1].arg) == oparg
+                    {
+                        match oparg {
+                            1 => {
+                                set_to_nop(&mut self[block_idx].instructions[i]);
+                                set_to_nop(&mut self[block_idx].instructions[i + 1]);
+                                i += 1;
+                                continue;
+                            }
+                            2 | 3 => {
+                                set_to_nop(&mut self[block_idx].instructions[i]);
+                                self[block_idx].instructions[i + 1].instr = Opcode::Swap.into();
+                                i += 1;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    fold_tuple_of_constants(metadata, &mut self[block_idx], i)?;
+                }
+                AnyInstruction::Real(
+                    Instruction::BuildList { .. } | Instruction::BuildSet { .. },
+                ) => {
+                    optimize_lists_and_sets(metadata, &mut self[block_idx], i, nextop)?;
+                }
+                AnyInstruction::Real(
+                    Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
+                ) if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                    && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                {
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::PopJumpIfFalse { .. })
+                    if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                {
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::PopJumpIfTrue { .. })
+                    if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
+                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                {
+                    continue;
+                }
+                AnyInstruction::Pseudo(
+                    pseudo @ (PseudoInstruction::JumpIfFalse { .. }
+                    | PseudoInstruction::JumpIfTrue { .. }),
+                ) => {
+                    let opcode = pseudo.into();
+                    match target.instr.pseudo().map(Into::into) {
+                        Some(PseudoOpcode::Jump)
+                            if jump_thread(self, block_idx, i, &target, opcode)? =>
+                        {
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfFalse)
+                            if matches!(
+                                opcode,
+                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
+                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                        {
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfTrue)
+                            if matches!(
+                                opcode,
+                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
+                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                        {
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
+                            let next = self[inst.target.idx()].next;
+                            debug_assert!(next != BlockIdx::NULL);
+                            debug_assert!(next != inst.target);
+                            self[block_idx].instructions[i].target = next;
+                            continue;
+                        }
+                        _ => {}
+                    }
+                }
+                AnyInstruction::Pseudo(
+                    PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. },
+                ) => match target.instr.into() {
+                    AnyOpcode::Pseudo(PseudoOpcode::Jump)
+                        if jump_thread(self, block_idx, i, &target, PseudoOpcode::Jump.into())? =>
+                    {
+                        continue;
+                    }
+                    AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
+                        if jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                    {
+                        continue;
+                    }
+                    _ => {}
+                },
+                // CPython leaves FOR_ITER jump threading disabled.
+                AnyInstruction::Real(Instruction::ForIter { .. }) => {}
+                AnyInstruction::Real(Instruction::StoreFast { .. })
+                    if matches!(nextop, Some(Instruction::StoreFast { .. }))
+                        && u32::from(inst.arg)
+                            == u32::from(self[block_idx].instructions[i + 1].arg)
+                        && instruction_lineno(&self[block_idx].instructions[i])
+                            == instruction_lineno(&self[block_idx].instructions[i + 1]) =>
+                {
+                    self[block_idx].instructions[i].instr = Instruction::PopTop.into();
+                    self[block_idx].instructions[i].arg = OpArg::NULL;
+                }
+                AnyInstruction::Real(Instruction::Swap { .. }) if u32::from(inst.arg) == 1 => {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                }
+                AnyInstruction::Real(Instruction::LoadGlobal { .. })
+                    if matches!(nextop, Some(Instruction::PushNull))
+                        && (u32::from(inst.arg) & 1) == 0 =>
+                {
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i],
+                        inst.instr,
+                        OpArg::new(u32::from(inst.arg) | 1),
+                    );
+                    set_to_nop(&mut self[block_idx].instructions[i + 1]);
+                }
+                AnyInstruction::Real(Instruction::CompareOp { .. })
+                    if matches!(nextop, Some(Instruction::ToBool)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i + 1],
+                        inst.instr,
+                        OpArg::new(u32::from(inst.arg) | oparg::COMPARE_OP_BOOL_MASK),
+                    );
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
+                    if matches!(nextop, Some(Instruction::ToBool)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i + 1],
+                        inst.instr,
+                        inst.arg,
+                    );
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
+                    if matches!(nextop, Some(Instruction::UnaryNot)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    let inverted = u32::from(inst.arg) ^ 1;
+                    debug_assert!(inverted == 0 || inverted == 1);
+                    instr_set_op1(
+                        &mut self[block_idx].instructions[i + 1],
+                        inst.instr,
+                        OpArg::new(inverted),
+                    );
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::ToBool)
+                    if matches!(nextop, Some(Instruction::ToBool)) =>
+                {
+                    set_to_nop(&mut self[block_idx].instructions[i]);
+                    i += 1;
+                    continue;
+                }
+                AnyInstruction::Real(Instruction::UnaryNot) => {
+                    if matches!(nextop, Some(Instruction::ToBool)) {
+                        set_to_nop(&mut self[block_idx].instructions[i]);
+                        instr_set_op0(&mut self[block_idx].instructions[i + 1], inst.instr);
+                        i += 1;
+                        continue;
+                    }
+                    if matches!(nextop, Some(Instruction::UnaryNot)) {
+                        set_to_nop(&mut self[block_idx].instructions[i]);
+                        set_to_nop(&mut self[block_idx].instructions[i + 1]);
+                        i += 1;
+                        continue;
+                    }
+                    fold_const_unaryop(metadata, &mut self[block_idx], i)?;
+                }
+                AnyInstruction::Real(Instruction::UnaryInvert | Instruction::UnaryNegative) => {
+                    fold_const_unaryop(metadata, &mut self[block_idx], i)?;
+                }
+                AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
+                    match func.get(inst.arg) {
+                        IntrinsicFunction1::ListToTuple => {
+                            if matches!(nextop, Some(Instruction::GetIter)) {
+                                set_to_nop(&mut self[block_idx].instructions[i]);
+                            } else {
+                                fold_constant_intrinsic_list_to_tuple(
+                                    metadata,
+                                    &mut self[block_idx],
+                                    i,
+                                )?;
+                            }
+                        }
+                        IntrinsicFunction1::UnaryPositive => {
+                            fold_const_unaryop(metadata, &mut self[block_idx], i)?;
+                        }
+                        _ => {}
+                    }
+                }
+                AnyInstruction::Real(Instruction::BinaryOp { .. }) => {
+                    fold_const_binop(metadata, &mut self[block_idx], i)?;
+                }
+                _ => {}
+            }
+
+            i += 1;
+        }
+        apply_static_swaps_block(&mut self[block_idx])?;
+        Ok(())
+    }
+
+    /// flowgraph.c _PyCfg_ToInstructionSequence
+    fn cfg_to_instruction_sequence(
+        &mut self,
+        instr_sequence: &mut InstructionSequence,
+    ) -> crate::InternalResult<()> {
+        let mut label_id = 0;
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            self[block_idx].cpython_label = InstructionSequenceLabel::from_index(label_id);
+            label_id += 1;
+            block_idx = self[block_idx].next;
+        }
+
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block_label = self[block_idx].cpython_label;
+            debug_assert!(is_label(block_label));
+            instruction_sequence_use_label(instr_sequence, block_label)?;
+
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                if self[block_idx].instructions[i].instr.has_target() {
+                    let target_block = self[block_idx].instructions[i].target;
+                    debug_assert!(target_block != BlockIdx::NULL);
+                    let lbl = self[target_block].cpython_label;
+                    debug_assert!(is_label(lbl));
+                    self[block_idx].instructions[i].arg = OpArg::new(lbl.0 as u32);
+                }
+
+                let mut info = self[block_idx].instructions[i];
+                info.target = BlockIdx::NULL;
+                let except_handler = info.except_handler.take();
+                let entry = instruction_sequence_addop(instr_sequence, info)?;
+                let hi = &mut entry.except_handler;
+                if let Some(handler) = except_handler {
+                    debug_assert!(handler.handler_block != BlockIdx::NULL);
+                    let lbl = self[handler.handler_block].cpython_label;
+                    debug_assert!(is_label(lbl));
+                    let start_depth = self[handler.handler_block].start_depth;
+                    debug_assert!(start_depth >= 0);
+                    hi.h_label = lbl.0;
+                    hi.start_depth = start_depth;
+                    hi.preserve_lasti = i32::from(handler.preserve_lasti);
+                } else {
+                    hi.h_label = NO_EXCEPTION_HANDLER_LABEL;
+                }
+            }
+            block_idx = self[block_idx].next;
+        }
+
+        instruction_sequence_apply_label_map(instr_sequence)?;
+        Ok(())
+    }
+
+    fn optimize_load_fast(&mut self) -> crate::InternalResult<()> {
+        let mut max_instrs = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            max_instrs = max_instrs.max(self[current].instruction_used);
+            current = self[current].next;
+        }
+
+        let mut instr_flags = Vec::new();
+        instr_flags
+            .try_reserve_exact(max_instrs)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        instr_flags.resize(max_instrs, 0u8);
+        let mut refs = RefStack {
+            refs: Vec::new(),
+            size: 0,
+            capacity: 0,
+        };
+        let mut worklist = self.make_cfg_traversal_stack()?;
+        worklist.push(BlockIdx(0));
+        self[0].start_depth = 0;
+        self[0].visited = true;
+        while let Some(block_idx) = worklist.pop() {
+            let instr_count = self[block_idx].instruction_used;
+            instr_flags[..instr_count].fill(0);
+            debug_assert!(self[block_idx].start_depth >= 0);
+            let start_depth = self[block_idx].start_depth as usize;
+            ref_stack_clear(&mut refs);
+            for _ in 0..start_depth {
+                push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL)?;
+            }
+
+            for i in 0..instr_count {
+                let info = self[block_idx].instructions[i];
+                let instr = info.instr;
+                let arg_u32 = u32::from(info.arg);
+                debug_assert!(!matches!(instr.real(), Some(Instruction::ExtendedArg)));
+
+                match instr {
+                    AnyInstruction::Real(Instruction::DeleteFast { var_num }) => {
+                        kill_local(
+                            &mut instr_flags,
+                            &refs,
+                            local_as_ref_local(usize::from(var_num.get(info.arg))),
+                        );
+                    }
+                    AnyInstruction::Real(Instruction::LoadFast { var_num }) => {
+                        push_ref(
+                            &mut refs,
+                            i as isize,
+                            local_as_ref_local(usize::from(var_num.get(info.arg))),
+                        )?;
+                    }
+                    AnyInstruction::Real(Instruction::LoadFastAndClear { var_num }) => {
+                        let local = local_as_ref_local(usize::from(var_num.get(info.arg)));
+                        kill_local(&mut instr_flags, &refs, local);
+                        push_ref(&mut refs, i as isize, local)?;
+                    }
+                    AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
+                        let local1 = (arg_u32 >> 4) as isize;
+                        let local2 = (arg_u32 & 15) as isize;
+                        push_ref(&mut refs, i as isize, local1)?;
+                        push_ref(&mut refs, i as isize, local2)?;
+                    }
+                    AnyInstruction::Real(Instruction::StoreFast { var_num }) => {
+                        let r = ref_stack_pop(&mut refs);
+                        store_local(
+                            &mut instr_flags,
+                            &refs,
+                            local_as_ref_local(usize::from(var_num.get(info.arg))),
+                            r,
+                        );
+                    }
+                    AnyInstruction::Real(Instruction::StoreFastLoadFast { .. }) => {
+                        let r = ref_stack_pop(&mut refs);
+                        store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r);
+                        push_ref(&mut refs, i as isize, (arg_u32 & 15) as isize)?;
+                    }
+                    AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
+                        let r1 = ref_stack_pop(&mut refs);
+                        store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r1);
+                        let r2 = ref_stack_pop(&mut refs);
+                        store_local(&mut instr_flags, &refs, (arg_u32 & 15) as isize, r2);
+                    }
+                    AnyInstruction::Real(Instruction::Copy { i: _ }) => {
+                        let depth = arg_u32 as usize;
+                        assert!(depth > 0);
+                        assert!(refs.size >= depth);
+                        let r = ref_stack_at(&refs, refs.size - depth);
+                        push_ref(&mut refs, r.instr, r.local)?;
+                    }
+                    AnyInstruction::Real(Instruction::Swap { i: _ }) => {
+                        let depth = arg_u32 as usize;
+                        assert!(depth >= 2);
+                        assert!(refs.size >= depth);
+                        ref_stack_swap_top(&mut refs, depth);
+                    }
+                    AnyInstruction::Real(
+                        Instruction::FormatSimple
+                        | Instruction::GetAnext
+                        | Instruction::GetLen
+                        | Instruction::GetYieldFromIter
+                        | Instruction::ImportFrom { .. }
+                        | Instruction::MatchKeys
+                        | Instruction::MatchMapping
+                        | Instruction::MatchSequence
+                        | Instruction::WithExceptStart,
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let net_pushed = effect.pushed() as isize - effect.popped() as isize;
+                        debug_assert!(net_pushed >= 0);
+                        // CPython optimize_load_fast() shadows the outer
+                        // instruction index in this produced-value loop.
+                        for produced in 0..net_pushed {
+                            push_ref(&mut refs, produced, NOT_LOCAL)?;
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::DictMerge { .. }
+                        | Instruction::DictUpdate { .. }
+                        | Instruction::ListAppend { .. }
+                        | Instruction::ListExtend { .. }
+                        | Instruction::MapAdd { .. }
+                        | Instruction::Reraise { .. }
+                        | Instruction::SetAdd { .. }
+                        | Instruction::SetUpdate { .. },
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let net_popped = effect.popped() as isize - effect.pushed() as isize;
+                        debug_assert!(net_popped > 0);
+                        for _ in 0..net_popped {
+                            let _ = ref_stack_pop(&mut refs);
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::EndSend | Instruction::SetFunctionAttribute { .. },
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        debug_assert_eq!(effect.popped(), 2);
+                        debug_assert_eq!(effect.pushed(), 1);
+                        let tos = ref_stack_pop(&mut refs);
+                        let _ = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, tos.instr, tos.local)?;
+                    }
+                    AnyInstruction::Real(Instruction::CheckExcMatch) => {
+                        let _ = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    }
+                    AnyInstruction::Real(Instruction::ForIter { .. }) => {
+                        let target = info.target;
+                        debug_assert!(target != BlockIdx::NULL);
+                        load_fast_push_block(&mut worklist, self, target, refs.size + 1);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    }
+                    AnyInstruction::Real(
+                        Instruction::LoadAttr { .. } | Instruction::LoadSuperAttr { .. },
+                    ) => {
+                        let self_ref = ref_stack_pop(&mut refs);
+                        if matches!(instr.real(), Some(Instruction::LoadSuperAttr { .. })) {
+                            let _ = ref_stack_pop(&mut refs);
+                            let _ = ref_stack_pop(&mut refs);
+                        }
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                        if arg_u32 & 1 != 0 {
+                            push_ref(&mut refs, self_ref.instr, self_ref.local)?;
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::LoadSpecial { .. } | Instruction::PushExcInfo,
+                    ) => {
+                        let tos = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                        push_ref(&mut refs, tos.instr, tos.local)?;
+                    }
+                    AnyInstruction::Real(Instruction::Send { .. }) => {
+                        let target = info.target;
+                        debug_assert!(target != BlockIdx::NULL);
+                        load_fast_push_block(&mut worklist, self, target, refs.size);
+                        let _ = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    }
+                    _ => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let num_popped = effect.popped() as usize;
+                        let num_pushed = effect.pushed() as usize;
+                        let target = info.target;
+                        if instr.has_target() {
+                            debug_assert!(target != BlockIdx::NULL);
+                            debug_assert!(refs.size >= num_popped);
+                            let target_depth = refs.size - num_popped + num_pushed;
+                            load_fast_push_block(&mut worklist, self, target, target_depth);
+                        }
+                        if !is_block_push(&info) {
+                            for _ in 0..num_popped {
+                                let _ = ref_stack_pop(&mut refs);
+                            }
+                            for _ in 0..num_pushed {
+                                push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let fallthrough = self[block_idx].next;
+            let term = basicblock_last_instr(&self[block_idx]).copied();
+            if let Some(term) = term
+                && fallthrough != BlockIdx::NULL
+                && !term.instr.is_unconditional_jump()
+                && !term.instr.is_scope_exit()
+            {
+                debug_assert!(bb_has_fallthrough(&self[block_idx]));
+                load_fast_push_block(&mut worklist, self, fallthrough, refs.size);
+            }
+
+            for i in 0..refs.size {
+                let r = ref_stack_at(&refs, i);
+                if r.instr != DUMMY_INSTR {
+                    instr_flags[r.instr as usize] |= LoadFastInstrFlag::RefUnconsumed as u8;
+                }
+            }
+
+            let block = &mut self[block_idx];
+            let iused = block.instruction_used;
+            let mut i = 0;
+            while i < iused {
+                let info = &mut block.instructions[i];
+                if instr_flags[i] != 0 {
+                    i += 1;
+                    continue;
+                }
+
+                match info.instr.real_opcode() {
+                    Some(Opcode::LoadFast) => {
+                        info.instr = Opcode::LoadFastBorrow.into();
+                    }
+                    Some(Opcode::LoadFastLoadFast) => {
+                        info.instr = Opcode::LoadFastBorrowLoadFastBorrow.into();
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn propagate_line_numbers(&mut self) {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let Some(last) = basicblock_last_instr(&self[current]).copied() else {
+                current = self[current].next;
+                continue;
+            };
+
+            let mut prev_location = no_instruction_location();
+            for i in 0..self[current].instruction_used {
+                if instruction_is_no_location(&self[current].instructions[i]) {
+                    instr_set_location(&mut self[current].instructions[i], prev_location);
+                } else {
+                    prev_location = instr_location(&self[current].instructions[i]);
+                }
+            }
+
+            let next = self[current].next;
+            if bb_has_fallthrough(&self[current]) {
+                debug_assert!(next != BlockIdx::NULL);
+                if next != BlockIdx::NULL
+                    && self[next].predecessors == 1
+                    && self[next].instruction_used != 0
+                    && instruction_is_no_location(&self[next].instructions[0])
+                {
+                    instr_set_location(&mut self[next].instructions[0], prev_location);
+                }
+            }
+
+            if is_jump(&last) {
+                let target = last.target;
+                debug_assert!(target != BlockIdx::NULL);
+                if self[target].predecessors == 1 {
+                    let instr = basicblock_raw_first_instr_mut(&mut self[target]);
+                    if instruction_is_no_location(instr) {
+                        instr_set_location(instr, prev_location);
+                    }
+                }
+            }
+            current = self[current].next;
+        }
+    }
+
+    /// flowgraph.c remove_redundant_nops_and_pairs
+    fn remove_redundant_nops_and_pairs(&mut self) -> crate::InternalResult<()> {
+        let mut done = false;
+
+        while !done {
+            done = true;
+            let mut instr: Option<(BlockIdx, usize)> = None;
+            let mut block_idx = BlockIdx::new(0);
+
+            while block_idx != BlockIdx::NULL {
+                basicblock_remove_redundant_nops(self, block_idx)?;
+                if is_label(self[block_idx].cpython_label) {
+                    instr = None;
+                }
+
+                let len = self[block_idx].instruction_used;
+                for instr_idx in 0..len {
+                    let prev_instr = instr;
+                    instr = Some((block_idx, instr_idx));
+                    let instr_info = self[block_idx].instructions[instr_idx];
+                    let mut prev_opcode = None;
+                    let prev_oparg = if let Some((prev_block, prev_instr_idx)) = prev_instr {
+                        let prev_info = self[prev_block].instructions[prev_instr_idx];
+                        prev_opcode = prev_info.instr.real_opcode();
+                        match prev_info.instr.real() {
+                            Some(Instruction::Copy { i }) => i.get(prev_info.arg),
+                            _ => u32::from(prev_info.arg),
+                        }
+                    } else {
+                        0
+                    };
+
+                    let opcode = instr_info.instr.real_opcode();
+                    let is_redundant_pair = matches!(opcode, Some(Opcode::PopTop))
+                        && (matches!(prev_opcode, Some(Opcode::LoadConst | Opcode::LoadSmallInt))
+                            || (prev_oparg == 1 && matches!(prev_opcode, Some(Opcode::Copy))));
+
+                    if is_redundant_pair {
+                        let (prev_block, prev_instr_idx) =
+                            prev_instr.expect("redundant pair has previous");
+                        set_to_nop(&mut self[prev_block].instructions[prev_instr_idx]);
+                        set_to_nop(&mut self[block_idx].instructions[instr_idx]);
+                        done = false;
+                    }
+                }
+
+                let instr_is_jump = instr.is_some_and(|(instr_block, instr_idx)| {
+                    is_jump(&self[instr_block].instructions[instr_idx])
+                });
+
+                let block = &self[block_idx];
+                if instr_is_jump || !bb_has_fallthrough(block) {
+                    instr = None;
+                }
+                block_idx = block.next;
+            }
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c calculate_stackdepth
+    fn calculate_stackdepth(&mut self) -> crate::InternalResult<u32> {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current.idx()].start_depth = START_DEPTH_UNSET;
+            current = self[current.idx()].next;
+        }
+        let mut stack = self.make_cfg_traversal_stack()?;
+        let mut maxdepth = 0i32;
+        stackdepth_push(&mut stack, self, BlockIdx(0), 0)?;
+        while let Some(block_idx) = stack.pop() {
+            let mut depth = self[block_idx].start_depth;
+            debug_assert!(depth >= 0);
+            let mut next = self[block_idx].next;
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let ins = self[block_idx].instructions[i];
+                let instr = &ins.instr;
+                let effects = get_stack_effects(*instr, ins.arg, 0)?;
+                let new_depth = depth + effects.net;
+                if new_depth < 0 {
+                    return Err(InternalError::StackUnderflow);
+                }
+                maxdepth = maxdepth.max(depth);
+                if instr.has_target() && !matches!(instr.real(), Some(Instruction::EndAsyncFor)) {
+                    debug_assert!(ins.target != BlockIdx::NULL);
+                    let effects = get_stack_effects(*instr, ins.arg, 1)?;
+                    let target_depth = depth + effects.net;
+                    debug_assert!(target_depth >= 0);
+                    maxdepth = maxdepth.max(depth);
+                    stackdepth_push(&mut stack, self, ins.target, target_depth)?;
+                }
+                depth = new_depth;
+                debug_assert!(!instr.is_assembler());
+                if instr.is_unconditional_jump() || instr.is_scope_exit() {
+                    next = BlockIdx::NULL;
+                    break;
+                }
+            }
+
+            if next != BlockIdx::NULL {
+                debug_assert!(bb_has_fallthrough(&self[block_idx]));
+                stackdepth_push(&mut stack, self, next, depth)?;
+            }
+        }
+
+        let stackdepth = maxdepth;
+        Ok(stackdepth as u32)
+    }
+
+    /// flowgraph.c make_cfg_traversal_stack
+    fn make_cfg_traversal_stack(&mut self) -> crate::InternalResult<CfgTraversalStack> {
+        debug_assert!(!self.is_empty());
+
+        let mut nblocks = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current].visited = false;
+            nblocks += 1;
+            current = self[current].next;
+        }
+        debug_assert!(nblocks > 0);
+        let mut stack = Vec::new();
+        stack
+            .try_reserve_exact(nblocks)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        stack.resize(nblocks, BlockIdx::NULL);
+        let stack = CfgTraversalStack { stack, sp: 0 };
+        debug_assert_eq!(stack.capacity(), nblocks);
+        Ok(stack)
+    }
+
+    /// flowgraph.c normalize_jumps
+    fn normalize_jumps(&mut self) -> crate::InternalResult<()> {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current].visited = false;
+            current = self[current].next;
+        }
+
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current].visited = true;
+            normalize_jumps_in_block(self, current)?;
+            current = self[current].next;
+        }
+
+        Ok(())
+    }
+
+    /// flowgraph.c remove_unused_consts
+    #[allow(clippy::needless_range_loop)]
+    fn remove_unused_consts(&mut self, consts: &mut ConstantPool) -> crate::InternalResult<()> {
+        let nconsts = consts.len();
+        if nconsts == 0 {
+            return Ok(());
+        }
+
+        let mut index_map = Vec::new();
+        index_map
+            .try_reserve_exact(nconsts)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        index_map.resize(nconsts, 0isize);
+        for i in 1..nconsts {
+            index_map[i] = -1;
+        }
+        // The first constant may be docstring; keep it always.
+        index_map[0] = 0;
+
+        // Mark used consts.
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block = &self[block_idx];
+            for i in 0..block.instruction_used {
+                let instr = &block.instructions[i];
+                if instr.instr.has_const() {
+                    let index = u32::from(instr.arg) as usize;
+                    debug_assert!(index < nconsts);
+                    index_map[index] = index as isize;
+                }
+            }
+            block_idx = block.next;
+        }
+
+        // Now index_map[i] == i if consts[i] is used, -1 otherwise.
+        // Condense consts.
+        let mut n_used_consts = 0;
+        for i in 0..nconsts {
+            if index_map[i] != -1 {
+                debug_assert_eq!(index_map[i], i as isize);
+                index_map[n_used_consts] = index_map[i];
+                n_used_consts += 1;
+            }
+        }
+
+        if n_used_consts == nconsts {
+            return Ok(());
+        }
+
+        // Move all used consts to the beginning of the consts list.
+        debug_assert!(n_used_consts < nconsts);
+        for i in 0..n_used_consts {
+            let old_index = index_map[i] as usize;
+            debug_assert!(i <= old_index && old_index < nconsts);
+            if i != old_index {
+                let value = consts.constants[old_index].clone();
+                consts.constants[i] = value;
+            }
+        }
+
+        // Truncate the consts list at its new size.
+        consts.constants.truncate(n_used_consts);
+
+        // Adjust const indices in the bytecode.
+        let mut reverse_index_map = Vec::new();
+        reverse_index_map
+            .try_reserve_exact(nconsts)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        reverse_index_map.resize(nconsts, 0isize);
+        for i in 0..nconsts {
+            reverse_index_map[i] = -1;
+        }
+        for i in 0..n_used_consts {
+            let old_index = index_map[i];
+            debug_assert!(old_index != -1);
+            let old_index = old_index as usize;
+            debug_assert_eq!(reverse_index_map[old_index], -1);
+            reverse_index_map[old_index] = i as isize;
+        }
+
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next_block = self[block_idx.idx()].next;
+            let block = &mut self[block_idx];
+            for i in 0..block.instruction_used {
+                let instr = &mut block.instructions[i];
+                if instr.instr.has_const() {
+                    let index = u32::from(instr.arg) as usize;
+                    debug_assert!(reverse_index_map[index] >= 0);
+                    debug_assert!(reverse_index_map[index] < n_used_consts as isize);
+                    instr.arg = OpArg::new(reverse_index_map[index] as u32);
+                }
+            }
+            block_idx = next_block;
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c insert_superinstructions
+    fn insert_superinstructions(&mut self) -> crate::InternalResult<usize> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next_block = self[block_idx].next;
+            let block = &mut self[block_idx];
+            for i in 0..block.instruction_used {
+                let nextop = (i + 1 < block.instruction_used)
+                    .then(|| block.instructions[i + 1].instr.real_opcode())
+                    .flatten();
+
+                match (block.instructions[i].instr.real_opcode(), nextop) {
+                    (Some(Opcode::LoadFast), _) => {
+                        if matches!(nextop, Some(Opcode::LoadFast)) {
+                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                            make_super_instruction(
+                                &mut inst1[0],
+                                &mut rest[0],
+                                Opcode::LoadFastLoadFast.into(),
+                            );
+                        }
+                    }
+
+                    (Some(Opcode::StoreFast), Some(Opcode::LoadFast)) => {
+                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                        make_super_instruction(
+                            &mut inst1[0],
+                            &mut rest[0],
+                            Opcode::StoreFastLoadFast.into(),
+                        );
+                    }
+
+                    (Some(Opcode::StoreFast), Some(Opcode::StoreFast)) => {
+                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                        make_super_instruction(
+                            &mut inst1[0],
+                            &mut rest[0],
+                            Opcode::StoreFastStoreFast.into(),
+                        );
+                    }
+
+                    (_, _) => {}
+                }
+            }
+
+            block_idx = next_block;
+        }
+
+        let res = remove_redundant_nops(self)?;
+
+        #[cfg(debug_assertions)]
+        assert!(no_redundant_nops(self));
+
+        Ok(res)
     }
 }
 
@@ -1846,15 +2828,15 @@ fn optimize_code_unit(
     mark_except_handlers(blocks)?;
     label_exception_targets(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
-    remove_unused_consts(blocks, &mut metadata.consts)?;
+    blocks.remove_unused_consts(&mut metadata.consts)?;
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
     // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
-    insert_superinstructions(blocks)?;
+    blocks.insert_superinstructions()?;
     push_cold_blocks_to_end(blocks)?;
     // CPython resolves line numbers again after cold-block extraction.
-    resolve_line_numbers(blocks, metadata.firstlineno)?;
+    blocks.resolve_line_numbers(metadata.firstlineno)?;
     Ok(())
 }
 
@@ -1872,25 +2854,25 @@ fn optimize_cfg(
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
-    remove_unreachable(blocks)?;
+    blocks.remove_unreachable()?;
     // CPython optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
-    resolve_line_numbers(blocks, firstlineno)?;
+    blocks.resolve_line_numbers(firstlineno)?;
     // CPython optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
     optimize_load_const(metadata, blocks)?;
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let next_block = blocks[block_idx].next;
-        optimize_basic_block(blocks, metadata, block_idx)?;
+        blocks.optimize_basic_block(metadata, block_idx)?;
         block_idx = next_block;
     }
-    remove_redundant_nops_and_pairs(blocks)?;
+    blocks.remove_redundant_nops_and_pairs()?;
     // CPython optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
-    remove_unreachable(blocks)?;
+    blocks.remove_unreachable()?;
     remove_redundant_nops_and_jumps(blocks)?;
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
@@ -1904,20 +2886,20 @@ fn optimized_cfg_to_instruction_sequence(
 ) -> crate::InternalResult<(u32, usize, InstructionSequence)> {
     // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
     convert_pseudo_conditional_jumps(blocks)?;
-    let max_stackdepth = calculate_stackdepth(blocks)?;
+    let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
     let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
     // Match CPython order: pseudo ops are lowered after stackdepth and
     // localsplus preparation, before normalize_jumps.
     convert_pseudo_ops(blocks)?;
-    normalize_jumps(blocks)?;
+    blocks.normalize_jumps()?;
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
     // optimize_load_fast: after normalize_jumps
-    optimize_load_fast(blocks)?;
+    blocks.optimize_load_fast()?;
 
     let mut instr_sequence = instruction_sequence_new();
-    cfg_to_instruction_sequence(blocks, &mut instr_sequence)?;
+    blocks.cfg_to_instruction_sequence(&mut instr_sequence)?;
     Ok((max_stackdepth, nlocalsplus, instr_sequence))
 }
 
@@ -2141,60 +3123,6 @@ fn prepare_localsplus(
     let numdropped = fix_cell_offsets(metadata, blocks, &mut cellfixedoffsets);
     nlocalsplus -= numdropped;
     Ok(nlocalsplus)
-}
-
-/// flowgraph.c remove_unreachable
-fn remove_unreachable(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        blocks[block_idx].predecessors = 0;
-        block_idx = blocks[block_idx].next;
-    }
-
-    let mut stack = make_cfg_traversal_stack(blocks)?;
-    blocks[0].predecessors = 1;
-    stack.push(BlockIdx(0));
-    blocks[0].visited = true;
-    while let Some(current) = stack.pop() {
-        let idx = current.idx();
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
-            if !blocks[next].visited {
-                debug_assert_eq!(blocks[next].predecessors, 0);
-                stack.push(next);
-                blocks[next].visited = true;
-            }
-            blocks[next].predecessors += 1;
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) || is_block_push(&instr) {
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                let target_idx = target.idx();
-                if !blocks[target_idx].visited {
-                    stack.push(target);
-                    blocks[target_idx].visited = true;
-                }
-                blocks[target_idx].predecessors += 1;
-            }
-        }
-    }
-
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let i = block_idx.idx();
-        let next = blocks[i].next;
-        if blocks[i].predecessors == 0 {
-            let block = &mut blocks[i];
-            basicblock_clear(block);
-            block.except_handler = false;
-        }
-        block_idx = next;
-    }
-    Ok(())
 }
 
 /// flowgraph.c eval_const_unaryop
@@ -3708,711 +4636,6 @@ fn optimize_load_const(
     Ok(())
 }
 
-/// flowgraph.c optimize_basic_block
-fn optimize_basic_block(
-    blocks: &mut Blocks,
-    metadata: &mut CodeUnitMetadata,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<()> {
-    let bi = block_idx.idx();
-    let mut nop = InstructionInfo {
-        instr: Instruction::Nop.into(),
-        arg: OpArg::NULL,
-        target: BlockIdx::NULL,
-        location: SourceLocation::default(),
-        end_location: SourceLocation::default(),
-        except_handler: None,
-        lineno_override: None,
-    };
-    instr_set_op0(&mut nop, Instruction::Nop.into());
-    let mut i = 0;
-    while i < blocks[bi].instruction_used {
-        let inst = blocks[bi].instructions[i];
-        debug_assert!(!inst.instr.is_assembler());
-        let target = if inst.instr.has_target() {
-            let target = inst.target;
-            debug_assert!(target != BlockIdx::NULL);
-            debug_assert!(blocks[target.idx()].instruction_used != 0);
-            debug_assert!(!blocks[target.idx()].instructions[0].instr.is_assembler());
-            blocks[target.idx()].instructions[0]
-        } else {
-            nop
-        };
-
-        let nextop = blocks[bi]
-            .instructions
-            .get(i + 1)
-            .and_then(|next| next.instr.real());
-
-        match inst.instr {
-            AnyInstruction::Real(Instruction::BuildTuple { .. }) => {
-                let oparg = u32::from(inst.arg);
-                if matches!(nextop, Some(Instruction::UnpackSequence { .. }))
-                    && u32::from(blocks[bi].instructions[i + 1].arg) == oparg
-                {
-                    match oparg {
-                        1 => {
-                            set_to_nop(&mut blocks[bi].instructions[i]);
-                            set_to_nop(&mut blocks[bi].instructions[i + 1]);
-                            i += 1;
-                            continue;
-                        }
-                        2 | 3 => {
-                            set_to_nop(&mut blocks[bi].instructions[i]);
-                            blocks[bi].instructions[i + 1].instr = Opcode::Swap.into();
-                            i += 1;
-                            continue;
-                        }
-                        _ => {}
-                    }
-                }
-                fold_tuple_of_constants(metadata, &mut blocks[bi], i)?;
-            }
-            AnyInstruction::Real(Instruction::BuildList { .. } | Instruction::BuildSet { .. }) => {
-                optimize_lists_and_sets(metadata, &mut blocks[bi], i, nextop)?;
-            }
-            AnyInstruction::Real(
-                Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
-            ) if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                && jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-            {
-                continue;
-            }
-            AnyInstruction::Real(Instruction::PopJumpIfFalse { .. })
-                if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                    && jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-            {
-                continue;
-            }
-            AnyInstruction::Real(Instruction::PopJumpIfTrue { .. })
-                if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                    && jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-            {
-                continue;
-            }
-            AnyInstruction::Pseudo(
-                pseudo @ (PseudoInstruction::JumpIfFalse { .. }
-                | PseudoInstruction::JumpIfTrue { .. }),
-            ) => {
-                let opcode = pseudo.into();
-                match target.instr.pseudo().map(Into::into) {
-                    Some(PseudoOpcode::Jump)
-                        if jump_thread(blocks, block_idx, i, &target, opcode)? =>
-                    {
-                        continue;
-                    }
-                    Some(PseudoOpcode::JumpIfFalse)
-                        if matches!(
-                            opcode,
-                            AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
-                        ) && jump_thread(blocks, block_idx, i, &target, opcode)? =>
-                    {
-                        continue;
-                    }
-                    Some(PseudoOpcode::JumpIfTrue)
-                        if matches!(
-                            opcode,
-                            AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
-                        ) && jump_thread(blocks, block_idx, i, &target, opcode)? =>
-                    {
-                        continue;
-                    }
-                    Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
-                        let next = blocks[inst.target.idx()].next;
-                        debug_assert!(next != BlockIdx::NULL);
-                        debug_assert!(next != inst.target);
-                        blocks[bi].instructions[i].target = next;
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-            AnyInstruction::Pseudo(
-                PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. },
-            ) => match target.instr.into() {
-                AnyOpcode::Pseudo(PseudoOpcode::Jump)
-                    if jump_thread(blocks, block_idx, i, &target, PseudoOpcode::Jump.into())? =>
-                {
-                    continue;
-                }
-                AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
-                    if jump_thread(blocks, block_idx, i, &target, inst.instr)? =>
-                {
-                    continue;
-                }
-                _ => {}
-            },
-            // CPython leaves FOR_ITER jump threading disabled.
-            AnyInstruction::Real(Instruction::ForIter { .. }) => {}
-            AnyInstruction::Real(Instruction::StoreFast { .. })
-                if matches!(nextop, Some(Instruction::StoreFast { .. }))
-                    && u32::from(inst.arg) == u32::from(blocks[bi].instructions[i + 1].arg)
-                    && instruction_lineno(&blocks[bi].instructions[i])
-                        == instruction_lineno(&blocks[bi].instructions[i + 1]) =>
-            {
-                blocks[bi].instructions[i].instr = Instruction::PopTop.into();
-                blocks[bi].instructions[i].arg = OpArg::NULL;
-            }
-            AnyInstruction::Real(Instruction::Swap { .. }) if u32::from(inst.arg) == 1 => {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-            }
-            AnyInstruction::Real(Instruction::LoadGlobal { .. })
-                if matches!(nextop, Some(Instruction::PushNull))
-                    && (u32::from(inst.arg) & 1) == 0 =>
-            {
-                instr_set_op1(
-                    &mut blocks[bi].instructions[i],
-                    inst.instr,
-                    OpArg::new(u32::from(inst.arg) | 1),
-                );
-                set_to_nop(&mut blocks[bi].instructions[i + 1]);
-            }
-            AnyInstruction::Real(Instruction::CompareOp { .. })
-                if matches!(nextop, Some(Instruction::ToBool)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                instr_set_op1(
-                    &mut blocks[bi].instructions[i + 1],
-                    inst.instr,
-                    OpArg::new(u32::from(inst.arg) | oparg::COMPARE_OP_BOOL_MASK),
-                );
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
-                if matches!(nextop, Some(Instruction::ToBool)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                instr_set_op1(&mut blocks[bi].instructions[i + 1], inst.instr, inst.arg);
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::ContainsOp { .. } | Instruction::IsOp { .. })
-                if matches!(nextop, Some(Instruction::UnaryNot)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                let inverted = u32::from(inst.arg) ^ 1;
-                debug_assert!(inverted == 0 || inverted == 1);
-                instr_set_op1(
-                    &mut blocks[bi].instructions[i + 1],
-                    inst.instr,
-                    OpArg::new(inverted),
-                );
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::ToBool)
-                if matches!(nextop, Some(Instruction::ToBool)) =>
-            {
-                set_to_nop(&mut blocks[bi].instructions[i]);
-                i += 1;
-                continue;
-            }
-            AnyInstruction::Real(Instruction::UnaryNot) => {
-                if matches!(nextop, Some(Instruction::ToBool)) {
-                    set_to_nop(&mut blocks[bi].instructions[i]);
-                    instr_set_op0(&mut blocks[bi].instructions[i + 1], inst.instr);
-                    i += 1;
-                    continue;
-                }
-                if matches!(nextop, Some(Instruction::UnaryNot)) {
-                    set_to_nop(&mut blocks[bi].instructions[i]);
-                    set_to_nop(&mut blocks[bi].instructions[i + 1]);
-                    i += 1;
-                    continue;
-                }
-                fold_const_unaryop(metadata, &mut blocks[bi], i)?;
-            }
-            AnyInstruction::Real(Instruction::UnaryInvert | Instruction::UnaryNegative) => {
-                fold_const_unaryop(metadata, &mut blocks[bi], i)?;
-            }
-            AnyInstruction::Real(Instruction::CallIntrinsic1 { func }) => {
-                match func.get(inst.arg) {
-                    IntrinsicFunction1::ListToTuple => {
-                        if matches!(nextop, Some(Instruction::GetIter)) {
-                            set_to_nop(&mut blocks[bi].instructions[i]);
-                        } else {
-                            fold_constant_intrinsic_list_to_tuple(metadata, &mut blocks[bi], i)?;
-                        }
-                    }
-                    IntrinsicFunction1::UnaryPositive => {
-                        fold_const_unaryop(metadata, &mut blocks[bi], i)?;
-                    }
-                    _ => {}
-                }
-            }
-            AnyInstruction::Real(Instruction::BinaryOp { .. }) => {
-                fold_const_binop(metadata, &mut blocks[bi], i)?;
-            }
-            _ => {}
-        }
-
-        i += 1;
-    }
-    apply_static_swaps_block(&mut blocks[block_idx])?;
-    Ok(())
-}
-
-/// flowgraph.c remove_redundant_nops_and_pairs
-#[allow(clippy::unnecessary_wraps)]
-fn remove_redundant_nops_and_pairs(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut done = false;
-
-    while !done {
-        done = true;
-        let mut instr: Option<(BlockIdx, usize)> = None;
-        let mut block_idx = BlockIdx::new(0);
-
-        while block_idx != BlockIdx::NULL {
-            basicblock_remove_redundant_nops(blocks, block_idx)?;
-            if is_label(blocks[block_idx.idx()].cpython_label) {
-                instr = None;
-            }
-
-            let len = blocks[block_idx.idx()].instruction_used;
-            for instr_idx in 0..len {
-                let prev_instr = instr;
-                instr = Some((block_idx, instr_idx));
-                let instr_info = blocks[block_idx.idx()].instructions[instr_idx];
-                let mut prev_opcode = None;
-                let prev_oparg = if let Some((prev_block, prev_instr_idx)) = prev_instr {
-                    let prev_info = blocks[prev_block.idx()].instructions[prev_instr_idx];
-                    prev_opcode = prev_info.instr.real_opcode();
-                    match prev_info.instr.real() {
-                        Some(Instruction::Copy { i }) => i.get(prev_info.arg),
-                        _ => u32::from(prev_info.arg),
-                    }
-                } else {
-                    0
-                };
-
-                let opcode = instr_info.instr.real_opcode();
-                let is_redundant_pair = matches!(opcode, Some(Opcode::PopTop))
-                    && (matches!(prev_opcode, Some(Opcode::LoadConst | Opcode::LoadSmallInt))
-                        || (prev_oparg == 1 && matches!(prev_opcode, Some(Opcode::Copy))));
-
-                if is_redundant_pair {
-                    let (prev_block, prev_instr_idx) =
-                        prev_instr.expect("redundant pair has previous");
-                    set_to_nop(&mut blocks[prev_block].instructions[prev_instr_idx]);
-                    set_to_nop(&mut blocks[block_idx].instructions[instr_idx]);
-                    done = false;
-                }
-            }
-
-            let instr_is_jump = instr.is_some_and(|(instr_block, instr_idx)| {
-                is_jump(&blocks[instr_block].instructions[instr_idx])
-            });
-
-            let block = &blocks[block_idx];
-            if instr_is_jump || !bb_has_fallthrough(block) {
-                instr = None;
-            }
-            block_idx = block.next;
-        }
-    }
-    Ok(())
-}
-
-/// flowgraph.c remove_unused_consts
-#[allow(clippy::needless_range_loop)]
-fn remove_unused_consts(
-    blocks: &mut Blocks,
-    consts: &mut ConstantPool,
-) -> crate::InternalResult<()> {
-    let nconsts = consts.len();
-    if nconsts == 0 {
-        return Ok(());
-    }
-
-    let mut index_map = Vec::new();
-    index_map
-        .try_reserve_exact(nconsts)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    index_map.resize(nconsts, 0isize);
-    for i in 1..nconsts {
-        index_map[i] = -1;
-    }
-    // The first constant may be docstring; keep it always.
-    index_map[0] = 0;
-
-    // Mark used consts.
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block = &blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let instr = &block.instructions[i];
-            if instr.instr.has_const() {
-                let index = u32::from(instr.arg) as usize;
-                debug_assert!(index < nconsts);
-                index_map[index] = index as isize;
-            }
-        }
-        block_idx = block.next;
-    }
-
-    // Now index_map[i] == i if consts[i] is used, -1 otherwise.
-    // Condense consts.
-    let mut n_used_consts = 0;
-    for i in 0..nconsts {
-        if index_map[i] != -1 {
-            debug_assert_eq!(index_map[i], i as isize);
-            index_map[n_used_consts] = index_map[i];
-            n_used_consts += 1;
-        }
-    }
-
-    if n_used_consts == nconsts {
-        return Ok(());
-    }
-
-    // Move all used consts to the beginning of the consts list.
-    debug_assert!(n_used_consts < nconsts);
-    for i in 0..n_used_consts {
-        let old_index = index_map[i] as usize;
-        debug_assert!(i <= old_index && old_index < nconsts);
-        if i != old_index {
-            let value = consts.constants[old_index].clone();
-            consts.constants[i] = value;
-        }
-    }
-
-    // Truncate the consts list at its new size.
-    consts.constants.truncate(n_used_consts);
-
-    // Adjust const indices in the bytecode.
-    let mut reverse_index_map = Vec::new();
-    reverse_index_map
-        .try_reserve_exact(nconsts)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    reverse_index_map.resize(nconsts, 0isize);
-    for i in 0..nconsts {
-        reverse_index_map[i] = -1;
-    }
-    for i in 0..n_used_consts {
-        let old_index = index_map[i];
-        debug_assert!(old_index != -1);
-        let old_index = old_index as usize;
-        debug_assert_eq!(reverse_index_map[old_index], -1);
-        reverse_index_map[old_index] = i as isize;
-    }
-
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next_block = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let instr = &mut block.instructions[i];
-            if instr.instr.has_const() {
-                let index = u32::from(instr.arg) as usize;
-                debug_assert!(reverse_index_map[index] >= 0);
-                debug_assert!(reverse_index_map[index] < n_used_consts as isize);
-                instr.arg = OpArg::new(reverse_index_map[index] as u32);
-            }
-        }
-        block_idx = next_block;
-    }
-    Ok(())
-}
-
-fn optimize_load_fast(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut max_instrs = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        max_instrs = max_instrs.max(blocks[current.idx()].instruction_used);
-        current = blocks[current.idx()].next;
-    }
-    let mut instr_flags = Vec::new();
-    instr_flags
-        .try_reserve_exact(max_instrs)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    instr_flags.resize(max_instrs, 0u8);
-    let mut refs = RefStack {
-        refs: Vec::new(),
-        size: 0,
-        capacity: 0,
-    };
-    let mut worklist = make_cfg_traversal_stack(blocks)?;
-    worklist.push(BlockIdx(0));
-    blocks[0].start_depth = 0;
-    blocks[0].visited = true;
-    while let Some(block_idx) = worklist.pop() {
-        let block_i = block_idx.idx();
-
-        let instr_count = blocks[block_i].instruction_used;
-        instr_flags[..instr_count].fill(0);
-        debug_assert!(blocks[block_i].start_depth >= 0);
-        let start_depth = blocks[block_i].start_depth as usize;
-        ref_stack_clear(&mut refs);
-        for _ in 0..start_depth {
-            push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL)?;
-        }
-
-        for i in 0..instr_count {
-            let info = blocks[block_i].instructions[i];
-            let instr = info.instr;
-            let arg_u32 = u32::from(info.arg);
-            debug_assert!(!matches!(instr.real(), Some(Instruction::ExtendedArg)));
-
-            match instr {
-                AnyInstruction::Real(Instruction::DeleteFast { var_num }) => {
-                    kill_local(
-                        &mut instr_flags,
-                        &refs,
-                        local_as_ref_local(usize::from(var_num.get(info.arg))),
-                    );
-                }
-                AnyInstruction::Real(Instruction::LoadFast { var_num }) => {
-                    push_ref(
-                        &mut refs,
-                        i as isize,
-                        local_as_ref_local(usize::from(var_num.get(info.arg))),
-                    )?;
-                }
-                AnyInstruction::Real(Instruction::LoadFastAndClear { var_num }) => {
-                    let local = local_as_ref_local(usize::from(var_num.get(info.arg)));
-                    kill_local(&mut instr_flags, &refs, local);
-                    push_ref(&mut refs, i as isize, local)?;
-                }
-                AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
-                    let local1 = (arg_u32 >> 4) as isize;
-                    let local2 = (arg_u32 & 15) as isize;
-                    push_ref(&mut refs, i as isize, local1)?;
-                    push_ref(&mut refs, i as isize, local2)?;
-                }
-                AnyInstruction::Real(Instruction::StoreFast { var_num }) => {
-                    let r = ref_stack_pop(&mut refs);
-                    store_local(
-                        &mut instr_flags,
-                        &refs,
-                        local_as_ref_local(usize::from(var_num.get(info.arg))),
-                        r,
-                    );
-                }
-                AnyInstruction::Real(Instruction::StoreFastLoadFast { .. }) => {
-                    let r = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r);
-                    push_ref(&mut refs, i as isize, (arg_u32 & 15) as isize)?;
-                }
-                AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
-                    let r1 = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r1);
-                    let r2 = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, (arg_u32 & 15) as isize, r2);
-                }
-                AnyInstruction::Real(Instruction::Copy { i: _ }) => {
-                    let depth = arg_u32 as usize;
-                    assert!(depth > 0);
-                    assert!(refs.size >= depth);
-                    let r = ref_stack_at(&refs, refs.size - depth);
-                    push_ref(&mut refs, r.instr, r.local)?;
-                }
-                AnyInstruction::Real(Instruction::Swap { i: _ }) => {
-                    let depth = arg_u32 as usize;
-                    assert!(depth >= 2);
-                    assert!(refs.size >= depth);
-                    ref_stack_swap_top(&mut refs, depth);
-                }
-                AnyInstruction::Real(
-                    Instruction::FormatSimple
-                    | Instruction::GetAnext
-                    | Instruction::GetLen
-                    | Instruction::GetYieldFromIter
-                    | Instruction::ImportFrom { .. }
-                    | Instruction::MatchKeys
-                    | Instruction::MatchMapping
-                    | Instruction::MatchSequence
-                    | Instruction::WithExceptStart,
-                ) => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    let net_pushed = effect.pushed() as isize - effect.popped() as isize;
-                    debug_assert!(net_pushed >= 0);
-                    // CPython optimize_load_fast() shadows the outer
-                    // instruction index in this produced-value loop.
-                    for produced in 0..net_pushed {
-                        push_ref(&mut refs, produced, NOT_LOCAL)?;
-                    }
-                }
-                AnyInstruction::Real(
-                    Instruction::DictMerge { .. }
-                    | Instruction::DictUpdate { .. }
-                    | Instruction::ListAppend { .. }
-                    | Instruction::ListExtend { .. }
-                    | Instruction::MapAdd { .. }
-                    | Instruction::Reraise { .. }
-                    | Instruction::SetAdd { .. }
-                    | Instruction::SetUpdate { .. },
-                ) => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    let net_popped = effect.popped() as isize - effect.pushed() as isize;
-                    debug_assert!(net_popped > 0);
-                    for _ in 0..net_popped {
-                        let _ = ref_stack_pop(&mut refs);
-                    }
-                }
-                AnyInstruction::Real(
-                    Instruction::EndSend | Instruction::SetFunctionAttribute { .. },
-                ) => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    debug_assert_eq!(effect.popped(), 2);
-                    debug_assert_eq!(effect.pushed(), 1);
-                    let tos = ref_stack_pop(&mut refs);
-                    let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, tos.instr, tos.local)?;
-                }
-                AnyInstruction::Real(Instruction::CheckExcMatch) => {
-                    let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                }
-                AnyInstruction::Real(Instruction::ForIter { .. }) => {
-                    let target = info.target;
-                    debug_assert!(target != BlockIdx::NULL);
-                    load_fast_push_block(&mut worklist, blocks, target, refs.size + 1);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                }
-                AnyInstruction::Real(
-                    Instruction::LoadAttr { .. } | Instruction::LoadSuperAttr { .. },
-                ) => {
-                    let self_ref = ref_stack_pop(&mut refs);
-                    if matches!(instr.real(), Some(Instruction::LoadSuperAttr { .. })) {
-                        let _ = ref_stack_pop(&mut refs);
-                        let _ = ref_stack_pop(&mut refs);
-                    }
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                    if arg_u32 & 1 != 0 {
-                        push_ref(&mut refs, self_ref.instr, self_ref.local)?;
-                    }
-                }
-                AnyInstruction::Real(
-                    Instruction::LoadSpecial { .. } | Instruction::PushExcInfo,
-                ) => {
-                    let tos = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                    push_ref(&mut refs, tos.instr, tos.local)?;
-                }
-                AnyInstruction::Real(Instruction::Send { .. }) => {
-                    let target = info.target;
-                    debug_assert!(target != BlockIdx::NULL);
-                    load_fast_push_block(&mut worklist, blocks, target, refs.size);
-                    let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                }
-                _ => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    let num_popped = effect.popped() as usize;
-                    let num_pushed = effect.pushed() as usize;
-                    let target = info.target;
-                    if instr.has_target() {
-                        debug_assert!(target != BlockIdx::NULL);
-                        debug_assert!(refs.size >= num_popped);
-                        let target_depth = refs.size - num_popped + num_pushed;
-                        load_fast_push_block(&mut worklist, blocks, target, target_depth);
-                    }
-                    if !is_block_push(&info) {
-                        for _ in 0..num_popped {
-                            let _ = ref_stack_pop(&mut refs);
-                        }
-                        for _ in 0..num_pushed {
-                            push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                        }
-                    }
-                }
-            }
-        }
-
-        let fallthrough = blocks[block_i].next;
-        let term = basicblock_last_instr(&blocks[block_i]).copied();
-        if let Some(term) = term
-            && fallthrough != BlockIdx::NULL
-            && !term.instr.is_unconditional_jump()
-            && !term.instr.is_scope_exit()
-        {
-            debug_assert!(bb_has_fallthrough(&blocks[block_i]));
-            load_fast_push_block(&mut worklist, blocks, fallthrough, refs.size);
-        }
-
-        for i in 0..refs.size {
-            let r = ref_stack_at(&refs, i);
-            if r.instr != DUMMY_INSTR {
-                instr_flags[r.instr as usize] |= LoadFastInstrFlag::RefUnconsumed as u8;
-            }
-        }
-
-        let block = &mut blocks[block_idx];
-        let iused = block.instruction_used;
-        let mut i = 0;
-        while i < iused {
-            let info = &mut block.instructions[i];
-            if instr_flags[i] != 0 {
-                i += 1;
-                continue;
-            }
-
-            match info.instr.real_opcode() {
-                Some(Opcode::LoadFast) => {
-                    info.instr = Opcode::LoadFastBorrow.into();
-                }
-                Some(Opcode::LoadFastLoadFast) => {
-                    info.instr = Opcode::LoadFastBorrowLoadFastBorrow.into();
-                }
-                _ => {}
-            }
-            i += 1;
-        }
-    }
-    Ok(())
-}
-
-/// flowgraph.c calculate_stackdepth
-fn calculate_stackdepth(blocks: &mut Blocks) -> crate::InternalResult<u32> {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        blocks[current.idx()].start_depth = START_DEPTH_UNSET;
-        current = blocks[current.idx()].next;
-    }
-    let mut stack = make_cfg_traversal_stack(blocks)?;
-    let mut maxdepth = 0i32;
-    stackdepth_push(&mut stack, blocks, BlockIdx(0), 0)?;
-    while let Some(block_idx) = stack.pop() {
-        let idx = block_idx.idx();
-        let mut depth = blocks[idx].start_depth;
-        debug_assert!(depth >= 0);
-        let mut next = blocks[idx].next;
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let ins = blocks[idx].instructions[i];
-            let instr = &ins.instr;
-            let effects = get_stack_effects(*instr, ins.arg, 0)?;
-            let new_depth = depth + effects.net;
-            if new_depth < 0 {
-                return Err(InternalError::StackUnderflow);
-            }
-            maxdepth = maxdepth.max(depth);
-            if instr.has_target() && !matches!(instr.real(), Some(Instruction::EndAsyncFor)) {
-                debug_assert!(ins.target != BlockIdx::NULL);
-                let effects = get_stack_effects(*instr, ins.arg, 1)?;
-                let target_depth = depth + effects.net;
-                debug_assert!(target_depth >= 0);
-                maxdepth = maxdepth.max(depth);
-                stackdepth_push(&mut stack, blocks, ins.target, target_depth)?;
-            }
-            depth = new_depth;
-            debug_assert!(!instr.is_assembler());
-            if instr.is_unconditional_jump() || instr.is_scope_exit() {
-                next = BlockIdx::NULL;
-                break;
-            }
-        }
-        if next != BlockIdx::NULL {
-            debug_assert!(bb_has_fallthrough(&blocks[idx]));
-            stackdepth_push(&mut stack, blocks, next, depth)?;
-        }
-    }
-
-    let stackdepth = maxdepth;
-    Ok(stackdepth as u32)
-}
-
 #[cfg(test)]
 impl CodeInfo {
     fn debug_block_dump(&self) -> String {
@@ -4490,8 +4713,9 @@ impl CodeInfo {
             "after_inline_small_or_no_lineno_blocks".to_owned(),
             self.debug_block_dump(),
         ));
-        remove_unreachable(&mut self.blocks)?;
-        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
+        self.blocks.remove_unreachable()?;
+        self.blocks
+            .resolve_line_numbers(self.metadata.firstlineno)?;
         optimize_load_const(&mut self.metadata, &mut self.blocks)?;
         trace.push((
             "after_optimize_load_const".to_owned(),
@@ -4500,19 +4724,21 @@ impl CodeInfo {
         let mut block_idx = BlockIdx(0);
         while block_idx != BlockIdx::NULL {
             let next_block = self.blocks[block_idx].next;
-            optimize_basic_block(&mut self.blocks, &mut self.metadata, block_idx)?;
+            self.blocks
+                .optimize_basic_block(&mut self.metadata, block_idx)?;
             block_idx = next_block;
         }
         trace.push((
             "after_optimize_basic_block".to_owned(),
             self.debug_block_dump(),
         ));
-        remove_redundant_nops_and_pairs(&mut self.blocks)?;
-        remove_unreachable(&mut self.blocks)?;
+        self.blocks.remove_redundant_nops_and_pairs()?;
+        self.blocks.remove_unreachable()?;
         remove_redundant_nops_and_jumps(&mut self.blocks)?;
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
-        remove_unused_consts(&mut self.blocks, &mut self.metadata.consts)?;
+        self.blocks
+            .remove_unused_consts(&mut self.metadata.consts)?;
         trace.push((
             "after_optimize_cfg_cleanup".to_owned(),
             self.debug_block_dump(),
@@ -4520,13 +4746,14 @@ impl CodeInfo {
         let nlocals = self.metadata.varnames.len();
         let nparams = self.nparams;
         add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams)?;
-        insert_superinstructions(&mut self.blocks)?;
+        self.blocks.insert_superinstructions()?;
         push_cold_blocks_to_end(&mut self.blocks)?;
         trace.push((
             "after_push_cold_before_chain_reorder".to_owned(),
             self.debug_block_dump(),
         ));
-        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
+        self.blocks
+            .resolve_line_numbers(self.metadata.firstlineno)?;
         trace.push((
             "after_push_cold_resolve_line_numbers".to_owned(),
             self.debug_block_dump(),
@@ -4543,7 +4770,7 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        let _max_stackdepth = calculate_stackdepth(&mut self.blocks)?;
+        let _max_stackdepth = self.blocks.calculate_stackdepth()?;
         let _nlocalsplus = prepare_localsplus(&self.metadata, &mut self.blocks, self.flags)?;
         convert_pseudo_ops(&mut self.blocks)?;
         trace.push((
@@ -4551,11 +4778,11 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        normalize_jumps(&mut self.blocks)?;
+        self.blocks.normalize_jumps()?;
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
         trace.push(("after_normalize_jumps".to_owned(), self.debug_block_dump()));
-        optimize_load_fast(&mut self.blocks)?;
+        self.blocks.optimize_load_fast()?;
         trace.push((
             "after_optimize_load_fast".to_owned(),
             self.debug_block_dump(),
@@ -4617,57 +4844,6 @@ fn make_super_instruction(
     }
     instr_set_op1(inst1, super_op, OpArg::new((arg1 << 4) | arg2));
     set_to_nop(inst2);
-}
-
-/// flowgraph.c insert_superinstructions
-fn insert_superinstructions(blocks: &mut Blocks) -> crate::InternalResult<usize> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next_block = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let nextop = (i + 1 < block.instruction_used)
-                .then(|| block.instructions[i + 1].instr.real())
-                .flatten();
-            match block.instructions[i].instr.real() {
-                Some(Instruction::LoadFast { .. }) => {
-                    if matches!(nextop, Some(Instruction::LoadFast { .. })) {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::LoadFastLoadFast.into(),
-                        );
-                    }
-                }
-                Some(Instruction::StoreFast { .. }) => match nextop {
-                    Some(Instruction::LoadFast { .. }) => {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::StoreFastLoadFast.into(),
-                        );
-                    }
-                    Some(Instruction::StoreFast { .. }) => {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::StoreFastStoreFast.into(),
-                        );
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-        block_idx = next_block;
-    }
-    let res = remove_redundant_nops(blocks)?;
-    #[cfg(debug_assertions)]
-    assert!(no_redundant_nops(blocks));
-    Ok(res)
 }
 
 /// flowgraph.c LoadFastInstrFlag
@@ -5188,7 +5364,7 @@ pub(crate) fn mark_except_handlers(blocks: &mut Blocks) -> crate::InternalResult
 /// optimize_load_fast to terminate fall-through at those placeholders.
 /// flowgraph.c mark_warm
 fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut stack = make_cfg_traversal_stack(blocks)?;
+    let mut stack = blocks.make_cfg_traversal_stack()?;
     stack.push(BlockIdx(0));
     blocks[0].visited = true;
     while let Some(block_idx) = stack.pop() {
@@ -5221,7 +5397,7 @@ fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
 fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let block = &mut blocks[block_idx.idx()];
+        let block = &mut blocks[block_idx];
         debug_assert!(!block.cold);
         debug_assert!(!block.warm);
         block_idx = block.next;
@@ -5229,7 +5405,7 @@ fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
 
     mark_warm(blocks)?;
 
-    let mut cold_stack = make_cfg_traversal_stack(blocks)?;
+    let mut cold_stack = blocks.make_cfg_traversal_stack()?;
     block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let i = block_idx.idx();
@@ -5596,24 +5772,6 @@ fn normalize_jumps_in_block(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::
     Ok(())
 }
 
-/// flowgraph.c normalize_jumps
-fn normalize_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        blocks[current.idx()].visited = false;
-        current = blocks[current.idx()].next;
-    }
-
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let idx = current.idx();
-        blocks[idx].visited = true;
-        normalize_jumps_in_block(blocks, current)?;
-        current = blocks[idx].next;
-    }
-    Ok(())
-}
-
 /// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
 fn basicblock_inline_small_or_no_lineno_blocks(
     blocks: &mut Blocks,
@@ -5638,7 +5796,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
         let last = basicblock_last_instr_mut(&mut blocks[block_idx])
             .expect("non-empty block has last instruction");
         set_to_nop(last);
-        basicblock_append_block_instructions(blocks, block_idx, target)?;
+        blocks.basicblock_append_block_instructions(block_idx, target)?;
         if no_lineno_no_fallthrough {
             let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
             if last.instr.is_unconditional_jump()
@@ -5837,27 +5995,6 @@ fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult
         }
     }
     Ok(())
-}
-
-/// flowgraph.c make_cfg_traversal_stack
-fn make_cfg_traversal_stack(blocks: &mut Blocks) -> crate::InternalResult<CfgTraversalStack> {
-    debug_assert!(!blocks.is_empty());
-    let mut nblocks = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        blocks[current.idx()].visited = false;
-        nblocks += 1;
-        current = blocks[current.idx()].next;
-    }
-    debug_assert!(nblocks > 0);
-    let mut stack = Vec::new();
-    stack
-        .try_reserve_exact(nblocks)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    stack.resize(nblocks, BlockIdx::NULL);
-    let stack = CfgTraversalStack { stack, sp: 0 };
-    debug_assert_eq!(stack.capacity(), nblocks);
-    Ok(stack)
 }
 
 fn blocks_new_block(blocks: &mut Blocks) -> crate::InternalResult<BlockIdx> {
@@ -6284,7 +6421,7 @@ fn add_checks_for_loads_of_uninitialized_variables(
         nlocals = LOCAL_UNSAFE_MASK_BITS;
     }
 
-    let mut worklist = make_cfg_traversal_stack(blocks)?;
+    let mut worklist = blocks.make_cfg_traversal_stack()?;
     let mut start_mask = 0u64;
     for i in nparams..nlocals {
         start_mask |= 1u64 << i;
@@ -6405,14 +6542,6 @@ fn basicblock_has_no_lineno(block: &Block) -> bool {
     true
 }
 
-/// flowgraph.c copy_basicblock
-fn copy_basicblock(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
-    debug_assert!(bb_no_fallthrough(&blocks[block_idx.idx()]));
-    let result = blocks_new_block(blocks)?;
-    basicblock_append_block_instructions(blocks, result, block_idx)?;
-    Ok(result)
-}
-
 /// flowgraph.c get_max_label
 fn get_max_label(blocks: &Blocks) -> i32 {
     let mut lbl = -1;
@@ -6423,110 +6552,6 @@ fn get_max_label(blocks: &Blocks) -> i32 {
         current = blocks[current.idx()].next;
     }
     lbl
-}
-
-fn duplicate_exits_without_lineno(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut next_lbl = get_max_label(blocks) + 1;
-
-    let entryblock = BlockIdx(0);
-    let mut b = entryblock;
-    while b != BlockIdx::NULL {
-        let Some(last) = basicblock_last_instr(&blocks[b]).copied() else {
-            b = blocks[b].next;
-            continue;
-        };
-        if is_jump(&last) {
-            debug_assert!(last.target != BlockIdx::NULL);
-            let target = next_nonempty_block(blocks, last.target);
-            debug_assert!(target != BlockIdx::NULL);
-            if is_exit_or_eval_check_without_lineno(&blocks[target])
-                && blocks[target].predecessors > 1
-            {
-                let new_target = copy_basicblock(blocks, target)?;
-                instr_set_location(
-                    &mut blocks[new_target].instructions[0],
-                    instr_location(&last),
-                );
-                let last_mut = basicblock_last_instr_mut(&mut blocks[b]).unwrap();
-                last_mut.target = new_target;
-                blocks[target].predecessors -= 1;
-                blocks[new_target].predecessors = 1;
-                blocks[new_target].next = blocks[target].next;
-                blocks[new_target].cpython_label = InstructionSequenceLabel(next_lbl);
-                next_lbl += 1;
-                blocks[target].next = new_target;
-            }
-        }
-        b = blocks[b].next;
-    }
-
-    b = entryblock;
-    while b != BlockIdx::NULL {
-        let next = blocks[b].next;
-        if bb_has_fallthrough(&blocks[b])
-            && next != BlockIdx::NULL
-            && blocks[b].instruction_used != 0
-            && is_exit_or_eval_check_without_lineno(&blocks[next])
-        {
-            let last = *basicblock_last_instr(&blocks[b]).expect("block has instructions");
-            instr_set_location(&mut blocks[next].instructions[0], instr_location(&last));
-        }
-        b = blocks[b].next;
-    }
-    Ok(())
-}
-
-fn propagate_line_numbers(blocks: &mut Blocks) {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let idx = current.idx();
-        let Some(last) = basicblock_last_instr(&blocks[idx]).copied() else {
-            current = blocks[idx].next;
-            continue;
-        };
-
-        let mut prev_location = no_instruction_location();
-        for i in 0..blocks[idx].instruction_used {
-            if instruction_is_no_location(&blocks[idx].instructions[i]) {
-                instr_set_location(&mut blocks[idx].instructions[i], prev_location);
-            } else {
-                prev_location = instr_location(&blocks[idx].instructions[i]);
-            }
-        }
-
-        let next = blocks[idx].next;
-        if bb_has_fallthrough(&blocks[idx]) {
-            debug_assert!(next != BlockIdx::NULL);
-            if next != BlockIdx::NULL
-                && blocks[next].predecessors == 1
-                && blocks[next].instruction_used != 0
-                && instruction_is_no_location(&blocks[next].instructions[0])
-            {
-                instr_set_location(&mut blocks[next].instructions[0], prev_location);
-            }
-        }
-
-        if is_jump(&last) {
-            let target = last.target;
-            debug_assert!(target != BlockIdx::NULL);
-            if blocks[target].predecessors == 1 {
-                let instr = basicblock_raw_first_instr_mut(&mut blocks[target]);
-                if instruction_is_no_location(instr) {
-                    instr_set_location(instr, prev_location);
-                }
-            }
-        }
-        current = blocks[current].next;
-    }
-}
-
-fn resolve_line_numbers(
-    blocks: &mut Blocks,
-    _firstlineno: OneIndexed,
-) -> crate::InternalResult<()> {
-    duplicate_exits_without_lineno(blocks)?;
-    propagate_line_numbers(blocks);
-    Ok(())
 }
 
 /// flowgraph.c make_except_stack
@@ -6592,7 +6617,7 @@ fn pop_except_block(stack: &mut CfgExceptStack, blocks: &Blocks) -> Option<Excep
 }
 
 pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut todo = make_cfg_traversal_stack(blocks)?;
+    let mut todo = blocks.make_cfg_traversal_stack()?;
 
     todo.push(BlockIdx(0));
     blocks[0].visited = true;
@@ -7014,7 +7039,7 @@ mod tests {
         blocks[0].visited = true;
         blocks[1].visited = true;
 
-        let mut stack = make_cfg_traversal_stack(&mut blocks).unwrap();
+        let mut stack = blocks.make_cfg_traversal_stack().unwrap();
         assert!(!blocks[0].visited);
         assert!(!blocks[1].visited);
         assert!(stack.capacity() >= 2);
@@ -7230,7 +7255,8 @@ mod tests {
         basicblock_clear(&mut blocks[0]);
 
         test_block_push(&mut blocks[1], test_instr(Instruction::PopTop, 42));
-        basicblock_append_block_instructions(&mut blocks, BlockIdx::new(0), BlockIdx::new(1))
+        blocks
+            .basicblock_append_block_instructions(BlockIdx::new(0), BlockIdx::new(1))
             .expect("basicblock_append_block_instructions succeeds");
 
         // CPython `basicblock_append_instructions()` obtains a slot with
@@ -7252,7 +7278,8 @@ mod tests {
         blocks[0].next = BlockIdx::new(1);
 
         let mut instr_sequence = instruction_sequence_new();
-        cfg_to_instruction_sequence(&mut blocks, &mut instr_sequence)
+        blocks
+            .cfg_to_instruction_sequence(&mut instr_sequence)
             .expect("non-target NOP should ignore stale CPython i_target");
     }
 
@@ -7265,7 +7292,7 @@ mod tests {
         let mut blocks = Blocks::from([block]);
 
         let mut instr_sequence = instruction_sequence_new();
-        let _ = cfg_to_instruction_sequence(&mut blocks, &mut instr_sequence);
+        let _ = blocks.cfg_to_instruction_sequence(&mut instr_sequence);
     }
 
     #[test]
@@ -7381,7 +7408,9 @@ mod tests {
         test_block_push(&mut block, test_instr(Instruction::PopTop, 10));
 
         let mut code = test_code_info(block);
-        optimize_load_fast(&mut code.blocks).expect("optimize_load_fast succeeds");
+        code.blocks
+            .optimize_load_fast()
+            .expect("optimize_load_fast succeeds");
 
         // CPython `optimize_load_fast()` shadows the outer instruction index in
         // the produced-value loop for GET_LEN, so the produced ref is recorded
@@ -7471,8 +7500,12 @@ mod tests {
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
         blocks[2].instructions[0].lineno_override = Some(NO_LOCATION_OVERRIDE);
 
-        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
-        resolve_line_numbers(&mut blocks, OneIndexed::MIN).expect("resolve_line_numbers succeeds");
+        blocks
+            .remove_unreachable()
+            .expect("remove_unreachable succeeds");
+        blocks
+            .resolve_line_numbers(OneIndexed::MIN)
+            .expect("resolve_line_numbers succeeds");
 
         // CPython `duplicate_exits_without_lineno()` copies a shared exit block
         // reached by jumps so each copy can inherit its sole predecessor's line.
@@ -7495,10 +7528,12 @@ mod tests {
         block.instructions[1].lineno_override = Some(NEXT_LOCATION_OVERRIDE);
         test_block_push(&mut block, test_instr(Instruction::ReturnValue, 30));
         block.instructions[2].lineno_override = Some(NO_LOCATION_OVERRIDE);
-        let mut blocks = [block].into();
+        let mut blocks = Blocks::from([block]);
 
-        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
-        propagate_line_numbers(&mut blocks);
+        blocks
+            .remove_unreachable()
+            .expect("remove_unreachable succeeds");
+        blocks.propagate_line_numbers();
 
         // CPython `propagate_line_numbers()` only copies over NO_LOCATION
         // (`lineno == NO_LOCATION`). `NEXT_LOCATION` (`lineno == -2`) becomes the
@@ -7524,8 +7559,10 @@ mod tests {
         basicblock_clear(&mut blocks[1]);
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
 
-        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
-        propagate_line_numbers(&mut blocks);
+        blocks
+            .remove_unreachable()
+            .expect("remove_unreachable succeeds");
+        blocks.propagate_line_numbers();
 
         // CPython `propagate_line_numbers()` directly reads `target->b_instr[0]`
         // for jump targets without checking `b_iused`. If
@@ -7568,7 +7605,8 @@ mod tests {
         test_block_push(&mut blocks[3], test_instr(Instruction::ReturnValue, 40));
 
         let mut metadata = test_code_info(Block::default()).metadata;
-        optimize_basic_block(&mut blocks, &mut metadata, BlockIdx::new(0))
+        blocks
+            .optimize_basic_block(&mut metadata, BlockIdx::new(0))
             .expect("valid jump chain");
 
         // CPython `optimize_basic_block()` continues after `jump_thread()`, so
