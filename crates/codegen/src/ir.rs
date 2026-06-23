@@ -2244,6 +2244,60 @@ impl Blocks {
         }
         Ok(())
     }
+
+    /// flowgraph.c insert_superinstructions
+    fn insert_superinstructions(&mut self) -> crate::InternalResult<usize> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next_block = self[block_idx].next;
+            let block = &mut self[block_idx];
+            for i in 0..block.instruction_used {
+                let nextop = (i + 1 < block.instruction_used)
+                    .then(|| block.instructions[i + 1].instr.real())
+                    .flatten();
+                match block.instructions[i].instr.real() {
+                    Some(Instruction::LoadFast { .. }) => {
+                        if matches!(nextop, Some(Instruction::LoadFast { .. })) {
+                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                            make_super_instruction(
+                                &mut inst1[0],
+                                &mut rest[0],
+                                Opcode::LoadFastLoadFast.into(),
+                            );
+                        }
+                    }
+                    Some(Instruction::StoreFast { .. }) => match nextop {
+                        Some(Instruction::LoadFast { .. }) => {
+                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                            make_super_instruction(
+                                &mut inst1[0],
+                                &mut rest[0],
+                                Opcode::StoreFastLoadFast.into(),
+                            );
+                        }
+                        Some(Instruction::StoreFast { .. }) => {
+                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                            make_super_instruction(
+                                &mut inst1[0],
+                                &mut rest[0],
+                                Opcode::StoreFastStoreFast.into(),
+                            );
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+            block_idx = next_block;
+        }
+
+        let res = remove_redundant_nops(self)?;
+
+        #[cfg(debug_assertions)]
+        assert!(no_redundant_nops(self));
+
+        Ok(res)
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2777,7 +2831,7 @@ fn optimize_code_unit(
     // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
-    insert_superinstructions(blocks)?;
+    blocks.insert_superinstructions()?;
     push_cold_blocks_to_end(blocks)?;
     // CPython resolves line numbers again after cold-block extraction.
     blocks.resolve_line_numbers(metadata.firstlineno)?;
@@ -4784,57 +4838,6 @@ fn make_super_instruction(
     }
     instr_set_op1(inst1, super_op, OpArg::new((arg1 << 4) | arg2));
     set_to_nop(inst2);
-}
-
-/// flowgraph.c insert_superinstructions
-fn insert_superinstructions(blocks: &mut Blocks) -> crate::InternalResult<usize> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next_block = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let nextop = (i + 1 < block.instruction_used)
-                .then(|| block.instructions[i + 1].instr.real())
-                .flatten();
-            match block.instructions[i].instr.real() {
-                Some(Instruction::LoadFast { .. }) => {
-                    if matches!(nextop, Some(Instruction::LoadFast { .. })) {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::LoadFastLoadFast.into(),
-                        );
-                    }
-                }
-                Some(Instruction::StoreFast { .. }) => match nextop {
-                    Some(Instruction::LoadFast { .. }) => {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::StoreFastLoadFast.into(),
-                        );
-                    }
-                    Some(Instruction::StoreFast { .. }) => {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::StoreFastStoreFast.into(),
-                        );
-                    }
-                    _ => {}
-                },
-                _ => {}
-            }
-        }
-        block_idx = next_block;
-    }
-    let res = remove_redundant_nops(blocks)?;
-    #[cfg(debug_assertions)]
-    assert!(no_redundant_nops(blocks));
-    Ok(res)
 }
 
 /// flowgraph.c LoadFastInstrFlag
