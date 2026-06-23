@@ -1393,7 +1393,7 @@ impl Blocks {
 
     fn resolve_line_numbers(&mut self, _firstlineno: OneIndexed) -> crate::InternalResult<()> {
         self.duplicate_exits_without_lineno()?;
-        propagate_line_numbers(self);
+        self.propagate_line_numbers();
         Ok(())
     }
 
@@ -1952,6 +1952,49 @@ impl Blocks {
         }
 
         Ok(())
+    }
+
+    fn propagate_line_numbers(&mut self) {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let Some(last) = basicblock_last_instr(&self[current]).copied() else {
+                current = self[current].next;
+                continue;
+            };
+
+            let mut prev_location = no_instruction_location();
+            for i in 0..self[current].instruction_used {
+                if instruction_is_no_location(&self[current].instructions[i]) {
+                    instr_set_location(&mut self[current].instructions[i], prev_location);
+                } else {
+                    prev_location = instr_location(&self[current].instructions[i]);
+                }
+            }
+
+            let next = self[current].next;
+            if bb_has_fallthrough(&self[current]) {
+                debug_assert!(next != BlockIdx::NULL);
+                if next != BlockIdx::NULL
+                    && self[next].predecessors == 1
+                    && self[next].instruction_used != 0
+                    && instruction_is_no_location(&self[next].instructions[0])
+                {
+                    instr_set_location(&mut self[next].instructions[0], prev_location);
+                }
+            }
+
+            if is_jump(&last) {
+                let target = last.target;
+                debug_assert!(target != BlockIdx::NULL);
+                if self[target].predecessors == 1 {
+                    let instr = basicblock_raw_first_instr_mut(&mut self[target]);
+                    if instruction_is_no_location(instr) {
+                        instr_set_location(instr, prev_location);
+                    }
+                }
+            }
+            current = self[current].next;
+        }
     }
 }
 
@@ -6503,50 +6546,6 @@ fn get_max_label(blocks: &Blocks) -> i32 {
         current = blocks[current.idx()].next;
     }
     lbl
-}
-
-fn propagate_line_numbers(blocks: &mut Blocks) {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let idx = current.idx();
-        let Some(last) = basicblock_last_instr(&blocks[idx]).copied() else {
-            current = blocks[idx].next;
-            continue;
-        };
-
-        let mut prev_location = no_instruction_location();
-        for i in 0..blocks[idx].instruction_used {
-            if instruction_is_no_location(&blocks[idx].instructions[i]) {
-                instr_set_location(&mut blocks[idx].instructions[i], prev_location);
-            } else {
-                prev_location = instr_location(&blocks[idx].instructions[i]);
-            }
-        }
-
-        let next = blocks[idx].next;
-        if bb_has_fallthrough(&blocks[idx]) {
-            debug_assert!(next != BlockIdx::NULL);
-            if next != BlockIdx::NULL
-                && blocks[next].predecessors == 1
-                && blocks[next].instruction_used != 0
-                && instruction_is_no_location(&blocks[next].instructions[0])
-            {
-                instr_set_location(&mut blocks[next].instructions[0], prev_location);
-            }
-        }
-
-        if is_jump(&last) {
-            let target = last.target;
-            debug_assert!(target != BlockIdx::NULL);
-            if blocks[target].predecessors == 1 {
-                let instr = basicblock_raw_first_instr_mut(&mut blocks[target]);
-                if instruction_is_no_location(instr) {
-                    instr_set_location(instr, prev_location);
-                }
-            }
-        }
-        current = blocks[current].next;
-    }
 }
 
 /// flowgraph.c make_except_stack
