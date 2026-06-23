@@ -702,11 +702,7 @@ impl VirtualMachine {
                 raw_location,
                 ..
             }) => {
-                if allow_incomplete
-                    && source.is_some_and(|source| raw_location.end().to_usize() >= source.len())
-                {
-                    self.ctx.exceptions.incomplete_input_error
-                } else if s.starts_with("Expected an indented block after")
+                if s.starts_with("Expected an indented block after")
                     || s.starts_with("expected an indented block after")
                 {
                     if allow_incomplete {
@@ -738,6 +734,12 @@ impl VirtualMachine {
                     } else {
                         self.ctx.exceptions.indentation_error
                     }
+                } else if allow_incomplete
+                    && source.is_some_and(|source| {
+                        raw_location.end().to_usize() >= source.len() && !source.ends_with('\n')
+                    })
+                {
+                    self.ctx.exceptions.incomplete_input_error
                 } else {
                     self.ctx.exceptions.syntax_error
                 }

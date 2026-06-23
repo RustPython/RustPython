@@ -213,7 +213,7 @@ mod builtins {
 
             let optimize: i32 = args.optimize.map_or(-1, |v| v.value);
             let optimize: u8 = match optimize {
-                -1 => vm.state.config.settings.optimize,
+                -1 => vm.state.config.settings.optimize.min(2),
                 0..=2 => optimize as u8,
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };

@@ -289,7 +289,7 @@ impl VirtualMachine {
             self.decode_source_bytes(source, filename, (flags & PY_CF_IGNORE_COOKIE) != 0)?;
         let source = source.as_str();
         let optimize = match optimize {
-            -1 => self.state.config.settings.optimize,
+            -1 => self.state.config.settings.optimize.min(2),
             0..=2 => optimize as u8,
             _ => return Err(self.new_value_error("compile(): invalid optimize value")),
         };

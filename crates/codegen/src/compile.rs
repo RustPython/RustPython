@@ -6018,12 +6018,10 @@ impl<'warnings> Compiler<'warnings> {
             in_class: true,
             in_async_scope: false,
         };
-        let type_params_symbol_table_cursors =
-            is_generic.then(|| self.current_symbol_table_cursors());
+        let pre_class_body_symbol_table_cursors = self.current_symbol_table_cursors();
         let class_code = self.compile_class_body(name, body, type_params, firstlineno)?;
-        if let Some(cursors) = type_params_symbol_table_cursors {
-            self.set_symbol_table_cursors(cursors);
-        }
+        let post_class_body_symbol_table_cursors = self.current_symbol_table_cursors();
+        self.set_symbol_table_cursors(pre_class_body_symbol_table_cursors);
         self.ctx = prev_ctx;
         self.set_source_range(class_source_range);
 
@@ -6093,6 +6091,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(class_source_range);
                 emit!(self, Instruction::Call { argc: 2 });
             }
+            self.set_symbol_table_cursors(post_class_body_symbol_table_cursors);
         }
 
         // Step 4: Apply decorators and store (common to both paths)
@@ -7042,7 +7041,7 @@ impl<'warnings> Compiler<'warnings> {
         {
             return Err(self.error_ranged(
                 CodegenErrorType::SyntaxError("invalid syntax".to_string()),
-                p.range,
+                rest.range,
             ));
         }
 
@@ -10384,6 +10383,25 @@ impl<'warnings> Compiler<'warnings> {
                             self.visit_expr(value);
                         }
                     }
+                    ast::Stmt::If(ast::StmtIf {
+                        test,
+                        body,
+                        elif_else_clauses,
+                        ..
+                    }) => {
+                        self.visit_expr(test);
+                        for stmt in body {
+                            self.visit_stmt(stmt);
+                        }
+                        for clause in elif_else_clauses {
+                            if let Some(test) = &clause.test {
+                                self.visit_expr(test);
+                            }
+                            for stmt in &clause.body {
+                                self.visit_stmt(stmt);
+                            }
+                        }
+                    }
                     ast::Stmt::Try(ast::StmtTry {
                         body,
                         handlers,
@@ -13412,15 +13430,9 @@ impl<'warnings> Compiler<'warnings> {
                         .push_wtf8(&self.compile_tstring_literal_value(lit, tstring.flags));
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
-                    let debug_text_emitted = if let Some(debug_text) = &interp.debug_text {
+                    if let Some(debug_text) = &interp.debug_text {
                         let leading = debug_text.leading();
                         let trailing = debug_text.trailing();
-                        if !current_string.is_empty() || current_string_range.is_some() {
-                            strings.push((
-                                core::mem::take(current_string),
-                                current_string_range.take().unwrap_or(template_range),
-                            ));
-                        }
                         let range = interp.expression.range();
                         let source = self.source_file.slice(range);
                         let text = [
@@ -13454,11 +13466,7 @@ impl<'warnings> Compiler<'warnings> {
                             core::mem::take(current_string),
                             current_string_range.take().unwrap_or(template_range),
                         ));
-                        true
                     } else {
-                        false
-                    };
-                    if !debug_text_emitted {
                         strings.push((
                             core::mem::take(current_string),
                             current_string_range.take().unwrap_or(template_range),
@@ -22118,10 +22126,7 @@ t = t\"Value: {value=}\"
                         [
                             ConstantData::Str { value: first },
                             ConstantData::Str { value: second },
-                            ConstantData::Str { value: third },
-                        ] if first.to_string() == "Value: "
-                            && second.to_string() == "value="
-                            && third.is_empty()
+                        ] if first.to_string() == "Value: value=" && second.is_empty()
                     )
             )),
             "expected debug literal prefix in t-string constants, got {string_consts:?}"

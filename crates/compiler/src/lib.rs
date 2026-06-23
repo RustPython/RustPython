@@ -84,6 +84,8 @@ impl CompileError {
         let invalid_import_statement = invalid_import_statement_error(source_text);
         let invalid_import_target = invalid_import_target_error(source_text);
         let invalid_except_as_target = invalid_except_as_target_error(source_text);
+        let invalid_match_mapping_rest_wildcard =
+            invalid_match_mapping_rest_wildcard_error(source_text);
         let invalid_match_as_target = invalid_match_as_target_error(source_text);
         let invalid_for_if_clause = invalid_for_if_clause_error(source_text);
         let invalid_if_expression_statement = invalid_if_expression_statement_error(source_text);
@@ -120,18 +122,25 @@ impl CompileError {
             let loc = source_code.source_location(start, PositionEncoding::Utf8);
             let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
             (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = unterminated_string {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
         } else if let Some((message, start, end, unclosed)) = bracket_error {
             let start = ruff_text_size::TextSize::new(start as u32);
             let end = ruff_text_size::TextSize::new(end as u32);
             let loc = source_code.source_location(start, PositionEncoding::Utf8);
             let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
             is_unclosed_bracket = unclosed;
+            (parser::ParseErrorType::OtherError(message), loc, end_loc)
+        } else if matches!(
+            &error.error,
+            parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
+        ) {
+            let start = error.location.start() + ruff_text_size::TextSize::from(1);
+            let loc = source_code.source_location(start, PositionEncoding::Utf8);
+            (error.error, loc, loc)
+        } else if let Some((message, start, end)) = unterminated_string {
+            let start = ruff_text_size::TextSize::new(start as u32);
+            let end = ruff_text_size::TextSize::new(end as u32);
+            let loc = source_code.source_location(start, PositionEncoding::Utf8);
+            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
             (parser::ParseErrorType::OtherError(message), loc, end_loc)
         } else if let Some((message, start, end)) = indented_block {
             let start = ruff_text_size::TextSize::new(start as u32);
@@ -319,6 +328,12 @@ impl CompileError {
             let loc = source_code.source_location(start, PositionEncoding::Utf8);
             let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
             (parser::ParseErrorType::OtherError(message), loc, end_loc)
+        } else if let Some((message, start, end)) = invalid_match_mapping_rest_wildcard {
+            let start = ruff_text_size::TextSize::new(start as u32);
+            let end = ruff_text_size::TextSize::new(end as u32);
+            let loc = source_code.source_location(start, PositionEncoding::Utf8);
+            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
+            (parser::ParseErrorType::OtherError(message), loc, end_loc)
         } else if let Some((message, start, end)) = invalid_match_as_target {
             let start = ruff_text_size::TextSize::new(start as u32);
             let end = ruff_text_size::TextSize::new(end as u32);
@@ -349,13 +364,6 @@ impl CompileError {
             let loc = source_code.source_location(start, PositionEncoding::Utf8);
             let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
             (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
-        ) {
-            let start = error.location.start() + ruff_text_size::TextSize::from(1);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            (error.error, loc, loc)
         } else if matches!(
             &error.error,
             parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
@@ -400,6 +408,7 @@ impl CompileError {
                     ast::Expr::BinOp(_) => "cannot assign to expression".into(),
                     ast::Expr::If(_) => "cannot assign to conditional expression".into(),
                     ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+                    ast::Expr::FString(_) => "invalid syntax".into(),
                     ast::Expr::StringLiteral(_)
                     | ast::Expr::BytesLiteral(_)
                     | ast::Expr::NumberLiteral(_) => {
@@ -1316,6 +1325,9 @@ fn invalid_comprehension_in_slice(
             item_start + 2,
         ));
     }
+    if bytes.get(item_start..item_start + 2) == Some(b"**") && bytes.get(open) == Some(&b'(') {
+        return Some(("invalid syntax".to_owned(), for_index, for_index + 3));
+    }
     if bytes.get(item_start) == Some(&b'*') {
         return Some((
             "iterable unpacking cannot be used in comprehension".to_owned(),
@@ -1556,9 +1568,52 @@ fn invalid_parameter_list_slice_error(
     let bytes = source.as_bytes();
     let mut index = start;
     let mut level = 0usize;
+    let mut default_seen = false;
+    let mut keyword_only = false;
+    let mut slash_seen = false;
+    let mut var_keyword_seen = false;
     while index < end {
         match bytes[index] {
             b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            _ if level == 0
+                && var_keyword_seen
+                && bytes.get(index).is_some_and(|byte| {
+                    *byte >= 0x80 || *byte == b'_' || byte.is_ascii_alphabetic()
+                }) =>
+            {
+                let name_end = identifier_end(bytes, index, end);
+                return Some((
+                    "arguments cannot follow var-keyword argument".to_owned(),
+                    index,
+                    name_end,
+                ));
+            }
+            _ if level == 0
+                && !keyword_only
+                && bytes.get(index).is_some_and(|byte| {
+                    *byte >= 0x80 || *byte == b'_' || byte.is_ascii_alphabetic()
+                }) =>
+            {
+                let param_end = find_byte_at_level(bytes, index, end, b',')
+                    .or_else(|| top_level_byte(bytes, index, end, b')'))
+                    .or_else(|| {
+                        matches!(kind, ParameterListKind::Lambda)
+                            .then(|| top_level_byte(bytes, index, end, b':'))
+                            .flatten()
+                    })
+                    .unwrap_or(end);
+                let name_end = identifier_end(bytes, index, param_end);
+                if top_level_byte(bytes, index, param_end, b'=').is_some() {
+                    default_seen = true;
+                } else if default_seen {
+                    return Some((
+                        "parameter without a default follows parameter with a default".to_owned(),
+                        index,
+                        name_end,
+                    ));
+                }
+                index = name_end;
+            }
             b'(' if level == 0 => {
                 let close = matching_delimiter(bytes, index, b')')
                     .filter(|close| *close <= end)
@@ -1580,6 +1635,17 @@ fn invalid_parameter_list_slice_error(
                 index += 1;
             }
             b'/' if level == 0 => {
+                if var_keyword_seen {
+                    return Some((
+                        "arguments cannot follow var-keyword argument".to_owned(),
+                        index,
+                        index + 1,
+                    ));
+                }
+                if slash_seen {
+                    return Some(("/ may appear only once".to_owned(), index, index + 1));
+                }
+                slash_seen = true;
                 let next = next_non_horizontal_whitespace(bytes, index + 1);
                 if bytes.get(next) == Some(&b'*') {
                     return Some(("expected comma between / and *".to_owned(), next, next + 1));
@@ -1587,6 +1653,14 @@ fn invalid_parameter_list_slice_error(
                 index += 1;
             }
             b'*' if level == 0 => {
+                if var_keyword_seen {
+                    return Some((
+                        "arguments cannot follow var-keyword argument".to_owned(),
+                        index,
+                        index + 1,
+                    ));
+                }
+                keyword_only = true;
                 let stars = usize::from(bytes.get(index + 1) == Some(&b'*')) + 1;
                 let name_start = next_non_horizontal_whitespace(bytes, index + stars);
                 for keyword in [b"True".as_slice(), b"False".as_slice(), b"None".as_slice()] {
@@ -1626,6 +1700,11 @@ fn invalid_parameter_list_slice_error(
                         index,
                         index + 2,
                     ));
+                }
+                if stars == 2 {
+                    var_keyword_seen = true;
+                    index = param_end;
+                    continue;
                 }
                 index += stars;
             }
@@ -2619,9 +2698,12 @@ fn assignment_target_error_for_slice(
         return None;
     };
     let invalid_target = invalid_assignment_target(&expression.body)?;
-    let name = delete_target_expr_name(invalid_target);
     let invalid_start = target_start + invalid_target.range().start().to_usize();
     let invalid_end = target_start + invalid_target.range().end().to_usize();
+    if matches!(invalid_target, ast::Expr::FString(_)) {
+        return Some(("invalid syntax".to_owned(), invalid_start, invalid_end));
+    }
+    let name = delete_target_expr_name(invalid_target);
     let top_level = invalid_target.range() == expression.body.range();
     let bitwise_like = matches!(
         invalid_target,
@@ -3090,9 +3172,12 @@ fn invalid_delete_target_error(source: &str) -> Option<(String, usize, usize)> {
                     index = target_end;
                     continue;
                 };
-                let name = delete_target_expr_name(invalid_target);
                 let start = target_start + invalid_target.range().start().to_usize();
                 let end = target_start + invalid_target.range().end().to_usize();
+                if matches!(invalid_target, ast::Expr::FString(_)) {
+                    return Some(("invalid syntax".to_owned(), start, end));
+                }
+                let name = delete_target_expr_name(invalid_target);
                 return Some((format!("cannot delete {name}"), start, end));
             }
             _ => index += 1,
@@ -3462,6 +3547,66 @@ fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)>
     None
 }
 
+fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut index = 0usize;
+    let mut line_start = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'\n' => {
+                index += 1;
+                line_start = index;
+            }
+            _ => {
+                let line_end = line_start
+                    + bytes[line_start..]
+                        .iter()
+                        .position(|byte| *byte == b'\n')
+                        .unwrap_or(bytes.len() - line_start);
+                let column = skip_horizontal_whitespace(bytes, line_start);
+                if index != column
+                    || column >= line_end
+                    || !starts_identifier(bytes, column, b"case")
+                {
+                    index += 1;
+                    continue;
+                }
+                let mut cursor = column + 4;
+                while cursor < line_end {
+                    match bytes[cursor] {
+                        b'#' => break,
+                        b'\'' | b'"' => cursor = skip_quoted_string(bytes, cursor),
+                        b'{' => {
+                            let rest = next_non_horizontal_whitespace(bytes, cursor + 1);
+                            if bytes.get(rest..rest + 2) == Some(b"**") {
+                                let name_start = next_non_horizontal_whitespace(bytes, rest + 2);
+                                let name_end = identifier_end(bytes, name_start, line_end);
+                                if source.get(name_start..name_end) == Some("_") {
+                                    return Some((
+                                        "invalid syntax".to_owned(),
+                                        name_start,
+                                        name_end,
+                                    ));
+                                }
+                            }
+                            cursor += 1;
+                        }
+                        _ => cursor += 1,
+                    }
+                }
+                index = line_end;
+            }
+        }
+    }
+    None
+}
+
 fn invalid_if_expression_statement_error(source: &str) -> Option<(String, usize, usize)> {
     let bytes = source.as_bytes();
     let mut line_start = 0usize;
@@ -3742,6 +3887,11 @@ fn invalid_interpolated_string_error(source: &str) -> Option<(String, usize, usi
                     index = skip_quoted_string(bytes, index);
                     continue;
                 };
+                if let Some(error) =
+                    single_quoted_format_spec_newline_error(bytes, index, quote, prefix)
+                {
+                    return Some(error);
+                }
                 let Some((content_start, content_end)) =
                     quoted_string_content_range(bytes, index, quote)
                 else {
@@ -3754,6 +3904,48 @@ fn invalid_interpolated_string_error(source: &str) -> Option<(String, usize, usi
                     return Some(error);
                 }
                 index = skip_quoted_string(bytes, index);
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn single_quoted_format_spec_newline_error(
+    bytes: &[u8],
+    quote_index: usize,
+    quote: u8,
+    prefix: &str,
+) -> Option<(String, usize, usize)> {
+    if bytes.get(quote_index + 1) == Some(&quote) && bytes.get(quote_index + 2) == Some(&quote) {
+        return None;
+    }
+
+    let (content_start, content_end) = quoted_string_content_range(bytes, quote_index, quote)?;
+    let mut index = content_start;
+    while index < content_end {
+        match bytes[index] {
+            b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
+            b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
+            b'{' => {
+                let expr_start = skip_ascii_whitespace(bytes, index + 1, content_end);
+                if let Some(separator) = replacement_field_separator(bytes, expr_start, content_end)
+                    && bytes[separator] == b':'
+                {
+                    let format_end =
+                        replacement_field_closing_brace(bytes, separator + 1, content_end)
+                            .unwrap_or(content_end);
+                    if bytes[separator + 1..format_end].contains(&b'\n') {
+                        return Some((
+                            format!(
+                                "{prefix}: newlines are not allowed in format specifiers for single quoted {prefix}s"
+                            ),
+                            quote_index,
+                            quote_index + 1,
+                        ));
+                    }
+                }
+                index += 1;
             }
             _ => index += 1,
         }
@@ -3847,6 +4039,20 @@ fn replacement_field_error(
     prefix: &str,
 ) -> Option<(String, usize, usize)> {
     let expr_start = skip_ascii_whitespace(bytes, open + 1, end);
+    if let Some(backslash) = replacement_field_line_continuation(bytes, expr_start, end) {
+        return Some((
+            "unexpected character after line continuation character".to_owned(),
+            backslash + 1,
+            (backslash + 2).min(end),
+        ));
+    }
+    if let Some(quote) = unterminated_string_in_replacement_field(bytes, expr_start, end) {
+        return Some((
+            unterminated_string_message(1, false, false),
+            quote,
+            quote + 1,
+        ));
+    }
     match bytes.get(expr_start).copied() {
         Some(marker @ (b'=' | b'!' | b':' | b'}')) => {
             return Some((
@@ -3888,6 +4094,12 @@ fn replacement_field_error(
         return Some((format!("{prefix}: expecting '}}'"), open, open + 1));
     };
 
+    if bytes[separator] == b':'
+        && replacement_expression_has_parse_error(bytes, expr_start, separator)
+    {
+        return Some(("invalid syntax".to_owned(), expr_start, separator));
+    }
+
     match bytes[separator] {
         b'=' => invalid_debug_expression_error(bytes, separator, end, prefix),
         b'!' => invalid_conversion_error(bytes, separator, end, prefix),
@@ -3895,6 +4107,58 @@ fn replacement_field_error(
         b'}' => None,
         _ => unreachable!(),
     }
+}
+
+fn replacement_field_line_continuation(
+    bytes: &[u8],
+    mut index: usize,
+    end: usize,
+) -> Option<usize> {
+    let mut level = 0usize;
+    while index < end {
+        match bytes[index] {
+            b'\'' | b'"' => index = skip_quoted_string(bytes, index),
+            b'\\' => return Some(index),
+            b'(' | b'[' | b'{' => {
+                level += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' if level > 0 => {
+                level -= 1;
+                index += 1;
+            }
+            b'=' | b'!' | b':' | b'}' if level == 0 => return None,
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn unterminated_string_in_replacement_field(
+    bytes: &[u8],
+    mut index: usize,
+    end: usize,
+) -> Option<usize> {
+    while index < end {
+        match bytes[index] {
+            quote @ (b'\'' | b'"') => {
+                let string_end = skip_quoted_string(bytes, index);
+                if string_end >= end && !bytes[index + 1..end].contains(&quote) {
+                    return Some(index);
+                }
+                index = string_end;
+            }
+            _ => index += 1,
+        }
+    }
+    None
+}
+
+fn replacement_expression_has_parse_error(bytes: &[u8], start: usize, end: usize) -> bool {
+    let Ok(expression) = ::core::str::from_utf8(&bytes[start..end]) else {
+        return false;
+    };
+    parser::parse_expression(expression).is_err()
 }
 
 fn invalid_replacement_expression_start(bytes: &[u8], index: usize, end: usize) -> bool {
@@ -4749,6 +5013,7 @@ fn post_parse_source_error(source_file: &SourceFile, opts: &CompileOpts) -> Opti
             long_decimal_integer_literal_error(source_file.source_text(), opts.int_max_str_digits)
         })
         .or_else(|| invalid_call_argument_error(source_file.source_text()))
+        .or_else(|| invalid_match_mapping_rest_wildcard_error(source_file.source_text()))
         .or_else(|| invalid_unparenthesized_yield_after_comma_error(source_file.source_text()))
         .or_else(|| invalid_parenthesized_import_star_error(source_file.source_text()))
         .map(|(message, start, end)| {

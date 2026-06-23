@@ -1744,10 +1744,52 @@ pub mod sys {
         }
 
         for hook in hooks {
-            hook.call((event.clone(), args.clone()), vm)?;
+            call_audit_hook(&hook, event.clone().into(), args, vm)?;
         }
 
         Ok(())
+    }
+
+    fn audit_hook_can_trace(hook: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        match hook.get_attr("__cantrace__", vm) {
+            Ok(can_trace) => can_trace.try_to_bool(vm),
+            Err(exc)
+                if exc
+                    .class()
+                    .fast_issubclass(vm.ctx.exceptions.attribute_error) =>
+            {
+                Ok(false)
+            }
+            Err(exc) => Err(exc),
+        }
+    }
+
+    fn call_audit_hook(
+        hook: &PyObjectRef,
+        event: PyObjectRef,
+        args: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // CPython suppresses tracing while dispatching Python audit hooks,
+        // except for hooks that explicitly opt in with __cantrace__.
+        vm.enter_tracing();
+        let can_trace = audit_hook_can_trace(hook, vm);
+        let result = match can_trace {
+            Ok(can_trace) => {
+                if can_trace {
+                    vm.leave_tracing();
+                }
+                let result = hook.call((event, args.clone()), vm).map(|_| ());
+                if can_trace {
+                    vm.enter_tracing();
+                }
+                result
+            }
+            Err(exc) => Err(exc),
+        };
+
+        vm.leave_tracing();
+        result
     }
 
     #[pyfunction]
@@ -1773,10 +1815,13 @@ pub mod sys {
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
         for existing_hook in hooks {
-            let Err(exc) = existing_hook.call((event.clone(), args.clone()), vm) else {
+            let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) else {
                 continue;
             };
-            if exc.class().fast_issubclass(vm.ctx.exceptions.runtime_error) {
+            if exc
+                .class()
+                .fast_issubclass(vm.ctx.exceptions.exception_type)
+            {
                 return Ok(());
             }
             return Err(exc);

@@ -3147,6 +3147,17 @@ impl SymbolTableBuilder {
                     self.scan_expressions(keys, ExpressionContext::Load)?;
                     self.scan_patterns(patterns)?;
                     if let Some(rest) = rest {
+                        if rest.as_str() == "_" {
+                            return Err(SymbolTableError {
+                                error: "invalid syntax".to_owned(),
+                                location: Some(
+                                    self.source_file.to_source_code().source_location(
+                                        rest.range.start(),
+                                        PositionEncoding::Utf8,
+                                    ),
+                                ),
+                            });
+                        }
                         self.register_name(rest.as_str(), SymbolUsage::Assigned, pattern.range())?;
                     }
                 }

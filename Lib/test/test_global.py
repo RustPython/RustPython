@@ -28,7 +28,6 @@ class GlobalTests(unittest.TestCase):
     ### Syntax error cases as covered in Python/symtable.c
     ######################################################
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 12 != 5
     def test_name_param(self):
         prog_text = """\
 def fn(name_param):
@@ -36,7 +35,6 @@ def fn(name_param):
 """
         check_syntax_error(self, prog_text, lineno=2, offset=5)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 12 != 5
     def test_name_after_assign(self):
         prog_text = """\
 def fn():
@@ -45,7 +43,6 @@ def fn():
 """
         check_syntax_error(self, prog_text, lineno=3, offset=5)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 12 != 5
     def test_name_after_use(self):
         prog_text = """\
 def fn():
@@ -54,7 +51,6 @@ def fn():
 """
         check_syntax_error(self, prog_text, lineno=3, offset=5)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 12 != 5
     def test_name_annot(self):
         prog_text_3 = """\
 def fn():

@@ -85,6 +85,7 @@ pub struct VirtualMachine {
     pub profile_func: RefCell<PyObjectRef>,
     pub trace_func: RefCell<PyObjectRef>,
     pub use_tracing: Cell<bool>,
+    tracing_depth: Cell<usize>,
     pub recursion_limit: Cell<usize>,
     pub(crate) signal_handlers: OnceCell<SignalHandlers>,
     pub(crate) signal_rx: Option<signal::UserSignalReceiver>,
@@ -742,6 +743,7 @@ impl VirtualMachine {
             profile_func,
             trace_func,
             use_tracing: Cell::new(false),
+            tracing_depth: Cell::new(0),
             recursion_limit: Cell::new(if cfg!(debug_assertions) { 256 } else { 1000 }),
             signal_handlers,
             signal_rx: None,
@@ -1706,7 +1708,7 @@ impl VirtualMachine {
     #[cfg(feature = "rustpython-codegen")]
     pub fn compile_opts(&self) -> crate::compiler::CompileOpts {
         crate::compiler::CompileOpts {
-            optimize: self.state.config.settings.optimize,
+            optimize: self.state.config.settings.optimize.min(2),
             debug_ranges: self.state.config.settings.code_debug_ranges,
             int_max_str_digits: self.state.int_max_str_digits.load(),
             allow_top_level_await: false,
@@ -1719,6 +1721,23 @@ impl VirtualMachine {
             ast_joined_str_overrides: None,
             ast_template_str_overrides: None,
         }
+    }
+
+    #[inline]
+    pub(crate) fn enter_tracing(&self) {
+        self.tracing_depth.set(self.tracing_depth.get() + 1);
+    }
+
+    #[inline]
+    pub(crate) fn leave_tracing(&self) {
+        let depth = self.tracing_depth.get();
+        debug_assert!(depth > 0);
+        self.tracing_depth.set(depth.saturating_sub(1));
+    }
+
+    #[inline]
+    pub(crate) fn tracing_is_suppressed(&self) -> bool {
+        self.tracing_depth.get() != 0
     }
 
     // To be called right before raising the recursion depth.

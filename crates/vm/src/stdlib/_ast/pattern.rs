@@ -78,31 +78,31 @@ impl Node for ast::Pattern {
             )));
         }
         enum PatternKind {
-            MatchValue,
-            MatchSingleton,
-            MatchSequence,
-            MatchMapping,
-            MatchClass,
-            MatchStar,
-            MatchAs,
-            MatchOr,
+            Value,
+            Singleton,
+            Sequence,
+            Mapping,
+            Class,
+            Star,
+            As,
+            Or,
         }
         let kind = if is_node_instance(vm, &object, pyast::NodePatternMatchValue::static_type())? {
-            PatternKind::MatchValue
+            PatternKind::Value
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchSingleton::static_type())? {
-            PatternKind::MatchSingleton
+            PatternKind::Singleton
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchSequence::static_type())? {
-            PatternKind::MatchSequence
+            PatternKind::Sequence
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchMapping::static_type())? {
-            PatternKind::MatchMapping
+            PatternKind::Mapping
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchClass::static_type())? {
-            PatternKind::MatchClass
+            PatternKind::Class
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchStar::static_type())? {
-            PatternKind::MatchStar
+            PatternKind::Star
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchAs::static_type())? {
-            PatternKind::MatchAs
+            PatternKind::As
         } else if is_node_instance(vm, &object, pyast::NodePatternMatchOr::static_type())? {
-            PatternKind::MatchOr
+            PatternKind::Or
         } else {
             return Err(vm.new_type_error(format!(
                 "expected some sort of pattern, but got {}",
@@ -111,34 +111,40 @@ impl Node for ast::Pattern {
         };
         let range = pattern_range_from_object(vm, source_file, object.clone())?;
         Ok(match kind {
-            PatternKind::MatchValue => Self::MatchValue(
-                pattern_match_value_from_object_with_range(vm, source_file, object, range)?,
-            ),
-            PatternKind::MatchSingleton => Self::MatchSingleton(
+            PatternKind::Value => Self::MatchValue(pattern_match_value_from_object_with_range(
+                vm,
+                source_file,
+                object,
+                range,
+            )?),
+            PatternKind::Singleton => Self::MatchSingleton(
                 pattern_match_singleton_from_object_with_range(vm, source_file, object, range)?,
             ),
-            PatternKind::MatchSequence => Self::MatchSequence(
+            PatternKind::Sequence => Self::MatchSequence(
                 pattern_match_sequence_from_object_with_range(vm, source_file, object, range)?,
             ),
-            PatternKind::MatchMapping => Self::MatchMapping(
+            PatternKind::Mapping => Self::MatchMapping(
                 pattern_match_mapping_from_object_with_range(vm, source_file, object, range)?,
             ),
-            PatternKind::MatchClass => Self::MatchClass(
-                pattern_match_class_from_object_with_range(vm, source_file, object, range)?,
-            ),
-            PatternKind::MatchStar => Self::MatchStar(pattern_match_star_from_object_with_range(
+            PatternKind::Class => Self::MatchClass(pattern_match_class_from_object_with_range(
                 vm,
                 source_file,
                 object,
                 range,
             )?),
-            PatternKind::MatchAs => Self::MatchAs(pattern_match_as_from_object_with_range(
+            PatternKind::Star => Self::MatchStar(pattern_match_star_from_object_with_range(
                 vm,
                 source_file,
                 object,
                 range,
             )?),
-            PatternKind::MatchOr => Self::MatchOr(pattern_match_or_from_object_with_range(
+            PatternKind::As => Self::MatchAs(pattern_match_as_from_object_with_range(
+                vm,
+                source_file,
+                object,
+                range,
+            )?),
+            PatternKind::Or => Self::MatchOr(pattern_match_or_from_object_with_range(
                 vm,
                 source_file,
                 object,
