@@ -14141,9 +14141,10 @@ mod tests {
             ruff_python_ast::Mod::Module(stmts) => stmts,
             _ => unreachable!(),
         };
-        let symbol_table = SymbolTable::scan_program(&ast, source_file.clone())
-            .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
-            .unwrap();
+        let symbol_table = match SymbolTable::scan_program(&ast, source_file.clone()) {
+            Ok(symbol_table) => symbol_table,
+            Err(err) => return err.into_codegen_error(source_file.name().to_owned()),
+        };
         let mut compiler =
             Compiler::new_with_syntax_warning_handler(opts, source_file, "<module>", None);
         compiler.compile_program(&ast, symbol_table).unwrap_err()
