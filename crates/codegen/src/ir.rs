@@ -4713,8 +4713,9 @@ impl CodeInfo {
             "after_inline_small_or_no_lineno_blocks".to_owned(),
             self.debug_block_dump(),
         ));
-        remove_unreachable(&mut self.blocks)?;
-        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
+        self.blocks.remove_unreachable()?;
+        self.blocks
+            .resolve_line_numbers(self.metadata.firstlineno)?;
         optimize_load_const(&mut self.metadata, &mut self.blocks)?;
         trace.push((
             "after_optimize_load_const".to_owned(),
@@ -4723,19 +4724,21 @@ impl CodeInfo {
         let mut block_idx = BlockIdx(0);
         while block_idx != BlockIdx::NULL {
             let next_block = self.blocks[block_idx].next;
-            optimize_basic_block(&mut self.blocks, &mut self.metadata, block_idx)?;
+            self.blocks
+                .optimize_basic_block(&mut self.metadata, block_idx)?;
             block_idx = next_block;
         }
         trace.push((
             "after_optimize_basic_block".to_owned(),
             self.debug_block_dump(),
         ));
-        remove_redundant_nops_and_pairs(&mut self.blocks)?;
-        remove_unreachable(&mut self.blocks)?;
+        self.blocks.remove_redundant_nops_and_pairs()?;
+        self.blocks.remove_unreachable()?;
         remove_redundant_nops_and_jumps(&mut self.blocks)?;
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
-        remove_unused_consts(&mut self.blocks, &mut self.metadata.consts)?;
+        self.blocks
+            .remove_unused_consts(&mut self.metadata.consts)?;
         trace.push((
             "after_optimize_cfg_cleanup".to_owned(),
             self.debug_block_dump(),
@@ -4743,13 +4746,14 @@ impl CodeInfo {
         let nlocals = self.metadata.varnames.len();
         let nparams = self.nparams;
         add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams)?;
-        insert_superinstructions(&mut self.blocks)?;
+        self.blocks.insert_superinstructions()?;
         push_cold_blocks_to_end(&mut self.blocks)?;
         trace.push((
             "after_push_cold_before_chain_reorder".to_owned(),
             self.debug_block_dump(),
         ));
-        resolve_line_numbers(&mut self.blocks, self.metadata.firstlineno)?;
+        self.blocks
+            .resolve_line_numbers(self.metadata.firstlineno)?;
         trace.push((
             "after_push_cold_resolve_line_numbers".to_owned(),
             self.debug_block_dump(),
@@ -4766,7 +4770,7 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        let _max_stackdepth = calculate_stackdepth(&mut self.blocks)?;
+        let _max_stackdepth = self.blocks.calculate_stackdepth()?;
         let _nlocalsplus = prepare_localsplus(&self.metadata, &mut self.blocks, self.flags)?;
         convert_pseudo_ops(&mut self.blocks)?;
         trace.push((
@@ -4774,11 +4778,11 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        normalize_jumps(&mut self.blocks)?;
+        self.blocks.normalize_jumps()?;
         #[cfg(debug_assertions)]
         assert!(no_redundant_jumps(&self.blocks));
         trace.push(("after_normalize_jumps".to_owned(), self.debug_block_dump()));
-        optimize_load_fast(&mut self.blocks)?;
+        self.blocks.optimize_load_fast()?;
         trace.push((
             "after_optimize_load_fast".to_owned(),
             self.debug_block_dump(),
@@ -7251,7 +7255,8 @@ mod tests {
         basicblock_clear(&mut blocks[0]);
 
         test_block_push(&mut blocks[1], test_instr(Instruction::PopTop, 42));
-        basicblock_append_block_instructions(&mut blocks, BlockIdx::new(0), BlockIdx::new(1))
+        blocks
+            .basicblock_append_block_instructions(BlockIdx::new(0), BlockIdx::new(1))
             .expect("basicblock_append_block_instructions succeeds");
 
         // CPython `basicblock_append_instructions()` obtains a slot with
@@ -7273,7 +7278,8 @@ mod tests {
         blocks[0].next = BlockIdx::new(1);
 
         let mut instr_sequence = instruction_sequence_new();
-        cfg_to_instruction_sequence(&mut blocks, &mut instr_sequence)
+        blocks
+            .cfg_to_instruction_sequence(&mut instr_sequence)
             .expect("non-target NOP should ignore stale CPython i_target");
     }
 
@@ -7286,7 +7292,7 @@ mod tests {
         let mut blocks = Blocks::from([block]);
 
         let mut instr_sequence = instruction_sequence_new();
-        let _ = cfg_to_instruction_sequence(&mut blocks, &mut instr_sequence);
+        let _ = blocks.cfg_to_instruction_sequence(&mut instr_sequence);
     }
 
     #[test]
@@ -7402,7 +7408,9 @@ mod tests {
         test_block_push(&mut block, test_instr(Instruction::PopTop, 10));
 
         let mut code = test_code_info(block);
-        optimize_load_fast(&mut code.blocks).expect("optimize_load_fast succeeds");
+        code.blocks
+            .optimize_load_fast()
+            .expect("optimize_load_fast succeeds");
 
         // CPython `optimize_load_fast()` shadows the outer instruction index in
         // the produced-value loop for GET_LEN, so the produced ref is recorded
@@ -7492,8 +7500,12 @@ mod tests {
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
         blocks[2].instructions[0].lineno_override = Some(NO_LOCATION_OVERRIDE);
 
-        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
-        resolve_line_numbers(&mut blocks, OneIndexed::MIN).expect("resolve_line_numbers succeeds");
+        blocks
+            .remove_unreachable()
+            .expect("remove_unreachable succeeds");
+        blocks
+            .resolve_line_numbers(OneIndexed::MIN)
+            .expect("resolve_line_numbers succeeds");
 
         // CPython `duplicate_exits_without_lineno()` copies a shared exit block
         // reached by jumps so each copy can inherit its sole predecessor's line.
@@ -7516,10 +7528,12 @@ mod tests {
         block.instructions[1].lineno_override = Some(NEXT_LOCATION_OVERRIDE);
         test_block_push(&mut block, test_instr(Instruction::ReturnValue, 30));
         block.instructions[2].lineno_override = Some(NO_LOCATION_OVERRIDE);
-        let mut blocks = [block].into();
+        let mut blocks = Blocks::from([block]);
 
-        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
-        propagate_line_numbers(&mut blocks);
+        blocks
+            .remove_unreachable()
+            .expect("remove_unreachable succeeds");
+        blocks.propagate_line_numbers();
 
         // CPython `propagate_line_numbers()` only copies over NO_LOCATION
         // (`lineno == NO_LOCATION`). `NEXT_LOCATION` (`lineno == -2`) becomes the
@@ -7545,8 +7559,10 @@ mod tests {
         basicblock_clear(&mut blocks[1]);
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
 
-        remove_unreachable(&mut blocks).expect("remove_unreachable succeeds");
-        propagate_line_numbers(&mut blocks);
+        blocks
+            .remove_unreachable()
+            .expect("remove_unreachable succeeds");
+        blocks.propagate_line_numbers();
 
         // CPython `propagate_line_numbers()` directly reads `target->b_instr[0]`
         // for jump targets without checking `b_iused`. If
@@ -7589,7 +7605,8 @@ mod tests {
         test_block_push(&mut blocks[3], test_instr(Instruction::ReturnValue, 40));
 
         let mut metadata = test_code_info(Block::default()).metadata;
-        optimize_basic_block(&mut blocks, &mut metadata, BlockIdx::new(0))
+        blocks
+            .optimize_basic_block(&mut metadata, BlockIdx::new(0))
             .expect("valid jump chain");
 
         // CPython `optimize_basic_block()` continues after `jump_thread()`, so
