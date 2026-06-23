@@ -1263,7 +1263,7 @@ impl Blocks {
             block_idx = self[block_idx].next;
         }
 
-        let mut stack = make_cfg_traversal_stack(self)?;
+        let mut stack = self.make_cfg_traversal_stack()?;
         self[0].predecessors = 1;
         stack.push(BlockIdx(0));
         self[0].visited = true;
@@ -1724,7 +1724,7 @@ impl Blocks {
             size: 0,
             capacity: 0,
         };
-        let mut worklist = make_cfg_traversal_stack(self)?;
+        let mut worklist = self.make_cfg_traversal_stack()?;
         worklist.push(BlockIdx(0));
         self[0].start_depth = 0;
         self[0].visited = true;
@@ -2064,7 +2064,7 @@ impl Blocks {
             self[current.idx()].start_depth = START_DEPTH_UNSET;
             current = self[current.idx()].next;
         }
-        let mut stack = make_cfg_traversal_stack(self)?;
+        let mut stack = self.make_cfg_traversal_stack()?;
         let mut maxdepth = 0i32;
         stackdepth_push(&mut stack, self, BlockIdx(0), 0)?;
         while let Some(block_idx) = stack.pop() {
@@ -2105,6 +2105,28 @@ impl Blocks {
 
         let stackdepth = maxdepth;
         Ok(stackdepth as u32)
+    }
+
+    /// flowgraph.c make_cfg_traversal_stack
+    fn make_cfg_traversal_stack(&mut self) -> crate::InternalResult<CfgTraversalStack> {
+        debug_assert!(!self.is_empty());
+
+        let mut nblocks = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current].visited = false;
+            nblocks += 1;
+            current = self[current].next;
+        }
+        debug_assert!(nblocks > 0);
+        let mut stack = Vec::new();
+        stack
+            .try_reserve_exact(nblocks)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        stack.resize(nblocks, BlockIdx::NULL);
+        let stack = CfgTraversalStack { stack, sp: 0 };
+        debug_assert_eq!(stack.capacity(), nblocks);
+        Ok(stack)
     }
 }
 
@@ -5318,7 +5340,7 @@ pub(crate) fn mark_except_handlers(blocks: &mut Blocks) -> crate::InternalResult
 /// optimize_load_fast to terminate fall-through at those placeholders.
 /// flowgraph.c mark_warm
 fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut stack = make_cfg_traversal_stack(blocks)?;
+    let mut stack = blocks.make_cfg_traversal_stack()?;
     stack.push(BlockIdx(0));
     blocks[0].visited = true;
     while let Some(block_idx) = stack.pop() {
@@ -5351,7 +5373,7 @@ fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
 fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let block = &mut blocks[block_idx.idx()];
+        let block = &mut blocks[block_idx];
         debug_assert!(!block.cold);
         debug_assert!(!block.warm);
         block_idx = block.next;
@@ -5359,7 +5381,7 @@ fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
 
     mark_warm(blocks)?;
 
-    let mut cold_stack = make_cfg_traversal_stack(blocks)?;
+    let mut cold_stack = blocks.make_cfg_traversal_stack()?;
     block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
         let i = block_idx.idx();
@@ -5969,27 +5991,6 @@ fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult
     Ok(())
 }
 
-/// flowgraph.c make_cfg_traversal_stack
-fn make_cfg_traversal_stack(blocks: &mut Blocks) -> crate::InternalResult<CfgTraversalStack> {
-    debug_assert!(!blocks.is_empty());
-    let mut nblocks = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        blocks[current.idx()].visited = false;
-        nblocks += 1;
-        current = blocks[current.idx()].next;
-    }
-    debug_assert!(nblocks > 0);
-    let mut stack = Vec::new();
-    stack
-        .try_reserve_exact(nblocks)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    stack.resize(nblocks, BlockIdx::NULL);
-    let stack = CfgTraversalStack { stack, sp: 0 };
-    debug_assert_eq!(stack.capacity(), nblocks);
-    Ok(stack)
-}
-
 fn blocks_new_block(blocks: &mut Blocks) -> crate::InternalResult<BlockIdx> {
     blocks
         .try_reserve(1)
@@ -6414,7 +6415,7 @@ fn add_checks_for_loads_of_uninitialized_variables(
         nlocals = LOCAL_UNSAFE_MASK_BITS;
     }
 
-    let mut worklist = make_cfg_traversal_stack(blocks)?;
+    let mut worklist = blocks.make_cfg_traversal_stack()?;
     let mut start_mask = 0u64;
     for i in nparams..nlocals {
         start_mask |= 1u64 << i;
@@ -6610,7 +6611,7 @@ fn pop_except_block(stack: &mut CfgExceptStack, blocks: &Blocks) -> Option<Excep
 }
 
 pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut todo = make_cfg_traversal_stack(blocks)?;
+    let mut todo = blocks.make_cfg_traversal_stack()?;
 
     todo.push(BlockIdx(0));
     blocks[0].visited = true;
@@ -7032,7 +7033,7 @@ mod tests {
         blocks[0].visited = true;
         blocks[1].visited = true;
 
-        let mut stack = make_cfg_traversal_stack(&mut blocks).unwrap();
+        let mut stack = blocks.make_cfg_traversal_stack().unwrap();
         assert!(!blocks[0].visited);
         assert!(!blocks[1].visited);
         assert!(stack.capacity() >= 2);
