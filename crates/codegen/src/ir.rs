@@ -2328,6 +2328,54 @@ impl Blocks {
         }
         Ok(())
     }
+
+    /// flowgraph.c mark_cold (two-pass to match CPython).
+    ///
+    /// Phase 1 (mark_warm): propagate "warm" from entry via fall-through and
+    /// jump targets. CPython asserts while visiting warm blocks that they are not
+    /// exception handlers.
+    ///
+    /// Phase 2 (mark_cold): propagate "cold" from except_handler blocks via
+    /// forward edges. Blocks reached only via runtime exception dispatch are
+    /// marked cold and pushed to the end by push_cold_blocks_to_end.
+    ///
+    /// Blocks reached by neither phase remain `cold=false`. They are typically
+    /// empty unreachable placeholders left by remove_unreachable; they stay in
+    /// their original chain position (e.g. between entry and the post-try
+    /// continuation for a nested try/except whose inner_end was emptied by
+    /// optimize_cfg). This matches CPython's behavior and is necessary for
+    /// optimize_load_fast to terminate fall-through at those placeholders.
+    /// flowgraph.c mark_warm
+    fn mark_warm(&mut self) -> crate::InternalResult<()> {
+        let mut stack = self.make_cfg_traversal_stack()?;
+        stack.push(BlockIdx(0));
+        self[0].visited = true;
+        while let Some(block_idx) = stack.pop() {
+            debug_assert!(!self[block_idx].except_handler);
+            self[block_idx].warm = true;
+
+            let next = self[block_idx].next;
+            if next != BlockIdx::NULL && bb_has_fallthrough(&self[block_idx]) && !self[next].visited
+            {
+                stack.push(next);
+                self[next].visited = true;
+            }
+
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[block_idx].instructions[i];
+                if is_jump(&instr) {
+                    let target = instr.target;
+                    debug_assert!(target != BlockIdx::NULL);
+                    if !self[target].visited {
+                        stack.push(target);
+                        self[target].visited = true;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -5345,54 +5393,6 @@ fn assemble_exception_table(
     Ok(table.into_boxed_slice())
 }
 
-/// flowgraph.c mark_cold (two-pass to match CPython).
-///
-/// Phase 1 (mark_warm): propagate "warm" from entry via fall-through and
-/// jump targets. CPython asserts while visiting warm blocks that they are not
-/// exception handlers.
-///
-/// Phase 2 (mark_cold): propagate "cold" from except_handler blocks via
-/// forward edges. Blocks reached only via runtime exception dispatch are
-/// marked cold and pushed to the end by push_cold_blocks_to_end.
-///
-/// Blocks reached by neither phase remain `cold=false`. They are typically
-/// empty unreachable placeholders left by remove_unreachable; they stay in
-/// their original chain position (e.g. between entry and the post-try
-/// continuation for a nested try/except whose inner_end was emptied by
-/// optimize_cfg). This matches CPython's behavior and is necessary for
-/// optimize_load_fast to terminate fall-through at those placeholders.
-/// flowgraph.c mark_warm
-fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut stack = blocks.make_cfg_traversal_stack()?;
-    stack.push(BlockIdx(0));
-    blocks[0].visited = true;
-    while let Some(block_idx) = stack.pop() {
-        let idx = block_idx.idx();
-        debug_assert!(!blocks[idx].except_handler);
-        blocks[idx].warm = true;
-
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) && !blocks[next].visited {
-            stack.push(next);
-            blocks[next.idx()].visited = true;
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) {
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                if !blocks[target.idx()].visited {
-                    stack.push(target);
-                    blocks[target.idx()].visited = true;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
@@ -5402,7 +5402,7 @@ fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
         block_idx = block.next;
     }
 
-    mark_warm(blocks)?;
+    blocks.mark_warm()?;
 
     let mut cold_stack = blocks.make_cfg_traversal_stack()?;
     block_idx = BlockIdx(0);
