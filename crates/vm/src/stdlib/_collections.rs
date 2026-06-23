@@ -836,12 +836,10 @@ mod _collections {
                     return Ok(vm.ctx.not_implemented.clone().into());
                 }
 
-                let default_factory = zelf.default_factory.read().clone();
-                (default_factory, zelf.dict.copy())
+                (zelf.default_factory.read().clone(), zelf.dict.copy())
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
                 if let Some(dict) = lhs.downcast_ref::<PyDict>() {
-                    let default_factory = zelf.default_factory.read().clone();
-                    (default_factory, dict.copy())
+                    (zelf.default_factory.read().clone(), dict.copy())
                 } else {
                     return Ok(vm.ctx.not_implemented.clone().into());
                 }
