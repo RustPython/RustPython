@@ -2128,6 +2128,24 @@ impl Blocks {
         debug_assert_eq!(stack.capacity(), nblocks);
         Ok(stack)
     }
+
+    /// flowgraph.c normalize_jumps
+    fn normalize_jumps(&mut self) -> crate::InternalResult<()> {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current].visited = false;
+            current = self[current].next;
+        }
+
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current].visited = true;
+            normalize_jumps_in_block(self, current)?;
+            current = self[current].next;
+        }
+
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2720,7 +2738,7 @@ fn optimized_cfg_to_instruction_sequence(
     // Match CPython order: pseudo ops are lowered after stackdepth and
     // localsplus preparation, before normalize_jumps.
     convert_pseudo_ops(blocks)?;
-    normalize_jumps(blocks)?;
+    blocks.normalize_jumps()?;
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
     // optimize_load_fast: after normalize_jumps
@@ -5745,24 +5763,6 @@ fn normalize_jumps_in_block(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::
     blocks[backwards_jump_idx.idx()].cold = blocks[idx].cold;
     blocks[backwards_jump_idx.idx()].next = old_next;
     blocks[idx].next = backwards_jump_idx;
-    Ok(())
-}
-
-/// flowgraph.c normalize_jumps
-fn normalize_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        blocks[current.idx()].visited = false;
-        current = blocks[current.idx()].next;
-    }
-
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let idx = current.idx();
-        blocks[idx].visited = true;
-        normalize_jumps_in_block(blocks, current)?;
-        current = blocks[idx].next;
-    }
     Ok(())
 }
 
