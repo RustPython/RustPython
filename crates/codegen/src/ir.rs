@@ -737,60 +737,6 @@ fn instruction_sequence_apply_label_map(
     Ok(())
 }
 
-/// flowgraph.c _PyCfg_ToInstructionSequence
-fn cfg_to_instruction_sequence(
-    blocks: &mut Blocks,
-    instr_sequence: &mut InstructionSequence,
-) -> crate::InternalResult<()> {
-    let mut label_id = 0;
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        blocks[block_idx.idx()].cpython_label = InstructionSequenceLabel::from_index(label_id);
-        label_id += 1;
-        block_idx = blocks[block_idx.idx()].next;
-    }
-
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block_label = blocks[block_idx.idx()].cpython_label;
-        debug_assert!(is_label(block_label));
-        instruction_sequence_use_label(instr_sequence, block_label)?;
-
-        let instr_count = blocks[block_idx.idx()].instruction_used;
-        for i in 0..instr_count {
-            if blocks[block_idx.idx()].instructions[i].instr.has_target() {
-                let target_block = blocks[block_idx.idx()].instructions[i].target;
-                debug_assert!(target_block != BlockIdx::NULL);
-                let lbl = blocks[target_block.idx()].cpython_label;
-                debug_assert!(is_label(lbl));
-                blocks[block_idx.idx()].instructions[i].arg = OpArg::new(lbl.0 as u32);
-            }
-
-            let mut info = blocks[block_idx.idx()].instructions[i];
-            info.target = BlockIdx::NULL;
-            let except_handler = info.except_handler.take();
-            let entry = instruction_sequence_addop(instr_sequence, info)?;
-            let hi = &mut entry.except_handler;
-            if let Some(handler) = except_handler {
-                debug_assert!(handler.handler_block != BlockIdx::NULL);
-                let lbl = blocks[handler.handler_block.idx()].cpython_label;
-                debug_assert!(is_label(lbl));
-                let start_depth = blocks[handler.handler_block.idx()].start_depth;
-                debug_assert!(start_depth >= 0);
-                hi.h_label = lbl.0;
-                hi.start_depth = start_depth;
-                hi.preserve_lasti = i32::from(handler.preserve_lasti);
-            } else {
-                hi.h_label = NO_EXCEPTION_HANDLER_LABEL;
-            }
-        }
-        block_idx = blocks[block_idx.idx()].next;
-    }
-
-    instruction_sequence_apply_label_map(instr_sequence)?;
-    Ok(())
-}
-
 /// assemble.c instr_size
 fn instr_size(instr: &InstructionInfo) -> usize {
     let opcode = instr.instr.expect_real();
@@ -1705,6 +1651,60 @@ impl Blocks {
         apply_static_swaps_block(&mut self[block_idx])?;
         Ok(())
     }
+
+    /// flowgraph.c _PyCfg_ToInstructionSequence
+    fn cfg_to_instruction_sequence(
+        &mut self,
+        instr_sequence: &mut InstructionSequence,
+    ) -> crate::InternalResult<()> {
+        let mut label_id = 0;
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            self[block_idx].cpython_label = InstructionSequenceLabel::from_index(label_id);
+            label_id += 1;
+            block_idx = self[block_idx].next;
+        }
+
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block_label = self[block_idx].cpython_label;
+            debug_assert!(is_label(block_label));
+            instruction_sequence_use_label(instr_sequence, block_label)?;
+
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                if self[block_idx].instructions[i].instr.has_target() {
+                    let target_block = self[block_idx].instructions[i].target;
+                    debug_assert!(target_block != BlockIdx::NULL);
+                    let lbl = self[target_block].cpython_label;
+                    debug_assert!(is_label(lbl));
+                    self[block_idx].instructions[i].arg = OpArg::new(lbl.0 as u32);
+                }
+
+                let mut info = self[block_idx].instructions[i];
+                info.target = BlockIdx::NULL;
+                let except_handler = info.except_handler.take();
+                let entry = instruction_sequence_addop(instr_sequence, info)?;
+                let hi = &mut entry.except_handler;
+                if let Some(handler) = except_handler {
+                    debug_assert!(handler.handler_block != BlockIdx::NULL);
+                    let lbl = self[handler.handler_block].cpython_label;
+                    debug_assert!(is_label(lbl));
+                    let start_depth = self[handler.handler_block].start_depth;
+                    debug_assert!(start_depth >= 0);
+                    hi.h_label = lbl.0;
+                    hi.start_depth = start_depth;
+                    hi.preserve_lasti = i32::from(handler.preserve_lasti);
+                } else {
+                    hi.h_label = NO_EXCEPTION_HANDLER_LABEL;
+                }
+            }
+            block_idx = self[block_idx].next;
+        }
+
+        instruction_sequence_apply_label_map(instr_sequence)?;
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2304,7 +2304,7 @@ fn optimized_cfg_to_instruction_sequence(
     optimize_load_fast(blocks)?;
 
     let mut instr_sequence = instruction_sequence_new();
-    cfg_to_instruction_sequence(blocks, &mut instr_sequence)?;
+    blocks.cfg_to_instruction_sequence(&mut instr_sequence)?;
     Ok((max_stackdepth, nlocalsplus, instr_sequence))
 }
 
