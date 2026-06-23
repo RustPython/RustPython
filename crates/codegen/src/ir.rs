@@ -2056,6 +2056,56 @@ impl Blocks {
         }
         Ok(())
     }
+
+    /// flowgraph.c calculate_stackdepth
+    fn calculate_stackdepth(&mut self) -> crate::InternalResult<u32> {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            self[current.idx()].start_depth = START_DEPTH_UNSET;
+            current = self[current.idx()].next;
+        }
+        let mut stack = make_cfg_traversal_stack(self)?;
+        let mut maxdepth = 0i32;
+        stackdepth_push(&mut stack, self, BlockIdx(0), 0)?;
+        while let Some(block_idx) = stack.pop() {
+            let mut depth = self[block_idx].start_depth;
+            debug_assert!(depth >= 0);
+            let mut next = self[block_idx].next;
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let ins = self[block_idx].instructions[i];
+                let instr = &ins.instr;
+                let effects = get_stack_effects(*instr, ins.arg, 0)?;
+                let new_depth = depth + effects.net;
+                if new_depth < 0 {
+                    return Err(InternalError::StackUnderflow);
+                }
+                maxdepth = maxdepth.max(depth);
+                if instr.has_target() && !matches!(instr.real(), Some(Instruction::EndAsyncFor)) {
+                    debug_assert!(ins.target != BlockIdx::NULL);
+                    let effects = get_stack_effects(*instr, ins.arg, 1)?;
+                    let target_depth = depth + effects.net;
+                    debug_assert!(target_depth >= 0);
+                    maxdepth = maxdepth.max(depth);
+                    stackdepth_push(&mut stack, self, ins.target, target_depth)?;
+                }
+                depth = new_depth;
+                debug_assert!(!instr.is_assembler());
+                if instr.is_unconditional_jump() || instr.is_scope_exit() {
+                    next = BlockIdx::NULL;
+                    break;
+                }
+            }
+
+            if next != BlockIdx::NULL {
+                debug_assert!(bb_has_fallthrough(&self[block_idx]));
+                stackdepth_push(&mut stack, self, next, depth)?;
+            }
+        }
+
+        let stackdepth = maxdepth;
+        Ok(stackdepth as u32)
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2642,7 +2692,7 @@ fn optimized_cfg_to_instruction_sequence(
 ) -> crate::InternalResult<(u32, usize, InstructionSequence)> {
     // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
     convert_pseudo_conditional_jumps(blocks)?;
-    let max_stackdepth = calculate_stackdepth(blocks)?;
+    let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
     let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
     // Match CPython order: pseudo ops are lowered after stackdepth and
@@ -4491,56 +4541,6 @@ fn remove_unused_consts(
         block_idx = next_block;
     }
     Ok(())
-}
-
-/// flowgraph.c calculate_stackdepth
-fn calculate_stackdepth(blocks: &mut Blocks) -> crate::InternalResult<u32> {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        blocks[current.idx()].start_depth = START_DEPTH_UNSET;
-        current = blocks[current.idx()].next;
-    }
-    let mut stack = make_cfg_traversal_stack(blocks)?;
-    let mut maxdepth = 0i32;
-    stackdepth_push(&mut stack, blocks, BlockIdx(0), 0)?;
-    while let Some(block_idx) = stack.pop() {
-        let idx = block_idx.idx();
-        let mut depth = blocks[idx].start_depth;
-        debug_assert!(depth >= 0);
-        let mut next = blocks[idx].next;
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let ins = blocks[idx].instructions[i];
-            let instr = &ins.instr;
-            let effects = get_stack_effects(*instr, ins.arg, 0)?;
-            let new_depth = depth + effects.net;
-            if new_depth < 0 {
-                return Err(InternalError::StackUnderflow);
-            }
-            maxdepth = maxdepth.max(depth);
-            if instr.has_target() && !matches!(instr.real(), Some(Instruction::EndAsyncFor)) {
-                debug_assert!(ins.target != BlockIdx::NULL);
-                let effects = get_stack_effects(*instr, ins.arg, 1)?;
-                let target_depth = depth + effects.net;
-                debug_assert!(target_depth >= 0);
-                maxdepth = maxdepth.max(depth);
-                stackdepth_push(&mut stack, blocks, ins.target, target_depth)?;
-            }
-            depth = new_depth;
-            debug_assert!(!instr.is_assembler());
-            if instr.is_unconditional_jump() || instr.is_scope_exit() {
-                next = BlockIdx::NULL;
-                break;
-            }
-        }
-        if next != BlockIdx::NULL {
-            debug_assert!(bb_has_fallthrough(&blocks[idx]));
-            stackdepth_push(&mut stack, blocks, next, depth)?;
-        }
-    }
-
-    let stackdepth = maxdepth;
-    Ok(stackdepth as u32)
 }
 
 #[cfg(test)]
