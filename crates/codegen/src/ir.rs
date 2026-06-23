@@ -1379,6 +1379,15 @@ impl Blocks {
 
         Ok(())
     }
+
+    /// flowgraph.c copy_basicblock
+    fn copy_basicblock(&mut self, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
+        debug_assert!(bb_no_fallthrough(&self[block_idx]));
+
+        let result = blocks_new_block(self)?;
+        self.basicblock_append_block_instructions(result, block_idx)?;
+        Ok(result)
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -6412,15 +6421,6 @@ fn basicblock_has_no_lineno(block: &Block) -> bool {
     true
 }
 
-/// flowgraph.c copy_basicblock
-fn copy_basicblock(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
-    debug_assert!(bb_no_fallthrough(&blocks[block_idx]));
-
-    let result = blocks_new_block(blocks)?;
-    blocks.basicblock_append_block_instructions(result, block_idx)?;
-    Ok(result)
-}
-
 /// flowgraph.c get_max_label
 fn get_max_label(blocks: &Blocks) -> i32 {
     let mut lbl = -1;
@@ -6450,7 +6450,7 @@ fn duplicate_exits_without_lineno(blocks: &mut Blocks) -> crate::InternalResult<
             if is_exit_or_eval_check_without_lineno(&blocks[target])
                 && blocks[target].predecessors > 1
             {
-                let new_target = copy_basicblock(blocks, target)?;
+                let new_target = blocks.copy_basicblock(target)?;
                 instr_set_location(
                     &mut blocks[new_target].instructions[0],
                     instr_location(&last),
