@@ -1705,6 +1705,254 @@ impl Blocks {
         instruction_sequence_apply_label_map(instr_sequence)?;
         Ok(())
     }
+
+    fn optimize_load_fast(&mut self) -> crate::InternalResult<()> {
+        let mut max_instrs = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            max_instrs = max_instrs.max(self[current].instruction_used);
+            current = self[current].next;
+        }
+
+        let mut instr_flags = Vec::new();
+        instr_flags
+            .try_reserve_exact(max_instrs)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        instr_flags.resize(max_instrs, 0u8);
+        let mut refs = RefStack {
+            refs: Vec::new(),
+            size: 0,
+            capacity: 0,
+        };
+        let mut worklist = make_cfg_traversal_stack(self)?;
+        worklist.push(BlockIdx(0));
+        self[0].start_depth = 0;
+        self[0].visited = true;
+        while let Some(block_idx) = worklist.pop() {
+            let instr_count = self[block_idx].instruction_used;
+            instr_flags[..instr_count].fill(0);
+            debug_assert!(self[block_idx].start_depth >= 0);
+            let start_depth = self[block_idx].start_depth as usize;
+            ref_stack_clear(&mut refs);
+            for _ in 0..start_depth {
+                push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL)?;
+            }
+
+            for i in 0..instr_count {
+                let info = self[block_idx].instructions[i];
+                let instr = info.instr;
+                let arg_u32 = u32::from(info.arg);
+                debug_assert!(!matches!(instr.real(), Some(Instruction::ExtendedArg)));
+
+                match instr {
+                    AnyInstruction::Real(Instruction::DeleteFast { var_num }) => {
+                        kill_local(
+                            &mut instr_flags,
+                            &refs,
+                            local_as_ref_local(usize::from(var_num.get(info.arg))),
+                        );
+                    }
+                    AnyInstruction::Real(Instruction::LoadFast { var_num }) => {
+                        push_ref(
+                            &mut refs,
+                            i as isize,
+                            local_as_ref_local(usize::from(var_num.get(info.arg))),
+                        )?;
+                    }
+                    AnyInstruction::Real(Instruction::LoadFastAndClear { var_num }) => {
+                        let local = local_as_ref_local(usize::from(var_num.get(info.arg)));
+                        kill_local(&mut instr_flags, &refs, local);
+                        push_ref(&mut refs, i as isize, local)?;
+                    }
+                    AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
+                        let local1 = (arg_u32 >> 4) as isize;
+                        let local2 = (arg_u32 & 15) as isize;
+                        push_ref(&mut refs, i as isize, local1)?;
+                        push_ref(&mut refs, i as isize, local2)?;
+                    }
+                    AnyInstruction::Real(Instruction::StoreFast { var_num }) => {
+                        let r = ref_stack_pop(&mut refs);
+                        store_local(
+                            &mut instr_flags,
+                            &refs,
+                            local_as_ref_local(usize::from(var_num.get(info.arg))),
+                            r,
+                        );
+                    }
+                    AnyInstruction::Real(Instruction::StoreFastLoadFast { .. }) => {
+                        let r = ref_stack_pop(&mut refs);
+                        store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r);
+                        push_ref(&mut refs, i as isize, (arg_u32 & 15) as isize)?;
+                    }
+                    AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
+                        let r1 = ref_stack_pop(&mut refs);
+                        store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r1);
+                        let r2 = ref_stack_pop(&mut refs);
+                        store_local(&mut instr_flags, &refs, (arg_u32 & 15) as isize, r2);
+                    }
+                    AnyInstruction::Real(Instruction::Copy { i: _ }) => {
+                        let depth = arg_u32 as usize;
+                        assert!(depth > 0);
+                        assert!(refs.size >= depth);
+                        let r = ref_stack_at(&refs, refs.size - depth);
+                        push_ref(&mut refs, r.instr, r.local)?;
+                    }
+                    AnyInstruction::Real(Instruction::Swap { i: _ }) => {
+                        let depth = arg_u32 as usize;
+                        assert!(depth >= 2);
+                        assert!(refs.size >= depth);
+                        ref_stack_swap_top(&mut refs, depth);
+                    }
+                    AnyInstruction::Real(
+                        Instruction::FormatSimple
+                        | Instruction::GetAnext
+                        | Instruction::GetLen
+                        | Instruction::GetYieldFromIter
+                        | Instruction::ImportFrom { .. }
+                        | Instruction::MatchKeys
+                        | Instruction::MatchMapping
+                        | Instruction::MatchSequence
+                        | Instruction::WithExceptStart,
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let net_pushed = effect.pushed() as isize - effect.popped() as isize;
+                        debug_assert!(net_pushed >= 0);
+                        // CPython optimize_load_fast() shadows the outer
+                        // instruction index in this produced-value loop.
+                        for produced in 0..net_pushed {
+                            push_ref(&mut refs, produced, NOT_LOCAL)?;
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::DictMerge { .. }
+                        | Instruction::DictUpdate { .. }
+                        | Instruction::ListAppend { .. }
+                        | Instruction::ListExtend { .. }
+                        | Instruction::MapAdd { .. }
+                        | Instruction::Reraise { .. }
+                        | Instruction::SetAdd { .. }
+                        | Instruction::SetUpdate { .. },
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let net_popped = effect.popped() as isize - effect.pushed() as isize;
+                        debug_assert!(net_popped > 0);
+                        for _ in 0..net_popped {
+                            let _ = ref_stack_pop(&mut refs);
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::EndSend | Instruction::SetFunctionAttribute { .. },
+                    ) => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        debug_assert_eq!(effect.popped(), 2);
+                        debug_assert_eq!(effect.pushed(), 1);
+                        let tos = ref_stack_pop(&mut refs);
+                        let _ = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, tos.instr, tos.local)?;
+                    }
+                    AnyInstruction::Real(Instruction::CheckExcMatch) => {
+                        let _ = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    }
+                    AnyInstruction::Real(Instruction::ForIter { .. }) => {
+                        let target = info.target;
+                        debug_assert!(target != BlockIdx::NULL);
+                        load_fast_push_block(&mut worklist, self, target, refs.size + 1);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    }
+                    AnyInstruction::Real(
+                        Instruction::LoadAttr { .. } | Instruction::LoadSuperAttr { .. },
+                    ) => {
+                        let self_ref = ref_stack_pop(&mut refs);
+                        if matches!(instr.real(), Some(Instruction::LoadSuperAttr { .. })) {
+                            let _ = ref_stack_pop(&mut refs);
+                            let _ = ref_stack_pop(&mut refs);
+                        }
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                        if arg_u32 & 1 != 0 {
+                            push_ref(&mut refs, self_ref.instr, self_ref.local)?;
+                        }
+                    }
+                    AnyInstruction::Real(
+                        Instruction::LoadSpecial { .. } | Instruction::PushExcInfo,
+                    ) => {
+                        let tos = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                        push_ref(&mut refs, tos.instr, tos.local)?;
+                    }
+                    AnyInstruction::Real(Instruction::Send { .. }) => {
+                        let target = info.target;
+                        debug_assert!(target != BlockIdx::NULL);
+                        load_fast_push_block(&mut worklist, self, target, refs.size);
+                        let _ = ref_stack_pop(&mut refs);
+                        push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                    }
+                    _ => {
+                        let effect = instr.stack_effect_info(arg_u32);
+                        let num_popped = effect.popped() as usize;
+                        let num_pushed = effect.pushed() as usize;
+                        let target = info.target;
+                        if instr.has_target() {
+                            debug_assert!(target != BlockIdx::NULL);
+                            debug_assert!(refs.size >= num_popped);
+                            let target_depth = refs.size - num_popped + num_pushed;
+                            load_fast_push_block(&mut worklist, self, target, target_depth);
+                        }
+                        if !is_block_push(&info) {
+                            for _ in 0..num_popped {
+                                let _ = ref_stack_pop(&mut refs);
+                            }
+                            for _ in 0..num_pushed {
+                                push_ref(&mut refs, i as isize, NOT_LOCAL)?;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let fallthrough = self[block_idx].next;
+            let term = basicblock_last_instr(&self[block_idx]).copied();
+            if let Some(term) = term
+                && fallthrough != BlockIdx::NULL
+                && !term.instr.is_unconditional_jump()
+                && !term.instr.is_scope_exit()
+            {
+                debug_assert!(bb_has_fallthrough(&self[block_idx]));
+                load_fast_push_block(&mut worklist, self, fallthrough, refs.size);
+            }
+
+            for i in 0..refs.size {
+                let r = ref_stack_at(&refs, i);
+                if r.instr != DUMMY_INSTR {
+                    instr_flags[r.instr as usize] |= LoadFastInstrFlag::RefUnconsumed as u8;
+                }
+            }
+
+            let block = &mut self[block_idx];
+            let iused = block.instruction_used;
+            let mut i = 0;
+            while i < iused {
+                let info = &mut block.instructions[i];
+                if instr_flags[i] != 0 {
+                    i += 1;
+                    continue;
+                }
+
+                match info.instr.real_opcode() {
+                    Some(Opcode::LoadFast) => {
+                        info.instr = Opcode::LoadFastBorrow.into();
+                    }
+                    Some(Opcode::LoadFastLoadFast) => {
+                        info.instr = Opcode::LoadFastBorrowLoadFastBorrow.into();
+                    }
+                    _ => {}
+                }
+                i += 1;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2301,7 +2549,7 @@ fn optimized_cfg_to_instruction_sequence(
     #[cfg(debug_assertions)]
     assert!(no_redundant_jumps(blocks));
     // optimize_load_fast: after normalize_jumps
-    optimize_load_fast(blocks)?;
+    blocks.optimize_load_fast()?;
 
     let mut instr_sequence = instruction_sequence_new();
     blocks.cfg_to_instruction_sequence(&mut instr_sequence)?;
@@ -4199,254 +4447,6 @@ fn remove_unused_consts(
             }
         }
         block_idx = next_block;
-    }
-    Ok(())
-}
-
-fn optimize_load_fast(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut max_instrs = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        max_instrs = max_instrs.max(blocks[current.idx()].instruction_used);
-        current = blocks[current.idx()].next;
-    }
-    let mut instr_flags = Vec::new();
-    instr_flags
-        .try_reserve_exact(max_instrs)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    instr_flags.resize(max_instrs, 0u8);
-    let mut refs = RefStack {
-        refs: Vec::new(),
-        size: 0,
-        capacity: 0,
-    };
-    let mut worklist = make_cfg_traversal_stack(blocks)?;
-    worklist.push(BlockIdx(0));
-    blocks[0].start_depth = 0;
-    blocks[0].visited = true;
-    while let Some(block_idx) = worklist.pop() {
-        let block_i = block_idx.idx();
-
-        let instr_count = blocks[block_i].instruction_used;
-        instr_flags[..instr_count].fill(0);
-        debug_assert!(blocks[block_i].start_depth >= 0);
-        let start_depth = blocks[block_i].start_depth as usize;
-        ref_stack_clear(&mut refs);
-        for _ in 0..start_depth {
-            push_ref(&mut refs, DUMMY_INSTR, NOT_LOCAL)?;
-        }
-
-        for i in 0..instr_count {
-            let info = blocks[block_i].instructions[i];
-            let instr = info.instr;
-            let arg_u32 = u32::from(info.arg);
-            debug_assert!(!matches!(instr.real(), Some(Instruction::ExtendedArg)));
-
-            match instr {
-                AnyInstruction::Real(Instruction::DeleteFast { var_num }) => {
-                    kill_local(
-                        &mut instr_flags,
-                        &refs,
-                        local_as_ref_local(usize::from(var_num.get(info.arg))),
-                    );
-                }
-                AnyInstruction::Real(Instruction::LoadFast { var_num }) => {
-                    push_ref(
-                        &mut refs,
-                        i as isize,
-                        local_as_ref_local(usize::from(var_num.get(info.arg))),
-                    )?;
-                }
-                AnyInstruction::Real(Instruction::LoadFastAndClear { var_num }) => {
-                    let local = local_as_ref_local(usize::from(var_num.get(info.arg)));
-                    kill_local(&mut instr_flags, &refs, local);
-                    push_ref(&mut refs, i as isize, local)?;
-                }
-                AnyInstruction::Real(Instruction::LoadFastLoadFast { .. }) => {
-                    let local1 = (arg_u32 >> 4) as isize;
-                    let local2 = (arg_u32 & 15) as isize;
-                    push_ref(&mut refs, i as isize, local1)?;
-                    push_ref(&mut refs, i as isize, local2)?;
-                }
-                AnyInstruction::Real(Instruction::StoreFast { var_num }) => {
-                    let r = ref_stack_pop(&mut refs);
-                    store_local(
-                        &mut instr_flags,
-                        &refs,
-                        local_as_ref_local(usize::from(var_num.get(info.arg))),
-                        r,
-                    );
-                }
-                AnyInstruction::Real(Instruction::StoreFastLoadFast { .. }) => {
-                    let r = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r);
-                    push_ref(&mut refs, i as isize, (arg_u32 & 15) as isize)?;
-                }
-                AnyInstruction::Real(Instruction::StoreFastStoreFast { .. }) => {
-                    let r1 = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, (arg_u32 >> 4) as isize, r1);
-                    let r2 = ref_stack_pop(&mut refs);
-                    store_local(&mut instr_flags, &refs, (arg_u32 & 15) as isize, r2);
-                }
-                AnyInstruction::Real(Instruction::Copy { i: _ }) => {
-                    let depth = arg_u32 as usize;
-                    assert!(depth > 0);
-                    assert!(refs.size >= depth);
-                    let r = ref_stack_at(&refs, refs.size - depth);
-                    push_ref(&mut refs, r.instr, r.local)?;
-                }
-                AnyInstruction::Real(Instruction::Swap { i: _ }) => {
-                    let depth = arg_u32 as usize;
-                    assert!(depth >= 2);
-                    assert!(refs.size >= depth);
-                    ref_stack_swap_top(&mut refs, depth);
-                }
-                AnyInstruction::Real(
-                    Instruction::FormatSimple
-                    | Instruction::GetAnext
-                    | Instruction::GetLen
-                    | Instruction::GetYieldFromIter
-                    | Instruction::ImportFrom { .. }
-                    | Instruction::MatchKeys
-                    | Instruction::MatchMapping
-                    | Instruction::MatchSequence
-                    | Instruction::WithExceptStart,
-                ) => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    let net_pushed = effect.pushed() as isize - effect.popped() as isize;
-                    debug_assert!(net_pushed >= 0);
-                    // CPython optimize_load_fast() shadows the outer
-                    // instruction index in this produced-value loop.
-                    for produced in 0..net_pushed {
-                        push_ref(&mut refs, produced, NOT_LOCAL)?;
-                    }
-                }
-                AnyInstruction::Real(
-                    Instruction::DictMerge { .. }
-                    | Instruction::DictUpdate { .. }
-                    | Instruction::ListAppend { .. }
-                    | Instruction::ListExtend { .. }
-                    | Instruction::MapAdd { .. }
-                    | Instruction::Reraise { .. }
-                    | Instruction::SetAdd { .. }
-                    | Instruction::SetUpdate { .. },
-                ) => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    let net_popped = effect.popped() as isize - effect.pushed() as isize;
-                    debug_assert!(net_popped > 0);
-                    for _ in 0..net_popped {
-                        let _ = ref_stack_pop(&mut refs);
-                    }
-                }
-                AnyInstruction::Real(
-                    Instruction::EndSend | Instruction::SetFunctionAttribute { .. },
-                ) => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    debug_assert_eq!(effect.popped(), 2);
-                    debug_assert_eq!(effect.pushed(), 1);
-                    let tos = ref_stack_pop(&mut refs);
-                    let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, tos.instr, tos.local)?;
-                }
-                AnyInstruction::Real(Instruction::CheckExcMatch) => {
-                    let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                }
-                AnyInstruction::Real(Instruction::ForIter { .. }) => {
-                    let target = info.target;
-                    debug_assert!(target != BlockIdx::NULL);
-                    load_fast_push_block(&mut worklist, blocks, target, refs.size + 1);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                }
-                AnyInstruction::Real(
-                    Instruction::LoadAttr { .. } | Instruction::LoadSuperAttr { .. },
-                ) => {
-                    let self_ref = ref_stack_pop(&mut refs);
-                    if matches!(instr.real(), Some(Instruction::LoadSuperAttr { .. })) {
-                        let _ = ref_stack_pop(&mut refs);
-                        let _ = ref_stack_pop(&mut refs);
-                    }
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                    if arg_u32 & 1 != 0 {
-                        push_ref(&mut refs, self_ref.instr, self_ref.local)?;
-                    }
-                }
-                AnyInstruction::Real(
-                    Instruction::LoadSpecial { .. } | Instruction::PushExcInfo,
-                ) => {
-                    let tos = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                    push_ref(&mut refs, tos.instr, tos.local)?;
-                }
-                AnyInstruction::Real(Instruction::Send { .. }) => {
-                    let target = info.target;
-                    debug_assert!(target != BlockIdx::NULL);
-                    load_fast_push_block(&mut worklist, blocks, target, refs.size);
-                    let _ = ref_stack_pop(&mut refs);
-                    push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                }
-                _ => {
-                    let effect = instr.stack_effect_info(arg_u32);
-                    let num_popped = effect.popped() as usize;
-                    let num_pushed = effect.pushed() as usize;
-                    let target = info.target;
-                    if instr.has_target() {
-                        debug_assert!(target != BlockIdx::NULL);
-                        debug_assert!(refs.size >= num_popped);
-                        let target_depth = refs.size - num_popped + num_pushed;
-                        load_fast_push_block(&mut worklist, blocks, target, target_depth);
-                    }
-                    if !is_block_push(&info) {
-                        for _ in 0..num_popped {
-                            let _ = ref_stack_pop(&mut refs);
-                        }
-                        for _ in 0..num_pushed {
-                            push_ref(&mut refs, i as isize, NOT_LOCAL)?;
-                        }
-                    }
-                }
-            }
-        }
-
-        let fallthrough = blocks[block_i].next;
-        let term = basicblock_last_instr(&blocks[block_i]).copied();
-        if let Some(term) = term
-            && fallthrough != BlockIdx::NULL
-            && !term.instr.is_unconditional_jump()
-            && !term.instr.is_scope_exit()
-        {
-            debug_assert!(bb_has_fallthrough(&blocks[block_i]));
-            load_fast_push_block(&mut worklist, blocks, fallthrough, refs.size);
-        }
-
-        for i in 0..refs.size {
-            let r = ref_stack_at(&refs, i);
-            if r.instr != DUMMY_INSTR {
-                instr_flags[r.instr as usize] |= LoadFastInstrFlag::RefUnconsumed as u8;
-            }
-        }
-
-        let block = &mut blocks[block_idx];
-        let iused = block.instruction_used;
-        let mut i = 0;
-        while i < iused {
-            let info = &mut block.instructions[i];
-            if instr_flags[i] != 0 {
-                i += 1;
-                continue;
-            }
-
-            match info.instr.real_opcode() {
-                Some(Opcode::LoadFast) => {
-                    info.instr = Opcode::LoadFastBorrow.into();
-                }
-                Some(Opcode::LoadFastLoadFast) => {
-                    info.instr = Opcode::LoadFastBorrowLoadFastBorrow.into();
-                }
-                _ => {}
-            }
-            i += 1;
-        }
     }
     Ok(())
 }
