@@ -2300,6 +2300,34 @@ impl Blocks {
 
         Ok(res)
     }
+
+    /// Mark exception handler target blocks.
+    /// flowgraph.c mark_except_handlers
+    pub(crate) fn mark_except_handlers(&mut self) -> crate::InternalResult<()> {
+        #[cfg(debug_assertions)]
+        {
+            let mut block_idx = BlockIdx(0);
+            while block_idx != BlockIdx::NULL {
+                assert!(!self[block_idx].except_handler);
+                block_idx = self[block_idx].next;
+            }
+        }
+
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[block_idx].instructions[i];
+                if is_block_push(&instr) {
+                    debug_assert!(instr.target != BlockIdx::NULL);
+                    self[instr.target].except_handler = true;
+                }
+            }
+            block_idx = next;
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2825,7 +2853,7 @@ fn optimize_code_unit(
     // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
     *blocks = cfg_from_instruction_sequence(instr_sequence)?;
     translate_jump_labels_to_targets(blocks)?;
-    mark_except_handlers(blocks)?;
+    blocks.mark_except_handlers()?;
     label_exception_targets(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     blocks.remove_unused_consts(&mut metadata.consts)?;
@@ -5315,35 +5343,6 @@ fn assemble_exception_table(
     }
 
     Ok(table.into_boxed_slice())
-}
-
-/// Mark exception handler target blocks.
-/// flowgraph.c mark_except_handlers
-#[allow(clippy::unnecessary_wraps)]
-pub(crate) fn mark_except_handlers(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    #[cfg(debug_assertions)]
-    {
-        let mut block_idx = BlockIdx(0);
-        while block_idx != BlockIdx::NULL {
-            assert!(!blocks[block_idx].except_handler);
-            block_idx = blocks[block_idx].next;
-        }
-    }
-
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx].next;
-        let instr_count = blocks[block_idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[block_idx].instructions[i];
-            if is_block_push(&instr) {
-                debug_assert!(instr.target != BlockIdx::NULL);
-                blocks[instr.target].except_handler = true;
-            }
-        }
-        block_idx = next;
-    }
-    Ok(())
 }
 
 /// flowgraph.c mark_cold (two-pass to match CPython).
