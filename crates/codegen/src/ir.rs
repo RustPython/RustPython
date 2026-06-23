@@ -1996,6 +1996,66 @@ impl Blocks {
             current = self[current].next;
         }
     }
+
+    /// flowgraph.c remove_redundant_nops_and_pairs
+    fn remove_redundant_nops_and_pairs(&mut self) -> crate::InternalResult<()> {
+        let mut done = false;
+
+        while !done {
+            done = true;
+            let mut instr: Option<(BlockIdx, usize)> = None;
+            let mut block_idx = BlockIdx::new(0);
+
+            while block_idx != BlockIdx::NULL {
+                basicblock_remove_redundant_nops(self, block_idx)?;
+                if is_label(self[block_idx].cpython_label) {
+                    instr = None;
+                }
+
+                let len = self[block_idx].instruction_used;
+                for instr_idx in 0..len {
+                    let prev_instr = instr;
+                    instr = Some((block_idx, instr_idx));
+                    let instr_info = self[block_idx].instructions[instr_idx];
+                    let mut prev_opcode = None;
+                    let prev_oparg = if let Some((prev_block, prev_instr_idx)) = prev_instr {
+                        let prev_info = self[prev_block].instructions[prev_instr_idx];
+                        prev_opcode = prev_info.instr.real_opcode();
+                        match prev_info.instr.real() {
+                            Some(Instruction::Copy { i }) => i.get(prev_info.arg),
+                            _ => u32::from(prev_info.arg),
+                        }
+                    } else {
+                        0
+                    };
+
+                    let opcode = instr_info.instr.real_opcode();
+                    let is_redundant_pair = matches!(opcode, Some(Opcode::PopTop))
+                        && (matches!(prev_opcode, Some(Opcode::LoadConst | Opcode::LoadSmallInt))
+                            || (prev_oparg == 1 && matches!(prev_opcode, Some(Opcode::Copy))));
+
+                    if is_redundant_pair {
+                        let (prev_block, prev_instr_idx) =
+                            prev_instr.expect("redundant pair has previous");
+                        set_to_nop(&mut self[prev_block].instructions[prev_instr_idx]);
+                        set_to_nop(&mut self[block_idx].instructions[instr_idx]);
+                        done = false;
+                    }
+                }
+
+                let instr_is_jump = instr.is_some_and(|(instr_block, instr_idx)| {
+                    is_jump(&self[instr_block].instructions[instr_idx])
+                });
+
+                let block = &self[block_idx];
+                if instr_is_jump || !bb_has_fallthrough(block) {
+                    instr = None;
+                }
+                block_idx = block.next;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2564,7 +2624,7 @@ fn optimize_cfg(
         blocks.optimize_basic_block(metadata, block_idx)?;
         block_idx = next_block;
     }
-    remove_redundant_nops_and_pairs(blocks)?;
+    blocks.remove_redundant_nops_and_pairs()?;
     // CPython optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
@@ -4328,67 +4388,6 @@ fn optimize_load_const(
         let block = &mut blocks[block_idx];
         basicblock_optimize_load_const(metadata, block)?;
         block_idx = next_block;
-    }
-    Ok(())
-}
-
-/// flowgraph.c remove_redundant_nops_and_pairs
-#[allow(clippy::unnecessary_wraps)]
-fn remove_redundant_nops_and_pairs(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut done = false;
-
-    while !done {
-        done = true;
-        let mut instr: Option<(BlockIdx, usize)> = None;
-        let mut block_idx = BlockIdx::new(0);
-
-        while block_idx != BlockIdx::NULL {
-            basicblock_remove_redundant_nops(blocks, block_idx)?;
-            if is_label(blocks[block_idx.idx()].cpython_label) {
-                instr = None;
-            }
-
-            let len = blocks[block_idx.idx()].instruction_used;
-            for instr_idx in 0..len {
-                let prev_instr = instr;
-                instr = Some((block_idx, instr_idx));
-                let instr_info = blocks[block_idx.idx()].instructions[instr_idx];
-                let mut prev_opcode = None;
-                let prev_oparg = if let Some((prev_block, prev_instr_idx)) = prev_instr {
-                    let prev_info = blocks[prev_block.idx()].instructions[prev_instr_idx];
-                    prev_opcode = prev_info.instr.real_opcode();
-                    match prev_info.instr.real() {
-                        Some(Instruction::Copy { i }) => i.get(prev_info.arg),
-                        _ => u32::from(prev_info.arg),
-                    }
-                } else {
-                    0
-                };
-
-                let opcode = instr_info.instr.real_opcode();
-                let is_redundant_pair = matches!(opcode, Some(Opcode::PopTop))
-                    && (matches!(prev_opcode, Some(Opcode::LoadConst | Opcode::LoadSmallInt))
-                        || (prev_oparg == 1 && matches!(prev_opcode, Some(Opcode::Copy))));
-
-                if is_redundant_pair {
-                    let (prev_block, prev_instr_idx) =
-                        prev_instr.expect("redundant pair has previous");
-                    set_to_nop(&mut blocks[prev_block].instructions[prev_instr_idx]);
-                    set_to_nop(&mut blocks[block_idx].instructions[instr_idx]);
-                    done = false;
-                }
-            }
-
-            let instr_is_jump = instr.is_some_and(|(instr_block, instr_idx)| {
-                is_jump(&blocks[instr_block].instructions[instr_idx])
-            });
-
-            let block = &blocks[block_idx];
-            if instr_is_jump || !bb_has_fallthrough(block) {
-                instr = None;
-            }
-            block_idx = block.next;
-        }
     }
     Ok(())
 }
