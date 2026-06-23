@@ -2253,11 +2253,12 @@ impl Blocks {
             let block = &mut self[block_idx];
             for i in 0..block.instruction_used {
                 let nextop = (i + 1 < block.instruction_used)
-                    .then(|| block.instructions[i + 1].instr.real())
+                    .then(|| block.instructions[i + 1].instr.real_opcode())
                     .flatten();
-                match block.instructions[i].instr.real() {
-                    Some(Instruction::LoadFast { .. }) => {
-                        if matches!(nextop, Some(Instruction::LoadFast { .. })) {
+
+                match (block.instructions[i].instr.real_opcode(), nextop) {
+                    (Some(Opcode::LoadFast), _) => {
+                        if matches!(nextop, Some(Opcode::LoadFast)) {
                             let (inst1, rest) = block.instructions[i..].split_at_mut(1);
                             make_super_instruction(
                                 &mut inst1[0],
@@ -2266,28 +2267,29 @@ impl Blocks {
                             );
                         }
                     }
-                    Some(Instruction::StoreFast { .. }) => match nextop {
-                        Some(Instruction::LoadFast { .. }) => {
-                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                            make_super_instruction(
-                                &mut inst1[0],
-                                &mut rest[0],
-                                Opcode::StoreFastLoadFast.into(),
-                            );
-                        }
-                        Some(Instruction::StoreFast { .. }) => {
-                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                            make_super_instruction(
-                                &mut inst1[0],
-                                &mut rest[0],
-                                Opcode::StoreFastStoreFast.into(),
-                            );
-                        }
-                        _ => {}
-                    },
-                    _ => {}
+
+                    (Some(Opcode::StoreFast), Some(Opcode::LoadFast)) => {
+                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                        make_super_instruction(
+                            &mut inst1[0],
+                            &mut rest[0],
+                            Opcode::StoreFastLoadFast.into(),
+                        );
+                    }
+
+                    (Some(Opcode::StoreFast), Some(Opcode::StoreFast)) => {
+                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+                        make_super_instruction(
+                            &mut inst1[0],
+                            &mut rest[0],
+                            Opcode::StoreFastStoreFast.into(),
+                        );
+                    }
+
+                    (_, _) => {}
                 }
             }
+
             block_idx = next_block;
         }
 
