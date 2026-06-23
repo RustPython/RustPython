@@ -831,34 +831,19 @@ mod _collections {
 
     impl PyDefaultDict {
         fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            Ok(if let Some(zelf) = lhs.downcast_ref::<Self>() {
+            let (default_factory, dict) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
                 if !rhs.fast_isinstance(vm.ctx.types.dict_type) {
-                    vm.ctx.not_implemented.clone().into()
-                } else {
-                    let default_factory = zelf.default_factory.read().clone();
-                    let dict = zelf.dict.copy();
-
-                    dict.update(rhs.into(), KwArgs::default(), vm)?;
-
-                    Self {
-                        dict,
-                        default_factory: PyRwLock::new(default_factory),
-                    }
-                    .to_pyobject(vm)
+                    return Ok(vm.ctx.not_implemented.clone().into());
                 }
-            } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
-                let default_factory = zelf.default_factory.read().clone();
-                if let Some(dict) = lhs.downcast_ref::<PyDict>() {
-                    let dict = dict.copy();
-                    dict.update(rhs.into(), KwArgs::default(), vm)?;
 
-                    Self {
-                        dict,
-                        default_factory: PyRwLock::new(default_factory),
-                    }
-                    .to_pyobject(vm)
+                let default_factory = zelf.default_factory.read().clone();
+                (default_factory, zelf.dict.copy())
+            } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
+                if let Some(dict) = lhs.downcast_ref::<PyDict>() {
+                    let default_factory = zelf.default_factory.read().clone();
+                    (default_factory, dict.copy())
                 } else {
-                    vm.ctx.not_implemented.clone().into()
+                    return Ok(vm.ctx.not_implemented.clone().into());
                 }
             } else {
                 return Err(vm.new_type_error(format!(
@@ -866,7 +851,15 @@ mod _collections {
                     lhs.class().name(),
                     rhs.class().name()
                 )));
-            })
+            };
+
+            dict.update(rhs.into(), KwArgs::default(), vm)?;
+
+            Ok(Self {
+                dict,
+                default_factory: PyRwLock::new(default_factory),
+            }
+            .to_pyobject(vm))
         }
     }
 
