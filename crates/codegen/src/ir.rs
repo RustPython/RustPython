@@ -7883,7 +7883,8 @@ mod tests {
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
 
         let mut metadata = test_code_info(Block::default()).metadata;
-        optimize_basic_block(&mut blocks, &mut metadata, BlockIdx::new(0))
+        blocks
+            .optimize_basic_block(&mut metadata, BlockIdx::new(0))
             .expect("valid conditional jump chain");
 
         // CPython only rewrites JUMP_IF_FALSE -> JUMP_IF_TRUE through
@@ -7909,7 +7910,8 @@ mod tests {
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
 
         let mut metadata = test_code_info(Block::default()).metadata;
-        optimize_basic_block(&mut blocks, &mut metadata, BlockIdx::new(0))
+        blocks
+            .optimize_basic_block(&mut metadata, BlockIdx::new(0))
             .expect("valid conditional jump chain");
 
         assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(2));

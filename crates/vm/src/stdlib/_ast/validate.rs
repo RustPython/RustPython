@@ -2,81 +2,57 @@
 
 use super::module::Mod;
 use crate::{PyResult, VirtualMachine, compiler::CompileError};
-use core::cell::RefCell;
+use core::ops::Deref;
 use ruff_python_ast as ast;
 use rustpython_codegen::error::{CodegenError, CodegenErrorType};
-use rustpython_codegen::{
-    PublicAstExprList, PublicAstFormattedValue, PublicAstInterpolation, PublicAstNodeMap,
-};
+use rustpython_codegen::{PublicAstExprList, PublicAstNodeMap};
 use rustpython_compiler_core::bytecode::ConstantData;
 
-type AstConstantOverrides<'a> = Option<&'a PublicAstNodeMap<ConstantData>>;
-type AstInterpolationOverrides<'a> = Option<&'a PublicAstNodeMap<PublicAstInterpolation>>;
-type AstFormattedValueOverrides<'a> = Option<&'a PublicAstNodeMap<PublicAstFormattedValue>>;
-type AstImportFromLevelOverrides<'a> =
-    Option<&'a super::constant::PublicAstImportFromLevelOverrideMap>;
-type AstInvalidConstantOverrides<'a> =
-    Option<&'a super::constant::PublicAstInvalidConstantOverrideMap>;
-type AstExprListOverrides<'a> = Option<&'a super::constant::PublicAstExprListOverrideMap>;
-type AstPatternListOverrides<'a> = Option<&'a super::constant::PublicAstPatternListOverrideMap>;
-type AstExprOptionListOverrides<'a> =
-    Option<&'a super::constant::PublicAstExprOptionListOverrideMap>;
-type AstExprListFieldOverrides<'a> = Option<&'a super::constant::PublicAstExprListFieldOverrideMap>;
-type AstStmtListOverrides<'a> = Option<&'a super::constant::PublicAstStmtListOverrideMap>;
-type AstExceptHandlerListOverrides<'a> =
-    Option<&'a super::constant::PublicAstExceptHandlerListOverrideMap>;
-type AstTypeParamListOverrides<'a> = Option<&'a super::constant::PublicAstTypeParamListOverrideMap>;
-type AstMatchClassOverrides<'a> = Option<&'a super::constant::PublicAstMatchClassOverrideMap>;
-
-thread_local! {
-    // Validation borrows the same public-AST side tables created in constant.rs;
-    // these TLS slots add no new storage policy.
-    static PUBLIC_AST_INVALID_CONSTANTS: RefCell<Option<super::constant::PublicAstInvalidConstantOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_JOINED_STRS: RefCell<Option<super::constant::PublicAstExprListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_TEMPLATE_STRS: RefCell<Option<super::constant::PublicAstExprListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_PATTERN_LISTS: RefCell<Option<super::constant::PublicAstPatternListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_EXPR_OPTION_LISTS: RefCell<Option<super::constant::PublicAstExprOptionListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_EXPR_LISTS: RefCell<Option<super::constant::PublicAstExprListFieldOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_STMT_LISTS: RefCell<Option<super::constant::PublicAstStmtListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_EXCEPT_HANDLER_LISTS: RefCell<Option<super::constant::PublicAstExceptHandlerListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_TYPE_PARAM_LISTS: RefCell<Option<super::constant::PublicAstTypeParamListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_MATCH_CLASSES: RefCell<Option<super::constant::PublicAstMatchClassOverrideMap>> = const { RefCell::new(None) };
+struct Validator<'a> {
+    vm: &'a VirtualMachine,
+    overrides: Option<&'a super::constant::PublicAstOverrides>,
 }
 
-fn public_ast_invalid_constant_type(expr: &ast::Expr) -> Option<String> {
+impl Deref for Validator<'_> {
+    type Target = VirtualMachine;
+
+    fn deref(&self) -> &Self::Target {
+        self.vm
+    }
+}
+
+type AstConstantOverrides<'a> = Option<&'a PublicAstNodeMap<ConstantData>>;
+type AstImportFromLevelOverrides<'a> =
+    Option<&'a super::constant::PublicAstImportFromLevelOverrideMap>;
+
+fn public_ast_invalid_constant_type(vm: &Validator<'_>, expr: &ast::Expr) -> Option<String> {
     let index = ast::HasNodeIndex::node_index(expr).load();
     if index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_INVALID_CONSTANTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|invalid_constants| invalid_constants.get(&index).cloned())
-    })
+    vm.overrides?.invalid_constants.get(&index).cloned()
 }
 
-fn public_ast_joined_str_values(expr: &ast::ExprFString) -> Option<PublicAstExprList> {
+fn public_ast_joined_str_values(
+    vm: &Validator<'_>,
+    expr: &ast::ExprFString,
+) -> Option<PublicAstExprList> {
     let index = expr.node_index.load();
     if index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_JOINED_STRS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|joined_strs| joined_strs.get(&index).cloned())
-    })
+    vm.overrides?.joined_strs.get(&index).cloned()
 }
 
-fn public_ast_template_str_values(expr: &ast::ExprTString) -> Option<PublicAstExprList> {
+fn public_ast_template_str_values(
+    vm: &Validator<'_>,
+    expr: &ast::ExprTString,
+) -> Option<PublicAstExprList> {
     let index = expr.node_index.load();
     if index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_TEMPLATE_STRS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|template_strs| template_strs.get(&index).cloned())
-    })
+    vm.overrides?.template_strs.get(&index).cloned()
 }
 
 fn expr_context_name(ctx: ast::ExprContext) -> &'static str {
@@ -99,7 +75,7 @@ fn invalid_syntax_error(vm: &VirtualMachine) -> crate::builtins::PyBaseException
     )
 }
 
-fn validate_name(vm: &VirtualMachine, name: &ast::name::Name) -> PyResult<()> {
+fn validate_name(vm: &Validator<'_>, name: &ast::name::Name) -> PyResult<()> {
     match name.as_str() {
         "None" | "True" | "False" => Err(vm.new_value_error(format!(
             "identifier field can't represent '{}' constant",
@@ -109,7 +85,7 @@ fn validate_name(vm: &VirtualMachine, name: &ast::name::Name) -> PyResult<()> {
     }
 }
 
-fn validate_comprehension(vm: &VirtualMachine, gens: &[ast::Comprehension]) -> PyResult<()> {
+fn validate_comprehension(vm: &Validator<'_>, gens: &[ast::Comprehension]) -> PyResult<()> {
     if gens.is_empty() {
         return Err(vm.new_value_error("comprehension with no generators"));
     }
@@ -127,21 +103,21 @@ fn validate_comprehension(vm: &VirtualMachine, gens: &[ast::Comprehension]) -> P
     Ok(())
 }
 
-fn validate_keywords(vm: &VirtualMachine, keywords: &[ast::Keyword]) -> PyResult<()> {
+fn validate_keywords(vm: &Validator<'_>, keywords: &[ast::Keyword]) -> PyResult<()> {
     for keyword in keywords {
         validate_expr(vm, &keyword.value, ast::ExprContext::Load)?;
     }
     Ok(())
 }
 
-fn validate_parameter_annotation(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<()> {
+fn validate_parameter_annotation(vm: &Validator<'_>, parameter: &ast::Parameter) -> PyResult<()> {
     if let Some(annotation) = &parameter.annotation {
         validate_expr(vm, annotation, ast::ExprContext::Load)?;
     }
     Ok(())
 }
 
-fn validate_parameters(vm: &VirtualMachine, params: &ast::Parameters) -> PyResult<()> {
+fn validate_parameters(vm: &Validator<'_>, params: &ast::Parameters) -> PyResult<()> {
     for param in params.posonlyargs.iter().chain(&params.args) {
         validate_parameter_annotation(vm, &param.parameter)?;
     }
@@ -158,7 +134,7 @@ fn validate_parameters(vm: &VirtualMachine, params: &ast::Parameters) -> PyResul
     {
         validate_expr(vm, annotation, ast::ExprContext::Load)?;
     }
-    if let Some(defaults) = public_expr_option_list(params.node_index.load()) {
+    if let Some(defaults) = public_expr_option_list(vm, params.node_index.load()) {
         for default in defaults.values {
             let Some(default) = default else {
                 return Err(vm.new_value_error("None disallowed in expression list"));
@@ -181,7 +157,7 @@ fn validate_parameters(vm: &VirtualMachine, params: &ast::Parameters) -> PyResul
 }
 
 fn validate_nonempty_seq(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     len: usize,
     what: &'static str,
     owner: &'static str,
@@ -193,7 +169,7 @@ fn validate_nonempty_seq(
 }
 
 fn validate_assignlist(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     targets: &[ast::Expr],
     ctx: ast::ExprContext,
 ) -> PyResult<()> {
@@ -211,7 +187,7 @@ fn validate_assignlist(
 }
 
 fn validate_body(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     body: &[ast::Stmt],
     node_index: ast::NodeIndex,
     owner: &'static str,
@@ -233,7 +209,7 @@ fn validate_body(
 }
 
 fn validate_interpolated_elements<'a>(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     elements: impl IntoIterator<Item = ast::InterpolatedStringElementRef<'a>>,
 ) -> PyResult<()> {
     for element in elements {
@@ -297,7 +273,7 @@ fn public_ast_constant_override<'a>(
 }
 
 fn validate_pattern_match_value(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     expr: &ast::Expr,
     ast_constant_overrides: AstConstantOverrides<'_>,
 ) -> PyResult<()> {
@@ -329,7 +305,7 @@ fn validate_pattern_match_value(
     }
 }
 
-fn validate_capture(vm: &VirtualMachine, name: &ast::Identifier) -> PyResult<()> {
+fn validate_capture(vm: &Validator<'_>, name: &ast::Identifier) -> PyResult<()> {
     if name.as_str() == "_" {
         return Err(vm.new_value_error("can't capture name '_' in patterns"));
     }
@@ -337,7 +313,7 @@ fn validate_capture(vm: &VirtualMachine, name: &ast::Identifier) -> PyResult<()>
 }
 
 fn validate_pattern(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     pattern: &ast::Pattern,
     star_ok: bool,
     ast_constant_overrides: AstConstantOverrides<'_>,
@@ -373,7 +349,7 @@ fn validate_pattern(
             validate_patterns(vm, &mapping.patterns, false, ast_constant_overrides)
         }
         ast::Pattern::MatchClass(match_class) => {
-            let public_match_class = public_match_class(match_class.node_index.load());
+            let public_match_class = public_match_class(vm, match_class.node_index.load());
             if let Some(values) = &public_match_class
                 && values.kwd_attrs.len() != values.kwd_patterns.len()
             {
@@ -451,104 +427,91 @@ fn validate_pattern(
     }
 }
 
-fn public_pattern_list_has_null(node_index: ast::NodeIndex) -> bool {
+fn public_pattern_list_has_null(vm: &Validator<'_>, node_index: ast::NodeIndex) -> bool {
     if node_index == ast::NodeIndex::NONE {
         return false;
     }
-    PUBLIC_AST_PATTERN_LISTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index))
-            .is_some_and(|values| values.values.iter().any(Option::is_none))
-    })
+    vm.overrides
+        .and_then(|overrides| overrides.pattern_lists.get(&node_index))
+        .is_some_and(|values| values.values.iter().any(Option::is_none))
 }
 
 fn validate_public_pattern_list_slots(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
 ) -> PyResult<()> {
-    if public_pattern_list_has_null(node_index) {
+    if public_pattern_list_has_null(vm, node_index) {
         return Err(vm.new_value_error("unexpected pattern"));
     }
     Ok(())
 }
 
-fn public_expr_option_list_has_null(node_index: ast::NodeIndex) -> bool {
+fn public_expr_option_list_has_null(vm: &Validator<'_>, node_index: ast::NodeIndex) -> bool {
     if node_index == ast::NodeIndex::NONE {
         return false;
     }
-    PUBLIC_AST_EXPR_OPTION_LISTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index))
-            .is_some_and(|values| values.values.iter().any(Option::is_none))
-    })
+    vm.overrides
+        .and_then(|overrides| overrides.expr_option_lists.get(&node_index))
+        .is_some_and(|values| values.values.iter().any(Option::is_none))
 }
 
 fn public_expr_option_list(
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<super::constant::PublicAstExprOptionList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_EXPR_OPTION_LISTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    vm.overrides?.expr_option_lists.get(&node_index).cloned()
 }
 
 fn public_expr_list(
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
     field: super::constant::PublicAstExprListField,
 ) -> Option<super::constant::PublicAstExprOptionList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_EXPR_LISTS.with(|cell| {
-        cell.borrow().as_ref().and_then(|values| {
-            values
-                .get(&node_index)
-                .and_then(|values| values.get(field))
-                .cloned()
-        })
-    })
+    vm.overrides?
+        .expr_lists
+        .get(&node_index)
+        .and_then(|values| values.get(field))
+        .cloned()
 }
 
 fn public_stmt_list(
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
     field: super::constant::PublicAstStmtListField,
 ) -> Option<super::constant::PublicAstStmtList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_STMT_LISTS.with(|cell| {
-        cell.borrow().as_ref().and_then(|values| {
-            values
-                .get(&node_index)
-                .and_then(|values| values.get(field))
-                .cloned()
-        })
-    })
+    vm.overrides?
+        .stmt_lists
+        .get(&node_index)
+        .and_then(|values| values.get(field))
+        .cloned()
 }
 
 fn validate_public_expr_option_list_slots(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
 ) -> PyResult<()> {
-    if public_expr_option_list_has_null(node_index) {
+    if public_expr_option_list_has_null(vm, node_index) {
         return Err(vm.new_value_error("None disallowed in expression list"));
     }
     Ok(())
 }
 
 fn validate_public_expr_list_slots(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
     field: super::constant::PublicAstExprListField,
     ctx: ast::ExprContext,
 ) -> PyResult<()> {
-    if let Some(values) = public_expr_list(node_index, field) {
+    if let Some(values) = public_expr_list(vm, node_index, field) {
         for value in values.values {
             let Some(value) = value else {
                 return Err(vm.new_value_error("None disallowed in expression list"));
@@ -560,11 +523,11 @@ fn validate_public_expr_list_slots(
 }
 
 fn validate_public_stmt_list_slots(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
     field: super::constant::PublicAstStmtListField,
 ) -> PyResult<()> {
-    if let Some(values) = public_stmt_list(node_index, field)
+    if let Some(values) = public_stmt_list(vm, node_index, field)
         && values.values.iter().any(Option::is_none)
     {
         return Err(vm.new_value_error("None disallowed in statement list"));
@@ -572,41 +535,37 @@ fn validate_public_stmt_list_slots(
     Ok(())
 }
 
-fn public_except_handler_list_has_null(node_index: ast::NodeIndex) -> bool {
+fn public_except_handler_list_has_null(vm: &Validator<'_>, node_index: ast::NodeIndex) -> bool {
     if node_index == ast::NodeIndex::NONE {
         return false;
     }
-    PUBLIC_AST_EXCEPT_HANDLER_LISTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index))
-            .is_some_and(|values| values.values.iter().any(Option::is_none))
-    })
+    vm.overrides
+        .and_then(|overrides| overrides.except_handler_lists.get(&node_index))
+        .is_some_and(|values| values.values.iter().any(Option::is_none))
 }
 
 fn validate_public_except_handler_list_slots(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     node_index: ast::NodeIndex,
 ) -> PyResult<()> {
-    if public_except_handler_list_has_null(node_index) {
+    if public_except_handler_list_has_null(vm, node_index) {
         return Err(vm.new_value_error("unexpected excepthandler"));
     }
     Ok(())
 }
 
-fn public_match_class(node_index: ast::NodeIndex) -> Option<super::constant::PublicAstMatchClass> {
+fn public_match_class(
+    vm: &Validator<'_>,
+    node_index: ast::NodeIndex,
+) -> Option<super::constant::PublicAstMatchClass> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_MATCH_CLASSES.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    vm.overrides?.match_classes.get(&node_index).cloned()
 }
 
 fn validate_public_nullable_patterns(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     patterns: &[Option<ast::Pattern>],
 ) -> PyResult<()> {
     if patterns.iter().any(Option::is_none) {
@@ -616,7 +575,7 @@ fn validate_public_nullable_patterns(
 }
 
 fn validate_patterns(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     patterns: &[ast::Pattern],
     star_ok: bool,
     ast_constant_overrides: AstConstantOverrides<'_>,
@@ -627,7 +586,7 @@ fn validate_patterns(
     Ok(())
 }
 
-fn validate_typeparam(vm: &VirtualMachine, tp: &ast::TypeParam) -> PyResult<()> {
+fn validate_typeparam(vm: &Validator<'_>, tp: &ast::TypeParam) -> PyResult<()> {
     match tp {
         ast::TypeParam::TypeVar(tp) => {
             validate_name(vm, tp.name.id())?;
@@ -654,18 +613,13 @@ fn validate_typeparam(vm: &VirtualMachine, tp: &ast::TypeParam) -> PyResult<()> 
     Ok(())
 }
 
-fn validate_type_params(
-    vm: &VirtualMachine,
-    type_params: Option<&ast::TypeParams>,
-) -> PyResult<()> {
+fn validate_type_params(vm: &Validator<'_>, type_params: Option<&ast::TypeParams>) -> PyResult<()> {
     if let Some(type_params) = type_params {
         let node_index = type_params.node_index.load();
         if node_index != ast::NodeIndex::NONE
-            && let Some(values) = PUBLIC_AST_TYPE_PARAM_LISTS.with(|cell| {
-                cell.borrow()
-                    .as_ref()
-                    .and_then(|values| values.get(&node_index).cloned())
-            })
+            && let Some(values) = vm
+                .overrides
+                .and_then(|overrides| overrides.type_param_lists.get(&node_index).cloned())
         {
             for tp in values.values.iter().flatten() {
                 validate_typeparam(vm, tp)?;
@@ -680,7 +634,7 @@ fn validate_type_params(
 }
 
 fn validate_exprs(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     exprs: &[ast::Expr],
     ctx: ast::ExprContext,
     _null_ok: bool,
@@ -691,7 +645,7 @@ fn validate_exprs(
     Ok(())
 }
 
-fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -> PyResult<()> {
+fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) -> PyResult<()> {
     let mut check_ctx = true;
     let actual_ctx = match expr {
         ast::Expr::Attribute(attr) => attr.ctx,
@@ -849,7 +803,7 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
                 super::constant::PublicAstExprListField::Values,
                 ast::ExprContext::Load,
             )?;
-            if let Some(joined_str) = public_ast_joined_str_values(fstring) {
+            if let Some(joined_str) = public_ast_joined_str_values(vm, fstring) {
                 validate_exprs(vm, &joined_str.values, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
@@ -868,7 +822,7 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
                 super::constant::PublicAstExprListField::Values,
                 ast::ExprContext::Load,
             )?;
-            if let Some(template_str) = public_ast_template_str_values(tstring) {
+            if let Some(template_str) = public_ast_template_str_values(vm, tstring) {
                 validate_exprs(vm, &template_str.values, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
@@ -886,7 +840,7 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
         | ast::Expr::BooleanLiteral(_)
         | ast::Expr::NoneLiteral(_)
         | ast::Expr::EllipsisLiteral(_) => {
-            if let Some(invalid_type) = public_ast_invalid_constant_type(expr) {
+            if let Some(invalid_type) = public_ast_invalid_constant_type(vm, expr) {
                 Err(vm.new_type_error(format!("got an invalid type in Constant: {invalid_type}")))
             } else {
                 Ok(())
@@ -933,7 +887,7 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
     }
 }
 
-fn validate_decorators(vm: &VirtualMachine, decorators: &[ast::Decorator]) -> PyResult<()> {
+fn validate_decorators(vm: &Validator<'_>, decorators: &[ast::Decorator]) -> PyResult<()> {
     for decorator in decorators {
         validate_expr(vm, &decorator.expression, ast::ExprContext::Load)?;
     }
@@ -941,7 +895,7 @@ fn validate_decorators(vm: &VirtualMachine, decorators: &[ast::Decorator]) -> Py
 }
 
 fn validate_stmt(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     stmt: &ast::Stmt,
     ast_constant_overrides: AstConstantOverrides<'_>,
     ast_import_from_level_overrides: AstImportFromLevelOverrides<'_>,
@@ -1272,7 +1226,7 @@ fn validate_stmt(
 }
 
 fn validate_stmts(
-    vm: &VirtualMachine,
+    vm: &Validator<'_>,
     stmts: &[ast::Stmt],
     ast_constant_overrides: AstConstantOverrides<'_>,
     ast_import_from_level_overrides: AstImportFromLevelOverrides<'_>,
@@ -1288,147 +1242,61 @@ fn validate_stmts(
     Ok(())
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "public AST validation installs independent override tables"
-)]
 pub(super) fn validate_mod(
     vm: &VirtualMachine,
     module: &Mod,
-    ast_constant_overrides: AstConstantOverrides<'_>,
-    ast_interpolation_overrides: AstInterpolationOverrides<'_>,
-    ast_formatted_value_overrides: AstFormattedValueOverrides<'_>,
-    ast_import_from_level_overrides: AstImportFromLevelOverrides<'_>,
-    ast_invalid_constant_overrides: AstInvalidConstantOverrides<'_>,
-    ast_joined_str_overrides: AstExprListOverrides<'_>,
-    ast_template_str_overrides: AstExprListOverrides<'_>,
-    ast_pattern_list_overrides: AstPatternListOverrides<'_>,
-    ast_expr_option_list_overrides: AstExprOptionListOverrides<'_>,
-    ast_expr_list_overrides: AstExprListFieldOverrides<'_>,
-    ast_stmt_list_overrides: AstStmtListOverrides<'_>,
-    ast_except_handler_list_overrides: AstExceptHandlerListOverrides<'_>,
-    ast_type_param_list_overrides: AstTypeParamListOverrides<'_>,
-    ast_match_class_overrides: AstMatchClassOverrides<'_>,
+    overrides: Option<&super::constant::PublicAstOverrides>,
 ) -> PyResult<()> {
-    PUBLIC_AST_INVALID_CONSTANTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_invalid_constant_overrides.cloned();
-    });
-    PUBLIC_AST_JOINED_STRS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_joined_str_overrides.cloned();
-    });
-    PUBLIC_AST_TEMPLATE_STRS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_template_str_overrides.cloned();
-    });
-    PUBLIC_AST_PATTERN_LISTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_pattern_list_overrides.cloned();
-    });
-    PUBLIC_AST_EXPR_OPTION_LISTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_expr_option_list_overrides.cloned();
-    });
-    PUBLIC_AST_EXPR_LISTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_expr_list_overrides.cloned();
-    });
-    PUBLIC_AST_STMT_LISTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_stmt_list_overrides.cloned();
-    });
-    PUBLIC_AST_EXCEPT_HANDLER_LISTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_except_handler_list_overrides.cloned();
-    });
-    PUBLIC_AST_TYPE_PARAM_LISTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_type_param_list_overrides.cloned();
-    });
-    PUBLIC_AST_MATCH_CLASSES.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = ast_match_class_overrides.cloned();
-    });
-    let result = (|| {
-        if let Some(overrides) = ast_interpolation_overrides {
-            for interpolation in overrides.values() {
-                if let Some(format_spec) = &interpolation.format_spec {
-                    validate_expr(vm, format_spec, ast::ExprContext::Load)?;
-                }
+    let validator = Validator { vm, overrides };
+    let vm = &validator;
+    let ast_constant_overrides = overrides.map(|overrides| &overrides.constants);
+    let ast_import_from_level_overrides = overrides.map(|overrides| &overrides.import_from_levels);
+
+    if let Some(overrides) = overrides {
+        for interpolation in overrides.interpolations.values() {
+            if let Some(format_spec) = &interpolation.format_spec {
+                validate_expr(vm, format_spec, ast::ExprContext::Load)?;
             }
         }
-        if let Some(overrides) = ast_formatted_value_overrides {
-            for formatted_value in overrides.values() {
-                if let Some(format_spec) = &formatted_value.format_spec {
-                    validate_expr(vm, format_spec, ast::ExprContext::Load)?;
-                }
+        for formatted_value in overrides.formatted_values.values() {
+            if let Some(format_spec) = &formatted_value.format_spec {
+                validate_expr(vm, format_spec, ast::ExprContext::Load)?;
             }
         }
-        match module {
-            Mod::Module(module) => {
-                validate_public_stmt_list_slots(
-                    vm,
-                    module.module.node_index.load(),
-                    super::constant::PublicAstStmtListField::Body,
-                )?;
-                validate_stmts(
-                    vm,
-                    &module.module.body,
-                    ast_constant_overrides,
-                    ast_import_from_level_overrides,
-                )
-            }
-            Mod::Interactive(module) => {
-                validate_public_stmt_list_slots(
-                    vm,
-                    module.node_index.load(),
-                    super::constant::PublicAstStmtListField::Body,
-                )?;
-                validate_stmts(
-                    vm,
-                    &module.body,
-                    ast_constant_overrides,
-                    ast_import_from_level_overrides,
-                )
-            }
-            Mod::Expression(expr) => validate_expr(vm, &expr.body, ast::ExprContext::Load),
-            Mod::FunctionType(func_type) => {
-                validate_public_expr_option_list_slots(vm, func_type.node_index.load())?;
-                validate_exprs(vm, &func_type.argtypes, ast::ExprContext::Load, false)?;
-                validate_expr(vm, &func_type.returns, ast::ExprContext::Load)
-            }
+    }
+
+    match module {
+        Mod::Module(module) => {
+            validate_public_stmt_list_slots(
+                vm,
+                module.module.node_index.load(),
+                super::constant::PublicAstStmtListField::Body,
+            )?;
+            validate_stmts(
+                vm,
+                &module.module.body,
+                ast_constant_overrides,
+                ast_import_from_level_overrides,
+            )
         }
-    })();
-    PUBLIC_AST_INVALID_CONSTANTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_JOINED_STRS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_TEMPLATE_STRS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_PATTERN_LISTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_EXPR_OPTION_LISTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_EXPR_LISTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_STMT_LISTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_EXCEPT_HANDLER_LISTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_TYPE_PARAM_LISTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_MATCH_CLASSES.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    result
+        Mod::Interactive(module) => {
+            validate_public_stmt_list_slots(
+                vm,
+                module.node_index.load(),
+                super::constant::PublicAstStmtListField::Body,
+            )?;
+            validate_stmts(
+                vm,
+                &module.body,
+                ast_constant_overrides,
+                ast_import_from_level_overrides,
+            )
+        }
+        Mod::Expression(expr) => validate_expr(vm, &expr.body, ast::ExprContext::Load),
+        Mod::FunctionType(func_type) => {
+            validate_public_expr_option_list_slots(vm, func_type.node_index.load())?;
+            validate_exprs(vm, &func_type.argtypes, ast::ExprContext::Load, false)?;
+            validate_expr(vm, &func_type.returns, ast::ExprContext::Load)
+        }
+    }
 }

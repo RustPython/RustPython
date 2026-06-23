@@ -21,7 +21,7 @@ use crate::{
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
 };
-use node::Node;
+use node::{AstFromObjectContext, AstToObjectContext, Node};
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
@@ -100,33 +100,33 @@ fn get_node_field_required(
 }
 
 fn get_required_identifier_field<T: Node>(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<T> {
-    let value = get_node_field_required(vm, obj, field, typ)?;
-    if vm.is_none(&value) {
-        return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
+    let value = get_node_field_required(ctx, obj, field, typ)?;
+    if ctx.is_none(&value) {
+        return Err(ctx.new_value_error(format!("field '{field}' is required for {typ}")));
     }
-    Node::ast_from_object(vm, source_file, value)
+    Node::ast_from_object(ctx, source_file, value)
 }
 
 fn get_required_node_field<T: Node>(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<T> {
-    let value = get_node_field_required(vm, obj, field, typ)?;
-    if vm.is_none(&value) {
-        return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
+    let value = get_node_field_required(ctx, obj, field, typ)?;
+    if ctx.is_none(&value) {
+        return Err(ctx.new_value_error(format!("field '{field}' is required for {typ}")));
     }
     let recursion_context = format!(" while traversing '{typ}' node");
-    vm.with_recursion(&recursion_context, || {
-        Node::ast_from_object(vm, source_file, value)
+    ctx.with_recursion(&recursion_context, || {
+        Node::ast_from_object(ctx, source_file, value)
     })
 }
 
@@ -141,15 +141,15 @@ fn get_node_field_opt(
 }
 
 fn get_node_list_field<T: Node>(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<Vec<T>> {
-    let value = get_node_list_field_object(vm, obj, field, typ)?;
+    let value = get_node_list_field_object(ctx, obj, field, typ)?;
     let list = value.downcast_ref::<PyList>().unwrap();
-    convert_node_list_field(vm, source_file, list, field, typ)
+    convert_node_list_field(ctx, source_file, list, field, typ)
 }
 
 fn get_node_list_field_object(
@@ -171,7 +171,7 @@ fn get_node_list_field_object(
 }
 
 fn convert_node_list_field<T: Node>(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     list: &PyList,
     field: &'static str,
@@ -184,17 +184,17 @@ fn convert_node_list_field<T: Node>(
         let item = {
             let items = list.borrow_vec();
             if items.len() != len {
-                return Err(vm.new_runtime_error(format!(
+                return Err(ctx.new_runtime_error(format!(
                     r#"{typ} field "{field}" changed size during iteration"#
                 )));
             }
             items[i].clone()
         };
-        result.push(vm.with_recursion(&recursion_context, || {
-            Node::ast_from_object(vm, source_file, item)
+        result.push(ctx.with_recursion(&recursion_context, || {
+            Node::ast_from_object(ctx, source_file, item)
         })?);
         if list.borrow_vec().len() != len {
-            return Err(vm.new_runtime_error(format!(
+            return Err(ctx.new_runtime_error(format!(
                 r#"{typ} field "{field}" changed size during iteration"#
             )));
         }
@@ -203,52 +203,58 @@ fn convert_node_list_field<T: Node>(
 }
 
 fn get_node_boxed_slice_field<T: Node>(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<Box<[T]>> {
-    Ok(get_node_list_field(vm, source_file, obj, field, typ)?.into_boxed_slice())
+    Ok(get_node_list_field(ctx, source_file, obj, field, typ)?.into_boxed_slice())
 }
 
 fn public_expr_list_from_values(
+    ctx: &AstFromObjectContext<'_>,
     field: constant::PublicAstExprListField,
     values: Vec<Option<ast::Expr>>,
 ) -> (ast::AtomicNodeIndex, Vec<ast::Expr>) {
-    let node_index = public_expr_lists_node_index([(field, &values)]);
+    let node_index = public_expr_lists_node_index(ctx, [(field, &values)]);
     (node_index, lower_public_expr_list(values))
 }
 
 fn public_expr_boxed_slice_from_values(
+    ctx: &AstFromObjectContext<'_>,
     field: constant::PublicAstExprListField,
     values: Vec<Option<ast::Expr>>,
 ) -> (ast::AtomicNodeIndex, Box<[ast::Expr]>) {
-    let (node_index, values) = public_expr_list_from_values(field, values);
+    let (node_index, values) = public_expr_list_from_values(ctx, field, values);
     (node_index, values.into_boxed_slice())
 }
 
 fn public_expr_lists_node_index<'a>(
+    ctx: &AstFromObjectContext<'_>,
     fields: impl IntoIterator<Item = (constant::PublicAstExprListField, &'a Vec<Option<ast::Expr>>)>,
 ) -> ast::AtomicNodeIndex {
-    public_node_list_overrides_node_index(Vec::new(), fields.into_iter().collect(), None, None)
+    public_node_list_overrides_node_index(ctx, Vec::new(), fields.into_iter().collect(), None, None)
 }
 
 fn public_stmt_list_from_values(
+    ctx: &AstFromObjectContext<'_>,
     field: constant::PublicAstStmtListField,
     values: Vec<Option<ast::Stmt>>,
 ) -> (ast::AtomicNodeIndex, ast::Suite) {
-    let node_index = public_stmt_lists_node_index([(field, &values)]);
+    let node_index = public_stmt_lists_node_index(ctx, [(field, &values)]);
     (node_index, lower_public_stmt_list(values))
 }
 
 fn public_stmt_lists_node_index<'a>(
+    ctx: &AstFromObjectContext<'_>,
     fields: impl IntoIterator<Item = (constant::PublicAstStmtListField, &'a Vec<Option<ast::Stmt>>)>,
 ) -> ast::AtomicNodeIndex {
-    public_node_list_overrides_node_index(fields.into_iter().collect(), Vec::new(), None, None)
+    public_node_list_overrides_node_index(ctx, fields.into_iter().collect(), Vec::new(), None, None)
 }
 
 fn public_node_list_overrides_node_index<'a>(
+    ctx: &AstFromObjectContext<'_>,
     stmt_fields: Vec<(constant::PublicAstStmtListField, &'a Vec<Option<ast::Stmt>>)>,
     expr_fields: Vec<(constant::PublicAstExprListField, &'a Vec<Option<ast::Expr>>)>,
     except_handler_values: Option<Vec<Option<ast::ExceptHandler>>>,
@@ -271,6 +277,7 @@ fn public_node_list_overrides_node_index<'a>(
         || comprehension_is_async.is_some()
     {
         node_index.set(constant::register_public_ast_node_list_overrides(
+            ctx,
             stmt_values,
             expr_values,
             except_handler_values,
@@ -1942,7 +1949,8 @@ pub(crate) fn parse(
         }),
         ast::Mod::Expression(e) => Mod::Expression(e),
     };
-    let obj = top.ast_to_object(vm, &source_file);
+    let ctx = AstToObjectContext::new(vm, &source_file, None);
+    let obj = top.ast_to_object(&ctx);
     if let Some(lines) = &type_comment_source
         && obj.class().is(pyast::NodeModModule::static_type())
     {
@@ -2108,7 +2116,8 @@ pub(crate) fn parse_func_type(
         range: TextRange::default(),
     };
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
-    Ok(func_type.ast_to_object(vm, &source_file))
+    let ctx = AstToObjectContext::new(vm, &source_file, None);
+    Ok(func_type.ast_to_object(&ctx))
 }
 
 fn type_ignores_from_source(
@@ -2380,46 +2389,13 @@ pub(crate) fn preprocess_ast_object(
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let (
-        ast,
-        ast_constant_overrides,
-        ast_interpolation_overrides,
-        ast_formatted_value_overrides,
-        ast_import_from_level_overrides,
-        ast_invalid_constant_overrides,
-        ast_joined_str_overrides,
-        ast_template_str_overrides,
-        ast_comprehension_is_async_overrides,
-        ast_pattern_list_overrides,
-        ast_expr_option_list_overrides,
-        ast_expr_list_overrides,
-        ast_stmt_list_overrides,
-        ast_except_handler_list_overrides,
-        ast_type_param_list_overrides,
-        ast_match_class_overrides,
-        ast_ann_assign_simple_overrides,
-        ast_arg_type_comment_overrides,
-        ast_stmt_type_comment_overrides,
-    ): (Mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        constant::collect_public_ast_overrides(|| Node::ast_from_object(vm, &source_file, object))?;
-    validate::validate_mod(
-        vm,
-        &ast,
-        Some(&ast_constant_overrides),
-        Some(&ast_interpolation_overrides),
-        Some(&ast_formatted_value_overrides),
-        Some(&ast_import_from_level_overrides),
-        Some(&ast_invalid_constant_overrides),
-        Some(&ast_joined_str_overrides),
-        Some(&ast_template_str_overrides),
-        Some(&ast_pattern_list_overrides),
-        Some(&ast_expr_option_list_overrides),
-        Some(&ast_expr_list_overrides),
-        Some(&ast_stmt_list_overrides),
-        Some(&ast_except_handler_list_overrides),
-        Some(&ast_type_param_list_overrides),
-        Some(&ast_match_class_overrides),
-    )?;
+    let constant::PublicAstConversion {
+        value: ast,
+        overrides,
+    } = constant::collect_public_ast_overrides(vm, |from_ctx| {
+        Node::ast_from_object(from_ctx, &source_file, object)
+    })?;
+    validate::validate_mod(vm, &ast, Some(&overrides))?;
     let syntax_check_only = !optimized_ast;
 
     let ast = match ast {
@@ -2475,25 +2451,8 @@ pub(crate) fn preprocess_ast_object(
         }
         Mod::FunctionType(function_type) => Mod::FunctionType(function_type),
     };
-    let result = constant::with_public_ast_interpolation_objects(
-        &ast_constant_overrides,
-        &ast_interpolation_overrides,
-        &ast_formatted_value_overrides,
-        &ast_joined_str_overrides,
-        &ast_template_str_overrides,
-        &ast_comprehension_is_async_overrides,
-        &ast_pattern_list_overrides,
-        &ast_expr_option_list_overrides,
-        &ast_expr_list_overrides,
-        &ast_stmt_list_overrides,
-        &ast_except_handler_list_overrides,
-        &ast_type_param_list_overrides,
-        &ast_match_class_overrides,
-        &ast_ann_assign_simple_overrides,
-        &ast_arg_type_comment_overrides,
-        &ast_stmt_type_comment_overrides,
-        || ast.ast_to_object(vm, &source_file),
-    );
+    let ctx = AstToObjectContext::new(vm, &source_file, Some(&overrides));
+    let result = ast.ast_to_object(&ctx);
     copy_public_ast_passthrough_fields(vm, &original_object, &result)?;
     Ok(result)
 }
@@ -2508,60 +2467,27 @@ pub(crate) fn compile(
 ) -> PyResult {
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let (
-        ast,
-        ast_constant_overrides,
-        ast_interpolation_overrides,
-        ast_formatted_value_overrides,
-        ast_import_from_level_overrides,
-        ast_invalid_constant_overrides,
-        ast_joined_str_overrides,
-        ast_template_str_overrides,
-        _ast_comprehension_is_async_overrides,
-        ast_pattern_list_overrides,
-        ast_expr_option_list_overrides,
-        ast_expr_list_overrides,
-        ast_stmt_list_overrides,
-        ast_except_handler_list_overrides,
-        ast_type_param_list_overrides,
-        ast_match_class_overrides,
-        _ast_ann_assign_simple_overrides,
-        _ast_arg_type_comment_overrides,
-        _ast_stmt_type_comment_overrides,
-    ): (Mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        constant::collect_public_ast_overrides(|| Node::ast_from_object(vm, &source_file, object))?;
-    validate::validate_mod(
-        vm,
-        &ast,
-        Some(&ast_constant_overrides),
-        Some(&ast_interpolation_overrides),
-        Some(&ast_formatted_value_overrides),
-        Some(&ast_import_from_level_overrides),
-        Some(&ast_invalid_constant_overrides),
-        Some(&ast_joined_str_overrides),
-        Some(&ast_template_str_overrides),
-        Some(&ast_pattern_list_overrides),
-        Some(&ast_expr_option_list_overrides),
-        Some(&ast_expr_list_overrides),
-        Some(&ast_stmt_list_overrides),
-        Some(&ast_except_handler_list_overrides),
-        Some(&ast_type_param_list_overrides),
-        Some(&ast_match_class_overrides),
-    )?;
-    if !ast_constant_overrides.is_empty() {
-        opts.ast_constant_overrides = Some(Arc::new(ast_constant_overrides));
+    let constant::PublicAstConversion {
+        value: ast,
+        overrides,
+    } = constant::collect_public_ast_overrides(vm, |from_ctx| {
+        Node::ast_from_object(from_ctx, &source_file, object)
+    })?;
+    validate::validate_mod(vm, &ast, Some(&overrides))?;
+    if !overrides.constants.is_empty() {
+        opts.ast_constant_overrides = Some(Arc::new(overrides.constants.clone()));
     }
-    if !ast_interpolation_overrides.is_empty() {
-        opts.ast_interpolation_overrides = Some(Arc::new(ast_interpolation_overrides));
+    if !overrides.interpolations.is_empty() {
+        opts.ast_interpolation_overrides = Some(Arc::new(overrides.interpolations.clone()));
     }
-    if !ast_formatted_value_overrides.is_empty() {
-        opts.ast_formatted_value_overrides = Some(Arc::new(ast_formatted_value_overrides));
+    if !overrides.formatted_values.is_empty() {
+        opts.ast_formatted_value_overrides = Some(Arc::new(overrides.formatted_values.clone()));
     }
-    if !ast_joined_str_overrides.is_empty() {
-        opts.ast_joined_str_overrides = Some(Arc::new(ast_joined_str_overrides));
+    if !overrides.joined_strs.is_empty() {
+        opts.ast_joined_str_overrides = Some(Arc::new(overrides.joined_strs.clone()));
     }
-    if !ast_template_str_overrides.is_empty() {
-        opts.ast_template_str_overrides = Some(Arc::new(ast_template_str_overrides));
+    if !overrides.template_strs.is_empty() {
+        opts.ast_template_str_overrides = Some(Arc::new(overrides.template_strs.clone()));
     }
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
@@ -2623,46 +2549,13 @@ pub(crate) fn compile(
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
     let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
-    let (
-        ast,
-        ast_constant_overrides,
-        ast_interpolation_overrides,
-        ast_formatted_value_overrides,
-        ast_import_from_level_overrides,
-        ast_invalid_constant_overrides,
-        _ast_joined_str_overrides,
-        _ast_template_str_overrides,
-        _ast_comprehension_is_async_overrides,
-        ast_pattern_list_overrides,
-        ast_expr_option_list_overrides,
-        ast_expr_list_overrides,
-        ast_stmt_list_overrides,
-        ast_except_handler_list_overrides,
-        ast_type_param_list_overrides,
-        ast_match_class_overrides,
-        _ast_ann_assign_simple_overrides,
-        _ast_arg_type_comment_overrides,
-        _ast_stmt_type_comment_overrides,
-    ): (Mod, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _) =
-        constant::collect_public_ast_overrides(|| Node::ast_from_object(vm, &source_file, object))?;
-    validate::validate_mod(
-        vm,
-        &ast,
-        Some(&ast_constant_overrides),
-        Some(&ast_interpolation_overrides),
-        Some(&ast_formatted_value_overrides),
-        Some(&ast_import_from_level_overrides),
-        Some(&ast_invalid_constant_overrides),
-        Some(&_ast_joined_str_overrides),
-        Some(&_ast_template_str_overrides),
-        Some(&ast_pattern_list_overrides),
-        Some(&ast_expr_option_list_overrides),
-        Some(&ast_expr_list_overrides),
-        Some(&ast_stmt_list_overrides),
-        Some(&ast_except_handler_list_overrides),
-        Some(&ast_type_param_list_overrides),
-        Some(&ast_match_class_overrides),
-    )?;
+    let constant::PublicAstConversion {
+        value: ast,
+        overrides,
+    } = constant::collect_public_ast_overrides(vm, |from_ctx| {
+        Node::ast_from_object(from_ctx, &source_file, object)
+    })?;
+    validate::validate_mod(vm, &ast, Some(&overrides))?;
     Ok(())
 }
 

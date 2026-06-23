@@ -1,11 +1,76 @@
 use crate::{PyObjectRef, PyResult, VirtualMachine, builtins::PyList};
+use core::{
+    cell::{Cell, RefCell, RefMut},
+    ops::Deref,
+};
 use rustpython_compiler_core::SourceFile;
 use thin_vec::ThinVec;
 
+pub(super) struct AstToObjectContext<'a> {
+    pub(super) vm: &'a VirtualMachine,
+    pub(super) source_file: &'a SourceFile,
+    pub(super) overrides: Option<&'a super::constant::PublicAstOverrides>,
+}
+
+impl<'a> AstToObjectContext<'a> {
+    pub(super) fn new(
+        vm: &'a VirtualMachine,
+        source_file: &'a SourceFile,
+        overrides: Option<&'a super::constant::PublicAstOverrides>,
+    ) -> Self {
+        Self {
+            vm,
+            source_file,
+            overrides,
+        }
+    }
+}
+
+pub(super) struct AstFromObjectContext<'a> {
+    vm: &'a VirtualMachine,
+    next_public_ast_index: Cell<u32>,
+    public_ast_overrides: RefCell<super::constant::PublicAstOverrides>,
+}
+
+impl<'a> AstFromObjectContext<'a> {
+    pub(super) fn new(vm: &'a VirtualMachine) -> Self {
+        Self {
+            vm,
+            next_public_ast_index: Cell::new(0),
+            public_ast_overrides: RefCell::new(super::constant::PublicAstOverrides::default()),
+        }
+    }
+
+    pub(super) fn into_public_ast_overrides(self) -> super::constant::PublicAstOverrides {
+        self.public_ast_overrides.into_inner()
+    }
+
+    pub(super) fn next_public_ast_index(&self) -> ruff_python_ast::NodeIndex {
+        let index = self.next_public_ast_index.get();
+        self.next_public_ast_index
+            .set(index.checked_add(1).expect("too many public AST constants"));
+        ruff_python_ast::NodeIndex::from(index)
+    }
+
+    pub(super) fn public_ast_overrides_mut(
+        &self,
+    ) -> RefMut<'_, super::constant::PublicAstOverrides> {
+        self.public_ast_overrides.borrow_mut()
+    }
+}
+
+impl Deref for AstFromObjectContext<'_> {
+    type Target = VirtualMachine;
+
+    fn deref(&self) -> &Self::Target {
+        self.vm
+    }
+}
+
 pub(crate) trait Node: Sized {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef;
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef;
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self>;
@@ -17,23 +82,25 @@ pub(crate) trait Node: Sized {
 }
 
 impl<T: Node> Node for Vec<T> {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        vm.ctx
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        to_ctx
+            .vm
+            .ctx
             .new_list(
                 self.into_iter()
-                    .map(|node| node.ast_to_object(vm, source_file))
+                    .map(|node| node.ast_to_object(to_ctx))
                     .collect(),
             )
             .into()
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let list = object.downcast_ref::<PyList>().ok_or_else(|| {
-            vm.new_type_error(format!(
+            ctx.new_type_error(format!(
                 "AST list field must be a list, not a {}",
                 object.class().name()
             ))
@@ -45,16 +112,16 @@ impl<T: Node> Node for Vec<T> {
                 let items = list.borrow_vec();
                 if items.len() != len {
                     return Err(
-                        vm.new_runtime_error("AST list field changed size during iteration")
+                        ctx.new_runtime_error("AST list field changed size during iteration")
                     );
                 }
                 items[i].clone()
             };
-            result.push(vm.with_recursion("while traversing AST node", || {
-                Node::ast_from_object(vm, source_file, item)
+            result.push(ctx.with_recursion("while traversing AST node", || {
+                Node::ast_from_object(ctx, source_file, item)
             })?);
             if list.borrow_vec().len() != len {
-                return Err(vm.new_runtime_error("AST list field changed size during iteration"));
+                return Err(ctx.new_runtime_error("AST list field changed size during iteration"));
             }
         }
         Ok(result)
@@ -62,41 +129,39 @@ impl<T: Node> Node for Vec<T> {
 }
 
 impl<T: Node> Node for ThinVec<T> {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        vm.ctx
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        to_ctx
+            .vm
+            .ctx
             .new_list(
                 self.into_iter()
-                    .map(|node| node.ast_to_object(vm, source_file))
+                    .map(|node| node.ast_to_object(to_ctx))
                     .collect(),
             )
             .into()
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Vec::<T>::ast_from_object(vm, source_file, object).map(Into::into)
+        Vec::<T>::ast_from_object(ctx, source_file, object).map(Into::into)
     }
 }
 
 impl<T: Node> Node for Box<T> {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        (*self).ast_to_object(vm, source_file)
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        (*self).ast_to_object(to_ctx)
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        // Recursion guard: every descent through a Box<AstNode> increments the
-        // VM's recursion depth so cyclic or pathologically deep ASTs raise
-        // RecursionError instead of overflowing the native stack.
-        // See issue #4862.
-        vm.with_recursion("while traversing AST node", || {
-            T::ast_from_object(vm, source_file, object).map(Self::new)
+        ctx.with_recursion("while traversing AST node", || {
+            T::ast_from_object(ctx, source_file, object).map(Self::new)
         })
     }
 
@@ -106,22 +171,22 @@ impl<T: Node> Node for Box<T> {
 }
 
 impl<T: Node> Node for Option<T> {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
         match self {
-            Some(node) => node.ast_to_object(vm, source_file),
-            None => vm.ctx.none(),
+            Some(node) => node.ast_to_object(to_ctx),
+            None => to_ctx.vm.ctx.none(),
         }
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if vm.is_none(&object) {
+        if ctx.is_none(&object) {
             Ok(None)
         } else {
-            let x = T::ast_from_object(vm, source_file, object)?;
+            let x = T::ast_from_object(ctx, source_file, object)?;
             Ok((!x.is_none()).then_some(x))
         }
     }
@@ -130,17 +195,17 @@ impl<T: Node> Node for Option<T> {
 pub(super) struct BoxedSlice<T>(pub(super) Box<[T]>);
 
 impl<T: Node> Node for BoxedSlice<T> {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        self.0.into_vec().ast_to_object(vm, source_file)
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        self.0.into_vec().ast_to_object(to_ctx)
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self(
-            <Vec<T> as Node>::ast_from_object(vm, source_file, object)?.into_boxed_slice(),
+            <Vec<T> as Node>::ast_from_object(ctx, source_file, object)?.into_boxed_slice(),
         ))
     }
 }

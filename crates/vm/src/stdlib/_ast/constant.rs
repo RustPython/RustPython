@@ -1,7 +1,6 @@
 use super::*;
 use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ast::str_prefix::StringLiteralPrefix;
-use core::cell::RefCell;
 use rustpython_codegen::{
     PublicAstExprList, PublicAstFormattedValue, PublicAstInterpolation, PublicAstNodeMap,
     compile::ruff_int_to_bigint,
@@ -203,17 +202,19 @@ impl Constant {
         }
     }
 
-    pub(crate) fn into_expr(self) -> ast::Expr {
+    pub(crate) fn into_expr(self, ctx: Option<&AstFromObjectContext<'_>>) -> ast::Expr {
         let invalid_type = self.invalid_type.clone();
         let constant = self
             .invalid_type
             .is_none()
             .then(|| constant_literal_to_constant_data(&self.value));
         let expr = constant_to_ruff_expr(self);
-        if let Some(invalid_type) = invalid_type {
-            register_public_ast_invalid_constant(&expr, invalid_type);
-        } else if let Some(constant) = constant {
-            register_public_ast_constant(&expr, constant);
+        if let Some(ctx) = ctx {
+            if let Some(invalid_type) = invalid_type {
+                register_public_ast_invalid_constant(ctx, &expr, invalid_type);
+            } else if let Some(constant) = constant {
+                register_public_ast_constant(ctx, &expr, constant);
+            }
         }
         expr
     }
@@ -239,132 +240,68 @@ pub(crate) enum ConstantLiteral {
     Ellipsis,
 }
 
-struct PublicAstConstantState {
-    next_index: u32,
+#[derive(Clone)]
+pub(super) struct PublicAstOverrides {
     // CPython AST has Constant_kind.value/kind fields; Ruff has separate
     // literal expr variants. Dense node indexes make Vec lookup cheaper than
     // hashing, and insertion order is never observed.
-    constants: PublicAstNodeMap<ConstantData>,
+    pub(super) constants: PublicAstNodeMap<ConstantData>,
     // CPython Interpolation has raw str and expr? format_spec; Ruff t-string
     // elements do not. Dense node lookup avoids hashing these synthetic nodes.
-    interpolations: PublicAstNodeMap<PublicAstInterpolation>,
+    pub(super) interpolations: PublicAstNodeMap<PublicAstInterpolation>,
     // CPython FormattedValue has expr? format_spec; Ruff f-string specs are
     // parsed as string elements. Dense node lookup is the direct hot path.
-    formatted_values: PublicAstNodeMap<PublicAstFormattedValue>,
+    pub(super) formatted_values: PublicAstNodeMap<PublicAstFormattedValue>,
     // CPython ImportFrom.level accepts a public signed int; Ruff only stores
     // parser-valid unsigned levels. Dense lookup preserves only overrides.
-    import_from_levels: PublicAstNodeMap<i32>,
+    pub(super) import_from_levels: PublicAstNodeMap<i32>,
     // CPython validates Constant.value after object conversion; Ruff has no
     // invalid Constant node. Dense lookup stores only rejected public values.
-    invalid_constants: PublicAstNodeMap<String>,
+    pub(super) invalid_constants: PublicAstNodeMap<String>,
     // CPython JoinedStr.values is expr*; Ruff stores f-string element trees.
     // Dense lookup restores the public expr list without ordered-map overhead.
-    joined_strs: PublicAstNodeMap<PublicAstExprList>,
+    pub(super) joined_strs: PublicAstNodeMap<PublicAstExprList>,
     // CPython TemplateStr.values is expr*; Ruff stores t-string element trees.
     // Dense lookup restores the public expr list without ordered-map overhead.
-    template_strs: PublicAstNodeMap<PublicAstExprList>,
+    pub(super) template_strs: PublicAstNodeMap<PublicAstExprList>,
     // CPython comprehension has is_async; Ruff folds it into generator data.
     // Dense lookup keeps the raw public flag on affected nodes only.
-    comprehension_is_async: PublicAstNodeMap<i32>,
+    pub(super) comprehension_is_async: PublicAstNodeMap<i32>,
     // CPython permits nullable public pattern lists during validation; Ruff
     // pattern lists are non-null. Dense lookup stores only nullable lists.
-    pattern_lists: PublicAstNodeMap<PublicAstPatternList>,
+    pub(super) pattern_lists: PublicAstNodeMap<PublicAstPatternList>,
     // CPython has nullable expr?* slots such as defaults; Ruff omits null list
     // entries. Dense lookup stores only public nullable-list nodes.
-    expr_option_lists: PublicAstNodeMap<PublicAstExprOptionList>,
+    pub(super) expr_option_lists: PublicAstNodeMap<PublicAstExprOptionList>,
     // CPython public expr* fields may contain None until validation; Ruff
     // Vec<Expr> cannot represent null entries. Per-node bundles avoid hashing.
-    expr_lists: PublicAstNodeMap<PublicAstExprListFields>,
+    pub(super) expr_lists: PublicAstNodeMap<PublicAstExprListFields>,
     // CPython public stmt* fields may contain None until validation; Ruff
     // Vec<Stmt> cannot represent null entries. Per-node bundles avoid hashing.
-    stmt_lists: PublicAstNodeMap<PublicAstStmtListFields>,
+    pub(super) stmt_lists: PublicAstNodeMap<PublicAstStmtListFields>,
     // CPython nullable excepthandler* lists cannot be represented in Ruff.
     // Dense lookup stores only public nodes that need nullable validation.
-    except_handler_lists: PublicAstNodeMap<PublicAstExceptHandlerList>,
+    pub(super) except_handler_lists: PublicAstNodeMap<PublicAstExceptHandlerList>,
     // CPython nullable type_param* lists cannot be represented in Ruff. Dense
     // lookup stores only public nodes that need nullable validation.
-    type_param_lists: PublicAstNodeMap<PublicAstTypeParamList>,
+    pub(super) type_param_lists: PublicAstNodeMap<PublicAstTypeParamList>,
     // CPython MatchClass splits patterns/kwd_attrs/kwd_patterns; Ruff stores
     // PatternArguments. Dense lookup restores the public split shape.
-    match_classes: PublicAstNodeMap<PublicAstMatchClass>,
+    pub(super) match_classes: PublicAstNodeMap<PublicAstMatchClass>,
     // CPython AnnAssign.simple is a raw int; Ruff has no equivalent field.
     // Dense lookup stores only public AnnAssign overrides.
-    ann_assign_simple: PublicAstNodeMap<i32>,
+    pub(super) ann_assign_simple: PublicAstNodeMap<i32>,
     // CPython arg nodes have type_comment; Ruff parameters do not. Dense lookup
     // stores only public arg comments.
-    arg_type_comments: PublicAstNodeMap<PyObjectRef>,
+    pub(super) arg_type_comments: PublicAstNodeMap<PyObjectRef>,
     // CPython selected stmt nodes have type_comment; Ruff omits them. Dense
     // lookup stores only public stmt comments.
-    stmt_type_comments: PublicAstNodeMap<PyObjectRef>,
+    pub(super) stmt_type_comments: PublicAstNodeMap<PyObjectRef>,
 }
 
-type PublicAstOverrideMap = PublicAstNodeMap<ConstantData>;
-type PublicAstInterpolationOverrideMap = PublicAstNodeMap<PublicAstInterpolation>;
-type PublicAstFormattedValueOverrideMap = PublicAstNodeMap<PublicAstFormattedValue>;
-pub(super) type PublicAstImportFromLevelOverrideMap = PublicAstNodeMap<i32>;
-pub(super) type PublicAstInvalidConstantOverrideMap = PublicAstNodeMap<String>;
-pub(super) type PublicAstExprListOverrideMap = PublicAstNodeMap<PublicAstExprList>;
-pub(super) type PublicAstComprehensionIsAsyncOverrideMap = PublicAstNodeMap<i32>;
-pub(super) type PublicAstPatternListOverrideMap = PublicAstNodeMap<PublicAstPatternList>;
-pub(super) type PublicAstExprOptionListOverrideMap = PublicAstNodeMap<PublicAstExprOptionList>;
-pub(super) type PublicAstExprListFieldOverrideMap = PublicAstNodeMap<PublicAstExprListFields>;
-pub(super) type PublicAstStmtListOverrideMap = PublicAstNodeMap<PublicAstStmtListFields>;
-pub(super) type PublicAstExceptHandlerListOverrideMap =
-    PublicAstNodeMap<PublicAstExceptHandlerList>;
-pub(super) type PublicAstTypeParamListOverrideMap = PublicAstNodeMap<PublicAstTypeParamList>;
-pub(super) type PublicAstMatchClassOverrideMap = PublicAstNodeMap<PublicAstMatchClass>;
-pub(super) type PublicAstAnnAssignSimpleOverrideMap = PublicAstNodeMap<i32>;
-pub(super) type PublicAstArgTypeCommentOverrideMap = PublicAstNodeMap<PyObjectRef>;
-pub(super) type PublicAstStmtTypeCommentOverrideMap = PublicAstNodeMap<PyObjectRef>;
-type PublicAstOverrideCollection<T> = (
-    T,
-    PublicAstOverrideMap,
-    PublicAstInterpolationOverrideMap,
-    PublicAstFormattedValueOverrideMap,
-    PublicAstImportFromLevelOverrideMap,
-    PublicAstInvalidConstantOverrideMap,
-    PublicAstExprListOverrideMap,
-    PublicAstExprListOverrideMap,
-    PublicAstComprehensionIsAsyncOverrideMap,
-    PublicAstPatternListOverrideMap,
-    PublicAstExprOptionListOverrideMap,
-    PublicAstExprListFieldOverrideMap,
-    PublicAstStmtListOverrideMap,
-    PublicAstExceptHandlerListOverrideMap,
-    PublicAstTypeParamListOverrideMap,
-    PublicAstMatchClassOverrideMap,
-    PublicAstAnnAssignSimpleOverrideMap,
-    PublicAstArgTypeCommentOverrideMap,
-    PublicAstStmtTypeCommentOverrideMap,
-);
-
-thread_local! {
-    static PUBLIC_AST_CONSTANTS: RefCell<Option<PublicAstConstantState>> = const { RefCell::new(None) };
-    static PUBLIC_AST_CONSTANT_OBJECTS: RefCell<Option<PublicAstOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_INTERPOLATION_OBJECTS: RefCell<Option<PublicAstInterpolationOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_FORMATTED_VALUE_OBJECTS: RefCell<Option<PublicAstFormattedValueOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_JOINED_STR_OBJECTS: RefCell<Option<PublicAstExprListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_TEMPLATE_STR_OBJECTS: RefCell<Option<PublicAstExprListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_COMPREHENSION_IS_ASYNC_OBJECTS: RefCell<Option<PublicAstComprehensionIsAsyncOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_PATTERN_LIST_OBJECTS: RefCell<Option<PublicAstPatternListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_EXPR_OPTION_LIST_OBJECTS: RefCell<Option<PublicAstExprOptionListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_EXPR_LIST_OBJECTS: RefCell<Option<PublicAstExprListFieldOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_STMT_LIST_OBJECTS: RefCell<Option<PublicAstStmtListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_EXCEPT_HANDLER_LIST_OBJECTS: RefCell<Option<PublicAstExceptHandlerListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_TYPE_PARAM_LIST_OBJECTS: RefCell<Option<PublicAstTypeParamListOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_MATCH_CLASS_OBJECTS: RefCell<Option<PublicAstMatchClassOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_ANN_ASSIGN_SIMPLE_OBJECTS: RefCell<Option<PublicAstAnnAssignSimpleOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_ARG_TYPE_COMMENT_OBJECTS: RefCell<Option<PublicAstArgTypeCommentOverrideMap>> = const { RefCell::new(None) };
-    static PUBLIC_AST_STMT_TYPE_COMMENT_OBJECTS: RefCell<Option<PublicAstStmtTypeCommentOverrideMap>> = const { RefCell::new(None) };
-}
-
-pub(super) fn collect_public_ast_overrides<T>(
-    f: impl FnOnce() -> PyResult<T>,
-) -> PyResult<PublicAstOverrideCollection<T>> {
-    PUBLIC_AST_CONSTANTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(PublicAstConstantState {
-            next_index: 0,
+impl Default for PublicAstOverrides {
+    fn default() -> Self {
+        Self {
             constants: PublicAstNodeMap::new(),
             interpolations: PublicAstNodeMap::new(),
             formatted_values: PublicAstNodeMap::new(),
@@ -383,100 +320,57 @@ pub(super) fn collect_public_ast_overrides<T>(
             ann_assign_simple: PublicAstNodeMap::new(),
             arg_type_comments: PublicAstNodeMap::new(),
             stmt_type_comments: PublicAstNodeMap::new(),
-        });
-    });
-
-    let result = f();
-    let (
-        constants,
-        interpolations,
-        formatted_values,
-        import_from_levels,
-        invalid_constants,
-        joined_strs,
-        template_strs,
-        comprehension_is_async,
-        pattern_lists,
-        expr_option_lists,
-        expr_lists,
-        stmt_lists,
-        except_handler_lists,
-        type_param_lists,
-        match_classes,
-        ann_assign_simple,
-        arg_type_comments,
-        stmt_type_comments,
-    ) = PUBLIC_AST_CONSTANTS.with(|cell| {
-        let state = cell
-            .borrow_mut()
-            .take()
-            .expect("public AST constant collection state missing");
-        (
-            state.constants,
-            state.interpolations,
-            state.formatted_values,
-            state.import_from_levels,
-            state.invalid_constants,
-            state.joined_strs,
-            state.template_strs,
-            state.comprehension_is_async,
-            state.pattern_lists,
-            state.expr_option_lists,
-            state.expr_lists,
-            state.stmt_lists,
-            state.except_handler_lists,
-            state.type_param_lists,
-            state.match_classes,
-            state.ann_assign_simple,
-            state.arg_type_comments,
-            state.stmt_type_comments,
-        )
-    });
-    result.map(|value| {
-        (
-            value,
-            constants,
-            interpolations,
-            formatted_values,
-            import_from_levels,
-            invalid_constants,
-            joined_strs,
-            template_strs,
-            comprehension_is_async,
-            pattern_lists,
-            expr_option_lists,
-            expr_lists,
-            stmt_lists,
-            except_handler_lists,
-            type_param_lists,
-            match_classes,
-            ann_assign_simple,
-            arg_type_comments,
-            stmt_type_comments,
-        )
-    })
+        }
+    }
 }
 
-fn register_public_ast_constant(expr: &ast::Expr, constant: ConstantData) {
-    let index = register_public_ast_override(|state, index| {
-        state.constants.insert(index, constant);
+pub(super) type PublicAstImportFromLevelOverrideMap = PublicAstNodeMap<i32>;
+pub(super) type PublicAstExprListFieldOverrideMap = PublicAstNodeMap<PublicAstExprListFields>;
+pub(super) type PublicAstStmtListOverrideMap = PublicAstNodeMap<PublicAstStmtListFields>;
+pub(super) struct PublicAstConversion<T> {
+    pub(super) value: T,
+    pub(super) overrides: PublicAstOverrides,
+}
+
+pub(super) fn collect_public_ast_overrides<T>(
+    vm: &VirtualMachine,
+    f: impl FnOnce(&AstFromObjectContext<'_>) -> PyResult<T>,
+) -> PyResult<PublicAstConversion<T>> {
+    let from_ctx = AstFromObjectContext::new(vm);
+    let value = f(&from_ctx)?;
+    let overrides = from_ctx.into_public_ast_overrides();
+    Ok(PublicAstConversion { value, overrides })
+}
+
+fn register_public_ast_constant(
+    ctx: &AstFromObjectContext<'_>,
+    expr: &ast::Expr,
+    constant: ConstantData,
+) {
+    let index = register_public_ast_override(ctx, |overrides, index| {
+        overrides.constants.insert(index, constant);
     });
     ast::HasNodeIndex::node_index(expr).set(index);
 }
 
-fn register_public_ast_invalid_constant(expr: &ast::Expr, invalid_type: String) {
-    let index = register_public_ast_override(|state, index| {
-        state.invalid_constants.insert(index, invalid_type);
+fn register_public_ast_invalid_constant(
+    ctx: &AstFromObjectContext<'_>,
+    expr: &ast::Expr,
+    invalid_type: String,
+) {
+    let index = register_public_ast_override(ctx, |overrides, index| {
+        overrides.invalid_constants.insert(index, invalid_type);
     });
     ast::HasNodeIndex::node_index(expr).set(index);
 }
 
 pub(super) fn register_public_ast_interpolation(
+    ctx: &AstFromObjectContext<'_>,
     str_constant: ConstantData,
     format_spec: Option<Box<ast::Expr>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state.interpolations.insert(
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides.interpolations.insert(
             index,
             PublicAstInterpolation {
                 str: str_constant,
@@ -487,112 +381,132 @@ pub(super) fn register_public_ast_interpolation(
 }
 
 pub(super) fn register_public_ast_formatted_value(
+    ctx: &AstFromObjectContext<'_>,
     format_spec: Option<Box<ast::Expr>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .formatted_values
             .insert(index, PublicAstFormattedValue { format_spec });
     })
 }
 
-pub(super) fn register_public_ast_joined_str(values: Vec<ast::Expr>) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+pub(super) fn register_public_ast_joined_str(
+    ctx: &AstFromObjectContext<'_>,
+    values: Vec<ast::Expr>,
+) -> ast::NodeIndex {
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .joined_strs
             .insert(index, PublicAstExprList { values });
     })
 }
 
-pub(super) fn register_public_ast_template_str(values: Vec<ast::Expr>) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+pub(super) fn register_public_ast_template_str(
+    ctx: &AstFromObjectContext<'_>,
+    values: Vec<ast::Expr>,
+) -> ast::NodeIndex {
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .template_strs
             .insert(index, PublicAstExprList { values });
     })
 }
 
 pub(super) fn register_public_ast_pattern_list(
+    ctx: &AstFromObjectContext<'_>,
     values: Vec<Option<ast::Pattern>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .pattern_lists
             .insert(index, PublicAstPatternList { values });
     })
 }
 
 pub(super) fn register_public_ast_match_mapping(
+    ctx: &AstFromObjectContext<'_>,
     keys: Vec<Option<ast::Expr>>,
     patterns: Vec<Option<ast::Pattern>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .expr_option_lists
             .insert(index, PublicAstExprOptionList { values: keys });
-        state
+        overrides
             .pattern_lists
             .insert(index, PublicAstPatternList { values: patterns });
     })
 }
 
 pub(super) fn register_public_ast_expr_option_list(
+    ctx: &AstFromObjectContext<'_>,
     values: Vec<Option<ast::Expr>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .expr_option_lists
             .insert(index, PublicAstExprOptionList { values });
     })
 }
 
 pub(super) fn register_public_ast_stmt_list(
+    ctx: &AstFromObjectContext<'_>,
     field: PublicAstStmtListField,
     values: Vec<Option<ast::Stmt>>,
 ) -> ast::NodeIndex {
-    register_public_ast_stmt_lists([(field, values)])
+    register_public_ast_stmt_lists(ctx, [(field, values)])
 }
 
 pub(super) fn register_public_ast_stmt_lists(
+    ctx: &AstFromObjectContext<'_>,
     values: impl IntoIterator<Item = (PublicAstStmtListField, Vec<Option<ast::Stmt>>)>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
+    register_public_ast_override(ctx, |overrides, index| {
         for (field, values) in values {
-            public_ast_stmt_fields_mut(&mut state.stmt_lists, index)
+            public_ast_stmt_fields_mut(&mut overrides.stmt_lists, index)
                 .insert(field, PublicAstStmtList { values });
         }
     })
 }
 
 pub(super) fn register_public_ast_try_lists(
+    ctx: &AstFromObjectContext<'_>,
     stmt_values: Vec<(PublicAstStmtListField, Vec<Option<ast::Stmt>>)>,
     except_handler_values: Option<Vec<Option<ast::ExceptHandler>>>,
 ) -> ast::NodeIndex {
-    register_public_ast_node_list_overrides(stmt_values, Vec::new(), except_handler_values, None)
+    register_public_ast_node_list_overrides(
+        ctx,
+        stmt_values,
+        Vec::new(),
+        except_handler_values,
+        None,
+    )
 }
 
 pub(super) fn register_public_ast_node_list_overrides(
+    ctx: &AstFromObjectContext<'_>,
     stmt_values: Vec<(PublicAstStmtListField, Vec<Option<ast::Stmt>>)>,
     expr_values: Vec<(PublicAstExprListField, Vec<Option<ast::Expr>>)>,
     except_handler_values: Option<Vec<Option<ast::ExceptHandler>>>,
     comprehension_is_async: Option<i32>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
+    register_public_ast_override(ctx, |overrides, index| {
         for (field, values) in stmt_values {
-            public_ast_stmt_fields_mut(&mut state.stmt_lists, index)
+            public_ast_stmt_fields_mut(&mut overrides.stmt_lists, index)
                 .insert(field, PublicAstStmtList { values });
         }
         for (field, values) in expr_values {
-            public_ast_expr_fields_mut(&mut state.expr_lists, index)
+            public_ast_expr_fields_mut(&mut overrides.expr_lists, index)
                 .insert(field, PublicAstExprOptionList { values });
         }
         if let Some(values) = except_handler_values {
-            state
+            overrides
                 .except_handler_lists
                 .insert(index, PublicAstExceptHandlerList { values });
         }
         if let Some(value) = comprehension_is_async {
-            state.comprehension_is_async.insert(index, value);
+            overrides.comprehension_is_async.insert(index, value);
         }
     })
 }
@@ -618,22 +532,24 @@ fn public_ast_stmt_fields_mut(
 }
 
 pub(super) fn register_public_ast_type_param_list(
+    ctx: &AstFromObjectContext<'_>,
     values: Vec<Option<ast::TypeParam>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides
             .type_param_lists
             .insert(index, PublicAstTypeParamList { values });
     })
 }
 
 pub(super) fn register_public_ast_match_class(
+    ctx: &AstFromObjectContext<'_>,
     patterns: Vec<Option<ast::Pattern>>,
     kwd_attrs: Vec<ast::Identifier>,
     kwd_patterns: Vec<Option<ast::Pattern>>,
 ) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state.match_classes.insert(
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides.match_classes.insert(
             index,
             PublicAstMatchClass {
                 patterns,
@@ -644,439 +560,275 @@ pub(super) fn register_public_ast_match_class(
     })
 }
 
-pub(super) fn register_public_ast_import_from_level(level: i32) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state.import_from_levels.insert(index, level);
+pub(super) fn register_public_ast_import_from_level(
+    ctx: &AstFromObjectContext<'_>,
+    level: i32,
+) -> ast::NodeIndex {
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides.import_from_levels.insert(index, level);
     })
 }
 
-pub(super) fn register_public_ast_ann_assign_simple(simple: i32) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state.ann_assign_simple.insert(index, simple);
+pub(super) fn register_public_ast_ann_assign_simple(
+    ctx: &AstFromObjectContext<'_>,
+    simple: i32,
+) -> ast::NodeIndex {
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides.ann_assign_simple.insert(index, simple);
     })
 }
 
-pub(super) fn register_public_ast_arg_type_comment(type_comment: PyObjectRef) -> ast::NodeIndex {
-    register_public_ast_override(|state, index| {
-        state.arg_type_comments.insert(index, type_comment);
+pub(super) fn register_public_ast_arg_type_comment(
+    ctx: &AstFromObjectContext<'_>,
+    type_comment: PyObjectRef,
+) -> ast::NodeIndex {
+    register_public_ast_override(ctx, |overrides, index| {
+        overrides.arg_type_comments.insert(index, type_comment);
     })
 }
 
 pub(super) fn register_public_ast_stmt_type_comment(
+    ctx: &AstFromObjectContext<'_>,
     node_index: &ast::AtomicNodeIndex,
     type_comment: PyObjectRef,
 ) {
-    register_public_ast_node_override(node_index, |state, index| {
-        state.stmt_type_comments.insert(index, type_comment);
+    register_public_ast_node_override(ctx, node_index, |overrides, index| {
+        overrides.stmt_type_comments.insert(index, type_comment);
     });
 }
 
 fn register_public_ast_override(
-    insert: impl FnOnce(&mut PublicAstConstantState, ast::NodeIndex),
+    ctx: &AstFromObjectContext<'_>,
+    insert: impl FnOnce(&mut PublicAstOverrides, ast::NodeIndex),
 ) -> ast::NodeIndex {
-    PUBLIC_AST_CONSTANTS.with(|cell| {
-        let mut state = cell.borrow_mut();
-        let Some(state) = state.as_mut() else {
-            return ast::NodeIndex::NONE;
-        };
-        let index = ast::NodeIndex::from(state.next_index);
-        state.next_index = state
-            .next_index
-            .checked_add(1)
-            .expect("too many public AST constants");
-        insert(state, index);
-        index
-    })
+    let index = ctx.next_public_ast_index();
+    insert(&mut ctx.public_ast_overrides_mut(), index);
+    index
 }
 
 fn register_public_ast_node_override(
+    ctx: &AstFromObjectContext<'_>,
     node_index: &ast::AtomicNodeIndex,
-    insert: impl FnOnce(&mut PublicAstConstantState, ast::NodeIndex),
+    insert: impl FnOnce(&mut PublicAstOverrides, ast::NodeIndex),
 ) {
-    PUBLIC_AST_CONSTANTS.with(|cell| {
-        let mut state = cell.borrow_mut();
-        let Some(state) = state.as_mut() else {
-            return;
-        };
-        let mut index = node_index.load();
-        if index == ast::NodeIndex::NONE {
-            index = ast::NodeIndex::from(state.next_index);
-            state.next_index = state
-                .next_index
-                .checked_add(1)
-                .expect("too many public AST constants");
-            node_index.set(index);
-        }
-        insert(state, index);
-    });
-}
-
-#[expect(
-    clippy::too_many_arguments,
-    reason = "public AST conversion installs independent override tables"
-)]
-pub(super) fn with_public_ast_interpolation_objects<T>(
-    constants: &PublicAstOverrideMap,
-    interpolations: &PublicAstInterpolationOverrideMap,
-    formatted_values: &PublicAstFormattedValueOverrideMap,
-    joined_strs: &PublicAstExprListOverrideMap,
-    template_strs: &PublicAstExprListOverrideMap,
-    comprehension_is_async: &PublicAstComprehensionIsAsyncOverrideMap,
-    pattern_lists: &PublicAstPatternListOverrideMap,
-    expr_option_lists: &PublicAstExprOptionListOverrideMap,
-    expr_lists: &PublicAstExprListFieldOverrideMap,
-    stmt_lists: &PublicAstStmtListOverrideMap,
-    except_handler_lists: &PublicAstExceptHandlerListOverrideMap,
-    type_param_lists: &PublicAstTypeParamListOverrideMap,
-    match_classes: &PublicAstMatchClassOverrideMap,
-    ann_assign_simple: &PublicAstAnnAssignSimpleOverrideMap,
-    arg_type_comments: &PublicAstArgTypeCommentOverrideMap,
-    stmt_type_comments: &PublicAstStmtTypeCommentOverrideMap,
-    f: impl FnOnce() -> T,
-) -> T {
-    PUBLIC_AST_CONSTANT_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(constants.clone());
-    });
-    PUBLIC_AST_INTERPOLATION_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(interpolations.clone());
-    });
-    PUBLIC_AST_FORMATTED_VALUE_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(formatted_values.clone());
-    });
-    PUBLIC_AST_JOINED_STR_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(joined_strs.clone());
-    });
-    PUBLIC_AST_TEMPLATE_STR_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(template_strs.clone());
-    });
-    PUBLIC_AST_COMPREHENSION_IS_ASYNC_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(comprehension_is_async.clone());
-    });
-    PUBLIC_AST_PATTERN_LIST_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(pattern_lists.clone());
-    });
-    PUBLIC_AST_EXPR_OPTION_LIST_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(expr_option_lists.clone());
-    });
-    PUBLIC_AST_EXPR_LIST_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(expr_lists.clone());
-    });
-    PUBLIC_AST_STMT_LIST_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(stmt_lists.clone());
-    });
-    PUBLIC_AST_EXCEPT_HANDLER_LIST_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(except_handler_lists.clone());
-    });
-    PUBLIC_AST_TYPE_PARAM_LIST_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(type_param_lists.clone());
-    });
-    PUBLIC_AST_MATCH_CLASS_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(match_classes.clone());
-    });
-    PUBLIC_AST_ANN_ASSIGN_SIMPLE_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(ann_assign_simple.clone());
-    });
-    PUBLIC_AST_ARG_TYPE_COMMENT_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(arg_type_comments.clone());
-    });
-    PUBLIC_AST_STMT_TYPE_COMMENT_OBJECTS.with(|cell| {
-        debug_assert!(cell.borrow().is_none());
-        *cell.borrow_mut() = Some(stmt_type_comments.clone());
-    });
-    let result = f();
-    PUBLIC_AST_CONSTANT_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_INTERPOLATION_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_FORMATTED_VALUE_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_JOINED_STR_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_TEMPLATE_STR_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_COMPREHENSION_IS_ASYNC_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_PATTERN_LIST_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_EXPR_OPTION_LIST_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_EXPR_LIST_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_STMT_LIST_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_EXCEPT_HANDLER_LIST_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_TYPE_PARAM_LIST_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_MATCH_CLASS_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_ANN_ASSIGN_SIMPLE_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_ARG_TYPE_COMMENT_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    PUBLIC_AST_STMT_TYPE_COMMENT_OBJECTS.with(|cell| {
-        let _ = cell.borrow_mut().take();
-    });
-    result
+    let mut index = node_index.load();
+    if index == ast::NodeIndex::NONE {
+        index = ctx.next_public_ast_index();
+        node_index.set(index);
+    }
+    insert(&mut ctx.public_ast_overrides_mut(), index);
 }
 
 pub(super) fn public_ast_constant_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
     range: TextRange,
 ) -> Option<PyObjectRef> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    let constant = PUBLIC_AST_CONSTANT_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|constants| constants.get(&node_index).cloned())
-    })?;
+    let ctx = to_ctx.vm;
+    let source_file = to_ctx.source_file;
+    let constant = to_ctx.overrides?.constants.get(&node_index).cloned()?;
     let node = NodeAst
-        .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
+        .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
         .unwrap();
     let dict = node.as_object().dict().unwrap();
-    dict.set_item("value", constant_data_to_object(vm, constant), vm)
+    dict.set_item("value", constant_data_to_object(ctx, constant), ctx)
         .unwrap();
-    dict.set_item("kind", vm.ctx.none(), vm).unwrap();
-    node_add_location(&dict, range, vm, source_file);
+    dict.set_item("kind", ctx.ctx.none(), ctx).unwrap();
+    node_add_location(&dict, range, ctx, source_file);
     Some(node.into())
 }
 
 pub(super) fn public_ast_interpolation_object(
-    vm: &VirtualMachine,
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<(PyObjectRef, Option<Box<ast::Expr>>)> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    let interpolation = PUBLIC_AST_INTERPOLATION_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|interpolations| interpolations.get(&node_index).cloned())
-    })?;
+    let interpolation = to_ctx.overrides?.interpolations.get(&node_index).cloned()?;
     Some((
-        constant_data_to_object(vm, interpolation.str),
+        constant_data_to_object(to_ctx.vm, interpolation.str),
         interpolation.format_spec,
     ))
 }
 
 pub(super) fn public_ast_formatted_value_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstFormattedValue> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_FORMATTED_VALUE_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|formatted_values| formatted_values.get(&node_index).cloned())
-    })
+    to_ctx.overrides?.formatted_values.get(&node_index).cloned()
 }
 
 pub(super) fn public_ast_joined_str_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstExprList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_JOINED_STR_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|joined_strs| joined_strs.get(&node_index).cloned())
-    })
+    to_ctx.overrides?.joined_strs.get(&node_index).cloned()
 }
 
 pub(super) fn public_ast_template_str_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstExprList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_TEMPLATE_STR_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|template_strs| template_strs.get(&node_index).cloned())
-    })
+    to_ctx.overrides?.template_strs.get(&node_index).cloned()
 }
 
-pub(super) fn public_ast_comprehension_is_async_object(node_index: ast::NodeIndex) -> Option<i32> {
+pub(super) fn public_ast_comprehension_is_async_object(
+    to_ctx: &AstToObjectContext<'_>,
+    node_index: ast::NodeIndex,
+) -> Option<i32> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_COMPREHENSION_IS_ASYNC_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).copied())
-    })
+    to_ctx
+        .overrides?
+        .comprehension_is_async
+        .get(&node_index)
+        .copied()
 }
 
 pub(super) fn public_ast_pattern_list_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstPatternList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_PATTERN_LIST_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx.overrides?.pattern_lists.get(&node_index).cloned()
 }
 
 pub(super) fn public_ast_expr_option_list_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstExprOptionList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_EXPR_OPTION_LIST_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx
+        .overrides?
+        .expr_option_lists
+        .get(&node_index)
+        .cloned()
 }
 
 pub(super) fn public_ast_expr_list_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
     field: PublicAstExprListField,
 ) -> Option<PublicAstExprOptionList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_EXPR_LIST_OBJECTS.with(|cell| {
-        cell.borrow().as_ref().and_then(|values| {
-            values
-                .get(&node_index)
-                .and_then(|values| values.get(field))
-                .cloned()
-        })
-    })
+    to_ctx
+        .overrides?
+        .expr_lists
+        .get(&node_index)
+        .and_then(|values| values.get(field))
+        .cloned()
 }
 
 pub(super) fn public_ast_stmt_list_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
     field: PublicAstStmtListField,
 ) -> Option<PublicAstStmtList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_STMT_LIST_OBJECTS.with(|cell| {
-        cell.borrow().as_ref().and_then(|values| {
-            values
-                .get(&node_index)
-                .and_then(|values| values.get(field))
-                .cloned()
-        })
-    })
+    to_ctx
+        .overrides?
+        .stmt_lists
+        .get(&node_index)
+        .and_then(|values| values.get(field))
+        .cloned()
 }
 
 pub(super) fn public_ast_except_handler_list_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstExceptHandlerList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_EXCEPT_HANDLER_LIST_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx
+        .overrides?
+        .except_handler_lists
+        .get(&node_index)
+        .cloned()
 }
 
 pub(super) fn public_ast_type_param_list_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstTypeParamList> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_TYPE_PARAM_LIST_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx.overrides?.type_param_lists.get(&node_index).cloned()
 }
 
 pub(super) fn public_ast_match_class_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PublicAstMatchClass> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_MATCH_CLASS_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx.overrides?.match_classes.get(&node_index).cloned()
 }
 
-pub(super) fn public_ast_ann_assign_simple_object(node_index: ast::NodeIndex) -> Option<i32> {
+pub(super) fn public_ast_ann_assign_simple_object(
+    to_ctx: &AstToObjectContext<'_>,
+    node_index: ast::NodeIndex,
+) -> Option<i32> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_ANN_ASSIGN_SIMPLE_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).copied())
-    })
+    to_ctx
+        .overrides?
+        .ann_assign_simple
+        .get(&node_index)
+        .copied()
 }
 
 pub(super) fn public_ast_arg_type_comment_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PyObjectRef> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_ARG_TYPE_COMMENT_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx
+        .overrides?
+        .arg_type_comments
+        .get(&node_index)
+        .cloned()
 }
 
 pub(super) fn public_ast_stmt_type_comment_object(
+    to_ctx: &AstToObjectContext<'_>,
     node_index: ast::NodeIndex,
 ) -> Option<PyObjectRef> {
     if node_index == ast::NodeIndex::NONE {
         return None;
     }
-    PUBLIC_AST_STMT_TYPE_COMMENT_OBJECTS.with(|cell| {
-        cell.borrow()
-            .as_ref()
-            .and_then(|values| values.get(&node_index).cloned())
-    })
+    to_ctx
+        .overrides?
+        .stmt_type_comments
+        .get(&node_index)
+        .cloned()
 }
 
 fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
@@ -1113,38 +865,41 @@ fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
 }
 
 pub(super) fn constant_object_to_constant_data(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     value_object: PyObjectRef,
 ) -> PyResult<ConstantData> {
-    let value = ConstantLiteral::ast_from_object(vm, source_file, value_object)?;
+    let value = ConstantLiteral::ast_from_object(ctx, source_file, value_object)?;
     Ok(constant_literal_to_constant_data(&value))
 }
 
-fn first_invalid_constant_type(vm: &VirtualMachine, value_object: PyObjectRef) -> PyResult<String> {
+fn first_invalid_constant_type(
+    ctx: &AstFromObjectContext<'_>,
+    value_object: PyObjectRef,
+) -> PyResult<String> {
     let cls = value_object.class();
     let class_name = cls.name().to_owned();
-    if cls.is(vm.ctx.types.tuple_type) {
-        vm.with_recursion(" during compilation", || {
+    if cls.is(ctx.ctx.types.tuple_type) {
+        ctx.with_recursion(" during compilation", || {
             let tuple = value_object.clone().downcast::<PyTuple>().map_err(|obj| {
-                vm.new_type_error(format!(
+                ctx.new_type_error(format!(
                     "Expected type {}, not {}",
                     PyTuple::static_type().name(),
                     obj.class().name()
                 ))
             })?;
             for item in tuple.iter() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item.clone())? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(ctx, item.clone())? {
                     return Ok(invalid_type);
                 }
             }
             Ok(class_name)
         })
-    } else if cls.is(vm.ctx.types.frozenset_type) {
-        vm.with_recursion(" during compilation", || {
+    } else if cls.is(ctx.ctx.types.frozenset_type) {
+        ctx.with_recursion(" during compilation", || {
             let set = value_object.clone().downcast::<PyFrozenSet>().unwrap();
             for item in set.elements() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(ctx, item)? {
                     return Ok(invalid_type);
                 }
             }
@@ -1156,23 +911,23 @@ fn first_invalid_constant_type(vm: &VirtualMachine, value_object: PyObjectRef) -
 }
 
 fn first_invalid_constant_type_opt(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     value_object: PyObjectRef,
 ) -> PyResult<Option<String>> {
     let cls = value_object.class();
-    if cls.is(vm.ctx.types.none_type)
-        || cls.is(vm.ctx.types.bool_type)
-        || cls.is(vm.ctx.types.str_type)
-        || cls.is(vm.ctx.types.bytes_type)
-        || cls.is(vm.ctx.types.int_type)
-        || cls.is(vm.ctx.types.float_type)
-        || cls.is(vm.ctx.types.complex_type)
-        || cls.is(vm.ctx.types.ellipsis_type)
+    if cls.is(ctx.ctx.types.none_type)
+        || cls.is(ctx.ctx.types.bool_type)
+        || cls.is(ctx.ctx.types.str_type)
+        || cls.is(ctx.ctx.types.bytes_type)
+        || cls.is(ctx.ctx.types.int_type)
+        || cls.is(ctx.ctx.types.float_type)
+        || cls.is(ctx.ctx.types.complex_type)
+        || cls.is(ctx.ctx.types.ellipsis_type)
     {
         return Ok(None);
     }
-    if cls.is(vm.ctx.types.tuple_type) || cls.is(vm.ctx.types.frozenset_type) {
-        return first_invalid_constant_type(vm, value_object).map(Some);
+    if cls.is(ctx.ctx.types.tuple_type) || cls.is(ctx.ctx.types.frozenset_type) {
+        return first_invalid_constant_type(ctx, value_object).map(Some);
     }
     Ok(Some(cls.name().to_owned()))
 }
@@ -1208,21 +963,21 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
 
 // constructor
 pub(super) fn constant_from_object_with_range(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<Constant> {
-    let value_object = get_node_field(vm, &object, "value", "Constant")?;
+    let value_object = get_node_field(ctx, &object, "value", "Constant")?;
     let (value, invalid_type) =
-        match ConstantLiteral::ast_from_object(vm, source_file, value_object.clone()) {
+        match ConstantLiteral::ast_from_object(ctx, source_file, value_object.clone()) {
             Ok(value) => (value, None),
             Err(_) => (
                 ConstantLiteral::None,
-                Some(first_invalid_constant_type(vm, value_object)?),
+                Some(first_invalid_constant_type(ctx, value_object)?),
             ),
         };
-    let _kind = get_ast_string_field_opt(vm, &object, "kind")?;
+    let _kind = get_ast_string_field_opt(ctx, &object, "kind")?;
 
     Ok(Constant {
         range,
@@ -1232,98 +987,98 @@ pub(super) fn constant_from_object_with_range(
 }
 
 impl Node for Constant {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let ctx = to_ctx.vm;
+        let source_file = to_ctx.source_file;
         let Self {
             range,
             value,
             invalid_type: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
+            .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
             .unwrap();
         let kind = match &value {
             ConstantLiteral::Str {
                 prefix: StringLiteralPrefix::Unicode,
                 ..
-            } => vm.ctx.new_str("u").into(),
-            _ => vm.ctx.none(),
+            } => ctx.ctx.new_str("u").into(),
+            _ => ctx.ctx.none(),
         };
-        let value = value.ast_to_object(vm, source_file);
+        let value = value.ast_to_object(to_ctx);
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value, vm).unwrap();
-        dict.set_item("kind", kind, vm).unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        dict.set_item("value", value, ctx).unwrap();
+        dict.set_item("kind", kind, ctx).unwrap();
+        node_add_location(&dict, range, ctx, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(vm, source_file, object.clone(), "Constant")?;
-        constant_from_object_with_range(vm, source_file, object, range)
+        let range = range_from_object(ctx, source_file, object.clone(), "Constant")?;
+        constant_from_object_with_range(ctx, source_file, object, range)
     }
 }
 
 impl Node for ConstantLiteral {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let ctx = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         match self {
-            Self::None => vm.ctx.none(),
-            Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
-            Self::Str { value, .. } => vm.ctx.new_str(value).to_pyobject(vm),
-            Self::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
-            Self::Int(value) => value.ast_to_object(vm, source_file),
+            Self::None => ctx.ctx.none(),
+            Self::Bool(value) => ctx.ctx.new_bool(value).to_pyobject(ctx),
+            Self::Str { value, .. } => ctx.ctx.new_str(value).to_pyobject(ctx),
+            Self::Bytes(value) => ctx.ctx.new_bytes(value.into()).to_pyobject(ctx),
+            Self::Int(value) => value.ast_to_object(to_ctx),
             Self::Tuple(value) => {
-                let value = value
-                    .into_iter()
-                    .map(|c| c.ast_to_object(vm, source_file))
-                    .collect();
-                vm.ctx.new_tuple(value).to_pyobject(vm)
+                let value = value.into_iter().map(|c| c.ast_to_object(to_ctx)).collect();
+                ctx.ctx.new_tuple(value).to_pyobject(ctx)
             }
-            Self::FrozenSet(value) => PyFrozenSet::from_iter(
-                vm,
-                value.into_iter().map(|c| c.ast_to_object(vm, source_file)),
-            )
-            .unwrap()
-            .into_pyobject(vm),
-            Self::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
-            Self::Complex { real, imag } => vm
+            Self::FrozenSet(value) => {
+                PyFrozenSet::from_iter(ctx, value.into_iter().map(|c| c.ast_to_object(to_ctx)))
+                    .unwrap()
+                    .into_pyobject(ctx)
+            }
+            Self::Float(value) => ctx.ctx.new_float(value).into_pyobject(ctx),
+            Self::Complex { real, imag } => ctx
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))
-                .into_pyobject(vm),
-            Self::Ellipsis => vm.ctx.ellipsis.clone().into(),
+                .into_pyobject(ctx),
+            Self::Ellipsis => ctx.ctx.ellipsis.clone().into(),
         }
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         value_object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = value_object.class();
-        let value = if cls.is(vm.ctx.types.none_type) {
+        let value = if cls.is(ctx.ctx.types.none_type) {
             Self::None
-        } else if cls.is(vm.ctx.types.bool_type) {
-            Self::Bool(if value_object.is(&vm.ctx.true_value) {
+        } else if cls.is(ctx.ctx.types.bool_type) {
+            Self::Bool(if value_object.is(&ctx.ctx.true_value) {
                 true
-            } else if value_object.is(&vm.ctx.false_value) {
+            } else if value_object.is(&ctx.ctx.false_value) {
                 false
             } else {
-                value_object.try_to_value(vm)?
+                value_object.try_to_value(ctx)?
             })
-        } else if cls.is(vm.ctx.types.str_type) {
+        } else if cls.is(ctx.ctx.types.str_type) {
             Self::Str {
-                value: value_object.try_to_value::<String>(vm)?.into(),
+                value: value_object.try_to_value::<String>(ctx)?.into(),
                 prefix: StringLiteralPrefix::Empty,
             }
-        } else if cls.is(vm.ctx.types.bytes_type) {
-            Self::Bytes(value_object.try_to_value::<Vec<u8>>(vm)?.into())
-        } else if cls.is(vm.ctx.types.int_type) {
-            Self::Int(Node::ast_from_object(vm, source_file, value_object)?)
-        } else if cls.is(vm.ctx.types.tuple_type) {
+        } else if cls.is(ctx.ctx.types.bytes_type) {
+            Self::Bytes(value_object.try_to_value::<Vec<u8>>(ctx)?.into())
+        } else if cls.is(ctx.ctx.types.int_type) {
+            Self::Int(Node::ast_from_object(ctx, source_file, value_object)?)
+        } else if cls.is(ctx.ctx.types.tuple_type) {
             let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
-                vm.new_type_error(format!(
+                ctx.new_type_error(format!(
                     "Expected type {}, not {}",
                     PyTuple::static_type().name(),
                     obj.class().name()
@@ -1333,32 +1088,32 @@ impl Node for ConstantLiteral {
                 .into_iter()
                 .map(|object| {
                     let object = object.clone();
-                    vm.with_recursion("during compilation", || {
-                        Node::ast_from_object(vm, source_file, object)
+                    ctx.with_recursion("during compilation", || {
+                        Node::ast_from_object(ctx, source_file, object)
                     })
                 })
                 .collect::<PyResult<_>>()?;
             Self::Tuple(tuple)
-        } else if cls.is(vm.ctx.types.frozenset_type) {
+        } else if cls.is(ctx.ctx.types.frozenset_type) {
             let set = value_object.downcast::<PyFrozenSet>().unwrap();
             let elements = set
                 .elements()
                 .into_iter()
                 .map(|object| {
-                    vm.with_recursion("during compilation", || {
-                        Node::ast_from_object(vm, source_file, object)
+                    ctx.with_recursion("during compilation", || {
+                        Node::ast_from_object(ctx, source_file, object)
                     })
                 })
                 .collect::<PyResult<_>>()?;
             Self::FrozenSet(elements)
-        } else if cls.is(vm.ctx.types.float_type) {
-            let float = value_object.try_into_value(vm)?;
+        } else if cls.is(ctx.ctx.types.float_type) {
+            let float = value_object.try_into_value(ctx)?;
             Self::Float(float)
-        } else if cls.is(vm.ctx.types.complex_type) {
-            let complex = value_object.try_complex(vm)?;
+        } else if cls.is(ctx.ctx.types.complex_type) {
+            let complex = value_object.try_complex(ctx)?;
             let complex = match complex {
                 None => {
-                    return Err(vm.new_type_error(format!(
+                    return Err(ctx.new_type_error(format!(
                         "Expected type {}, not {}",
                         PyComplex::static_type().name(),
                         value_object.class().name()
@@ -1370,10 +1125,10 @@ impl Node for ConstantLiteral {
                 real: complex.re,
                 imag: complex.im,
             }
-        } else if cls.is(vm.ctx.types.ellipsis_type) {
+        } else if cls.is(ctx.ctx.types.ellipsis_type) {
             Self::Ellipsis
         } else {
-            return Err(vm.new_type_error(format!(
+            return Err(ctx.new_type_error(format!(
                 "got an invalid type in Constant: {}",
                 value_object.class().name()
             )));
@@ -1500,8 +1255,7 @@ fn constant_to_ruff_expr(value: Constant) -> ast::Expr {
 }
 
 pub(super) fn number_literal_to_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprNumberLiteral,
 ) -> PyObjectRef {
     let ast::ExprNumberLiteral {
@@ -1514,12 +1268,11 @@ pub(super) fn number_literal_to_object(
         ast::Number::Float(n) => Constant::new_float(n, range),
         ast::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
     };
-    c.ast_to_object(vm, source_file)
+    c.ast_to_object(to_ctx)
 }
 
 pub(super) fn string_literal_to_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprStringLiteral,
 ) -> PyObjectRef {
     let ast::ExprStringLiteral {
@@ -1532,12 +1285,11 @@ pub(super) fn string_literal_to_object(
         .next()
         .map_or(StringLiteralPrefix::Empty, |part| part.flags.prefix());
     let c = Constant::new_str(value.to_str(), prefix, range);
-    c.ast_to_object(vm, source_file)
+    c.ast_to_object(to_ctx)
 }
 
 pub(super) fn bytes_literal_to_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprBytesLiteral,
 ) -> PyObjectRef {
     let ast::ExprBytesLiteral {
@@ -1547,12 +1299,11 @@ pub(super) fn bytes_literal_to_object(
     } = constant;
     let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
     let c = Constant::new_bytes(bytes.copied().collect(), range);
-    c.ast_to_object(vm, source_file)
+    c.ast_to_object(to_ctx)
 }
 
 pub(super) fn boolean_literal_to_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprBooleanLiteral,
 ) -> PyObjectRef {
     let ast::ExprBooleanLiteral {
@@ -1561,12 +1312,11 @@ pub(super) fn boolean_literal_to_object(
         value,
     } = constant;
     let c = Constant::new_bool(value, range);
-    c.ast_to_object(vm, source_file)
+    c.ast_to_object(to_ctx)
 }
 
 pub(super) fn none_literal_to_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprNoneLiteral,
 ) -> PyObjectRef {
     let ast::ExprNoneLiteral {
@@ -1574,12 +1324,11 @@ pub(super) fn none_literal_to_object(
         range,
     } = constant;
     let c = Constant::new_none(range);
-    c.ast_to_object(vm, source_file)
+    c.ast_to_object(to_ctx)
 }
 
 pub(super) fn ellipsis_literal_to_object(
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprEllipsisLiteral,
 ) -> PyObjectRef {
     let ast::ExprEllipsisLiteral {
@@ -1587,5 +1336,5 @@ pub(super) fn ellipsis_literal_to_object(
         range,
     } = constant;
     let c = Constant::new_ellipsis(range);
-    c.ast_to_object(vm, source_file)
+    c.ast_to_object(to_ctx)
 }

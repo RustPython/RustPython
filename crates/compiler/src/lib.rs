@@ -1,7 +1,7 @@
 pub use ruff_python_ast::token::TokenKind;
 use ruff_python_parser::ParseErrorType;
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
-use ruff_text_size::{Ranged, TextSlice};
+use ruff_text_size::{Ranged, TextSize, TextSlice};
 use rustpython_codegen::{compile, symboltable};
 use thiserror::Error;
 
@@ -51,110 +51,40 @@ pub enum CompileError {
 impl CompileError {
     #[must_use]
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
-        let source_code = source_file.to_source_code();
         let source_text = source_file.source_text();
-        let invalid_number = invalid_number_literal_error(source_text);
-        let invalid_legacy_statement = invalid_legacy_statement_error(source_text);
-        let non_printable_character = non_printable_character_error(source_text);
-        let invalid_interpolated_string = invalid_interpolated_string_error(source_text);
-        let unterminated_string = unterminated_string_error(source_text);
-        let bracket_error = bracket_syntax_error(source_text);
-        let indented_block = expected_indented_block_error(&error, source_text);
-        let invalid_type_param = invalid_type_param_error(source_text);
-        let invalid_comprehension = invalid_comprehension_error(source_text);
-        let invalid_parameter_star_annotation =
-            invalid_parameter_star_annotation_error(source_text);
-        let invalid_parameter_list = invalid_parameter_list_error(source_text);
-        let invalid_call_argument = invalid_call_argument_error(source_text);
-        let invalid_dict = invalid_dict_error(source_text);
-        let invalid_collection_assignment = invalid_collection_assignment_error(source_text);
-        let invalid_group = invalid_group_error(source_text);
-        let invalid_def_type_params = invalid_def_type_params_error(source_text);
-        let invalid_expression = invalid_expression_error(source_text);
-        let invalid_named_expression = invalid_named_expression_error(source_text);
-        let invalid_plain_assignment = invalid_plain_assignment_error(source_text);
-        let expression_assignment = expression_assignment_error(source_text);
-        let invalid_annotation_target = invalid_annotation_target_error(source_text);
-        let invalid_assignment_target = invalid_assignment_target_error(source_text);
-        let invalid_augassign_target = invalid_augassign_target_error(source_text);
-        let invalid_for_target = invalid_for_target_error(source_text);
-        let invalid_with_target = invalid_with_target_error(source_text);
-        let invalid_delete_target = invalid_delete_target_error(source_text);
-        let invalid_standalone_except = invalid_standalone_except_error(source_text);
-        let invalid_import_statement = invalid_import_statement_error(source_text);
-        let invalid_import_target = invalid_import_target_error(source_text);
-        let invalid_except_as_target = invalid_except_as_target_error(source_text);
-        let invalid_match_mapping_rest_wildcard =
-            invalid_match_mapping_rest_wildcard_error(source_text);
-        let invalid_match_as_target = invalid_match_as_target_error(source_text);
-        let invalid_for_if_clause = invalid_for_if_clause_error(source_text);
-        let invalid_if_expression_statement = invalid_if_expression_statement_error(source_text);
-        let invalid_else_elif = invalid_else_elif_error(source_text);
-        let mixed_except_handlers = mixed_except_handlers_error(source_text);
-        let missing_comma_between_literals = matches!(
-            &error.error,
-            parser::ParseErrorType::ExpectedToken { expected, found }
-                if matches!((expected, found), (TokenKind::Comma, TokenKind::Int))
-        );
 
-        // For EOF errors (unclosed brackets), find the unclosed bracket position
-        // and adjust both the error location and message
         let mut is_unclosed_bracket = false;
-        let (error_type, location, end_location) = if let Some((message, offset)) = invalid_number {
-            let text_size = ruff_text_size::TextSize::new(offset as u32);
-            let loc = source_code.source_location(text_size, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, loc)
-        } else if let Some((message, start, end)) = invalid_legacy_statement {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = non_printable_character {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_interpolated_string {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end, unclosed)) = bracket_error {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
+        let (error_type, location, end_location) = if let Some((message, offset)) =
+            invalid_number_literal_error(source_text)
+        {
+            parse_other_error(source_file, message, offset, offset)
+        } else if let Some((message, start, end)) = invalid_legacy_statement_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = non_printable_character_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_interpolated_string_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end, unclosed)) = bracket_syntax_error(source_text) {
             is_unclosed_bracket = unclosed;
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
+            parse_other_error(source_file, message, start, end)
         } else if matches!(
             &error.error,
             parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
         ) {
-            let start = error.location.start() + ruff_text_size::TextSize::from(1);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
+            let loc = source_location(source_file, error.location.start() + TextSize::from(1));
             (error.error, loc, loc)
-        } else if let Some((message, start, end)) = unterminated_string {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = indented_block {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
+        } else if let Some((message, start, end)) = unterminated_string_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) =
+            expected_indented_block_error(&error, source_text)
+        {
+            parse_other_error(source_file, message, start, end)
         } else if matches!(
             &error.error,
             parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
         ) {
             if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
-                let bracket_text_size = ruff_text_size::TextSize::new(bracket_offset as u32);
-                let loc = source_code.source_location(bracket_text_size, PositionEncoding::Utf8);
+                let loc = source_location(source_file, TextSize::new(bracket_offset as u32));
                 let end_loc = SourceLocation {
                     line: loc.line,
                     character_offset: loc.character_offset.saturating_add(1),
@@ -163,239 +93,89 @@ impl CompileError {
                 is_unclosed_bracket = true;
                 (parser::ParseErrorType::OtherError(msg), loc, end_loc)
             } else {
-                let loc =
-                    source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-                let line_idx = loc.line.to_zero_indexed();
-                let line = source_text.split('\n').nth(line_idx).unwrap_or("");
-                let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
-                let end_loc = SourceLocation {
-                    line: loc.line,
-                    character_offset: ruff_source_file::OneIndexed::new(line_end_col)
-                        .unwrap_or(loc.character_offset),
-                };
+                let end_loc = source_line_end_location(source_file, error.location.start());
                 (error.error, end_loc, end_loc)
             }
-        } else if let Some((message, start, end)) = invalid_type_param {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_comprehension {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_parameter_star_annotation {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_parameter_list {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_call_argument {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if missing_comma_between_literals {
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let mut end_loc =
-                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
-
-            // If the error range ends at the start of a new line (column 1),
-            // adjust it to the end of the previous line
-            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
-                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
-            }
-
+        } else if let Some((message, start, end)) = invalid_type_param_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_comprehension_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) =
+            invalid_parameter_star_annotation_error(source_text)
+        {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_parameter_list_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_call_argument_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if is_missing_comma_between_literals(&error) {
+            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
             let msg = "invalid syntax. Perhaps you forgot a comma?".into();
             (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_dict {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_collection_assignment {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_group {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_def_type_params {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_expression {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_named_expression {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_plain_assignment {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = expression_assignment {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_annotation_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_assignment_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_augassign_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_for_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_with_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_delete_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_standalone_except {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_import_statement {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_import_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_except_as_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_match_mapping_rest_wildcard {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_match_as_target {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_for_if_clause {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_if_expression_statement {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_else_elif {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
-        } else if let Some((message, start, end)) = mixed_except_handlers {
-            let start = ruff_text_size::TextSize::new(start as u32);
-            let end = ruff_text_size::TextSize::new(end as u32);
-            let loc = source_code.source_location(start, PositionEncoding::Utf8);
-            let end_loc = source_code.source_location(end, PositionEncoding::Utf8);
-            (parser::ParseErrorType::OtherError(message), loc, end_loc)
+        } else if let Some((message, start, end)) = invalid_dict_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_collection_assignment_error(source_text)
+        {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_group_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_def_type_params_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_expression_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_named_expression_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_plain_assignment_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = expression_assignment_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_annotation_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_assignment_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_augassign_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_for_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_with_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_delete_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_standalone_except_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_import_statement_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_import_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_except_as_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) =
+            invalid_match_mapping_rest_wildcard_error(source_text)
+        {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_match_as_target_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_for_if_clause_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) =
+            invalid_if_expression_statement_error(source_text)
+        {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = invalid_else_elif_error(source_text) {
+            parse_other_error(source_file, message, start, end)
+        } else if let Some((message, start, end)) = mixed_except_handlers_error(source_text) {
+            parse_other_error(source_file, message, start, end)
         } else if matches!(
             &error.error,
             parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
         ) {
-            // For IndentationError, point the offset to the end of the line content
-            // instead of the beginning
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let line_idx = loc.line.to_zero_indexed();
-            let line = source_text.split('\n').nth(line_idx).unwrap_or("");
-            let line_end_col = line.chars().count() + 1; // 1-indexed, past last char
-            let end_loc = SourceLocation {
-                line: loc.line,
-                character_offset: ruff_source_file::OneIndexed::new(line_end_col)
-                    .unwrap_or(loc.character_offset),
-            };
+            let end_loc = source_line_end_location(source_file, error.location.start());
             (error.error, end_loc, end_loc)
         } else if matches!(
             &error.error,
             parser::ParseErrorType::InvalidAssignmentTarget
         ) {
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let mut end_loc =
-                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
-
-            // If the error range ends at the start of a new line (column 1),
-            // adjust it to the end of the previous line
-            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
-                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
-            }
-
+            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
             let expr_str = source_file.source_text().slice(error.location);
 
             let msg = parser::parse_expression(expr_str).map_or_else(
@@ -427,34 +207,12 @@ impl CompileError {
             &error.error,
             parser::ParseErrorType::InvalidNamedAssignmentTarget
         ) {
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let mut end_loc =
-                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
-
-            // If the error range ends at the start of a new line (column 1),
-            // adjust it to the end of the previous line
-            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
-                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
-            }
-
+            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
             let target = source_file.source_text().slice(error.location);
             let msg = format!("cannot use assignment expressions with {target}");
             (parser::ParseErrorType::OtherError(msg), loc, end_loc)
         } else {
-            let loc = source_code.source_location(error.location.start(), PositionEncoding::Utf8);
-            let mut end_loc =
-                source_code.source_location(error.location.end(), PositionEncoding::Utf8);
-
-            // If the error range ends at the start of a new line (column 1),
-            // adjust it to the end of the previous line
-            if end_loc.character_offset.get() == 1 && end_loc.line > loc.line {
-                let prev_line_end = error.location.end() - ruff_text_size::TextSize::from(1);
-                end_loc = source_code.source_location(prev_line_end, PositionEncoding::Utf8);
-                end_loc.character_offset = end_loc.character_offset.saturating_add(1);
-            }
-
+            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
             (error.error, loc, end_loc)
         };
 
@@ -474,11 +232,9 @@ impl CompileError {
         start: usize,
         end: usize,
     ) -> Self {
-        let source_code = source_file.to_source_code();
-        let start = ruff_text_size::TextSize::new(start as u32);
-        let end = ruff_text_size::TextSize::new(end as u32);
-        let location = source_code.source_location(start, PositionEncoding::Utf8);
-        let end_location = source_code.source_location(end, PositionEncoding::Utf8);
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        let (location, end_location) = source_locations(source_file, start, end);
         Self::Parse(ParseError {
             error: parser::ParseErrorType::OtherError(message),
             raw_location: ruff_text_size::TextRange::new(start, end),
@@ -524,6 +280,78 @@ impl CompileError {
             Self::Parse(parse_error) => &parse_error.source_path,
         }
     }
+}
+
+fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    source_file
+        .to_source_code()
+        .source_location(offset, PositionEncoding::Utf8)
+}
+
+fn source_locations(
+    source_file: &SourceFile,
+    start: TextSize,
+    end: TextSize,
+) -> (SourceLocation, SourceLocation) {
+    let source_code = source_file.to_source_code();
+    (
+        source_code.source_location(start, PositionEncoding::Utf8),
+        source_code.source_location(end, PositionEncoding::Utf8),
+    )
+}
+
+fn parse_other_error(
+    source_file: &SourceFile,
+    message: String,
+    start: usize,
+    end: usize,
+) -> (parser::ParseErrorType, SourceLocation, SourceLocation) {
+    let (location, end_location) = source_locations(
+        source_file,
+        TextSize::new(start as u32),
+        TextSize::new(end as u32),
+    );
+    (
+        parser::ParseErrorType::OtherError(message),
+        location,
+        end_location,
+    )
+}
+
+fn adjusted_error_locations(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> (SourceLocation, SourceLocation) {
+    let mut locations = source_locations(source_file, range.start(), range.end());
+    if locations.1.character_offset.get() == 1 && locations.1.line > locations.0.line {
+        locations.1 = source_location(source_file, range.end() - TextSize::from(1));
+        locations.1.character_offset = locations.1.character_offset.saturating_add(1);
+    }
+    locations
+}
+
+fn source_line_end_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    let loc = source_location(source_file, offset);
+    let line_idx = loc.line.to_zero_indexed();
+    let line = source_file
+        .source_text()
+        .split('\n')
+        .nth(line_idx)
+        .unwrap_or("");
+    let line_end_col = line.chars().count() + 1;
+    SourceLocation {
+        line: loc.line,
+        character_offset: ruff_source_file::OneIndexed::new(line_end_col)
+            .unwrap_or(loc.character_offset),
+    }
+}
+
+fn is_missing_comma_between_literals(error: &parser::ParseError) -> bool {
+    matches!(
+        &error.error,
+        parser::ParseErrorType::ExpectedToken { expected, found }
+            if matches!((expected, found), (TokenKind::Comma, TokenKind::Int))
+    )
 }
 
 fn is_ascii_identifier_char(byte: u8) -> bool {
@@ -3549,8 +3377,16 @@ fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)>
 
 fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, usize, usize)> {
     let bytes = source.as_bytes();
+    let next_line_end = |line_start: usize| {
+        line_start
+            + bytes[line_start..]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .unwrap_or(bytes.len() - line_start)
+    };
     let mut index = 0usize;
     let mut line_start = 0usize;
+    let mut line_end = next_line_end(line_start);
     while index < bytes.len() {
         match bytes[index] {
             b'#' => {
@@ -3562,13 +3398,9 @@ fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, us
             b'\n' => {
                 index += 1;
                 line_start = index;
+                line_end = next_line_end(line_start);
             }
             _ => {
-                let line_end = line_start
-                    + bytes[line_start..]
-                        .iter()
-                        .position(|byte| *byte == b'\n')
-                        .unwrap_or(bytes.len() - line_start);
                 let column = skip_horizontal_whitespace(bytes, line_start);
                 if index != column
                     || column >= line_end

@@ -10,19 +10,19 @@ pub(super) struct PositionalArguments {
 
 impl PositionalArguments {
     pub(super) fn ast_from_field(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         let args: Vec<Option<ast::Expr>> =
-            get_node_list_field(vm, source_file, object, field, typ)?;
+            get_node_list_field(ctx, source_file, object, field, typ)?;
         let public_field = match field {
             "bases" => super::constant::PublicAstExprListField::Bases,
             _ => super::constant::PublicAstExprListField::Args,
         };
-        let (node_index, args) = public_expr_boxed_slice_from_values(public_field, args);
+        let (node_index, args) = public_expr_boxed_slice_from_values(ctx, public_field, args);
         Ok(Self {
             node_index,
             field: public_field,
@@ -33,30 +33,32 @@ impl PositionalArguments {
 }
 
 impl Node for PositionalArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let _vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         let Self {
             node_index,
             field,
             args,
             range: _,
         } = self;
-        super::constant::public_ast_expr_list_object(node_index.load(), field).map_or_else(
-            || BoxedSlice(args).ast_to_object(vm, source_file),
-            |values| values.values.ast_to_object(vm, source_file),
+        super::constant::public_ast_expr_list_object(to_ctx, node_index.load(), field).map_or_else(
+            || BoxedSlice(args).ast_to_object(to_ctx),
+            |values| values.values.ast_to_object(to_ctx),
         )
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
+        let args: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
         Ok(Self {
             node_index: Default::default(),
             field: super::constant::PublicAstExprListField::Args,
             args: args.0,
-            range: TextRange::default(), // TODO
+            range: TextRange::default(),
         })
     }
 }
@@ -68,35 +70,37 @@ pub(super) struct KeywordArguments {
 
 impl KeywordArguments {
     pub(super) fn ast_from_field(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         Ok(Self {
-            keywords: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
+            keywords: get_node_boxed_slice_field(ctx, source_file, object, field, typ)?,
             range: TextRange::default(),
         })
     }
 }
 
 impl Node for KeywordArguments {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let _vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         let Self { keywords, range: _ } = self;
         // TODO: use range
-        BoxedSlice(keywords).ast_to_object(vm, source_file)
+        BoxedSlice(keywords).ast_to_object(to_ctx)
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
+        let keywords: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
         Ok(Self {
             keywords: keywords.0,
-            range: TextRange::default(), // TODO
+            range: TextRange::default(),
         })
     }
 }

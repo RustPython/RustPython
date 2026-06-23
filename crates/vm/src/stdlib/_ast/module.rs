@@ -26,41 +26,45 @@ pub(super) enum Mod {
 
 // sum
 impl Node for Mod {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let _vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         match self {
-            Self::Module(cons) => cons.ast_to_object(vm, source_file),
-            Self::Interactive(cons) => cons.ast_to_object(vm, source_file),
-            Self::Expression(cons) => cons.ast_to_object(vm, source_file),
-            Self::FunctionType(cons) => cons.ast_to_object(vm, source_file),
+            Self::Module(cons) => cons.ast_to_object(to_ctx),
+            Self::Interactive(cons) => cons.ast_to_object(to_ctx),
+            Self::Expression(cons) => cons.ast_to_object(to_ctx),
+            Self::FunctionType(cons) => cons.ast_to_object(to_ctx),
         }
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(
-            if object.is_instance(pyast::NodeModModule::static_type().as_object(), vm)? {
-                Self::Module(ModModule::ast_from_object(vm, source_file, object)?)
+            if object.is_instance(pyast::NodeModModule::static_type().as_object(), ctx)? {
+                Self::Module(ModModule::ast_from_object(ctx, source_file, object)?)
             } else if object
-                .is_instance(pyast::NodeModInteractive::static_type().as_object(), vm)?
+                .is_instance(pyast::NodeModInteractive::static_type().as_object(), ctx)?
             {
-                Self::Interactive(ModInteractive::ast_from_object(vm, source_file, object)?)
-            } else if object.is_instance(pyast::NodeModExpression::static_type().as_object(), vm)? {
+                Self::Interactive(ModInteractive::ast_from_object(ctx, source_file, object)?)
+            } else if object
+                .is_instance(pyast::NodeModExpression::static_type().as_object(), ctx)?
+            {
                 Self::Expression(ast::ModExpression::ast_from_object(
-                    vm,
+                    ctx,
                     source_file,
                     object,
                 )?)
             } else if object
-                .is_instance(pyast::NodeModFunctionType::static_type().as_object(), vm)?
+                .is_instance(pyast::NodeModFunctionType::static_type().as_object(), ctx)?
             {
-                Self::FunctionType(ModFunctionType::ast_from_object(vm, source_file, object)?)
+                Self::FunctionType(ModFunctionType::ast_from_object(ctx, source_file, object)?)
             } else {
-                return Err(vm.new_type_error(format!(
+                return Err(ctx.new_type_error(format!(
                     "expected some sort of mod, but got {}",
-                    object.repr(vm)?
+                    object.repr(ctx)?
                 )));
             },
         )
@@ -74,7 +78,9 @@ pub(super) struct ModModule {
 
 // constructor
 impl Node for ModModule {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         let Self {
             module,
             type_ignores,
@@ -89,33 +95,31 @@ impl Node for ModModule {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let body = super::constant::public_ast_stmt_list_object(
+            to_ctx,
             node_index.load(),
             super::constant::PublicAstStmtListField::Body,
         )
         .map_or_else(
-            || body.ast_to_object(vm, source_file),
-            |values| values.values.ast_to_object(vm, source_file),
+            || body.ast_to_object(to_ctx),
+            |values| values.values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, vm).unwrap();
-        dict.set_item(
-            "type_ignores",
-            type_ignores.ast_to_object(vm, source_file),
-            vm,
-        )
-        .unwrap();
+        dict.set_item("type_ignores", type_ignores.ast_to_object(to_ctx), vm)
+            .unwrap();
         let _ = range;
         node.into()
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
-            get_node_list_field(vm, source_file, &object, "body", "Module")?;
-        let (node_index, body) = stmt_list_from_values(body);
-        let type_ignores = get_node_list_field(vm, source_file, &object, "type_ignores", "Module")?;
+            get_node_list_field(ctx, source_file, &object, "body", "Module")?;
+        let (node_index, body) = stmt_list_from_values(ctx, body);
+        let type_ignores =
+            get_node_list_field(ctx, source_file, &object, "type_ignores", "Module")?;
         Ok(Self {
             module: ast::ModModule {
                 node_index,
@@ -135,7 +139,9 @@ pub(super) struct ModInteractive {
 
 // constructor
 impl Node for ModInteractive {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         let Self {
             node_index,
             body,
@@ -146,12 +152,13 @@ impl Node for ModInteractive {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let body = super::constant::public_ast_stmt_list_object(
+            to_ctx,
             node_index.load(),
             super::constant::PublicAstStmtListField::Body,
         )
         .map_or_else(
-            || body.ast_to_object(vm, source_file),
-            |values| values.values.ast_to_object(vm, source_file),
+            || body.ast_to_object(to_ctx),
+            |values| values.values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, vm).unwrap();
         let _ = range;
@@ -159,13 +166,13 @@ impl Node for ModInteractive {
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
-            get_node_list_field(vm, source_file, &object, "body", "Interactive")?;
-        let (node_index, body) = stmt_list_from_values(body);
+            get_node_list_field(ctx, source_file, &object, "body", "Interactive")?;
+        let (node_index, body) = stmt_list_from_values(ctx, body);
         Ok(Self {
             node_index,
             body,
@@ -176,7 +183,9 @@ impl Node for ModInteractive {
 
 // constructor
 impl Node for ast::ModExpression {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         let Self {
             node_index: _,
             body,
@@ -186,20 +195,20 @@ impl Node for ast::ModExpression {
             .into_ref_with_type(vm, pyast::NodeModExpression::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("body", body.ast_to_object(vm, source_file), vm)
+        dict.set_item("body", body.ast_to_object(to_ctx), vm)
             .unwrap();
         let _ = range;
         node.into()
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             node_index: Default::default(),
-            body: get_required_node_field(vm, source_file, &object, "body", "Expression")?,
+            body: get_required_node_field(ctx, source_file, &object, "body", "Expression")?,
             range: Default::default(),
         })
     }
@@ -214,7 +223,9 @@ pub(super) struct ModFunctionType {
 
 // constructor
 impl Node for ModFunctionType {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         let Self {
             node_index,
             argtypes,
@@ -225,38 +236,43 @@ impl Node for ModFunctionType {
             .into_ref_with_type(vm, pyast::NodeModFunctionType::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let argtypes = super::constant::public_ast_expr_option_list_object(node_index.load())
-            .map_or_else(
-                || BoxedSlice(argtypes).ast_to_object(vm, source_file),
-                |values| values.values.ast_to_object(vm, source_file),
-            );
+        let argtypes =
+            super::constant::public_ast_expr_option_list_object(to_ctx, node_index.load())
+                .map_or_else(
+                    || BoxedSlice(argtypes).ast_to_object(to_ctx),
+                    |values| values.values.ast_to_object(to_ctx),
+                );
         dict.set_item("argtypes", argtypes, vm).unwrap();
-        dict.set_item("returns", returns.ast_to_object(vm, source_file), vm)
+        dict.set_item("returns", returns.ast_to_object(to_ctx), vm)
             .unwrap();
         let _ = range;
         node.into()
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let argtypes: Vec<Option<ast::Expr>> =
-            get_node_list_field(vm, source_file, &object, "argtypes", "FunctionType")?;
-        let (node_index, argtypes) = expr_list_from_values(argtypes);
+            get_node_list_field(ctx, source_file, &object, "argtypes", "FunctionType")?;
+        let (node_index, argtypes) = expr_list_from_values(ctx, argtypes);
         Ok(Self {
             node_index,
             argtypes: argtypes.into_boxed_slice(),
-            returns: get_required_node_field(vm, source_file, &object, "returns", "FunctionType")?,
+            returns: get_required_node_field(ctx, source_file, &object, "returns", "FunctionType")?,
             range: Default::default(),
         })
     }
 }
 
-fn stmt_list_from_values(values: Vec<Option<ast::Stmt>>) -> (ast::AtomicNodeIndex, ast::Suite) {
+fn stmt_list_from_values(
+    ctx: &AstFromObjectContext<'_>,
+    values: Vec<Option<ast::Stmt>>,
+) -> (ast::AtomicNodeIndex, ast::Suite) {
     let index = if values.iter().any(Option::is_none) {
         super::constant::register_public_ast_stmt_list(
+            ctx,
             super::constant::PublicAstStmtListField::Body,
             values.clone(),
         )
@@ -276,9 +292,12 @@ fn stmt_list_from_values(values: Vec<Option<ast::Stmt>>) -> (ast::AtomicNodeInde
     )
 }
 
-fn expr_list_from_values(values: Vec<Option<ast::Expr>>) -> (ast::AtomicNodeIndex, Vec<ast::Expr>) {
+fn expr_list_from_values(
+    ctx: &AstFromObjectContext<'_>,
+    values: Vec<Option<ast::Expr>>,
+) -> (ast::AtomicNodeIndex, Vec<ast::Expr>) {
     let index = if values.iter().any(Option::is_none) {
-        super::constant::register_public_ast_expr_option_list(values.clone())
+        super::constant::register_public_ast_expr_option_list(ctx, values.clone())
     } else {
         ast::NodeIndex::NONE
     };

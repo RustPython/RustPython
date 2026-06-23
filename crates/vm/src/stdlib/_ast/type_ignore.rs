@@ -8,29 +8,31 @@ pub(super) enum TypeIgnore {
 
 // sum
 impl Node for TypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let vm = to_ctx.vm;
+        let _source_file = to_ctx.source_file;
         match self {
             Self::None => vm.ctx.none(),
-            Self::TypeIgnore(cons) => cons.ast_to_object(vm, source_file),
+            Self::TypeIgnore(cons) => cons.ast_to_object(to_ctx),
         }
     }
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(if vm.is_none(&object) {
+        Ok(if ctx.is_none(&object) {
             Self::None
-        } else if is_node_instance(vm, &object, pyast::NodeTypeIgnoreTypeIgnore::static_type())? {
+        } else if is_node_instance(ctx, &object, pyast::NodeTypeIgnoreTypeIgnore::static_type())? {
             Self::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
-                vm,
+                ctx,
                 source_file,
                 object,
             )?)
         } else {
-            return Err(vm.new_type_error(format!(
+            return Err(ctx.new_type_error(format!(
                 "expected some sort of type_ignore, but got {}",
-                object.repr(vm)?
+                object.repr(ctx)?
             )));
         })
     }
@@ -43,7 +45,9 @@ pub(super) struct TypeIgnoreTypeIgnore {
 
 // constructor
 impl Node for TypeIgnoreTypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
+        let vm = to_ctx.vm;
+        let source_file = to_ctx.source_file;
         let Self { lineno, tag } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -60,14 +64,17 @@ impl Node for TypeIgnoreTypeIgnore {
     }
 
     fn ast_from_object(
-        vm: &VirtualMachine,
+        ctx: &AstFromObjectContext<'_>,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let _ = source_file;
         Ok(Self {
-            lineno: get_int_field(vm, &object, "lineno", "TypeIgnore")?,
-            tag: node_object_to_ast_string(vm, get_node_field(vm, &object, "tag", "TypeIgnore")?)?,
+            lineno: get_int_field(ctx, &object, "lineno", "TypeIgnore")?,
+            tag: node_object_to_ast_string(
+                ctx,
+                get_node_field(ctx, &object, "tag", "TypeIgnore")?,
+            )?,
         })
     }
 }

@@ -4,9 +4,10 @@ use rustpython_compiler_core::SourceFile;
 pub(super) fn ast_to_object(
     clause: ast::ElifElseClause,
     mut rest: alloc::vec::IntoIter<ast::ElifElseClause>,
-    vm: &VirtualMachine,
-    source_file: &SourceFile,
+    to_ctx: &AstToObjectContext<'_>,
 ) -> PyObjectRef {
+    let vm = to_ctx.vm;
+    let source_file = to_ctx.source_file;
     let ast::ElifElseClause {
         node_index,
         range,
@@ -15,30 +16,32 @@ pub(super) fn ast_to_object(
     } = clause;
     let Some(test) = test else {
         assert!(rest.len() == 0);
-        return body.ast_to_object(vm, source_file);
+        return body.ast_to_object(to_ctx);
     };
     let node = NodeAst
         .into_ref_with_type(vm, pyast::NodeStmtIf::static_type().to_owned())
         .unwrap();
     let dict = node.as_object().dict().unwrap();
 
-    dict.set_item("test", test.ast_to_object(vm, source_file), vm)
+    dict.set_item("test", test.ast_to_object(to_ctx), vm)
         .unwrap();
     let body = super::constant::public_ast_stmt_list_object(
+        to_ctx,
         node_index.load(),
         super::constant::PublicAstStmtListField::Body,
     )
     .map_or_else(
-        || body.ast_to_object(vm, source_file),
-        |values| values.values.ast_to_object(vm, source_file),
+        || body.ast_to_object(to_ctx),
+        |values| values.values.ast_to_object(to_ctx),
     );
     dict.set_item("body", body, vm).unwrap();
 
     let orelse = if let Some(values) = super::constant::public_ast_stmt_list_object(
+        to_ctx,
         node_index.load(),
         super::constant::PublicAstStmtListField::Orelse,
     ) {
-        values.values.ast_to_object(vm, source_file)
+        values.values.ast_to_object(to_ctx)
     } else if let Some(next) = rest.next() {
         if next.test.is_some() {
             let next = ast::ElifElseClause {
@@ -46,10 +49,10 @@ pub(super) fn ast_to_object(
                 ..next
             };
             vm.ctx
-                .new_list(vec![ast_to_object(next, rest, vm, source_file)])
+                .new_list(vec![ast_to_object(next, rest, to_ctx)])
                 .into()
         } else {
-            next.body.ast_to_object(vm, source_file)
+            next.body.ast_to_object(to_ctx)
         }
     } else {
         vm.ctx.new_list(vec![]).into()
@@ -61,19 +64,23 @@ pub(super) fn ast_to_object(
 }
 
 pub(super) fn ast_from_object_with_range(
-    vm: &VirtualMachine,
+    ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::StmtIf> {
-    let test = get_required_node_field(vm, source_file, &object, "test", "If")?;
-    let body: Vec<Option<ast::Stmt>> = get_node_list_field(vm, source_file, &object, "body", "If")?;
+    let test = get_required_node_field(ctx, source_file, &object, "test", "If")?;
+    let body: Vec<Option<ast::Stmt>> =
+        get_node_list_field(ctx, source_file, &object, "body", "If")?;
     let orelse: Vec<Option<ast::Stmt>> =
-        get_node_list_field(vm, source_file, &object, "orelse", "If")?;
-    let node_index = public_stmt_lists_node_index([
-        (super::constant::PublicAstStmtListField::Body, &body),
-        (super::constant::PublicAstStmtListField::Orelse, &orelse),
-    ]);
+        get_node_list_field(ctx, source_file, &object, "orelse", "If")?;
+    let node_index = public_stmt_lists_node_index(
+        ctx,
+        [
+            (super::constant::PublicAstStmtListField::Body, &body),
+            (super::constant::PublicAstStmtListField::Orelse, &orelse),
+        ],
+    );
     let body = lower_public_stmt_list(body);
     let orelse = lower_public_stmt_list(orelse);
 

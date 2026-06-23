@@ -440,6 +440,7 @@ impl VirtualMachine {
             name_error.as_object(), self, unwrap,
             "name" => name,
         );
+
         name_error
     }
 
@@ -526,6 +527,7 @@ impl VirtualMachine {
                 reason.clone().into(),
             ],
         );
+
         set_attrs!(
             exc.as_object(), self, unwrap,
             "encoding" => encoding,
@@ -534,6 +536,7 @@ impl VirtualMachine {
             "end" => end,
             "reason" => reason,
         );
+
         exc
     }
 
@@ -557,6 +560,7 @@ impl VirtualMachine {
                 reason.clone().into(),
             ],
         );
+
         set_attrs!(
             exc.as_object(), self, unwrap,
             "encoding" => encoding,
@@ -565,6 +569,7 @@ impl VirtualMachine {
             "end" => end,
             "reason" => reason,
         );
+
         exc
     }
 
@@ -895,6 +900,7 @@ impl VirtualMachine {
             exc.as_object(), self, unwrap,
             "name" => name.into(),
         );
+
         exc
     }
 
