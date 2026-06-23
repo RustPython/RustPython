@@ -437,22 +437,6 @@ fn basicblock_insert_instruction(
     Ok(())
 }
 
-/// flowgraph.c basicblock_append_instructions
-fn basicblock_append_block_instructions(
-    blocks: &mut Blocks,
-    to: BlockIdx,
-    from: BlockIdx,
-) -> crate::InternalResult<()> {
-    debug_assert_ne!(to, from);
-    let from_len = blocks[from].instruction_used;
-    for i in 0..from_len {
-        let info = blocks[from].instructions[i];
-        let off = basicblock_next_instr(&mut blocks[to])?;
-        blocks[to].instructions[off] = info;
-    }
-    Ok(())
-}
-
 /// flowgraph.c direct `b_iused = 0`
 fn basicblock_clear(block: &mut Block) {
     block.instruction_used = 0;
@@ -1375,6 +1359,24 @@ impl Blocks {
             }
             block_idx = next;
         }
+        Ok(())
+    }
+
+    /// flowgraph.c basicblock_append_instructions
+    fn basicblock_append_block_instructions(
+        &mut self,
+        to: BlockIdx,
+        from: BlockIdx,
+    ) -> crate::InternalResult<()> {
+        debug_assert_ne!(to, from);
+
+        let from_len = self[from].instruction_used;
+        for i in 0..from_len {
+            let info = self[from].instructions[i];
+            let off = basicblock_next_instr(&mut self[to])?;
+            self[to].instructions[off] = info;
+        }
+
         Ok(())
     }
 }
@@ -5643,7 +5645,7 @@ fn basicblock_inline_small_or_no_lineno_blocks(
         let last = basicblock_last_instr_mut(&mut blocks[block_idx])
             .expect("non-empty block has last instruction");
         set_to_nop(last);
-        basicblock_append_block_instructions(blocks, block_idx, target)?;
+        blocks.basicblock_append_block_instructions(block_idx, target)?;
         if no_lineno_no_fallthrough {
             let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
             if last.instr.is_unconditional_jump()
@@ -6412,9 +6414,10 @@ fn basicblock_has_no_lineno(block: &Block) -> bool {
 
 /// flowgraph.c copy_basicblock
 fn copy_basicblock(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
-    debug_assert!(bb_no_fallthrough(&blocks[block_idx.idx()]));
+    debug_assert!(bb_no_fallthrough(&blocks[block_idx]));
+
     let result = blocks_new_block(blocks)?;
-    basicblock_append_block_instructions(blocks, result, block_idx)?;
+    blocks.basicblock_append_block_instructions(result, block_idx)?;
     Ok(result)
 }
 
