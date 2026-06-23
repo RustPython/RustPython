@@ -2146,6 +2146,104 @@ impl Blocks {
 
         Ok(())
     }
+
+    /// flowgraph.c remove_unused_consts
+    #[allow(clippy::needless_range_loop)]
+    fn remove_unused_consts(&mut self, consts: &mut ConstantPool) -> crate::InternalResult<()> {
+        let nconsts = consts.len();
+        if nconsts == 0 {
+            return Ok(());
+        }
+
+        let mut index_map = Vec::new();
+        index_map
+            .try_reserve_exact(nconsts)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        index_map.resize(nconsts, 0isize);
+        for i in 1..nconsts {
+            index_map[i] = -1;
+        }
+        // The first constant may be docstring; keep it always.
+        index_map[0] = 0;
+
+        // Mark used consts.
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block = &self[block_idx];
+            for i in 0..block.instruction_used {
+                let instr = &block.instructions[i];
+                if instr.instr.has_const() {
+                    let index = u32::from(instr.arg) as usize;
+                    debug_assert!(index < nconsts);
+                    index_map[index] = index as isize;
+                }
+            }
+            block_idx = block.next;
+        }
+
+        // Now index_map[i] == i if consts[i] is used, -1 otherwise.
+        // Condense consts.
+        let mut n_used_consts = 0;
+        for i in 0..nconsts {
+            if index_map[i] != -1 {
+                debug_assert_eq!(index_map[i], i as isize);
+                index_map[n_used_consts] = index_map[i];
+                n_used_consts += 1;
+            }
+        }
+
+        if n_used_consts == nconsts {
+            return Ok(());
+        }
+
+        // Move all used consts to the beginning of the consts list.
+        debug_assert!(n_used_consts < nconsts);
+        for i in 0..n_used_consts {
+            let old_index = index_map[i] as usize;
+            debug_assert!(i <= old_index && old_index < nconsts);
+            if i != old_index {
+                let value = consts.constants[old_index].clone();
+                consts.constants[i] = value;
+            }
+        }
+
+        // Truncate the consts list at its new size.
+        consts.constants.truncate(n_used_consts);
+
+        // Adjust const indices in the bytecode.
+        let mut reverse_index_map = Vec::new();
+        reverse_index_map
+            .try_reserve_exact(nconsts)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        reverse_index_map.resize(nconsts, 0isize);
+        for i in 0..nconsts {
+            reverse_index_map[i] = -1;
+        }
+        for i in 0..n_used_consts {
+            let old_index = index_map[i];
+            debug_assert!(old_index != -1);
+            let old_index = old_index as usize;
+            debug_assert_eq!(reverse_index_map[old_index], -1);
+            reverse_index_map[old_index] = i as isize;
+        }
+
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next_block = self[block_idx.idx()].next;
+            let block = &mut self[block_idx];
+            for i in 0..block.instruction_used {
+                let instr = &mut block.instructions[i];
+                if instr.instr.has_const() {
+                    let index = u32::from(instr.arg) as usize;
+                    debug_assert!(reverse_index_map[index] >= 0);
+                    debug_assert!(reverse_index_map[index] < n_used_consts as isize);
+                    instr.arg = OpArg::new(reverse_index_map[index] as u32);
+                }
+            }
+            block_idx = next_block;
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2674,7 +2772,7 @@ fn optimize_code_unit(
     mark_except_handlers(blocks)?;
     label_exception_targets(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
-    remove_unused_consts(blocks, &mut metadata.consts)?;
+    blocks.remove_unused_consts(&mut metadata.consts)?;
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
     // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
@@ -4477,107 +4575,6 @@ fn optimize_load_const(
         let next_block = blocks[block_idx.idx()].next;
         let block = &mut blocks[block_idx];
         basicblock_optimize_load_const(metadata, block)?;
-        block_idx = next_block;
-    }
-    Ok(())
-}
-
-/// flowgraph.c remove_unused_consts
-#[allow(clippy::needless_range_loop)]
-fn remove_unused_consts(
-    blocks: &mut Blocks,
-    consts: &mut ConstantPool,
-) -> crate::InternalResult<()> {
-    let nconsts = consts.len();
-    if nconsts == 0 {
-        return Ok(());
-    }
-
-    let mut index_map = Vec::new();
-    index_map
-        .try_reserve_exact(nconsts)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    index_map.resize(nconsts, 0isize);
-    for i in 1..nconsts {
-        index_map[i] = -1;
-    }
-    // The first constant may be docstring; keep it always.
-    index_map[0] = 0;
-
-    // Mark used consts.
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block = &blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let instr = &block.instructions[i];
-            if instr.instr.has_const() {
-                let index = u32::from(instr.arg) as usize;
-                debug_assert!(index < nconsts);
-                index_map[index] = index as isize;
-            }
-        }
-        block_idx = block.next;
-    }
-
-    // Now index_map[i] == i if consts[i] is used, -1 otherwise.
-    // Condense consts.
-    let mut n_used_consts = 0;
-    for i in 0..nconsts {
-        if index_map[i] != -1 {
-            debug_assert_eq!(index_map[i], i as isize);
-            index_map[n_used_consts] = index_map[i];
-            n_used_consts += 1;
-        }
-    }
-
-    if n_used_consts == nconsts {
-        return Ok(());
-    }
-
-    // Move all used consts to the beginning of the consts list.
-    debug_assert!(n_used_consts < nconsts);
-    for i in 0..n_used_consts {
-        let old_index = index_map[i] as usize;
-        debug_assert!(i <= old_index && old_index < nconsts);
-        if i != old_index {
-            let value = consts.constants[old_index].clone();
-            consts.constants[i] = value;
-        }
-    }
-
-    // Truncate the consts list at its new size.
-    consts.constants.truncate(n_used_consts);
-
-    // Adjust const indices in the bytecode.
-    let mut reverse_index_map = Vec::new();
-    reverse_index_map
-        .try_reserve_exact(nconsts)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    reverse_index_map.resize(nconsts, 0isize);
-    for i in 0..nconsts {
-        reverse_index_map[i] = -1;
-    }
-    for i in 0..n_used_consts {
-        let old_index = index_map[i];
-        debug_assert!(old_index != -1);
-        let old_index = old_index as usize;
-        debug_assert_eq!(reverse_index_map[old_index], -1);
-        reverse_index_map[old_index] = i as isize;
-    }
-
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next_block = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let instr = &mut block.instructions[i];
-            if instr.instr.has_const() {
-                let index = u32::from(instr.arg) as usize;
-                debug_assert!(reverse_index_map[index] >= 0);
-                debug_assert!(reverse_index_map[index] < n_used_consts as isize);
-                instr.arg = OpArg::new(reverse_index_map[index] as u32);
-            }
-        }
         block_idx = next_block;
     }
     Ok(())
