@@ -1,3 +1,5 @@
+use thin_vec::ThinVec;
+
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
@@ -387,7 +389,7 @@ impl Node for ast::PatternMatchClass {
     }
 }
 
-struct PatternMatchClassPatterns(Vec<ast::Pattern>);
+struct PatternMatchClassPatterns(ThinVec<ast::Pattern>);
 
 impl Node for PatternMatchClassPatterns {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
@@ -403,7 +405,7 @@ impl Node for PatternMatchClassPatterns {
     }
 }
 
-struct PatternMatchClassKeywordAttributes(Vec<ast::Identifier>);
+struct PatternMatchClassKeywordAttributes(ThinVec<ast::Identifier>);
 
 impl Node for PatternMatchClassKeywordAttributes {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
@@ -419,7 +421,7 @@ impl Node for PatternMatchClassKeywordAttributes {
     }
 }
 
-struct PatternMatchClassKeywordPatterns(Vec<ast::Pattern>);
+struct PatternMatchClassKeywordPatterns(ThinVec<ast::Pattern>);
 
 impl Node for PatternMatchClassKeywordPatterns {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
@@ -562,7 +564,7 @@ fn merge_pattern_match_class(
     patterns: PatternMatchClassPatterns,
     kwd_attrs: PatternMatchClassKeywordAttributes,
     kwd_patterns: PatternMatchClassKeywordPatterns,
-) -> (Vec<ast::Pattern>, Vec<ast::PatternKeyword>) {
+) -> (ThinVec<ast::Pattern>, Vec<ast::PatternKeyword>) {
     let keywords = kwd_attrs
         .0
         .into_iter()

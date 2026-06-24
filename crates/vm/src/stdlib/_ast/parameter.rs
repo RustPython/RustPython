@@ -1,3 +1,5 @@
+use thin_vec::ThinVec;
+
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
@@ -266,8 +268,8 @@ impl Node for ParameterDefaults {
 }
 
 fn extract_positional_parameter_defaults(
-    pos_only_args: Vec<ast::ParameterWithDefault>,
-    args: Vec<ast::ParameterWithDefault>,
+    pos_only_args: ThinVec<ast::ParameterWithDefault>,
+    args: ThinVec<ast::ParameterWithDefault>,
 ) -> (
     PositionalParameters,
     PositionalParameters,
@@ -327,29 +329,30 @@ fn merge_positional_parameter_defaults(
     args: PositionalParameters,
     defaults: ParameterDefaults,
 ) -> PyResult<(
-    Vec<ast::ParameterWithDefault>,
-    Vec<ast::ParameterWithDefault>,
+    ThinVec<ast::ParameterWithDefault>,
+    ThinVec<ast::ParameterWithDefault>,
 )> {
     let posonlyargs = posonlyargs.args;
     let args = args.args;
     let defaults = defaults.defaults;
 
-    let mut posonlyargs: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(posonlyargs)
+    let mut posonlyargs = <Box<[_]> as IntoIterator>::into_iter(posonlyargs)
         .map(|parameter| ast::ParameterWithDefault {
             node_index: Default::default(),
             range: Default::default(),
             parameter,
             default: None,
         })
-        .collect();
-    let mut args: Vec<_> = <Box<[_]> as IntoIterator>::into_iter(args)
+        .collect::<ThinVec<_>>();
+
+    let mut args = <Box<[_]> as IntoIterator>::into_iter(args)
         .map(|parameter| ast::ParameterWithDefault {
             node_index: Default::default(),
             range: Default::default(),
             parameter,
             default: None,
         })
-        .collect();
+        .collect::<ThinVec<_>>();
 
     // If an argument has a default value, insert it
     // Note that "defaults" will only contain default values for the last "n" parameters
@@ -372,7 +375,7 @@ fn merge_positional_parameter_defaults(
 }
 
 fn extract_keyword_parameter_defaults(
-    kw_only_args: Vec<ast::ParameterWithDefault>,
+    kw_only_args: ThinVec<ast::ParameterWithDefault>,
 ) -> (KeywordParameters, ParameterDefaults) {
     let mut defaults = vec![];
     defaults.extend(kw_only_args.iter().map(|item| item.default.clone()));
@@ -409,7 +412,7 @@ fn merge_keyword_parameter_defaults(
     vm: &VirtualMachine,
     kw_only_args: KeywordParameters,
     defaults: ParameterDefaults,
-) -> PyResult<Vec<ast::ParameterWithDefault>> {
+) -> PyResult<ThinVec<ast::ParameterWithDefault>> {
     if kw_only_args.keywords.len() != defaults.defaults.len() {
         return Err(
             vm.new_value_error("length of kwonlyargs is not the same as kw_defaults on arguments")

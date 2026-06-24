@@ -78,6 +78,7 @@ psm = { workspace = true }
 optional = { workspace = true }
 result-like = { workspace = true }
 timsort = { workspace = true }
+thin-vec = { workspace = true }
 
 ## unicode stuff
 icu_casemap = { workspace = true }
