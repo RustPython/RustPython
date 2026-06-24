@@ -2165,7 +2165,7 @@ impl SymbolTableBuilder {
                 // Dict comprehension - is_generator = false (can be inlined)
                 self.scan_comprehension(
                     "<dictcomp>",
-                    &key.as_ref()
+                    key.as_ref()
                         .expect("RustPython does not support PEP798 yet"),
                     Some(value),
                     generators,

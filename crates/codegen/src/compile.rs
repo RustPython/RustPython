@@ -8269,7 +8269,7 @@ impl Compiler {
                     &|compiler, collection_add_i| {
                         // changed evaluation order for Py38 named expression PEP 572
                         compiler.compile_expression(
-                            &key.as_ref()
+                            key.as_ref()
                                 .expect("RustPython does not support PEP798 yet"),
                         )?;
                         compiler.compile_expression(value)?;
@@ -8292,7 +8292,7 @@ impl Compiler {
                     },
                     ComprehensionType::Dict,
                     Self::contains_await(
-                        &key.as_ref()
+                        key.as_ref()
                             .expect("RustPython does not support PEP798 yet"),
                     ) || Self::contains_await(value)
                         || Self::generators_contain_await(generators),
