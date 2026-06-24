@@ -2145,7 +2145,7 @@ impl Blocks {
         let mut current = BlockIdx(0);
         while current != BlockIdx::NULL {
             self[current].visited = true;
-            normalize_jumps_in_block(self, current)?;
+            self.normalize_jumps_in_block(current)?;
             current = self[current].next;
         }
 
@@ -2663,6 +2663,82 @@ impl Blocks {
             }
             block_idx = next;
         }
+        Ok(())
+    }
+
+    /// flowgraph.c normalize_jumps_in_block
+    fn normalize_jumps_in_block(&mut self, block_idx: BlockIdx) -> crate::InternalResult<()> {
+        let Some(last_ins) = basicblock_last_instr(&self[block_idx]).copied() else {
+            return Ok(());
+        };
+        if !is_conditional_jump_opcode(last_ins.instr) {
+            return Ok(());
+        }
+        debug_assert!(!last_ins.instr.is_assembler());
+
+        debug_assert!(last_ins.target != BlockIdx::NULL);
+        let is_forward = !self[last_ins.target].visited;
+
+        if is_forward {
+            // Insert NOT_TAKEN after forward conditional jump.
+            let not_taken = InstructionInfo {
+                instr: Opcode::NotTaken.into(),
+                arg: OpArg::new(0),
+                target: BlockIdx::NULL,
+                location: last_ins.location,
+                end_location: last_ins.end_location,
+                except_handler: None,
+                lineno_override: last_ins.lineno_override,
+            };
+            basicblock_addop(&mut self[block_idx], not_taken)?;
+            return Ok(());
+        }
+
+        let reversed_opcode = match last_ins.instr.real_opcode() {
+            Some(Opcode::PopJumpIfNotNone) => Opcode::PopJumpIfNone.into(),
+            Some(Opcode::PopJumpIfNone) => Opcode::PopJumpIfNotNone.into(),
+            Some(Opcode::PopJumpIfFalse) => Opcode::PopJumpIfTrue.into(),
+            Some(Opcode::PopJumpIfTrue) => Opcode::PopJumpIfFalse.into(),
+            _ => unreachable!("conditional jump has reverse opcode"),
+        };
+
+        // Transform 'conditional jump T' to 'reversed_jump b_next' followed by
+        // 'jump_backwards T'.
+        let loc = last_ins.location;
+        let end_loc = last_ins.end_location;
+
+        let target = last_ins.target;
+        let backwards_jump_idx = blocks_new_block(self)?;
+        basicblock_addop(
+            &mut self[backwards_jump_idx],
+            InstructionInfo {
+                instr: Opcode::NotTaken.into(),
+                arg: OpArg::new(0),
+                target: BlockIdx::NULL,
+                location: loc,
+                end_location: end_loc,
+                except_handler: None,
+                lineno_override: last_ins.lineno_override,
+            },
+        )?;
+        self.basicblock_add_jump(
+            backwards_jump_idx,
+            PseudoOpcode::Jump.into(),
+            target,
+            &last_ins,
+        )?;
+        self[backwards_jump_idx].start_depth = self[target].start_depth;
+
+        let old_next = self[block_idx].next;
+        debug_assert!(old_next != BlockIdx::NULL);
+
+        let last_mut = basicblock_last_instr_mut(&mut self[block_idx]).unwrap();
+        last_mut.instr = reversed_opcode;
+        last_mut.target = old_next;
+
+        self[backwards_jump_idx].cold = self[block_idx].cold;
+        self[backwards_jump_idx].next = old_next;
+        self[block_idx].next = backwards_jump_idx;
         Ok(())
     }
 }
@@ -5693,83 +5769,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
                 | Opcode::PopJumpIfNotNone
         )
     )
-}
-
-/// flowgraph.c normalize_jumps_in_block
-fn normalize_jumps_in_block(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<()> {
-    let idx = block_idx.idx();
-    let Some(last_ins) = basicblock_last_instr(&blocks[idx]).copied() else {
-        return Ok(());
-    };
-    if !is_conditional_jump_opcode(last_ins.instr) {
-        return Ok(());
-    }
-    debug_assert!(!last_ins.instr.is_assembler());
-
-    debug_assert!(last_ins.target != BlockIdx::NULL);
-    let is_forward = !blocks[last_ins.target.idx()].visited;
-
-    if is_forward {
-        // Insert NOT_TAKEN after forward conditional jump.
-        let not_taken = InstructionInfo {
-            instr: Opcode::NotTaken.into(),
-            arg: OpArg::new(0),
-            target: BlockIdx::NULL,
-            location: last_ins.location,
-            end_location: last_ins.end_location,
-            except_handler: None,
-            lineno_override: last_ins.lineno_override,
-        };
-        basicblock_addop(&mut blocks[idx], not_taken)?;
-        return Ok(());
-    }
-
-    let reversed_opcode = match last_ins.instr.real_opcode() {
-        Some(Opcode::PopJumpIfNotNone) => Opcode::PopJumpIfNone.into(),
-        Some(Opcode::PopJumpIfNone) => Opcode::PopJumpIfNotNone.into(),
-        Some(Opcode::PopJumpIfFalse) => Opcode::PopJumpIfTrue.into(),
-        Some(Opcode::PopJumpIfTrue) => Opcode::PopJumpIfFalse.into(),
-        _ => unreachable!("conditional jump has reverse opcode"),
-    };
-
-    // Transform 'conditional jump T' to 'reversed_jump b_next' followed by
-    // 'jump_backwards T'.
-    let loc = last_ins.location;
-    let end_loc = last_ins.end_location;
-
-    let target = last_ins.target;
-    let backwards_jump_idx = blocks_new_block(blocks)?;
-    basicblock_addop(
-        &mut blocks[backwards_jump_idx.idx()],
-        InstructionInfo {
-            instr: Opcode::NotTaken.into(),
-            arg: OpArg::new(0),
-            target: BlockIdx::NULL,
-            location: loc,
-            end_location: end_loc,
-            except_handler: None,
-            lineno_override: last_ins.lineno_override,
-        },
-    )?;
-    blocks.basicblock_add_jump(
-        backwards_jump_idx,
-        PseudoOpcode::Jump.into(),
-        target,
-        &last_ins,
-    )?;
-    blocks[backwards_jump_idx.idx()].start_depth = blocks[target.idx()].start_depth;
-
-    let old_next = blocks[idx].next;
-    debug_assert!(old_next != BlockIdx::NULL);
-
-    let last_mut = basicblock_last_instr_mut(&mut blocks[idx]).unwrap();
-    last_mut.instr = reversed_opcode;
-    last_mut.target = old_next;
-
-    blocks[backwards_jump_idx.idx()].cold = blocks[idx].cold;
-    blocks[backwards_jump_idx.idx()].next = old_next;
-    blocks[idx].next = backwards_jump_idx;
-    Ok(())
 }
 
 /// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
