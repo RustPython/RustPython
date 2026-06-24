@@ -5381,10 +5381,10 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
         translate_jump_labels_to_targets(&mut self.blocks)?;
-        mark_except_handlers(&mut self.blocks)?;
+        self.blocks.mark_except_handlers()?;
         label_exception_targets(&mut self.blocks)?;
-        check_cfg(&self.blocks)?;
-        inline_small_or_no_lineno_blocks(&mut self.blocks)?;
+        self.blocks.check_cfg()?;
+        self.blocks.inline_small_or_no_lineno_blocks()?;
         trace.push((
             "after_inline_small_or_no_lineno_blocks".to_owned(),
             self.debug_block_dump(),
@@ -5410,9 +5410,11 @@ impl CodeInfo {
         ));
         self.blocks.remove_redundant_nops_and_pairs()?;
         self.blocks.remove_unreachable()?;
-        remove_redundant_nops_and_jumps(&mut self.blocks)?;
+        self.blocks.remove_redundant_nops_and_jumps()?;
+
         #[cfg(debug_assertions)]
-        assert!(no_redundant_jumps(&self.blocks));
+        assert!(self.blocks.no_redundant_jumps());
+
         self.blocks
             .remove_unused_consts(&mut self.metadata.consts)?;
         trace.push((
@@ -5423,7 +5425,7 @@ impl CodeInfo {
         let nparams = self.nparams;
         add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams)?;
         self.blocks.insert_superinstructions()?;
-        push_cold_blocks_to_end(&mut self.blocks)?;
+        self.blocks.push_cold_blocks_to_end()?;
         trace.push((
             "after_push_cold_before_chain_reorder".to_owned(),
             self.debug_block_dump(),
@@ -5440,7 +5442,7 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        convert_pseudo_conditional_jumps(&mut self.blocks)?;
+        self.blocks.convert_pseudo_conditional_jumps()?;
         trace.push((
             "after_convert_pseudo_conditional_jumps".to_owned(),
             self.debug_block_dump(),
@@ -5455,8 +5457,10 @@ impl CodeInfo {
         ));
 
         self.blocks.normalize_jumps()?;
+
         #[cfg(debug_assertions)]
-        assert!(no_redundant_jumps(&self.blocks));
+        assert!(self.blocks.no_redundant_jumps());
+
         trace.push(("after_normalize_jumps".to_owned(), self.debug_block_dump()));
         self.blocks.optimize_load_fast()?;
         trace.push((
