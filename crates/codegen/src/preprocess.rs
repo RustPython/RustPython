@@ -213,14 +213,6 @@ pub fn checked_future_features(
     checked_future_features_in_body(&module.body)
 }
 
-pub fn has_future_annotations_in_body(body: &[ast::Stmt]) -> bool {
-    future_features_in_body(body).contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS)
-}
-
-pub fn future_features_in_body(body: &[ast::Stmt]) -> bytecode::CodeFlags {
-    checked_future_features_in_body(body).unwrap_or_else(|err| err.features)
-}
-
 pub fn checked_future_features_in_body(
     body: &[ast::Stmt],
 ) -> Result<bytecode::CodeFlags, FutureFeatureError> {
@@ -365,47 +357,6 @@ impl Transformer for AstPreprocessor {
     fn visit_annotation(&self, expr: &mut Expr) {
         if !self.future_annotations {
             transformer::walk_annotation(self, expr);
-        }
-    }
-
-    fn visit_parameters(&self, parameters: &mut ast::Parameters) {
-        for arg in &mut parameters.posonlyargs {
-            self.visit_parameter(&mut arg.parameter);
-        }
-        for arg in &mut parameters.args {
-            self.visit_parameter(&mut arg.parameter);
-        }
-        if let Some(arg) = &mut parameters.vararg {
-            self.visit_parameter(arg);
-        }
-        for arg in &mut parameters.kwonlyargs {
-            self.visit_parameter(&mut arg.parameter);
-        }
-        for arg in &mut parameters.kwonlyargs {
-            if let Some(default) = &mut arg.default {
-                self.visit_expr(default);
-            }
-        }
-        if let Some(arg) = &mut parameters.kwarg {
-            self.visit_parameter(arg);
-        }
-        for arg in &mut parameters.posonlyargs {
-            if let Some(default) = &mut arg.default {
-                self.visit_expr(default);
-            }
-        }
-        for arg in &mut parameters.args {
-            if let Some(default) = &mut arg.default {
-                self.visit_expr(default);
-            }
-        }
-    }
-
-    fn visit_comprehension(&self, comprehension: &mut ast::Comprehension) {
-        self.visit_expr(&mut comprehension.target);
-        self.visit_expr(&mut comprehension.iter);
-        for if_expr in &mut comprehension.ifs {
-            self.visit_expr(if_expr);
         }
     }
 

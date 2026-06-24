@@ -106,7 +106,7 @@ pub struct SymbolTable {
 
     /// True only for deferred function/class/module annotation scopes that
     /// should resolve outer names as if they were siblings of the owning
-    /// function body, matching CPython's PEP 649 lookup rules.
+    /// function body, matching PEP 649 lookup rules.
     pub skip_enclosing_function_scope: bool,
 
     /// PEP 649: Whether this scope has conditional annotations
@@ -456,7 +456,7 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
 }
 
 /* Drop __class__ and __classdict__ from free variables in class scope
-   and set the appropriate flags. Equivalent to CPython's drop_class_free().
+   and set the appropriate flags. Equivalent to drop_class_free().
    See: https://github.com/python/cpython/blob/main/Python/symtable.c#L884
 
    This function removes __class__ and __classdict__ from the
@@ -544,7 +544,7 @@ fn inline_comprehension(
             }
         } else {
             // Name doesn't exist in parent, copy the comprehension binding.
-            // This matches CPython's inline_comprehension(): newly introduced
+            // Matches inline_comprehension(): newly introduced
             // comprehension locals stay locals in the parent scope.
             let mut symbol = sub_symbol.clone();
             symbol.scope = scope;
@@ -602,12 +602,6 @@ mod stack {
         pub(super) fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> + '_ {
             self.as_mut().iter_mut().map(|x| &mut **x)
         }
-        // pub fn top(&self) -> Option<&T> {
-        //     self.as_ref().last().copied()
-        // }
-        // pub fn top_mut(&mut self) -> Option<&mut T> {
-        //     self.as_mut().last_mut().map(|x| &mut **x)
-        // }
         pub(super) fn len(&self) -> usize {
             self.v.len()
         }
@@ -679,32 +673,27 @@ impl SymbolTableAnalyzer {
             symbol_table.typ,
             symbol_table.skip_enclosing_function_scope,
         );
+        let class_scope_entry = if is_class {
+            class_symbols_clone.as_ref()
+        } else {
+            class_entry
+        };
         self.tables.with_append(&mut info, |list| {
             let inner_scope = unsafe { &mut *(list as *mut _ as *mut Self) };
             for sub_table in sub_tables.iter_mut() {
-                let child_class_entry = if sub_table.can_see_class_scope {
-                    if is_class {
-                        class_symbols_clone.as_ref()
-                    } else {
-                        class_entry
-                    }
-                } else {
-                    None
-                };
+                let child_class_entry = sub_table
+                    .can_see_class_scope
+                    .then_some(class_scope_entry)
+                    .flatten();
                 let child_free = inner_scope.analyze_symbol_table(sub_table, child_class_entry)?;
                 child_frees.push((child_free, sub_table.comp_inlined));
             }
             // PEP 649: Analyze annotation block if present
             if let Some(annotation_table) = annotation_block {
-                let ann_class_entry = if annotation_table.can_see_class_scope {
-                    if is_class {
-                        class_symbols_clone.as_ref()
-                    } else {
-                        class_entry
-                    }
-                } else {
-                    None
-                };
+                let ann_class_entry = annotation_table
+                    .can_see_class_scope
+                    .then_some(class_scope_entry)
+                    .flatten();
                 let child_free =
                     inner_scope.analyze_symbol_table(annotation_table, ann_class_entry)?;
                 annotation_free = Some(child_free);
@@ -784,7 +773,7 @@ impl SymbolTableAnalyzer {
                 class_entry,
             )?;
 
-            // CPython analyze_cells(): once a function-like scope owns a
+            // analyze_cells(): once a function-like scope owns a
             // child-requested name as a cell, that name is no longer free in
             // the enclosing scope.
             if function_like_scope && symbol.scope == SymbolScope::Cell {
@@ -797,7 +786,7 @@ impl SymbolTableAnalyzer {
             }
         }
 
-        // PEP 709 / CPython symtable.c:
+        // PEP 709 / symtable.c:
         // - only promote LOCAL -> CELL in function-like scopes, where
         //   analyze_cells() runs. Module and class scopes keep their normal
         //   scope and rely on DEF_COMP_CELL for comprehension-only cells.
@@ -815,7 +804,7 @@ impl SymbolTableAnalyzer {
             drop_class_free(symbol_table, &mut newfree);
         }
 
-        // CPython update_symbols(..., classflag): after class implicit frees
+        // update_symbols(..., classflag): after class implicit frees
         // are dropped, a class block, or an annotation/type-params block that
         // can see a class scope, records existing child-free names with
         // DEF_FREE_CLASS. This preserves the current scope's own lookup kind
@@ -849,7 +838,6 @@ impl SymbolTableAnalyzer {
             // propagate symbol to next higher level that can hold it,
             // i.e., function or module. Comprehension is skipped and
             // Class is not allowed and detected as error.
-            //symbol.scope = SymbolScope::Nonlocal;
             self.analyze_symbol_comprehension(symbol, 0)?
         } else {
             match symbol.scope {
@@ -1230,7 +1218,7 @@ struct SymbolTableBuilder {
     comprehension_yield_context: Option<&'static str>,
     // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)
     in_conditional_block: bool,
-    // Mirrors CPython symtable ENTER_RECURSIVE guards during compilation.
+    // Mirrors symtable ENTER_RECURSIVE guards during compilation.
     recursion_depth: usize,
     recursion_limit: usize,
 }
@@ -2339,7 +2327,7 @@ impl SymbolTableBuilder {
                 _ => None,
             } {
                 // Determine the context name for the error message from the
-                // current symbol table entry, matching CPython's ste_type checks.
+                // current symbol table entry, matching ste_type checks.
                 let current_is_comprehension = self
                     .tables
                     .last()
@@ -2876,7 +2864,7 @@ impl SymbolTableBuilder {
         }
 
         // PEP 709: Mark non-generator comprehensions for inlining.
-        // CPython's symtable marks all non-generator comprehensions for
+        // symtable marks all non-generator comprehensions for
         // inlining, except scopes nested under a parent that can see class
         // scope (for example annotation scopes inside classes).
         if !is_generator {
@@ -2927,7 +2915,7 @@ impl SymbolTableBuilder {
         self.tables.last_mut().unwrap().is_generator = is_generator;
         self.comprehension_yield_context = saved_comprehension_yield_context;
 
-        // CPython symtable_handle_comprehension(): non-generator async
+        // symtable_handle_comprehension(): non-generator async
         // comprehensions propagate ste_coroutine to the enclosing scope after
         // the comprehension block is exited.
         let propagate_coroutine = self.tables.last().unwrap().is_coroutine && !is_generator;
@@ -2964,7 +2952,7 @@ impl SymbolTableBuilder {
         scope_name: &str,
         scope_info: &'static str,
     ) -> SymbolTableResult {
-        // Bounds/defaults are compiled as annotation scopes in CPython.
+        // Bounds/defaults are compiled as annotation scopes.
         let in_class = self.tables.last().is_some_and(|t| t.can_see_class_scope);
         let line_number = self.line_index_start(expr.range());
         self.enter_scope(scope_name, CompilerScope::TypeVariable, line_number);
@@ -2990,7 +2978,7 @@ impl SymbolTableBuilder {
     }
 
     fn scan_type_params(&mut self, type_params: &ast::TypeParams) -> SymbolTableResult {
-        // CPython visits each type parameter as: register name, scan bound, scan default.
+        // Each type parameter is visited as: register name, scan bound, scan default.
         for type_param in &type_params.type_params {
             if self.recursion_depth >= self.recursion_limit {
                 return Err(SymbolTableError {
@@ -3306,7 +3294,7 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
-    // Mirrors CPython symtable_extend_namedexpr_scope(): assignment expressions
+    // Mirrors symtable_extend_namedexpr_scope(): assignment expressions
     // inside comprehensions bind in the nearest function/module-like scope, not
     // in the synthetic comprehension scope itself.
     fn extend_namedexpr_scope(&mut self, name: &str, range: TextRange) -> SymbolTableResult {
@@ -3432,7 +3420,7 @@ impl SymbolTableBuilder {
             .source_location(range.start(), PositionEncoding::Utf8);
         let location = Some(location);
 
-        // CPython's symtable_add_def_ctx() runs check_name() for definition
+        // symtable_add_def_ctx() runs check_name() for definition
         // roles covered by DEF_PARAM | DEF_LOCAL | DEF_IMPORT before adding
         // the symbol. Several Rust callers reach register_name() directly
         // instead of going through scan_expression(Name), so keep the guard here.

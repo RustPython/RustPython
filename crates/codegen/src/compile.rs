@@ -192,9 +192,6 @@ struct Compiler<'a> {
     do_not_emit_bytecode: u32,
     /// Mirrors CPython's `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
-    /// Disable constant tuple/list/set collection folding in contexts where
-    /// CPython keeps the builder form for later assignment lowering.
-    disable_const_collection_folding: bool,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 }
 
@@ -413,13 +410,12 @@ pub fn compile_program(
     compile_program_with_syntax_warning_handler(ast, source_file, opts, None)
 }
 
-fn compile_program_with_syntax_warning_handler<'a>(
+fn scan_module_symbols(
     ast: &ast::ModModule,
-    source_file: SourceFile,
-    opts: CompileOpts,
-    syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
-) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_program_with_options(
+    source_file: &SourceFile,
+    opts: &CompileOpts,
+) -> CompileResult<SymbolTable> {
+    SymbolTable::scan_program_with_options(
         ast,
         source_file.clone(),
         opts.allow_top_level_await,
@@ -432,7 +428,37 @@ fn compile_program_with_syntax_warning_handler<'a>(
         opts.ast_template_str_overrides.clone(),
         opts.recursion_limit,
     )
-    .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
+}
+
+fn scan_expr_symbols(
+    ast: &ast::ModExpression,
+    source_file: &SourceFile,
+    opts: &CompileOpts,
+) -> CompileResult<SymbolTable> {
+    SymbolTable::scan_expr_with_options(
+        ast,
+        source_file.clone(),
+        opts.allow_top_level_await,
+        opts.future_features
+            .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
+        opts.ast_constant_overrides.clone(),
+        opts.ast_interpolation_overrides.clone(),
+        opts.ast_formatted_value_overrides.clone(),
+        opts.ast_joined_str_overrides.clone(),
+        opts.ast_template_str_overrides.clone(),
+        opts.recursion_limit,
+    )
+    .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
+}
+
+fn compile_program_with_syntax_warning_handler<'a>(
+    ast: &ast::ModModule,
+    source_file: SourceFile,
+    opts: CompileOpts,
+    syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
+) -> CompileResult<CodeObject> {
+    let symbol_table = scan_module_symbols(ast, &source_file, &opts)?;
     let mut compiler = Compiler::new_with_syntax_warning_handler(
         opts,
         source_file,
@@ -460,20 +486,7 @@ fn compile_program_single_with_syntax_warning_handler<'a>(
     opts: CompileOpts,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_program_with_options(
-        ast,
-        source_file.clone(),
-        opts.allow_top_level_await,
-        opts.future_features
-            .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-        opts.ast_constant_overrides.clone(),
-        opts.ast_interpolation_overrides.clone(),
-        opts.ast_formatted_value_overrides.clone(),
-        opts.ast_joined_str_overrides.clone(),
-        opts.ast_template_str_overrides.clone(),
-        opts.recursion_limit,
-    )
-    .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let symbol_table = scan_module_symbols(ast, &source_file, &opts)?;
     let mut compiler = Compiler::new_with_syntax_warning_handler(
         opts,
         source_file,
@@ -500,20 +513,7 @@ fn compile_block_expression_with_syntax_warning_handler<'a>(
     opts: CompileOpts,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_program_with_options(
-        ast,
-        source_file.clone(),
-        opts.allow_top_level_await,
-        opts.future_features
-            .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-        opts.ast_constant_overrides.clone(),
-        opts.ast_interpolation_overrides.clone(),
-        opts.ast_formatted_value_overrides.clone(),
-        opts.ast_joined_str_overrides.clone(),
-        opts.ast_template_str_overrides.clone(),
-        opts.recursion_limit,
-    )
-    .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let symbol_table = scan_module_symbols(ast, &source_file, &opts)?;
     let mut compiler = Compiler::new_with_syntax_warning_handler(
         opts,
         source_file,
@@ -540,20 +540,7 @@ fn compile_expression_with_syntax_warning_handler<'a>(
     opts: CompileOpts,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 ) -> CompileResult<CodeObject> {
-    let symbol_table = SymbolTable::scan_expr_with_options(
-        ast,
-        source_file.clone(),
-        opts.allow_top_level_await,
-        opts.future_features
-            .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-        opts.ast_constant_overrides.clone(),
-        opts.ast_interpolation_overrides.clone(),
-        opts.ast_formatted_value_overrides.clone(),
-        opts.ast_joined_str_overrides.clone(),
-        opts.ast_template_str_overrides.clone(),
-        opts.recursion_limit,
-    )
-    .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))?;
+    let symbol_table = scan_expr_symbols(ast, &source_file, &opts)?;
     let mut compiler = Compiler::new_with_syntax_warning_handler(
         opts,
         source_file,
@@ -1100,24 +1087,8 @@ impl<'warnings> Compiler<'warnings> {
             interactive: false,
             do_not_emit_bytecode: 0,
             disable_warning: 0,
-            disable_const_collection_folding: false,
             syntax_warning_handler,
         }
-    }
-
-    fn compile_expression_without_const_collection_folding(
-        &mut self,
-        expression: &ast::Expr,
-    ) -> CompileResult<()> {
-        let previous = self.disable_const_collection_folding;
-        self.disable_const_collection_folding = true;
-        let result = self.compile_expression(expression);
-        self.disable_const_collection_folding = previous;
-        result.map(|_| ())
-    }
-
-    fn is_unpack_assignment_target(target: &ast::Expr) -> bool {
-        matches!(target, ast::Expr::List(_) | ast::Expr::Tuple(_))
     }
 
     fn compile_module_annotation_setup_sequence(
@@ -1267,37 +1238,9 @@ impl<'warnings> Compiler<'warnings> {
         let injected_count = u32::from(injected_arg.is_some());
         let big = n + pushed + injected_count > STACK_USE_GUIDELINE;
 
-        // Match CPython's constant ordering by letting the late flowgraph-style
-        // folding passes introduce tuple-backed constants after their operands
-        // have first been emitted as constants.
-        let can_fold_const_collection = false;
-        if !self.disable_const_collection_folding
-            && !seen_star
-            && pushed == 0
-            && can_fold_const_collection
-            && let Some(folded) = self.try_fold_constant_collection(elts, collection_type)?
-        {
-            match collection_type {
-                CollectionType::Tuple => {
-                    self.emit_load_const(folded);
-                }
-                CollectionType::List => {
-                    self.set_source_range(collection_range);
-                    emit!(self, Instruction::BuildList { count: 0 });
-                    self.emit_load_const(folded);
-                    self.set_source_range(collection_range);
-                    emit!(self, Instruction::ListExtend { i: 1 });
-                }
-                CollectionType::Set => {
-                    self.set_source_range(collection_range);
-                    emit!(self, Instruction::BuildSet { count: 0 });
-                    self.emit_load_const(folded);
-                    self.set_source_range(collection_range);
-                    emit!(self, Instruction::SetUpdate { i: 1 });
-                }
-            }
-            return Ok(());
-        }
+        // Constant collections are not folded here: the late flowgraph
+        // optimization passes introduce tuple-backed constants after their
+        // operands have first been emitted, matching the constant ordering.
 
         // If no stars and not too big, compile all elements and build once
         if !seen_star && !big {
@@ -3747,11 +3690,7 @@ impl<'warnings> Compiler<'warnings> {
                 range,
                 ..
             }) => {
-                if targets.len() == 1 && Self::is_unpack_assignment_target(&targets[0]) {
-                    self.compile_expression_without_const_collection_folding(value)?;
-                } else {
-                    self.compile_expression(value)?;
-                }
+                self.compile_expression(value)?;
 
                 for (i, target) in targets.iter().enumerate() {
                     if i + 1 != targets.len() {
@@ -11677,31 +11616,6 @@ impl<'warnings> Compiler<'warnings> {
             && lhs.exceptiontable == rhs.exceptiontable
     }
 
-    /// Try to fold a collection of constant expressions into a single ConstantData::Tuple.
-    /// Returns None if any element cannot be folded.
-    fn try_fold_constant_collection(
-        &mut self,
-        elts: &[ast::Expr],
-        collection_type: CollectionType,
-    ) -> CompileResult<Option<ConstantData>> {
-        let mut constants = Vec::with_capacity(elts.len());
-        for elt in elts {
-            let Some(constant) = self.try_fold_constant_expr(elt)? else {
-                return Ok(None);
-            };
-            constants.push(constant);
-        }
-        let constant = match collection_type {
-            CollectionType::Tuple | CollectionType::List => ConstantData::Tuple {
-                elements: constants,
-            },
-            CollectionType::Set => ConstantData::Frozenset {
-                elements: constants,
-            },
-        };
-        Ok(Some(constant))
-    }
-
     fn constant_as_fold_int(constant: &ConstantData) -> Option<(BigInt, bool)> {
         match constant {
             ConstantData::Boolean { value } => Some((BigInt::from(u8::from(*value)), true)),
@@ -14984,118 +14898,6 @@ def f(arch):
             dump.contains("[disp=9:20 raw=9:20-12:14 override=None] Real(BuildList"),
             "CPython optimize_lists_and_sets() restores the literal location to BUILD_LIST"
         );
-    }
-
-    #[test]
-    fn debug_trace_make_dataclass_borrow_tail() {
-        let trace = compile_single_function_late_cfg_trace(
-            r#"
-def f(module, cls, decorator, init, repr, eq, order, unsafe_hash, frozen, match_args, kw_only, slots, weakref_slot):
-    if module is None:
-        try:
-            module = sys._getframemodulename(1) or '__main__'
-        except AttributeError:
-            try:
-                module = sys._getframe(1).f_globals.get('__name__', '__main__')
-            except (AttributeError, ValueError):
-                pass
-    if module is not None:
-        cls.__module__ = module
-    cls = decorator(cls, init=init, repr=repr, eq=eq, order=order,
-                    unsafe_hash=unsafe_hash, frozen=frozen,
-                    match_args=match_args, kw_only=kw_only, slots=slots,
-                    weakref_slot=weakref_slot)
-    return cls
-"#,
-            "f",
-        );
-        for (label, dump) in trace {
-            if label.starts_with("after_") {
-                eprintln!("=== {label} ===\n{dump}");
-            }
-        }
-    }
-
-    #[test]
-    fn debug_trace_protected_attr_subscript_tail() {
-        let trace = compile_single_function_late_cfg_trace(
-            r#"
-def f(f, oldcls, newcls):
-    try:
-        idx = f.__code__.co_freevars.index("__class__")
-    except ValueError:
-        return False
-    closure = f.__closure__[idx]
-    if closure.cell_contents is oldcls:
-        closure.cell_contents = newcls
-        return True
-    return False
-"#,
-            "f",
-        );
-        for (label, dump) in trace {
-            if label.starts_with("after_") {
-                eprintln!("=== {label} ===\n{dump}");
-            }
-        }
-    }
-
-    #[test]
-    fn debug_trace_dtrace_tail() {
-        let trace = compile_single_function_late_cfg_trace(
-            r#"
-def f(proc, unittest):
-    try:
-        with proc:
-            version, stderr = proc.communicate()
-        if proc.returncode:
-            raise Exception(version, stderr)
-    except OSError:
-        raise unittest.SkipTest("x")
-    match = re.search("pat", version)
-    if match is None:
-        raise unittest.SkipTest(f"Unable to parse readelf version: {version}")
-    return int(match.group(1)), int(match.group(2))
-"#,
-            "f",
-        );
-        for (label, dump) in trace {
-            if label == "after_optimize_load_fast"
-                || label.contains("deoptimize_borrow_in_protected_conditional_tail")
-            {
-                eprintln!("=== {label} ===\n{dump}");
-            }
-        }
-    }
-
-    #[test]
-    fn debug_trace_colorize_tail() {
-        let trace = compile_single_function_late_cfg_trace(
-            r#"
-def f(sys, os, file):
-    if sys.platform == "win32":
-        try:
-            import nt
-            if not nt._supports_virtual_terminal():
-                return False
-        except (ImportError, AttributeError):
-            return False
-
-    try:
-        return os.isatty(file.fileno())
-    except OSError:
-        return hasattr(file, "isatty") and file.isatty()
-"#,
-            "f",
-        );
-        for (label, dump) in trace {
-            if label == "after_optimize_load_fast"
-                || label == "after_deoptimize_borrow_after_protected_import"
-                || label == "after_borrow_deopts"
-            {
-                eprintln!("=== {label} ===\n{dump}");
-            }
-        }
     }
 
     #[test]
@@ -23302,63 +23104,6 @@ def f(self):
     }
 
     #[test]
-    fn debug_trace_match_sequence_star_wildcard_layout() {
-        let trace = compile_single_function_late_cfg_trace(
-            "\
-def f(w):
-    match w:
-        case [x, *_, y]:
-            z = 0
-    return x, y, z
-",
-            "f",
-        );
-        for (stage, dump) in trace {
-            eprintln!("=== {stage} ===\n{dump}");
-        }
-    }
-
-    #[test]
-    fn debug_trace_loop_break_bool_chain_layout() {
-        let trace = compile_single_function_late_cfg_trace(
-            "\
-def f(filters, text, category, module, lineno, defaultaction):
-    for item in filters:
-        action, msg, cat, mod, ln = item
-        if ((msg is None or msg.match(text)) and
-            issubclass(category, cat) and
-            (mod is None or mod.match(module)) and
-            (ln == 0 or lineno == ln)):
-            break
-    else:
-        action = defaultaction
-    return action
-",
-            "f",
-        );
-        for (stage, dump) in trace {
-            eprintln!("=== {stage} ===\n{dump}");
-        }
-    }
-
-    #[test]
-    fn debug_trace_loop_conditional_body_layout() {
-        let trace = compile_single_function_late_cfg_trace(
-            "\
-def f(new, old):
-    for replace in ['__module__', '__name__', '__qualname__', '__doc__']:
-        if hasattr(old, replace):
-            setattr(new, replace, getattr(old, replace))
-    return new
-",
-            "f",
-        );
-        for (stage, dump) in trace {
-            eprintln!("=== {stage} ===\n{dump}");
-        }
-    }
-
-    #[test]
     fn if_false_body_blocks_following_load_fast_borrow() {
         let code = compile_exec(
             "\
@@ -23489,58 +23234,6 @@ def f(self):
             "CPython preserves the empty assert-success bool-op block as a LOAD_FAST barrier, got ops={:?}",
             units.iter().map(|unit| unit.op).collect::<Vec<_>>()
         );
-    }
-
-    #[test]
-    fn debug_trace_utf7_min_encode_layout() {
-        let trace = compile_single_function_late_cfg_trace(
-            "\
-def f(s, size, encodeSetO, encodeWhiteSpace):
-    inShift = True
-    base64bits = 0
-    out = []
-    for i, ch in enumerate(s):
-        if base64bits == 0:
-            if i + 1 < size:
-                ch2 = s[i + 1]
-                if E(ch2, encodeSetO, encodeWhiteSpace):
-                    if B(ch2) or ch2 == '-':
-                        out.append(b'-')
-                    inShift = False
-            else:
-                out.append(b'-')
-                inShift = False
-    return out
-",
-            "f",
-        );
-        for (stage, dump) in trace {
-            eprintln!("=== {stage} ===\n{dump}");
-        }
-    }
-
-    #[test]
-    fn debug_trace_with_loop_break_bool_chain_layout() {
-        let trace = compile_single_function_late_cfg_trace(
-            "\
-def f(filters, text, category, module, lineno, defaultaction, _wm):
-    with _wm._lock:
-        for item in filters:
-            action, msg, cat, mod, ln = item
-            if ((msg is None or msg.match(text)) and
-                issubclass(category, cat) and
-                (mod is None or mod.match(module)) and
-                (ln == 0 or lineno == ln)):
-                break
-        else:
-            action = defaultaction
-    return action
-",
-            "f",
-        );
-        for (stage, dump) in trace {
-            eprintln!("=== {stage} ===\n{dump}");
-        }
     }
 
     #[test]

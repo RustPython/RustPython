@@ -161,37 +161,8 @@ impl ConstantPool {
     }
 
     fn canonicalize_constant_key_infallible(constant: ConstantData) -> ConstantData {
-        match constant {
-            ConstantData::Tuple { elements } => ConstantData::Tuple {
-                elements: elements
-                    .into_iter()
-                    .map(Self::canonicalize_constant_key_infallible)
-                    .collect(),
-            },
-            ConstantData::Slice { elements } => {
-                let [start, stop, step] = *elements;
-                ConstantData::Slice {
-                    elements: Box::new([
-                        Self::canonicalize_constant_key_infallible(start),
-                        Self::canonicalize_constant_key_infallible(stop),
-                        Self::canonicalize_constant_key_infallible(step),
-                    ]),
-                }
-            }
-            ConstantData::Frozenset { elements } => {
-                let mut canonical = Vec::with_capacity(elements.len());
-                for element in elements {
-                    let element = Self::canonicalize_constant_key_infallible(element);
-                    if !Self::frozenset_key_contains(&canonical, &element) {
-                        canonical.push(element);
-                    }
-                }
-                ConstantData::Frozenset {
-                    elements: canonical,
-                }
-            }
-            other => other,
-        }
+        Self::canonicalize_constant_key(constant)
+            .expect("constant key canonicalization only fails on allocation error")
     }
 
     pub fn insert_full(&mut self, constant: ConstantData) -> (usize, bool) {
@@ -3103,39 +3074,9 @@ impl Blocks {
     }
 }
 
-impl From<Vec<Block>> for Blocks {
-    fn from(value: Vec<Block>) -> Self {
-        Self(value)
-    }
-}
-
-impl From<Box<[Block]>> for Blocks {
-    fn from(value: Box<[Block]>) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<&[Block]> for Blocks {
-    fn from(value: &[Block]) -> Self {
-        Self(value.to_vec())
-    }
-}
-
-impl From<&mut [Block]> for Blocks {
-    fn from(value: &mut [Block]) -> Self {
-        Self(value.to_vec())
-    }
-}
-
 impl<const N: usize> From<[Block; N]> for Blocks {
     fn from(value: [Block; N]) -> Self {
         Self(value.into())
-    }
-}
-
-impl<const N: usize> From<&[Block; N]> for Blocks {
-    fn from(value: &[Block; N]) -> Self {
-        Self(value.to_vec())
     }
 }
 
