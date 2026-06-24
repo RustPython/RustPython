@@ -2561,10 +2561,51 @@ impl Blocks {
         debug_assert!(target.target != BlockIdx::NULL);
         if self[block_idx].instructions[instr_idx].target != target.target {
             set_to_nop(&mut self[block_idx].instructions[instr_idx]);
-            basicblock_add_jump(self, block_idx, opcode, target.target, target)?;
+            self.basicblock_add_jump(block_idx, opcode, target.target, target)?;
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// flowgraph.c basicblock_add_jump
+    fn basicblock_add_jump(
+        &mut self,
+        block_idx: BlockIdx,
+        instr: AnyInstruction,
+        target: BlockIdx,
+        loc_source: &InstructionInfo,
+    ) -> crate::InternalResult<()> {
+        let last = basicblock_last_instr(&self[block_idx]);
+        if last.is_some_and(is_jump) {
+            return Err(InternalError::MalformedControlFlowGraph);
+        }
+        debug_assert!(target != BlockIdx::NULL);
+        let label = self[target].cpython_label;
+        debug_assert!(is_label(label));
+        let arg = instruction_sequence_label_oparg(label);
+        let block = &mut self[block_idx];
+        basicblock_addop(
+            block,
+            InstructionInfo {
+                instr,
+                arg,
+                target: BlockIdx::NULL,
+                location: loc_source.location,
+                end_location: loc_source.end_location,
+                except_handler: None,
+                lineno_override: loc_source.lineno_override,
+            },
+        )?;
+        let last = basicblock_last_instr_mut(block).expect("missing jump");
+        debug_assert!(match (last.instr, instr) {
+            (AnyInstruction::Real(last), AnyInstruction::Real(opcode)) =>
+                last.as_opcode() == opcode.as_opcode(),
+            (AnyInstruction::Pseudo(last), AnyInstruction::Pseudo(opcode)) =>
+                last.as_opcode() == opcode.as_opcode(),
+            _ => false,
+        });
+        last.target = target;
+        Ok(())
     }
 }
 
@@ -5583,48 +5624,6 @@ fn assemble_exception_table(
     Ok(table.into_boxed_slice())
 }
 
-/// flowgraph.c basicblock_add_jump
-fn basicblock_add_jump(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-    instr: AnyInstruction,
-    target: BlockIdx,
-    loc_source: &InstructionInfo,
-) -> crate::InternalResult<()> {
-    let bi = block_idx.idx();
-    let last = basicblock_last_instr(&blocks[bi]);
-    if last.is_some_and(is_jump) {
-        return Err(InternalError::MalformedControlFlowGraph);
-    }
-    debug_assert!(target != BlockIdx::NULL);
-    let label = blocks[target.idx()].cpython_label;
-    debug_assert!(is_label(label));
-    let arg = instruction_sequence_label_oparg(label);
-    let block = &mut blocks[bi];
-    basicblock_addop(
-        block,
-        InstructionInfo {
-            instr,
-            arg,
-            target: BlockIdx::NULL,
-            location: loc_source.location,
-            end_location: loc_source.end_location,
-            except_handler: None,
-            lineno_override: loc_source.lineno_override,
-        },
-    )?;
-    let last = basicblock_last_instr_mut(block).expect("missing jump");
-    debug_assert!(match (last.instr, instr) {
-        (AnyInstruction::Real(last), AnyInstruction::Real(opcode)) =>
-            last.as_opcode() == opcode.as_opcode(),
-        (AnyInstruction::Pseudo(last), AnyInstruction::Pseudo(opcode)) =>
-            last.as_opcode() == opcode.as_opcode(),
-        _ => false,
-    });
-    last.target = target;
-    Ok(())
-}
-
 /// pycore_opcode_utils.h IS_CONDITIONAL_JUMP_OPCODE
 fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     matches!(
@@ -5752,8 +5751,7 @@ fn normalize_jumps_in_block(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::
             lineno_override: last_ins.lineno_override,
         },
     )?;
-    basicblock_add_jump(
-        blocks,
+    blocks.basicblock_add_jump(
         backwards_jump_idx,
         PseudoOpcode::Jump.into(),
         target,
