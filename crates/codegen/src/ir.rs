@@ -1330,7 +1330,7 @@ impl Blocks {
     fn copy_basicblock(&mut self, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
         debug_assert!(bb_no_fallthrough(&self[block_idx]));
 
-        let result = blocks_new_block(self)?;
+        let result = self.blocks_new_block()?;
         self.basicblock_append_block_instructions(result, block_idx)?;
         Ok(result)
     }
@@ -2451,7 +2451,7 @@ impl Blocks {
                 && next != BlockIdx::NULL
                 && self[next].warm
             {
-                let explicit_jump = blocks_new_block(self)?;
+                let explicit_jump = self.blocks_new_block()?;
                 if !is_label(self[next].cpython_label) {
                     self[next].cpython_label = InstructionSequenceLabel::from_index(next_label);
                     next_label += 1;
@@ -2708,7 +2708,7 @@ impl Blocks {
         let end_loc = last_ins.end_location;
 
         let target = last_ins.target;
-        let backwards_jump_idx = blocks_new_block(self)?;
+        let backwards_jump_idx = self.blocks_new_block()?;
         basicblock_addop(
             &mut self[backwards_jump_idx],
             InstructionInfo {
@@ -2963,6 +2963,18 @@ impl Blocks {
             }
         }
         Ok(())
+    }
+
+    fn blocks_new_block(&mut self) -> crate::InternalResult<BlockIdx> {
+        self.try_reserve(1)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        let block_idx = BlockIdx(
+            self.len()
+                .to_u32()
+                .ok_or(InternalError::MalformedControlFlowGraph)?,
+        );
+        self.push(Block::default());
+        Ok(block_idx)
     }
 }
 
@@ -5994,20 +6006,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-fn blocks_new_block(blocks: &mut Blocks) -> crate::InternalResult<BlockIdx> {
-    blocks
-        .try_reserve(1)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    let block_idx = BlockIdx(
-        blocks
-            .len()
-            .to_u32()
-            .ok_or(InternalError::MalformedControlFlowGraph)?,
-    );
-    blocks.push(Block::default());
-    Ok(block_idx)
-}
-
 /// flowgraph.c struct _PyCfgBuilder
 struct CfgBuilder {
     blocks: Blocks,
@@ -6019,7 +6017,7 @@ struct CfgBuilder {
 
 /// flowgraph.c cfg_builder_new_block
 fn cfg_builder_new_block(g: &mut CfgBuilder) -> crate::InternalResult<BlockIdx> {
-    let block = blocks_new_block(&mut g.blocks)?;
+    let block = g.blocks.blocks_new_block()?;
     g.blocks[block.idx()].allocation_next = g.block_list;
     g.blocks[block.idx()].cpython_label = InstructionSequenceLabel::NO_LABEL;
     g.block_list = block;
