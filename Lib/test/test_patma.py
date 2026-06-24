@@ -2955,7 +2955,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_invalid_syntax_3(self):
         self.assert_syntax_error("""
         match ...:
