@@ -8268,11 +8268,17 @@ impl Compiler {
                     generators,
                     &|compiler, collection_add_i| {
                         // changed evaluation order for Py38 named expression PEP 572
-                        compiler.compile_expression(key)?;
+                        compiler.compile_expression(
+                            &key.as_ref()
+                                .expect("RustPython does not support PEP798 yet"),
+                        )?;
                         compiler.compile_expression(value)?;
 
                         compiler.set_source_range(TextRange::new(
-                            key.range().start(),
+                            key.as_ref()
+                                .expect("RustPython does not support PEP798 yet")
+                                .range()
+                                .start(),
                             value.range().end(),
                         ));
                         emit!(
@@ -8285,12 +8291,22 @@ impl Compiler {
                         Ok(())
                     },
                     ComprehensionType::Dict,
-                    Self::contains_await(key)
-                        || Self::contains_await(value)
+                    Self::contains_await(
+                        &key.as_ref()
+                            .expect("RustPython does not support PEP798 yet"),
+                    ) || Self::contains_await(value)
                         || Self::generators_contain_await(generators),
                     *range,
-                    TextRange::new(key.range().start(), value.range().end()),
-                    key.range(),
+                    TextRange::new(
+                        key.as_ref()
+                            .expect("RustPython does not support PEP798 yet")
+                            .range()
+                            .start(),
+                        value.range().end(),
+                    ),
+                    key.as_ref()
+                        .expect("RustPython does not support PEP798 yet")
+                        .range(),
                 )?;
             }
             ast::Expr::Generator(ast::ExprGenerator {
@@ -11542,7 +11558,9 @@ impl Compiler {
                         ast::ConversionFlag::Ascii => ConvertValueOparg::Ascii,
                     };
 
-                    if let Some(ast::DebugText { leading, trailing }) = &fstring_expr.debug_text {
+                    if let Some(debug_text) = &fstring_expr.debug_text {
+                        let leading = debug_text.leading();
+                        let trailing = debug_text.trailing();
                         let range = fstring_expr.expression.range();
                         let leading = strip_fstring_debug_comments(leading);
                         let trailing = strip_fstring_debug_comments(trailing);
@@ -11672,7 +11690,9 @@ impl Compiler {
                     }
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
-                    if let Some(ast::DebugText { leading, trailing }) = &fstring_expr.debug_text {
+                    if let Some(debug_text) = &fstring_expr.debug_text {
+                        let leading = debug_text.leading();
+                        let trailing = debug_text.trailing();
                         let range = fstring_expr.expression.range();
                         let source = self.source_file.slice(range);
                         let text = [
@@ -11759,7 +11779,9 @@ impl Compiler {
                         .push_wtf8(&self.compile_tstring_literal_value(lit, tstring.flags));
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
-                    if let Some(ast::DebugText { leading, trailing }) = &interp.debug_text {
+                    if let Some(debug_text) = &interp.debug_text {
+                        let leading = debug_text.leading();
+                        let trailing = debug_text.trailing();
                         let range = interp.expression.range();
                         let source = self.source_file.slice(range);
                         let text = [

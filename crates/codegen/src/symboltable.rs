@@ -2163,7 +2163,15 @@ impl SymbolTableBuilder {
                     self.in_iter_def_exp = true;
                 }
                 // Dict comprehension - is_generator = false (can be inlined)
-                self.scan_comprehension("<dictcomp>", key, Some(value), generators, *range, false)?;
+                self.scan_comprehension(
+                    "<dictcomp>",
+                    &key.as_ref()
+                        .expect("RustPython does not support PEP798 yet"),
+                    Some(value),
+                    generators,
+                    *range,
+                    false,
+                )?;
                 self.in_iter_def_exp = was_in_iter_def_exp;
             }
             Expr::Call(ExprCall {
