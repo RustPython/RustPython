@@ -2301,7 +2301,7 @@ impl Blocks {
         let res = self.remove_redundant_nops()?;
 
         #[cfg(debug_assertions)]
-        assert!(no_redundant_nops(self));
+        assert!(self.no_redundant_nops());
 
         Ok(res)
     }
@@ -2888,6 +2888,12 @@ impl Blocks {
             current = next;
         }
         Ok(changes)
+    }
+
+    /// flowgraph.c no_redundant_nops
+    #[cfg(debug_assertions)]
+    fn no_redundant_nops(&mut self) -> bool {
+        matches!(self.remove_redundant_nops(), Ok(0))
     }
 }
 
@@ -5917,12 +5923,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
                 | Opcode::PopJumpIfNotNone
         )
     )
-}
-
-/// flowgraph.c no_redundant_nops
-#[cfg(debug_assertions)]
-fn no_redundant_nops(blocks: &mut Blocks) -> bool {
-    matches!(blocks.remove_redundant_nops(), Ok(0))
 }
 
 /// flowgraph.c remove_redundant_jumps
