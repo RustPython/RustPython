@@ -2524,6 +2524,23 @@ impl Blocks {
         }
         Ok(())
     }
+
+    /// flowgraph.c check_cfg
+    fn check_cfg(&self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block = &self[block_idx];
+            for i in 0..block.instruction_used {
+                let opcode = block.instructions[i].instr;
+                debug_assert!(!opcode.is_assembler());
+                if opcode.is_terminator() && i != block.instruction_used - 1 {
+                    return Err(InternalError::MalformedControlFlowGraph);
+                }
+            }
+            block_idx = block.next;
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -3073,7 +3090,7 @@ fn optimize_cfg(
     // CPython optimize_cfg() starts with check_cfg() and raises
     // SystemError if a jump or scope exit is not the last instruction in
     // its block.
-    check_cfg(blocks)?;
+    blocks.check_cfg()?;
     inline_small_or_no_lineno_blocks(blocks)?;
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
@@ -5539,23 +5556,6 @@ fn assemble_exception_table(
     }
 
     Ok(table.into_boxed_slice())
-}
-
-/// flowgraph.c check_cfg
-fn check_cfg(blocks: &Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block = &blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let opcode = block.instructions[i].instr;
-            debug_assert!(!opcode.is_assembler());
-            if opcode.is_terminator() && i != block.instruction_used - 1 {
-                return Err(InternalError::MalformedControlFlowGraph);
-            }
-        }
-        block_idx = block.next;
-    }
-    Ok(())
 }
 
 /// flowgraph.c jump_thread
