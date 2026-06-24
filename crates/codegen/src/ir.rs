@@ -2376,6 +2376,57 @@ impl Blocks {
         }
         Ok(())
     }
+
+    fn mark_cold(&mut self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block = &mut self[block_idx];
+            debug_assert!(!block.cold);
+            debug_assert!(!block.warm);
+            block_idx = block.next;
+        }
+
+        self.mark_warm()?;
+
+        let mut cold_stack = self.make_cfg_traversal_stack()?;
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            let block = &self[block_idx];
+            if block.except_handler {
+                debug_assert!(!block.warm);
+                cold_stack.push(block_idx);
+                self[block_idx].visited = true;
+            }
+            block_idx = next;
+        }
+
+        while let Some(block_idx) = cold_stack.pop() {
+            self[block_idx].cold = true;
+            let next = self[block_idx].next;
+            if next != BlockIdx::NULL && bb_has_fallthrough(&self[block_idx]) {
+                if !self[next].warm && !self[next].visited {
+                    cold_stack.push(next);
+                    self[next].visited = true;
+                }
+            }
+
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[block_idx].instructions[i];
+                if is_jump(&instr) {
+                    debug_assert_eq!(i, instr_count - 1);
+                    let target = instr.target;
+                    debug_assert!(target != BlockIdx::NULL);
+                    if !self[target].warm && !self[target].visited {
+                        cold_stack.push(target);
+                        self[target].visited = true;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -5393,66 +5444,13 @@ fn assemble_exception_table(
     Ok(table.into_boxed_slice())
 }
 
-fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block = &mut blocks[block_idx];
-        debug_assert!(!block.cold);
-        debug_assert!(!block.warm);
-        block_idx = block.next;
-    }
-
-    blocks.mark_warm()?;
-
-    let mut cold_stack = blocks.make_cfg_traversal_stack()?;
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let i = block_idx.idx();
-        let next = blocks[i].next;
-        let block = &blocks[i];
-        if block.except_handler {
-            debug_assert!(!block.warm);
-            cold_stack.push(block_idx);
-            blocks[i].visited = true;
-        }
-        block_idx = next;
-    }
-    while let Some(block_idx) = cold_stack.pop() {
-        let idx = block_idx.idx();
-        blocks[idx].cold = true;
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
-            let next_idx = next.idx();
-            if !blocks[next_idx].warm && !blocks[next_idx].visited {
-                cold_stack.push(next);
-                blocks[next_idx].visited = true;
-            }
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) {
-                debug_assert_eq!(i, instr_count - 1);
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                if !blocks[target.idx()].warm && !blocks[target.idx()].visited {
-                    cold_stack.push(target);
-                    blocks[target.idx()].visited = true;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
 /// flowgraph.c push_cold_blocks_to_end
 fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
     if blocks[0].next == BlockIdx::NULL {
         return Ok(());
     }
 
-    mark_cold(blocks)?;
+    blocks.mark_cold()?;
     let mut next_label = get_max_label(blocks) + 1;
 
     // If a cold block falls through to a warm block, add an explicit jump
