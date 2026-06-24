@@ -2784,6 +2784,26 @@ impl Blocks {
         }
         Ok(false)
     }
+
+    /// flowgraph.c inline_small_or_no_lineno_blocks
+    fn inline_small_or_no_lineno_blocks(&mut self) -> crate::InternalResult<bool> {
+        loop {
+            let mut changes = false;
+            let mut current = BlockIdx(0);
+            while current != BlockIdx::NULL {
+                let next = self[current].next;
+                let res = self.basicblock_inline_small_or_no_lineno_blocks(current)?;
+                if res {
+                    changes = true;
+                }
+
+                current = next;
+            }
+            if !changes {
+                return Ok(changes);
+            }
+        }
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -3334,7 +3354,7 @@ fn optimize_cfg(
     // SystemError if a jump or scope exit is not the last instruction in
     // its block.
     blocks.check_cfg()?;
-    inline_small_or_no_lineno_blocks(blocks)?;
+    blocks.inline_small_or_no_lineno_blocks()?;
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
@@ -5812,26 +5832,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
                 | Opcode::PopJumpIfNotNone
         )
     )
-}
-
-/// flowgraph.c inline_small_or_no_lineno_blocks
-fn inline_small_or_no_lineno_blocks(blocks: &mut Blocks) -> crate::InternalResult<bool> {
-    loop {
-        let mut changes = false;
-        let mut current = BlockIdx(0);
-        while current != BlockIdx::NULL {
-            let next = blocks[current].next;
-            let res = blocks.basicblock_inline_small_or_no_lineno_blocks(current)?;
-            if res {
-                changes = true;
-            }
-
-            current = next;
-        }
-        if !changes {
-            return Ok(changes);
-        }
-    }
 }
 
 /// flowgraph.c basicblock_remove_redundant_nops
