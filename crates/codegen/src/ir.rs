@@ -2741,6 +2741,49 @@ impl Blocks {
         self[block_idx].next = backwards_jump_idx;
         Ok(())
     }
+
+    /// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
+    fn basicblock_inline_small_or_no_lineno_blocks(
+        &mut self,
+        block_idx: BlockIdx,
+    ) -> crate::InternalResult<bool> {
+        let Some(last) = basicblock_last_instr(&self[block_idx]).copied() else {
+            return Ok(false);
+        };
+
+        if !last.instr.is_unconditional_jump() {
+            return Ok(false);
+        }
+
+        let target = last.target;
+        debug_assert!(target != BlockIdx::NULL);
+        let small_exit_block =
+            basicblock_exits_scope(&self[target]) && self[target].instruction_used <= MAX_COPY_SIZE;
+        let no_lineno_no_fallthrough =
+            basicblock_has_no_lineno(&self[target]) && !bb_has_fallthrough(&self[target]);
+        if small_exit_block || no_lineno_no_fallthrough {
+            debug_assert!(is_jump(&last));
+            let removed_jump_opcode = last.instr;
+            let last = basicblock_last_instr_mut(&mut self[block_idx])
+                .expect("non-empty block has last instruction");
+            set_to_nop(last);
+            self.basicblock_append_block_instructions(block_idx, target)?;
+            if no_lineno_no_fallthrough {
+                let last = basicblock_last_instr_mut(&mut self[block_idx]).unwrap();
+                if last.instr.is_unconditional_jump()
+                    && matches!(
+                        removed_jump_opcode.into(),
+                        AnyOpcode::Pseudo(PseudoOpcode::Jump)
+                    )
+                {
+                    last.instr = PseudoOpcode::Jump.into();
+                }
+            }
+            self[target].predecessors -= 1;
+            return Ok(true);
+        }
+        Ok(false)
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -5771,56 +5814,14 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-/// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
-fn basicblock_inline_small_or_no_lineno_blocks(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<bool> {
-    let Some(last) = basicblock_last_instr(&blocks[block_idx]).copied() else {
-        return Ok(false);
-    };
-    if !last.instr.is_unconditional_jump() {
-        return Ok(false);
-    }
-
-    let target = last.target;
-    debug_assert!(target != BlockIdx::NULL);
-    let small_exit_block =
-        basicblock_exits_scope(&blocks[target]) && blocks[target].instruction_used <= MAX_COPY_SIZE;
-    let no_lineno_no_fallthrough =
-        basicblock_has_no_lineno(&blocks[target]) && !bb_has_fallthrough(&blocks[target]);
-    if small_exit_block || no_lineno_no_fallthrough {
-        debug_assert!(is_jump(&last));
-        let removed_jump_opcode = last.instr;
-        let last = basicblock_last_instr_mut(&mut blocks[block_idx])
-            .expect("non-empty block has last instruction");
-        set_to_nop(last);
-        blocks.basicblock_append_block_instructions(block_idx, target)?;
-        if no_lineno_no_fallthrough {
-            let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
-            if last.instr.is_unconditional_jump()
-                && matches!(
-                    removed_jump_opcode.into(),
-                    AnyOpcode::Pseudo(PseudoOpcode::Jump)
-                )
-            {
-                last.instr = PseudoOpcode::Jump.into();
-            }
-        }
-        blocks[target].predecessors -= 1;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
 /// flowgraph.c inline_small_or_no_lineno_blocks
 fn inline_small_or_no_lineno_blocks(blocks: &mut Blocks) -> crate::InternalResult<bool> {
     loop {
         let mut changes = false;
         let mut current = BlockIdx(0);
         while current != BlockIdx::NULL {
-            let next = blocks[current.idx()].next;
-            let res = basicblock_inline_small_or_no_lineno_blocks(blocks, current)?;
+            let next = blocks[current].next;
+            let res = blocks.basicblock_inline_small_or_no_lineno_blocks(current)?;
             if res {
                 changes = true;
             }
