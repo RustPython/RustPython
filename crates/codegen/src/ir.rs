@@ -2525,7 +2525,7 @@ impl Blocks {
         self[block_idx].next = cold_blocks;
 
         if cold_blocks != BlockIdx::NULL {
-            remove_redundant_nops_and_jumps(self)?;
+            self.remove_redundant_nops_and_jumps()?;
         }
         Ok(())
     }
@@ -2950,6 +2950,19 @@ impl Blocks {
             current = block.next;
         }
         true
+    }
+
+    fn remove_redundant_nops_and_jumps(&mut self) -> crate::InternalResult<()> {
+        loop {
+            // Convergence is guaranteed because the number of redundant jumps and
+            // nops only decreases.
+            let removed_nops = self.remove_redundant_nops()?;
+            let removed_jumps = self.remove_redundant_jumps()?;
+            if removed_nops + removed_jumps == 0 {
+                break;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -3524,7 +3537,7 @@ fn optimize_cfg(
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
     blocks.remove_unreachable()?;
-    remove_redundant_nops_and_jumps(blocks)?;
+    blocks.remove_redundant_nops_and_jumps()?;
     #[cfg(debug_assertions)]
     assert!(blocks.no_redundant_jumps());
     Ok(())
@@ -5981,19 +5994,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    loop {
-        // Convergence is guaranteed because the number of redundant jumps and
-        // nops only decreases.
-        let removed_nops = blocks.remove_redundant_nops()?;
-        let removed_jumps = blocks.remove_redundant_jumps()?;
-        if removed_nops + removed_jumps == 0 {
-            break;
-        }
-    }
-    Ok(())
-}
-
 fn blocks_new_block(blocks: &mut Blocks) -> crate::InternalResult<BlockIdx> {
     blocks
         .try_reserve(1)
@@ -6757,7 +6757,7 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut Blocks) -> crate::InternalResult<(
     }
     // CPython flowgraph.c::convert_pseudo_ops() finishes by calling
     // remove_redundant_nops_and_jumps().
-    remove_redundant_nops_and_jumps(blocks)
+    blocks.remove_redundant_nops_and_jumps()
 }
 
 /// flowgraph.c build_cellfixedoffsets
