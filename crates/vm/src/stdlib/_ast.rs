@@ -793,7 +793,7 @@ pub(crate) fn compile(
         Mod::Interactive(ModInteractive { range, body }) => ast::Mod::Module(ast::ModModule {
             node_index: Default::default(),
             range,
-            body: body.into(),
+            body,
         }),
         Mod::Expression(e) => ast::Mod::Expression(e),
         Mod::FunctionType(_) => todo!(),

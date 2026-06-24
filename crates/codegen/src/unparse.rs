@@ -254,7 +254,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             }) => {
                 self.p("{")?;
                 self.unparse_expr(
-                    &key.as_ref()
+                    key.as_ref()
                         .expect("RustPython does not support PEP798 yet"),
                     precedence::TEST,
                 )?;
