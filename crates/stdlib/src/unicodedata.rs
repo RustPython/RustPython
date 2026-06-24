@@ -4,11 +4,7 @@
 
 // spell-checker:ignore codep decomp DECOMP nfkc unistr unidata
 
-use core::{
-    cmp::Ordering,
-    fmt::{self, Display, Formatter},
-    hint::cold_path,
-};
+use core::{cmp::Ordering, hint::cold_path};
 
 pub(crate) use unicodedata::module_def;
 
@@ -27,25 +23,6 @@ include!(concat!(
     env!("OUT_DIR"),
     "/generated/unicode_numeric_value.rs"
 ));
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct UnicodeVersion {
-    pub major: u8,
-    pub minor: u8,
-    pub micro: u8,
-}
-
-impl Display for UnicodeVersion {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "{}.{}.{}", self.major, self.minor, self.micro)
-    }
-}
-
-const UNICODE_VERSION: UnicodeVersion = UnicodeVersion {
-    major: char::UNICODE_VERSION.0,
-    minor: char::UNICODE_VERSION.1,
-    micro: char::UNICODE_VERSION.2,
-};
 
 #[derive(Clone, Copy)]
 #[repr(u8)]
@@ -118,8 +95,8 @@ fn lookup_property<T: Copy>(table: &[(u32, u32, T)], ch: char) -> Option<T> {
         .map(|i| table[i].2)
 }
 
-fn lookup_numeric_val(ch: char, version: UnicodeVersion) -> Option<f64> {
-    if version.major > 3 {
+fn lookup_numeric_val(ch: char, modern: bool) -> Option<f64> {
+    if modern {
         lookup_property(NUMERIC_VALUES, ch)
     } else {
         cold_path();
@@ -162,8 +139,8 @@ mod unicodedata {
 
     use super::{
         BIDI_CLASS, BIDI_MIRRORED, COMBINING_CLASS, DECOMP_COMPAT, DECOMP_RANGE, DECOMP_UPDATES,
-        EAST_ASIAN_WIDTH, GENERAL_CATEGORY, NUMERIC_TYPE_DIFF, NormalizeForm, UNICODE_VERSION,
-        UnicodeVersion, lookup_numeric_val, lookup_property,
+        EAST_ASIAN_WIDTH, GENERAL_CATEGORY, NUMERIC_TYPE_DIFF, NormalizeForm, lookup_numeric_val,
+        lookup_property,
     };
     use crate::vm::{
         Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
@@ -186,7 +163,7 @@ mod unicodedata {
         __module_exec(vm, module);
 
         // Add UCD methods as module-level functions
-        let ucd: PyObjectRef = Ucd::new(UNICODE_VERSION).into_ref(&vm.ctx).into();
+        let ucd: PyObjectRef = Ucd::new(true).into_ref(&vm.ctx).into();
 
         for attr in [
             "category",
@@ -213,12 +190,12 @@ mod unicodedata {
     #[pyclass(name = "UCD")]
     #[derive(Debug, PyPayload)]
     pub(super) struct Ucd {
-        unic_version: UnicodeVersion,
+        modern: bool,
     }
 
     impl Ucd {
-        pub(super) const fn new(unic_version: UnicodeVersion) -> Self {
-            Self { unic_version }
+        pub(super) const fn new(modern: bool) -> Self {
+            Self { modern }
         }
 
         fn extract_char(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<CodePoint> {
@@ -238,7 +215,7 @@ mod unicodedata {
                 let Some(c) = c.to_char() else {
                     return GeneralCategory::Surrogate.short_name();
                 };
-                if self.unic_version.major > 3 {
+                if self.modern {
                     Some(GeneralCategory::for_char(c))
                 } else {
                     cold_path();
@@ -291,7 +268,7 @@ mod unicodedata {
             self.extract_char(character, vm).map(|c| {
                 c.to_char()
                     .and_then(|c| {
-                        if self.unic_version.major > 3 {
+                        if self.modern {
                             Some(BidiClass::for_char(c))
                         } else {
                             cold_path();
@@ -312,7 +289,7 @@ mod unicodedata {
             self.extract_char(character, vm).map(|c| {
                 c.to_char()
                     .and_then(|c| {
-                        if self.unic_version.major > 3 {
+                        if self.modern {
                             Some(EastAsianWidth::for_char(c))
                         } else {
                             cold_path();
@@ -392,7 +369,7 @@ mod unicodedata {
         fn mirrored(&self, character: PyStrRef, vm: &VirtualMachine) -> PyResult<i32> {
             self.extract_char(character, vm).map(|c| {
                 c.to_char().map_or(0, |c| {
-                    (if self.unic_version.major > 3 {
+                    (if self.modern {
                         BidiMirrored::for_char(c)
                     } else {
                         cold_path();
@@ -418,7 +395,7 @@ mod unicodedata {
             self.extract_char(character, vm).map(|c| {
                 c.to_char()
                     .and_then(|c| {
-                        if self.unic_version.major > 3 {
+                        if self.modern {
                             Some(CanonicalCombiningClass::for_char(c))
                         } else {
                             cold_path();
@@ -442,7 +419,7 @@ mod unicodedata {
             // For 3.2.0, we use the original decomp for compatibility while ignoring the update.
             //
             // Finally, we don't have to do anything for the latest UCD as it's already updated.
-            if self.unic_version.major == 3
+            if self.modern
                 && let Some((_, original)) = DECOMP_UPDATES
                     .iter()
                     .find(|&&(codep, _original)| codep == ch as u32)
@@ -485,7 +462,7 @@ mod unicodedata {
         fn numeric_type_matches(&self, ch: CodePoint, expected: &[NumericType]) -> Option<char> {
             let ch = ch.to_char()?;
 
-            let actual = if self.unic_version.major > 3 {
+            let actual = if self.modern {
                 NumericType::for_char(ch)
             } else {
                 cold_path();
@@ -506,7 +483,7 @@ mod unicodedata {
             let expected = [NumericType::Decimal, NumericType::Digit];
             self.numeric_type_matches(ch, &expected)
                 .and_then(|ch| {
-                    let value = lookup_numeric_val(ch, UNICODE_VERSION)?;
+                    let value = lookup_numeric_val(ch, true)?;
                     (value.trunc() == value).then(|| vm.ctx.new_int(value as u64).into())
                 })
                 .or_else(|| default.present())
@@ -525,7 +502,7 @@ mod unicodedata {
             let expected = [NumericType::Decimal];
             self.numeric_type_matches(ch, &expected)
                 .and_then(|ch| {
-                    let value = lookup_numeric_val(ch, self.unic_version)?;
+                    let value = lookup_numeric_val(ch, self.modern)?;
                     (value.trunc() == value).then(|| vm.ctx.new_int(value as u64).into())
                 })
                 .or_else(|| default.present())
@@ -544,8 +521,7 @@ mod unicodedata {
             let expected = &NumericType::ALL_VALUES[1..];
             self.numeric_type_matches(ch, expected)
                 .and_then(|ch| {
-                    lookup_numeric_val(ch, self.unic_version)
-                        .map(|value| vm.ctx.new_float(value).into())
+                    lookup_numeric_val(ch, self.modern).map(|value| vm.ctx.new_float(value).into())
                 })
                 .or_else(|| default.present())
                 .map(Option::Some)
@@ -554,24 +530,31 @@ mod unicodedata {
 
         #[pygetset]
         fn unidata_version(&self) -> String {
-            self.unic_version.to_string()
+            if self.modern {
+                format!(
+                    "{}.{}.{}",
+                    char::UNICODE_VERSION.0,
+                    char::UNICODE_VERSION.1,
+                    char::UNICODE_VERSION.2
+                )
+            } else {
+                "3.2.0".into()
+            }
         }
     }
 
     #[pyattr]
     fn ucd_3_2_0(vm: &VirtualMachine) -> PyRef<Ucd> {
-        Ucd {
-            unic_version: UnicodeVersion {
-                major: 3,
-                minor: 2,
-                micro: 0,
-            },
-        }
-        .into_ref(&vm.ctx)
+        Ucd::new(false).into_ref(&vm.ctx)
     }
 
     #[pyattr]
     fn unidata_version(_vm: &VirtualMachine) -> String {
-        UNICODE_VERSION.to_string()
+        format!(
+            "{}.{}.{}",
+            char::UNICODE_VERSION.0,
+            char::UNICODE_VERSION.1,
+            char::UNICODE_VERSION.2
+        )
     }
 }
