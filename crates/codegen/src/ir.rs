@@ -2607,6 +2607,64 @@ impl Blocks {
         last.target = target;
         Ok(())
     }
+
+    /// flowgraph.c convert_pseudo_conditional_jumps
+    fn convert_pseudo_conditional_jumps(&mut self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            let block = &mut self[block_idx];
+            let mut i = 0;
+            while i < block.instruction_used {
+                let instr = block.instructions[i];
+                let opcode = instr.instr;
+                if matches!(
+                    opcode.pseudo_opcode(),
+                    Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue)
+                ) {
+                    debug_assert_eq!(i, block.instruction_used - 1);
+                    block.instructions[i].instr =
+                        if matches!(opcode.pseudo_opcode(), Some(PseudoOpcode::JumpIfFalse)) {
+                            Opcode::PopJumpIfFalse
+                        } else {
+                            Opcode::PopJumpIfTrue
+                        }
+                        .into();
+
+                    let location = instr.location;
+                    let end_location = instr.end_location;
+                    let except_handler = instr.except_handler;
+                    let lineno_override = instr.lineno_override;
+                    let copy = InstructionInfo {
+                        instr: Opcode::Copy.into(),
+                        arg: OpArg::new(1),
+                        target: BlockIdx::NULL,
+                        location,
+                        end_location,
+                        except_handler,
+                        lineno_override,
+                    };
+                    basicblock_insert_instruction(block, i, copy)?;
+                    i += 1;
+
+                    let to_bool = InstructionInfo {
+                        instr: Opcode::ToBool.into(),
+                        arg: OpArg::new(0),
+                        target: BlockIdx::NULL,
+                        location,
+                        end_location,
+                        except_handler,
+                        lineno_override,
+                    };
+                    basicblock_insert_instruction(block, i, to_bool)?;
+                    i += 1;
+                }
+                i += 1;
+            }
+            block_idx = next;
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -3192,7 +3250,7 @@ fn optimized_cfg_to_instruction_sequence(
     blocks: &mut Blocks,
 ) -> crate::InternalResult<(u32, usize, InstructionSequence)> {
     // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
-    convert_pseudo_conditional_jumps(blocks)?;
+    blocks.convert_pseudo_conditional_jumps()?;
     let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
     let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
@@ -5635,64 +5693,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
                 | Opcode::PopJumpIfNotNone
         )
     )
-}
-
-/// flowgraph.c convert_pseudo_conditional_jumps
-fn convert_pseudo_conditional_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx.idx()];
-        let mut i = 0;
-        while i < block.instruction_used {
-            let instr = block.instructions[i];
-            let opcode = instr.instr;
-            if matches!(
-                opcode.pseudo_opcode(),
-                Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue)
-            ) {
-                debug_assert_eq!(i, block.instruction_used - 1);
-                block.instructions[i].instr =
-                    if matches!(opcode.pseudo_opcode(), Some(PseudoOpcode::JumpIfFalse)) {
-                        Opcode::PopJumpIfFalse
-                    } else {
-                        Opcode::PopJumpIfTrue
-                    }
-                    .into();
-
-                let location = instr.location;
-                let end_location = instr.end_location;
-                let except_handler = instr.except_handler;
-                let lineno_override = instr.lineno_override;
-                let copy = InstructionInfo {
-                    instr: Opcode::Copy.into(),
-                    arg: OpArg::new(1),
-                    target: BlockIdx::NULL,
-                    location,
-                    end_location,
-                    except_handler,
-                    lineno_override,
-                };
-                basicblock_insert_instruction(block, i, copy)?;
-                i += 1;
-
-                let to_bool = InstructionInfo {
-                    instr: Opcode::ToBool.into(),
-                    arg: OpArg::new(0),
-                    target: BlockIdx::NULL,
-                    location,
-                    end_location,
-                    except_handler,
-                    lineno_override,
-                };
-                basicblock_insert_instruction(block, i, to_bool)?;
-                i += 1;
-            }
-            i += 1;
-        }
-        block_idx = next;
-    }
-    Ok(())
 }
 
 /// flowgraph.c normalize_jumps_in_block
