@@ -1,3 +1,5 @@
+use thin_vec::ThinVec;
+
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
@@ -55,7 +57,7 @@ pub(super) fn ast_from_object(
 ) -> PyResult<ast::StmtIf> {
     let test = Node::ast_from_object(vm, source_file, get_node_field(vm, &object, "test", "If")?)?;
     let body = Node::ast_from_object(vm, source_file, get_node_field(vm, &object, "body", "If")?)?;
-    let orelse: Vec<ast::Stmt> = Node::ast_from_object(
+    let orelse: ThinVec<ast::Stmt> = Node::ast_from_object(
         vm,
         source_file,
         get_node_field(vm, &object, "orelse", "If")?,

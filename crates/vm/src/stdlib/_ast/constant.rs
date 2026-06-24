@@ -332,7 +332,7 @@ fn constant_to_ruff_expr(value: Constant) -> ast::Expr {
                     node_index: Default::default(),
                     range,
                     args: args.into(),
-                    keywords: Box::default(),
+                    keywords: Default::default(),
                 },
             })
         }
