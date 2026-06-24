@@ -406,7 +406,7 @@ pub unsafe extern "C" fn PyObject_GenericSetDict(
 mod tests {
     use pyo3::class::basic::CompareOp;
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyDict, PyInt, PyString, PyTypeMethods};
+    use pyo3::types::{PyBool, PyDict, PyInt, PyString, PyType, PyTypeMethods};
 
     #[test]
     fn is_truthy() {
@@ -542,5 +542,96 @@ mod tests {
             .unwrap();
             assert!(dict.get_item("foo").is_ok());
         })
+    }
+
+    #[test]
+    #[cfg(false)]
+    fn test_rust_class() {
+        #[pyclass]
+        struct MyClass {
+            #[pyo3(get)]
+            num: i32,
+        }
+
+        #[pymethods]
+        impl MyClass {
+            #[new]
+            fn new(value: i32) -> Self {
+                MyClass { num: value }
+            }
+
+            fn method1(&self) -> PyResult<i32> {
+                Ok(self.num + 10)
+            }
+
+            fn method2(&self, a: i32) -> PyResult<i32> {
+                Ok(self.num + a)
+            }
+
+            #[staticmethod]
+            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
+                Ok(a + b)
+            }
+
+            #[staticmethod]
+            fn static_method2() -> PyResult<i32> {
+                Ok(0)
+            }
+
+            #[classmethod]
+            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
+                assert!(cls.is_subclass_of::<MyClass>()?);
+                Ok(10)
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
+
+            let globals = PyDict::new(py);
+            globals.set_item("instance", &obj).unwrap();
+            py.run(c"assert instance.num == 3", Some(&globals), None)
+                .unwrap();
+
+            assert_eq!(
+                obj.call_method1("method1", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("method2", (5,))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                8
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method1", (5, 8))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method2", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                0
+            );
+
+            assert_eq!(
+                obj.call_method1("cls_method", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                10
+            );
+        });
     }
 }
