@@ -343,6 +343,7 @@ jobs:
         with:
           openssl: true
 
+      # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
         run: cargo build --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 

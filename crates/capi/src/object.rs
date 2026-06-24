@@ -9,6 +9,11 @@ use rustpython_vm::{AsObject, Py, PyPayload};
 
 pub type PyTypeObject = Py<PyType>;
 
+pub struct PyTypeSlot {
+    pub slot: c_int,
+    pub pfunc: *mut c_void,
+}
+
 macro_rules! define_py_check {
     (fn $name:ident, $($ctx_path:ident).+) => {
         #[unsafe(no_mangle)]
@@ -98,6 +103,78 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) 
             Ok(qualname)
         }
     })
+}
+
+#[unsafe(no_mangle)]
+#[cfg(false)]
+pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
+    with_vm(|_vm| {
+        let ty = unsafe { &*ty };
+        let slot: u8 = slot
+            .try_into()
+            .expect("slot number out of range for SlotAccessor");
+        let slot_accessor: SlotAccessor = slot
+            .try_into()
+            .expect("invalid slot number for SlotAccessor");
+
+        match slot_accessor {
+            SlotAccessor::TpNew => {
+                extern "C" fn newfunc_wrapper(
+                    subtype: *mut PyTypeObject,
+                    args: *mut PyObject,
+                    kwargs: *mut PyObject,
+                ) -> *mut PyObject {
+                    with_vm(|vm| {
+                        let subtype = unsafe { &*subtype };
+                        let mut func_args = FuncArgs::default();
+
+                        if let Some(args_obj) = unsafe { args.as_ref() } {
+                            let tuple = args_obj.try_downcast_ref::<PyTuple>(vm)?;
+                            func_args
+                                .args
+                                .extend(tuple.iter().map(|arg| arg.to_owned()));
+                        }
+
+                        if let Some(kwargs_obj) = unsafe { kwargs.as_ref() } {
+                            let kwargs = kwargs_obj.try_downcast_ref::<PyDict>(vm)?;
+                            for (key, value) in kwargs.items_vec() {
+                                let key = key.try_downcast::<PyStr>(vm)?;
+                                func_args
+                                    .kwargs
+                                    .insert(key.to_string_lossy().into_owned(), value);
+                            }
+                        }
+
+                        subtype
+                            .slots
+                            .new
+                            .load()
+                            .expect("tp_new slot function pointer is null")(
+                            subtype.to_owned(),
+                            func_args,
+                            vm,
+                        )
+                    })
+                }
+
+                if let Some(vtable) = ty.get_type_data::<TypeVTable>() {
+                    vtable.new_func.map(|newfunc| newfunc as *mut c_void)
+                } else {
+                    ty.slots.new.load().map(|_| newfunc_wrapper as *mut c_void)
+                }
+            }
+            _ => {
+                todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
+            }
+        }
+        .unwrap_or_default()
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
+    // TODO: Implement immutable type freezing semantics.
+    0
 }
 
 #[unsafe(no_mangle)]
@@ -325,11 +402,11 @@ pub unsafe extern "C" fn PyObject_GenericSetDict(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::class::basic::CompareOp;
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyDict, PyInt, PyString, PyTypeMethods};
+    use pyo3::types::{PyBool, PyDict, PyInt, PyString, PyType, PyTypeMethods};
 
     #[test]
     fn is_truthy() {
@@ -465,5 +542,96 @@ mod tests {
             .unwrap();
             assert!(dict.get_item("foo").is_ok());
         })
+    }
+
+    #[test]
+    #[cfg(false)]
+    fn test_rust_class() {
+        #[pyclass]
+        struct MyClass {
+            #[pyo3(get)]
+            num: i32,
+        }
+
+        #[pymethods]
+        impl MyClass {
+            #[new]
+            fn new(value: i32) -> Self {
+                MyClass { num: value }
+            }
+
+            fn method1(&self) -> PyResult<i32> {
+                Ok(self.num + 10)
+            }
+
+            fn method2(&self, a: i32) -> PyResult<i32> {
+                Ok(self.num + a)
+            }
+
+            #[staticmethod]
+            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
+                Ok(a + b)
+            }
+
+            #[staticmethod]
+            fn static_method2() -> PyResult<i32> {
+                Ok(0)
+            }
+
+            #[classmethod]
+            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
+                assert!(cls.is_subclass_of::<MyClass>()?);
+                Ok(10)
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyClass { num: 3 }).unwrap();
+
+            let globals = PyDict::new(py);
+            globals.set_item("instance", &obj).unwrap();
+            py.run(c"assert instance.num == 3", Some(&globals), None)
+                .unwrap();
+
+            assert_eq!(
+                obj.call_method1("method1", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("method2", (5,))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                8
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method1", (5, 8))
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                13
+            );
+
+            assert_eq!(
+                obj.call_method1("static_method2", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                0
+            );
+
+            assert_eq!(
+                obj.call_method1("cls_method", ())
+                    .unwrap()
+                    .extract::<i32>()
+                    .unwrap(),
+                10
+            );
+        });
     }
 }
