@@ -1464,19 +1464,19 @@ impl Blocks {
                 AnyInstruction::Real(
                     Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
                 ) if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                    && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                    && self.jump_thread(block_idx, i, &target, inst.instr)? =>
                 {
                     continue;
                 }
                 AnyInstruction::Real(Instruction::PopJumpIfFalse { .. })
                     if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                        && self.jump_thread(block_idx, i, &target, inst.instr)? =>
                 {
                     continue;
                 }
                 AnyInstruction::Real(Instruction::PopJumpIfTrue { .. })
                     if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                        && self.jump_thread(block_idx, i, &target, inst.instr)? =>
                 {
                     continue;
                 }
@@ -1487,7 +1487,7 @@ impl Blocks {
                     let opcode = pseudo.into();
                     match target.instr.pseudo().map(Into::into) {
                         Some(PseudoOpcode::Jump)
-                            if jump_thread(self, block_idx, i, &target, opcode)? =>
+                            if self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
@@ -1495,7 +1495,7 @@ impl Blocks {
                             if matches!(
                                 opcode,
                                 AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
-                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
@@ -1503,12 +1503,12 @@ impl Blocks {
                             if matches!(
                                 opcode,
                                 AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
-                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
                         Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
-                            let next = self[inst.target.idx()].next;
+                            let next = self[inst.target].next;
                             debug_assert!(next != BlockIdx::NULL);
                             debug_assert!(next != inst.target);
                             self[block_idx].instructions[i].target = next;
@@ -1521,12 +1521,17 @@ impl Blocks {
                     PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. },
                 ) => match target.instr.into() {
                     AnyOpcode::Pseudo(PseudoOpcode::Jump)
-                        if jump_thread(self, block_idx, i, &target, PseudoOpcode::Jump.into())? =>
+                        if self.jump_thread(
+                            block_idx,
+                            i,
+                            &target,
+                            PseudoOpcode::Jump.into(),
+                        )? =>
                     {
                         continue;
                     }
                     AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
-                        if jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                        if self.jump_thread(block_idx, i, &target, inst.instr)? =>
                     {
                         continue;
                     }
@@ -2540,6 +2545,26 @@ impl Blocks {
             block_idx = block.next;
         }
         Ok(())
+    }
+
+    /// flowgraph.c jump_thread
+    fn jump_thread(
+        &mut self,
+        block_idx: BlockIdx,
+        instr_idx: usize,
+        target: &InstructionInfo,
+        opcode: AnyInstruction,
+    ) -> crate::InternalResult<bool> {
+        debug_assert!(is_jump(&self[block_idx].instructions[instr_idx]));
+        debug_assert!(is_jump(target));
+        debug_assert_eq!(instr_idx + 1, self[block_idx].instruction_used);
+        debug_assert!(target.target != BlockIdx::NULL);
+        if self[block_idx].instructions[instr_idx].target != target.target {
+            set_to_nop(&mut self[block_idx].instructions[instr_idx]);
+            basicblock_add_jump(self, block_idx, opcode, target.target, target)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 }
 
@@ -5556,27 +5581,6 @@ fn assemble_exception_table(
     }
 
     Ok(table.into_boxed_slice())
-}
-
-/// flowgraph.c jump_thread
-fn jump_thread(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-    instr_idx: usize,
-    target: &InstructionInfo,
-    opcode: AnyInstruction,
-) -> crate::InternalResult<bool> {
-    let bi = block_idx.idx();
-    debug_assert!(is_jump(&blocks[bi].instructions[instr_idx]));
-    debug_assert!(is_jump(target));
-    debug_assert_eq!(instr_idx + 1, blocks[bi].instruction_used);
-    debug_assert!(target.target != BlockIdx::NULL);
-    if blocks[bi].instructions[instr_idx].target != target.target {
-        set_to_nop(&mut blocks[bi].instructions[instr_idx]);
-        basicblock_add_jump(blocks, block_idx, opcode, target.target, target)?;
-        return Ok(true);
-    }
-    Ok(false)
 }
 
 /// flowgraph.c basicblock_add_jump
