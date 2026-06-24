@@ -2895,6 +2895,34 @@ impl Blocks {
     fn no_redundant_nops(&mut self) -> bool {
         matches!(self.remove_redundant_nops(), Ok(0))
     }
+
+    /// flowgraph.c remove_redundant_jumps
+    fn remove_redundant_jumps(&mut self) -> crate::InternalResult<usize> {
+        let mut changes = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let Some(last) = basicblock_last_instr(&self[current]).copied() else {
+                current = self[current].next;
+                continue;
+            };
+
+            debug_assert!(!last.instr.is_assembler());
+            if last.instr.is_unconditional_jump() {
+                let jump_target = next_nonempty_block(self, last.target);
+                if jump_target == BlockIdx::NULL {
+                    return Err(InternalError::MalformedControlFlowGraph);
+                }
+                let next = next_nonempty_block(self, self[current].next);
+                if jump_target == next {
+                    changes += 1;
+                    let last = basicblock_last_instr_mut(&mut self[current]).unwrap();
+                    set_to_nop(last);
+                }
+            }
+            current = self[current].next;
+        }
+        Ok(changes)
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -5925,40 +5953,12 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-/// flowgraph.c remove_redundant_jumps
-fn remove_redundant_jumps(blocks: &mut Blocks) -> crate::InternalResult<usize> {
-    let mut changes = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let block_idx = current.idx();
-        let Some(last) = basicblock_last_instr(&blocks[block_idx]).copied() else {
-            current = blocks[block_idx].next;
-            continue;
-        };
-        debug_assert!(!last.instr.is_assembler());
-        if last.instr.is_unconditional_jump() {
-            let jump_target = next_nonempty_block(blocks, last.target);
-            if jump_target == BlockIdx::NULL {
-                return Err(InternalError::MalformedControlFlowGraph);
-            }
-            let next = next_nonempty_block(blocks, blocks[block_idx].next);
-            if jump_target == next {
-                changes += 1;
-                let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
-                set_to_nop(last);
-            }
-        }
-        current = blocks[block_idx].next;
-    }
-    Ok(changes)
-}
-
 /// flowgraph.c no_redundant_jumps
 #[cfg(debug_assertions)]
 fn no_redundant_jumps(blocks: &Blocks) -> bool {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
-        let block = &blocks[current.idx()];
+        let block = &blocks[current];
         if let Some(last) = basicblock_last_instr(block)
             && last.instr.is_unconditional_jump()
         {
@@ -5988,7 +5988,7 @@ fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult
         // Convergence is guaranteed because the number of redundant jumps and
         // nops only decreases.
         let removed_nops = blocks.remove_redundant_nops()?;
-        let removed_jumps = remove_redundant_jumps(blocks)?;
+        let removed_jumps = blocks.remove_redundant_jumps()?;
         if removed_nops + removed_jumps == 0 {
             break;
         }
