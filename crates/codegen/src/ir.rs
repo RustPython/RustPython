@@ -2298,7 +2298,7 @@ impl Blocks {
             block_idx = next_block;
         }
 
-        let res = remove_redundant_nops(self)?;
+        let res = self.remove_redundant_nops()?;
 
         #[cfg(debug_assertions)]
         assert!(no_redundant_nops(self));
@@ -2874,6 +2874,20 @@ impl Blocks {
         let num_removed = instr_count - dest;
         self[block_idx].instruction_used = dest;
         Ok(num_removed)
+    }
+
+    /// flowgraph.c remove_redundant_nops
+    #[allow(clippy::unnecessary_wraps)]
+    fn remove_redundant_nops(&mut self) -> crate::InternalResult<usize> {
+        let mut changes = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let next = self[current].next;
+            let change = self.basicblock_remove_redundant_nops(current)?;
+            changes += change;
+            current = next;
+        }
+        Ok(changes)
     }
 }
 
@@ -5905,24 +5919,10 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-/// flowgraph.c remove_redundant_nops
-#[allow(clippy::unnecessary_wraps)]
-fn remove_redundant_nops(blocks: &mut Blocks) -> crate::InternalResult<usize> {
-    let mut changes = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let next = blocks[current.idx()].next;
-        let change = blocks.basicblock_remove_redundant_nops(current)?;
-        changes += change;
-        current = next;
-    }
-    Ok(changes)
-}
-
 /// flowgraph.c no_redundant_nops
 #[cfg(debug_assertions)]
 fn no_redundant_nops(blocks: &mut Blocks) -> bool {
-    matches!(remove_redundant_nops(blocks), Ok(0))
+    matches!(blocks.remove_redundant_nops(), Ok(0))
 }
 
 /// flowgraph.c remove_redundant_jumps
@@ -5987,7 +5987,7 @@ fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult
     loop {
         // Convergence is guaranteed because the number of redundant jumps and
         // nops only decreases.
-        let removed_nops = remove_redundant_nops(blocks)?;
+        let removed_nops = blocks.remove_redundant_nops()?;
         let removed_jumps = remove_redundant_jumps(blocks)?;
         if removed_nops + removed_jumps == 0 {
             break;
