@@ -2012,7 +2012,7 @@ impl Blocks {
             let mut block_idx = BlockIdx::new(0);
 
             while block_idx != BlockIdx::NULL {
-                basicblock_remove_redundant_nops(self, block_idx)?;
+                self.basicblock_remove_redundant_nops(block_idx)?;
                 if is_label(self[block_idx].cpython_label) {
                     instr = None;
                 }
@@ -2803,6 +2803,77 @@ impl Blocks {
                 return Ok(changes);
             }
         }
+    }
+
+    /// flowgraph.c basicblock_remove_redundant_nops
+    #[allow(clippy::unnecessary_wraps)]
+    fn basicblock_remove_redundant_nops(
+        &mut self,
+        block_idx: BlockIdx,
+    ) -> crate::InternalResult<usize> {
+        let mut dest = 0;
+        let mut prev_lineno = -1i32;
+        let instr_count = self[block_idx].instruction_used;
+
+        for src in 0..instr_count {
+            let instr = self[block_idx].instructions[src];
+            let lineno = instruction_lineno(&instr);
+
+            if matches!(instr.instr.real(), Some(Instruction::Nop)) {
+                if lineno < 0 {
+                    continue;
+                }
+                if prev_lineno == lineno {
+                    continue;
+                }
+                if src < instr_count - 1 {
+                    let next_lineno = instruction_lineno(&self[block_idx].instructions[src + 1]);
+                    if next_lineno == lineno {
+                        continue;
+                    }
+                    if next_lineno < 0 {
+                        instr_set_loc(
+                            &mut self[block_idx].instructions[src + 1],
+                            instr.location,
+                            instr.end_location,
+                            instr.lineno_override,
+                        );
+                        continue;
+                    }
+                } else {
+                    let next = next_nonempty_block(self, self[block_idx].next);
+                    if next != BlockIdx::NULL {
+                        let mut next_loc = no_linetable_location();
+                        let mut next_i = 0;
+                        while next_i < self[next].instruction_used {
+                            let instr = self[next].instructions[next_i];
+                            if matches!(instr.instr.real(), Some(Instruction::Nop))
+                                && instruction_lineno(&instr) < 0
+                            {
+                                next_i += 1;
+                                continue;
+                            }
+                            next_loc = instruction_linetable_location(&instr);
+                            break;
+                        }
+                        if lineno == next_loc.line {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            if dest != src {
+                self[block_idx].instructions[dest] = self[block_idx].instructions[src];
+            }
+            dest += 1;
+            prev_lineno = lineno;
+        }
+
+        debug_assert!(dest <= instr_count);
+        let num_removed = instr_count - dest;
+        self[block_idx].instruction_used = dest;
+        Ok(num_removed)
     }
 }
 
@@ -5834,78 +5905,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-/// flowgraph.c basicblock_remove_redundant_nops
-#[allow(clippy::unnecessary_wraps)]
-fn basicblock_remove_redundant_nops(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<usize> {
-    let bi = block_idx.idx();
-    let mut dest = 0;
-    let mut prev_lineno = -1i32;
-    let instr_count = blocks[bi].instruction_used;
-
-    for src in 0..instr_count {
-        let instr = blocks[bi].instructions[src];
-        let lineno = instruction_lineno(&instr);
-
-        if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-            if lineno < 0 {
-                continue;
-            }
-            if prev_lineno == lineno {
-                continue;
-            }
-            if src < instr_count - 1 {
-                let next_lineno = instruction_lineno(&blocks[bi].instructions[src + 1]);
-                if next_lineno == lineno {
-                    continue;
-                }
-                if next_lineno < 0 {
-                    instr_set_loc(
-                        &mut blocks[bi].instructions[src + 1],
-                        instr.location,
-                        instr.end_location,
-                        instr.lineno_override,
-                    );
-                    continue;
-                }
-            } else {
-                let next = next_nonempty_block(blocks, blocks[bi].next);
-                if next != BlockIdx::NULL {
-                    let mut next_loc = no_linetable_location();
-                    let mut next_i = 0;
-                    while next_i < blocks[next.idx()].instruction_used {
-                        let instr = blocks[next.idx()].instructions[next_i];
-                        if matches!(instr.instr.real(), Some(Instruction::Nop))
-                            && instruction_lineno(&instr) < 0
-                        {
-                            next_i += 1;
-                            continue;
-                        }
-                        next_loc = instruction_linetable_location(&instr);
-                        break;
-                    }
-                    if lineno == next_loc.line {
-                        continue;
-                    }
-                }
-            }
-        }
-
-        if dest != src {
-            blocks[bi].instructions[dest] = blocks[bi].instructions[src];
-        }
-        dest += 1;
-        prev_lineno = lineno;
-    }
-
-    debug_assert!(dest <= instr_count);
-    let num_removed = instr_count - dest;
-    blocks[bi].instruction_used = dest;
-    Ok(num_removed)
-}
-
 /// flowgraph.c remove_redundant_nops
 #[allow(clippy::unnecessary_wraps)]
 fn remove_redundant_nops(blocks: &mut Blocks) -> crate::InternalResult<usize> {
@@ -5913,7 +5912,7 @@ fn remove_redundant_nops(blocks: &mut Blocks) -> crate::InternalResult<usize> {
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         let next = blocks[current.idx()].next;
-        let change = basicblock_remove_redundant_nops(blocks, current)?;
+        let change = blocks.basicblock_remove_redundant_nops(current)?;
         changes += change;
         current = next;
     }
