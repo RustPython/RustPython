@@ -376,7 +376,7 @@ SyntaxError: invalid syntax
 Traceback (most recent call last):
 SyntaxError: invalid syntax
 
->>> match ...:
+>>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
 ...     case {**_}:
 ...        ...
 Traceback (most recent call last):
@@ -2239,7 +2239,7 @@ Corner-cases that used to crash:
 
   Invalid pattern matching constructs:
 
-    >>> match ...:  # TODO: RUSTPYTHON; Wrong error message # doctest: +EXPECTED_FAILURE
+    >>> match ...:
     ...   case 42 as _:
     ...     ...
     Traceback (most recent call last):

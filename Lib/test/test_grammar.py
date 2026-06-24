@@ -1165,7 +1165,6 @@ class GrammarTests(unittest.TestCase):
             """,
             True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_yield(self):
         # Allowed as standalone statement
         def g(): yield 1
