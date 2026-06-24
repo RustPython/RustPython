@@ -2308,6 +2308,7 @@ impl Blocks {
 
     /// Mark exception handler target blocks.
     /// flowgraph.c mark_except_handlers
+    #[allow(clippy::unnecessary_wraps)]
     pub(crate) fn mark_except_handlers(&mut self) -> crate::InternalResult<()> {
         #[cfg(debug_assertions)]
         {
@@ -2409,11 +2410,13 @@ impl Blocks {
         while let Some(block_idx) = cold_stack.pop() {
             self[block_idx].cold = true;
             let next = self[block_idx].next;
-            if next != BlockIdx::NULL && bb_has_fallthrough(&self[block_idx]) {
-                if !self[next].warm && !self[next].visited {
-                    cold_stack.push(next);
-                    self[next].visited = true;
-                }
+            if next != BlockIdx::NULL
+                && bb_has_fallthrough(&self[block_idx])
+                && !self[next].warm
+                && !self[next].visited
+            {
+                cold_stack.push(next);
+                self[next].visited = true;
             }
 
             let instr_count = self[block_idx].instruction_used;
