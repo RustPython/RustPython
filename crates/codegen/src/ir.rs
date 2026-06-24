@@ -2923,6 +2923,34 @@ impl Blocks {
         }
         Ok(changes)
     }
+
+    /// flowgraph.c no_redundant_jumps
+    #[cfg(debug_assertions)]
+    fn no_redundant_jumps(&self) -> bool {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let block = &self[current];
+            if let Some(last) = basicblock_last_instr(block)
+                && last.instr.is_unconditional_jump()
+            {
+                let next = next_nonempty_block(self, block.next);
+                let jump_target = next_nonempty_block(self, last.target);
+                if jump_target == next {
+                    assert!(next != BlockIdx::NULL);
+                    if instruction_lineno(last) == instruction_lineno(&self[next].instructions[0]) {
+                        assert_ne!(
+                            instruction_lineno(last),
+                            instruction_lineno(&self[next].instructions[0]),
+                            "redundant jump has same line as fallthrough target"
+                        );
+                        return false;
+                    }
+                }
+            }
+            current = block.next;
+        }
+        true
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -3498,7 +3526,7 @@ fn optimize_cfg(
     blocks.remove_unreachable()?;
     remove_redundant_nops_and_jumps(blocks)?;
     #[cfg(debug_assertions)]
-    assert!(no_redundant_jumps(blocks));
+    assert!(blocks.no_redundant_jumps());
     Ok(())
 }
 
@@ -3517,7 +3545,7 @@ fn optimized_cfg_to_instruction_sequence(
     convert_pseudo_ops(blocks)?;
     blocks.normalize_jumps()?;
     #[cfg(debug_assertions)]
-    assert!(no_redundant_jumps(blocks));
+    assert!(blocks.no_redundant_jumps());
     // optimize_load_fast: after normalize_jumps
     blocks.optimize_load_fast()?;
 
@@ -5951,36 +5979,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
                 | Opcode::PopJumpIfNotNone
         )
     )
-}
-
-/// flowgraph.c no_redundant_jumps
-#[cfg(debug_assertions)]
-fn no_redundant_jumps(blocks: &Blocks) -> bool {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let block = &blocks[current];
-        if let Some(last) = basicblock_last_instr(block)
-            && last.instr.is_unconditional_jump()
-        {
-            let next = next_nonempty_block(blocks, block.next);
-            let jump_target = next_nonempty_block(blocks, last.target);
-            if jump_target == next {
-                assert!(next != BlockIdx::NULL);
-                if instruction_lineno(last)
-                    == instruction_lineno(&blocks[next.idx()].instructions[0])
-                {
-                    assert_ne!(
-                        instruction_lineno(last),
-                        instruction_lineno(&blocks[next.idx()].instructions[0]),
-                        "redundant jump has same line as fallthrough target"
-                    );
-                    return false;
-                }
-            }
-        }
-        current = block.next;
-    }
-    true
 }
 
 fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
