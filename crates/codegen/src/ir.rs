@@ -2427,6 +2427,103 @@ impl Blocks {
         }
         Ok(())
     }
+
+    /// flowgraph.c push_cold_blocks_to_end
+    fn push_cold_blocks_to_end(&mut self) -> crate::InternalResult<()> {
+        if self[0].next == BlockIdx::NULL {
+            return Ok(());
+        }
+
+        self.mark_cold()?;
+        let mut next_label = get_max_label(self) + 1;
+
+        // If a cold block falls through to a warm block, add an explicit jump
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            if self[block_idx].cold
+                && bb_has_fallthrough(&self[block_idx])
+                && next != BlockIdx::NULL
+                && self[next].warm
+            {
+                let explicit_jump = blocks_new_block(self)?;
+                if !is_label(self[next].cpython_label) {
+                    self[next].cpython_label = InstructionSequenceLabel::from_index(next_label);
+                    next_label += 1;
+                }
+                let jump_label = self[next].cpython_label;
+                debug_assert!(is_label(jump_label));
+                basicblock_addop(
+                    &mut self[explicit_jump],
+                    InstructionInfo {
+                        instr: PseudoOpcode::JumpNoInterrupt.into(),
+                        arg: instruction_sequence_label_oparg(jump_label),
+                        target: BlockIdx::NULL,
+                        location: SourceLocation::default(),
+                        end_location: SourceLocation::default(),
+                        except_handler: None,
+                        lineno_override: Some(NO_LOCATION_OVERRIDE),
+                    },
+                )?;
+                self[explicit_jump].cold = true;
+                self[explicit_jump].next = next;
+                self[explicit_jump].predecessors = 1;
+                self[block_idx].next = explicit_jump;
+                let target = self[explicit_jump].next;
+                let last = basicblock_last_instr_mut(&mut self[explicit_jump])
+                    .expect("missing explicit jump");
+                last.target = target;
+            }
+            block_idx = self[block_idx].next;
+        }
+
+        assert!(!self[0].cold);
+        let mut cold_blocks: BlockIdx = BlockIdx::NULL;
+        let mut cold_blocks_tail: BlockIdx = BlockIdx::NULL;
+        let mut block_idx = BlockIdx(0);
+
+        while self[block_idx].next != BlockIdx::NULL {
+            debug_assert!(!self[block_idx].cold);
+            while self[block_idx].next != BlockIdx::NULL && !self[self[block_idx].next].cold {
+                block_idx = self[block_idx].next;
+            }
+
+            if self[block_idx].next == BlockIdx::NULL {
+                break;
+            }
+
+            debug_assert!(!self[block_idx].cold);
+            debug_assert!(self[self[block_idx].next].cold);
+
+            let mut block_end = self[block_idx].next;
+            while self[block_end].next != BlockIdx::NULL && self[self[block_end].next].cold {
+                block_end = self[block_end].next;
+            }
+
+            debug_assert!(self[block_end].cold);
+            debug_assert!(
+                self[block_end].next == BlockIdx::NULL || !self[self[block_end].next].cold
+            );
+
+            if cold_blocks == BlockIdx::NULL {
+                cold_blocks = self[block_idx].next;
+            } else {
+                self[cold_blocks_tail].next = self[block_idx].next;
+            }
+
+            cold_blocks_tail = block_end;
+            self[block_idx].next = self[block_end].next;
+            self[block_end].next = BlockIdx::NULL;
+        }
+
+        debug_assert!(self[block_idx].next == BlockIdx::NULL);
+        self[block_idx].next = cold_blocks;
+
+        if cold_blocks != BlockIdx::NULL {
+            remove_redundant_nops_and_jumps(self)?;
+        }
+        Ok(())
+    }
 }
 
 impl From<Vec<Block>> for Blocks {
@@ -2961,7 +3058,7 @@ fn optimize_code_unit(
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
     blocks.insert_superinstructions()?;
-    push_cold_blocks_to_end(blocks)?;
+    blocks.push_cold_blocks_to_end()?;
     // CPython resolves line numbers again after cold-block extraction.
     blocks.resolve_line_numbers(metadata.firstlineno)?;
     Ok(())
@@ -5442,102 +5539,6 @@ fn assemble_exception_table(
     }
 
     Ok(table.into_boxed_slice())
-}
-
-/// flowgraph.c push_cold_blocks_to_end
-fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    if blocks[0].next == BlockIdx::NULL {
-        return Ok(());
-    }
-
-    blocks.mark_cold()?;
-    let mut next_label = get_max_label(blocks) + 1;
-
-    // If a cold block falls through to a warm block, add an explicit jump
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx].next;
-        if blocks[block_idx].cold
-            && bb_has_fallthrough(&blocks[block_idx])
-            && next != BlockIdx::NULL
-            && blocks[next].warm
-        {
-            let explicit_jump = blocks_new_block(blocks)?;
-            if !is_label(blocks[next].cpython_label) {
-                blocks[next].cpython_label = InstructionSequenceLabel::from_index(next_label);
-                next_label += 1;
-            }
-            let jump_label = blocks[next].cpython_label;
-            debug_assert!(is_label(jump_label));
-            basicblock_addop(
-                &mut blocks[explicit_jump],
-                InstructionInfo {
-                    instr: PseudoOpcode::JumpNoInterrupt.into(),
-                    arg: instruction_sequence_label_oparg(jump_label),
-                    target: BlockIdx::NULL,
-                    location: SourceLocation::default(),
-                    end_location: SourceLocation::default(),
-                    except_handler: None,
-                    lineno_override: Some(NO_LOCATION_OVERRIDE),
-                },
-            )?;
-            blocks[explicit_jump].cold = true;
-            blocks[explicit_jump].next = next;
-            blocks[explicit_jump].predecessors = 1;
-            blocks[block_idx].next = explicit_jump;
-            let target = blocks[explicit_jump].next;
-            let last = basicblock_last_instr_mut(&mut blocks[explicit_jump])
-                .expect("missing explicit jump");
-            last.target = target;
-        }
-        block_idx = blocks[block_idx].next;
-    }
-
-    assert!(!blocks[0].cold);
-    let mut cold_blocks: BlockIdx = BlockIdx::NULL;
-    let mut cold_blocks_tail: BlockIdx = BlockIdx::NULL;
-    let mut block_idx = BlockIdx(0);
-
-    while blocks[block_idx].next != BlockIdx::NULL {
-        debug_assert!(!blocks[block_idx].cold);
-        while blocks[block_idx].next != BlockIdx::NULL && !blocks[blocks[block_idx].next].cold {
-            block_idx = blocks[block_idx].next;
-        }
-        if blocks[block_idx].next == BlockIdx::NULL {
-            break;
-        }
-
-        debug_assert!(!blocks[block_idx].cold);
-        debug_assert!(blocks[blocks[block_idx].next].cold);
-
-        let mut block_end = blocks[block_idx].next;
-        while blocks[block_end].next != BlockIdx::NULL && blocks[blocks[block_end].next].cold {
-            block_end = blocks[block_end].next;
-        }
-
-        debug_assert!(blocks[block_end].cold);
-        debug_assert!(
-            blocks[block_end].next == BlockIdx::NULL || !blocks[blocks[block_end].next].cold
-        );
-
-        if cold_blocks == BlockIdx::NULL {
-            cold_blocks = blocks[block_idx].next;
-        } else {
-            blocks[cold_blocks_tail].next = blocks[block_idx].next;
-        }
-
-        cold_blocks_tail = block_end;
-        blocks[block_idx].next = blocks[block_end].next;
-        blocks[block_end].next = BlockIdx::NULL;
-    }
-
-    debug_assert!(blocks[block_idx].next == BlockIdx::NULL);
-    blocks[block_idx].next = cold_blocks;
-
-    if cold_blocks != BlockIdx::NULL {
-        remove_redundant_nops_and_jumps(blocks)?;
-    }
-    Ok(())
 }
 
 /// flowgraph.c check_cfg
