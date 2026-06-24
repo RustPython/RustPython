@@ -595,11 +595,11 @@ fn ruff_tstring_element_to_template_str_part(
             let expr_str = if let Some(debug_text) = debug_text {
                 let expr_source = source_file.slice(expr_range);
                 let mut expr_with_debug = String::with_capacity(
-                    debug_text.leading.len() + expr_source.len() + debug_text.trailing.len(),
+                    debug_text.leading().len() + expr_source.len() + debug_text.trailing().len(),
                 );
-                expr_with_debug.push_str(&debug_text.leading);
+                expr_with_debug.push_str(&debug_text.leading());
                 expr_with_debug.push_str(expr_source);
-                expr_with_debug.push_str(&debug_text.trailing);
+                expr_with_debug.push_str(&debug_text.trailing());
                 strip_interpolation_expr(&expr_with_debug)
             } else {
                 tstring_interpolation_expr_str(source_file, range, expr_range)
