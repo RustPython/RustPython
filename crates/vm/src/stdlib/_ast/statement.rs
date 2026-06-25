@@ -44,21 +44,21 @@ fn definition_range_from_name(
     TextRange::new(keyword_start, end)
 }
 
-fn public_ast_stmt_type_comment(
+fn runtime_stmt_type_comment(
     ctx: &AstFromObjectContext<'_>,
     type_comment: Option<PyObjectRef>,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
     type_comment.map_or((None, None), |type_comment| {
-        super::constant::public_ast_string_from_pyobject(ctx, type_comment)
+        super::constant::runtime_string_from_pyobject(ctx, type_comment)
     })
 }
 
-fn public_ast_stmt_type_comment_object(
+fn runtime_stmt_type_comment_object(
     to_ctx: &AstToObjectContext<'_>,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,
 ) -> PyObjectRef {
-    super::constant::public_ast_stmt_type_comment_object(to_ctx, value, bytes)
+    super::constant::runtime_stmt_type_comment_object(to_ctx, value, bytes)
         .unwrap_or_else(|| to_ctx.vm.ctx.none())
 }
 
@@ -366,7 +366,7 @@ fn stmt_function_def_from_object_with_range(
         .map(|obj| Node::ast_from_object(ctx, source_file, obj))
         .transpose()?;
     let (runtime_type_comment, runtime_type_comment_bytes) =
-        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
+        runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     let type_params = type_params_from_field(ctx, source_file, &object, "type_params", typ)?;
     Ok(ast::StmtFunctionDef {
         node_index: Default::default(),
@@ -423,18 +423,17 @@ impl Node for ast::StmtFunctionDef {
             .unwrap();
         dict.set_item("args", parameters.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
         dict.set_item(
             "decorator_list",
-            super::constant::public_ast_expr_list_object(to_ctx, runtime_decorator_list)
-                .map_or_else(
-                    || decorator_list.ast_to_object(to_ctx),
-                    |values| values.ast_to_object(to_ctx),
-                ),
+            runtime_decorator_list.map_or_else(
+                || decorator_list.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            ),
             ctx,
         )
         .unwrap();
@@ -442,7 +441,7 @@ impl Node for ast::StmtFunctionDef {
             .unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(
+            runtime_stmt_type_comment_object(
                 to_ctx,
                 runtime_type_comment,
                 runtime_type_comment_bytes,
@@ -560,18 +559,17 @@ impl Node for ast::StmtClassDef {
             _vm,
         )
         .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, _vm).unwrap();
         dict.set_item(
             "decorator_list",
-            super::constant::public_ast_expr_list_object(to_ctx, runtime_decorator_list)
-                .map_or_else(
-                    || decorator_list.ast_to_object(to_ctx),
-                    |values| values.ast_to_object(to_ctx),
-                ),
+            runtime_decorator_list.map_or_else(
+                || decorator_list.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            ),
             _vm,
         )
         .unwrap();
@@ -671,11 +669,10 @@ impl Node for ast::StmtDelete {
             .into_ref_with_type(_vm, pyast::NodeStmtDelete::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let targets = super::constant::public_ast_expr_list_object(to_ctx, runtime_targets)
-            .map_or_else(
-                || targets.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let targets = runtime_targets.map_or_else(
+            || targets.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("targets", targets, _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
@@ -702,7 +699,7 @@ fn stmt_assign_from_object_with_range(
     let (runtime_targets, targets) = public_expr_list_from_values(targets);
     let value = get_required_node_field(ctx, source_file, &object, "value", "Assign")?;
     let (runtime_type_comment, runtime_type_comment_bytes) =
-        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
+        runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtAssign {
         node_index: Default::default(),
         targets,
@@ -731,17 +728,16 @@ impl Node for ast::StmtAssign {
             .into_ref_with_type(ctx, pyast::NodeStmtAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let targets = super::constant::public_ast_expr_list_object(to_ctx, runtime_targets)
-            .map_or_else(
-                || targets.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let targets = runtime_targets.map_or_else(
+            || targets.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("targets", targets, ctx).unwrap();
         dict.set_item("value", value.ast_to_object(to_ctx), ctx)
             .unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(
+            runtime_stmt_type_comment_object(
                 to_ctx,
                 runtime_type_comment,
                 runtime_type_comment_bytes,
@@ -922,11 +918,10 @@ impl Node for ast::StmtAnnAssign {
             .unwrap();
         dict.set_item("value", value.ast_to_object(to_ctx), _vm)
             .unwrap();
-        let simple = super::constant::public_ast_ann_assign_simple_object(to_ctx, runtime_simple)
-            .map_or_else(
-                || simple.ast_to_object(to_ctx),
-                |simple| _vm.ctx.new_int(simple).into(),
-            );
+        let simple = runtime_simple.map_or_else(
+            || simple.ast_to_object(to_ctx),
+            |simple| _vm.ctx.new_int(simple).into(),
+        );
         dict.set_item("simple", simple, _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
@@ -960,7 +955,7 @@ fn stmt_for_from_object_with_range(
     let body = lower_public_stmt_list(body);
     let orelse = lower_public_stmt_list(orelse);
     let (runtime_type_comment, runtime_type_comment_bytes) =
-        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
+        runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtFor {
         node_index: Default::default(),
         target,
@@ -1006,20 +1001,19 @@ impl Node for ast::StmtFor {
             .unwrap();
         dict.set_item("iter", iter.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
-        let orelse = super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
-            .map_or_else(
-                || orelse.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let orelse = runtime_orelse.map_or_else(
+            || orelse.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("orelse", orelse, ctx).unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(
+            runtime_stmt_type_comment_object(
                 to_ctx,
                 runtime_type_comment,
                 runtime_type_comment_bytes,
@@ -1090,16 +1084,15 @@ impl Node for ast::StmtWhile {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(to_ctx), _vm)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, _vm).unwrap();
-        let orelse = super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
-            .map_or_else(
-                || orelse.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let orelse = runtime_orelse.map_or_else(
+            || orelse.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("orelse", orelse, _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
@@ -1162,7 +1155,7 @@ fn stmt_with_from_object_with_range(
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(ctx, source_file, &object, "body", typ)?;
     let (runtime_body, body) = public_stmt_list_from_values(body);
     let (runtime_type_comment, runtime_type_comment_bytes) =
-        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
+        runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtWith {
         node_index: Default::default(),
         items,
@@ -1200,14 +1193,14 @@ impl Node for ast::StmtWith {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("items", items.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(
+            runtime_stmt_type_comment_object(
                 to_ctx,
                 runtime_type_comment,
                 runtime_type_comment_bytes,
@@ -1445,29 +1438,25 @@ impl Node for ast::StmtTry {
 
         let node = NodeAst.into_ref_with_type(ctx, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
-        let handlers =
-            super::constant::public_ast_except_handler_list_object(to_ctx, runtime_handlers)
-                .map_or_else(
-                    || handlers.ast_to_object(to_ctx),
-                    |values| values.ast_to_object(to_ctx),
-                );
+        let handlers = runtime_handlers.map_or_else(
+            || handlers.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("handlers", handlers, ctx).unwrap();
-        let orelse = super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
-            .map_or_else(
-                || orelse.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let orelse = runtime_orelse.map_or_else(
+            || orelse.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("orelse", orelse, ctx).unwrap();
-        let finalbody = super::constant::public_ast_stmt_list_object(to_ctx, runtime_finalbody)
-            .map_or_else(
-                || finalbody.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let finalbody = runtime_finalbody.map_or_else(
+            || finalbody.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("finalbody", finalbody, ctx).unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()

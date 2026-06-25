@@ -376,11 +376,10 @@ impl Node for ast::ExprBoolOp {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("op", op.ast_to_object(to_ctx), ctx).unwrap();
-        let values = super::constant::public_ast_expr_list_object(to_ctx, runtime_values)
-            .map_or_else(
-                || values.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let values = runtime_values.map_or_else(
+            || values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("values", values, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
@@ -703,11 +702,10 @@ impl Node for ast::ExprDict {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("keys", keys.ast_to_object(to_ctx), vm)
             .unwrap();
-        let values = super::constant::public_ast_expr_list_object(to_ctx, runtime_values)
-            .map_or_else(
-                || values.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let values = runtime_values.map_or_else(
+            || values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("values", values, vm).unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
@@ -755,7 +753,7 @@ impl Node for ast::ExprSet {
             .into_ref_with_type(ctx, pyast::NodeExprSet::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let elts = super::constant::public_ast_expr_list_object(to_ctx, runtime_elts).map_or_else(
+        let elts = runtime_elts.map_or_else(
             || elts.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -928,7 +926,6 @@ fn expr_generator_from_object_with_range(
         elt: get_required_node_field(ctx, source_file, &object, "elt", "GeneratorExp")?,
         generators: get_node_list_field(ctx, source_file, &object, "generators", "GeneratorExp")?,
         range,
-        // TODO: Is this correct?
         parenthesized: true,
     })
 }
@@ -1146,11 +1143,10 @@ impl Node for ast::ExprCompare {
             .unwrap();
         dict.set_item("ops", BoxedSlice(ops).ast_to_object(to_ctx), ctx)
             .unwrap();
-        let comparators = super::constant::public_ast_expr_list_object(to_ctx, runtime_comparators)
-            .map_or_else(
-                || BoxedSlice(comparators).ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let comparators = runtime_comparators.map_or_else(
+            || BoxedSlice(comparators).ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("comparators", comparators, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
@@ -1462,7 +1458,7 @@ impl Node for ast::ExprList {
             .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let elts = super::constant::public_ast_expr_list_object(to_ctx, runtime_elts).map_or_else(
+        let elts = runtime_elts.map_or_else(
             || elts.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -1522,7 +1518,7 @@ impl Node for ast::ExprTuple {
             .into_ref_with_type(vm, pyast::NodeExprTuple::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let elts = super::constant::public_ast_expr_list_object(to_ctx, runtime_elts).map_or_else(
+        let elts = runtime_elts.map_or_else(
             || elts.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -1660,17 +1656,15 @@ impl Node for ast::Comprehension {
             .unwrap();
         dict.set_item("iter", iter.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let ifs = super::constant::public_ast_expr_list_object(to_ctx, runtime_ifs).map_or_else(
+        let ifs = runtime_ifs.map_or_else(
             || ifs.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("ifs", ifs, ctx).unwrap();
-        let is_async =
-            super::constant::public_ast_comprehension_is_async_object(to_ctx, runtime_is_async)
-                .map_or_else(
-                    || is_async.ast_to_object(to_ctx),
-                    |value| ctx.ctx.new_int(value).into(),
-                );
+        let is_async = runtime_is_async.map_or_else(
+            || is_async.ast_to_object(to_ctx),
+            |value| ctx.ctx.new_int(value).into(),
+        );
         dict.set_item("is_async", is_async, ctx).unwrap();
         node.into()
     }

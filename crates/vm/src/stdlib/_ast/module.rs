@@ -95,7 +95,7 @@ impl Node for ModModule {
             .into_ref_with_type(vm, pyast::NodeModModule::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -131,7 +131,7 @@ impl Node for ModModule {
 pub(super) struct ModInteractive {
     pub(crate) range: TextRange,
     pub(crate) body: ast::Suite,
-    pub(crate) runtime_body: Option<super::constant::PublicAstStmtList>,
+    pub(crate) runtime_body: Option<Vec<Option<ast::Stmt>>>,
 }
 
 // constructor
@@ -148,7 +148,7 @@ impl Node for ModInteractive {
             .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -210,7 +210,7 @@ pub(super) struct ModFunctionType {
     pub(crate) argtypes: Box<[ast::Expr]>,
     pub(crate) returns: ast::Expr,
     pub(crate) range: TextRange,
-    pub(crate) runtime_argtypes: Option<super::constant::PublicAstExprOptionList>,
+    pub(crate) runtime_argtypes: Option<Vec<Option<ast::Expr>>>,
 }
 
 // constructor
@@ -228,12 +228,10 @@ impl Node for ModFunctionType {
             .into_ref_with_type(vm, pyast::NodeModFunctionType::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let argtypes =
-            super::constant::public_ast_expr_option_list_object(to_ctx, runtime_argtypes)
-                .map_or_else(
-                    || BoxedSlice(argtypes).ast_to_object(to_ctx),
-                    |values| values.ast_to_object(to_ctx),
-                );
+        let argtypes = runtime_argtypes.map_or_else(
+            || BoxedSlice(argtypes).ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("argtypes", argtypes, vm).unwrap();
         dict.set_item("returns", returns.ast_to_object(to_ctx), vm)
             .unwrap();

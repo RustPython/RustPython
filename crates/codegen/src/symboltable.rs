@@ -1243,7 +1243,7 @@ impl SymbolTableBuilder {
         false
     }
 
-    fn public_ast_interpolation_override_by_element(
+    fn runtime_interpolation_override_by_element(
         &self,
         element: &ast::InterpolatedElement,
     ) -> Option<(ast::ConstantValue, Option<Box<ast::Expr>>)> {
@@ -1253,24 +1253,18 @@ impl SymbolTableBuilder {
         ))
     }
 
-    fn public_ast_formatted_value_override_by_element(
+    fn runtime_formatted_value_format_spec_by_element(
         &self,
         element: &ast::InterpolatedElement,
     ) -> Option<Box<ast::Expr>> {
         element.runtime_formatted_value_format_spec.clone()
     }
 
-    fn public_ast_joined_str_override(
-        &self,
-        fstring: &ast::ExprFString,
-    ) -> Option<crate::PublicAstExprList> {
+    fn runtime_joined_str_override(&self, fstring: &ast::ExprFString) -> Option<Vec<ast::Expr>> {
         fstring.runtime_joined_str.clone()
     }
 
-    fn public_ast_template_str_override(
-        &self,
-        tstring: &ast::ExprTString,
-    ) -> Option<crate::PublicAstExprList> {
+    fn runtime_template_str_override(&self, tstring: &ast::ExprTString) -> Option<Vec<ast::Expr>> {
         tstring.runtime_template_str.clone()
     }
 
@@ -2228,7 +2222,7 @@ impl SymbolTableBuilder {
         let result = (|| {
             use ast::*;
 
-            if crate::public_ast_constant(expression).is_some() {
+            if expression.is_constant_expr() {
                 return Ok(());
             }
 
@@ -2603,7 +2597,7 @@ impl SymbolTableBuilder {
                     self.leave_scope();
                 }
                 Expr::FString(fstring) => {
-                    if let Some(joined_str) = self.public_ast_joined_str_override(fstring) {
+                    if let Some(joined_str) = self.runtime_joined_str_override(fstring) {
                         for expr in &joined_str {
                             self.scan_expression(expr, ExpressionContext::Load)?;
                         }
@@ -2616,7 +2610,7 @@ impl SymbolTableBuilder {
                     {
                         self.scan_expression(&expr.expression, ExpressionContext::Load)?;
                         if let Some(format_spec) =
-                            self.public_ast_formatted_value_override_by_element(expr)
+                            self.runtime_formatted_value_format_spec_by_element(expr)
                         {
                             self.scan_expression(&format_spec, ExpressionContext::Load)?;
                         } else if let Some(format_spec) = &expr.format_spec {
@@ -2627,7 +2621,7 @@ impl SymbolTableBuilder {
                     }
                 }
                 Expr::TString(tstring) => {
-                    if let Some(template_str) = self.public_ast_template_str_override(tstring) {
+                    if let Some(template_str) = self.runtime_template_str_override(tstring) {
                         for expr in &template_str {
                             self.scan_expression(expr, ExpressionContext::Load)?;
                         }
@@ -2641,7 +2635,7 @@ impl SymbolTableBuilder {
                     {
                         self.scan_expression(&expr.expression, ExpressionContext::Load)?;
                         if let Some(interpolation) =
-                            self.public_ast_interpolation_override_by_element(expr)
+                            self.runtime_interpolation_override_by_element(expr)
                         {
                             if let Some(format_spec) = &interpolation.1 {
                                 self.scan_expression(format_spec, ExpressionContext::Load)?;

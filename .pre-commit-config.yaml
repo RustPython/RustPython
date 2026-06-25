@@ -16,7 +16,7 @@ repos:
         priority: 0
 
       - id: ruff-check
-        args: [--select, I, --fix, --exit-non-zero-on-fix, --config, "lint.isort.known-first-party = ['cpython', 'opcodes', 'utils']"]
+        args: [--select, I, --fix, --exit-non-zero-on-fix]
         types_or: [python]
         require_serial: true
         priority: 1

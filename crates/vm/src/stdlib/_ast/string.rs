@@ -662,9 +662,7 @@ pub(super) fn fstring_to_object(
         runtime_joined_str,
         runtime_values,
     } = expression;
-    if let Some(joined_str) =
-        super::constant::public_ast_joined_str_object(to_ctx, runtime_joined_str)
-    {
+    if let Some(joined_str) = runtime_joined_str {
         return JoinedStr {
             range,
             values: Vec::new().into_boxed_slice(),
@@ -673,7 +671,7 @@ pub(super) fn fstring_to_object(
         .ast_to_object(to_ctx);
     }
 
-    if let Some(joined_str) = super::constant::public_ast_expr_list_object(to_ctx, runtime_values) {
+    if let Some(joined_str) = runtime_values {
         return JoinedStr {
             range,
             values: Vec::new().into_boxed_slice(),
@@ -776,7 +774,7 @@ fn ruff_tstring_element_to_template_str_part(
             } else {
                 tstring_interpolation_expr_str(source_file, range, expr_range)
             };
-            let override_interpolation = super::constant::public_ast_interpolation_object(
+            let override_interpolation = super::constant::runtime_interpolation_object(
                 to_ctx,
                 runtime_str,
                 runtime_interpolation_format_spec,
@@ -978,7 +976,7 @@ fn template_part_to_element(
             } = interpolation;
             let str_constant =
                 super::constant::constant_object_to_constant_data(ctx, source_file, str)?;
-            let runtime_str = Some(super::constant::constant_data_to_public_ast_constant(
+            let runtime_str = Some(super::constant::constant_data_to_ast_constant_value(
                 str_constant,
             ));
             let runtime_interpolation_format_spec = format_spec.clone();
@@ -1167,9 +1165,7 @@ pub(super) fn tstring_to_object(
         runtime_template_str,
         runtime_values,
     } = expression;
-    if let Some(template_str) =
-        super::constant::public_ast_template_str_object(to_ctx, runtime_template_str)
-    {
+    if let Some(template_str) = runtime_template_str {
         return TemplateStr {
             range,
             values: Vec::new().into_boxed_slice(),
@@ -1178,8 +1174,7 @@ pub(super) fn tstring_to_object(
         .ast_to_object(to_ctx);
     }
 
-    if let Some(template_str) = super::constant::public_ast_expr_list_object(to_ctx, runtime_values)
-    {
+    if let Some(template_str) = runtime_values {
         return TemplateStr {
             range,
             values: Vec::new().into_boxed_slice(),
@@ -1192,7 +1187,7 @@ pub(super) fn tstring_to_object(
         && let Some(ast::InterpolatedStringElement::Interpolation(interp)) =
             tstring.elements.iter().next()
         && tstring.elements.get(1).is_none()
-        && let Some((str, format_spec)) = super::constant::public_ast_interpolation_object(
+        && let Some((str, format_spec)) = super::constant::runtime_interpolation_object(
             to_ctx,
             interp.runtime_str.clone(),
             interp.runtime_interpolation_format_spec.clone(),

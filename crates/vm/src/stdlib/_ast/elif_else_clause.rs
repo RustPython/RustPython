@@ -18,7 +18,7 @@ pub(super) fn ast_to_object(
     } = clause;
     let Some(test) = test else {
         assert!(rest.len() == 0);
-        return super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        return runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -30,15 +30,13 @@ pub(super) fn ast_to_object(
 
     dict.set_item("test", test.ast_to_object(to_ctx), vm)
         .unwrap();
-    let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+    let body = runtime_body.map_or_else(
         || body.ast_to_object(to_ctx),
         |values| values.ast_to_object(to_ctx),
     );
     dict.set_item("body", body, vm).unwrap();
 
-    let orelse = if let Some(values) =
-        super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
-    {
+    let orelse = if let Some(values) = runtime_orelse {
         values.ast_to_object(to_ctx)
     } else if let Some(next) = rest.next() {
         if next.test.is_some() {
@@ -50,7 +48,7 @@ pub(super) fn ast_to_object(
                 .new_list(vec![ast_to_object(next, rest, to_ctx)])
                 .into()
         } else {
-            super::constant::public_ast_stmt_list_object(to_ctx, next.runtime_body).map_or_else(
+            next.runtime_body.map_or_else(
                 || next.body.ast_to_object(to_ctx),
                 |values| values.ast_to_object(to_ctx),
             )

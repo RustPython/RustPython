@@ -22,7 +22,7 @@ impl Node for ast::MatchCase {
             .unwrap();
         dict.set_item("guard", guard.ast_to_object(to_ctx), vm)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );
@@ -198,10 +198,7 @@ fn pattern_list_from_field(
     field: &'static str,
     typ: &str,
     range: TextRange,
-) -> PyResult<(
-    Option<super::constant::PublicAstPatternList>,
-    Vec<ast::Pattern>,
-)> {
+) -> PyResult<(Option<Vec<Option<ast::Pattern>>>, Vec<ast::Pattern>)> {
     let values: Vec<Option<ast::Pattern>> =
         get_node_list_field(ctx, source_file, object, field, typ)?;
     let runtime_patterns = values.iter().any(Option::is_none).then(|| values.clone());
@@ -369,11 +366,10 @@ impl Node for ast::PatternMatchSequence {
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, runtime_patterns)
-            .map_or_else(
-                || patterns.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let patterns = runtime_patterns.map_or_else(
+            || patterns.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("patterns", patterns, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
@@ -435,17 +431,15 @@ impl Node for ast::PatternMatchMapping {
             .into_ref_with_type(vm, pyast::NodePatternMatchMapping::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let keys = super::constant::public_ast_expr_option_list_object(to_ctx, runtime_keys)
-            .map_or_else(
-                || keys.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let keys = runtime_keys.map_or_else(
+            || keys.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("keys", keys, vm).unwrap();
-        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, runtime_patterns)
-            .map_or_else(
-                || patterns.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let patterns = runtime_patterns.map_or_else(
+            || patterns.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("patterns", patterns, vm).unwrap();
         dict.set_item("rest", rest.ast_to_object(to_ctx), vm)
             .unwrap();
@@ -757,11 +751,10 @@ impl Node for ast::PatternMatchOr {
             .into_ref_with_type(vm, pyast::NodePatternMatchOr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, runtime_patterns)
-            .map_or_else(
-                || patterns.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            );
+        let patterns = runtime_patterns.map_or_else(
+            || patterns.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("patterns", patterns, vm).unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()

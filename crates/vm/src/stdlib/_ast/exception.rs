@@ -115,7 +115,7 @@ impl Node for ast::ExceptHandlerExceptHandler {
             .unwrap();
         dict.set_item("name", name.ast_to_object(to_ctx), vm)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
+        let body = runtime_body.map_or_else(
             || body.ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         );

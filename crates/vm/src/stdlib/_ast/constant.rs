@@ -4,15 +4,6 @@ use ast::str_prefix::StringLiteralPrefix;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_compiler_core::{SourceFile, bytecode::ConstantData};
 
-pub(super) use ast::ConstantValue as PublicAstConstant;
-
-pub(super) type PublicAstExceptHandlerList = Vec<Option<ast::ExceptHandler>>;
-pub(super) type PublicAstExprList = Vec<ast::Expr>;
-pub(super) type PublicAstExprOptionList = Vec<Option<ast::Expr>>;
-pub(super) type PublicAstPatternList = Vec<Option<ast::Pattern>>;
-pub(super) type PublicAstStmtList = Vec<Option<ast::Stmt>>;
-pub(super) type PublicAstTypeParamList = Vec<Option<ast::TypeParam>>;
-
 #[derive(Debug)]
 pub(super) struct Constant {
     pub(super) range: TextRange,
@@ -109,7 +100,7 @@ impl Constant {
         ast::Expr::Constant(ast::ExprConstant {
             node_index: Default::default(),
             range,
-            value: constant_data_to_public_ast_constant(constant_literal_to_constant_data(&value)),
+            value: constant_data_to_ast_constant_value(constant_literal_to_constant_data(&value)),
             kind: kind.or_else(|| constant_literal_kind(&value)),
             invalid_type: invalid_type.map(String::into_boxed_str),
         })
@@ -136,7 +127,7 @@ pub(crate) enum ConstantLiteral {
     Ellipsis,
 }
 
-pub(super) fn with_public_ast_context<T>(
+pub(super) fn with_ast_from_object_context<T>(
     vm: &VirtualMachine,
     f: impl FnOnce(&AstFromObjectContext<'_>) -> PyResult<T>,
 ) -> PyResult<T> {
@@ -144,33 +135,26 @@ pub(super) fn with_public_ast_context<T>(
     f(&from_ctx)
 }
 
-pub(super) fn public_ast_constant(expr: &ast::Expr) -> Option<PublicAstConstant> {
-    match expr {
-        ast::Expr::Constant(expr) => Some(expr.value.clone()),
-        _ => None,
-    }
-}
-
-pub(super) fn public_ast_invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
+pub(super) fn invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
     match expr {
         ast::Expr::Constant(expr) => expr.invalid_type.clone(),
         _ => None,
     }
 }
 
-pub(super) fn public_ast_string_from_pyobject(
+pub(super) fn runtime_string_from_pyobject(
     ctx: &AstFromObjectContext<'_>,
     object: PyObjectRef,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
-    public_ast_string_from_object(ctx, object)
+    runtime_string_from_object(ctx, object)
 }
 
-pub(super) fn public_ast_string_object(
+pub(super) fn runtime_string_object(
     to_ctx: &AstToObjectContext<'_>,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    public_ast_string_to_object(to_ctx.vm, value, bytes)
+    runtime_string_to_object(to_ctx.vm, value, bytes)
 }
 
 pub(super) fn expr_constant_to_object(
@@ -186,7 +170,7 @@ pub(super) fn expr_constant_to_object(
         kind,
         invalid_type: _,
     } = expr;
-    let constant = public_ast_constant_to_constant_data(value);
+    let constant = ast_constant_value_to_constant_data(value);
     let node = NodeAst
         .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
         .unwrap();
@@ -199,102 +183,24 @@ pub(super) fn expr_constant_to_object(
     node.into()
 }
 
-pub(super) fn public_ast_interpolation_object(
+pub(super) fn runtime_interpolation_object(
     to_ctx: &AstToObjectContext<'_>,
-    str: Option<PublicAstConstant>,
+    str: Option<ast::ConstantValue>,
     format_spec: Option<Box<ast::Expr>>,
 ) -> Option<(PyObjectRef, Option<Box<ast::Expr>>)> {
     let str = str?;
     Some((
-        constant_data_to_object(to_ctx.vm, public_ast_constant_to_constant_data(str)),
+        constant_data_to_object(to_ctx.vm, ast_constant_value_to_constant_data(str)),
         format_spec,
     ))
 }
 
-pub(super) fn public_ast_joined_str_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstExprList>,
-) -> Option<PublicAstExprList> {
-    value
-}
-
-pub(super) fn public_ast_template_str_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstExprList>,
-) -> Option<PublicAstExprList> {
-    value
-}
-
-pub(super) fn public_ast_comprehension_is_async_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<i32>,
-) -> Option<i32> {
-    value
-}
-
-pub(super) fn public_ast_pattern_list_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstPatternList>,
-) -> Option<PublicAstPatternList> {
-    value
-}
-
-pub(super) fn public_ast_expr_option_list_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstExprOptionList>,
-) -> Option<PublicAstExprOptionList> {
-    value
-}
-
-pub(super) fn public_ast_expr_list_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstExprOptionList>,
-) -> Option<PublicAstExprOptionList> {
-    value
-}
-
-pub(super) fn public_ast_stmt_list_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstStmtList>,
-) -> Option<PublicAstStmtList> {
-    value
-}
-
-pub(super) fn public_ast_except_handler_list_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstExceptHandlerList>,
-) -> Option<PublicAstExceptHandlerList> {
-    value
-}
-
-pub(super) fn public_ast_type_param_list_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<PublicAstTypeParamList>,
-) -> Option<PublicAstTypeParamList> {
-    value
-}
-
-pub(super) fn public_ast_ann_assign_simple_object(
-    _to_ctx: &AstToObjectContext<'_>,
-    value: Option<i32>,
-) -> Option<i32> {
-    value
-}
-
-pub(super) fn public_ast_arg_type_comment_object(
+pub(super) fn runtime_stmt_type_comment_object(
     to_ctx: &AstToObjectContext<'_>,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    public_ast_string_object(to_ctx, value, bytes)
-}
-
-pub(super) fn public_ast_stmt_type_comment_object(
-    to_ctx: &AstToObjectContext<'_>,
-    value: Option<Box<str>>,
-    bytes: Option<Vec<u8>>,
-) -> Option<PyObjectRef> {
-    public_ast_string_object(to_ctx, value, bytes)
+    runtime_string_object(to_ctx, value, bytes)
 }
 
 fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
@@ -340,69 +246,69 @@ fn constant_literal_kind(value: &ConstantLiteral) -> Option<Box<str>> {
     }
 }
 
-pub(super) fn constant_data_to_public_ast_constant(value: ConstantData) -> PublicAstConstant {
+pub(super) fn constant_data_to_ast_constant_value(value: ConstantData) -> ast::ConstantValue {
     match value {
-        ConstantData::None => PublicAstConstant::None,
-        ConstantData::Boolean { value } => PublicAstConstant::Boolean(value),
-        ConstantData::Str { value } => PublicAstConstant::Str(value.to_string().into_boxed_str()),
-        ConstantData::Bytes { value } => PublicAstConstant::Bytes(value.into_boxed_slice()),
-        ConstantData::Integer { value } => PublicAstConstant::Integer(value.to_string().into()),
-        ConstantData::Tuple { elements } => PublicAstConstant::Tuple(
+        ConstantData::None => ast::ConstantValue::None,
+        ConstantData::Boolean { value } => ast::ConstantValue::Boolean(value),
+        ConstantData::Str { value } => ast::ConstantValue::Str(value.to_string().into_boxed_str()),
+        ConstantData::Bytes { value } => ast::ConstantValue::Bytes(value.into_boxed_slice()),
+        ConstantData::Integer { value } => ast::ConstantValue::Integer(value.to_string().into()),
+        ConstantData::Tuple { elements } => ast::ConstantValue::Tuple(
             elements
                 .into_iter()
-                .map(constant_data_to_public_ast_constant)
+                .map(constant_data_to_ast_constant_value)
                 .collect(),
         ),
-        ConstantData::Frozenset { elements } => PublicAstConstant::Frozenset(
+        ConstantData::Frozenset { elements } => ast::ConstantValue::Frozenset(
             elements
                 .into_iter()
-                .map(constant_data_to_public_ast_constant)
+                .map(constant_data_to_ast_constant_value)
                 .collect(),
         ),
-        ConstantData::Float { value } => PublicAstConstant::Float(value),
-        ConstantData::Complex { value } => PublicAstConstant::Complex {
+        ConstantData::Float { value } => ast::ConstantValue::Float(value),
+        ConstantData::Complex { value } => ast::ConstantValue::Complex {
             real: value.re,
             imag: value.im,
         },
-        ConstantData::Ellipsis => PublicAstConstant::Ellipsis,
+        ConstantData::Ellipsis => ast::ConstantValue::Ellipsis,
         ConstantData::Code { .. } | ConstantData::Slice { .. } => {
             unreachable!("public AST constants cannot contain code objects or slices")
         }
     }
 }
 
-pub(super) fn public_ast_constant_to_constant_data(value: PublicAstConstant) -> ConstantData {
+pub(super) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> ConstantData {
     match value {
-        PublicAstConstant::None => ConstantData::None,
-        PublicAstConstant::Boolean(value) => ConstantData::Boolean { value },
-        PublicAstConstant::Str(value) => ConstantData::Str {
+        ast::ConstantValue::None => ConstantData::None,
+        ast::ConstantValue::Boolean(value) => ConstantData::Boolean { value },
+        ast::ConstantValue::Str(value) => ConstantData::Str {
             value: value.to_string().into(),
         },
-        PublicAstConstant::Bytes(value) => ConstantData::Bytes {
+        ast::ConstantValue::Bytes(value) => ConstantData::Bytes {
             value: value.into_vec(),
         },
-        PublicAstConstant::Integer(value) => ConstantData::Integer {
+        ast::ConstantValue::Integer(value) => ConstantData::Integer {
             value: value
                 .parse()
                 .expect("RustPython public AST integer constants are decimal integers"),
         },
-        PublicAstConstant::Tuple(elements) => ConstantData::Tuple {
+        ast::ConstantValue::Tuple(elements) => ConstantData::Tuple {
             elements: elements
                 .into_iter()
-                .map(public_ast_constant_to_constant_data)
+                .map(ast_constant_value_to_constant_data)
                 .collect(),
         },
-        PublicAstConstant::Frozenset(elements) => ConstantData::Frozenset {
+        ast::ConstantValue::Frozenset(elements) => ConstantData::Frozenset {
             elements: elements
                 .into_iter()
-                .map(public_ast_constant_to_constant_data)
+                .map(ast_constant_value_to_constant_data)
                 .collect(),
         },
-        PublicAstConstant::Float(value) => ConstantData::Float { value },
-        PublicAstConstant::Complex { real, imag } => ConstantData::Complex {
+        ast::ConstantValue::Float(value) => ConstantData::Float { value },
+        ast::ConstantValue::Complex { real, imag } => ConstantData::Complex {
             value: num_complex::Complex::new(real, imag),
         },
-        PublicAstConstant::Ellipsis => ConstantData::Ellipsis,
+        ast::ConstantValue::Ellipsis => ConstantData::Ellipsis,
     }
 }
 
@@ -415,7 +321,7 @@ pub(super) fn constant_object_to_constant_data(
     Ok(constant_literal_to_constant_data(&value))
 }
 
-fn public_ast_string_from_object(
+fn runtime_string_from_object(
     vm: &VirtualMachine,
     object: PyObjectRef,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
@@ -441,7 +347,7 @@ fn public_ast_string_from_object(
     }
 }
 
-fn public_ast_string_to_object(
+fn runtime_string_to_object(
     vm: &VirtualMachine,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,

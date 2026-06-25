@@ -26,18 +26,8 @@ use ruff_python_ast as ast;
 
 pub(crate) use compile::InternalResult;
 
-pub type PublicAstExprList = Vec<ast::Expr>;
-pub type PublicAstInterpolation = (ast::ConstantValue, Option<Box<ast::Expr>>);
-
-pub fn public_ast_constant(expr: &ast::Expr) -> Option<ast::ConstantValue> {
-    match expr {
-        ast::Expr::Constant(expr) => Some(expr.value.clone()),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
-pub(crate) fn constant_data_to_public_ast_constant(value: ConstantData) -> ast::ConstantValue {
+pub(crate) fn constant_data_to_ast_constant_value(value: ConstantData) -> ast::ConstantValue {
     match value {
         ConstantData::None => ast::ConstantValue::None,
         ConstantData::Boolean { value } => ast::ConstantValue::Boolean(value),
@@ -47,13 +37,13 @@ pub(crate) fn constant_data_to_public_ast_constant(value: ConstantData) -> ast::
         ConstantData::Tuple { elements } => ast::ConstantValue::Tuple(
             elements
                 .into_iter()
-                .map(constant_data_to_public_ast_constant)
+                .map(constant_data_to_ast_constant_value)
                 .collect(),
         ),
         ConstantData::Frozenset { elements } => ast::ConstantValue::Frozenset(
             elements
                 .into_iter()
-                .map(constant_data_to_public_ast_constant)
+                .map(constant_data_to_ast_constant_value)
                 .collect(),
         ),
         ConstantData::Float { value } => ast::ConstantValue::Float(value),
@@ -68,7 +58,7 @@ pub(crate) fn constant_data_to_public_ast_constant(value: ConstantData) -> ast::
     }
 }
 
-pub fn public_ast_constant_to_constant_data(value: ast::ConstantValue) -> ConstantData {
+pub(crate) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> ConstantData {
     match value {
         ast::ConstantValue::None => ConstantData::None,
         ast::ConstantValue::Boolean(value) => ConstantData::Boolean { value },
@@ -86,13 +76,13 @@ pub fn public_ast_constant_to_constant_data(value: ast::ConstantValue) -> Consta
         ast::ConstantValue::Tuple(elements) => ConstantData::Tuple {
             elements: elements
                 .into_iter()
-                .map(public_ast_constant_to_constant_data)
+                .map(ast_constant_value_to_constant_data)
                 .collect(),
         },
         ast::ConstantValue::Frozenset(elements) => ConstantData::Frozenset {
             elements: elements
                 .into_iter()
-                .map(public_ast_constant_to_constant_data)
+                .map(ast_constant_value_to_constant_data)
                 .collect(),
         },
         ast::ConstantValue::Float(value) => ConstantData::Float { value },

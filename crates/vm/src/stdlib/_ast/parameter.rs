@@ -37,12 +37,10 @@ impl Node for ast::Parameters {
         dict.set_item("kwarg", kwarg.ast_to_object(to_ctx), vm)
             .unwrap();
         let runtime_defaults = defaults.runtime_defaults.take();
-        let defaults =
-            super::constant::public_ast_expr_option_list_object(to_ctx, runtime_defaults)
-                .map_or_else(
-                    || defaults.ast_to_object(to_ctx),
-                    |values| values.ast_to_object(to_ctx),
-                );
+        let defaults = runtime_defaults.map_or_else(
+            || defaults.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        );
         dict.set_item("defaults", defaults, vm).unwrap();
         let _ = range;
         node.into()
@@ -138,7 +136,7 @@ impl Node for ast::Parameter {
             .unwrap();
         dict.set_item("annotation", annotation.ast_to_object(to_ctx), _vm)
             .unwrap();
-        let type_comment = super::constant::public_ast_arg_type_comment_object(
+        let type_comment = super::constant::runtime_string_object(
             to_ctx,
             runtime_type_comment,
             runtime_type_comment_bytes,
@@ -161,7 +159,7 @@ impl Node for ast::Parameter {
         let type_comment = get_ast_string_field_opt(ctx, &_object, "type_comment")?;
         let (runtime_type_comment, runtime_type_comment_bytes) = type_comment
             .map_or((None, None), |type_comment| {
-                super::constant::public_ast_string_from_pyobject(ctx, type_comment)
+                super::constant::runtime_string_from_pyobject(ctx, type_comment)
             });
         let range = range_from_object(ctx, source_file, _object, "arg")?;
         Ok(Self {
@@ -295,7 +293,7 @@ impl Node for KeywordParameters {
 
 struct ParameterDefaults {
     pub _range: TextRange, // TODO: Use this
-    runtime_defaults: Option<super::constant::PublicAstExprOptionList>,
+    runtime_defaults: Option<Vec<Option<ast::Expr>>>,
     defaults: Box<[Option<Box<ast::Expr>>]>,
 }
 

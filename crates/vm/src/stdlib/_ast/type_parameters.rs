@@ -5,11 +5,10 @@ impl Node for ast::TypeParams {
     fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
         let _vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
-        super::constant::public_ast_type_param_list_object(to_ctx, self.runtime_type_params)
-            .map_or_else(
-                || self.type_params.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
-            )
+        self.runtime_type_params.map_or_else(
+            || self.type_params.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
+        )
     }
 
     fn ast_from_object(

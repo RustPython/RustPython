@@ -212,38 +212,36 @@ fn get_node_boxed_slice_field<T: Node>(
 
 fn public_expr_list_from_values(
     values: Vec<Option<ast::Expr>>,
-) -> (Option<constant::PublicAstExprOptionList>, Vec<ast::Expr>) {
+) -> (Option<Vec<Option<ast::Expr>>>, Vec<ast::Expr>) {
     let metadata = public_expr_list_metadata(&values);
     (metadata, lower_public_expr_list(values))
 }
 
 fn public_expr_boxed_slice_from_values(
     values: Vec<Option<ast::Expr>>,
-) -> (Option<constant::PublicAstExprOptionList>, Box<[ast::Expr]>) {
+) -> (Option<Vec<Option<ast::Expr>>>, Box<[ast::Expr]>) {
     let (metadata, values) = public_expr_list_from_values(values);
     (metadata, values.into_boxed_slice())
 }
 
-fn public_expr_list_metadata(
-    values: &[Option<ast::Expr>],
-) -> Option<constant::PublicAstExprOptionList> {
+fn public_expr_list_metadata(values: &[Option<ast::Expr>]) -> Option<Vec<Option<ast::Expr>>> {
     values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
 fn public_stmt_list_from_values(
     values: Vec<Option<ast::Stmt>>,
-) -> (Option<constant::PublicAstStmtList>, ast::Suite) {
+) -> (Option<Vec<Option<ast::Stmt>>>, ast::Suite) {
     let metadata = public_stmt_list_metadata(&values);
     (metadata, lower_public_stmt_list(values))
 }
 
-fn public_stmt_list_metadata(values: &[Option<ast::Stmt>]) -> Option<constant::PublicAstStmtList> {
+fn public_stmt_list_metadata(values: &[Option<ast::Stmt>]) -> Option<Vec<Option<ast::Stmt>>> {
     values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
 fn public_except_handler_list_metadata(
     values: &[Option<ast::ExceptHandler>],
-) -> Option<constant::PublicAstExceptHandlerList> {
+) -> Option<Vec<Option<ast::ExceptHandler>>> {
     values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
@@ -504,7 +502,7 @@ fn scan_ast_source_extent(
     Ok(())
 }
 
-fn copy_public_ast_passthrough_fields(
+fn copy_ast_passthrough_fields(
     vm: &VirtualMachine,
     source: &PyObjectRef,
     target: &PyObjectRef,
@@ -568,7 +566,7 @@ fn copy_public_ast_passthrough_fields(
         let Some(target_value) = get_attribute_from_field(vm, target, target_field)? else {
             continue;
         };
-        copy_public_ast_passthrough_children(vm, &source_value, &target_value)?;
+        copy_ast_passthrough_children(vm, &source_value, &target_value)?;
     }
 
     Ok(())
@@ -627,7 +625,7 @@ fn ast_passthrough_location_candidate_matches(
         && ast_start_location_matches(vm, source, target)?)
 }
 
-fn copy_public_ast_passthrough_list_items_by_location(
+fn copy_ast_passthrough_list_items_by_location(
     vm: &VirtualMachine,
     source_items: &[PyObjectRef],
     target_items: &[PyObjectRef],
@@ -640,7 +638,7 @@ fn copy_public_ast_passthrough_list_items_by_location(
             }
             if ast_passthrough_location_candidate_matches(vm, source_item, target_item)? {
                 used_source_items[index] = true;
-                copy_public_ast_passthrough_fields(vm, source_item, target_item)?;
+                copy_ast_passthrough_fields(vm, source_item, target_item)?;
                 break;
             }
         }
@@ -648,13 +646,13 @@ fn copy_public_ast_passthrough_list_items_by_location(
     Ok(())
 }
 
-fn copy_public_ast_passthrough_children(
+fn copy_ast_passthrough_children(
     vm: &VirtualMachine,
     source: &PyObjectRef,
     target: &PyObjectRef,
 ) -> PyResult<()> {
     if is_ast_instance(vm, source)? && is_ast_instance(vm, target)? {
-        return copy_public_ast_passthrough_fields(vm, source, target);
+        return copy_ast_passthrough_fields(vm, source, target);
     }
 
     if let (Some(source_list), Some(target_list)) = (
@@ -665,10 +663,10 @@ fn copy_public_ast_passthrough_children(
         let target_items = target_list.borrow_vec().to_vec();
         if source_items.len() == target_items.len() {
             for (source_item, target_item) in source_items.iter().zip(target_items.iter()) {
-                copy_public_ast_passthrough_children(vm, source_item, target_item)?;
+                copy_ast_passthrough_children(vm, source_item, target_item)?;
             }
         } else {
-            copy_public_ast_passthrough_list_items_by_location(vm, &source_items, &target_items)?;
+            copy_ast_passthrough_list_items_by_location(vm, &source_items, &target_items)?;
         }
     } else if let (Some(source_tuple), Some(target_tuple)) = (
         source.downcast_ref::<PyTuple>(),
@@ -680,7 +678,7 @@ fn copy_public_ast_passthrough_children(
             .iter()
             .zip(target_tuple.as_slice().iter())
         {
-            copy_public_ast_passthrough_children(vm, source_item, target_item)?;
+            copy_ast_passthrough_children(vm, source_item, target_item)?;
         }
     }
 
@@ -2348,7 +2346,7 @@ pub(crate) fn preprocess_ast_object(
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let ast = constant::with_public_ast_context(vm, |from_ctx| {
+    let ast = constant::with_ast_from_object_context(vm, |from_ctx| {
         Node::ast_from_object(from_ctx, &source_file, object)
     })?;
     validate::validate_mod(vm, &ast)?;
@@ -2409,7 +2407,7 @@ pub(crate) fn preprocess_ast_object(
     };
     let ctx = AstToObjectContext::new(vm, &source_file);
     let result = ast.ast_to_object(&ctx);
-    copy_public_ast_passthrough_fields(vm, &original_object, &result)?;
+    copy_ast_passthrough_fields(vm, &original_object, &result)?;
     Ok(result)
 }
 
@@ -2423,7 +2421,7 @@ pub(crate) fn compile(
 ) -> PyResult {
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let ast = constant::with_public_ast_context(vm, |from_ctx| {
+    let ast = constant::with_ast_from_object_context(vm, |from_ctx| {
         Node::ast_from_object(from_ctx, &source_file, object)
     })?;
     validate::validate_mod(vm, &ast)?;
@@ -2488,7 +2486,7 @@ pub(crate) fn compile(
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
     let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
-    let ast = constant::with_public_ast_context(vm, |from_ctx| {
+    let ast = constant::with_ast_from_object_context(vm, |from_ctx| {
         Node::ast_from_object(from_ctx, &source_file, object)
     })?;
     validate::validate_mod(vm, &ast)?;

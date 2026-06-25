@@ -10,10 +10,10 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    IndexMap, IndexSet, PublicAstExprList, PublicAstInterpolation, ToPythonName,
+    IndexMap, IndexSet, ToPythonName, ast_constant_value_to_constant_data,
     error::{CodegenError, CodegenErrorType, InternalError},
     ir::{self, Block, BlockIdx, Blocks},
-    preprocess, public_ast_constant_to_constant_data,
+    preprocess,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
@@ -729,7 +729,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn infer_type(&self, expr: &ast::Expr) -> Option<InferredType> {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return Self::infer_type_constant(&constant);
         }
         match expr {
@@ -756,7 +756,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn is_constant_expr(&self, expr: &ast::Expr) -> bool {
-        if self.public_ast_constant_override(expr).is_some() {
+        if self.ast_constant_override(expr).is_some() {
             return true;
         }
         matches!(
@@ -790,7 +790,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn check_is_arg(&self, expr: &ast::Expr) -> bool {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return matches!(
                 constant,
                 ConstantData::None | ConstantData::Boolean { .. } | ConstantData::Ellipsis
@@ -825,7 +825,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn check_caller(&mut self, func: &ast::Expr) -> CompileResult<()> {
-        let warns = self.public_ast_constant_override(func).is_some()
+        let warns = self.ast_constant_override(func).is_some()
             || matches!(
                 func,
                 ast::Expr::StringLiteral(_)
@@ -905,7 +905,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn check_subscripter(&mut self, value: &ast::Expr) -> CompileResult<()> {
         let warns = self
-            .public_ast_constant_override(value)
+            .ast_constant_override(value)
             .is_some_and(|constant| Self::constant_warns_as_subscripter(&constant))
             || matches!(
                 value,
@@ -939,16 +939,12 @@ impl<'warnings> Compiler<'warnings> {
             return Ok(());
         }
 
-        let constant_warns = self
-            .public_ast_constant_override(value)
-            .is_some_and(|constant| {
-                matches!(
-                    constant,
-                    ConstantData::Str { .. }
-                        | ConstantData::Bytes { .. }
-                        | ConstantData::Tuple { .. }
-                )
-            });
+        let constant_warns = self.ast_constant_override(value).is_some_and(|constant| {
+            matches!(
+                constant,
+                ConstantData::Str { .. } | ConstantData::Bytes { .. } | ConstantData::Tuple { .. }
+            )
+        });
         let warns = constant_warns
             || matches!(
                 value,
@@ -976,7 +972,7 @@ impl<'warnings> Compiler<'warnings> {
         let warns = match &*assert_stmt.test {
             ast::Expr::Tuple(tuple) => !tuple.elts.is_empty(),
             _ => matches!(
-                self.public_ast_constant_override(&assert_stmt.test),
+                self.ast_constant_override(&assert_stmt.test),
                 Some(ConstantData::Tuple { ref elements }) if !elements.is_empty()
             ),
         };
@@ -8597,14 +8593,15 @@ impl<'warnings> Compiler<'warnings> {
         send_block
     }
 
-    fn public_ast_constant_override(&self, expr: &ast::Expr) -> Option<ConstantData> {
-        crate::public_ast_constant(expr).map(public_ast_constant_to_constant_data)
+    fn ast_constant_override(&self, expr: &ast::Expr) -> Option<ConstantData> {
+        expr.as_constant_expr()
+            .map(|expr| ast_constant_value_to_constant_data(expr.value.clone()))
     }
 
-    fn public_ast_interpolation_override(
+    fn runtime_interpolation_override(
         &self,
         expr_tstring: &ast::ExprTString,
-    ) -> Option<PublicAstInterpolation> {
+    ) -> Option<(ast::ConstantValue, Option<Box<ast::Expr>>)> {
         let tstring = expr_tstring.as_single_part_tstring()?;
         let interpolation = tstring.elements.first()?.as_interpolation()?;
         Some((
@@ -8613,34 +8610,28 @@ impl<'warnings> Compiler<'warnings> {
         ))
     }
 
-    fn public_ast_interpolation_override_by_element(
+    fn runtime_interpolation_override_by_element(
         &self,
         element: &ast::InterpolatedElement,
-    ) -> Option<PublicAstInterpolation> {
+    ) -> Option<(ast::ConstantValue, Option<Box<ast::Expr>>)> {
         Some((
             element.runtime_str.clone()?,
             element.runtime_interpolation_format_spec.clone(),
         ))
     }
 
-    fn public_ast_formatted_value_override_by_element(
+    fn runtime_formatted_value_format_spec_by_element(
         &self,
         element: &ast::InterpolatedElement,
     ) -> Option<Box<ast::Expr>> {
         element.runtime_formatted_value_format_spec.clone()
     }
 
-    fn public_ast_joined_str_override(
-        &self,
-        fstring: &ast::ExprFString,
-    ) -> Option<PublicAstExprList> {
+    fn runtime_joined_str_override(&self, fstring: &ast::ExprFString) -> Option<Vec<ast::Expr>> {
         fstring.runtime_joined_str.clone()
     }
 
-    fn public_ast_template_str_override(
-        &self,
-        tstring: &ast::ExprTString,
-    ) -> Option<PublicAstExprList> {
+    fn runtime_template_str_override(&self, tstring: &ast::ExprTString) -> Option<Vec<ast::Expr>> {
         tstring.runtime_template_str.clone()
     }
 
@@ -8649,7 +8640,7 @@ impl<'warnings> Compiler<'warnings> {
         let range = expression.range();
         self.set_source_range(range);
 
-        if let Some(constant) = self.public_ast_constant_override(expression) {
+        if let Some(constant) = self.ast_constant_override(expression) {
             self.emit_load_const(constant);
             return Ok(());
         }
@@ -8743,7 +8734,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_compare(left, ops, comparators)?;
             }
             ast::Expr::Constant(ast::ExprConstant { value, .. }) => {
-                self.emit_load_const(public_ast_constant_to_constant_data(value.clone()));
+                self.emit_load_const(ast_constant_value_to_constant_data(value.clone()));
             }
             ast::Expr::List(ast::ExprList { elts, range, .. }) => {
                 self.set_source_range(*range);
@@ -9128,17 +9119,17 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(target.range());
             }
             ast::Expr::FString(fstring) => {
-                if let Some(joined_str) = self.public_ast_joined_str_override(fstring) {
-                    return self.compile_public_ast_joined_str(fstring, joined_str);
+                if let Some(joined_str) = self.runtime_joined_str_override(fstring) {
+                    return self.compile_runtime_joined_str(fstring, joined_str);
                 }
                 self.compile_expr_fstring(fstring)?;
             }
             ast::Expr::TString(tstring) => {
-                if let Some(template_str) = self.public_ast_template_str_override(tstring) {
-                    return self.compile_public_ast_template_str(tstring, template_str);
+                if let Some(template_str) = self.runtime_template_str_override(tstring) {
+                    return self.compile_runtime_template_str(tstring, template_str);
                 }
-                if let Some(interpolation) = self.public_ast_interpolation_override(tstring)
-                    && self.compile_public_ast_interpolation(tstring, interpolation)?
+                if let Some(interpolation) = self.runtime_interpolation_override(tstring)
+                    && self.compile_runtime_interpolation(tstring, interpolation)?
                 {
                     return Ok(());
                 }
@@ -11580,7 +11571,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn try_fold_constant_expr(&mut self, expr: &ast::Expr) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return Ok(Some(constant));
         }
         Ok(Some(match expr {
@@ -11771,7 +11762,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return Ok(Some(constant));
         }
         Ok(Some(match expr {
@@ -11801,7 +11792,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return Ok(match constant {
                 ConstantData::Boolean { .. } | ConstantData::None => Some(constant),
                 _ => None,
@@ -11817,8 +11808,9 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn is_unexpected_match_literal_constant(expr: &ast::Expr) -> bool {
-        if let Some(constant) =
-            crate::public_ast_constant(expr).map(public_ast_constant_to_constant_data)
+        if let Some(constant) = expr
+            .as_constant_expr()
+            .map(|expr| ast_constant_value_to_constant_data(expr.value.clone()))
         {
             return matches!(
                 constant,
@@ -11837,7 +11829,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return Ok(match constant {
                 ConstantData::Integer { .. }
                 | ConstantData::Float { .. }
@@ -11970,7 +11962,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.public_ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_override(expr) {
             return Ok(match constant {
                 ConstantData::Integer { .. }
                 | ConstantData::Float { .. }
@@ -12541,10 +12533,10 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn compile_public_ast_joined_str(
+    fn compile_runtime_joined_str(
         &mut self,
         fstring: &ast::ExprFString,
-        joined_str: PublicAstExprList,
+        joined_str: Vec<ast::Expr>,
     ) -> CompileResult<()> {
         let range = fstring.range;
         let values = joined_str;
@@ -12997,7 +12989,7 @@ impl<'warnings> Compiler<'warnings> {
                     }
 
                     if let Some(format_spec) =
-                        self.public_ast_formatted_value_override_by_element(fstring_expr)
+                        self.runtime_formatted_value_format_spec_by_element(fstring_expr)
                     {
                         self.compile_expression(&format_spec)?;
 
@@ -13158,19 +13150,16 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn compile_public_ast_template_str(
+    fn compile_runtime_template_str(
         &mut self,
         expr_tstring: &ast::ExprTString,
-        template_str: PublicAstExprList,
+        template_str: Vec<ast::Expr>,
     ) -> CompileResult<()> {
         let values = template_str;
         let mut last_was_interpolation = true;
         let mut strings_len = 0;
         for value in &values {
-            if self
-                .public_ast_template_value_interpolation(value)
-                .is_some()
-            {
+            if self.runtime_template_value_interpolation(value).is_some() {
                 if last_was_interpolation {
                     self.set_source_range(expr_tstring.range);
                     self.emit_load_const(ConstantData::Str {
@@ -13197,10 +13186,9 @@ impl<'warnings> Compiler<'warnings> {
 
         let mut interpolations_len = 0;
         for value in &values {
-            if let Some((tstring, interpolation)) =
-                self.public_ast_template_value_interpolation(value)
+            if let Some((tstring, interpolation)) = self.runtime_template_value_interpolation(value)
             {
-                self.compile_public_ast_interpolation(tstring, interpolation)?;
+                self.compile_runtime_interpolation(tstring, interpolation)?;
                 interpolations_len += 1;
             }
         }
@@ -13216,22 +13204,25 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn public_ast_template_value_interpolation<'a>(
+    fn runtime_template_value_interpolation<'a>(
         &self,
         value: &'a ast::Expr,
-    ) -> Option<(&'a ast::ExprTString, PublicAstInterpolation)> {
+    ) -> Option<(
+        &'a ast::ExprTString,
+        (ast::ConstantValue, Option<Box<ast::Expr>>),
+    )> {
         let ast::Expr::TString(tstring) = value else {
             return None;
         };
-        let interpolation = self.public_ast_interpolation_override(tstring)?;
+        let interpolation = self.runtime_interpolation_override(tstring)?;
         Self::single_tstring_interpolation(tstring)?;
         Some((tstring, interpolation))
     }
 
-    fn compile_public_ast_interpolation(
+    fn compile_runtime_interpolation(
         &mut self,
         expr_tstring: &ast::ExprTString,
-        interpolation: PublicAstInterpolation,
+        interpolation: (ast::ConstantValue, Option<Box<ast::Expr>>),
     ) -> CompileResult<bool> {
         let Some(interp) = Self::single_tstring_interpolation(expr_tstring) else {
             return Ok(false);
@@ -13244,12 +13235,12 @@ impl<'warnings> Compiler<'warnings> {
     fn compile_interpolation(
         &mut self,
         interp: &ast::InterpolatedElement,
-        interpolation: PublicAstInterpolation,
+        interpolation: (ast::ConstantValue, Option<Box<ast::Expr>>),
     ) -> CompileResult<()> {
         let (str, format_spec) = interpolation;
         self.compile_expression(&interp.expression)?;
         self.set_source_range(interp.range);
-        self.emit_load_const(public_ast_constant_to_constant_data(str));
+        self.emit_load_const(ast_constant_value_to_constant_data(str));
 
         let conversion = match interp.conversion {
             ast::ConversionFlag::None => 0,
@@ -13360,7 +13351,7 @@ impl<'warnings> Compiler<'warnings> {
                 continue;
             };
 
-            if let Some(interpolation) = self.public_ast_interpolation_override_by_element(interp) {
+            if let Some(interpolation) = self.runtime_interpolation_override_by_element(interp) {
                 self.compile_interpolation(interp, interpolation)?;
                 continue;
             }
@@ -13906,7 +13897,7 @@ mod tests {
     }
 
     fn set_public_constant(expr: &mut ast::Expr, constant: ConstantData) {
-        let constant = crate::constant_data_to_public_ast_constant(constant);
+        let constant = crate::constant_data_to_ast_constant_value(constant);
         let range = expr.range();
         *expr = ast::Expr::Constant(ast::ExprConstant {
             node_index: Default::default(),
@@ -14052,7 +14043,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_frozenset_constant_compiles_as_load_const() {
+    fn ast_constant_frozenset_compiles_as_load_const() {
         let code = compile_public_constant_expr(
             frozenset_call_expr(),
             ConstantData::Frozenset {
@@ -14096,7 +14087,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_constant_is_not_scanned_as_lowered_expression() {
+    fn ast_constant_is_not_scanned_as_lowered_expression() {
         let mut expr = frozenset_call_expr();
         set_public_constant(
             &mut expr,
@@ -14125,7 +14116,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_frozenset_constant_call_warns_like_cpython_constant() {
+    fn ast_constant_frozenset_call_warns_like_cpython_constant() {
         let mut func = frozenset_call_expr();
         set_public_constant(
             &mut func,
@@ -14153,7 +14144,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_frozenset_constant_subscript_warns_like_cpython_constant() {
+    fn ast_constant_frozenset_subscript_warns_like_cpython_constant() {
         let mut value = frozenset_call_expr();
         set_public_constant(
             &mut value,
@@ -14179,7 +14170,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_str_constant_bad_index_warns_like_cpython_constant() {
+    fn ast_constant_str_bad_index_warns_like_cpython_constant() {
         let mut value = frozenset_call_expr();
         set_public_constant(
             &mut value,
@@ -14205,7 +14196,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_frozenset_constant_is_warns_like_cpython_constant() {
+    fn ast_constant_frozenset_is_warns_like_cpython_constant() {
         let mut left = frozenset_call_expr();
         set_public_constant(
             &mut left,
@@ -14231,7 +14222,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_tuple_constant_compiles_as_load_const() {
+    fn ast_constant_tuple_compiles_as_load_const() {
         let expr = ast::Expr::Tuple(ast::ExprTuple {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
@@ -14279,7 +14270,7 @@ mod tests {
     }
 
     #[test]
-    fn public_ast_constant_slice_bound_uses_cpython_constant_slice_path() {
+    fn ast_constant_slice_bound_uses_cpython_constant_slice_path() {
         let mut lower = frozenset_call_expr();
         set_public_constant(
             &mut lower,

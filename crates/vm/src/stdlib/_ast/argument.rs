@@ -2,7 +2,7 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
-    pub runtime_values: Option<super::constant::PublicAstExprOptionList>,
+    pub runtime_values: Option<Vec<Option<ast::Expr>>>,
     pub range: TextRange,
     pub args: Box<[ast::Expr]>,
 }
@@ -35,7 +35,7 @@ impl Node for PositionalArguments {
             args,
             range: _,
         } = self;
-        super::constant::public_ast_expr_list_object(to_ctx, runtime_values).map_or_else(
+        runtime_values.map_or_else(
             || BoxedSlice(args).ast_to_object(to_ctx),
             |values| values.ast_to_object(to_ctx),
         )

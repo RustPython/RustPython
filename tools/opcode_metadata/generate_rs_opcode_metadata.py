@@ -11,10 +11,10 @@ import sys
 import typing
 
 import tomllib
-
-from cpython import Analysis, get_analysis, get_stack_effect
 from opcodes import OpcodeInfo
 from utils import DEFAULT_INPUT, ROOT, get_conf, to_pascal_case
+
+from cpython import Analysis, get_analysis, get_stack_effect
 
 OUT_FILE = ROOT / "crates/compiler-core/src/bytecode/opcode_metadata.rs"
 

@@ -19,23 +19,23 @@ impl Deref for Validator<'_> {
     }
 }
 
-fn public_ast_invalid_constant_type(vm: &Validator<'_>, expr: &ast::Expr) -> Option<String> {
+fn invalid_constant_type(vm: &Validator<'_>, expr: &ast::Expr) -> Option<String> {
     let _ = vm;
-    super::constant::public_ast_invalid_constant_type(expr).map(|value| value.to_string())
+    super::constant::invalid_constant_type(expr).map(|value| value.to_string())
 }
 
-fn public_ast_joined_str_values(
+fn runtime_joined_str_values(
     vm: &Validator<'_>,
     expr: &ast::ExprFString,
-) -> Option<super::constant::PublicAstExprList> {
+) -> Option<Vec<ast::Expr>> {
     let _ = vm;
     expr.runtime_joined_str.clone()
 }
 
-fn public_ast_template_str_values(
+fn runtime_template_str_values(
     vm: &Validator<'_>,
     expr: &ast::ExprTString,
-) -> Option<super::constant::PublicAstExprList> {
+) -> Option<Vec<ast::Expr>> {
     let _ = vm;
     expr.runtime_template_str.clone()
 }
@@ -169,7 +169,7 @@ fn validate_assignlist(
 fn validate_body(
     vm: &Validator<'_>,
     body: &[ast::Stmt],
-    metadata: Option<&super::constant::PublicAstStmtList>,
+    metadata: Option<&Vec<Option<ast::Stmt>>>,
     owner: &'static str,
 ) -> PyResult<()> {
     validate_nonempty_seq(vm, body.len(), "body", owner)?;
@@ -237,14 +237,14 @@ fn ensure_literal_complex(expr: &ast::Expr) -> bool {
     real_left && ensure_literal_number(&bin.right, false, true)
 }
 
-fn public_ast_constant_override(expr: &ast::Expr) -> Option<ConstantData> {
-    super::constant::public_ast_constant(expr)
-        .map(super::constant::public_ast_constant_to_constant_data)
+fn ast_constant_override(expr: &ast::Expr) -> Option<ConstantData> {
+    expr.as_constant_expr()
+        .map(|expr| super::constant::ast_constant_value_to_constant_data(expr.value.clone()))
 }
 
 fn validate_pattern_match_value(vm: &Validator<'_>, expr: &ast::Expr) -> PyResult<()> {
     validate_expr(vm, expr, ast::ExprContext::Load)?;
-    if let Some(constant) = public_ast_constant_override(expr) {
+    if let Some(constant) = ast_constant_override(expr) {
         return match &constant {
             ConstantData::Integer { .. }
             | ConstantData::Float { .. }
@@ -384,7 +384,7 @@ fn validate_pattern(vm: &Validator<'_>, pattern: &ast::Pattern, star_ok: bool) -
 
 fn public_pattern_list_has_null(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstPatternList>,
+    values: Option<&Vec<Option<ast::Pattern>>>,
 ) -> bool {
     let _ = vm;
     values.is_some_and(|values| values.iter().any(Option::is_none))
@@ -392,7 +392,7 @@ fn public_pattern_list_has_null(
 
 fn validate_public_pattern_list_slots(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstPatternList>,
+    values: Option<&Vec<Option<ast::Pattern>>>,
 ) -> PyResult<()> {
     if public_pattern_list_has_null(vm, values) {
         return Err(vm.new_value_error("unexpected pattern"));
@@ -402,7 +402,7 @@ fn validate_public_pattern_list_slots(
 
 fn public_expr_option_list_has_null(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstExprOptionList>,
+    values: Option<&Vec<Option<ast::Expr>>>,
 ) -> bool {
     let _ = vm;
     values.is_some_and(|values| values.iter().any(Option::is_none))
@@ -410,15 +410,15 @@ fn public_expr_option_list_has_null(
 
 fn public_expr_option_list<'a>(
     vm: &Validator<'_>,
-    values: Option<&'a super::constant::PublicAstExprOptionList>,
-) -> Option<&'a super::constant::PublicAstExprOptionList> {
+    values: Option<&'a Vec<Option<ast::Expr>>>,
+) -> Option<&'a Vec<Option<ast::Expr>>> {
     let _ = vm;
     values
 }
 
 fn validate_public_expr_option_list_slots(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstExprOptionList>,
+    values: Option<&Vec<Option<ast::Expr>>>,
 ) -> PyResult<()> {
     if public_expr_option_list_has_null(vm, values) {
         return Err(vm.new_value_error("None disallowed in expression list"));
@@ -428,7 +428,7 @@ fn validate_public_expr_option_list_slots(
 
 fn validate_public_expr_list_slots(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstExprOptionList>,
+    values: Option<&Vec<Option<ast::Expr>>>,
     ctx: ast::ExprContext,
 ) -> PyResult<()> {
     if let Some(values) = values {
@@ -444,7 +444,7 @@ fn validate_public_expr_list_slots(
 
 fn validate_public_stmt_list_slots(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstStmtList>,
+    values: Option<&Vec<Option<ast::Stmt>>>,
 ) -> PyResult<()> {
     if let Some(values) = values
         && values.iter().any(Option::is_none)
@@ -456,7 +456,7 @@ fn validate_public_stmt_list_slots(
 
 fn public_except_handler_list_has_null(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstExceptHandlerList>,
+    values: Option<&Vec<Option<ast::ExceptHandler>>>,
 ) -> bool {
     let _ = vm;
     values.is_some_and(|values| values.iter().any(Option::is_none))
@@ -464,7 +464,7 @@ fn public_except_handler_list_has_null(
 
 fn validate_public_except_handler_list_slots(
     vm: &Validator<'_>,
-    values: Option<&super::constant::PublicAstExceptHandlerList>,
+    values: Option<&Vec<Option<ast::ExceptHandler>>>,
 ) -> PyResult<()> {
     if public_except_handler_list_has_null(vm, values) {
         return Err(vm.new_value_error("unexpected excepthandler"));
@@ -688,7 +688,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
                 fstring.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
-            if let Some(joined_str) = public_ast_joined_str_values(vm, fstring) {
+            if let Some(joined_str) = runtime_joined_str_values(vm, fstring) {
                 validate_exprs(vm, &joined_str, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
@@ -706,7 +706,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
                 tstring.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
-            if let Some(template_str) = public_ast_template_str_values(vm, tstring) {
+            if let Some(template_str) = runtime_template_str_values(vm, tstring) {
                 validate_exprs(vm, &template_str, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
@@ -725,7 +725,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         | ast::Expr::BooleanLiteral(_)
         | ast::Expr::NoneLiteral(_)
         | ast::Expr::EllipsisLiteral(_) => {
-            if let Some(invalid_type) = public_ast_invalid_constant_type(vm, expr) {
+            if let Some(invalid_type) = invalid_constant_type(vm, expr) {
                 Err(vm.new_type_error(format!("got an invalid type in Constant: {invalid_type}")))
             } else {
                 Ok(())
