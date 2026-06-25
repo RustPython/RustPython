@@ -51,178 +51,19 @@ pub enum CompileError {
 impl CompileError {
     #[must_use]
     pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
-        let source_text = source_file.source_text();
-
-        let mut is_unclosed_bracket = false;
-        let (error_type, location, end_location) = if let Some((message, offset)) =
-            invalid_number_literal_error(source_text)
-        {
-            parse_other_error(source_file, message, offset, offset)
-        } else if let Some((message, start, end)) = invalid_legacy_statement_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = non_printable_character_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_interpolated_string_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end, unclosed)) = bracket_syntax_error(source_text) {
-            is_unclosed_bracket = unclosed;
-            parse_other_error(source_file, message, start, end)
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
-        ) {
-            let loc = source_location(source_file, error.location.start() + TextSize::from(1));
-            (error.error, loc, loc)
-        } else if let Some((message, start, end)) = unterminated_string_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) =
-            expected_indented_block_error(&error, source_text)
-        {
-            parse_other_error(source_file, message, start, end)
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
-        ) {
-            if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
-                let loc = source_location(source_file, TextSize::new(bracket_offset as u32));
-                let end_loc = SourceLocation {
-                    line: loc.line,
-                    character_offset: loc.character_offset.saturating_add(1),
-                };
-                let msg = format!("'{bracket_char}' was never closed");
-                is_unclosed_bracket = true;
-                (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-            } else {
-                let end_loc = source_line_end_location(source_file, error.location.start());
-                (error.error, end_loc, end_loc)
-            }
-        } else if let Some((message, start, end)) = invalid_type_param_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_comprehension_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) =
-            invalid_parameter_star_annotation_error(source_text)
-        {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_parameter_list_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_call_argument_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if is_missing_comma_between_literals(&error) {
-            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-            let msg = "invalid syntax. Perhaps you forgot a comma?".into();
-            (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-        } else if let Some((message, start, end)) = invalid_dict_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_collection_assignment_error(source_text)
-        {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_group_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_def_type_params_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_expression_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_named_expression_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_plain_assignment_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = expression_assignment_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_annotation_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_assignment_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_augassign_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_for_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_with_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_delete_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_standalone_except_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_import_statement_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_import_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_except_as_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) =
-            invalid_match_mapping_rest_wildcard_error(source_text)
-        {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_match_as_target_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_for_if_clause_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) =
-            invalid_if_expression_statement_error(source_text)
-        {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = invalid_else_elif_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if let Some((message, start, end)) = mixed_except_handlers_error(source_text) {
-            parse_other_error(source_file, message, start, end)
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
-        ) {
-            let end_loc = source_line_end_location(source_file, error.location.start());
-            (error.error, end_loc, end_loc)
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::InvalidAssignmentTarget
-        ) {
-            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-            let expr_str = source_file.source_text().slice(error.location);
-
-            let msg = parser::parse_expression(expr_str).map_or_else(
-                |_| match expr_str {
-                    "yield" => "assignment to yield expression not possible".into(),
-                    _ => format!("cannot assign to {expr_str}"),
-                },
-                |parsed| match *parsed.syntax().body {
-                    ast::Expr::Call(_) => "cannot assign to function call".into(),
-                    ast::Expr::BinOp(_) => "cannot assign to expression".into(),
-                    ast::Expr::If(_) => "cannot assign to conditional expression".into(),
-                    ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
-                    ast::Expr::FString(_) => "invalid syntax".into(),
-                    ast::Expr::StringLiteral(_)
-                    | ast::Expr::BytesLiteral(_)
-                    | ast::Expr::NumberLiteral(_) => {
-                        "cannot assign to literal here. Maybe you meant '==' instead of '='?".into()
-                    }
-                    ast::Expr::EllipsisLiteral(_) => {
-                        "cannot assign to ellipsis here. Maybe you meant '==' instead of '='?"
-                            .into()
-                    }
-                    _ => format!("cannot assign to {expr_str}"),
-                },
-            );
-
-            (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-        } else if matches!(
-            &error.error,
-            parser::ParseErrorType::InvalidNamedAssignmentTarget
-        ) {
-            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-            let target = source_file.source_text().slice(error.location);
-            let msg = format!("cannot use assignment expressions with {target}");
-            (parser::ParseErrorType::OtherError(msg), loc, end_loc)
-        } else {
-            let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
-            (error.error, loc, end_loc)
+        let raw_location = error.location;
+        let diagnostic = match cpython_parse_diagnostic_override(&error, source_file) {
+            Some(diagnostic) => diagnostic,
+            None => default_parse_diagnostic(error, source_file),
         };
 
         Self::Parse(ParseError {
-            error: error_type,
-            raw_location: error.location,
-            location,
-            end_location,
+            error: diagnostic.error,
+            raw_location,
+            location: diagnostic.location,
+            end_location: diagnostic.end_location,
             source_path: source_file.name().to_owned(),
-            is_unclosed_bracket,
+            is_unclosed_bracket: diagnostic.is_unclosed_bracket,
         })
     }
 
@@ -300,22 +141,242 @@ fn source_locations(
     )
 }
 
-fn parse_other_error(
+struct NormalizedParseDiagnostic {
+    error: parser::ParseErrorType,
+    location: SourceLocation,
+    end_location: SourceLocation,
+    is_unclosed_bracket: bool,
+}
+
+impl NormalizedParseDiagnostic {
+    const fn new(
+        error: parser::ParseErrorType,
+        location: SourceLocation,
+        end_location: SourceLocation,
+    ) -> Self {
+        Self {
+            error,
+            location,
+            end_location,
+            is_unclosed_bracket: false,
+        }
+    }
+
+    fn other(source_file: &SourceFile, message: String, start: usize, end: usize) -> Self {
+        let (location, end_location) = source_locations(
+            source_file,
+            TextSize::new(start as u32),
+            TextSize::new(end as u32),
+        );
+        Self::new(
+            parser::ParseErrorType::OtherError(message),
+            location,
+            end_location,
+        )
+    }
+
+    const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
+        self.is_unclosed_bracket = is_unclosed_bracket;
+        self
+    }
+}
+
+fn cpython_parse_diagnostic_override(
+    error: &parser::ParseError,
     source_file: &SourceFile,
-    message: String,
-    start: usize,
-    end: usize,
-) -> (parser::ParseErrorType, SourceLocation, SourceLocation) {
-    let (location, end_location) = source_locations(
-        source_file,
-        TextSize::new(start as u32),
-        TextSize::new(end as u32),
+) -> Option<NormalizedParseDiagnostic> {
+    let source_text = source_file.source_text();
+
+    macro_rules! source_error {
+        ($expr:expr) => {
+            if let Some((message, start, end)) = $expr {
+                return Some(NormalizedParseDiagnostic::other(
+                    source_file,
+                    message,
+                    start,
+                    end,
+                ));
+            }
+        };
+    }
+
+    if let Some((message, offset)) = invalid_number_literal_error(source_text) {
+        return Some(NormalizedParseDiagnostic::other(
+            source_file,
+            message,
+            offset,
+            offset,
+        ));
+    }
+    source_error!(invalid_legacy_statement_error(source_text));
+    source_error!(non_printable_character_error(source_text));
+    source_error!(invalid_interpolated_string_error(source_text));
+
+    if let Some((message, start, end, unclosed)) = bracket_syntax_error(source_text) {
+        return Some(
+            NormalizedParseDiagnostic::other(source_file, message, start, end)
+                .with_unclosed_bracket(unclosed),
+        );
+    }
+
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
+    ) {
+        let loc = source_location(source_file, error.location.start() + TextSize::from(1));
+        return Some(NormalizedParseDiagnostic::new(
+            error.error.clone(),
+            loc,
+            loc,
+        ));
+    }
+
+    source_error!(unterminated_string_error(source_text));
+    source_error!(expected_indented_block_error(error, source_text));
+
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
+    ) {
+        return Some(eof_parse_diagnostic(error, source_file));
+    }
+
+    source_error!(invalid_type_param_error(source_text));
+    source_error!(invalid_comprehension_error(source_text));
+    source_error!(invalid_parameter_star_annotation_error(source_text));
+    source_error!(invalid_parameter_list_error(source_text));
+    source_error!(invalid_call_argument_error(source_text));
+
+    if is_missing_comma_between_literals(error) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        let msg = "invalid syntax. Perhaps you forgot a comma?".into();
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError(msg),
+            loc,
+            end_loc,
+        ));
+    }
+
+    source_error!(invalid_dict_error(source_text));
+    source_error!(invalid_collection_assignment_error(source_text));
+    source_error!(invalid_group_error(source_text));
+    source_error!(invalid_def_type_params_error(source_text));
+    source_error!(invalid_expression_error(source_text));
+    source_error!(invalid_named_expression_error(source_text));
+    source_error!(invalid_plain_assignment_error(source_text));
+    source_error!(expression_assignment_error(source_text));
+    source_error!(invalid_annotation_target_error(source_text));
+    source_error!(invalid_assignment_target_error(source_text));
+    source_error!(invalid_augassign_target_error(source_text));
+    source_error!(invalid_for_target_error(source_text));
+    source_error!(invalid_with_target_error(source_text));
+    source_error!(invalid_delete_target_error(source_text));
+    source_error!(invalid_standalone_except_error(source_text));
+    source_error!(invalid_import_statement_error(source_text));
+    source_error!(invalid_import_target_error(source_text));
+    source_error!(invalid_except_as_target_error(source_text));
+    source_error!(invalid_match_mapping_rest_wildcard_error(source_text));
+    source_error!(invalid_match_as_target_error(source_text));
+    source_error!(invalid_for_if_clause_error(source_text));
+    source_error!(invalid_if_expression_statement_error(source_text));
+    source_error!(invalid_else_elif_error(source_text));
+    source_error!(mixed_except_handlers_error(source_text));
+
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::Lexical(parser::LexicalErrorType::IndentationError)
+    ) {
+        let end_loc = source_line_end_location(source_file, error.location.start());
+        return Some(NormalizedParseDiagnostic::new(
+            error.error.clone(),
+            end_loc,
+            end_loc,
+        ));
+    }
+
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::InvalidAssignmentTarget
+    ) {
+        return Some(invalid_assignment_target_diagnostic(error, source_file));
+    }
+
+    if matches!(
+        &error.error,
+        parser::ParseErrorType::InvalidNamedAssignmentTarget
+    ) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        let target = source_file.source_text().slice(error.location);
+        let msg = format!("cannot use assignment expressions with {target}");
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError(msg),
+            loc,
+            end_loc,
+        ));
+    }
+
+    None
+}
+
+fn eof_parse_diagnostic(
+    error: &parser::ParseError,
+    source_file: &SourceFile,
+) -> NormalizedParseDiagnostic {
+    let source_text = source_file.source_text();
+    if let Some((bracket_char, bracket_offset)) = find_unclosed_bracket(source_text) {
+        let loc = source_location(source_file, TextSize::new(bracket_offset as u32));
+        let end_loc = SourceLocation {
+            line: loc.line,
+            character_offset: loc.character_offset.saturating_add(1),
+        };
+        let msg = format!("'{bracket_char}' was never closed");
+        NormalizedParseDiagnostic::new(parser::ParseErrorType::OtherError(msg), loc, end_loc)
+            .with_unclosed_bracket(true)
+    } else {
+        let end_loc = source_line_end_location(source_file, error.location.start());
+        NormalizedParseDiagnostic::new(error.error.clone(), end_loc, end_loc)
+    }
+}
+
+fn invalid_assignment_target_diagnostic(
+    error: &parser::ParseError,
+    source_file: &SourceFile,
+) -> NormalizedParseDiagnostic {
+    let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+    let expr_str = source_file.source_text().slice(error.location);
+
+    let msg = parser::parse_expression(expr_str).map_or_else(
+        |_| match expr_str {
+            "yield" => "assignment to yield expression not possible".into(),
+            _ => format!("cannot assign to {expr_str}"),
+        },
+        |parsed| match *parsed.syntax().body {
+            ast::Expr::Call(_) => "cannot assign to function call".into(),
+            ast::Expr::BinOp(_) => "cannot assign to expression".into(),
+            ast::Expr::If(_) => "cannot assign to conditional expression".into(),
+            ast::Expr::Generator(_) => "cannot assign to generator expression".into(),
+            ast::Expr::FString(_) => "invalid syntax".into(),
+            ast::Expr::StringLiteral(_)
+            | ast::Expr::BytesLiteral(_)
+            | ast::Expr::NumberLiteral(_) => {
+                "cannot assign to literal here. Maybe you meant '==' instead of '='?".into()
+            }
+            ast::Expr::EllipsisLiteral(_) => {
+                "cannot assign to ellipsis here. Maybe you meant '==' instead of '='?".into()
+            }
+            _ => format!("cannot assign to {expr_str}"),
+        },
     );
-    (
-        parser::ParseErrorType::OtherError(message),
-        location,
-        end_location,
-    )
+
+    NormalizedParseDiagnostic::new(parser::ParseErrorType::OtherError(msg), loc, end_loc)
+}
+
+fn default_parse_diagnostic(
+    error: parser::ParseError,
+    source_file: &SourceFile,
+) -> NormalizedParseDiagnostic {
+    let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+    NormalizedParseDiagnostic::new(error.error, loc, end_loc)
 }
 
 fn adjusted_error_locations(
