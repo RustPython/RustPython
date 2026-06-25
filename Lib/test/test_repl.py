@@ -173,6 +173,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         self.assertEqual(p.returncode, 0)
         self.assertIn(long_value, output)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_close_stdin(self):
         user_input = dedent('''
             import os
@@ -188,6 +189,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         self.assertEqual(process.returncode, 0)
         self.assertIn('before close', output)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_interactive_traceback_reporting(self):
         user_input = "1 / 0 / 3 / 4"
         p = spawn_repl()
@@ -205,6 +207,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         ]
         self.assertEqual(traceback_lines, expected_lines)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_interactive_traceback_reporting_multiple_input(self):
         user_input1 = dedent("""
         def foo(x):
@@ -230,6 +233,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         ]
         self.assertEqual(traceback_lines, expected_lines)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pythonstartup_error_reporting(self):
         # errors based on https://github.com/python/cpython/issues/137576
 
@@ -290,6 +294,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         """) % script
         self.assertIn(expected, output)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_runsource_show_syntax_error_location(self):
         user_input = dedent("""def f(x, x): ...
                             """)
@@ -303,6 +308,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         ]
         self.assertEqual(output.splitlines()[4:-1], expected_lines)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_interactive_source_is_in_linecache(self):
         user_input = dedent("""
         def foo(x):
@@ -388,6 +394,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
 @support.force_not_colorized_test_class
 class TestInteractiveModeSyntaxErrors(unittest.TestCase):
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Process didn't exit properly.
     def test_interactive_syntax_error_correct_line(self):
         output = run_on_interactive_mode(dedent("""\
         def f():
@@ -430,6 +437,7 @@ class TestAsyncioREPL(unittest.TestCase):
         expected = "toplevel contextvar test: ok"
         self.assertIn(expected, output, expected)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_toplevel_contextvars_async(self):
         user_input = dedent("""\
         from contextvars import ContextVar
