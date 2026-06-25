@@ -13,7 +13,7 @@ fn public_decorator_expr_list(values: &[Option<ast::Decorator>]) -> Vec<Option<a
         .collect()
 }
 
-fn lower_public_decorator_list(values: Vec<Option<ast::Decorator>>) -> ast::DecoratorList {
+fn lower_public_decorator_list(values: Vec<Option<ast::Decorator>>) -> Vec<ast::Decorator> {
     values
         .into_iter()
         .map(|value| {
@@ -44,21 +44,21 @@ fn definition_range_from_name(
     TextRange::new(keyword_start, end)
 }
 
-fn register_public_ast_stmt_type_comment(
+fn public_ast_stmt_type_comment(
     ctx: &AstFromObjectContext<'_>,
-    node_index: &ast::AtomicNodeIndex,
     type_comment: Option<PyObjectRef>,
-) {
-    if let Some(type_comment) = type_comment {
-        super::constant::register_public_ast_stmt_type_comment(ctx, node_index, type_comment);
-    }
+) -> (Option<Box<str>>, Option<Vec<u8>>) {
+    type_comment.map_or((None, None), |type_comment| {
+        super::constant::public_ast_string_from_pyobject(ctx, type_comment)
+    })
 }
 
 fn public_ast_stmt_type_comment_object(
     to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    value: Option<Box<str>>,
+    bytes: Option<Vec<u8>>,
 ) -> PyObjectRef {
-    super::constant::public_ast_stmt_type_comment_object(to_ctx, node_index)
+    super::constant::public_ast_stmt_type_comment_object(to_ctx, value, bytes)
         .unwrap_or_else(|| to_ctx.vm.ctx.none())
 }
 
@@ -358,26 +358,18 @@ fn stmt_function_def_from_object_with_range(
     let decorator_list: Vec<Option<ast::Decorator>> =
         get_node_list_field(ctx, source_file, &object, "decorator_list", typ)?;
     let public_decorator_list = public_decorator_expr_list(&decorator_list);
-    let node_index = public_node_list_overrides_node_index(
-        ctx,
-        vec![(super::constant::PublicAstStmtListField::Body, &body)],
-        vec![(
-            super::constant::PublicAstExprListField::DecoratorList,
-            &public_decorator_list,
-        )],
-        None,
-        None,
-    );
+    let runtime_body = public_stmt_list_metadata(&body);
+    let runtime_decorator_list = public_expr_list_metadata(&public_decorator_list);
     let body = lower_public_stmt_list(body);
     let decorator_list = lower_public_decorator_list(decorator_list);
     let returns = get_node_field_opt(ctx, &object, "returns")?
         .map(|obj| Node::ast_from_object(ctx, source_file, obj))
         .transpose()?;
-    let type_comment = get_ast_string_field_opt(ctx, &object, "type_comment")?;
-    register_public_ast_stmt_type_comment(ctx, &node_index, type_comment);
+    let (runtime_type_comment, runtime_type_comment_bytes) =
+        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     let type_params = type_params_from_field(ctx, source_file, &object, "type_params", typ)?;
     Ok(ast::StmtFunctionDef {
-        node_index,
+        node_index: Default::default(),
         name,
         parameters,
         body,
@@ -386,6 +378,10 @@ fn stmt_function_def_from_object_with_range(
         type_params,
         range,
         is_async,
+        runtime_decorator_list,
+        runtime_type_comment,
+        runtime_type_comment_bytes,
+        runtime_body,
     })
 }
 
@@ -394,7 +390,7 @@ impl Node for ast::StmtFunctionDef {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             name,
             parameters,
             body,
@@ -403,6 +399,10 @@ impl Node for ast::StmtFunctionDef {
             type_params,
             is_async,
             range,
+            runtime_decorator_list,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
+            runtime_body,
         } = self;
         let range = definition_range_from_name(
             source_file,
@@ -423,27 +423,18 @@ impl Node for ast::StmtFunctionDef {
             .unwrap();
         dict.set_item("args", parameters.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
         dict.set_item(
             "decorator_list",
-            super::constant::public_ast_expr_list_object(
-                to_ctx,
-                node_index.load(),
-                super::constant::PublicAstExprListField::DecoratorList,
-            )
-            .map_or_else(
-                || decorator_list.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
-            ),
+            super::constant::public_ast_expr_list_object(to_ctx, runtime_decorator_list)
+                .map_or_else(
+                    || decorator_list.ast_to_object(to_ctx),
+                    |values| values.ast_to_object(to_ctx),
+                ),
             ctx,
         )
         .unwrap();
@@ -451,7 +442,11 @@ impl Node for ast::StmtFunctionDef {
             .unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(to_ctx, node_index.load()),
+            public_ast_stmt_type_comment_object(
+                to_ctx,
+                runtime_type_comment,
+                runtime_type_comment_bytes,
+            ),
             ctx,
         )
         .unwrap();
@@ -505,27 +500,21 @@ fn stmt_class_def_from_object_with_range(
     let decorator_list: Vec<Option<ast::Decorator>> =
         get_node_list_field(ctx, source_file, &object, "decorator_list", "ClassDef")?;
     let public_decorator_list = public_decorator_expr_list(&decorator_list);
-    let node_index = public_node_list_overrides_node_index(
-        ctx,
-        vec![(super::constant::PublicAstStmtListField::Body, &body)],
-        vec![(
-            super::constant::PublicAstExprListField::DecoratorList,
-            &public_decorator_list,
-        )],
-        None,
-        None,
-    );
+    let runtime_body = public_stmt_list_metadata(&body);
+    let runtime_decorator_list = public_expr_list_metadata(&public_decorator_list);
     let body = lower_public_stmt_list(body);
     let decorator_list = lower_public_decorator_list(decorator_list);
     let type_params = type_params_from_field(ctx, source_file, &object, "type_params", "ClassDef")?;
     Ok(ast::StmtClassDef {
-        node_index,
+        node_index: Default::default(),
         name,
         arguments: merge_class_def_args(Some(bases), Some(keywords)),
         body,
         decorator_list,
         type_params,
         range,
+        runtime_decorator_list,
+        runtime_body,
     })
 }
 
@@ -534,13 +523,15 @@ impl Node for ast::StmtClassDef {
         let _vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             name,
             arguments,
             body,
             decorator_list,
             type_params,
             range,
+            runtime_decorator_list,
+            runtime_body,
         } = self;
         let (bases, keywords) = split_class_def_args(arguments);
         let range =
@@ -569,27 +560,18 @@ impl Node for ast::StmtClassDef {
             _vm,
         )
         .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, _vm).unwrap();
         dict.set_item(
             "decorator_list",
-            super::constant::public_ast_expr_list_object(
-                to_ctx,
-                node_index.load(),
-                super::constant::PublicAstExprListField::DecoratorList,
-            )
-            .map_or_else(
-                || decorator_list.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
-            ),
+            super::constant::public_ast_expr_list_object(to_ctx, runtime_decorator_list)
+                .map_or_else(
+                    || decorator_list.ast_to_object(to_ctx),
+                    |values| values.ast_to_object(to_ctx),
+                ),
             _vm,
         )
         .unwrap();
@@ -666,15 +648,12 @@ fn stmt_delete_from_object_with_range(
 ) -> PyResult<ast::StmtDelete> {
     let targets: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "targets", "Delete")?;
-    let (node_index, targets) = public_expr_list_from_values(
-        ctx,
-        super::constant::PublicAstExprListField::Targets,
-        targets,
-    );
+    let (runtime_targets, targets) = public_expr_list_from_values(targets);
     Ok(ast::StmtDelete {
-        node_index,
+        node_index: Default::default(),
         targets,
         range,
+        runtime_targets,
     })
 }
 
@@ -683,23 +662,20 @@ impl Node for ast::StmtDelete {
         let _vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             targets,
             range: _range,
+            runtime_targets,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtDelete::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let targets = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Targets,
-        )
-        .map_or_else(
-            || targets.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let targets = super::constant::public_ast_expr_list_object(to_ctx, runtime_targets)
+            .map_or_else(
+                || targets.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("targets", targets, _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
@@ -723,19 +699,18 @@ fn stmt_assign_from_object_with_range(
 ) -> PyResult<ast::StmtAssign> {
     let targets: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "targets", "Assign")?;
-    let (node_index, targets) = public_expr_list_from_values(
-        ctx,
-        super::constant::PublicAstExprListField::Targets,
-        targets,
-    );
+    let (runtime_targets, targets) = public_expr_list_from_values(targets);
     let value = get_required_node_field(ctx, source_file, &object, "value", "Assign")?;
-    let type_comment = get_ast_string_field_opt(ctx, &object, "type_comment")?;
-    register_public_ast_stmt_type_comment(ctx, &node_index, type_comment);
+    let (runtime_type_comment, runtime_type_comment_bytes) =
+        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtAssign {
-        node_index,
+        node_index: Default::default(),
         targets,
         value,
         range,
+        runtime_targets,
+        runtime_type_comment,
+        runtime_type_comment_bytes,
     })
 }
 
@@ -744,30 +719,33 @@ impl Node for ast::StmtAssign {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             targets,
             value,
             range,
+            runtime_targets,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeStmtAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let targets = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Targets,
-        )
-        .map_or_else(
-            || targets.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let targets = super::constant::public_ast_expr_list_object(to_ctx, runtime_targets)
+            .map_or_else(
+                || targets.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("targets", targets, ctx).unwrap();
         dict.set_item("value", value.ast_to_object(to_ctx), ctx)
             .unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(to_ctx, node_index.load()),
+            public_ast_stmt_type_comment_object(
+                to_ctx,
+                runtime_type_comment,
+                runtime_type_comment_bytes,
+            ),
             ctx,
         )
         .unwrap();
@@ -903,14 +881,13 @@ fn stmt_ann_assign_from_object_with_range(
     range: TextRange,
 ) -> PyResult<ast::StmtAnnAssign> {
     let simple = node_object_to_i32(ctx, get_node_field(ctx, &object, "simple", "AnnAssign")?)?;
-    let node_index = ast::AtomicNodeIndex::NONE;
-    if simple != 0 && simple != 1 {
-        node_index.set(super::constant::register_public_ast_ann_assign_simple(
-            ctx, simple,
-        ));
-    }
+    let runtime_simple = if simple != 0 && simple != 1 {
+        Some(simple)
+    } else {
+        None
+    };
     Ok(ast::StmtAnnAssign {
-        node_index,
+        node_index: Default::default(),
         target: get_required_node_field(ctx, source_file, &object, "target", "AnnAssign")?,
         annotation: get_required_node_field(ctx, source_file, &object, "annotation", "AnnAssign")?,
         value: get_node_field_opt(ctx, &object, "value")?
@@ -918,6 +895,7 @@ fn stmt_ann_assign_from_object_with_range(
             .transpose()?,
         simple: simple != 0,
         range,
+        runtime_simple,
     })
 }
 
@@ -926,12 +904,13 @@ impl Node for ast::StmtAnnAssign {
         let _vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             target,
             annotation,
             value,
             simple,
             range: _range,
+            runtime_simple,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtAnnAssign::static_type().to_owned())
@@ -943,12 +922,11 @@ impl Node for ast::StmtAnnAssign {
             .unwrap();
         dict.set_item("value", value.ast_to_object(to_ctx), _vm)
             .unwrap();
-        let simple =
-            super::constant::public_ast_ann_assign_simple_object(to_ctx, node_index.load())
-                .map_or_else(
-                    || simple.ast_to_object(to_ctx),
-                    |simple| _vm.ctx.new_int(simple).into(),
-                );
+        let simple = super::constant::public_ast_ann_assign_simple_object(to_ctx, runtime_simple)
+            .map_or_else(
+                || simple.ast_to_object(to_ctx),
+                |simple| _vm.ctx.new_int(simple).into(),
+            );
         dict.set_item("simple", simple, _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
@@ -977,25 +955,24 @@ fn stmt_for_from_object_with_range(
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(ctx, source_file, &object, "body", typ)?;
     let orelse: Vec<Option<ast::Stmt>> =
         get_node_list_field(ctx, source_file, &object, "orelse", typ)?;
-    let node_index = public_stmt_lists_node_index(
-        ctx,
-        [
-            (super::constant::PublicAstStmtListField::Body, &body),
-            (super::constant::PublicAstStmtListField::Orelse, &orelse),
-        ],
-    );
+    let runtime_body = public_stmt_list_metadata(&body);
+    let runtime_orelse = public_stmt_list_metadata(&orelse);
     let body = lower_public_stmt_list(body);
     let orelse = lower_public_stmt_list(orelse);
-    let type_comment = get_ast_string_field_opt(ctx, &object, "type_comment")?;
-    register_public_ast_stmt_type_comment(ctx, &node_index, type_comment);
+    let (runtime_type_comment, runtime_type_comment_bytes) =
+        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtFor {
-        node_index,
+        node_index: Default::default(),
         target,
         iter,
         body,
         orelse,
         range,
         is_async,
+        runtime_type_comment,
+        runtime_type_comment_bytes,
+        runtime_body,
+        runtime_orelse,
     })
 }
 
@@ -1004,13 +981,17 @@ impl Node for ast::StmtFor {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             is_async,
             target,
             iter,
             body,
             orelse,
             range: _range,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
+            runtime_body,
+            runtime_orelse,
         } = self;
 
         let cls = if !is_async {
@@ -1025,29 +1006,24 @@ impl Node for ast::StmtFor {
             .unwrap();
         dict.set_item("iter", iter.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
-        let orelse = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Orelse,
-        )
-        .map_or_else(
-            || orelse.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let orelse = super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
+            .map_or_else(
+                || orelse.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("orelse", orelse, ctx).unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(to_ctx, node_index.load()),
+            public_ast_stmt_type_comment_object(
+                to_ctx,
+                runtime_type_comment,
+                runtime_type_comment_bytes,
+            ),
             ctx,
         )
         .unwrap();
@@ -1082,19 +1058,16 @@ fn stmt_while_from_object_with_range(
         get_node_list_field(ctx, source_file, &object, "body", "While")?;
     let orelse: Vec<Option<ast::Stmt>> =
         get_node_list_field(ctx, source_file, &object, "orelse", "While")?;
-    let node_index = public_stmt_lists_node_index(
-        ctx,
-        [
-            (super::constant::PublicAstStmtListField::Body, &body),
-            (super::constant::PublicAstStmtListField::Orelse, &orelse),
-        ],
-    );
+    let runtime_body = public_stmt_list_metadata(&body);
+    let runtime_orelse = public_stmt_list_metadata(&orelse);
     Ok(ast::StmtWhile {
-        node_index,
+        node_index: Default::default(),
         test: get_required_node_field(ctx, source_file, &object, "test", "While")?,
         body: lower_public_stmt_list(body),
         orelse: lower_public_stmt_list(orelse),
         range,
+        runtime_body,
+        runtime_orelse,
     })
 }
 
@@ -1103,11 +1076,13 @@ impl Node for ast::StmtWhile {
         let _vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             test,
             body,
             orelse,
             range: _range,
+            runtime_body,
+            runtime_orelse,
         } = self;
         let node = NodeAst
             .into_ref_with_type(_vm, pyast::NodeStmtWhile::static_type().to_owned())
@@ -1115,25 +1090,16 @@ impl Node for ast::StmtWhile {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("test", test.ast_to_object(to_ctx), _vm)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, _vm).unwrap();
-        let orelse = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Orelse,
-        )
-        .map_or_else(
-            || orelse.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let orelse = super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
+            .map_or_else(
+                || orelse.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("orelse", orelse, _vm).unwrap();
         node_add_location(&dict, _range, _vm, source_file);
         node.into()
@@ -1159,6 +1125,7 @@ impl Node for ast::StmtIf {
             body,
             range,
             elif_else_clauses,
+            runtime_body,
         } = self;
         elif_else_clause::ast_to_object(
             ast::ElifElseClause {
@@ -1166,6 +1133,8 @@ impl Node for ast::StmtIf {
                 range,
                 test: Some(*test),
                 body,
+                runtime_body,
+                runtime_orelse: None,
             },
             elif_else_clauses.into_iter(),
             to_ctx,
@@ -1191,16 +1160,18 @@ fn stmt_with_from_object_with_range(
     let typ = if is_async { "AsyncWith" } else { "With" };
     let items = get_node_list_field(ctx, source_file, &object, "items", typ)?;
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(ctx, source_file, &object, "body", typ)?;
-    let (node_index, body) =
-        public_stmt_list_from_values(ctx, super::constant::PublicAstStmtListField::Body, body);
-    let type_comment = get_ast_string_field_opt(ctx, &object, "type_comment")?;
-    register_public_ast_stmt_type_comment(ctx, &node_index, type_comment);
+    let (runtime_body, body) = public_stmt_list_from_values(body);
+    let (runtime_type_comment, runtime_type_comment_bytes) =
+        public_ast_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtWith {
-        node_index,
+        node_index: Default::default(),
         items,
         body,
         range,
         is_async,
+        runtime_type_comment,
+        runtime_type_comment_bytes,
+        runtime_body,
     })
 }
 
@@ -1209,11 +1180,14 @@ impl Node for ast::StmtWith {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             is_async,
             items,
             body,
             range: _range,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
+            runtime_body,
         } = self;
 
         let cls = if !is_async {
@@ -1226,19 +1200,18 @@ impl Node for ast::StmtWith {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("items", items.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
         dict.set_item(
             "type_comment",
-            public_ast_stmt_type_comment_object(to_ctx, node_index.load()),
+            public_ast_stmt_type_comment_object(
+                to_ctx,
+                runtime_type_comment,
+                runtime_type_comment_bytes,
+            ),
             ctx,
         )
         .unwrap();
@@ -1370,38 +1343,22 @@ fn stmt_try_from_object_with_range(
         get_node_list_field(ctx, source_file, &object, "finalbody", typ)?;
     let (public_handlers, handlers) =
         except_handler_list_from_field(ctx, source_file, &object, typ, is_star, range)?;
-    let stmt_lists: Vec<_> = [
-        (super::constant::PublicAstStmtListField::Body, &body),
-        (super::constant::PublicAstStmtListField::Orelse, &orelse),
-        (
-            super::constant::PublicAstStmtListField::FinalBody,
-            &finalbody,
-        ),
-    ]
-    .into_iter()
-    .filter(|(_, values)| values.iter().any(Option::is_none))
-    .map(|(field, values)| (field, values.clone()))
-    .collect();
-    let public_handlers = public_handlers
-        .iter()
-        .any(Option::is_none)
-        .then_some(public_handlers);
-    let node_index = ast::AtomicNodeIndex::NONE;
-    if !stmt_lists.is_empty() || public_handlers.is_some() {
-        node_index.set(super::constant::register_public_ast_try_lists(
-            ctx,
-            stmt_lists,
-            public_handlers,
-        ));
-    }
+    let runtime_body = public_stmt_list_metadata(&body);
+    let runtime_orelse = public_stmt_list_metadata(&orelse);
+    let runtime_finalbody = public_stmt_list_metadata(&finalbody);
+    let runtime_handlers = public_except_handler_list_metadata(&public_handlers);
     Ok(ast::StmtTry {
-        node_index,
+        node_index: Default::default(),
         body: lower_public_stmt_list(body),
         handlers,
         orelse: lower_public_stmt_list(orelse),
         finalbody: lower_public_stmt_list(finalbody),
         range,
         is_star,
+        runtime_body,
+        runtime_handlers,
+        runtime_orelse,
+        runtime_finalbody,
     })
 }
 
@@ -1446,7 +1403,8 @@ fn except_handler_list_from_field(
                 range,
                 type_: None,
                 name: None,
-                body: Vec::new().into(),
+                body: Vec::new(),
+                runtime_body: None,
             })
         });
         public_values.push(public_handler);
@@ -1465,13 +1423,17 @@ impl Node for ast::StmtTry {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             body,
             handlers,
             orelse,
             finalbody,
             range: _range,
             is_star,
+            runtime_body,
+            runtime_handlers,
+            runtime_orelse,
+            runtime_finalbody,
         } = self;
 
         let cls = if is_star {
@@ -1483,42 +1445,29 @@ impl Node for ast::StmtTry {
 
         let node = NodeAst.into_ref_with_type(ctx, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, ctx).unwrap();
         let handlers =
-            super::constant::public_ast_except_handler_list_object(to_ctx, node_index.load())
+            super::constant::public_ast_except_handler_list_object(to_ctx, runtime_handlers)
                 .map_or_else(
                     || handlers.ast_to_object(to_ctx),
-                    |values| values.values.ast_to_object(to_ctx),
+                    |values| values.ast_to_object(to_ctx),
                 );
         dict.set_item("handlers", handlers, ctx).unwrap();
-        let orelse = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Orelse,
-        )
-        .map_or_else(
-            || orelse.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let orelse = super::constant::public_ast_stmt_list_object(to_ctx, runtime_orelse)
+            .map_or_else(
+                || orelse.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("orelse", orelse, ctx).unwrap();
-        let finalbody = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::FinalBody,
-        )
-        .map_or_else(
-            || finalbody.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let finalbody = super::constant::public_ast_stmt_list_object(to_ctx, runtime_finalbody)
+            .map_or_else(
+                || finalbody.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("finalbody", finalbody, ctx).unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
@@ -1638,17 +1587,9 @@ fn stmt_import_from_from_object_with_range(
     range: TextRange,
 ) -> PyResult<ast::StmtImportFrom> {
     let (level, raw_level) = import_from_level_from_field(ctx, &object)?;
-    let node_index = {
-        let node_index = ast::AtomicNodeIndex::NONE;
-        if let Some(raw_level) = raw_level.filter(|level| *level < 0) {
-            node_index.set(super::constant::register_public_ast_import_from_level(
-                ctx, raw_level,
-            ));
-        }
-        node_index
-    };
+    let runtime_level = raw_level.filter(|level| *level < 0);
     Ok(ast::StmtImportFrom {
-        node_index,
+        node_index: Default::default(),
         module: get_node_field_opt(ctx, &object, "module")?
             .map(|obj| Node::ast_from_object(ctx, source_file, obj))
             .transpose()?,
@@ -1656,6 +1597,7 @@ fn stmt_import_from_from_object_with_range(
         level,
         range,
         is_lazy: false,
+        runtime_level,
     })
 }
 
@@ -1686,6 +1628,7 @@ impl Node for ast::StmtImportFrom {
             level,
             range,
             is_lazy: _,
+            runtime_level,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeStmtImportFrom::static_type().to_owned())
@@ -1695,8 +1638,11 @@ impl Node for ast::StmtImportFrom {
             .unwrap();
         dict.set_item("names", names.ast_to_object(to_ctx), ctx)
             .unwrap();
-        dict.set_item("level", ctx.ctx.new_int(level).to_pyobject(ctx), ctx)
-            .unwrap();
+        let level = runtime_level.map_or_else(
+            || ctx.ctx.new_int(level).to_pyobject(ctx),
+            |level| ctx.ctx.new_int(level).to_pyobject(ctx),
+        );
+        dict.set_item("level", level, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
     }

@@ -434,6 +434,8 @@ fn optimize_format(expr: &Expr) -> Option<Expr> {
             elements: InterpolatedStringElements::from(elements),
             flags: FStringFlags::empty(),
         }),
+        runtime_joined_str: None,
+        runtime_values: None,
     }))
 }
 
@@ -535,6 +537,9 @@ fn parse_format_arg(chars: &[char], pos: &mut usize, arg: Expr) -> Option<Interp
         debug_text: None,
         conversion,
         format_spec,
+        runtime_str: None,
+        runtime_interpolation_format_spec: None,
+        runtime_formatted_value_format_spec: None,
     })
 }
 
@@ -653,6 +658,8 @@ fn wrap_first_docstring_as_fstring(body: &mut [ast::Stmt]) {
             )]),
             flags: FStringFlags::empty(),
         }),
+        runtime_joined_str: None,
+        runtime_values: None,
     });
 }
 

@@ -5,10 +5,10 @@ impl Node for ast::TypeParams {
     fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
         let _vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
-        super::constant::public_ast_type_param_list_object(to_ctx, self.node_index.load())
+        super::constant::public_ast_type_param_list_object(to_ctx, self.runtime_type_params)
             .map_or_else(
                 || self.type_params.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
             )
     }
 
@@ -24,7 +24,7 @@ impl Node for ast::TypeParams {
     }
 
     fn is_none(&self) -> bool {
-        self.type_params.is_empty() && self.node_index.load() == ast::NodeIndex::NONE
+        self.type_params.is_empty() && self.runtime_type_params.is_none()
     }
 }
 
@@ -42,25 +42,19 @@ pub(super) fn type_params_from_field(
 }
 
 fn type_params_from_values(
-    ctx: &AstFromObjectContext<'_>,
+    _ctx: &AstFromObjectContext<'_>,
     values: Vec<Option<ast::TypeParam>>,
 ) -> ast::TypeParams {
-    let node_index = if values.iter().any(Option::is_none) {
-        let index = super::constant::register_public_ast_type_param_list(ctx, values.clone());
-        let node_index = ast::AtomicNodeIndex::NONE;
-        node_index.set(index);
-        node_index
-    } else {
-        Default::default()
-    };
+    let runtime_type_params = values.iter().any(Option::is_none).then(|| values.clone());
     let type_params = lower_nullable_type_params(&values);
     let range = Option::zip(type_params.first(), type_params.last())
         .map(|(first, last)| first.range().cover(last.range()))
         .unwrap_or_default();
     ast::TypeParams {
-        node_index,
+        node_index: Default::default(),
         type_params,
         range,
+        runtime_type_params,
     }
 }
 

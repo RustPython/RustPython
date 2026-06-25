@@ -2,8 +2,7 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
-    pub node_index: ast::AtomicNodeIndex,
-    pub field: super::constant::PublicAstExprListField,
+    pub runtime_values: Option<super::constant::PublicAstExprOptionList>,
     pub range: TextRange,
     pub args: Box<[ast::Expr]>,
 }
@@ -18,14 +17,9 @@ impl PositionalArguments {
     ) -> PyResult<Self> {
         let args: Vec<Option<ast::Expr>> =
             get_node_list_field(ctx, source_file, object, field, typ)?;
-        let public_field = match field {
-            "bases" => super::constant::PublicAstExprListField::Bases,
-            _ => super::constant::PublicAstExprListField::Args,
-        };
-        let (node_index, args) = public_expr_boxed_slice_from_values(ctx, public_field, args);
+        let (runtime_values, args) = public_expr_boxed_slice_from_values(args);
         Ok(Self {
-            node_index,
-            field: public_field,
+            runtime_values,
             args,
             range: TextRange::default(),
         })
@@ -37,14 +31,13 @@ impl Node for PositionalArguments {
         let _vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
         let Self {
-            node_index,
-            field,
+            runtime_values,
             args,
             range: _,
         } = self;
-        super::constant::public_ast_expr_list_object(to_ctx, node_index.load(), field).map_or_else(
+        super::constant::public_ast_expr_list_object(to_ctx, runtime_values).map_or_else(
             || BoxedSlice(args).ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         )
     }
 
@@ -55,8 +48,7 @@ impl Node for PositionalArguments {
     ) -> PyResult<Self> {
         let args: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
         Ok(Self {
-            node_index: Default::default(),
-            field: super::constant::PublicAstExprListField::Args,
+            runtime_values: None,
             args: args.0,
             range: TextRange::default(),
         })
@@ -112,10 +104,12 @@ pub(super) fn merge_function_call_arguments(
     let range = pos_args.range.cover(key_args.range);
 
     ast::Arguments {
-        node_index: pos_args.node_index,
+        node_index: Default::default(),
         range,
         args: pos_args.args,
-        keywords: key_args.keywords.into(),
+        keywords: key_args.keywords,
+        runtime_args: pos_args.runtime_values,
+        runtime_bases: None,
     }
 }
 
@@ -123,10 +117,12 @@ pub(super) fn split_function_call_arguments(
     args: ast::Arguments,
 ) -> (PositionalArguments, KeywordArguments) {
     let ast::Arguments {
-        node_index,
         range: _,
         args,
         keywords,
+        runtime_args,
+        runtime_bases: _,
+        ..
     } = args;
 
     let positional_arguments_range = args
@@ -136,8 +132,7 @@ pub(super) fn split_function_call_arguments(
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
-        node_index,
-        field: super::constant::PublicAstExprListField::Args,
+        runtime_values: runtime_args,
         range: positional_arguments_range,
         args,
     };
@@ -150,7 +145,7 @@ pub(super) fn split_function_call_arguments(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords: keywords.into(),
+        keywords,
     };
 
     (positional_arguments, keyword_arguments)
@@ -164,10 +159,12 @@ pub(super) fn split_class_def_args(
         Some(args) => *args,
     };
     let ast::Arguments {
-        node_index,
         range: _,
         args,
         keywords,
+        runtime_args: _,
+        runtime_bases,
+        ..
     } = args;
 
     let positional_arguments_range = args
@@ -177,8 +174,7 @@ pub(super) fn split_class_def_args(
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
-        node_index,
-        field: super::constant::PublicAstExprListField::Bases,
+        runtime_values: runtime_bases,
         range: positional_arguments_range,
         args,
     };
@@ -191,7 +187,7 @@ pub(super) fn split_class_def_args(
     // debug_assert!(range.contains_range(keyword_arguments_range));
     let keyword_arguments = KeywordArguments {
         range: keyword_arguments_range,
-        keywords: keywords.into(),
+        keywords,
     };
 
     (Some(positional_arguments), Some(keyword_arguments))
@@ -205,10 +201,13 @@ pub(super) fn merge_class_def_args(
         return None;
     }
 
-    let (node_index, args) = if let Some(positional_arguments) = positional_arguments {
-        (positional_arguments.node_index, positional_arguments.args)
+    let (runtime_bases, args) = if let Some(positional_arguments) = positional_arguments {
+        (
+            positional_arguments.runtime_values,
+            positional_arguments.args,
+        )
     } else {
-        (Default::default(), vec![].into_boxed_slice())
+        (None, vec![].into_boxed_slice())
     };
     let keywords = if let Some(keyword_arguments) = keyword_arguments {
         keyword_arguments.keywords
@@ -217,9 +216,11 @@ pub(super) fn merge_class_def_args(
     };
 
     Some(Box::new(ast::Arguments {
-        node_index,
+        node_index: Default::default(),
         range: Default::default(), // TODO
         args,
-        keywords: keywords.into(),
+        keywords,
+        runtime_args: None,
+        runtime_bases,
     }))
 }

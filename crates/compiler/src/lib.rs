@@ -2409,6 +2409,19 @@ fn delete_target_expr_name(expression: &ast::Expr) -> &'static str {
         ast::Expr::NumberLiteral(_) | ast::Expr::StringLiteral(_) | ast::Expr::BytesLiteral(_) => {
             "literal"
         }
+        ast::Expr::Constant(expr) => match &expr.value {
+            ast::ConstantValue::None => "None",
+            ast::ConstantValue::Boolean(true) => "True",
+            ast::ConstantValue::Boolean(false) => "False",
+            ast::ConstantValue::Ellipsis => "ellipsis",
+            ast::ConstantValue::Tuple(_) => "tuple",
+            ast::ConstantValue::Frozenset(_) => "literal",
+            ast::ConstantValue::Str(_)
+            | ast::ConstantValue::Bytes(_)
+            | ast::ConstantValue::Integer(_)
+            | ast::ConstantValue::Float(_)
+            | ast::ConstantValue::Complex { .. } => "literal",
+        },
         ast::Expr::BooleanLiteral(boolean) => {
             if boolean.value {
                 "True"

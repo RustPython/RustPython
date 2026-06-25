@@ -10,15 +10,14 @@
 #![deny(clippy::cast_possible_truncation)]
 
 use crate::{
-    IndexMap, IndexSet, PublicAstExprList, PublicAstFormattedValue, PublicAstInterpolation,
-    PublicAstNodeMap, ToPythonName,
+    IndexMap, IndexSet, PublicAstExprList, PublicAstInterpolation, ToPythonName,
     error::{CodegenError, CodegenErrorType, InternalError},
     ir::{self, Block, BlockIdx, Blocks},
-    preprocess,
+    preprocess, public_ast_constant_to_constant_data,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
-use alloc::{borrow::Cow, sync::Arc};
+use alloc::borrow::Cow;
 use core::{mem, slice};
 use malachite_bigint::BigInt;
 use num_complex::Complex;
@@ -238,22 +237,6 @@ pub struct CompileOpts {
     pub dont_imply_dedent: bool,
     /// Recursion limit used by compiler tree walks, matching Py_EnterRecursiveCall.
     pub recursion_limit: usize,
-    /// CPython Constant_kind stores value/kind directly; Ruff has no Constant
-    /// expr variant. Dense public node indexes make Vec lookup cheaper than
-    /// hashing, and compile order never observes map insertion order.
-    pub ast_constant_overrides: Option<Arc<PublicAstNodeMap<ConstantData>>>,
-    /// CPython Interpolation has raw str and expr? format_spec; Ruff t-string
-    /// elements do not. Dense node lookup keeps the CPython codegen path.
-    pub ast_interpolation_overrides: Option<Arc<PublicAstNodeMap<PublicAstInterpolation>>>,
-    /// CPython FormattedValue has expr? format_spec; Ruff f-string specs are
-    /// nested string elements. Dense node lookup avoids hash overhead.
-    pub ast_formatted_value_overrides: Option<Arc<PublicAstNodeMap<PublicAstFormattedValue>>>,
-    /// CPython JoinedStr.values is expr*; Ruff stores f-string element trees.
-    /// Dense node lookup restores only public JoinedStr overrides.
-    pub ast_joined_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
-    /// CPython TemplateStr.values is expr*; Ruff stores t-string element trees.
-    /// Dense node lookup restores only public TemplateStr overrides.
-    pub ast_template_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
 }
 
 impl Default for CompileOpts {
@@ -266,11 +249,6 @@ impl Default for CompileOpts {
             future_features: bytecode::CodeFlags::empty(),
             dont_imply_dedent: false,
             recursion_limit: 1000,
-            ast_constant_overrides: None,
-            ast_interpolation_overrides: None,
-            ast_formatted_value_overrides: None,
-            ast_joined_str_overrides: None,
-            ast_template_str_overrides: None,
         }
     }
 }
@@ -421,11 +399,6 @@ fn scan_module_symbols(
         opts.allow_top_level_await,
         opts.future_features
             .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-        opts.ast_constant_overrides.clone(),
-        opts.ast_interpolation_overrides.clone(),
-        opts.ast_formatted_value_overrides.clone(),
-        opts.ast_joined_str_overrides.clone(),
-        opts.ast_template_str_overrides.clone(),
         opts.recursion_limit,
     )
     .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
@@ -442,11 +415,6 @@ fn scan_expr_symbols(
         opts.allow_top_level_await,
         opts.future_features
             .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-        opts.ast_constant_overrides.clone(),
-        opts.ast_interpolation_overrides.clone(),
-        opts.ast_formatted_value_overrides.clone(),
-        opts.ast_joined_str_overrides.clone(),
-        opts.ast_template_str_overrides.clone(),
         opts.recursion_limit,
     )
     .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
@@ -8630,79 +8598,50 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn public_ast_constant_override(&self, expr: &ast::Expr) -> Option<ConstantData> {
-        let index = ast::HasNodeIndex::node_index(expr).load();
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.opts
-            .ast_constant_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        crate::public_ast_constant(expr).map(public_ast_constant_to_constant_data)
     }
 
     fn public_ast_interpolation_override(
         &self,
         expr_tstring: &ast::ExprTString,
     ) -> Option<PublicAstInterpolation> {
-        let index = expr_tstring.node_index.load();
-        self.public_ast_interpolation_override_by_index(index)
+        let tstring = expr_tstring.as_single_part_tstring()?;
+        let interpolation = tstring.elements.first()?.as_interpolation()?;
+        Some((
+            interpolation.runtime_str.clone()?,
+            interpolation.runtime_interpolation_format_spec.clone(),
+        ))
     }
 
-    fn public_ast_interpolation_override_by_index(
+    fn public_ast_interpolation_override_by_element(
         &self,
-        index: ast::NodeIndex,
+        element: &ast::InterpolatedElement,
     ) -> Option<PublicAstInterpolation> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.opts
-            .ast_interpolation_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        Some((
+            element.runtime_str.clone()?,
+            element.runtime_interpolation_format_spec.clone(),
+        ))
     }
 
-    fn public_ast_formatted_value_override_by_index(
+    fn public_ast_formatted_value_override_by_element(
         &self,
-        index: ast::NodeIndex,
-    ) -> Option<PublicAstFormattedValue> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.opts
-            .ast_formatted_value_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        element: &ast::InterpolatedElement,
+    ) -> Option<Box<ast::Expr>> {
+        element.runtime_formatted_value_format_spec.clone()
     }
 
-    fn public_ast_joined_str_override_by_index(
+    fn public_ast_joined_str_override(
         &self,
-        index: ast::NodeIndex,
+        fstring: &ast::ExprFString,
     ) -> Option<PublicAstExprList> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.opts
-            .ast_joined_str_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        fstring.runtime_joined_str.clone()
     }
 
-    fn public_ast_template_str_override_by_index(
+    fn public_ast_template_str_override(
         &self,
-        index: ast::NodeIndex,
+        tstring: &ast::ExprTString,
     ) -> Option<PublicAstExprList> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.opts
-            .ast_template_str_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        tstring.runtime_template_str.clone()
     }
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
@@ -8803,9 +8742,9 @@ impl<'warnings> Compiler<'warnings> {
             }) => {
                 self.compile_compare(left, ops, comparators)?;
             }
-            // ast::Expr::Constant(ExprConstant { value, .. }) => {
-            //     self.emit_load_const(compile_constant(value));
-            // }
+            ast::Expr::Constant(ast::ExprConstant { value, .. }) => {
+                self.emit_load_const(public_ast_constant_to_constant_data(value.clone()));
+            }
             ast::Expr::List(ast::ExprList { elts, range, .. }) => {
                 self.set_source_range(*range);
                 self.starunpack_helper(elts, 0, CollectionType::List)?;
@@ -9089,9 +9028,7 @@ impl<'warnings> Compiler<'warnings> {
                 range,
                 ..
             }) => {
-                let Some(key) = key.as_deref() else {
-                    return Err(self.error(CodegenErrorType::InvalidStarExpr));
-                };
+                let key = key.as_ref();
                 self.compile_comprehension(
                     "<dictcomp>",
                     Some(
@@ -9191,17 +9128,13 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(target.range());
             }
             ast::Expr::FString(fstring) => {
-                if let Some(joined_str) =
-                    self.public_ast_joined_str_override_by_index(fstring.node_index.load())
-                {
+                if let Some(joined_str) = self.public_ast_joined_str_override(fstring) {
                     return self.compile_public_ast_joined_str(fstring, joined_str);
                 }
                 self.compile_expr_fstring(fstring)?;
             }
             ast::Expr::TString(tstring) => {
-                if let Some(template_str) =
-                    self.public_ast_template_str_override_by_index(tstring.node_index.load())
-                {
+                if let Some(template_str) = self.public_ast_template_str_override(tstring) {
                     return self.compile_public_ast_template_str(tstring, template_str);
                 }
                 if let Some(interpolation) = self.public_ast_interpolation_override(tstring)
@@ -10176,11 +10109,7 @@ impl<'warnings> Compiler<'warnings> {
                             self.visit_expr(&first.iter);
                         }
                         if self.consume_inlined_comprehension_scope() {
-                            if let Some(key) = key.as_deref() {
-                                self.visit_comprehension_tail(key, Some(value), generators);
-                            } else {
-                                self.visit_comprehension_tail(value, None, generators);
-                            }
+                            self.visit_comprehension_tail(key, Some(value), generators);
                         } else {
                             self.consume_scope();
                         }
@@ -11842,6 +11771,9 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
+        if let Some(constant) = self.public_ast_constant_override(expr) {
+            return Ok(Some(constant));
+        }
         Ok(Some(match expr {
             ast::Expr::NumberLiteral(num) => match &num.value {
                 ast::Number::Int(int) => ConstantData::Integer {
@@ -11869,6 +11801,12 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
+        if let Some(constant) = self.public_ast_constant_override(expr) {
+            return Ok(match constant {
+                ConstantData::Boolean { .. } | ConstantData::None => Some(constant),
+                _ => None,
+            });
+        }
         if matches!(
             expr,
             ast::Expr::BooleanLiteral(_) | ast::Expr::NoneLiteral(_)
@@ -11879,6 +11817,14 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn is_unexpected_match_literal_constant(expr: &ast::Expr) -> bool {
+        if let Some(constant) =
+            crate::public_ast_constant(expr).map(public_ast_constant_to_constant_data)
+        {
+            return matches!(
+                constant,
+                ConstantData::Boolean { .. } | ConstantData::None | ConstantData::Ellipsis
+            );
+        }
         matches!(
             expr,
             ast::Expr::BooleanLiteral(_)
@@ -11891,6 +11837,16 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
+        if let Some(constant) = self.public_ast_constant_override(expr) {
+            return Ok(match constant {
+                ConstantData::Integer { .. }
+                | ConstantData::Float { .. }
+                | ConstantData::Bytes { .. }
+                | ConstantData::Complex { .. }
+                | ConstantData::Str { .. } => Some(constant),
+                _ => None,
+            });
+        }
         match expr {
             ast::Expr::NumberLiteral(_)
             | ast::Expr::StringLiteral(_)
@@ -12014,6 +11970,14 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
+        if let Some(constant) = self.public_ast_constant_override(expr) {
+            return Ok(match constant {
+                ConstantData::Integer { .. }
+                | ConstantData::Float { .. }
+                | ConstantData::Complex { .. } => Some(constant),
+                _ => None,
+            });
+        }
         match expr {
             ast::Expr::NumberLiteral(_) => self.try_compile_ast_constant(expr),
             _ => Ok(None),
@@ -12583,7 +12547,7 @@ impl<'warnings> Compiler<'warnings> {
         joined_str: PublicAstExprList,
     ) -> CompileResult<()> {
         let range = fstring.range;
-        let values = joined_str.values;
+        let values = joined_str;
         let value_count: u32 = values
             .len()
             .try_into()
@@ -12965,8 +12929,8 @@ impl<'warnings> Compiler<'warnings> {
                     };
 
                     if let Some(debug_text) = &fstring_expr.debug_text {
-                        let leading = debug_text.leading();
-                        let trailing = debug_text.trailing();
+                        let leading = debug_text.leading.as_str();
+                        let trailing = debug_text.trailing.as_str();
                         self.emit_pending_fstring_literal(
                             pending_literal,
                             pending_literal_range,
@@ -13032,13 +12996,10 @@ impl<'warnings> Compiler<'warnings> {
                         }
                     }
 
-                    if let Some(formatted_value) = self
-                        .public_ast_formatted_value_override_by_index(
-                            fstring_expr.node_index.load(),
-                        )
-                        && let Some(format_spec) = &formatted_value.format_spec
+                    if let Some(format_spec) =
+                        self.public_ast_formatted_value_override_by_element(fstring_expr)
                     {
-                        self.compile_expression(format_spec)?;
+                        self.compile_expression(&format_spec)?;
 
                         self.set_source_range(formatted_value_range);
                         emit!(self, Instruction::FormatWithSpec);
@@ -13112,8 +13073,8 @@ impl<'warnings> Compiler<'warnings> {
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
                     if let Some(debug_text) = &fstring_expr.debug_text {
-                        let leading = debug_text.leading();
-                        let trailing = debug_text.trailing();
+                        let leading = debug_text.leading.as_str();
+                        let trailing = debug_text.trailing.as_str();
                         Self::count_pending_fstring_literal(pending_literal, element_count, false);
                         let range = fstring_expr.expression.range();
                         let source = self.source_file.slice(range);
@@ -13202,7 +13163,7 @@ impl<'warnings> Compiler<'warnings> {
         expr_tstring: &ast::ExprTString,
         template_str: PublicAstExprList,
     ) -> CompileResult<()> {
-        let values = template_str.values;
+        let values = template_str;
         let mut last_was_interpolation = true;
         let mut strings_len = 0;
         for value in &values {
@@ -13285,9 +13246,10 @@ impl<'warnings> Compiler<'warnings> {
         interp: &ast::InterpolatedElement,
         interpolation: PublicAstInterpolation,
     ) -> CompileResult<()> {
+        let (str, format_spec) = interpolation;
         self.compile_expression(&interp.expression)?;
         self.set_source_range(interp.range);
-        self.emit_load_const(interpolation.str);
+        self.emit_load_const(public_ast_constant_to_constant_data(str));
 
         let conversion = match interp.conversion {
             ast::ConversionFlag::None => 0,
@@ -13296,8 +13258,8 @@ impl<'warnings> Compiler<'warnings> {
             ast::ConversionFlag::Ascii => 3,
         };
 
-        let has_format_spec = interpolation.format_spec.is_some();
-        if let Some(format_spec) = &interpolation.format_spec {
+        let has_format_spec = format_spec.is_some();
+        if let Some(format_spec) = &format_spec {
             self.compile_expression(format_spec)?;
         }
 
@@ -13345,8 +13307,8 @@ impl<'warnings> Compiler<'warnings> {
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
                     if let Some(debug_text) = &interp.debug_text {
-                        let leading = debug_text.leading();
-                        let trailing = debug_text.trailing();
+                        let leading = debug_text.leading.as_str();
+                        let trailing = debug_text.trailing.as_str();
                         let range = interp.expression.range();
                         let source = self.source_file.slice(range);
                         let text = [
@@ -13398,9 +13360,7 @@ impl<'warnings> Compiler<'warnings> {
                 continue;
             };
 
-            if let Some(interpolation) =
-                self.public_ast_interpolation_override_by_index(interp.node_index.load())
-            {
+            if let Some(interpolation) = self.public_ast_interpolation_override_by_element(interp) {
                 self.compile_interpolation(interp, interpolation)?;
                 continue;
             }
@@ -13679,11 +13639,16 @@ mod ruff_tests {
                         debug_text: None,
                         conversion: ast::ConversionFlag::None,
                         format_spec: None,
+                        runtime_str: None,
+                        runtime_interpolation_format_spec: None,
+                        runtime_formatted_value_format_spec: None,
                     },
                 )]
                 .into(),
                 flags,
             }),
+            runtime_joined_str: None,
+            runtime_values: None,
         });
         assert!(!Compiler::contains_await(not_present));
 
@@ -13712,11 +13677,16 @@ mod ruff_tests {
                         debug_text: None,
                         conversion: ast::ConversionFlag::None,
                         format_spec: None,
+                        runtime_str: None,
+                        runtime_interpolation_format_spec: None,
+                        runtime_formatted_value_format_spec: None,
                     },
                 )]
                 .into(),
                 flags,
             }),
+            runtime_joined_str: None,
+            runtime_values: None,
         });
         assert!(Compiler::contains_await(present));
 
@@ -13761,15 +13731,23 @@ mod ruff_tests {
                                     debug_text: None,
                                     conversion: ast::ConversionFlag::None,
                                     format_spec: None,
+                                    runtime_str: None,
+                                    runtime_interpolation_format_spec: None,
+                                    runtime_formatted_value_format_spec: None,
                                 },
                             )]
                             .into(),
                         })),
+                        runtime_str: None,
+                        runtime_interpolation_format_spec: None,
+                        runtime_formatted_value_format_spec: None,
                     },
                 )]
                 .into(),
                 flags,
             }),
+            runtime_joined_str: None,
+            runtime_values: None,
         });
         assert!(Compiler::contains_await(present));
     }
@@ -13852,11 +13830,6 @@ mod tests {
             opts.allow_top_level_await,
             opts.future_features
                 .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-            opts.ast_constant_overrides.clone(),
-            opts.ast_interpolation_overrides.clone(),
-            opts.ast_formatted_value_overrides.clone(),
-            opts.ast_joined_str_overrides.clone(),
-            opts.ast_template_str_overrides.clone(),
             opts.recursion_limit,
         )
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
@@ -13902,11 +13875,6 @@ mod tests {
             opts.allow_top_level_await,
             opts.future_features
                 .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-            opts.ast_constant_overrides.clone(),
-            opts.ast_interpolation_overrides.clone(),
-            opts.ast_formatted_value_overrides.clone(),
-            opts.ast_joined_str_overrides.clone(),
-            opts.ast_template_str_overrides.clone(),
             opts.recursion_limit,
         )
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))
@@ -13937,31 +13905,25 @@ mod tests {
         compile_top(parsed, source_file, Mode::Eval, opts).unwrap()
     }
 
-    fn compile_public_constant_expr(expr: ast::Expr, constant: ConstantData) -> CodeObject {
-        let index = ast::NodeIndex::from(0);
-        ast::HasNodeIndex::node_index(&expr).set(index);
-        let mut ast_constant_overrides = PublicAstNodeMap::new();
-        ast_constant_overrides.insert(index, constant);
-        compile_eval_ast_with_options(
-            expr,
-            CompileOpts {
-                ast_constant_overrides: Some(Arc::new(ast_constant_overrides)),
-                ..CompileOpts::default()
-            },
-        )
+    fn set_public_constant(expr: &mut ast::Expr, constant: ConstantData) {
+        let constant = crate::constant_data_to_public_ast_constant(constant);
+        let range = expr.range();
+        *expr = ast::Expr::Constant(ast::ExprConstant {
+            node_index: Default::default(),
+            range,
+            value: constant,
+            kind: None,
+            invalid_type: None,
+        });
     }
 
-    fn first_public_constant_warning(
-        expr: ast::Expr,
-        index: ast::NodeIndex,
-        constant: ConstantData,
-    ) -> String {
-        let mut ast_constant_overrides = PublicAstNodeMap::new();
-        ast_constant_overrides.insert(index, constant);
-        let opts = CompileOpts {
-            ast_constant_overrides: Some(Arc::new(ast_constant_overrides)),
-            ..CompileOpts::default()
-        };
+    fn compile_public_constant_expr(mut expr: ast::Expr, constant: ConstantData) -> CodeObject {
+        set_public_constant(&mut expr, constant);
+        compile_eval_ast_with_options(expr, CompileOpts::default())
+    }
+
+    fn first_public_constant_warning(expr: ast::Expr) -> String {
+        let opts = CompileOpts::default();
         let source_file = SourceFileBuilder::new("source_path", "").finish();
         let parsed = ruff_python_ast::Mod::Expression(ast::ModExpression {
             node_index: ast::AtomicNodeIndex::NONE,
@@ -14032,6 +13994,8 @@ mod tests {
                 range: TextRange::default(),
                 args: Box::default(),
                 keywords: Default::default(),
+                runtime_args: None,
+                runtime_bases: None,
             },
         })
     }
@@ -14133,12 +14097,9 @@ mod tests {
 
     #[test]
     fn public_ast_constant_is_not_scanned_as_lowered_expression() {
-        let expr = frozenset_call_expr();
-        let index = ast::NodeIndex::from(0);
-        ast::HasNodeIndex::node_index(&expr).set(index);
-        let mut ast_constant_overrides = PublicAstNodeMap::new();
-        ast_constant_overrides.insert(
-            index,
+        let mut expr = frozenset_call_expr();
+        set_public_constant(
+            &mut expr,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
@@ -14153,11 +14114,6 @@ mod tests {
             SourceFileBuilder::new("source_path", "").finish(),
             false,
             false,
-            Some(Arc::new(ast_constant_overrides)),
-            None,
-            None,
-            None,
-            None,
             CompileOpts::default().recursion_limit,
         )
         .unwrap();
@@ -14170,26 +14126,26 @@ mod tests {
 
     #[test]
     fn public_ast_frozenset_constant_call_warns_like_cpython_constant() {
-        let index = ast::NodeIndex::from(0);
-        let func = frozenset_call_expr();
-        ast::HasNodeIndex::node_index(&func).set(index);
-        let message = first_public_constant_warning(
-            ast::Expr::Call(ast::ExprCall {
-                node_index: ast::AtomicNodeIndex::NONE,
-                range: TextRange::default(),
-                func: Box::new(func),
-                arguments: ast::Arguments {
-                    node_index: ast::AtomicNodeIndex::NONE,
-                    range: TextRange::default(),
-                    args: Box::default(),
-                    keywords: Default::default(),
-                },
-            }),
-            index,
+        let mut func = frozenset_call_expr();
+        set_public_constant(
+            &mut func,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
         );
+        let message = first_public_constant_warning(ast::Expr::Call(ast::ExprCall {
+            node_index: ast::AtomicNodeIndex::NONE,
+            range: TextRange::default(),
+            func: Box::new(func),
+            arguments: ast::Arguments {
+                node_index: ast::AtomicNodeIndex::NONE,
+                range: TextRange::default(),
+                args: Box::default(),
+                keywords: Default::default(),
+                runtime_args: None,
+                runtime_bases: None,
+            },
+        }));
         assert!(
             message.contains("'frozenset' object is not callable"),
             "expected public ast.Constant(frozenset()) callable warning, got {message:?}"
@@ -14198,26 +14154,24 @@ mod tests {
 
     #[test]
     fn public_ast_frozenset_constant_subscript_warns_like_cpython_constant() {
-        let index = ast::NodeIndex::from(0);
-        let value = frozenset_call_expr();
-        ast::HasNodeIndex::node_index(&value).set(index);
-        let message = first_public_constant_warning(
-            ast::Expr::Subscript(ast::ExprSubscript {
-                node_index: ast::AtomicNodeIndex::NONE,
-                range: TextRange::default(),
-                value: Box::new(value),
-                slice: Box::new(ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: ast::AtomicNodeIndex::NONE,
-                    range: TextRange::default(),
-                    value: ast::Number::Int(ast::Int::ZERO),
-                })),
-                ctx: ast::ExprContext::Load,
-            }),
-            index,
+        let mut value = frozenset_call_expr();
+        set_public_constant(
+            &mut value,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
         );
+        let message = first_public_constant_warning(ast::Expr::Subscript(ast::ExprSubscript {
+            node_index: ast::AtomicNodeIndex::NONE,
+            range: TextRange::default(),
+            value: Box::new(value),
+            slice: Box::new(ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
+                node_index: ast::AtomicNodeIndex::NONE,
+                range: TextRange::default(),
+                value: ast::Number::Int(ast::Int::ZERO),
+            })),
+            ctx: ast::ExprContext::Load,
+        }));
         assert!(
             message.contains("'frozenset' object is not subscriptable"),
             "expected public ast.Constant(frozenset()) subscript warning, got {message:?}"
@@ -14226,26 +14180,24 @@ mod tests {
 
     #[test]
     fn public_ast_str_constant_bad_index_warns_like_cpython_constant() {
-        let index = ast::NodeIndex::from(0);
-        let value = frozenset_call_expr();
-        ast::HasNodeIndex::node_index(&value).set(index);
-        let message = first_public_constant_warning(
-            ast::Expr::Subscript(ast::ExprSubscript {
-                node_index: ast::AtomicNodeIndex::NONE,
-                range: TextRange::default(),
-                value: Box::new(value),
-                slice: Box::new(ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                    node_index: ast::AtomicNodeIndex::NONE,
-                    range: TextRange::default(),
-                    value: ast::Number::Float(1.0),
-                })),
-                ctx: ast::ExprContext::Load,
-            }),
-            index,
+        let mut value = frozenset_call_expr();
+        set_public_constant(
+            &mut value,
             ConstantData::Str {
                 value: "abc".into(),
             },
         );
+        let message = first_public_constant_warning(ast::Expr::Subscript(ast::ExprSubscript {
+            node_index: ast::AtomicNodeIndex::NONE,
+            range: TextRange::default(),
+            value: Box::new(value),
+            slice: Box::new(ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
+                node_index: ast::AtomicNodeIndex::NONE,
+                range: TextRange::default(),
+                value: ast::Number::Float(1.0),
+            })),
+            ctx: ast::ExprContext::Load,
+        }));
         assert!(
             message.contains("str indices must be integers or slices, not float"),
             "expected public ast.Constant(str) bad-index warning, got {message:?}"
@@ -14254,25 +14206,24 @@ mod tests {
 
     #[test]
     fn public_ast_frozenset_constant_is_warns_like_cpython_constant() {
-        let index = ast::NodeIndex::from(0);
-        let left = frozenset_call_expr();
-        ast::HasNodeIndex::node_index(&left).set(index);
-        let message = first_public_constant_warning(
-            ast::Expr::Compare(ast::ExprCompare {
-                node_index: ast::AtomicNodeIndex::NONE,
-                range: TextRange::default(),
-                left: Box::new(left),
-                ops: Box::new([ast::CmpOp::Is]),
-                comparators: Box::new([ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
-                    node_index: ast::AtomicNodeIndex::NONE,
-                    range: TextRange::default(),
-                })]),
-            }),
-            index,
+        let mut left = frozenset_call_expr();
+        set_public_constant(
+            &mut left,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
         );
+        let message = first_public_constant_warning(ast::Expr::Compare(ast::ExprCompare {
+            node_index: ast::AtomicNodeIndex::NONE,
+            range: TextRange::default(),
+            left: Box::new(left),
+            ops: Box::new([ast::CmpOp::Is]),
+            comparators: Box::new([ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
+                node_index: ast::AtomicNodeIndex::NONE,
+                range: TextRange::default(),
+            })]),
+            runtime_comparators: None,
+        }));
         assert!(
             message.contains("\"is\" with 'frozenset' literal"),
             "expected public ast.Constant(frozenset()) identity warning, got {message:?}"
@@ -14287,6 +14238,7 @@ mod tests {
             elts: Vec::new(),
             ctx: ast::ExprContext::Load,
             parenthesized: true,
+            runtime_elts: None,
         });
         let code = compile_public_constant_expr(
             expr,
@@ -14328,9 +14280,13 @@ mod tests {
 
     #[test]
     fn public_ast_constant_slice_bound_uses_cpython_constant_slice_path() {
-        let index = ast::NodeIndex::from(0);
-        let lower = frozenset_call_expr();
-        ast::HasNodeIndex::node_index(&lower).set(index);
+        let mut lower = frozenset_call_expr();
+        set_public_constant(
+            &mut lower,
+            ConstantData::Integer {
+                value: BigInt::from(1u8),
+            },
+        );
         let expr = ast::Expr::Subscript(ast::ExprSubscript {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
@@ -14353,20 +14309,7 @@ mod tests {
             })),
             ctx: ast::ExprContext::Load,
         });
-        let mut ast_constant_overrides = PublicAstNodeMap::new();
-        ast_constant_overrides.insert(
-            index,
-            ConstantData::Integer {
-                value: BigInt::from(1u8),
-            },
-        );
-        let code = compile_eval_ast_with_options(
-            expr,
-            CompileOpts {
-                ast_constant_overrides: Some(Arc::new(ast_constant_overrides)),
-                ..CompileOpts::default()
-            },
-        );
+        let code = compile_eval_ast_with_options(expr, CompileOpts::default());
         let ops: Vec<_> = code
             .instructions
             .iter()
@@ -30270,11 +30213,6 @@ x = 1
             opts.allow_top_level_await,
             opts.future_features
                 .contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS),
-            opts.ast_constant_overrides.clone(),
-            opts.ast_interpolation_overrides.clone(),
-            opts.ast_formatted_value_overrides.clone(),
-            opts.ast_joined_str_overrides.clone(),
-            opts.ast_template_str_overrides.clone(),
             opts.recursion_limit,
         )
         .map_err(|e| e.into_codegen_error(source_file.name().to_owned()))

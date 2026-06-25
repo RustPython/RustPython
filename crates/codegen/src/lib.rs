@@ -26,70 +26,80 @@ use ruff_python_ast as ast;
 
 pub(crate) use compile::InternalResult;
 
-#[derive(Clone, Debug)]
-pub struct PublicAstInterpolation {
-    pub str: ConstantData,
-    pub format_spec: Option<Box<ast::Expr>>,
-}
+pub type PublicAstExprList = Vec<ast::Expr>;
+pub type PublicAstInterpolation = (ast::ConstantValue, Option<Box<ast::Expr>>);
 
-#[derive(Clone, Debug)]
-pub struct PublicAstFormattedValue {
-    pub format_spec: Option<Box<ast::Expr>>,
-}
-
-#[derive(Clone, Debug)]
-pub struct PublicAstExprList {
-    pub values: Vec<ast::Expr>,
-}
-
-/// Dense side table keyed by public-AST `NodeIndex`.
-///
-/// Public `_ast` constructors allocate synthetic node indexes from zero, so a
-/// `Vec<Option<T>>` gives O(1) lookup without hashing or insertion-order state.
-#[derive(Clone, Debug, Default)]
-pub struct PublicAstNodeMap<T> {
-    values: Vec<Option<T>>,
-}
-
-impl<T> PublicAstNodeMap<T> {
-    #[must_use]
-    pub fn new() -> Self {
-        Self { values: Vec::new() }
+pub fn public_ast_constant(expr: &ast::Expr) -> Option<ast::ConstantValue> {
+    match expr {
+        ast::Expr::Constant(expr) => Some(expr.value.clone()),
+        _ => None,
     }
+}
 
-    pub fn insert(&mut self, index: ast::NodeIndex, value: T) -> Option<T> {
-        let index = index
-            .as_u32()
-            .expect("public AST side table cannot store NodeIndex::NONE")
-            as usize;
-        if self.values.len() <= index {
-            self.values.resize_with(index + 1, || None);
+#[cfg(test)]
+pub(crate) fn constant_data_to_public_ast_constant(value: ConstantData) -> ast::ConstantValue {
+    match value {
+        ConstantData::None => ast::ConstantValue::None,
+        ConstantData::Boolean { value } => ast::ConstantValue::Boolean(value),
+        ConstantData::Str { value } => ast::ConstantValue::Str(value.to_string().into_boxed_str()),
+        ConstantData::Bytes { value } => ast::ConstantValue::Bytes(value.into_boxed_slice()),
+        ConstantData::Integer { value } => ast::ConstantValue::Integer(value.to_string().into()),
+        ConstantData::Tuple { elements } => ast::ConstantValue::Tuple(
+            elements
+                .into_iter()
+                .map(constant_data_to_public_ast_constant)
+                .collect(),
+        ),
+        ConstantData::Frozenset { elements } => ast::ConstantValue::Frozenset(
+            elements
+                .into_iter()
+                .map(constant_data_to_public_ast_constant)
+                .collect(),
+        ),
+        ConstantData::Float { value } => ast::ConstantValue::Float(value),
+        ConstantData::Complex { value } => ast::ConstantValue::Complex {
+            real: value.re,
+            imag: value.im,
+        },
+        ConstantData::Ellipsis => ast::ConstantValue::Ellipsis,
+        ConstantData::Code { .. } | ConstantData::Slice { .. } => {
+            unreachable!("public AST constants cannot contain code objects or slices")
         }
-        self.values[index].replace(value)
     }
+}
 
-    #[must_use]
-    pub fn get(&self, index: &ast::NodeIndex) -> Option<&T> {
-        let index = index.as_u32()? as usize;
-        self.values.get(index)?.as_ref()
-    }
-
-    pub fn get_mut(&mut self, index: &ast::NodeIndex) -> Option<&mut T> {
-        let index = index.as_u32()? as usize;
-        self.values.get_mut(index)?.as_mut()
-    }
-
-    #[must_use]
-    pub fn contains_key(&self, index: &ast::NodeIndex) -> bool {
-        self.get(index).is_some()
-    }
-
-    pub fn values(&self) -> impl Iterator<Item = &T> {
-        self.values.iter().filter_map(Option::as_ref)
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.values.iter().all(Option::is_none)
+pub fn public_ast_constant_to_constant_data(value: ast::ConstantValue) -> ConstantData {
+    match value {
+        ast::ConstantValue::None => ConstantData::None,
+        ast::ConstantValue::Boolean(value) => ConstantData::Boolean { value },
+        ast::ConstantValue::Str(value) => ConstantData::Str {
+            value: value.to_string().into(),
+        },
+        ast::ConstantValue::Bytes(value) => ConstantData::Bytes {
+            value: value.into_vec(),
+        },
+        ast::ConstantValue::Integer(value) => ConstantData::Integer {
+            value: value
+                .parse()
+                .expect("RustPython public AST integer constants are decimal integers"),
+        },
+        ast::ConstantValue::Tuple(elements) => ConstantData::Tuple {
+            elements: elements
+                .into_iter()
+                .map(public_ast_constant_to_constant_data)
+                .collect(),
+        },
+        ast::ConstantValue::Frozenset(elements) => ConstantData::Frozenset {
+            elements: elements
+                .into_iter()
+                .map(public_ast_constant_to_constant_data)
+                .collect(),
+        },
+        ast::ConstantValue::Float(value) => ConstantData::Float { value },
+        ast::ConstantValue::Complex { real, imag } => ConstantData::Complex {
+            value: num_complex::Complex::new(real, imag),
+        },
+        ast::ConstantValue::Ellipsis => ConstantData::Ellipsis,
     }
 }
 
@@ -117,6 +127,19 @@ impl ToPythonName for ast::Expr {
             }
             Self::EllipsisLiteral(_) => "ellipsis",
             Self::NoneLiteral(_) => "None",
+            Self::Constant(expr) => match &expr.value {
+                ast::ConstantValue::None => "None",
+                ast::ConstantValue::Boolean(true) => "True",
+                ast::ConstantValue::Boolean(false) => "False",
+                ast::ConstantValue::Ellipsis => "ellipsis",
+                ast::ConstantValue::Tuple(_) => "tuple",
+                ast::ConstantValue::Frozenset(_) => "literal",
+                ast::ConstantValue::Str(_)
+                | ast::ConstantValue::Bytes(_)
+                | ast::ConstantValue::Integer(_)
+                | ast::ConstantValue::Float(_)
+                | ast::ConstantValue::Complex { .. } => "literal",
+            },
             Self::NumberLiteral(_) | Self::BytesLiteral(_) | Self::StringLiteral(_) => "literal",
             Self::Tuple(_) => "tuple",
             Self::List { .. } => "list",

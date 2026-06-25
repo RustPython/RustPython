@@ -38,15 +38,15 @@ fn ruff_fstring_element_to_joined_str_part(
             debug_text: _, // TODO: What is this?
             conversion,
             format_spec,
-            node_index,
+            node_index: _,
+            runtime_str: _,
+            runtime_interpolation_format_spec: _,
+            runtime_formatted_value_format_spec,
         }) => {
-            let override_format_spec =
-                super::constant::public_ast_formatted_value_object(to_ctx, node_index.load())
-                    .and_then(|formatted| formatted.format_spec)
-                    .or_else(|| {
-                        ruff_format_spec_to_joined_str(to_ctx, format_spec)
-                            .map(|joined_str| Box::new(joined_str.into_expr(None)))
-                    });
+            let override_format_spec = runtime_formatted_value_format_spec.or_else(|| {
+                ruff_format_spec_to_joined_str(to_ctx, format_spec)
+                    .map(|joined_str| Box::new(joined_str.into_expr(None)))
+            });
             JoinedStrPart::FormattedValue(FormattedValue {
                 value: expression,
                 conversion,
@@ -316,6 +316,8 @@ fn format_spec_expr_to_ruff_format_spec(
         range,
         ref mut value,
         node_index: _,
+        runtime_joined_str: _,
+        runtime_values: _,
     } = fstring;
     let default_part = ast::FStringPart::FString(ast::FString {
         node_index: Default::default(),
@@ -383,7 +385,15 @@ impl JoinedStr {
         } else {
             values
         };
-        let expr = ast::Expr::FString(ast::ExprFString {
+        let (runtime_joined_str, runtime_values) =
+            public_values.take().map_or((None, None), |values| {
+                if values.iter().any(Option::is_none) {
+                    (None, Some(values))
+                } else {
+                    (Some(values.into_iter().flatten().collect()), None)
+                }
+            });
+        ast::Expr::FString(ast::ExprFString {
             node_index: Default::default(),
             range,
             value: match values.len() {
@@ -414,25 +424,9 @@ impl JoinedStr {
                         .collect(),
                 ),
             },
-        });
-        if let (Some(ctx), Some(values)) = (ctx, public_values) {
-            let index = if values.iter().any(Option::is_none) {
-                super::constant::register_public_ast_node_list_overrides(
-                    ctx,
-                    Vec::new(),
-                    vec![(super::constant::PublicAstExprListField::Values, values)],
-                    None,
-                    None,
-                )
-            } else {
-                super::constant::register_public_ast_joined_str(
-                    ctx,
-                    values.into_iter().flatten().collect(),
-                )
-            };
-            ast::HasNodeIndex::node_index(&expr).set(index);
-        }
-        expr
+            runtime_joined_str,
+            runtime_values,
+        })
     }
 }
 
@@ -463,21 +457,20 @@ fn joined_str_part_to_ruff_fstring_element(
     match part {
         JoinedStrPart::FormattedValue(value) => {
             let format_spec = value.format_spec.clone();
-            let node_index = ctx.map_or(ast::NodeIndex::NONE, |ctx| {
-                super::constant::register_public_ast_formatted_value(ctx, format_spec.clone())
-            });
+            let runtime_formatted_value_format_spec = (ctx.is_some() && format_spec.is_some())
+                .then_some(format_spec.clone())
+                .flatten();
             Some(ast::InterpolatedStringElement::Interpolation(
                 ast::InterpolatedElement {
-                    node_index: {
-                        let node_index_field = ast::AtomicNodeIndex::NONE;
-                        node_index_field.set(node_index);
-                        node_index_field
-                    },
+                    node_index: Default::default(),
                     range: value.range,
                     expression: value.value.clone(),
                     debug_text: None,
                     conversion: value.conversion,
                     format_spec: format_spec_expr_to_ruff_format_spec(format_spec),
+                    runtime_str: None,
+                    runtime_interpolation_format_spec: None,
+                    runtime_formatted_value_format_spec,
                 },
             ))
         }
@@ -662,35 +655,33 @@ pub(super) fn fstring_to_object(
 ) -> PyObjectRef {
     let ctx = to_ctx.vm;
     let source_file = to_ctx.source_file;
-    if let Some(joined_str) =
-        super::constant::public_ast_joined_str_object(to_ctx, expression.node_index.load())
-    {
-        return JoinedStr {
-            range: expression.range,
-            values: Vec::new().into_boxed_slice(),
-            public_values: Some(joined_str.values.into_iter().map(Some).collect()),
-        }
-        .ast_to_object(to_ctx);
-    }
-
-    if let Some(joined_str) = super::constant::public_ast_expr_list_object(
-        to_ctx,
-        expression.node_index.load(),
-        super::constant::PublicAstExprListField::Values,
-    ) {
-        return JoinedStr {
-            range: expression.range,
-            values: Vec::new().into_boxed_slice(),
-            public_values: Some(joined_str.values),
-        }
-        .ast_to_object(to_ctx);
-    }
-
     let ast::ExprFString {
         range,
         mut value,
         node_index: _,
+        runtime_joined_str,
+        runtime_values,
     } = expression;
+    if let Some(joined_str) =
+        super::constant::public_ast_joined_str_object(to_ctx, runtime_joined_str)
+    {
+        return JoinedStr {
+            range,
+            values: Vec::new().into_boxed_slice(),
+            public_values: Some(joined_str.into_iter().map(Some).collect()),
+        }
+        .ast_to_object(to_ctx);
+    }
+
+    if let Some(joined_str) = super::constant::public_ast_expr_list_object(to_ctx, runtime_values) {
+        return JoinedStr {
+            range,
+            values: Vec::new().into_boxed_slice(),
+            public_values: Some(joined_str),
+        }
+        .ast_to_object(to_ctx);
+    }
+
     let default_part = ast::FStringPart::FString(ast::FString {
         node_index: Default::default(),
         range: Default::default(),
@@ -765,7 +756,10 @@ fn ruff_tstring_element_to_template_str_part(
             debug_text,
             conversion,
             format_spec,
-            node_index,
+            node_index: _,
+            runtime_str,
+            runtime_interpolation_format_spec,
+            runtime_formatted_value_format_spec: _,
         }) => {
             let expr_range =
                 extend_expr_range_with_wrapping_parens(source_file, range, expression.range())
@@ -773,17 +767,20 @@ fn ruff_tstring_element_to_template_str_part(
             let expr_str = if let Some(debug_text) = debug_text {
                 let expr_source = source_file.slice(expr_range);
                 let mut expr_with_debug = String::with_capacity(
-                    debug_text.leading().len() + expr_source.len() + debug_text.trailing().len(),
+                    debug_text.leading.len() + expr_source.len() + debug_text.trailing.len(),
                 );
-                expr_with_debug.push_str(debug_text.leading());
+                expr_with_debug.push_str(&debug_text.leading);
                 expr_with_debug.push_str(expr_source);
-                expr_with_debug.push_str(debug_text.trailing());
+                expr_with_debug.push_str(&debug_text.trailing);
                 strip_interpolation_expr(&expr_with_debug)
             } else {
                 tstring_interpolation_expr_str(source_file, range, expr_range)
             };
-            let override_interpolation =
-                super::constant::public_ast_interpolation_object(to_ctx, node_index.load());
+            let override_interpolation = super::constant::public_ast_interpolation_object(
+                to_ctx,
+                runtime_str,
+                runtime_interpolation_format_spec,
+            );
             TemplateStrPart::Interpolation(TStringInterpolation {
                 value: expression,
                 str: override_interpolation
@@ -902,29 +899,20 @@ pub(super) fn template_str_to_expr(
         elements,
         flags: ast::TStringFlags::empty(),
     };
-    let expr = ast::Expr::TString(ast::ExprTString {
+    let (runtime_template_str, runtime_values) = public_values.map_or((None, None), |values| {
+        if values.iter().any(Option::is_none) {
+            (None, Some(values))
+        } else {
+            (Some(values.into_iter().flatten().collect()), None)
+        }
+    });
+    Ok(ast::Expr::TString(ast::ExprTString {
         node_index: Default::default(),
         range,
         value: ast::TStringValue::single(tstring),
-    });
-    if let Some(values) = public_values {
-        let index = if values.iter().any(Option::is_none) {
-            super::constant::register_public_ast_node_list_overrides(
-                ctx,
-                Vec::new(),
-                vec![(super::constant::PublicAstExprListField::Values, values)],
-                None,
-                None,
-            )
-        } else {
-            super::constant::register_public_ast_template_str(
-                ctx,
-                values.into_iter().flatten().collect(),
-            )
-        };
-        ast::HasNodeIndex::node_index(&expr).set(index);
-    }
-    Ok(expr)
+        runtime_template_str,
+        runtime_values,
+    }))
 }
 
 pub(super) fn interpolation_to_expr(
@@ -933,12 +921,6 @@ pub(super) fn interpolation_to_expr(
     interpolation: TStringInterpolation,
 ) -> PyResult<ast::Expr> {
     let range = interpolation.range;
-    let format_spec = interpolation.format_spec.clone();
-    let str_constant = super::constant::constant_object_to_constant_data(
-        ctx,
-        source_file,
-        interpolation.str.clone(),
-    )?;
     let part = TemplateStrPart::Interpolation(interpolation);
     let elements = template_parts_to_elements(ctx, source_file, vec![part].into_boxed_slice())?;
     let tstring = ast::TString {
@@ -947,14 +929,13 @@ pub(super) fn interpolation_to_expr(
         elements,
         flags: ast::TStringFlags::empty(),
     };
-    let expr = ast::Expr::TString(ast::ExprTString {
+    Ok(ast::Expr::TString(ast::ExprTString {
         node_index: Default::default(),
         range,
         value: ast::TStringValue::single(tstring),
-    });
-    let index = super::constant::register_public_ast_interpolation(ctx, str_constant, format_spec);
-    ast::HasNodeIndex::node_index(&expr).set(index);
-    Ok(expr)
+        runtime_template_str: None,
+        runtime_values: None,
+    }))
 }
 
 fn template_parts_to_elements(
@@ -997,24 +978,22 @@ fn template_part_to_element(
             } = interpolation;
             let str_constant =
                 super::constant::constant_object_to_constant_data(ctx, source_file, str)?;
-            let node_index = super::constant::register_public_ast_interpolation(
-                ctx,
+            let runtime_str = Some(super::constant::constant_data_to_public_ast_constant(
                 str_constant,
-                format_spec.clone(),
-            );
+            ));
+            let runtime_interpolation_format_spec = format_spec.clone();
             let format_spec = format_spec_expr_to_ruff_format_spec(format_spec);
             Ok(ast::InterpolatedStringElement::Interpolation(
                 ast::InterpolatedElement {
                     range,
-                    node_index: {
-                        let node_index_field = ast::AtomicNodeIndex::NONE;
-                        node_index_field.set(node_index);
-                        node_index_field
-                    },
+                    node_index: Default::default(),
                     expression: value,
                     debug_text: None,
                     conversion,
                     format_spec,
+                    runtime_str,
+                    runtime_interpolation_format_spec,
+                    runtime_formatted_value_format_spec: None,
                 },
             ))
         }
@@ -1181,43 +1160,49 @@ pub(super) fn tstring_to_object(
     expression: ast::ExprTString,
 ) -> PyObjectRef {
     let _source_file = to_ctx.source_file;
-    if let Some(template_str) =
-        super::constant::public_ast_template_str_object(to_ctx, expression.node_index.load())
-    {
-        return TemplateStr {
-            range: expression.range,
-            values: Vec::new().into_boxed_slice(),
-            public_values: Some(template_str.values.into_iter().map(Some).collect()),
-        }
-        .ast_to_object(to_ctx);
-    }
-
-    if let Some(template_str) = super::constant::public_ast_expr_list_object(
-        to_ctx,
-        expression.node_index.load(),
-        super::constant::PublicAstExprListField::Values,
-    ) {
-        return TemplateStr {
-            range: expression.range,
-            values: Vec::new().into_boxed_slice(),
-            public_values: Some(template_str.values),
-        }
-        .ast_to_object(to_ctx);
-    }
-
-    if let Some((str, format_spec)) =
-        super::constant::public_ast_interpolation_object(to_ctx, expression.node_index.load())
-        && let Some(interpolation) =
-            standalone_tstring_interpolation_to_object(to_ctx, &expression, str, format_spec)
-    {
-        return interpolation;
-    }
-
     let ast::ExprTString {
         range,
         mut value,
         node_index: _,
+        runtime_template_str,
+        runtime_values,
     } = expression;
+    if let Some(template_str) =
+        super::constant::public_ast_template_str_object(to_ctx, runtime_template_str)
+    {
+        return TemplateStr {
+            range,
+            values: Vec::new().into_boxed_slice(),
+            public_values: Some(template_str.into_iter().map(Some).collect()),
+        }
+        .ast_to_object(to_ctx);
+    }
+
+    if let Some(template_str) = super::constant::public_ast_expr_list_object(to_ctx, runtime_values)
+    {
+        return TemplateStr {
+            range,
+            values: Vec::new().into_boxed_slice(),
+            public_values: Some(template_str),
+        }
+        .ast_to_object(to_ctx);
+    }
+
+    if let [tstring] = value.as_slice()
+        && let Some(ast::InterpolatedStringElement::Interpolation(interp)) =
+            tstring.elements.iter().next()
+        && tstring.elements.get(1).is_none()
+        && let Some((str, format_spec)) = super::constant::public_ast_interpolation_object(
+            to_ctx,
+            interp.runtime_str.clone(),
+            interp.runtime_interpolation_format_spec.clone(),
+        )
+        && let Some(interpolation) =
+            standalone_tstring_interpolation_to_object(to_ctx, &value, str, format_spec)
+    {
+        return interpolation;
+    }
+
     let default_tstring = ast::TString {
         node_index: Default::default(),
         range: Default::default(),
@@ -1242,11 +1227,11 @@ pub(super) fn tstring_to_object(
 
 fn standalone_tstring_interpolation_to_object(
     to_ctx: &AstToObjectContext<'_>,
-    expression: &ast::ExprTString,
+    value: &ast::TStringValue,
     str: PyObjectRef,
     format_spec: Option<Box<ast::Expr>>,
 ) -> Option<PyObjectRef> {
-    let [tstring] = expression.value.as_slice() else {
+    let [tstring] = value.as_slice() else {
         return None;
     };
     let mut elements = tstring.elements.iter();

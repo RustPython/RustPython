@@ -7,16 +7,18 @@ impl Node for ast::Parameters {
         let vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             posonlyargs,
             args,
             vararg,
             kwonlyargs,
             kwarg,
             range,
+            runtime_defaults,
         } = self;
-        let (posonlyargs, args, defaults) =
+        let (posonlyargs, args, mut defaults) =
             extract_positional_parameter_defaults(posonlyargs, args);
+        defaults.runtime_defaults = runtime_defaults;
         let (kwonlyargs, kw_defaults) = extract_keyword_parameter_defaults(kwonlyargs);
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeArguments::static_type().to_owned())
@@ -34,11 +36,12 @@ impl Node for ast::Parameters {
             .unwrap();
         dict.set_item("kwarg", kwarg.ast_to_object(to_ctx), vm)
             .unwrap();
+        let runtime_defaults = defaults.runtime_defaults.take();
         let defaults =
-            super::constant::public_ast_expr_option_list_object(to_ctx, node_index.load())
+            super::constant::public_ast_expr_option_list_object(to_ctx, runtime_defaults)
                 .map_or_else(
                     || defaults.ast_to_object(to_ctx),
-                    |values| values.values.ast_to_object(to_ctx),
+                    |values| values.ast_to_object(to_ctx),
                 );
         dict.set_item("defaults", defaults, vm).unwrap();
         let _ = range;
@@ -88,25 +91,19 @@ impl Node for ast::Parameters {
         )?;
 
         let kwonlyargs = merge_keyword_parameter_defaults(ctx, kwonlyargs, kw_defaults)?;
-        let defaults_node_index = defaults.node_index;
+        let runtime_defaults = defaults.runtime_defaults.clone();
         let (posonlyargs, args) =
             merge_positional_parameter_defaults(ctx, posonlyargs, args, defaults)?;
-        let node_index = {
-            let node_index = ast::AtomicNodeIndex::NONE;
-            if defaults_node_index != ast::NodeIndex::NONE {
-                node_index.set(defaults_node_index);
-            }
-            node_index
-        };
 
         Ok(Self {
-            node_index,
+            node_index: Default::default(),
             posonlyargs,
             args,
             vararg,
             kwonlyargs,
             kwarg,
             range: Default::default(),
+            runtime_defaults,
         })
     }
 
@@ -121,11 +118,13 @@ impl Node for ast::Parameter {
         let _vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             name,
             annotation,
             // type_comment,
             range,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
         } = self;
 
         // ruff covers the ** in range but python expects it to start at the ident
@@ -139,9 +138,12 @@ impl Node for ast::Parameter {
             .unwrap();
         dict.set_item("annotation", annotation.ast_to_object(to_ctx), _vm)
             .unwrap();
-        let type_comment =
-            super::constant::public_ast_arg_type_comment_object(to_ctx, node_index.load())
-                .unwrap_or_else(|| _vm.ctx.none());
+        let type_comment = super::constant::public_ast_arg_type_comment_object(
+            to_ctx,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
+        )
+        .unwrap_or_else(|| _vm.ctx.none());
         dict.set_item("type_comment", type_comment, _vm).unwrap();
         node_add_location(&dict, range, _vm, source_file);
         node.into()
@@ -157,19 +159,18 @@ impl Node for ast::Parameter {
             .map(|obj| Node::ast_from_object(ctx, source_file, obj))
             .transpose()?;
         let type_comment = get_ast_string_field_opt(ctx, &_object, "type_comment")?;
-        let node_index = ast::AtomicNodeIndex::NONE;
-        if let Some(type_comment) = type_comment {
-            node_index.set(super::constant::register_public_ast_arg_type_comment(
-                ctx,
-                type_comment,
-            ));
-        }
+        let (runtime_type_comment, runtime_type_comment_bytes) = type_comment
+            .map_or((None, None), |type_comment| {
+                super::constant::public_ast_string_from_pyobject(ctx, type_comment)
+            });
         let range = range_from_object(ctx, source_file, _object, "arg")?;
         Ok(Self {
-            node_index,
+            node_index: Default::default(),
             name,
             annotation,
             range,
+            runtime_type_comment,
+            runtime_type_comment_bytes,
         })
     }
 }
@@ -294,7 +295,7 @@ impl Node for KeywordParameters {
 
 struct ParameterDefaults {
     pub _range: TextRange, // TODO: Use this
-    node_index: ast::NodeIndex,
+    runtime_defaults: Option<super::constant::PublicAstExprOptionList>,
     defaults: Box<[Option<Box<ast::Expr>>]>,
 }
 
@@ -308,7 +309,7 @@ impl ParameterDefaults {
     ) -> PyResult<Self> {
         Ok(Self {
             defaults: get_node_boxed_slice_field(ctx, source_file, object, field, typ)?,
-            node_index: ast::NodeIndex::NONE,
+            runtime_defaults: None,
             _range: TextRange::default(),
         })
     }
@@ -322,20 +323,15 @@ impl ParameterDefaults {
     ) -> PyResult<Self> {
         let defaults: Vec<Option<Box<ast::Expr>>> =
             get_node_list_field(ctx, source_file, object, field, typ)?;
-        let node_index = if defaults.iter().any(Option::is_none) {
-            super::constant::register_public_ast_expr_option_list(
-                ctx,
-                defaults
-                    .iter()
-                    .map(|default| default.as_deref().cloned())
-                    .collect(),
-            )
-        } else {
-            ast::NodeIndex::NONE
-        };
+        let runtime_defaults = defaults.iter().any(Option::is_none).then(|| {
+            defaults
+                .iter()
+                .map(|default| default.as_deref().cloned())
+                .collect()
+        });
         Ok(Self {
             defaults: defaults.into_boxed_slice(),
-            node_index,
+            runtime_defaults,
             _range: TextRange::default(),
         })
     }
@@ -356,15 +352,15 @@ impl Node for ParameterDefaults {
         let defaults: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
         Ok(Self {
             defaults: defaults.0,
-            node_index: ast::NodeIndex::NONE,
+            runtime_defaults: None,
             _range: TextRange::default(),
         })
     }
 }
 
 fn extract_positional_parameter_defaults(
-    pos_only_args: ast::ParameterWithDefaults,
-    args: ast::ParameterWithDefaults,
+    pos_only_args: Vec<ast::ParameterWithDefault>,
+    args: Vec<ast::ParameterWithDefault>,
 ) -> (
     PositionalParameters,
     PositionalParameters,
@@ -384,7 +380,7 @@ fn extract_positional_parameter_defaults(
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
             .unwrap_or_default(),
-        node_index: ast::NodeIndex::NONE,
+        runtime_defaults: None,
         defaults: defaults.into_boxed_slice(),
     };
 
@@ -424,7 +420,10 @@ fn merge_positional_parameter_defaults(
     posonlyargs: PositionalParameters,
     args: PositionalParameters,
     defaults: ParameterDefaults,
-) -> PyResult<(ast::ParameterWithDefaults, ast::ParameterWithDefaults)> {
+) -> PyResult<(
+    Vec<ast::ParameterWithDefault>,
+    Vec<ast::ParameterWithDefault>,
+)> {
     let posonlyargs = posonlyargs.args;
     let args = args.args;
     let defaults = defaults.defaults;
@@ -463,11 +462,11 @@ fn merge_positional_parameter_defaults(
         arg.default = default;
     }
 
-    Ok((posonlyargs.into(), args.into()))
+    Ok((posonlyargs, args))
 }
 
 fn extract_keyword_parameter_defaults(
-    kw_only_args: ast::ParameterWithDefaults,
+    kw_only_args: Vec<ast::ParameterWithDefault>,
 ) -> (KeywordParameters, ParameterDefaults) {
     let mut defaults = vec![];
     defaults.extend(kw_only_args.iter().map(|item| item.default.clone()));
@@ -478,7 +477,7 @@ fn extract_keyword_parameter_defaults(
             .map(|item| item.range())
             .reduce(|acc, next| acc.cover(next))
             .unwrap_or_default(),
-        node_index: ast::NodeIndex::NONE,
+        runtime_defaults: None,
         defaults: defaults.into_boxed_slice(),
     };
 
@@ -505,7 +504,7 @@ fn merge_keyword_parameter_defaults(
     vm: &VirtualMachine,
     kw_only_args: KeywordParameters,
     defaults: ParameterDefaults,
-) -> PyResult<ast::ParameterWithDefaults> {
+) -> PyResult<Vec<ast::ParameterWithDefault>> {
     if kw_only_args.keywords.len() != defaults.defaults.len() {
         return Err(
             vm.new_value_error("length of kwonlyargs is not the same as kw_defaults on arguments")
@@ -518,6 +517,5 @@ fn merge_keyword_parameter_defaults(
             default,
             range: Default::default(),
         })
-        .collect::<Vec<_>>()
-        .into())
+        .collect::<Vec<_>>())
 }

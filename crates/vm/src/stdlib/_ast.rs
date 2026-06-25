@@ -4,8 +4,6 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
-use alloc::sync::Arc;
-
 pub(crate) use python::_ast::module_def;
 
 mod pyast;
@@ -213,78 +211,40 @@ fn get_node_boxed_slice_field<T: Node>(
 }
 
 fn public_expr_list_from_values(
-    ctx: &AstFromObjectContext<'_>,
-    field: constant::PublicAstExprListField,
     values: Vec<Option<ast::Expr>>,
-) -> (ast::AtomicNodeIndex, Vec<ast::Expr>) {
-    let node_index = public_expr_lists_node_index(ctx, [(field, &values)]);
-    (node_index, lower_public_expr_list(values))
+) -> (Option<constant::PublicAstExprOptionList>, Vec<ast::Expr>) {
+    let metadata = public_expr_list_metadata(&values);
+    (metadata, lower_public_expr_list(values))
 }
 
 fn public_expr_boxed_slice_from_values(
-    ctx: &AstFromObjectContext<'_>,
-    field: constant::PublicAstExprListField,
     values: Vec<Option<ast::Expr>>,
-) -> (ast::AtomicNodeIndex, Box<[ast::Expr]>) {
-    let (node_index, values) = public_expr_list_from_values(ctx, field, values);
-    (node_index, values.into_boxed_slice())
+) -> (Option<constant::PublicAstExprOptionList>, Box<[ast::Expr]>) {
+    let (metadata, values) = public_expr_list_from_values(values);
+    (metadata, values.into_boxed_slice())
 }
 
-fn public_expr_lists_node_index<'a>(
-    ctx: &AstFromObjectContext<'_>,
-    fields: impl IntoIterator<Item = (constant::PublicAstExprListField, &'a Vec<Option<ast::Expr>>)>,
-) -> ast::AtomicNodeIndex {
-    public_node_list_overrides_node_index(ctx, Vec::new(), fields.into_iter().collect(), None, None)
+fn public_expr_list_metadata(
+    values: &[Option<ast::Expr>],
+) -> Option<constant::PublicAstExprOptionList> {
+    values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
 fn public_stmt_list_from_values(
-    ctx: &AstFromObjectContext<'_>,
-    field: constant::PublicAstStmtListField,
     values: Vec<Option<ast::Stmt>>,
-) -> (ast::AtomicNodeIndex, ast::Suite) {
-    let node_index = public_stmt_lists_node_index(ctx, [(field, &values)]);
-    (node_index, lower_public_stmt_list(values))
+) -> (Option<constant::PublicAstStmtList>, ast::Suite) {
+    let metadata = public_stmt_list_metadata(&values);
+    (metadata, lower_public_stmt_list(values))
 }
 
-fn public_stmt_lists_node_index<'a>(
-    ctx: &AstFromObjectContext<'_>,
-    fields: impl IntoIterator<Item = (constant::PublicAstStmtListField, &'a Vec<Option<ast::Stmt>>)>,
-) -> ast::AtomicNodeIndex {
-    public_node_list_overrides_node_index(ctx, fields.into_iter().collect(), Vec::new(), None, None)
+fn public_stmt_list_metadata(values: &[Option<ast::Stmt>]) -> Option<constant::PublicAstStmtList> {
+    values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
-fn public_node_list_overrides_node_index<'a>(
-    ctx: &AstFromObjectContext<'_>,
-    stmt_fields: Vec<(constant::PublicAstStmtListField, &'a Vec<Option<ast::Stmt>>)>,
-    expr_fields: Vec<(constant::PublicAstExprListField, &'a Vec<Option<ast::Expr>>)>,
-    except_handler_values: Option<Vec<Option<ast::ExceptHandler>>>,
-    comprehension_is_async: Option<i32>,
-) -> ast::AtomicNodeIndex {
-    let stmt_values: Vec<_> = stmt_fields
-        .into_iter()
-        .filter(|(_, values)| values.iter().any(Option::is_none))
-        .map(|(field, values)| (field, values.clone()))
-        .collect();
-    let expr_values: Vec<_> = expr_fields
-        .into_iter()
-        .filter(|(_, values)| values.iter().any(Option::is_none))
-        .map(|(field, values)| (field, values.clone()))
-        .collect();
-    let node_index = ast::AtomicNodeIndex::NONE;
-    if !stmt_values.is_empty()
-        || !expr_values.is_empty()
-        || except_handler_values.is_some()
-        || comprehension_is_async.is_some()
-    {
-        node_index.set(constant::register_public_ast_node_list_overrides(
-            ctx,
-            stmt_values,
-            expr_values,
-            except_handler_values,
-            comprehension_is_async,
-        ));
-    }
-    node_index
+fn public_except_handler_list_metadata(
+    values: &[Option<ast::ExceptHandler>],
+) -> Option<constant::PublicAstExceptHandlerList> {
+    values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
 fn lower_public_stmt_list(values: Vec<Option<ast::Stmt>>) -> ast::Suite {
@@ -1602,7 +1562,6 @@ fn should_report_unsupported_syntax_error(error: &parser::UnsupportedSyntaxError
         || matches!(
             error.kind,
             parser::UnsupportedSyntaxErrorKind::LazyImportStatement
-                | parser::UnsupportedSyntaxErrorKind::UnpackingInComprehension(_)
                 | parser::UnsupportedSyntaxErrorKind::ParenthesizedKeywordArgumentName
         )
 }
@@ -1949,7 +1908,7 @@ pub(crate) fn parse(
         }),
         ast::Mod::Expression(e) => Mod::Expression(e),
     };
-    let ctx = AstToObjectContext::new(vm, &source_file, None);
+    let ctx = AstToObjectContext::new(vm, &source_file);
     let obj = top.ast_to_object(&ctx);
     if let Some(lines) = &type_comment_source
         && obj.class().is(pyast::NodeModModule::static_type())
@@ -2110,13 +2069,13 @@ pub(crate) fn parse_func_type(
     let returns = parse_expr(right)?;
 
     let func_type = ModFunctionType {
-        node_index: ast::AtomicNodeIndex::NONE,
         argtypes: argtypes.into_boxed_slice(),
         returns,
         range: TextRange::default(),
+        runtime_argtypes: None,
     };
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
-    let ctx = AstToObjectContext::new(vm, &source_file, None);
+    let ctx = AstToObjectContext::new(vm, &source_file);
     Ok(func_type.ast_to_object(&ctx))
 }
 
@@ -2389,13 +2348,10 @@ pub(crate) fn preprocess_ast_object(
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let constant::PublicAstConversion {
-        value: ast,
-        overrides,
-    } = constant::collect_public_ast_overrides(vm, |from_ctx| {
+    let ast = constant::with_public_ast_context(vm, |from_ctx| {
         Node::ast_from_object(from_ctx, &source_file, object)
     })?;
-    validate::validate_mod(vm, &ast, Some(&overrides))?;
+    validate::validate_mod(vm, &ast)?;
     let syntax_check_only = !optimized_ast;
 
     let ast = match ast {
@@ -2451,7 +2407,7 @@ pub(crate) fn preprocess_ast_object(
         }
         Mod::FunctionType(function_type) => Mod::FunctionType(function_type),
     };
-    let ctx = AstToObjectContext::new(vm, &source_file, Some(&overrides));
+    let ctx = AstToObjectContext::new(vm, &source_file);
     let result = ast.ast_to_object(&ctx);
     copy_public_ast_passthrough_fields(vm, &original_object, &result)?;
     Ok(result)
@@ -2467,34 +2423,17 @@ pub(crate) fn compile(
 ) -> PyResult {
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let constant::PublicAstConversion {
-        value: ast,
-        overrides,
-    } = constant::collect_public_ast_overrides(vm, |from_ctx| {
+    let ast = constant::with_public_ast_context(vm, |from_ctx| {
         Node::ast_from_object(from_ctx, &source_file, object)
     })?;
-    validate::validate_mod(vm, &ast, Some(&overrides))?;
-    if !overrides.constants.is_empty() {
-        opts.ast_constant_overrides = Some(Arc::new(overrides.constants.clone()));
-    }
-    if !overrides.interpolations.is_empty() {
-        opts.ast_interpolation_overrides = Some(Arc::new(overrides.interpolations.clone()));
-    }
-    if !overrides.formatted_values.is_empty() {
-        opts.ast_formatted_value_overrides = Some(Arc::new(overrides.formatted_values.clone()));
-    }
-    if !overrides.joined_strs.is_empty() {
-        opts.ast_joined_str_overrides = Some(Arc::new(overrides.joined_strs.clone()));
-    }
-    if !overrides.template_strs.is_empty() {
-        opts.ast_template_str_overrides = Some(Arc::new(overrides.template_strs.clone()));
-    }
+    validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
         Mod::Interactive(ModInteractive { range, body, .. }) => ast::Mod::Module(ast::ModModule {
             node_index: Default::default(),
             range,
             body,
+            runtime_body: None,
         }),
         Mod::Expression(e) => ast::Mod::Expression(e),
         Mod::FunctionType(_) => {
@@ -2549,13 +2488,10 @@ pub(crate) fn compile(
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
     let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
-    let constant::PublicAstConversion {
-        value: ast,
-        overrides,
-    } = constant::collect_public_ast_overrides(vm, |from_ctx| {
+    let ast = constant::with_public_ast_context(vm, |from_ctx| {
         Node::ast_from_object(from_ctx, &source_file, object)
     })?;
-    validate::validate_mod(vm, &ast, Some(&overrides))?;
+    validate::validate_mod(vm, &ast)?;
     Ok(())
 }
 

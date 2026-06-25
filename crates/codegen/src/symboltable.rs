@@ -8,17 +8,14 @@ Inspirational file: https://github.com/python/cpython/blob/main/Python/symtable.
 */
 
 use crate::{
-    IndexMap, IndexSet, PublicAstExprList, PublicAstFormattedValue, PublicAstInterpolation,
-    PublicAstNodeMap,
+    IndexMap, IndexSet,
     error::{CodegenError, CodegenErrorType},
 };
-use alloc::{borrow::Cow, fmt, sync::Arc};
+use alloc::{borrow::Cow, fmt};
 use bitflags::bitflags;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange};
-use rustpython_compiler_core::{
-    PositionEncoding, SourceFile, SourceLocation, bytecode::ConstantData,
-};
+use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
 
 const DEFAULT_RECURSION_LIMIT: usize = 1000;
 const RECURSION_ERROR: &str = "maximum recursion depth exceeded during compilation";
@@ -174,43 +171,18 @@ impl SymbolTable {
         program: &ast::ModModule,
         source_file: SourceFile,
     ) -> SymbolTableResult<Self> {
-        Self::scan_program_with_options(
-            program,
-            source_file,
-            false,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            DEFAULT_RECURSION_LIMIT,
-        )
+        Self::scan_program_with_options(program, source_file, false, false, DEFAULT_RECURSION_LIMIT)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "passes compile options and public AST override tables"
-    )]
     pub fn scan_program_with_options(
         program: &ast::ModModule,
         source_file: SourceFile,
         allow_top_level_await: bool,
         future_annotations: bool,
-        ast_constant_overrides: Option<Arc<PublicAstNodeMap<ConstantData>>>,
-        ast_interpolation_overrides: Option<Arc<PublicAstNodeMap<PublicAstInterpolation>>>,
-        ast_formatted_value_overrides: Option<Arc<PublicAstNodeMap<PublicAstFormattedValue>>>,
-        ast_joined_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
-        ast_template_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
         recursion_limit: usize,
     ) -> SymbolTableResult<Self> {
         let mut builder = SymbolTableBuilder::new(source_file);
         builder.allow_top_level_await = allow_top_level_await;
-        builder.ast_constant_overrides = ast_constant_overrides;
-        builder.ast_interpolation_overrides = ast_interpolation_overrides;
-        builder.ast_formatted_value_overrides = ast_formatted_value_overrides;
-        builder.ast_joined_str_overrides = ast_joined_str_overrides;
-        builder.ast_template_str_overrides = ast_template_str_overrides;
         builder.recursion_limit = recursion_limit;
         builder.future_annotations = future_annotations
             || SymbolTableBuilder::future_annotations_from_module_body(program.body.as_ref());
@@ -222,43 +194,18 @@ impl SymbolTable {
         expr: &ast::ModExpression,
         source_file: SourceFile,
     ) -> SymbolTableResult<Self> {
-        Self::scan_expr_with_options(
-            expr,
-            source_file,
-            false,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-            DEFAULT_RECURSION_LIMIT,
-        )
+        Self::scan_expr_with_options(expr, source_file, false, false, DEFAULT_RECURSION_LIMIT)
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "passes compile options and public AST override tables"
-    )]
     pub fn scan_expr_with_options(
         expr: &ast::ModExpression,
         source_file: SourceFile,
         allow_top_level_await: bool,
         future_annotations: bool,
-        ast_constant_overrides: Option<Arc<PublicAstNodeMap<ConstantData>>>,
-        ast_interpolation_overrides: Option<Arc<PublicAstNodeMap<PublicAstInterpolation>>>,
-        ast_formatted_value_overrides: Option<Arc<PublicAstNodeMap<PublicAstFormattedValue>>>,
-        ast_joined_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
-        ast_template_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
         recursion_limit: usize,
     ) -> SymbolTableResult<Self> {
         let mut builder = SymbolTableBuilder::new(source_file);
         builder.allow_top_level_await = allow_top_level_await;
-        builder.ast_constant_overrides = ast_constant_overrides;
-        builder.ast_interpolation_overrides = ast_interpolation_overrides;
-        builder.ast_formatted_value_overrides = ast_formatted_value_overrides;
-        builder.ast_joined_str_overrides = ast_joined_str_overrides;
-        builder.ast_template_str_overrides = ast_template_str_overrides;
         builder.recursion_limit = recursion_limit;
         builder.future_annotations = future_annotations;
         builder.scan_expression(expr.body.as_ref(), ExpressionContext::Load)?;
@@ -1199,11 +1146,6 @@ struct SymbolTableBuilder {
     tables: Vec<SymbolTable>,
     future_annotations: bool,
     allow_top_level_await: bool,
-    ast_constant_overrides: Option<Arc<PublicAstNodeMap<ConstantData>>>,
-    ast_interpolation_overrides: Option<Arc<PublicAstNodeMap<PublicAstInterpolation>>>,
-    ast_formatted_value_overrides: Option<Arc<PublicAstNodeMap<PublicAstFormattedValue>>>,
-    ast_joined_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
-    ast_template_str_overrides: Option<Arc<PublicAstNodeMap<PublicAstExprList>>>,
     source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
     current_varnames: Vec<String>,
@@ -1243,11 +1185,6 @@ impl SymbolTableBuilder {
             tables: vec![],
             future_annotations: false,
             allow_top_level_await: false,
-            ast_constant_overrides: None,
-            ast_interpolation_overrides: None,
-            ast_formatted_value_overrides: None,
-            ast_joined_str_overrides: None,
-            ast_template_str_overrides: None,
             source_file,
             current_varnames: Vec::new(),
             varnames_stack: Vec::new(),
@@ -1306,53 +1243,35 @@ impl SymbolTableBuilder {
         false
     }
 
-    fn public_ast_interpolation_override_by_index(
+    fn public_ast_interpolation_override_by_element(
         &self,
-        index: ast::NodeIndex,
-    ) -> Option<PublicAstInterpolation> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.ast_interpolation_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        element: &ast::InterpolatedElement,
+    ) -> Option<(ast::ConstantValue, Option<Box<ast::Expr>>)> {
+        Some((
+            element.runtime_str.clone()?,
+            element.runtime_interpolation_format_spec.clone(),
+        ))
     }
 
-    fn public_ast_formatted_value_override_by_index(
+    fn public_ast_formatted_value_override_by_element(
         &self,
-        index: ast::NodeIndex,
-    ) -> Option<PublicAstFormattedValue> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.ast_formatted_value_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        element: &ast::InterpolatedElement,
+    ) -> Option<Box<ast::Expr>> {
+        element.runtime_formatted_value_format_spec.clone()
     }
 
-    fn public_ast_joined_str_override_by_index(
+    fn public_ast_joined_str_override(
         &self,
-        index: ast::NodeIndex,
-    ) -> Option<PublicAstExprList> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.ast_joined_str_overrides.as_ref()?.get(&index).cloned()
+        fstring: &ast::ExprFString,
+    ) -> Option<crate::PublicAstExprList> {
+        fstring.runtime_joined_str.clone()
     }
 
-    fn public_ast_template_str_override_by_index(
+    fn public_ast_template_str_override(
         &self,
-        index: ast::NodeIndex,
-    ) -> Option<PublicAstExprList> {
-        if index == ast::NodeIndex::NONE {
-            return None;
-        }
-        self.ast_template_str_overrides
-            .as_ref()?
-            .get(&index)
-            .cloned()
+        tstring: &ast::ExprTString,
+    ) -> Option<crate::PublicAstExprList> {
+        tstring.runtime_template_str.clone()
     }
 
     fn finish(mut self) -> Result<SymbolTable, SymbolTableError> {
@@ -1841,6 +1760,7 @@ impl SymbolTableBuilder {
                     type_params,
                     range,
                     node_index: _,
+                    ..
                 }) => {
                     let prev_class = self.class_name.clone();
                     self.register_name(name.as_str(), SymbolUsage::Assigned, *range)?;
@@ -2035,6 +1955,7 @@ impl SymbolTableBuilder {
                     simple,
                     range,
                     node_index: _,
+                    ..
                 }) => {
                     self.tables.last_mut().unwrap().annotations_used = true;
                     // https://github.com/python/cpython/blob/main/Python/symtable.c#L1233
@@ -2307,14 +2228,7 @@ impl SymbolTableBuilder {
         let result = (|| {
             use ast::*;
 
-            if self
-                .ast_constant_overrides
-                .as_ref()
-                .is_some_and(|overrides| {
-                    let index = ast::HasNodeIndex::node_index(expression).load();
-                    index != ast::NodeIndex::NONE && overrides.contains_key(&index)
-                })
-            {
+            if crate::public_ast_constant(expression).is_some() {
                 return Ok(());
             }
 
@@ -2402,6 +2316,7 @@ impl SymbolTableBuilder {
                     items,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     for item in items {
                         if let Some(key) = &item.key {
@@ -2416,6 +2331,7 @@ impl SymbolTableBuilder {
                     value,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     let current_scope = self.tables.last().unwrap().typ;
                     if !self.allows_top_level_await()
@@ -2448,6 +2364,7 @@ impl SymbolTableBuilder {
                     value,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     if let Some(expression) = value {
                         self.scan_expression(expression, context)?;
@@ -2472,6 +2389,7 @@ impl SymbolTableBuilder {
                     value,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     self.scan_expression(value, context)?;
                     self.tables.last_mut().unwrap().is_generator = true;
@@ -2511,6 +2429,7 @@ impl SymbolTableBuilder {
                     step,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     if let Some(lower) = lower {
                         self.scan_expression(lower, context)?;
@@ -2541,6 +2460,7 @@ impl SymbolTableBuilder {
                     generators,
                     range,
                     node_index: _,
+                    ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
                     if context == ExpressionContext::IterDefinitionExp {
@@ -2555,6 +2475,7 @@ impl SymbolTableBuilder {
                     generators,
                     range,
                     node_index: _,
+                    ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
                     if context == ExpressionContext::IterDefinitionExp {
@@ -2570,17 +2491,14 @@ impl SymbolTableBuilder {
                     generators,
                     range,
                     node_index: _,
+                    ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
                     if context == ExpressionContext::IterDefinitionExp {
                         self.in_iter_def_exp = true;
                     }
                     // Dict comprehension - is_generator = false (can be inlined)
-                    let Some(key) = key.as_deref() else {
-                        self.scan_expression(value, ExpressionContext::Load)?;
-                        self.in_iter_def_exp = was_in_iter_def_exp;
-                        return Ok(());
-                    };
+                    let key = key.as_ref();
                     self.scan_comprehension(
                         "<dictcomp>",
                         key,
@@ -2596,6 +2514,7 @@ impl SymbolTableBuilder {
                     arguments,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     match context {
                         ExpressionContext::IterDefinitionExp => {
@@ -2656,6 +2575,7 @@ impl SymbolTableBuilder {
                     parameters,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
                     if let Some(parameters) = parameters {
@@ -2682,24 +2602,23 @@ impl SymbolTableBuilder {
                     self.in_iter_def_exp = was_in_iter_def_exp;
                     self.leave_scope();
                 }
-                Expr::FString(ExprFString {
-                    node_index, value, ..
-                }) => {
-                    if let Some(joined_str) =
-                        self.public_ast_joined_str_override_by_index(node_index.load())
-                    {
-                        for expr in &joined_str.values {
+                Expr::FString(fstring) => {
+                    if let Some(joined_str) = self.public_ast_joined_str_override(fstring) {
+                        for expr in &joined_str {
                             self.scan_expression(expr, ExpressionContext::Load)?;
                         }
                         return Ok(());
                     }
-                    for expr in value.elements().filter_map(|x| x.as_interpolation()) {
+                    for expr in fstring
+                        .value
+                        .elements()
+                        .filter_map(|x| x.as_interpolation())
+                    {
                         self.scan_expression(&expr.expression, ExpressionContext::Load)?;
-                        if let Some(formatted_value) = self
-                            .public_ast_formatted_value_override_by_index(expr.node_index.load())
-                            && let Some(format_spec) = &formatted_value.format_spec
+                        if let Some(format_spec) =
+                            self.public_ast_formatted_value_override_by_element(expr)
                         {
-                            self.scan_expression(format_spec, ExpressionContext::Load)?;
+                            self.scan_expression(&format_spec, ExpressionContext::Load)?;
                         } else if let Some(format_spec) = &expr.format_spec {
                             for element in format_spec.elements.interpolations() {
                                 self.scan_expression(&element.expression, ExpressionContext::Load)?
@@ -2708,10 +2627,8 @@ impl SymbolTableBuilder {
                     }
                 }
                 Expr::TString(tstring) => {
-                    if let Some(template_str) =
-                        self.public_ast_template_str_override_by_index(tstring.node_index.load())
-                    {
-                        for expr in &template_str.values {
+                    if let Some(template_str) = self.public_ast_template_str_override(tstring) {
+                        for expr in &template_str {
                             self.scan_expression(expr, ExpressionContext::Load)?;
                         }
                         return Ok(());
@@ -2724,9 +2641,9 @@ impl SymbolTableBuilder {
                     {
                         self.scan_expression(&expr.expression, ExpressionContext::Load)?;
                         if let Some(interpolation) =
-                            self.public_ast_interpolation_override_by_index(expr.node_index.load())
+                            self.public_ast_interpolation_override_by_element(expr)
                         {
-                            if let Some(format_spec) = &interpolation.format_spec {
+                            if let Some(format_spec) = &interpolation.1 {
                                 self.scan_expression(format_spec, ExpressionContext::Load)?;
                             }
                         } else if let Some(format_spec) = &expr.format_spec {
@@ -2740,6 +2657,7 @@ impl SymbolTableBuilder {
                 Expr::StringLiteral(_)
                 | Expr::BytesLiteral(_)
                 | Expr::NumberLiteral(_)
+                | Expr::Constant(_)
                 | Expr::BooleanLiteral(_)
                 | Expr::NoneLiteral(_)
                 | Expr::EllipsisLiteral(_) => {}
@@ -2759,6 +2677,7 @@ impl SymbolTableBuilder {
                     orelse,
                     node_index: _,
                     range: _,
+                    ..
                 }) => {
                     self.scan_expression(test, ExpressionContext::Load)?;
                     self.scan_expression(body, ExpressionContext::Load)?;
@@ -2770,6 +2689,7 @@ impl SymbolTableBuilder {
                     value,
                     range,
                     node_index: _,
+                    ..
                 }) => {
                     // named expressions are not allowed in the definition of
                     // comprehension iterator definitions (including nested comprehensions)
@@ -2995,6 +2915,7 @@ impl SymbolTableBuilder {
                         range: type_var_range,
                         default,
                         node_index: _,
+                        ..
                     }) => {
                         self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
                         if name.as_str() == "__classdict__" {
@@ -3038,6 +2959,7 @@ impl SymbolTableBuilder {
                         range: param_spec_range,
                         default,
                         node_index: _,
+                        ..
                     }) => {
                         self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
                         if name == "__classdict__" {
@@ -3066,6 +2988,7 @@ impl SymbolTableBuilder {
                         range: type_var_tuple_range,
                         default,
                         node_index: _,
+                        ..
                     }) => {
                         self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
                         if name == "__classdict__" {

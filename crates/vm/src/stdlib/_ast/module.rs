@@ -86,22 +86,18 @@ impl Node for ModModule {
             type_ignores,
         } = self;
         let ast::ModModule {
-            node_index,
+            node_index: _,
             body,
             range,
+            runtime_body,
         } = module;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModModule::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, vm).unwrap();
         dict.set_item("type_ignores", type_ignores.ast_to_object(to_ctx), vm)
@@ -117,14 +113,15 @@ impl Node for ModModule {
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
             get_node_list_field(ctx, source_file, &object, "body", "Module")?;
-        let (node_index, body) = stmt_list_from_values(ctx, body);
+        let (runtime_body, body) = public_stmt_list_from_values(body);
         let type_ignores =
             get_node_list_field(ctx, source_file, &object, "type_ignores", "Module")?;
         Ok(Self {
             module: ast::ModModule {
-                node_index,
+                node_index: Default::default(),
                 body,
                 range: Default::default(),
+                runtime_body,
             },
             type_ignores,
         })
@@ -132,9 +129,9 @@ impl Node for ModModule {
 }
 
 pub(super) struct ModInteractive {
-    pub(crate) node_index: ast::AtomicNodeIndex,
     pub(crate) range: TextRange,
     pub(crate) body: ast::Suite,
+    pub(crate) runtime_body: Option<super::constant::PublicAstStmtList>,
 }
 
 // constructor
@@ -143,22 +140,17 @@ impl Node for ModInteractive {
         let vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
         let Self {
-            node_index,
             body,
             range,
+            runtime_body,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModInteractive::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, vm).unwrap();
         let _ = range;
@@ -172,11 +164,11 @@ impl Node for ModInteractive {
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
             get_node_list_field(ctx, source_file, &object, "body", "Interactive")?;
-        let (node_index, body) = stmt_list_from_values(ctx, body);
+        let (runtime_body, body) = public_stmt_list_from_values(body);
         Ok(Self {
-            node_index,
             body,
             range: Default::default(),
+            runtime_body,
         })
     }
 }
@@ -215,10 +207,10 @@ impl Node for ast::ModExpression {
 }
 
 pub(super) struct ModFunctionType {
-    pub(crate) node_index: ast::AtomicNodeIndex,
     pub(crate) argtypes: Box<[ast::Expr]>,
     pub(crate) returns: ast::Expr,
     pub(crate) range: TextRange,
+    pub(crate) runtime_argtypes: Option<super::constant::PublicAstExprOptionList>,
 }
 
 // constructor
@@ -227,20 +219,20 @@ impl Node for ModFunctionType {
         let vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
         let Self {
-            node_index,
             argtypes,
             returns,
             range,
+            runtime_argtypes,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeModFunctionType::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let argtypes =
-            super::constant::public_ast_expr_option_list_object(to_ctx, node_index.load())
+            super::constant::public_ast_expr_option_list_object(to_ctx, runtime_argtypes)
                 .map_or_else(
                     || BoxedSlice(argtypes).ast_to_object(to_ctx),
-                    |values| values.values.ast_to_object(to_ctx),
+                    |values| values.ast_to_object(to_ctx),
                 );
         dict.set_item("argtypes", argtypes, vm).unwrap();
         dict.set_item("returns", returns.ast_to_object(to_ctx), vm)
@@ -256,74 +248,12 @@ impl Node for ModFunctionType {
     ) -> PyResult<Self> {
         let argtypes: Vec<Option<ast::Expr>> =
             get_node_list_field(ctx, source_file, &object, "argtypes", "FunctionType")?;
-        let (node_index, argtypes) = expr_list_from_values(ctx, argtypes);
+        let (runtime_argtypes, argtypes) = public_expr_list_from_values(argtypes);
         Ok(Self {
-            node_index,
             argtypes: argtypes.into_boxed_slice(),
             returns: get_required_node_field(ctx, source_file, &object, "returns", "FunctionType")?,
             range: Default::default(),
+            runtime_argtypes,
         })
     }
-}
-
-fn stmt_list_from_values(
-    ctx: &AstFromObjectContext<'_>,
-    values: Vec<Option<ast::Stmt>>,
-) -> (ast::AtomicNodeIndex, ast::Suite) {
-    let index = if values.iter().any(Option::is_none) {
-        super::constant::register_public_ast_stmt_list(
-            ctx,
-            super::constant::PublicAstStmtListField::Body,
-            values.clone(),
-        )
-    } else {
-        ast::NodeIndex::NONE
-    };
-    let node_index = ast::AtomicNodeIndex::NONE;
-    if index != ast::NodeIndex::NONE {
-        node_index.set(index);
-    }
-    (
-        node_index,
-        values
-            .into_iter()
-            .map(|value| value.unwrap_or_else(null_stmt_placeholder))
-            .collect(),
-    )
-}
-
-fn expr_list_from_values(
-    ctx: &AstFromObjectContext<'_>,
-    values: Vec<Option<ast::Expr>>,
-) -> (ast::AtomicNodeIndex, Vec<ast::Expr>) {
-    let index = if values.iter().any(Option::is_none) {
-        super::constant::register_public_ast_expr_option_list(ctx, values.clone())
-    } else {
-        ast::NodeIndex::NONE
-    };
-    let node_index = ast::AtomicNodeIndex::NONE;
-    if index != ast::NodeIndex::NONE {
-        node_index.set(index);
-    }
-    (
-        node_index,
-        values
-            .into_iter()
-            .map(|value| value.unwrap_or_else(null_expr_placeholder))
-            .collect(),
-    )
-}
-
-fn null_stmt_placeholder() -> ast::Stmt {
-    ast::Stmt::Pass(ast::StmtPass {
-        range: Default::default(),
-        node_index: Default::default(),
-    })
-}
-
-fn null_expr_placeholder() -> ast::Expr {
-    ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
-        range: Default::default(),
-        node_index: Default::default(),
-    })
 }

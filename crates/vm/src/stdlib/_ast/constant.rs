@@ -1,134 +1,23 @@
 use super::*;
 use crate::builtins::{PyComplex, PyFrozenSet, PyTuple};
 use ast::str_prefix::StringLiteralPrefix;
-use rustpython_codegen::{
-    PublicAstExprList, PublicAstFormattedValue, PublicAstInterpolation, PublicAstNodeMap,
-    compile::ruff_int_to_bigint,
-};
+use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_compiler_core::{SourceFile, bytecode::ConstantData};
 
-#[derive(Clone)]
-pub(super) struct PublicAstPatternList {
-    pub(super) values: Vec<Option<ast::Pattern>>,
-}
+pub(super) use ast::ConstantValue as PublicAstConstant;
 
-#[derive(Clone)]
-pub(super) struct PublicAstExprOptionList {
-    pub(super) values: Vec<Option<ast::Expr>>,
-}
-
-#[derive(Clone)]
-pub(super) struct PublicAstStmtList {
-    pub(super) values: Vec<Option<ast::Stmt>>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(super) enum PublicAstStmtListField {
-    Body,
-    Orelse,
-    FinalBody,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub(super) enum PublicAstExprListField {
-    Args,
-    Bases,
-    DecoratorList,
-    Targets,
-    Values,
-    Elts,
-    Comparators,
-    Ifs,
-}
-
-#[derive(Clone)]
-pub(super) struct PublicAstExceptHandlerList {
-    pub(super) values: Vec<Option<ast::ExceptHandler>>,
-}
-
-#[derive(Clone)]
-pub(super) struct PublicAstTypeParamList {
-    pub(super) values: Vec<Option<ast::TypeParam>>,
-}
-
-#[derive(Clone)]
-pub(super) struct PublicAstMatchClass {
-    pub(super) patterns: Vec<Option<ast::Pattern>>,
-    pub(super) kwd_attrs: Vec<ast::Identifier>,
-    pub(super) kwd_patterns: Vec<Option<ast::Pattern>>,
-}
-
-#[derive(Clone, Default)]
-pub(super) struct PublicAstExprListFields {
-    args: Option<PublicAstExprOptionList>,
-    bases: Option<PublicAstExprOptionList>,
-    decorator_list: Option<PublicAstExprOptionList>,
-    targets: Option<PublicAstExprOptionList>,
-    values: Option<PublicAstExprOptionList>,
-    elts: Option<PublicAstExprOptionList>,
-    comparators: Option<PublicAstExprOptionList>,
-    ifs: Option<PublicAstExprOptionList>,
-}
-
-impl PublicAstExprListFields {
-    fn insert(&mut self, field: PublicAstExprListField, values: PublicAstExprOptionList) {
-        let slot = match field {
-            PublicAstExprListField::Args => &mut self.args,
-            PublicAstExprListField::Bases => &mut self.bases,
-            PublicAstExprListField::DecoratorList => &mut self.decorator_list,
-            PublicAstExprListField::Targets => &mut self.targets,
-            PublicAstExprListField::Values => &mut self.values,
-            PublicAstExprListField::Elts => &mut self.elts,
-            PublicAstExprListField::Comparators => &mut self.comparators,
-            PublicAstExprListField::Ifs => &mut self.ifs,
-        };
-        *slot = Some(values);
-    }
-
-    pub(super) fn get(&self, field: PublicAstExprListField) -> Option<&PublicAstExprOptionList> {
-        match field {
-            PublicAstExprListField::Args => self.args.as_ref(),
-            PublicAstExprListField::Bases => self.bases.as_ref(),
-            PublicAstExprListField::DecoratorList => self.decorator_list.as_ref(),
-            PublicAstExprListField::Targets => self.targets.as_ref(),
-            PublicAstExprListField::Values => self.values.as_ref(),
-            PublicAstExprListField::Elts => self.elts.as_ref(),
-            PublicAstExprListField::Comparators => self.comparators.as_ref(),
-            PublicAstExprListField::Ifs => self.ifs.as_ref(),
-        }
-    }
-}
-
-#[derive(Clone, Default)]
-pub(super) struct PublicAstStmtListFields {
-    body: Option<PublicAstStmtList>,
-    orelse: Option<PublicAstStmtList>,
-    finalbody: Option<PublicAstStmtList>,
-}
-
-impl PublicAstStmtListFields {
-    fn insert(&mut self, field: PublicAstStmtListField, values: PublicAstStmtList) {
-        let slot = match field {
-            PublicAstStmtListField::Body => &mut self.body,
-            PublicAstStmtListField::Orelse => &mut self.orelse,
-            PublicAstStmtListField::FinalBody => &mut self.finalbody,
-        };
-        *slot = Some(values);
-    }
-
-    pub(super) fn get(&self, field: PublicAstStmtListField) -> Option<&PublicAstStmtList> {
-        match field {
-            PublicAstStmtListField::Body => self.body.as_ref(),
-            PublicAstStmtListField::Orelse => self.orelse.as_ref(),
-            PublicAstStmtListField::FinalBody => self.finalbody.as_ref(),
-        }
-    }
-}
+pub(super) type PublicAstExceptHandlerList = Vec<Option<ast::ExceptHandler>>;
+pub(super) type PublicAstExprList = Vec<ast::Expr>;
+pub(super) type PublicAstExprOptionList = Vec<Option<ast::Expr>>;
+pub(super) type PublicAstPatternList = Vec<Option<ast::Pattern>>;
+pub(super) type PublicAstStmtList = Vec<Option<ast::Stmt>>;
+pub(super) type PublicAstTypeParamList = Vec<Option<ast::TypeParam>>;
 
 #[derive(Debug)]
 pub(super) struct Constant {
     pub(super) range: TextRange,
     pub(super) value: ConstantLiteral,
+    kind: Option<Box<str>>,
     invalid_type: Option<String>,
 }
 
@@ -142,6 +31,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Str { value, prefix },
+            kind: None,
             invalid_type: None,
         }
     }
@@ -150,6 +40,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Int(value),
+            kind: None,
             invalid_type: None,
         }
     }
@@ -158,6 +49,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Float(value),
+            kind: None,
             invalid_type: None,
         }
     }
@@ -166,6 +58,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Complex { real, imag },
+            kind: None,
             invalid_type: None,
         }
     }
@@ -174,6 +67,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Bytes(value),
+            kind: None,
             invalid_type: None,
         }
     }
@@ -182,6 +76,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Bool(value),
+            kind: None,
             invalid_type: None,
         }
     }
@@ -190,6 +85,7 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::None,
+            kind: None,
             invalid_type: None,
         }
     }
@@ -198,25 +94,25 @@ impl Constant {
         Self {
             range,
             value: ConstantLiteral::Ellipsis,
+            kind: None,
             invalid_type: None,
         }
     }
 
-    pub(crate) fn into_expr(self, ctx: Option<&AstFromObjectContext<'_>>) -> ast::Expr {
-        let invalid_type = self.invalid_type.clone();
-        let constant = self
-            .invalid_type
-            .is_none()
-            .then(|| constant_literal_to_constant_data(&self.value));
-        let expr = constant_to_ruff_expr(self);
-        if let Some(ctx) = ctx {
-            if let Some(invalid_type) = invalid_type {
-                register_public_ast_invalid_constant(ctx, &expr, invalid_type);
-            } else if let Some(constant) = constant {
-                register_public_ast_constant(ctx, &expr, constant);
-            }
-        }
-        expr
+    pub(crate) fn into_expr(self, _ctx: Option<&AstFromObjectContext<'_>>) -> ast::Expr {
+        let Self {
+            range,
+            value,
+            kind,
+            invalid_type,
+        } = self;
+        ast::Expr::Constant(ast::ExprConstant {
+            node_index: Default::default(),
+            range,
+            value: constant_data_to_public_ast_constant(constant_literal_to_constant_data(&value)),
+            kind: kind.or_else(|| constant_literal_kind(&value)),
+            invalid_type: invalid_type.map(String::into_boxed_str),
+        })
     }
 }
 
@@ -240,595 +136,165 @@ pub(crate) enum ConstantLiteral {
     Ellipsis,
 }
 
-#[derive(Clone)]
-pub(super) struct PublicAstOverrides {
-    // CPython AST has Constant_kind.value/kind fields; Ruff has separate
-    // literal expr variants. Dense node indexes make Vec lookup cheaper than
-    // hashing, and insertion order is never observed.
-    pub(super) constants: PublicAstNodeMap<ConstantData>,
-    // CPython Interpolation has raw str and expr? format_spec; Ruff t-string
-    // elements do not. Dense node lookup avoids hashing these synthetic nodes.
-    pub(super) interpolations: PublicAstNodeMap<PublicAstInterpolation>,
-    // CPython FormattedValue has expr? format_spec; Ruff f-string specs are
-    // parsed as string elements. Dense node lookup is the direct hot path.
-    pub(super) formatted_values: PublicAstNodeMap<PublicAstFormattedValue>,
-    // CPython ImportFrom.level accepts a public signed int; Ruff only stores
-    // parser-valid unsigned levels. Dense lookup preserves only overrides.
-    pub(super) import_from_levels: PublicAstNodeMap<i32>,
-    // CPython validates Constant.value after object conversion; Ruff has no
-    // invalid Constant node. Dense lookup stores only rejected public values.
-    pub(super) invalid_constants: PublicAstNodeMap<String>,
-    // CPython JoinedStr.values is expr*; Ruff stores f-string element trees.
-    // Dense lookup restores the public expr list without ordered-map overhead.
-    pub(super) joined_strs: PublicAstNodeMap<PublicAstExprList>,
-    // CPython TemplateStr.values is expr*; Ruff stores t-string element trees.
-    // Dense lookup restores the public expr list without ordered-map overhead.
-    pub(super) template_strs: PublicAstNodeMap<PublicAstExprList>,
-    // CPython comprehension has is_async; Ruff folds it into generator data.
-    // Dense lookup keeps the raw public flag on affected nodes only.
-    pub(super) comprehension_is_async: PublicAstNodeMap<i32>,
-    // CPython permits nullable public pattern lists during validation; Ruff
-    // pattern lists are non-null. Dense lookup stores only nullable lists.
-    pub(super) pattern_lists: PublicAstNodeMap<PublicAstPatternList>,
-    // CPython has nullable expr?* slots such as defaults; Ruff omits null list
-    // entries. Dense lookup stores only public nullable-list nodes.
-    pub(super) expr_option_lists: PublicAstNodeMap<PublicAstExprOptionList>,
-    // CPython public expr* fields may contain None until validation; Ruff
-    // Vec<Expr> cannot represent null entries. Per-node bundles avoid hashing.
-    pub(super) expr_lists: PublicAstNodeMap<PublicAstExprListFields>,
-    // CPython public stmt* fields may contain None until validation; Ruff
-    // Vec<Stmt> cannot represent null entries. Per-node bundles avoid hashing.
-    pub(super) stmt_lists: PublicAstNodeMap<PublicAstStmtListFields>,
-    // CPython nullable excepthandler* lists cannot be represented in Ruff.
-    // Dense lookup stores only public nodes that need nullable validation.
-    pub(super) except_handler_lists: PublicAstNodeMap<PublicAstExceptHandlerList>,
-    // CPython nullable type_param* lists cannot be represented in Ruff. Dense
-    // lookup stores only public nodes that need nullable validation.
-    pub(super) type_param_lists: PublicAstNodeMap<PublicAstTypeParamList>,
-    // CPython MatchClass splits patterns/kwd_attrs/kwd_patterns; Ruff stores
-    // PatternArguments. Dense lookup restores the public split shape.
-    pub(super) match_classes: PublicAstNodeMap<PublicAstMatchClass>,
-    // CPython AnnAssign.simple is a raw int; Ruff has no equivalent field.
-    // Dense lookup stores only public AnnAssign overrides.
-    pub(super) ann_assign_simple: PublicAstNodeMap<i32>,
-    // CPython arg nodes have type_comment; Ruff parameters do not. Dense lookup
-    // stores only public arg comments.
-    pub(super) arg_type_comments: PublicAstNodeMap<PyObjectRef>,
-    // CPython selected stmt nodes have type_comment; Ruff omits them. Dense
-    // lookup stores only public stmt comments.
-    pub(super) stmt_type_comments: PublicAstNodeMap<PyObjectRef>,
-}
-
-impl Default for PublicAstOverrides {
-    fn default() -> Self {
-        Self {
-            constants: PublicAstNodeMap::new(),
-            interpolations: PublicAstNodeMap::new(),
-            formatted_values: PublicAstNodeMap::new(),
-            import_from_levels: PublicAstNodeMap::new(),
-            invalid_constants: PublicAstNodeMap::new(),
-            joined_strs: PublicAstNodeMap::new(),
-            template_strs: PublicAstNodeMap::new(),
-            comprehension_is_async: PublicAstNodeMap::new(),
-            pattern_lists: PublicAstNodeMap::new(),
-            expr_option_lists: PublicAstNodeMap::new(),
-            expr_lists: PublicAstNodeMap::new(),
-            stmt_lists: PublicAstNodeMap::new(),
-            except_handler_lists: PublicAstNodeMap::new(),
-            type_param_lists: PublicAstNodeMap::new(),
-            match_classes: PublicAstNodeMap::new(),
-            ann_assign_simple: PublicAstNodeMap::new(),
-            arg_type_comments: PublicAstNodeMap::new(),
-            stmt_type_comments: PublicAstNodeMap::new(),
-        }
-    }
-}
-
-pub(super) type PublicAstImportFromLevelOverrideMap = PublicAstNodeMap<i32>;
-pub(super) type PublicAstExprListFieldOverrideMap = PublicAstNodeMap<PublicAstExprListFields>;
-pub(super) type PublicAstStmtListOverrideMap = PublicAstNodeMap<PublicAstStmtListFields>;
-pub(super) struct PublicAstConversion<T> {
-    pub(super) value: T,
-    pub(super) overrides: PublicAstOverrides,
-}
-
-pub(super) fn collect_public_ast_overrides<T>(
+pub(super) fn with_public_ast_context<T>(
     vm: &VirtualMachine,
     f: impl FnOnce(&AstFromObjectContext<'_>) -> PyResult<T>,
-) -> PyResult<PublicAstConversion<T>> {
+) -> PyResult<T> {
     let from_ctx = AstFromObjectContext::new(vm);
-    let value = f(&from_ctx)?;
-    let overrides = from_ctx.into_public_ast_overrides();
-    Ok(PublicAstConversion { value, overrides })
+    f(&from_ctx)
 }
 
-fn register_public_ast_constant(
-    ctx: &AstFromObjectContext<'_>,
-    expr: &ast::Expr,
-    constant: ConstantData,
-) {
-    let index = register_public_ast_override(ctx, |overrides, index| {
-        overrides.constants.insert(index, constant);
-    });
-    ast::HasNodeIndex::node_index(expr).set(index);
-}
-
-fn register_public_ast_invalid_constant(
-    ctx: &AstFromObjectContext<'_>,
-    expr: &ast::Expr,
-    invalid_type: String,
-) {
-    let index = register_public_ast_override(ctx, |overrides, index| {
-        overrides.invalid_constants.insert(index, invalid_type);
-    });
-    ast::HasNodeIndex::node_index(expr).set(index);
-}
-
-pub(super) fn register_public_ast_interpolation(
-    ctx: &AstFromObjectContext<'_>,
-    str_constant: ConstantData,
-    format_spec: Option<Box<ast::Expr>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides.interpolations.insert(
-            index,
-            PublicAstInterpolation {
-                str: str_constant,
-                format_spec,
-            },
-        );
-    })
-}
-
-pub(super) fn register_public_ast_formatted_value(
-    ctx: &AstFromObjectContext<'_>,
-    format_spec: Option<Box<ast::Expr>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .formatted_values
-            .insert(index, PublicAstFormattedValue { format_spec });
-    })
-}
-
-pub(super) fn register_public_ast_joined_str(
-    ctx: &AstFromObjectContext<'_>,
-    values: Vec<ast::Expr>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .joined_strs
-            .insert(index, PublicAstExprList { values });
-    })
-}
-
-pub(super) fn register_public_ast_template_str(
-    ctx: &AstFromObjectContext<'_>,
-    values: Vec<ast::Expr>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .template_strs
-            .insert(index, PublicAstExprList { values });
-    })
-}
-
-pub(super) fn register_public_ast_pattern_list(
-    ctx: &AstFromObjectContext<'_>,
-    values: Vec<Option<ast::Pattern>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .pattern_lists
-            .insert(index, PublicAstPatternList { values });
-    })
-}
-
-pub(super) fn register_public_ast_match_mapping(
-    ctx: &AstFromObjectContext<'_>,
-    keys: Vec<Option<ast::Expr>>,
-    patterns: Vec<Option<ast::Pattern>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .expr_option_lists
-            .insert(index, PublicAstExprOptionList { values: keys });
-        overrides
-            .pattern_lists
-            .insert(index, PublicAstPatternList { values: patterns });
-    })
-}
-
-pub(super) fn register_public_ast_expr_option_list(
-    ctx: &AstFromObjectContext<'_>,
-    values: Vec<Option<ast::Expr>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .expr_option_lists
-            .insert(index, PublicAstExprOptionList { values });
-    })
-}
-
-pub(super) fn register_public_ast_stmt_list(
-    ctx: &AstFromObjectContext<'_>,
-    field: PublicAstStmtListField,
-    values: Vec<Option<ast::Stmt>>,
-) -> ast::NodeIndex {
-    register_public_ast_stmt_lists(ctx, [(field, values)])
-}
-
-pub(super) fn register_public_ast_stmt_lists(
-    ctx: &AstFromObjectContext<'_>,
-    values: impl IntoIterator<Item = (PublicAstStmtListField, Vec<Option<ast::Stmt>>)>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        for (field, values) in values {
-            public_ast_stmt_fields_mut(&mut overrides.stmt_lists, index)
-                .insert(field, PublicAstStmtList { values });
-        }
-    })
-}
-
-pub(super) fn register_public_ast_try_lists(
-    ctx: &AstFromObjectContext<'_>,
-    stmt_values: Vec<(PublicAstStmtListField, Vec<Option<ast::Stmt>>)>,
-    except_handler_values: Option<Vec<Option<ast::ExceptHandler>>>,
-) -> ast::NodeIndex {
-    register_public_ast_node_list_overrides(
-        ctx,
-        stmt_values,
-        Vec::new(),
-        except_handler_values,
-        None,
-    )
-}
-
-pub(super) fn register_public_ast_node_list_overrides(
-    ctx: &AstFromObjectContext<'_>,
-    stmt_values: Vec<(PublicAstStmtListField, Vec<Option<ast::Stmt>>)>,
-    expr_values: Vec<(PublicAstExprListField, Vec<Option<ast::Expr>>)>,
-    except_handler_values: Option<Vec<Option<ast::ExceptHandler>>>,
-    comprehension_is_async: Option<i32>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        for (field, values) in stmt_values {
-            public_ast_stmt_fields_mut(&mut overrides.stmt_lists, index)
-                .insert(field, PublicAstStmtList { values });
-        }
-        for (field, values) in expr_values {
-            public_ast_expr_fields_mut(&mut overrides.expr_lists, index)
-                .insert(field, PublicAstExprOptionList { values });
-        }
-        if let Some(values) = except_handler_values {
-            overrides
-                .except_handler_lists
-                .insert(index, PublicAstExceptHandlerList { values });
-        }
-        if let Some(value) = comprehension_is_async {
-            overrides.comprehension_is_async.insert(index, value);
-        }
-    })
-}
-
-fn public_ast_expr_fields_mut(
-    values: &mut PublicAstExprListFieldOverrideMap,
-    index: ast::NodeIndex,
-) -> &mut PublicAstExprListFields {
-    if !values.contains_key(&index) {
-        values.insert(index, PublicAstExprListFields::default());
+pub(super) fn public_ast_constant(expr: &ast::Expr) -> Option<PublicAstConstant> {
+    match expr {
+        ast::Expr::Constant(expr) => Some(expr.value.clone()),
+        _ => None,
     }
-    values.get_mut(&index).unwrap()
 }
 
-fn public_ast_stmt_fields_mut(
-    values: &mut PublicAstStmtListOverrideMap,
-    index: ast::NodeIndex,
-) -> &mut PublicAstStmtListFields {
-    if !values.contains_key(&index) {
-        values.insert(index, PublicAstStmtListFields::default());
+pub(super) fn public_ast_invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
+    match expr {
+        ast::Expr::Constant(expr) => expr.invalid_type.clone(),
+        _ => None,
     }
-    values.get_mut(&index).unwrap()
 }
 
-pub(super) fn register_public_ast_type_param_list(
+pub(super) fn public_ast_string_from_pyobject(
     ctx: &AstFromObjectContext<'_>,
-    values: Vec<Option<ast::TypeParam>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides
-            .type_param_lists
-            .insert(index, PublicAstTypeParamList { values });
-    })
+    object: PyObjectRef,
+) -> (Option<Box<str>>, Option<Vec<u8>>) {
+    public_ast_string_from_object(ctx, object)
 }
 
-pub(super) fn register_public_ast_match_class(
-    ctx: &AstFromObjectContext<'_>,
-    patterns: Vec<Option<ast::Pattern>>,
-    kwd_attrs: Vec<ast::Identifier>,
-    kwd_patterns: Vec<Option<ast::Pattern>>,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides.match_classes.insert(
-            index,
-            PublicAstMatchClass {
-                patterns,
-                kwd_attrs,
-                kwd_patterns,
-            },
-        );
-    })
-}
-
-pub(super) fn register_public_ast_import_from_level(
-    ctx: &AstFromObjectContext<'_>,
-    level: i32,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides.import_from_levels.insert(index, level);
-    })
-}
-
-pub(super) fn register_public_ast_ann_assign_simple(
-    ctx: &AstFromObjectContext<'_>,
-    simple: i32,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides.ann_assign_simple.insert(index, simple);
-    })
-}
-
-pub(super) fn register_public_ast_arg_type_comment(
-    ctx: &AstFromObjectContext<'_>,
-    type_comment: PyObjectRef,
-) -> ast::NodeIndex {
-    register_public_ast_override(ctx, |overrides, index| {
-        overrides.arg_type_comments.insert(index, type_comment);
-    })
-}
-
-pub(super) fn register_public_ast_stmt_type_comment(
-    ctx: &AstFromObjectContext<'_>,
-    node_index: &ast::AtomicNodeIndex,
-    type_comment: PyObjectRef,
-) {
-    register_public_ast_node_override(ctx, node_index, |overrides, index| {
-        overrides.stmt_type_comments.insert(index, type_comment);
-    });
-}
-
-fn register_public_ast_override(
-    ctx: &AstFromObjectContext<'_>,
-    insert: impl FnOnce(&mut PublicAstOverrides, ast::NodeIndex),
-) -> ast::NodeIndex {
-    let index = ctx.next_public_ast_index();
-    insert(&mut ctx.public_ast_overrides_mut(), index);
-    index
-}
-
-fn register_public_ast_node_override(
-    ctx: &AstFromObjectContext<'_>,
-    node_index: &ast::AtomicNodeIndex,
-    insert: impl FnOnce(&mut PublicAstOverrides, ast::NodeIndex),
-) {
-    let mut index = node_index.load();
-    if index == ast::NodeIndex::NONE {
-        index = ctx.next_public_ast_index();
-        node_index.set(index);
-    }
-    insert(&mut ctx.public_ast_overrides_mut(), index);
-}
-
-pub(super) fn public_ast_constant_object(
+pub(super) fn public_ast_string_object(
     to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
-    range: TextRange,
+    value: Option<Box<str>>,
+    bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
+    public_ast_string_to_object(to_ctx.vm, value, bytes)
+}
+
+pub(super) fn expr_constant_to_object(
+    to_ctx: &AstToObjectContext<'_>,
+    expr: ast::ExprConstant,
+) -> PyObjectRef {
     let ctx = to_ctx.vm;
     let source_file = to_ctx.source_file;
-    let constant = to_ctx.overrides?.constants.get(&node_index).cloned()?;
+    let ast::ExprConstant {
+        node_index: _,
+        range,
+        value,
+        kind,
+        invalid_type: _,
+    } = expr;
+    let constant = public_ast_constant_to_constant_data(value);
     let node = NodeAst
         .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
         .unwrap();
     let dict = node.as_object().dict().unwrap();
     dict.set_item("value", constant_data_to_object(ctx, constant), ctx)
         .unwrap();
-    dict.set_item("kind", ctx.ctx.none(), ctx).unwrap();
+    let kind = kind.map_or_else(|| ctx.ctx.none(), |kind| ctx.ctx.new_str(kind).into());
+    dict.set_item("kind", kind, ctx).unwrap();
     node_add_location(&dict, range, ctx, source_file);
-    Some(node.into())
+    node.into()
 }
 
 pub(super) fn public_ast_interpolation_object(
     to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    str: Option<PublicAstConstant>,
+    format_spec: Option<Box<ast::Expr>>,
 ) -> Option<(PyObjectRef, Option<Box<ast::Expr>>)> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    let interpolation = to_ctx.overrides?.interpolations.get(&node_index).cloned()?;
+    let str = str?;
     Some((
-        constant_data_to_object(to_ctx.vm, interpolation.str),
-        interpolation.format_spec,
+        constant_data_to_object(to_ctx.vm, public_ast_constant_to_constant_data(str)),
+        format_spec,
     ))
 }
 
-pub(super) fn public_ast_formatted_value_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
-) -> Option<PublicAstFormattedValue> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx.overrides?.formatted_values.get(&node_index).cloned()
-}
-
 pub(super) fn public_ast_joined_str_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstExprList>,
 ) -> Option<PublicAstExprList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx.overrides?.joined_strs.get(&node_index).cloned()
+    value
 }
 
 pub(super) fn public_ast_template_str_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstExprList>,
 ) -> Option<PublicAstExprList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx.overrides?.template_strs.get(&node_index).cloned()
+    value
 }
 
 pub(super) fn public_ast_comprehension_is_async_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<i32>,
 ) -> Option<i32> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .comprehension_is_async
-        .get(&node_index)
-        .copied()
+    value
 }
 
 pub(super) fn public_ast_pattern_list_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstPatternList>,
 ) -> Option<PublicAstPatternList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx.overrides?.pattern_lists.get(&node_index).cloned()
+    value
 }
 
 pub(super) fn public_ast_expr_option_list_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstExprOptionList>,
 ) -> Option<PublicAstExprOptionList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .expr_option_lists
-        .get(&node_index)
-        .cloned()
+    value
 }
 
 pub(super) fn public_ast_expr_list_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
-    field: PublicAstExprListField,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstExprOptionList>,
 ) -> Option<PublicAstExprOptionList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .expr_lists
-        .get(&node_index)
-        .and_then(|values| values.get(field))
-        .cloned()
+    value
 }
 
 pub(super) fn public_ast_stmt_list_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
-    field: PublicAstStmtListField,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstStmtList>,
 ) -> Option<PublicAstStmtList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .stmt_lists
-        .get(&node_index)
-        .and_then(|values| values.get(field))
-        .cloned()
+    value
 }
 
 pub(super) fn public_ast_except_handler_list_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstExceptHandlerList>,
 ) -> Option<PublicAstExceptHandlerList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .except_handler_lists
-        .get(&node_index)
-        .cloned()
+    value
 }
 
 pub(super) fn public_ast_type_param_list_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<PublicAstTypeParamList>,
 ) -> Option<PublicAstTypeParamList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx.overrides?.type_param_lists.get(&node_index).cloned()
-}
-
-pub(super) fn public_ast_match_class_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
-) -> Option<PublicAstMatchClass> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx.overrides?.match_classes.get(&node_index).cloned()
+    value
 }
 
 pub(super) fn public_ast_ann_assign_simple_object(
-    to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    _to_ctx: &AstToObjectContext<'_>,
+    value: Option<i32>,
 ) -> Option<i32> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .ann_assign_simple
-        .get(&node_index)
-        .copied()
+    value
 }
 
 pub(super) fn public_ast_arg_type_comment_object(
     to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    value: Option<Box<str>>,
+    bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .arg_type_comments
-        .get(&node_index)
-        .cloned()
+    public_ast_string_object(to_ctx, value, bytes)
 }
 
 pub(super) fn public_ast_stmt_type_comment_object(
     to_ctx: &AstToObjectContext<'_>,
-    node_index: ast::NodeIndex,
+    value: Option<Box<str>>,
+    bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    to_ctx
-        .overrides?
-        .stmt_type_comments
-        .get(&node_index)
-        .cloned()
+    public_ast_string_object(to_ctx, value, bytes)
 }
 
 fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
@@ -864,6 +330,82 @@ fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
     }
 }
 
+fn constant_literal_kind(value: &ConstantLiteral) -> Option<Box<str>> {
+    match value {
+        ConstantLiteral::Str {
+            prefix: StringLiteralPrefix::Unicode,
+            ..
+        } => Some("u".into()),
+        _ => None,
+    }
+}
+
+pub(super) fn constant_data_to_public_ast_constant(value: ConstantData) -> PublicAstConstant {
+    match value {
+        ConstantData::None => PublicAstConstant::None,
+        ConstantData::Boolean { value } => PublicAstConstant::Boolean(value),
+        ConstantData::Str { value } => PublicAstConstant::Str(value.to_string().into_boxed_str()),
+        ConstantData::Bytes { value } => PublicAstConstant::Bytes(value.into_boxed_slice()),
+        ConstantData::Integer { value } => PublicAstConstant::Integer(value.to_string().into()),
+        ConstantData::Tuple { elements } => PublicAstConstant::Tuple(
+            elements
+                .into_iter()
+                .map(constant_data_to_public_ast_constant)
+                .collect(),
+        ),
+        ConstantData::Frozenset { elements } => PublicAstConstant::Frozenset(
+            elements
+                .into_iter()
+                .map(constant_data_to_public_ast_constant)
+                .collect(),
+        ),
+        ConstantData::Float { value } => PublicAstConstant::Float(value),
+        ConstantData::Complex { value } => PublicAstConstant::Complex {
+            real: value.re,
+            imag: value.im,
+        },
+        ConstantData::Ellipsis => PublicAstConstant::Ellipsis,
+        ConstantData::Code { .. } | ConstantData::Slice { .. } => {
+            unreachable!("public AST constants cannot contain code objects or slices")
+        }
+    }
+}
+
+pub(super) fn public_ast_constant_to_constant_data(value: PublicAstConstant) -> ConstantData {
+    match value {
+        PublicAstConstant::None => ConstantData::None,
+        PublicAstConstant::Boolean(value) => ConstantData::Boolean { value },
+        PublicAstConstant::Str(value) => ConstantData::Str {
+            value: value.to_string().into(),
+        },
+        PublicAstConstant::Bytes(value) => ConstantData::Bytes {
+            value: value.into_vec(),
+        },
+        PublicAstConstant::Integer(value) => ConstantData::Integer {
+            value: value
+                .parse()
+                .expect("RustPython public AST integer constants are decimal integers"),
+        },
+        PublicAstConstant::Tuple(elements) => ConstantData::Tuple {
+            elements: elements
+                .into_iter()
+                .map(public_ast_constant_to_constant_data)
+                .collect(),
+        },
+        PublicAstConstant::Frozenset(elements) => ConstantData::Frozenset {
+            elements: elements
+                .into_iter()
+                .map(public_ast_constant_to_constant_data)
+                .collect(),
+        },
+        PublicAstConstant::Float(value) => ConstantData::Float { value },
+        PublicAstConstant::Complex { real, imag } => ConstantData::Complex {
+            value: num_complex::Complex::new(real, imag),
+        },
+        PublicAstConstant::Ellipsis => ConstantData::Ellipsis,
+    }
+}
+
 pub(super) fn constant_object_to_constant_data(
     ctx: &AstFromObjectContext<'_>,
     source_file: &SourceFile,
@@ -871,6 +413,44 @@ pub(super) fn constant_object_to_constant_data(
 ) -> PyResult<ConstantData> {
     let value = ConstantLiteral::ast_from_object(ctx, source_file, value_object)?;
     Ok(constant_literal_to_constant_data(&value))
+}
+
+fn public_ast_string_from_object(
+    vm: &VirtualMachine,
+    object: PyObjectRef,
+) -> (Option<Box<str>>, Option<Vec<u8>>) {
+    if object.class().is(vm.ctx.types.str_type) {
+        (
+            Some(
+                object
+                    .try_to_value::<String>(vm)
+                    .expect("AST string field was validated as str")
+                    .into_boxed_str(),
+            ),
+            None,
+        )
+    } else {
+        (
+            None,
+            Some(
+                object
+                    .try_to_value::<Vec<u8>>(vm)
+                    .expect("AST string field was validated as bytes"),
+            ),
+        )
+    }
+}
+
+fn public_ast_string_to_object(
+    vm: &VirtualMachine,
+    value: Option<Box<str>>,
+    bytes: Option<Vec<u8>>,
+) -> Option<PyObjectRef> {
+    if let Some(bytes) = bytes {
+        Some(vm.ctx.new_bytes(bytes).into())
+    } else {
+        value.map(|value| vm.ctx.new_str(value).into())
+    }
 }
 
 fn first_invalid_constant_type(
@@ -977,11 +557,19 @@ pub(super) fn constant_from_object_with_range(
                 Some(first_invalid_constant_type(ctx, value_object)?),
             ),
         };
-    let _kind = get_ast_string_field_opt(ctx, &object, "kind")?;
+    let kind = get_node_field_opt(ctx, &object, "kind")?
+        .map(|object| {
+            if !object.class().is(ctx.ctx.types.str_type) {
+                return Err(ctx.new_type_error("AST string must be of type str"));
+            }
+            Ok(object.try_to_value::<String>(ctx)?.into_boxed_str())
+        })
+        .transpose()?;
 
     Ok(Constant {
         range,
         value,
+        kind,
         invalid_type,
     })
 }
@@ -993,18 +581,15 @@ impl Node for Constant {
         let Self {
             range,
             value,
+            kind,
             invalid_type: _,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
             .unwrap();
-        let kind = match &value {
-            ConstantLiteral::Str {
-                prefix: StringLiteralPrefix::Unicode,
-                ..
-            } => ctx.ctx.new_str("u").into(),
-            _ => ctx.ctx.none(),
-        };
+        let kind = kind
+            .or_else(|| constant_literal_kind(&value))
+            .map_or_else(|| ctx.ctx.none(), |kind| ctx.ctx.new_str(kind).into());
         let value = value.ast_to_object(to_ctx);
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, ctx).unwrap();
@@ -1137,123 +722,6 @@ impl Node for ConstantLiteral {
     }
 }
 
-fn constant_to_ruff_expr(value: Constant) -> ast::Expr {
-    let Constant {
-        value,
-        range,
-        invalid_type: _,
-    } = value;
-    match value {
-        ConstantLiteral::None => ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
-            node_index: Default::default(),
-            range,
-        }),
-        ConstantLiteral::Bool(value) => ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral {
-            node_index: Default::default(),
-            range,
-            value,
-        }),
-        ConstantLiteral::Str { value, prefix } => {
-            ast::Expr::StringLiteral(ast::ExprStringLiteral {
-                node_index: Default::default(),
-                range,
-                value: ast::StringLiteralValue::single(ast::StringLiteral {
-                    node_index: Default::default(),
-                    range,
-                    value,
-                    flags: ast::StringLiteralFlags::empty().with_prefix(prefix),
-                }),
-            })
-        }
-        ConstantLiteral::Bytes(value) => {
-            ast::Expr::BytesLiteral(ast::ExprBytesLiteral {
-                node_index: Default::default(),
-                range,
-                value: ast::BytesLiteralValue::single(ast::BytesLiteral {
-                    node_index: Default::default(),
-                    range,
-                    value,
-                    flags: ast::BytesLiteralFlags::empty(), // TODO
-                }),
-            })
-        }
-        ConstantLiteral::Int(value) => ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-            node_index: Default::default(),
-            range,
-            value: ast::Number::Int(value),
-        }),
-        ConstantLiteral::Tuple(value) => ast::Expr::Tuple(ast::ExprTuple {
-            node_index: Default::default(),
-            range,
-            elts: value
-                .into_iter()
-                .map(|value| {
-                    constant_to_ruff_expr(Constant {
-                        range: TextRange::default(),
-                        value,
-                        invalid_type: None,
-                    })
-                })
-                .collect(),
-            ctx: ast::ExprContext::Load,
-            // TODO: Does this matter?
-            parenthesized: true,
-        }),
-        ConstantLiteral::FrozenSet(value) => {
-            let args = if value.is_empty() {
-                Vec::new()
-            } else {
-                vec![ast::Expr::Set(ast::ExprSet {
-                    node_index: Default::default(),
-                    range: TextRange::default(),
-                    elts: value
-                        .into_iter()
-                        .map(|value| {
-                            constant_to_ruff_expr(Constant {
-                                range: TextRange::default(),
-                                value,
-                                invalid_type: None,
-                            })
-                        })
-                        .collect(),
-                })]
-            };
-            ast::Expr::Call(ast::ExprCall {
-                node_index: Default::default(),
-                range,
-                func: Box::new(ast::Expr::Name(ast::ExprName {
-                    node_index: Default::default(),
-                    range: TextRange::default(),
-                    id: ast::name::Name::new_static("frozenset"),
-                    ctx: ast::ExprContext::Load,
-                })),
-                arguments: ast::Arguments {
-                    node_index: Default::default(),
-                    range,
-                    args: args.into(),
-                    keywords: Default::default(),
-                },
-            })
-        }
-        ConstantLiteral::Float(value) => ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-            node_index: Default::default(),
-            range,
-            value: ast::Number::Float(value),
-        }),
-        ConstantLiteral::Complex { real, imag } => {
-            ast::Expr::NumberLiteral(ast::ExprNumberLiteral {
-                node_index: Default::default(),
-                range,
-                value: ast::Number::Complex { real, imag },
-            })
-        }
-        ConstantLiteral::Ellipsis => ast::Expr::EllipsisLiteral(ast::ExprEllipsisLiteral {
-            node_index: Default::default(),
-            range,
-        }),
-    }
-}
-
 pub(super) fn number_literal_to_object(
     to_ctx: &AstToObjectContext<'_>,
     constant: ast::ExprNumberLiteral,
@@ -1262,6 +730,7 @@ pub(super) fn number_literal_to_object(
         node_index: _,
         range,
         value,
+        ..
     } = constant;
     let c = match value {
         ast::Number::Int(n) => Constant::new_int(n, range),
@@ -1279,6 +748,7 @@ pub(super) fn string_literal_to_object(
         node_index: _,
         range,
         value,
+        ..
     } = constant;
     let prefix = value
         .iter()
@@ -1296,6 +766,7 @@ pub(super) fn bytes_literal_to_object(
         node_index: _,
         range,
         value,
+        ..
     } = constant;
     let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
     let c = Constant::new_bytes(bytes.copied().collect(), range);
@@ -1310,6 +781,7 @@ pub(super) fn boolean_literal_to_object(
         node_index: _,
         range,
         value,
+        ..
     } = constant;
     let c = Constant::new_bool(value, range);
     c.ast_to_object(to_ctx)
@@ -1322,6 +794,7 @@ pub(super) fn none_literal_to_object(
     let ast::ExprNoneLiteral {
         node_index: _,
         range,
+        ..
     } = constant;
     let c = Constant::new_none(range);
     c.ast_to_object(to_ctx)
@@ -1334,6 +807,7 @@ pub(super) fn ellipsis_literal_to_object(
     let ast::ExprEllipsisLiteral {
         node_index: _,
         range,
+        ..
     } = constant;
     let c = Constant::new_ellipsis(range);
     c.ast_to_object(to_ctx)

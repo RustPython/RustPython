@@ -1715,11 +1715,6 @@ impl VirtualMachine {
             future_features: crate::bytecode::CodeFlags::empty(),
             dont_imply_dedent: false,
             recursion_limit: self.recursion_limit.get(),
-            ast_constant_overrides: None,
-            ast_interpolation_overrides: None,
-            ast_formatted_value_overrides: None,
-            ast_joined_str_overrides: None,
-            ast_template_str_overrides: None,
         }
     }
 

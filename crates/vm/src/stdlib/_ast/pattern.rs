@@ -7,11 +7,12 @@ impl Node for ast::MatchCase {
         let vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             pattern,
             guard,
             body,
             range: _,
+            runtime_body,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeMatchCase::static_type().to_owned())
@@ -21,14 +22,9 @@ impl Node for ast::MatchCase {
             .unwrap();
         dict.set_item("guard", guard.ast_to_object(to_ctx), vm)
             .unwrap();
-        let body = super::constant::public_ast_stmt_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstStmtListField::Body,
-        )
-        .map_or_else(
+        let body = super::constant::public_ast_stmt_list_object(to_ctx, runtime_body).map_or_else(
             || body.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("body", body, vm).unwrap();
         node.into()
@@ -41,16 +37,16 @@ impl Node for ast::MatchCase {
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
             get_node_list_field(ctx, source_file, &object, "body", "match_case")?;
-        let (node_index, body) =
-            public_stmt_list_from_values(ctx, super::constant::PublicAstStmtListField::Body, body);
+        let (runtime_body, body) = public_stmt_list_from_values(body);
         Ok(Self {
-            node_index,
+            node_index: Default::default(),
             pattern: get_required_node_field(ctx, source_file, &object, "pattern", "match_case")?,
             guard: get_node_field_opt(ctx, &object, "guard")?
                 .map(|obj| Node::ast_from_object(ctx, source_file, obj))
                 .transpose()?,
             body,
             range: Default::default(),
+            runtime_body,
         })
     }
 }
@@ -163,12 +159,6 @@ impl Node for ast::Pattern {
     }
 }
 
-fn pattern_node_index(index: ast::NodeIndex) -> ast::AtomicNodeIndex {
-    let node_index = ast::AtomicNodeIndex::NONE;
-    node_index.set(index);
-    node_index
-}
-
 fn null_pattern_placeholder(range: TextRange) -> ast::Pattern {
     ast::Pattern::MatchAs(ast::PatternMatchAs {
         node_index: Default::default(),
@@ -178,7 +168,7 @@ fn null_pattern_placeholder(range: TextRange) -> ast::Pattern {
     })
 }
 
-fn lower_nullable_patterns(values: &[Option<ast::Pattern>], range: TextRange) -> ast::Patterns {
+fn lower_nullable_patterns(values: &[Option<ast::Pattern>], range: TextRange) -> Vec<ast::Pattern> {
     values
         .iter()
         .cloned()
@@ -193,7 +183,7 @@ fn null_expr_placeholder(range: TextRange) -> ast::Expr {
     })
 }
 
-fn lower_nullable_exprs(values: &[Option<ast::Expr>], range: TextRange) -> ast::PatternKeys {
+fn lower_nullable_exprs(values: &[Option<ast::Expr>], range: TextRange) -> Vec<ast::Expr> {
     values
         .iter()
         .cloned()
@@ -208,18 +198,14 @@ fn pattern_list_from_field(
     field: &'static str,
     typ: &str,
     range: TextRange,
-) -> PyResult<(ast::AtomicNodeIndex, ast::Patterns)> {
+) -> PyResult<(
+    Option<super::constant::PublicAstPatternList>,
+    Vec<ast::Pattern>,
+)> {
     let values: Vec<Option<ast::Pattern>> =
         get_node_list_field(ctx, source_file, object, field, typ)?;
-    let node_index = if values.iter().any(Option::is_none) {
-        pattern_node_index(super::constant::register_public_ast_pattern_list(
-            ctx,
-            values.clone(),
-        ))
-    } else {
-        Default::default()
-    };
-    Ok((node_index, lower_nullable_patterns(&values, range)))
+    let runtime_patterns = values.iter().any(Option::is_none).then(|| values.clone());
+    Ok((runtime_patterns, lower_nullable_patterns(&values, range)))
 }
 
 // constructor
@@ -350,7 +336,7 @@ fn pattern_match_sequence_from_object_with_range(
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchSequence> {
-    let (node_index, patterns) = pattern_list_from_field(
+    let (runtime_patterns, patterns) = pattern_list_from_field(
         ctx,
         source_file,
         &object,
@@ -359,9 +345,10 @@ fn pattern_match_sequence_from_object_with_range(
         range,
     )?;
     Ok(ast::PatternMatchSequence {
-        node_index,
+        node_index: Default::default(),
         patterns: patterns.to_vec(),
         range,
+        runtime_patterns,
     })
 }
 
@@ -370,9 +357,10 @@ impl Node for ast::PatternMatchSequence {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             patterns,
             range,
+            runtime_patterns,
         } = self;
         let node = NodeAst
             .into_ref_with_type(
@@ -381,10 +369,10 @@ impl Node for ast::PatternMatchSequence {
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, node_index.load())
+        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, runtime_patterns)
             .map_or_else(
                 || patterns.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
             );
         dict.set_item("patterns", patterns, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
@@ -412,25 +400,21 @@ fn pattern_match_mapping_from_object_with_range(
         get_node_list_field(ctx, source_file, &object, "keys", "MatchMapping")?;
     let patterns: Vec<Option<ast::Pattern>> =
         get_node_list_field(ctx, source_file, &object, "patterns", "MatchMapping")?;
-    let has_public_override =
-        keys.iter().any(Option::is_none) || patterns.iter().any(Option::is_none);
-    let node_index = if has_public_override {
-        pattern_node_index(super::constant::register_public_ast_match_mapping(
-            ctx,
-            keys.clone(),
-            patterns.clone(),
-        ))
-    } else {
-        Default::default()
-    };
+    let runtime_keys = keys.iter().any(Option::is_none).then(|| keys.clone());
+    let runtime_patterns = patterns
+        .iter()
+        .any(Option::is_none)
+        .then(|| patterns.clone());
     Ok(ast::PatternMatchMapping {
-        node_index,
+        node_index: Default::default(),
         keys: lower_nullable_exprs(&keys, range),
         patterns: lower_nullable_patterns(&patterns, range),
         rest: get_node_field_opt(ctx, &object, "rest")?
             .map(|obj| Node::ast_from_object(ctx, source_file, obj))
             .transpose()?,
         range,
+        runtime_keys,
+        runtime_patterns,
     })
 }
 
@@ -439,26 +423,28 @@ impl Node for ast::PatternMatchMapping {
         let vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             keys,
             patterns,
             rest,
             range,
+            runtime_keys,
+            runtime_patterns,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodePatternMatchMapping::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let keys = super::constant::public_ast_expr_option_list_object(to_ctx, node_index.load())
+        let keys = super::constant::public_ast_expr_option_list_object(to_ctx, runtime_keys)
             .map_or_else(
                 || keys.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
             );
         dict.set_item("keys", keys, vm).unwrap();
-        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, node_index.load())
+        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, runtime_patterns)
             .map_or_else(
                 || patterns.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
             );
         dict.set_item("patterns", patterns, vm).unwrap();
         dict.set_item("rest", rest.ast_to_object(to_ctx), vm)
@@ -499,23 +485,16 @@ fn pattern_match_class_from_object_with_range(
     let has_public_override = kwd_attrs.0.len() != kwd_patterns.len()
         || patterns.iter().any(Option::is_none)
         || kwd_patterns.iter().any(Option::is_none);
-    let node_index = if has_public_override {
-        pattern_node_index(super::constant::register_public_ast_match_class(
-            ctx,
-            patterns.clone(),
-            kwd_attrs.0.clone(),
-            kwd_patterns.clone(),
-        ))
-    } else {
-        Default::default()
-    };
+    let runtime_patterns = has_public_override.then(|| patterns.clone());
+    let runtime_kwd_attrs = has_public_override.then(|| kwd_attrs.0.clone());
+    let runtime_kwd_patterns = has_public_override.then(|| kwd_patterns.clone());
     let patterns = PatternMatchClassPatterns(lower_nullable_patterns(&patterns, range));
     let kwd_patterns =
         PatternMatchClassKeywordPatterns(lower_nullable_patterns(&kwd_patterns, range));
     let (patterns, keywords) = merge_pattern_match_class(patterns, kwd_attrs, kwd_patterns);
 
     Ok(ast::PatternMatchClass {
-        node_index,
+        node_index: Default::default(),
         cls,
         range,
         arguments: ast::PatternArguments {
@@ -524,6 +503,9 @@ fn pattern_match_class_from_object_with_range(
             patterns,
             keywords,
         },
+        runtime_patterns,
+        runtime_kwd_attrs,
+        runtime_kwd_patterns,
     })
 }
 
@@ -532,10 +514,13 @@ impl Node for ast::PatternMatchClass {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             cls,
             arguments,
             range,
+            runtime_patterns,
+            runtime_kwd_attrs,
+            runtime_kwd_patterns,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodePatternMatchClass::static_type().to_owned())
@@ -543,22 +528,23 @@ impl Node for ast::PatternMatchClass {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("cls", cls.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let (patterns, kwd_attrs, kwd_patterns) = if let Some(values) =
-            super::constant::public_ast_match_class_object(to_ctx, node_index.load())
-        {
-            (
-                values.patterns.ast_to_object(to_ctx),
-                values.kwd_attrs.ast_to_object(to_ctx),
-                values.kwd_patterns.ast_to_object(to_ctx),
-            )
-        } else {
-            let (patterns, kwd_attrs, kwd_patterns) = split_pattern_match_class(arguments);
-            (
-                patterns.ast_to_object(to_ctx),
-                kwd_attrs.ast_to_object(to_ctx),
-                kwd_patterns.ast_to_object(to_ctx),
-            )
-        };
+        let (patterns, kwd_attrs, kwd_patterns) =
+            if let (Some(patterns), Some(kwd_attrs), Some(kwd_patterns)) =
+                (runtime_patterns, runtime_kwd_attrs, runtime_kwd_patterns)
+            {
+                (
+                    patterns.ast_to_object(to_ctx),
+                    kwd_attrs.ast_to_object(to_ctx),
+                    kwd_patterns.ast_to_object(to_ctx),
+                )
+            } else {
+                let (patterns, kwd_attrs, kwd_patterns) = split_pattern_match_class(arguments);
+                (
+                    patterns.ast_to_object(to_ctx),
+                    kwd_attrs.ast_to_object(to_ctx),
+                    kwd_patterns.ast_to_object(to_ctx),
+                )
+            };
         dict.set_item("patterns", patterns, ctx).unwrap();
         dict.set_item("kwd_attrs", kwd_attrs, ctx).unwrap();
         dict.set_item("kwd_patterns", kwd_patterns, ctx).unwrap();
@@ -576,7 +562,7 @@ impl Node for ast::PatternMatchClass {
     }
 }
 
-struct PatternMatchClassPatterns(ast::Patterns);
+struct PatternMatchClassPatterns(Vec<ast::Pattern>);
 
 impl Node for PatternMatchClassPatterns {
     fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
@@ -628,7 +614,7 @@ impl Node for PatternMatchClassKeywordAttributes {
     }
 }
 
-struct PatternMatchClassKeywordPatterns(ast::Patterns);
+struct PatternMatchClassKeywordPatterns(Vec<ast::Pattern>);
 
 impl Node for PatternMatchClassKeywordPatterns {
     fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
@@ -747,12 +733,13 @@ fn pattern_match_or_from_object_with_range(
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchOr> {
-    let (node_index, patterns) =
+    let (runtime_patterns, patterns) =
         pattern_list_from_field(ctx, source_file, &object, "patterns", "MatchOr", range)?;
     Ok(ast::PatternMatchOr {
-        node_index,
+        node_index: Default::default(),
         patterns: patterns.to_vec(),
         range,
+        runtime_patterns,
     })
 }
 
@@ -761,18 +748,19 @@ impl Node for ast::PatternMatchOr {
         let vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             patterns,
             range,
+            runtime_patterns,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodePatternMatchOr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, node_index.load())
+        let patterns = super::constant::public_ast_pattern_list_object(to_ctx, runtime_patterns)
             .map_or_else(
                 || patterns.ast_to_object(to_ctx),
-                |values| values.values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
             );
         dict.set_item("patterns", patterns, vm).unwrap();
         node_add_location(&dict, range, vm, source_file);
@@ -810,7 +798,7 @@ fn merge_pattern_match_class(
     patterns: PatternMatchClassPatterns,
     kwd_attrs: PatternMatchClassKeywordAttributes,
     kwd_patterns: PatternMatchClassKeywordPatterns,
-) -> (ast::Patterns, Vec<ast::PatternKeyword>) {
+) -> (Vec<ast::Pattern>, Vec<ast::PatternKeyword>) {
     let keywords = kwd_attrs
         .0
         .into_iter()

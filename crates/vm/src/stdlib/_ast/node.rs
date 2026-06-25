@@ -1,61 +1,26 @@
 use crate::{PyObjectRef, PyResult, VirtualMachine, builtins::PyList};
-use core::{
-    cell::{Cell, RefCell, RefMut},
-    ops::Deref,
-};
+use core::ops::Deref;
 use rustpython_compiler_core::SourceFile;
 use thin_vec::ThinVec;
 
 pub(super) struct AstToObjectContext<'a> {
     pub(super) vm: &'a VirtualMachine,
     pub(super) source_file: &'a SourceFile,
-    pub(super) overrides: Option<&'a super::constant::PublicAstOverrides>,
 }
 
 impl<'a> AstToObjectContext<'a> {
-    pub(super) fn new(
-        vm: &'a VirtualMachine,
-        source_file: &'a SourceFile,
-        overrides: Option<&'a super::constant::PublicAstOverrides>,
-    ) -> Self {
-        Self {
-            vm,
-            source_file,
-            overrides,
-        }
+    pub(super) fn new(vm: &'a VirtualMachine, source_file: &'a SourceFile) -> Self {
+        Self { vm, source_file }
     }
 }
 
 pub(super) struct AstFromObjectContext<'a> {
     vm: &'a VirtualMachine,
-    next_public_ast_index: Cell<u32>,
-    public_ast_overrides: RefCell<super::constant::PublicAstOverrides>,
 }
 
 impl<'a> AstFromObjectContext<'a> {
     pub(super) fn new(vm: &'a VirtualMachine) -> Self {
-        Self {
-            vm,
-            next_public_ast_index: Cell::new(0),
-            public_ast_overrides: RefCell::new(super::constant::PublicAstOverrides::default()),
-        }
-    }
-
-    pub(super) fn into_public_ast_overrides(self) -> super::constant::PublicAstOverrides {
-        self.public_ast_overrides.into_inner()
-    }
-
-    pub(super) fn next_public_ast_index(&self) -> ruff_python_ast::NodeIndex {
-        let index = self.next_public_ast_index.get();
-        self.next_public_ast_index
-            .set(index.checked_add(1).expect("too many public AST constants"));
-        ruff_python_ast::NodeIndex::from(index)
-    }
-
-    pub(super) fn public_ast_overrides_mut(
-        &self,
-    ) -> RefMut<'_, super::constant::PublicAstOverrides> {
-        self.public_ast_overrides.borrow_mut()
+        Self { vm }
     }
 }
 

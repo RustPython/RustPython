@@ -10,11 +10,6 @@ impl Node for ast::Expr {
     fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
         let _vm = to_ctx.vm;
         let _source_file = to_ctx.source_file;
-        let node_index = ast::HasNodeIndex::node_index(&self).load();
-        let range = self.range();
-        if let Some(object) = constant::public_ast_constant_object(to_ctx, node_index, range) {
-            return object;
-        }
         match self {
             Self::BoolOp(cons) => cons.ast_to_object(to_ctx),
             Self::Name(cons) => cons.ast_to_object(to_ctx),
@@ -33,6 +28,7 @@ impl Node for ast::Expr {
             Self::YieldFrom(cons) => cons.ast_to_object(to_ctx),
             Self::Compare(cons) => cons.ast_to_object(to_ctx),
             Self::Call(cons) => cons.ast_to_object(to_ctx),
+            Self::Constant(cons) => constant::expr_constant_to_object(to_ctx, cons),
             Self::Attribute(cons) => cons.ast_to_object(to_ctx),
             Self::Subscript(cons) => cons.ast_to_object(to_ctx),
             Self::Starred(cons) => cons.ast_to_object(to_ctx),
@@ -350,10 +346,9 @@ fn expr_bool_op_from_object_with_range(
 ) -> PyResult<ast::ExprBoolOp> {
     let values: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "values", "BoolOp")?;
-    let (node_index, values) =
-        public_expr_list_from_values(ctx, super::constant::PublicAstExprListField::Values, values);
+    let (runtime_values, values) = public_expr_list_from_values(values);
     Ok(ast::ExprBoolOp {
-        node_index,
+        node_index: Default::default(),
         op: Node::ast_from_object(
             ctx,
             source_file,
@@ -361,6 +356,7 @@ fn expr_bool_op_from_object_with_range(
         )?,
         values,
         range,
+        runtime_values,
     })
 }
 
@@ -369,25 +365,22 @@ impl Node for ast::ExprBoolOp {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             op,
             values,
             range,
+            runtime_values,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeExprBoolOp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         dict.set_item("op", op.ast_to_object(to_ctx), ctx).unwrap();
-        let values = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Values,
-        )
-        .map_or_else(
-            || values.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let values = super::constant::public_ast_expr_list_object(to_ctx, runtime_values)
+            .map_or_else(
+                || values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("values", values, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
@@ -672,19 +665,17 @@ fn expr_dict_from_object_with_range(
     if keys.len() != values.len() {
         return Err(ctx.new_value_error("Dict doesn't have the same number of keys as values"));
     }
-    let node_index = public_expr_lists_node_index(
-        ctx,
-        [(super::constant::PublicAstExprListField::Values, &values)],
-    );
+    let runtime_values = public_expr_list_metadata(&values);
     let items = keys
         .into_iter()
         .zip(lower_public_expr_list(values))
         .map(|(key, value)| ast::DictItem { key, value })
         .collect();
     Ok(ast::ExprDict {
-        node_index,
+        node_index: Default::default(),
         items,
         range,
+        runtime_values,
     })
 }
 
@@ -693,9 +684,10 @@ impl Node for ast::ExprDict {
         let vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             items,
             range,
+            runtime_values,
         } = self;
         let (keys, values) =
             items
@@ -711,15 +703,11 @@ impl Node for ast::ExprDict {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("keys", keys.ast_to_object(to_ctx), vm)
             .unwrap();
-        let values = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Values,
-        )
-        .map_or_else(
-            || values.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let values = super::constant::public_ast_expr_list_object(to_ctx, runtime_values)
+            .map_or_else(
+                || values.ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("values", values, vm).unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
@@ -744,12 +732,12 @@ fn expr_set_from_object_with_range(
 ) -> PyResult<ast::ExprSet> {
     let elts: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "elts", "Set")?;
-    let (node_index, elts) =
-        public_expr_list_from_values(ctx, super::constant::PublicAstExprListField::Elts, elts);
+    let (runtime_elts, elts) = public_expr_list_from_values(elts);
     Ok(ast::ExprSet {
-        node_index,
+        node_index: Default::default(),
         elts,
         range,
+        runtime_elts,
     })
 }
 
@@ -758,22 +746,18 @@ impl Node for ast::ExprSet {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             elts,
             range,
+            runtime_elts,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeExprSet::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let elts = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Elts,
-        )
-        .map_or_else(
+        let elts = super::constant::public_ast_expr_list_object(to_ctx, runtime_elts).map_or_else(
             || elts.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("elts", elts, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
@@ -891,13 +875,7 @@ fn expr_dict_comp_from_object_with_range(
 ) -> PyResult<ast::ExprDictComp> {
     Ok(ast::ExprDictComp {
         node_index: Default::default(),
-        key: Some(get_required_node_field(
-            ctx,
-            source_file,
-            &object,
-            "key",
-            "DictComp",
-        )?),
+        key: get_required_node_field(ctx, source_file, &object, "key", "DictComp")?,
         value: get_required_node_field(ctx, source_file, &object, "value", "DictComp")?,
         generators: get_node_list_field(ctx, source_file, &object, "generators", "DictComp")?,
         range,
@@ -919,8 +897,7 @@ impl Node for ast::ExprDictComp {
             .into_ref_with_type(vm, pyast::NodeExprDictComp::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let key = key.map_or_else(|| vm.ctx.none(), |key| key.ast_to_object(to_ctx));
-        dict.set_item("key", key, vm).unwrap();
+        dict.set_item("key", key.ast_to_object(to_ctx), vm).unwrap();
         dict.set_item("value", value.ast_to_object(to_ctx), vm)
             .unwrap();
         dict.set_item("generators", generators.ast_to_object(to_ctx), vm)
@@ -1138,17 +1115,14 @@ fn expr_compare_from_object_with_range(
 ) -> PyResult<ast::ExprCompare> {
     let comparators: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "comparators", "Compare")?;
-    let (node_index, comparators) = public_expr_boxed_slice_from_values(
-        ctx,
-        super::constant::PublicAstExprListField::Comparators,
-        comparators,
-    );
+    let (runtime_comparators, comparators) = public_expr_boxed_slice_from_values(comparators);
     Ok(ast::ExprCompare {
-        node_index,
+        node_index: Default::default(),
         left: get_required_node_field(ctx, source_file, &object, "left", "Compare")?,
         ops: get_node_boxed_slice_field(ctx, source_file, &object, "ops", "Compare")?,
         comparators,
         range,
+        runtime_comparators,
     })
 }
 
@@ -1157,11 +1131,12 @@ impl Node for ast::ExprCompare {
         let ctx = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             left,
             ops,
             comparators,
             range,
+            runtime_comparators,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeExprCompare::static_type().to_owned())
@@ -1171,15 +1146,11 @@ impl Node for ast::ExprCompare {
             .unwrap();
         dict.set_item("ops", BoxedSlice(ops).ast_to_object(to_ctx), ctx)
             .unwrap();
-        let comparators = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Comparators,
-        )
-        .map_or_else(
-            || BoxedSlice(comparators).ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
-        );
+        let comparators = super::constant::public_ast_expr_list_object(to_ctx, runtime_comparators)
+            .map_or_else(
+                || BoxedSlice(comparators).ast_to_object(to_ctx),
+                |values| values.ast_to_object(to_ctx),
+            );
         dict.set_item("comparators", comparators, ctx).unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
@@ -1462,10 +1433,9 @@ fn expr_list_from_object_with_range(
 ) -> PyResult<ast::ExprList> {
     let elts: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "elts", "List")?;
-    let (node_index, elts) =
-        public_expr_list_from_values(ctx, super::constant::PublicAstExprListField::Elts, elts);
+    let (runtime_elts, elts) = public_expr_list_from_values(elts);
     Ok(ast::ExprList {
-        node_index,
+        node_index: Default::default(),
         elts,
         ctx: Node::ast_from_object(
             ctx,
@@ -1473,6 +1443,7 @@ fn expr_list_from_object_with_range(
             get_node_field_required(ctx, &object, "ctx", "List")?,
         )?,
         range,
+        runtime_elts,
     })
 }
 
@@ -1481,23 +1452,19 @@ impl Node for ast::ExprList {
         let vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             elts,
             ctx,
             range,
+            runtime_elts,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprList::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let elts = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Elts,
-        )
-        .map_or_else(
+        let elts = super::constant::public_ast_expr_list_object(to_ctx, runtime_elts).map_or_else(
             || elts.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("elts", elts, vm).unwrap();
         dict.set_item("ctx", ctx.ast_to_object(to_ctx), vm).unwrap();
@@ -1524,10 +1491,9 @@ fn expr_tuple_from_object_with_range(
 ) -> PyResult<ast::ExprTuple> {
     let elts: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "elts", "Tuple")?;
-    let (node_index, elts) =
-        public_expr_list_from_values(ctx, super::constant::PublicAstExprListField::Elts, elts);
+    let (runtime_elts, elts) = public_expr_list_from_values(elts);
     Ok(ast::ExprTuple {
-        node_index,
+        node_index: Default::default(),
         elts,
         ctx: Node::ast_from_object(
             ctx,
@@ -1536,6 +1502,7 @@ fn expr_tuple_from_object_with_range(
         )?,
         range,
         parenthesized: true,
+        runtime_elts,
     })
 }
 
@@ -1544,24 +1511,20 @@ impl Node for ast::ExprTuple {
         let vm = to_ctx.vm;
         let source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             elts,
             ctx,
             range: _range,
             parenthesized: _,
+            runtime_elts,
         } = self;
         let node = NodeAst
             .into_ref_with_type(vm, pyast::NodeExprTuple::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        let elts = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Elts,
-        )
-        .map_or_else(
+        let elts = super::constant::public_ast_expr_list_object(to_ctx, runtime_elts).map_or_else(
             || elts.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("elts", elts, vm).unwrap();
         dict.set_item("ctx", ctx.ast_to_object(to_ctx), vm).unwrap();
@@ -1680,12 +1643,14 @@ impl Node for ast::Comprehension {
         let ctx = to_ctx.vm;
         let _source_file = to_ctx.source_file;
         let Self {
-            node_index,
+            node_index: _,
             target,
             iter,
             ifs,
             is_async,
             range: _range,
+            runtime_ifs,
+            runtime_is_async,
         } = self;
         let node = NodeAst
             .into_ref_with_type(ctx, pyast::NodeComprehension::static_type().to_owned())
@@ -1695,18 +1660,13 @@ impl Node for ast::Comprehension {
             .unwrap();
         dict.set_item("iter", iter.ast_to_object(to_ctx), ctx)
             .unwrap();
-        let ifs = super::constant::public_ast_expr_list_object(
-            to_ctx,
-            node_index.load(),
-            super::constant::PublicAstExprListField::Ifs,
-        )
-        .map_or_else(
+        let ifs = super::constant::public_ast_expr_list_object(to_ctx, runtime_ifs).map_or_else(
             || ifs.ast_to_object(to_ctx),
-            |values| values.values.ast_to_object(to_ctx),
+            |values| values.ast_to_object(to_ctx),
         );
         dict.set_item("ifs", ifs, ctx).unwrap();
         let is_async =
-            super::constant::public_ast_comprehension_is_async_object(to_ctx, node_index.load())
+            super::constant::public_ast_comprehension_is_async_object(to_ctx, runtime_is_async)
                 .map_or_else(
                     || is_async.ast_to_object(to_ctx),
                     |value| ctx.ctx.new_int(value).into(),
@@ -1726,20 +1686,17 @@ impl Node for ast::Comprehension {
             ctx,
             get_node_field(ctx, &object, "is_async", "comprehension")?,
         )?;
-        let node_index = public_node_list_overrides_node_index(
-            ctx,
-            Vec::new(),
-            vec![(super::constant::PublicAstExprListField::Ifs, &ifs)],
-            None,
-            Some(is_async),
-        );
+        let runtime_ifs = public_expr_list_metadata(&ifs);
+        let runtime_is_async = (is_async != 0 && is_async != 1).then_some(is_async);
         Ok(Self {
-            node_index,
+            node_index: Default::default(),
             target: get_required_node_field(ctx, source_file, &object, "target", "comprehension")?,
             iter: get_required_node_field(ctx, source_file, &object, "iter", "comprehension")?,
             ifs: lower_public_expr_list(ifs),
             is_async: is_async != 0,
             range: Default::default(),
+            runtime_ifs,
+            runtime_is_async,
         })
     }
 }

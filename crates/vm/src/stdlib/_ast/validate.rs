@@ -5,12 +5,10 @@ use crate::{PyResult, VirtualMachine, compiler::CompileError};
 use core::ops::Deref;
 use ruff_python_ast as ast;
 use rustpython_codegen::error::{CodegenError, CodegenErrorType};
-use rustpython_codegen::{PublicAstExprList, PublicAstNodeMap};
 use rustpython_compiler_core::bytecode::ConstantData;
 
 struct Validator<'a> {
     vm: &'a VirtualMachine,
-    overrides: Option<&'a super::constant::PublicAstOverrides>,
 }
 
 impl Deref for Validator<'_> {
@@ -21,38 +19,25 @@ impl Deref for Validator<'_> {
     }
 }
 
-type AstConstantOverrides<'a> = Option<&'a PublicAstNodeMap<ConstantData>>;
-type AstImportFromLevelOverrides<'a> =
-    Option<&'a super::constant::PublicAstImportFromLevelOverrideMap>;
-
 fn public_ast_invalid_constant_type(vm: &Validator<'_>, expr: &ast::Expr) -> Option<String> {
-    let index = ast::HasNodeIndex::node_index(expr).load();
-    if index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?.invalid_constants.get(&index).cloned()
+    let _ = vm;
+    super::constant::public_ast_invalid_constant_type(expr).map(|value| value.to_string())
 }
 
 fn public_ast_joined_str_values(
     vm: &Validator<'_>,
     expr: &ast::ExprFString,
-) -> Option<PublicAstExprList> {
-    let index = expr.node_index.load();
-    if index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?.joined_strs.get(&index).cloned()
+) -> Option<super::constant::PublicAstExprList> {
+    let _ = vm;
+    expr.runtime_joined_str.clone()
 }
 
 fn public_ast_template_str_values(
     vm: &Validator<'_>,
     expr: &ast::ExprTString,
-) -> Option<PublicAstExprList> {
-    let index = expr.node_index.load();
-    if index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?.template_strs.get(&index).cloned()
+) -> Option<super::constant::PublicAstExprList> {
+    let _ = vm;
+    expr.runtime_template_str.clone()
 }
 
 fn expr_context_name(ctx: ast::ExprContext) -> &'static str {
@@ -92,12 +77,7 @@ fn validate_comprehension(vm: &Validator<'_>, gens: &[ast::Comprehension]) -> Py
     for comp in gens {
         validate_expr(vm, &comp.target, ast::ExprContext::Store)?;
         validate_expr(vm, &comp.iter, ast::ExprContext::Load)?;
-        validate_public_expr_list_slots(
-            vm,
-            comp.node_index.load(),
-            super::constant::PublicAstExprListField::Ifs,
-            ast::ExprContext::Load,
-        )?;
+        validate_public_expr_list_slots(vm, comp.runtime_ifs.as_ref(), ast::ExprContext::Load)?;
         validate_exprs(vm, &comp.ifs, ast::ExprContext::Load, false)?;
     }
     Ok(())
@@ -134,12 +114,12 @@ fn validate_parameters(vm: &Validator<'_>, params: &ast::Parameters) -> PyResult
     {
         validate_expr(vm, annotation, ast::ExprContext::Load)?;
     }
-    if let Some(defaults) = public_expr_option_list(vm, params.node_index.load()) {
-        for default in defaults.values {
+    if let Some(defaults) = public_expr_option_list(vm, params.runtime_defaults.as_ref()) {
+        for default in defaults {
             let Some(default) = default else {
                 return Err(vm.new_value_error("None disallowed in expression list"));
             };
-            validate_expr(vm, &default, ast::ExprContext::Load)?;
+            validate_expr(vm, default, ast::ExprContext::Load)?;
         }
     } else {
         for param in params.posonlyargs.iter().chain(&params.args) {
@@ -189,23 +169,12 @@ fn validate_assignlist(
 fn validate_body(
     vm: &Validator<'_>,
     body: &[ast::Stmt],
-    node_index: ast::NodeIndex,
+    metadata: Option<&super::constant::PublicAstStmtList>,
     owner: &'static str,
-    ast_constant_overrides: AstConstantOverrides<'_>,
-    ast_import_from_level_overrides: AstImportFromLevelOverrides<'_>,
 ) -> PyResult<()> {
     validate_nonempty_seq(vm, body.len(), "body", owner)?;
-    validate_public_stmt_list_slots(
-        vm,
-        node_index,
-        super::constant::PublicAstStmtListField::Body,
-    )?;
-    validate_stmts(
-        vm,
-        body,
-        ast_constant_overrides,
-        ast_import_from_level_overrides,
-    )
+    validate_public_stmt_list_slots(vm, metadata)?;
+    validate_stmts(vm, body)
 }
 
 fn validate_interpolated_elements<'a>(
@@ -215,7 +184,14 @@ fn validate_interpolated_elements<'a>(
     for element in elements {
         if let ast::InterpolatedStringElementRef::Interpolation(interpolation) = element {
             validate_expr(vm, &interpolation.expression, ast::ExprContext::Load)?;
-            if let Some(format_spec) = &interpolation.format_spec {
+            if let Some(format_spec) = interpolation.runtime_formatted_value_format_spec.as_deref()
+            {
+                validate_expr(vm, format_spec, ast::ExprContext::Load)?;
+            } else if let Some(format_spec) =
+                interpolation.runtime_interpolation_format_spec.as_deref()
+            {
+                validate_expr(vm, format_spec, ast::ExprContext::Load)?;
+            } else if let Some(format_spec) = &interpolation.format_spec {
                 validate_interpolated_elements(
                     vm,
                     format_spec
@@ -261,25 +237,15 @@ fn ensure_literal_complex(expr: &ast::Expr) -> bool {
     real_left && ensure_literal_number(&bin.right, false, true)
 }
 
-fn public_ast_constant_override<'a>(
-    overrides: AstConstantOverrides<'a>,
-    expr: &ast::Expr,
-) -> Option<&'a ConstantData> {
-    let index = ast::HasNodeIndex::node_index(expr).load();
-    if index == ast::NodeIndex::NONE {
-        return None;
-    }
-    overrides?.get(&index)
+fn public_ast_constant_override(expr: &ast::Expr) -> Option<ConstantData> {
+    super::constant::public_ast_constant(expr)
+        .map(super::constant::public_ast_constant_to_constant_data)
 }
 
-fn validate_pattern_match_value(
-    vm: &Validator<'_>,
-    expr: &ast::Expr,
-    ast_constant_overrides: AstConstantOverrides<'_>,
-) -> PyResult<()> {
+fn validate_pattern_match_value(vm: &Validator<'_>, expr: &ast::Expr) -> PyResult<()> {
     validate_expr(vm, expr, ast::ExprContext::Load)?;
-    if let Some(constant) = public_ast_constant_override(ast_constant_overrides, expr) {
-        return match constant {
+    if let Some(constant) = public_ast_constant_override(expr) {
+        return match &constant {
             ConstantData::Integer { .. }
             | ConstantData::Float { .. }
             | ConstantData::Bytes { .. }
@@ -312,22 +278,15 @@ fn validate_capture(vm: &Validator<'_>, name: &ast::Identifier) -> PyResult<()> 
     validate_name(vm, name.id())
 }
 
-fn validate_pattern(
-    vm: &Validator<'_>,
-    pattern: &ast::Pattern,
-    star_ok: bool,
-    ast_constant_overrides: AstConstantOverrides<'_>,
-) -> PyResult<()> {
+fn validate_pattern(vm: &Validator<'_>, pattern: &ast::Pattern, star_ok: bool) -> PyResult<()> {
     match pattern {
-        ast::Pattern::MatchValue(value) => {
-            validate_pattern_match_value(vm, &value.value, ast_constant_overrides)
-        }
+        ast::Pattern::MatchValue(value) => validate_pattern_match_value(vm, &value.value),
         ast::Pattern::MatchSingleton(singleton) => match singleton.value {
             ast::Singleton::None | ast::Singleton::True | ast::Singleton::False => Ok(()),
         },
         ast::Pattern::MatchSequence(seq) => {
-            validate_public_pattern_list_slots(vm, seq.node_index.load())?;
-            validate_patterns(vm, &seq.patterns, true, ast_constant_overrides)
+            validate_public_pattern_list_slots(vm, seq.runtime_patterns.as_ref())?;
+            validate_patterns(vm, &seq.patterns, true)
         }
         ast::Pattern::MatchMapping(mapping) => {
             if mapping.keys.len() != mapping.patterns.len() {
@@ -338,20 +297,21 @@ fn validate_pattern(
             if let Some(rest) = &mapping.rest {
                 validate_capture(vm, rest)?;
             }
-            validate_public_expr_option_list_slots(vm, mapping.node_index.load())?;
+            validate_public_expr_option_list_slots(vm, mapping.runtime_keys.as_ref())?;
             for key in &mapping.keys {
                 if let ast::Expr::BooleanLiteral(_) | ast::Expr::NoneLiteral(_) = key {
                     continue;
                 }
-                validate_pattern_match_value(vm, key, ast_constant_overrides)?;
+                validate_pattern_match_value(vm, key)?;
             }
-            validate_public_pattern_list_slots(vm, mapping.node_index.load())?;
-            validate_patterns(vm, &mapping.patterns, false, ast_constant_overrides)
+            validate_public_pattern_list_slots(vm, mapping.runtime_patterns.as_ref())?;
+            validate_patterns(vm, &mapping.patterns, false)
         }
         ast::Pattern::MatchClass(match_class) => {
-            let public_match_class = public_match_class(vm, match_class.node_index.load());
-            if let Some(values) = &public_match_class
-                && values.kwd_attrs.len() != values.kwd_patterns.len()
+            if let (Some(kwd_attrs), Some(kwd_patterns)) = (
+                match_class.runtime_kwd_attrs.as_ref(),
+                match_class.runtime_kwd_patterns.as_ref(),
+            ) && kwd_attrs.len() != kwd_patterns.len()
             {
                 return Err(vm.new_value_error(
                     "MatchClass doesn't have the same number of keyword attributes as patterns",
@@ -375,20 +335,15 @@ fn validate_pattern(
             for keyword in &match_class.arguments.keywords {
                 validate_name(vm, keyword.attr.id())?;
             }
-            if let Some(values) = &public_match_class {
-                validate_public_nullable_patterns(vm, &values.patterns)?;
+            if let Some(patterns) = &match_class.runtime_patterns {
+                validate_public_nullable_patterns(vm, patterns)?;
             }
-            validate_patterns(
-                vm,
-                &match_class.arguments.patterns,
-                false,
-                ast_constant_overrides,
-            )?;
-            if let Some(values) = &public_match_class {
-                validate_public_nullable_patterns(vm, &values.kwd_patterns)?;
+            validate_patterns(vm, &match_class.arguments.patterns, false)?;
+            if let Some(kwd_patterns) = &match_class.runtime_kwd_patterns {
+                validate_public_nullable_patterns(vm, kwd_patterns)?;
             }
             for keyword in &match_class.arguments.keywords {
-                validate_pattern(vm, &keyword.pattern, false, ast_constant_overrides)?;
+                validate_pattern(vm, &keyword.pattern, false)?;
             }
             Ok(())
         }
@@ -413,7 +368,7 @@ fn validate_pattern(
                             "MatchAs must specify a target name if a pattern is given",
                         ));
                     }
-                    validate_pattern(vm, pattern, false, ast_constant_overrides)
+                    validate_pattern(vm, pattern, false)
                 }
             }
         }
@@ -421,85 +376,51 @@ fn validate_pattern(
             if match_or.patterns.len() < 2 {
                 return Err(vm.new_value_error("MatchOr requires at least 2 patterns"));
             }
-            validate_public_pattern_list_slots(vm, match_or.node_index.load())?;
-            validate_patterns(vm, &match_or.patterns, false, ast_constant_overrides)
+            validate_public_pattern_list_slots(vm, match_or.runtime_patterns.as_ref())?;
+            validate_patterns(vm, &match_or.patterns, false)
         }
     }
 }
 
-fn public_pattern_list_has_null(vm: &Validator<'_>, node_index: ast::NodeIndex) -> bool {
-    if node_index == ast::NodeIndex::NONE {
-        return false;
-    }
-    vm.overrides
-        .and_then(|overrides| overrides.pattern_lists.get(&node_index))
-        .is_some_and(|values| values.values.iter().any(Option::is_none))
+fn public_pattern_list_has_null(
+    vm: &Validator<'_>,
+    values: Option<&super::constant::PublicAstPatternList>,
+) -> bool {
+    let _ = vm;
+    values.is_some_and(|values| values.iter().any(Option::is_none))
 }
 
 fn validate_public_pattern_list_slots(
     vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
+    values: Option<&super::constant::PublicAstPatternList>,
 ) -> PyResult<()> {
-    if public_pattern_list_has_null(vm, node_index) {
+    if public_pattern_list_has_null(vm, values) {
         return Err(vm.new_value_error("unexpected pattern"));
     }
     Ok(())
 }
 
-fn public_expr_option_list_has_null(vm: &Validator<'_>, node_index: ast::NodeIndex) -> bool {
-    if node_index == ast::NodeIndex::NONE {
-        return false;
-    }
-    vm.overrides
-        .and_then(|overrides| overrides.expr_option_lists.get(&node_index))
-        .is_some_and(|values| values.values.iter().any(Option::is_none))
+fn public_expr_option_list_has_null(
+    vm: &Validator<'_>,
+    values: Option<&super::constant::PublicAstExprOptionList>,
+) -> bool {
+    let _ = vm;
+    values.is_some_and(|values| values.iter().any(Option::is_none))
 }
 
-fn public_expr_option_list(
+fn public_expr_option_list<'a>(
     vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
-) -> Option<super::constant::PublicAstExprOptionList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?.expr_option_lists.get(&node_index).cloned()
-}
-
-fn public_expr_list(
-    vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
-    field: super::constant::PublicAstExprListField,
-) -> Option<super::constant::PublicAstExprOptionList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?
-        .expr_lists
-        .get(&node_index)
-        .and_then(|values| values.get(field))
-        .cloned()
-}
-
-fn public_stmt_list(
-    vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
-    field: super::constant::PublicAstStmtListField,
-) -> Option<super::constant::PublicAstStmtList> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?
-        .stmt_lists
-        .get(&node_index)
-        .and_then(|values| values.get(field))
-        .cloned()
+    values: Option<&'a super::constant::PublicAstExprOptionList>,
+) -> Option<&'a super::constant::PublicAstExprOptionList> {
+    let _ = vm;
+    values
 }
 
 fn validate_public_expr_option_list_slots(
     vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
+    values: Option<&super::constant::PublicAstExprOptionList>,
 ) -> PyResult<()> {
-    if public_expr_option_list_has_null(vm, node_index) {
+    if public_expr_option_list_has_null(vm, values) {
         return Err(vm.new_value_error("None disallowed in expression list"));
     }
     Ok(())
@@ -507,16 +428,15 @@ fn validate_public_expr_option_list_slots(
 
 fn validate_public_expr_list_slots(
     vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
-    field: super::constant::PublicAstExprListField,
+    values: Option<&super::constant::PublicAstExprOptionList>,
     ctx: ast::ExprContext,
 ) -> PyResult<()> {
-    if let Some(values) = public_expr_list(vm, node_index, field) {
-        for value in values.values {
+    if let Some(values) = values {
+        for value in values {
             let Some(value) = value else {
                 return Err(vm.new_value_error("None disallowed in expression list"));
             };
-            validate_expr(vm, &value, ctx)?;
+            validate_expr(vm, value, ctx)?;
         }
     }
     Ok(())
@@ -524,44 +444,32 @@ fn validate_public_expr_list_slots(
 
 fn validate_public_stmt_list_slots(
     vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
-    field: super::constant::PublicAstStmtListField,
+    values: Option<&super::constant::PublicAstStmtList>,
 ) -> PyResult<()> {
-    if let Some(values) = public_stmt_list(vm, node_index, field)
-        && values.values.iter().any(Option::is_none)
+    if let Some(values) = values
+        && values.iter().any(Option::is_none)
     {
         return Err(vm.new_value_error("None disallowed in statement list"));
     }
     Ok(())
 }
 
-fn public_except_handler_list_has_null(vm: &Validator<'_>, node_index: ast::NodeIndex) -> bool {
-    if node_index == ast::NodeIndex::NONE {
-        return false;
-    }
-    vm.overrides
-        .and_then(|overrides| overrides.except_handler_lists.get(&node_index))
-        .is_some_and(|values| values.values.iter().any(Option::is_none))
+fn public_except_handler_list_has_null(
+    vm: &Validator<'_>,
+    values: Option<&super::constant::PublicAstExceptHandlerList>,
+) -> bool {
+    let _ = vm;
+    values.is_some_and(|values| values.iter().any(Option::is_none))
 }
 
 fn validate_public_except_handler_list_slots(
     vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
+    values: Option<&super::constant::PublicAstExceptHandlerList>,
 ) -> PyResult<()> {
-    if public_except_handler_list_has_null(vm, node_index) {
+    if public_except_handler_list_has_null(vm, values) {
         return Err(vm.new_value_error("unexpected excepthandler"));
     }
     Ok(())
-}
-
-fn public_match_class(
-    vm: &Validator<'_>,
-    node_index: ast::NodeIndex,
-) -> Option<super::constant::PublicAstMatchClass> {
-    if node_index == ast::NodeIndex::NONE {
-        return None;
-    }
-    vm.overrides?.match_classes.get(&node_index).cloned()
 }
 
 fn validate_public_nullable_patterns(
@@ -574,14 +482,9 @@ fn validate_public_nullable_patterns(
     Ok(())
 }
 
-fn validate_patterns(
-    vm: &Validator<'_>,
-    patterns: &[ast::Pattern],
-    star_ok: bool,
-    ast_constant_overrides: AstConstantOverrides<'_>,
-) -> PyResult<()> {
+fn validate_patterns(vm: &Validator<'_>, patterns: &[ast::Pattern], star_ok: bool) -> PyResult<()> {
     for pattern in patterns {
-        validate_pattern(vm, pattern, star_ok, ast_constant_overrides)?;
+        validate_pattern(vm, pattern, star_ok)?;
     }
     Ok(())
 }
@@ -615,13 +518,8 @@ fn validate_typeparam(vm: &Validator<'_>, tp: &ast::TypeParam) -> PyResult<()> {
 
 fn validate_type_params(vm: &Validator<'_>, type_params: Option<&ast::TypeParams>) -> PyResult<()> {
     if let Some(type_params) = type_params {
-        let node_index = type_params.node_index.load();
-        if node_index != ast::NodeIndex::NONE
-            && let Some(values) = vm
-                .overrides
-                .and_then(|overrides| overrides.type_param_lists.get(&node_index).cloned())
-        {
-            for tp in values.values.iter().flatten() {
+        if let Some(values) = type_params.runtime_type_params.as_ref() {
+            for tp in values.iter().flatten() {
                 validate_typeparam(vm, tp)?;
             }
             return Ok(());
@@ -683,8 +581,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             }
             validate_public_expr_list_slots(
                 vm,
-                op.node_index.load(),
-                super::constant::PublicAstExprListField::Values,
+                op.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
             validate_exprs(vm, &op.values, ast::ExprContext::Load, false)
@@ -714,8 +611,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         ast::Expr::Dict(dict) => {
             validate_public_expr_list_slots(
                 vm,
-                dict.node_index.load(),
-                super::constant::PublicAstExprListField::Values,
+                dict.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
             for item in &dict.items {
@@ -727,12 +623,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             Ok(())
         }
         ast::Expr::Set(set) => {
-            validate_public_expr_list_slots(
-                vm,
-                set.node_index.load(),
-                super::constant::PublicAstExprListField::Elts,
-                ast::ExprContext::Load,
-            )?;
+            validate_public_expr_list_slots(vm, set.runtime_elts.as_ref(), ast::ExprContext::Load)?;
             validate_exprs(vm, &set.elts, ast::ExprContext::Load, false)
         }
         ast::Expr::ListComp(list) => {
@@ -745,10 +636,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         }
         ast::Expr::DictComp(dict) => {
             validate_comprehension(vm, &dict.generators)?;
-            let Some(key) = &dict.key else {
-                return Err(vm.new_value_error("DictComp with no key"));
-            };
-            validate_expr(vm, key, ast::ExprContext::Load)?;
+            validate_expr(vm, &dict.key, ast::ExprContext::Load)?;
             validate_expr(vm, &dict.value, ast::ExprContext::Load)
         }
         ast::Expr::Generator(generator) => {
@@ -778,8 +666,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             }
             validate_public_expr_list_slots(
                 vm,
-                compare.node_index.load(),
-                super::constant::PublicAstExprListField::Comparators,
+                compare.runtime_comparators.as_ref(),
                 ast::ExprContext::Load,
             )?;
             validate_exprs(vm, &compare.comparators, ast::ExprContext::Load, false)?;
@@ -789,8 +676,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             validate_expr(vm, &call.func, ast::ExprContext::Load)?;
             validate_public_expr_list_slots(
                 vm,
-                call.arguments.node_index.load(),
-                super::constant::PublicAstExprListField::Args,
+                call.arguments.runtime_args.as_ref(),
                 ast::ExprContext::Load,
             )?;
             validate_exprs(vm, &call.arguments.args, ast::ExprContext::Load, false)?;
@@ -799,12 +685,11 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         ast::Expr::FString(fstring) => {
             validate_public_expr_list_slots(
                 vm,
-                fstring.node_index.load(),
-                super::constant::PublicAstExprListField::Values,
+                fstring.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
             if let Some(joined_str) = public_ast_joined_str_values(vm, fstring) {
-                validate_exprs(vm, &joined_str.values, ast::ExprContext::Load, false)
+                validate_exprs(vm, &joined_str, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
                     vm,
@@ -818,12 +703,11 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         ast::Expr::TString(tstring) => {
             validate_public_expr_list_slots(
                 vm,
-                tstring.node_index.load(),
-                super::constant::PublicAstExprListField::Values,
+                tstring.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
             if let Some(template_str) = public_ast_template_str_values(vm, tstring) {
-                validate_exprs(vm, &template_str.values, ast::ExprContext::Load, false)
+                validate_exprs(vm, &template_str, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
                     vm,
@@ -837,6 +721,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         ast::Expr::StringLiteral(_)
         | ast::Expr::BytesLiteral(_)
         | ast::Expr::NumberLiteral(_)
+        | ast::Expr::Constant(_)
         | ast::Expr::BooleanLiteral(_)
         | ast::Expr::NoneLiteral(_)
         | ast::Expr::EllipsisLiteral(_) => {
@@ -854,21 +739,11 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         ast::Expr::Starred(star) => validate_expr(vm, &star.value, ctx),
         ast::Expr::Name(_) => Ok(()),
         ast::Expr::List(list) => {
-            validate_public_expr_list_slots(
-                vm,
-                list.node_index.load(),
-                super::constant::PublicAstExprListField::Elts,
-                ctx,
-            )?;
+            validate_public_expr_list_slots(vm, list.runtime_elts.as_ref(), ctx)?;
             validate_exprs(vm, &list.elts, ctx, false)
         }
         ast::Expr::Tuple(tuple) => {
-            validate_public_expr_list_slots(
-                vm,
-                tuple.node_index.load(),
-                super::constant::PublicAstExprListField::Elts,
-                ctx,
-            )?;
+            validate_public_expr_list_slots(vm, tuple.runtime_elts.as_ref(), ctx)?;
             validate_exprs(vm, &tuple.elts, ctx, false)
         }
         ast::Expr::Slice(slice) => {
@@ -894,12 +769,7 @@ fn validate_decorators(vm: &Validator<'_>, decorators: &[ast::Decorator]) -> PyR
     Ok(())
 }
 
-fn validate_stmt(
-    vm: &Validator<'_>,
-    stmt: &ast::Stmt,
-    ast_constant_overrides: AstConstantOverrides<'_>,
-    ast_import_from_level_overrides: AstImportFromLevelOverrides<'_>,
-) -> PyResult<()> {
+fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
     match stmt {
         ast::Stmt::FunctionDef(func) => {
             let owner = if func.is_async {
@@ -907,20 +777,12 @@ fn validate_stmt(
             } else {
                 "FunctionDef"
             };
-            validate_body(
-                vm,
-                &func.body,
-                func.node_index.load(),
-                owner,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )?;
+            validate_body(vm, &func.body, func.runtime_body.as_ref(), owner)?;
             validate_type_params(vm, func.type_params.as_deref())?;
             validate_parameters(vm, &func.parameters)?;
             validate_public_expr_list_slots(
                 vm,
-                func.node_index.load(),
-                super::constant::PublicAstExprListField::DecoratorList,
+                func.runtime_decorator_list.as_ref(),
                 ast::ExprContext::Load,
             )?;
             validate_decorators(vm, &func.decorator_list)?;
@@ -933,17 +795,14 @@ fn validate_stmt(
             validate_body(
                 vm,
                 &class_def.body,
-                class_def.node_index.load(),
+                class_def.runtime_body.as_ref(),
                 "ClassDef",
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
             )?;
             validate_type_params(vm, class_def.type_params.as_deref())?;
             if let Some(arguments) = &class_def.arguments {
                 validate_public_expr_list_slots(
                     vm,
-                    arguments.node_index.load(),
-                    super::constant::PublicAstExprListField::Bases,
+                    arguments.runtime_bases.as_ref(),
                     ast::ExprContext::Load,
                 )?;
                 validate_exprs(vm, &arguments.args, ast::ExprContext::Load, false)?;
@@ -951,8 +810,7 @@ fn validate_stmt(
             }
             validate_public_expr_list_slots(
                 vm,
-                class_def.node_index.load(),
-                super::constant::PublicAstExprListField::DecoratorList,
+                class_def.runtime_decorator_list.as_ref(),
                 ast::ExprContext::Load,
             )?;
             validate_decorators(vm, &class_def.decorator_list)
@@ -966,8 +824,7 @@ fn validate_stmt(
         ast::Stmt::Delete(del) => {
             validate_public_expr_list_slots(
                 vm,
-                del.node_index.load(),
-                super::constant::PublicAstExprListField::Targets,
+                del.runtime_targets.as_ref(),
                 ast::ExprContext::Del,
             )?;
             validate_assignlist(vm, &del.targets, ast::ExprContext::Del)
@@ -975,8 +832,7 @@ fn validate_stmt(
         ast::Stmt::Assign(assign) => {
             validate_public_expr_list_slots(
                 vm,
-                assign.node_index.load(),
-                super::constant::PublicAstExprListField::Targets,
+                assign.runtime_targets.as_ref(),
                 ast::ExprContext::Store,
             )?;
             validate_assignlist(vm, &assign.targets, ast::ExprContext::Store)?;
@@ -1008,75 +864,30 @@ fn validate_stmt(
             let owner = if for_stmt.is_async { "AsyncFor" } else { "For" };
             validate_expr(vm, &for_stmt.target, ast::ExprContext::Store)?;
             validate_expr(vm, &for_stmt.iter, ast::ExprContext::Load)?;
-            validate_body(
-                vm,
-                &for_stmt.body,
-                for_stmt.node_index.load(),
-                owner,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )?;
-            validate_public_stmt_list_slots(
-                vm,
-                for_stmt.node_index.load(),
-                super::constant::PublicAstStmtListField::Orelse,
-            )?;
-            validate_stmts(
-                vm,
-                &for_stmt.orelse,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )
+            validate_body(vm, &for_stmt.body, for_stmt.runtime_body.as_ref(), owner)?;
+            validate_public_stmt_list_slots(vm, for_stmt.runtime_orelse.as_ref())?;
+            validate_stmts(vm, &for_stmt.orelse)
         }
         ast::Stmt::While(while_stmt) => {
             validate_expr(vm, &while_stmt.test, ast::ExprContext::Load)?;
             validate_body(
                 vm,
                 &while_stmt.body,
-                while_stmt.node_index.load(),
+                while_stmt.runtime_body.as_ref(),
                 "While",
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
             )?;
-            validate_public_stmt_list_slots(
-                vm,
-                while_stmt.node_index.load(),
-                super::constant::PublicAstStmtListField::Orelse,
-            )?;
-            validate_stmts(
-                vm,
-                &while_stmt.orelse,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )
+            validate_public_stmt_list_slots(vm, while_stmt.runtime_orelse.as_ref())?;
+            validate_stmts(vm, &while_stmt.orelse)
         }
         ast::Stmt::If(if_stmt) => {
             validate_expr(vm, &if_stmt.test, ast::ExprContext::Load)?;
-            validate_body(
-                vm,
-                &if_stmt.body,
-                if_stmt.node_index.load(),
-                "If",
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )?;
-            validate_public_stmt_list_slots(
-                vm,
-                if_stmt.node_index.load(),
-                super::constant::PublicAstStmtListField::Orelse,
-            )?;
+            validate_body(vm, &if_stmt.body, if_stmt.runtime_body.as_ref(), "If")?;
             for clause in &if_stmt.elif_else_clauses {
                 if let Some(test) = &clause.test {
                     validate_expr(vm, test, ast::ExprContext::Load)?;
                 }
-                validate_body(
-                    vm,
-                    &clause.body,
-                    clause.node_index.load(),
-                    "If",
-                    ast_constant_overrides,
-                    ast_import_from_level_overrides,
-                )?;
+                validate_body(vm, &clause.body, clause.runtime_body.as_ref(), "If")?;
+                validate_public_stmt_list_slots(vm, clause.runtime_orelse.as_ref())?;
             }
             Ok(())
         }
@@ -1093,31 +904,17 @@ fn validate_stmt(
                     validate_expr(vm, optional_vars, ast::ExprContext::Store)?;
                 }
             }
-            validate_body(
-                vm,
-                &with_stmt.body,
-                with_stmt.node_index.load(),
-                owner,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )
+            validate_body(vm, &with_stmt.body, with_stmt.runtime_body.as_ref(), owner)
         }
         ast::Stmt::Match(match_stmt) => {
             validate_expr(vm, &match_stmt.subject, ast::ExprContext::Load)?;
             validate_nonempty_seq(vm, match_stmt.cases.len(), "cases", "Match")?;
             for case in &match_stmt.cases {
-                validate_pattern(vm, &case.pattern, false, ast_constant_overrides)?;
+                validate_pattern(vm, &case.pattern, false)?;
                 if let Some(guard) = &case.guard {
                     validate_expr(vm, guard, ast::ExprContext::Load)?;
                 }
-                validate_body(
-                    vm,
-                    &case.body,
-                    case.node_index.load(),
-                    "match_case",
-                    ast_constant_overrides,
-                    ast_import_from_level_overrides,
-                )?;
+                validate_body(vm, &case.body, case.runtime_body.as_ref(), "match_case")?;
             }
             Ok(())
         }
@@ -1134,14 +931,7 @@ fn validate_stmt(
         }
         ast::Stmt::Try(try_stmt) => {
             let owner = if try_stmt.is_star { "TryStar" } else { "Try" };
-            validate_body(
-                vm,
-                &try_stmt.body,
-                try_stmt.node_index.load(),
-                owner,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )?;
+            validate_body(vm, &try_stmt.body, try_stmt.runtime_body.as_ref(), owner)?;
             if try_stmt.handlers.is_empty() && try_stmt.finalbody.is_empty() {
                 return Err(vm.new_value_error(format!(
                     "{owner} has neither except handlers nor finalbody"
@@ -1152,7 +942,7 @@ fn validate_stmt(
                     vm.new_value_error(format!("{owner} has orelse but no except handlers"))
                 );
             }
-            validate_public_except_handler_list_slots(vm, try_stmt.node_index.load())?;
+            validate_public_except_handler_list_slots(vm, try_stmt.runtime_handlers.as_ref())?;
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
                 if let Some(type_expr) = &handler.type_ {
@@ -1161,34 +951,14 @@ fn validate_stmt(
                 validate_body(
                     vm,
                     &handler.body,
-                    handler.node_index.load(),
+                    handler.runtime_body.as_ref(),
                     "ExceptHandler",
-                    ast_constant_overrides,
-                    ast_import_from_level_overrides,
                 )?;
             }
-            validate_public_stmt_list_slots(
-                vm,
-                try_stmt.node_index.load(),
-                super::constant::PublicAstStmtListField::FinalBody,
-            )?;
-            validate_stmts(
-                vm,
-                &try_stmt.finalbody,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )?;
-            validate_public_stmt_list_slots(
-                vm,
-                try_stmt.node_index.load(),
-                super::constant::PublicAstStmtListField::Orelse,
-            )?;
-            validate_stmts(
-                vm,
-                &try_stmt.orelse,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )
+            validate_public_stmt_list_slots(vm, try_stmt.runtime_finalbody.as_ref())?;
+            validate_stmts(vm, &try_stmt.finalbody)?;
+            validate_public_stmt_list_slots(vm, try_stmt.runtime_orelse.as_ref())?;
+            validate_stmts(vm, &try_stmt.orelse)
         }
         ast::Stmt::Assert(assert_stmt) => {
             validate_expr(vm, &assert_stmt.test, ast::ExprContext::Load)?;
@@ -1202,9 +972,8 @@ fn validate_stmt(
             Ok(())
         }
         ast::Stmt::ImportFrom(import) => {
-            if let Some(level) = ast_import_from_level_overrides
-                .and_then(|overrides| overrides.get(&import.node_index.load()))
-                && *level < 0
+            if let Some(level) = import.runtime_level
+                && level < 0
             {
                 return Err(vm.new_value_error("Negative ImportFrom level"));
             }
@@ -1225,76 +994,29 @@ fn validate_stmt(
     }
 }
 
-fn validate_stmts(
-    vm: &Validator<'_>,
-    stmts: &[ast::Stmt],
-    ast_constant_overrides: AstConstantOverrides<'_>,
-    ast_import_from_level_overrides: AstImportFromLevelOverrides<'_>,
-) -> PyResult<()> {
+fn validate_stmts(vm: &Validator<'_>, stmts: &[ast::Stmt]) -> PyResult<()> {
     for stmt in stmts {
-        validate_stmt(
-            vm,
-            stmt,
-            ast_constant_overrides,
-            ast_import_from_level_overrides,
-        )?;
+        validate_stmt(vm, stmt)?;
     }
     Ok(())
 }
 
-pub(super) fn validate_mod(
-    vm: &VirtualMachine,
-    module: &Mod,
-    overrides: Option<&super::constant::PublicAstOverrides>,
-) -> PyResult<()> {
-    let validator = Validator { vm, overrides };
+pub(super) fn validate_mod(vm: &VirtualMachine, module: &Mod) -> PyResult<()> {
+    let validator = Validator { vm };
     let vm = &validator;
-    let ast_constant_overrides = overrides.map(|overrides| &overrides.constants);
-    let ast_import_from_level_overrides = overrides.map(|overrides| &overrides.import_from_levels);
-
-    if let Some(overrides) = overrides {
-        for interpolation in overrides.interpolations.values() {
-            if let Some(format_spec) = &interpolation.format_spec {
-                validate_expr(vm, format_spec, ast::ExprContext::Load)?;
-            }
-        }
-        for formatted_value in overrides.formatted_values.values() {
-            if let Some(format_spec) = &formatted_value.format_spec {
-                validate_expr(vm, format_spec, ast::ExprContext::Load)?;
-            }
-        }
-    }
 
     match module {
         Mod::Module(module) => {
-            validate_public_stmt_list_slots(
-                vm,
-                module.module.node_index.load(),
-                super::constant::PublicAstStmtListField::Body,
-            )?;
-            validate_stmts(
-                vm,
-                &module.module.body,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )
+            validate_public_stmt_list_slots(vm, module.module.runtime_body.as_ref())?;
+            validate_stmts(vm, &module.module.body)
         }
         Mod::Interactive(module) => {
-            validate_public_stmt_list_slots(
-                vm,
-                module.node_index.load(),
-                super::constant::PublicAstStmtListField::Body,
-            )?;
-            validate_stmts(
-                vm,
-                &module.body,
-                ast_constant_overrides,
-                ast_import_from_level_overrides,
-            )
+            validate_public_stmt_list_slots(vm, module.runtime_body.as_ref())?;
+            validate_stmts(vm, &module.body)
         }
         Mod::Expression(expr) => validate_expr(vm, &expr.body, ast::ExprContext::Load),
         Mod::FunctionType(func_type) => {
-            validate_public_expr_option_list_slots(vm, func_type.node_index.load())?;
+            validate_public_expr_option_list_slots(vm, func_type.runtime_argtypes.as_ref())?;
             validate_exprs(vm, &func_type.argtypes, ast::ExprContext::Load, false)?;
             validate_expr(vm, &func_type.returns, ast::ExprContext::Load)
         }
