@@ -31,13 +31,12 @@ mod builtins {
         stdlib::sys,
         types::PyComparisonOp,
         vm::compile_mode::{
-            PY_CF_ALLOW_TOP_LEVEL_AWAIT, PY_CF_ALLOWED_FLAGS, PY_CF_IGNORE_COOKIE, PY_CF_ONLY_AST,
-            PY_CF_OPTIMIZED_AST, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
+            CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
             compile_future_feature_mask, compile_future_features_from_flags,
         },
     };
     use itertools::Itertools;
-    use num_traits::{Signed, ToPrimitive, Zero};
+    use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::CodePoint;
 
     #[cfg(not(feature = "rustpython-compiler"))]
@@ -206,8 +205,9 @@ mod builtins {
 
             let mode_str = args.mode.as_str();
             let flags: i32 = args.flags.map_or(0, |v| v.value);
+            let cf = CompilerFlags::from_bits_retain(flags);
 
-            if !(flags & !PY_CF_ALLOWED_FLAGS).is_zero() {
+            if (flags & !CompilerFlags::ALLOWED_FLAGS.bits()) != 0 {
                 return Err(vm.new_value_error("compile(): unrecognised flags"));
             }
 
@@ -218,7 +218,7 @@ mod builtins {
                 _ => return Err(vm.new_value_error("compile(): invalid optimize value")),
             };
             let dont_inherit = args.dont_inherit.map_or(false, ArgIntoBool::into_bool);
-            let is_ast_only = !(flags & PY_CF_ONLY_AST).is_zero();
+            let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
             let future_features = merge_compile_future_features(flags, dont_inherit, vm);
 
             let start = if mode_str == "exec" {
@@ -283,7 +283,7 @@ mod builtins {
                             args.source,
                             &filename.to_string_lossy(),
                             optimize,
-                            (flags & PY_CF_OPTIMIZED_AST) == PY_CF_OPTIMIZED_AST,
+                            cf.contains(CompilerFlags::OPTIMIZED_AST),
                             explicit_future_annotations,
                         );
                     }
@@ -311,7 +311,7 @@ mod builtins {
                         .map_err(|err| vm.new_value_error(err.to_string()))?;
                     let mut opts = vm.compile_opts();
                     opts.optimize = optimize;
-                    opts.allow_top_level_await = !(flags & PY_CF_ALLOW_TOP_LEVEL_AWAIT).is_zero();
+                    opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
                     opts.future_features = future_features;
                     return _ast::compile(vm, args.source, &filename.to_string_lossy(), mode, opts);
                 }
@@ -351,7 +351,7 @@ mod builtins {
                             source.as_bytes(),
                             filename.to_string_lossy().as_ref(),
                         )?;
-                        compile_flags |= PY_CF_IGNORE_COOKIE;
+                        compile_flags |= CompilerFlags::IGNORE_COOKIE.bits();
                         #[cfg(feature = "rustpython-compiler")]
                         {
                             compile_source(source.as_bytes(), compile_flags)

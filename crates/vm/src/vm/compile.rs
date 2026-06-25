@@ -9,9 +9,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyCode},
     compiler::{self, CompileError, CompileOpts},
     vm::compile_mode::{
-        PY_CF_ALLOW_INCOMPLETE_INPUT, PY_CF_ALLOW_TOP_LEVEL_AWAIT, PY_CF_DONT_IMPLY_DEDENT,
-        PY_CF_IGNORE_COOKIE, PY_CF_ONLY_AST, PY_CF_OPTIMIZED_AST, PY_CF_TYPE_COMMENTS,
-        PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
+        CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
         compile_future_features_from_flags,
     },
 };
@@ -265,19 +263,20 @@ impl VirtualMachine {
         use crate::convert::ToPyException;
         use crate::stdlib::_ast;
 
+        let cf = CompilerFlags::from_bits_retain(flags);
         let source =
-            self.decode_source_bytes(source, filename, (flags & PY_CF_IGNORE_COOKIE) != 0)?;
+            self.decode_source_bytes(source, filename, cf.contains(CompilerFlags::IGNORE_COOKIE))?;
         let source = source.as_str();
         let optimize = match optimize {
             -1 => self.state.config.settings.optimize.min(2),
             0..=2 => optimize as u8,
             _ => return Err(self.new_value_error("compile(): invalid optimize value")),
         };
-        let allow_incomplete = (flags & PY_CF_ALLOW_INCOMPLETE_INPUT) != 0;
-        let type_comments = (flags & PY_CF_TYPE_COMMENTS) != 0;
-        let dont_imply_dedent = (flags & PY_CF_DONT_IMPLY_DEDENT) != 0;
-        let is_ast_only = (flags & PY_CF_ONLY_AST) != 0;
-        let optimized_ast = (flags & PY_CF_OPTIMIZED_AST) == PY_CF_OPTIMIZED_AST;
+        let allow_incomplete = cf.contains(CompilerFlags::ALLOW_INCOMPLETE_INPUT);
+        let type_comments = cf.contains(CompilerFlags::TYPE_COMMENTS);
+        let dont_imply_dedent = cf.contains(CompilerFlags::DONT_IMPLY_DEDENT);
+        let is_ast_only = cf.contains(CompilerFlags::ONLY_AST);
+        let optimized_ast = cf.contains(CompilerFlags::OPTIMIZED_AST);
         let future_features = compile_future_features_from_flags(flags);
         let explicit_future_annotations =
             future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
@@ -362,7 +361,7 @@ impl VirtualMachine {
         };
         let mut opts = self.compile_opts();
         opts.optimize = optimize;
-        opts.allow_top_level_await = (flags & PY_CF_ALLOW_TOP_LEVEL_AWAIT) != 0;
+        opts.allow_top_level_await = cf.contains(CompilerFlags::ALLOW_TOP_LEVEL_AWAIT);
         opts.future_features = future_features;
         opts.dont_imply_dedent = dont_imply_dedent;
         let code = self

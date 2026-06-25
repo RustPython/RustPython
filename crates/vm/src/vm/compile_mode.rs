@@ -5,44 +5,67 @@ pub(crate) const PY_FILE_INPUT: i32 = 257;
 pub(crate) const PY_EVAL_INPUT: i32 = 258;
 pub(crate) const PY_FUNC_TYPE_INPUT: i32 = 345;
 
-// Caveat emptor: These flags are undocumented on purpose and depending
-// on their effect outside the standard library is **unsupported**.
-pub(crate) const PY_CF_SOURCE_IS_UTF8: i32 = 0x0100;
-pub(crate) const PY_CF_DONT_IMPLY_DEDENT: i32 = 0x0200;
-pub(crate) const PY_CF_ONLY_AST: i32 = 0x0400;
-pub(crate) const PY_CF_IGNORE_COOKIE: i32 = 0x0800;
-pub(crate) const PY_CF_TYPE_COMMENTS: i32 = 0x1000;
-pub(crate) const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = 0x2000;
-pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = 0x4000;
-pub(crate) const PY_CF_OPTIMIZED_AST: i32 = 0x8000 | PY_CF_ONLY_AST;
+bitflags::bitflags! {
+    /// `PyCF_*` compiler flags together with the `__future__` `CO_FUTURE_*`
+    /// bits, mirroring `PyCompilerFlags.cf_flags`.
+    ///
+    /// Caveat emptor: these flags are undocumented on purpose and depending on
+    /// their effect outside the standard library is **unsupported**.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub(crate) struct CompilerFlags: i32 {
+        const SOURCE_IS_UTF8 = 0x0100;
+        const DONT_IMPLY_DEDENT = 0x0200;
+        const ONLY_AST = 0x0400;
+        const IGNORE_COOKIE = 0x0800;
+        const TYPE_COMMENTS = 0x1000;
+        const ALLOW_TOP_LEVEL_AWAIT = 0x2000;
+        const ALLOW_INCOMPLETE_INPUT = 0x4000;
+        const OPTIMIZED_AST = 0x8000 | Self::ONLY_AST.bits();
 
-// __future__ flags - sync with Lib/__future__.py and Include/cpython/compile.h.
-const CO_NESTED: i32 = 0x0010;
-const CO_FUTURE_DIVISION: i32 = 0x20000;
-const CO_FUTURE_ABSOLUTE_IMPORT: i32 = 0x40000;
-const CO_FUTURE_WITH_STATEMENT: i32 = 0x80000;
-const CO_FUTURE_PRINT_FUNCTION: i32 = 0x100000;
-const CO_FUTURE_UNICODE_LITERALS: i32 = 0x200000;
-const CO_FUTURE_BARRY_AS_BDFL: i32 = 0x400000;
-const CO_FUTURE_GENERATOR_STOP: i32 = 0x800000;
-const CO_FUTURE_ANNOTATIONS: i32 = 0x1000000;
+        // __future__ flags - sync with Lib/__future__.py and Include/cpython/compile.h.
+        const NESTED = 0x0010;
+        const FUTURE_DIVISION = 0x20000;
+        const FUTURE_ABSOLUTE_IMPORT = 0x40000;
+        const FUTURE_WITH_STATEMENT = 0x80000;
+        const FUTURE_PRINT_FUNCTION = 0x100000;
+        const FUTURE_UNICODE_LITERALS = 0x200000;
+        const FUTURE_BARRY_AS_BDFL = 0x400000;
+        const FUTURE_GENERATOR_STOP = 0x800000;
+        const FUTURE_ANNOTATIONS = 0x1000000;
+    }
+}
 
-const PY_CF_MASK: i32 = CO_FUTURE_DIVISION
-    | CO_FUTURE_ABSOLUTE_IMPORT
-    | CO_FUTURE_WITH_STATEMENT
-    | CO_FUTURE_PRINT_FUNCTION
-    | CO_FUTURE_UNICODE_LITERALS
-    | CO_FUTURE_BARRY_AS_BDFL
-    | CO_FUTURE_GENERATOR_STOP
-    | CO_FUTURE_ANNOTATIONS;
-const PY_CF_MASK_OBSOLETE: i32 = CO_NESTED;
-pub(crate) const PY_CF_COMPILE_MASK: i32 = PY_CF_ONLY_AST
-    | PY_CF_ALLOW_TOP_LEVEL_AWAIT
-    | PY_CF_TYPE_COMMENTS
-    | PY_CF_DONT_IMPLY_DEDENT
-    | PY_CF_ALLOW_INCOMPLETE_INPUT
-    | PY_CF_OPTIMIZED_AST;
-pub(crate) const PY_CF_ALLOWED_FLAGS: i32 = PY_CF_MASK | PY_CF_MASK_OBSOLETE | PY_CF_COMPILE_MASK;
+impl CompilerFlags {
+    const FUTURE_MASK: Self = Self::FUTURE_DIVISION
+        .union(Self::FUTURE_ABSOLUTE_IMPORT)
+        .union(Self::FUTURE_WITH_STATEMENT)
+        .union(Self::FUTURE_PRINT_FUNCTION)
+        .union(Self::FUTURE_UNICODE_LITERALS)
+        .union(Self::FUTURE_BARRY_AS_BDFL)
+        .union(Self::FUTURE_GENERATOR_STOP)
+        .union(Self::FUTURE_ANNOTATIONS);
+    const MASK_OBSOLETE: Self = Self::NESTED;
+    const COMPILE_MASK: Self = Self::ONLY_AST
+        .union(Self::ALLOW_TOP_LEVEL_AWAIT)
+        .union(Self::TYPE_COMMENTS)
+        .union(Self::DONT_IMPLY_DEDENT)
+        .union(Self::ALLOW_INCOMPLETE_INPUT)
+        .union(Self::OPTIMIZED_AST);
+    pub(crate) const ALLOWED_FLAGS: Self = Self::FUTURE_MASK
+        .union(Self::MASK_OBSOLETE)
+        .union(Self::COMPILE_MASK);
+}
+
+// Python-visible `ast.PyCF_*` attribute values. The flags cross the
+// `compile()` boundary as a plain `int`, so the exposed surface stays `i32`.
+pub(crate) const PY_CF_SOURCE_IS_UTF8: i32 = CompilerFlags::SOURCE_IS_UTF8.bits();
+pub(crate) const PY_CF_DONT_IMPLY_DEDENT: i32 = CompilerFlags::DONT_IMPLY_DEDENT.bits();
+pub(crate) const PY_CF_ONLY_AST: i32 = CompilerFlags::ONLY_AST.bits();
+pub(crate) const PY_CF_IGNORE_COOKIE: i32 = CompilerFlags::IGNORE_COOKIE.bits();
+pub(crate) const PY_CF_TYPE_COMMENTS: i32 = CompilerFlags::TYPE_COMMENTS.bits();
+pub(crate) const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = CompilerFlags::ALLOW_TOP_LEVEL_AWAIT.bits();
+pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = CompilerFlags::ALLOW_INCOMPLETE_INPUT.bits();
+pub(crate) const PY_CF_OPTIMIZED_AST: i32 = CompilerFlags::OPTIMIZED_AST.bits();
 
 pub(crate) fn compile_future_feature_mask() -> bytecode::CodeFlags {
     // RustPython accepts barry_as_FLUFL but leaves its parser mode disabled.
