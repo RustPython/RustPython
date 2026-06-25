@@ -192,6 +192,7 @@ pyerrors
 Pyfunc
 pylifecycle
 pymain
+pymem
 pyrepl
 pystate
 PYTHONTRACEMALLOC
