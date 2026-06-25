@@ -62,7 +62,9 @@ mod statistics;
 mod suggestions;
 
 // TODO: maybe make this an extension module, if we ever get those
-// mod re;
+#[cfg(false)]
+mod re;
+
 #[cfg(all(feature = "host_env", not(target_arch = "wasm32")))]
 pub mod socket;
 
