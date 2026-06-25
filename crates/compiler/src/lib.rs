@@ -3392,11 +3392,16 @@ fn invalid_except_as_target_error(source: &str) -> Option<(String, usize, usize)
 
 fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)> {
     let bytes = source.as_bytes();
+    let quoted_ranges = quoted_string_ranges(bytes);
+    let mut quoted_range = 0usize;
     let mut line_start = 0usize;
     for line in source.split_inclusive('\n') {
         let line_end = line_start + line.len();
         let mut column = skip_horizontal_whitespace(bytes, line_start);
-        if column >= line_end || !starts_identifier(bytes, column, b"case") {
+        if column >= line_end
+            || offset_in_ranges(&quoted_ranges, &mut quoted_range, column)
+            || !starts_identifier(bytes, column, b"case")
+        {
             line_start = line_end;
             continue;
         }
@@ -3447,6 +3452,39 @@ fn invalid_match_as_target_error(source: &str) -> Option<(String, usize, usize)>
         line_start = line_end;
     }
     None
+}
+
+fn quoted_string_ranges(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'#' => {
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'\'' | b'"' => {
+                let end = skip_quoted_string(bytes, index);
+                ranges.push((index, end));
+                index = end;
+            }
+            _ => index += 1,
+        }
+    }
+    ranges
+}
+
+fn offset_in_ranges(ranges: &[(usize, usize)], range_index: &mut usize, offset: usize) -> bool {
+    while ranges
+        .get(*range_index)
+        .is_some_and(|(_, end)| *end <= offset)
+    {
+        *range_index += 1;
+    }
+    ranges
+        .get(*range_index)
+        .is_some_and(|(start, end)| *start <= offset && offset < *end)
 }
 
 fn invalid_match_mapping_rest_wildcard_error(source: &str) -> Option<(String, usize, usize)> {
@@ -4920,6 +4958,7 @@ fn post_parse_source_error(source_file: &SourceFile, opts: &CompileOpts) -> Opti
         })
         .or_else(|| invalid_call_argument_error(source_file.source_text()))
         .or_else(|| invalid_match_mapping_rest_wildcard_error(source_file.source_text()))
+        .or_else(|| invalid_match_as_target_error(source_file.source_text()))
         .or_else(|| invalid_unparenthesized_yield_after_comma_error(source_file.source_text()))
         .or_else(|| invalid_parenthesized_import_star_error(source_file.source_text()))
         .map(|(message, start, end)| {

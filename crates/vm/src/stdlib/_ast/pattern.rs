@@ -183,6 +183,9 @@ fn lower_nullable_exprs(values: &[Option<ast::Expr>], range: TextRange) -> Vec<a
         .collect()
 }
 
+type RuntimePatternList = Option<Vec<Option<ast::Pattern>>>;
+type PatternListField = (RuntimePatternList, Vec<ast::Pattern>);
+
 fn pattern_list_from_field(
     vm: &VirtualMachine,
     source_file: &SourceFile,
@@ -190,7 +193,7 @@ fn pattern_list_from_field(
     field: &'static str,
     typ: &str,
     range: TextRange,
-) -> PyResult<(Option<Vec<Option<ast::Pattern>>>, Vec<ast::Pattern>)> {
+) -> PyResult<PatternListField> {
     let values: Vec<Option<ast::Pattern>> =
         get_node_list_field(vm, source_file, object, field, typ)?;
     let runtime_patterns = values.iter().any(Option::is_none).then(|| values.clone());

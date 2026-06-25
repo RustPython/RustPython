@@ -2146,7 +2146,14 @@ fn take_docstring(body: &mut ast::Suite) -> Option<TextRange> {
     let ast::Stmt::Expr(expr_stmt) = body.first()? else {
         return None;
     };
-    if matches!(expr_stmt.value.as_ref(), ast::Expr::StringLiteral(_)) {
+    if matches!(
+        expr_stmt.value.as_ref(),
+        ast::Expr::StringLiteral(_)
+            | ast::Expr::Constant(ast::ExprConstant {
+                value: ast::ConstantValue::Str(_),
+                ..
+            })
+    ) {
         let range = expr_stmt.range;
         body.remove(0);
         return Some(range);

@@ -39,8 +39,16 @@ runs:
     - name: Install Linux dependencies
       shell: bash
       if: ${{ runner.os == 'Linux' }}
-      run: >
-        sudo apt-get update
+      run: |
+        if ! sudo apt-get update; then
+          echo "::warning::apt-get update failed; disabling nonessential Microsoft apt sources and retrying"
+          for source in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure-cli*; do
+            if [ -e "$source" ]; then
+              sudo mv "$source" "$source.disabled"
+            fi
+          done
+          sudo apt-get update
+        fi
 
         sudo apt-get install --no-install-recommends
         ${{ fromJSON(inputs.gcc-multilib) && 'gcc-multilib' || '' }}

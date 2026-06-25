@@ -219,7 +219,7 @@ pub fn checked_future_features_in_body(
     let mut future_features = bytecode::CodeFlags::empty();
     let mut statements = body.iter();
     if let Some(ast::Stmt::Expr(ast::StmtExpr { value, .. })) = statements.clone().next()
-        && matches!(&**value, ast::Expr::StringLiteral(_))
+        && string_literal_expr_value(value).is_some()
     {
         statements.next();
     }
@@ -410,9 +410,7 @@ fn optimize_format(expr: &Expr) -> Option<Expr> {
     if !matches!(binop.op, Operator::Mod) {
         return None;
     }
-    let Expr::StringLiteral(format) = binop.left.as_ref() else {
-        return None;
-    };
+    let (format, _) = string_literal_expr_value(&binop.left)?;
     let Expr::Tuple(tuple) = binop.right.as_ref() else {
         return None;
     };
@@ -424,7 +422,7 @@ fn optimize_format(expr: &Expr) -> Option<Expr> {
         return None;
     }
 
-    let elements = parse_format(format.value.to_str(), &tuple.elts)?;
+    let elements = parse_format(format, &tuple.elts)?;
     Some(Expr::FString(ExprFString {
         node_index: binop.node_index.clone(),
         range: binop.range,
@@ -619,8 +617,7 @@ fn take_docstring(body: &mut ast::Suite) -> Option<TextRange> {
     let ast::Stmt::Expr(expr_stmt) = body.first()? else {
         return None;
     };
-    if matches!(expr_stmt.value.as_ref(), ast::Expr::StringLiteral(_)) {
-        let range = expr_stmt.range;
+    if let Some((_, range)) = string_literal_expr_value(&expr_stmt.value) {
         body.remove(0);
         return Some(range);
     }
@@ -631,18 +628,17 @@ fn body_starts_with_docstring(body: &[ast::Stmt]) -> bool {
     let Some(ast::Stmt::Expr(expr_stmt)) = body.first() else {
         return false;
     };
-    matches!(expr_stmt.value.as_ref(), ast::Expr::StringLiteral(_))
+    string_literal_expr_value(&expr_stmt.value).is_some()
 }
 
 fn wrap_first_docstring_as_fstring(body: &mut [ast::Stmt]) {
     let Some(ast::Stmt::Expr(expr_stmt)) = body.first_mut() else {
         return;
     };
-    let ast::Expr::StringLiteral(string) = expr_stmt.value.as_ref() else {
+    let Some((value, range)) = string_literal_expr_value(&expr_stmt.value) else {
         return;
     };
-    let range = expr_stmt.value.range();
-    let value = string.value.to_str().to_string();
+    let value = value.to_string();
     *expr_stmt.value = ast::Expr::FString(ast::ExprFString {
         node_index: AtomicNodeIndex::NONE,
         range,
@@ -661,6 +657,17 @@ fn wrap_first_docstring_as_fstring(body: &mut [ast::Stmt]) {
         runtime_joined_str: None,
         runtime_values: None,
     });
+}
+
+fn string_literal_expr_value(expr: &Expr) -> Option<(&str, TextRange)> {
+    match expr {
+        Expr::StringLiteral(string) => Some((string.value.to_str(), expr.range())),
+        Expr::Constant(ast::ExprConstant {
+            value: ast::ConstantValue::Str(value),
+            ..
+        }) => Some((value.as_ref(), expr.range())),
+        _ => None,
+    }
 }
 
 fn fold_match_value_constant_expr(expr: &mut ast::Expr) {

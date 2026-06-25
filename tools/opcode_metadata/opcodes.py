@@ -7,9 +7,8 @@ import typing
 import warnings
 
 import utils
-from utils import SKIP_OVERRIDE, Override, OverrideConfs, StackEffect, to_pascal_case
-
 from cpython import SKIP_PROPERTIES, Family, Properties, get_analysis, get_stack_effect
+from utils import SKIP_OVERRIDE, Override, OverrideConfs, StackEffect, to_pascal_case
 
 if typing.TYPE_CHECKING:
     from collections.abc import Iterable

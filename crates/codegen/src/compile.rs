@@ -53,6 +53,7 @@ impl ExprExt for ast::Expr {
             Self::NumberLiteral(_)
                 | Self::StringLiteral(_)
                 | Self::BytesLiteral(_)
+                | Self::Constant(_)
                 | Self::NoneLiteral(_)
                 | Self::BooleanLiteral(_)
                 | Self::EllipsisLiteral(_)
@@ -3267,7 +3268,7 @@ impl<'warnings> Compiler<'warnings> {
             }
             // ignore module-level doc comments
             ast::Stmt::Expr(ast::StmtExpr { value, .. })
-                if matches!(&**value, ast::Expr::StringLiteral(..))
+                if is_docstring_expr(value)
                     && matches!(self.done_with_future_stmts, DoneWithFuture::No) =>
             {
                 self.done_with_future_stmts = DoneWithFuture::DoneWithDoc
@@ -13461,15 +13462,19 @@ fn split_doc_with_range<'a>(
     opts: &CompileOpts,
 ) -> (Option<(String, TextRange)>, &'a [ast::Stmt]) {
     if let Some((ast::Stmt::Expr(expr), body_rest)) = body.split_first() {
-        let doc_comment = match &*expr.value {
-            ast::Expr::StringLiteral(value) => Some((&value.value, expr.value.range())),
+        let doc_comment: Option<(&str, TextRange)> = match &*expr.value {
+            ast::Expr::StringLiteral(value) => Some((value.value.to_str(), expr.value.range())),
+            ast::Expr::Constant(ast::ExprConstant {
+                value: ast::ConstantValue::Str(value),
+                ..
+            }) => Some((value.as_ref(), expr.value.range())),
             // f-strings are not allowed in Python doc comments.
             ast::Expr::FString(_) => None,
             _ => None,
         };
         if let Some((doc, range)) = doc_comment {
             return if opts.optimize < 2 {
-                (Some((clean_doc(doc.to_str()), range)), body_rest)
+                (Some((clean_doc(doc), range)), body_rest)
             } else {
                 (None, body_rest)
             };
@@ -13482,6 +13487,17 @@ fn split_doc_with_range<'a>(
 fn split_doc<'a>(body: &'a [ast::Stmt], opts: &CompileOpts) -> (Option<String>, &'a [ast::Stmt]) {
     let (doc, body) = split_doc_with_range(body, opts);
     (doc.map(|(doc, _)| doc), body)
+}
+
+fn is_docstring_expr(expr: &ast::Expr) -> bool {
+    matches!(
+        expr,
+        ast::Expr::StringLiteral(_)
+            | ast::Expr::Constant(ast::ExprConstant {
+                value: ast::ConstantValue::Str(_),
+                ..
+            })
+    )
 }
 
 pub fn ruff_int_to_bigint(int: &ast::Int) -> Result<BigInt, CodegenErrorType> {

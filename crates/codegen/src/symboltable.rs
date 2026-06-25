@@ -1216,7 +1216,7 @@ impl SymbolTableBuilder {
     fn future_annotations_from_module_body(body: &[ast::Stmt]) -> bool {
         let mut statements = body.iter();
         if let Some(ast::Stmt::Expr(ast::StmtExpr { value, .. })) = statements.clone().next()
-            && matches!(&**value, ast::Expr::StringLiteral(_))
+            && is_docstring_expr(value)
         {
             statements.next();
         }
@@ -3540,6 +3540,17 @@ impl SymbolTableBuilder {
         }
         Ok(())
     }
+}
+
+fn is_docstring_expr(expr: &ast::Expr) -> bool {
+    matches!(
+        expr,
+        ast::Expr::StringLiteral(_)
+            | ast::Expr::Constant(ast::ExprConstant {
+                value: ast::ConstantValue::Str(_),
+                ..
+            })
+    )
 }
 
 pub(crate) fn mangle_name<'a>(class_name: Option<&str>, name: &'a str) -> Cow<'a, str> {
