@@ -14,6 +14,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 bitflags = { workspace = true }
 itertools = { workspace = true }
+libc = { workspace = true }
 num-complex = { workspace = true }
 rustpython-vm = { workspace = true, features = ["threading", "compiler", "importlib", "host_env"] }
 rustpython-stdlib = {workspace = true, features = ["threading"] }
