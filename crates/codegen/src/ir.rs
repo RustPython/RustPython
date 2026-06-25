@@ -6118,7 +6118,7 @@ fn cfg_builder_check_size(g: &CfgBuilder) -> crate::InternalResult<()> {
     while block != BlockIdx::NULL {
         debug_assert!(block.idx() < g.blocks.len());
         nblocks += 1;
-        block = g.blocks[block.idx()].allocation_next;
+        block = g.blocks[block].allocation_next;
     }
     debug_assert_eq!(nblocks, g.blocks.len());
     if nblocks > usize::MAX / core::mem::size_of::<usize>() {
@@ -6258,13 +6258,12 @@ fn maybe_push(
 ) {
     debug_assert!(block != BlockIdx::NULL);
 
-    let idx = block.idx();
-    let both = blocks[idx].unsafe_locals_mask | unsafe_mask;
-    if blocks[idx].unsafe_locals_mask != both {
-        blocks[idx].unsafe_locals_mask = both;
-        if !blocks[idx].visited {
+    let both = blocks[block].unsafe_locals_mask | unsafe_mask;
+    if blocks[block].unsafe_locals_mask != both {
+        blocks[block].unsafe_locals_mask = both;
+        if !blocks[block].visited {
             worklist.push(block);
-            blocks[idx].visited = true;
+            blocks[block].visited = true;
         }
     }
 }
@@ -6351,8 +6350,8 @@ fn fast_scan_many_locals(blocks: &mut Blocks, nlocals: usize) -> crate::Internal
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         blocknum += 1;
-        for i in 0..blocks[current.idx()].instruction_used {
-            let info = &mut blocks[current.idx()].instructions[i];
+        for i in 0..blocks[current].instruction_used {
+            let info = &mut blocks[current].instructions[i];
             debug_assert!(!matches!(info.instr.real(), Some(Instruction::ExtendedArg)));
             let arg = u32::from(info.arg) as usize;
             if arg < LOCAL_UNSAFE_MASK_BITS {
@@ -6381,7 +6380,7 @@ fn fast_scan_many_locals(blocks: &mut Blocks, nlocals: usize) -> crate::Internal
                 _ => {}
             }
         }
-        current = blocks[current.idx()].next;
+        current = blocks[current].next;
     }
     Ok(())
 }
@@ -6411,11 +6410,11 @@ fn add_checks_for_loads_of_uninitialized_variables(
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
         scan_block_for_locals(blocks, current, &mut worklist);
-        current = blocks[current.idx()].next;
+        current = blocks[current].next;
     }
 
     while let Some(block_idx) = worklist.pop() {
-        blocks[block_idx.idx()].visited = false;
+        blocks[block_idx].visited = false;
         scan_block_for_locals(blocks, block_idx, &mut worklist);
     }
     Ok(())
@@ -6527,9 +6526,9 @@ fn get_max_label(blocks: &Blocks) -> i32 {
     let mut lbl = -1;
     let mut current = BlockIdx(0);
     while current != BlockIdx::NULL {
-        let cpython_label = blocks[current.idx()].cpython_label;
+        let cpython_label = blocks[current].cpython_label;
         lbl = lbl.max(cpython_label.0);
-        current = blocks[current.idx()].next;
+        current = blocks[current].next;
     }
     lbl
 }
@@ -6708,8 +6707,8 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
 pub(crate) fn convert_pseudo_ops(blocks: &mut Blocks) -> crate::InternalResult<()> {
     let mut block_idx = BlockIdx(0);
     while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx.idx()];
+        let next = blocks[block_idx].next;
+        let block = &mut blocks[block_idx];
         for i in 0..block.instruction_used {
             let info = &mut block.instructions[i];
             if is_block_push(info) {
