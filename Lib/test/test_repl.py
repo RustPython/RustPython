@@ -173,7 +173,7 @@ class TestInteractiveInterpreter(unittest.TestCase):
         self.assertEqual(p.returncode, 0)
         self.assertIn(long_value, output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
+    @unittest.expectedFailureIf(sys.platform == "android", "TODO: RUSTPYTHON; AssertionError: 101 != 0")
     def test_close_stdin(self):
         user_input = dedent('''
             import os
