@@ -482,11 +482,8 @@ class BaseTest:
         self.checkequal('  a\n b', ' \ta\n\tb', 'expandtabs', 1)
 
         self.checkraises(TypeError, 'hello', 'expandtabs', 42, 42)
-        # TODO: RUSTPYTHON; expandtabs overflow checks
-        # if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4:
-        #
         # This test is only valid when sizeof(int) == sizeof(void*) == 4.
-        if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4 and False:
+        if sys.maxsize < (1 << 32) and struct.calcsize('P') == 4:
             self.checkraises(OverflowError,
                              '\ta\n\tb', 'expandtabs', sys.maxsize)
 
