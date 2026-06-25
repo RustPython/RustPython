@@ -1330,7 +1330,7 @@ impl Blocks {
     fn copy_basicblock(&mut self, block_idx: BlockIdx) -> crate::InternalResult<BlockIdx> {
         debug_assert!(bb_no_fallthrough(&self[block_idx]));
 
-        let result = blocks_new_block(self)?;
+        let result = self.blocks_new_block()?;
         self.basicblock_append_block_instructions(result, block_idx)?;
         Ok(result)
     }
@@ -1464,19 +1464,19 @@ impl Blocks {
                 AnyInstruction::Real(
                     Instruction::PopJumpIfNotNone { .. } | Instruction::PopJumpIfNone { .. },
                 ) if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                    && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                    && self.jump_thread(block_idx, i, &target, inst.instr)? =>
                 {
                     continue;
                 }
                 AnyInstruction::Real(Instruction::PopJumpIfFalse { .. })
                     if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                        && self.jump_thread(block_idx, i, &target, inst.instr)? =>
                 {
                     continue;
                 }
                 AnyInstruction::Real(Instruction::PopJumpIfTrue { .. })
                     if matches!(target.instr.into(), AnyOpcode::Pseudo(PseudoOpcode::Jump))
-                        && jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                        && self.jump_thread(block_idx, i, &target, inst.instr)? =>
                 {
                     continue;
                 }
@@ -1487,7 +1487,7 @@ impl Blocks {
                     let opcode = pseudo.into();
                     match target.instr.pseudo().map(Into::into) {
                         Some(PseudoOpcode::Jump)
-                            if jump_thread(self, block_idx, i, &target, opcode)? =>
+                            if self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
@@ -1495,7 +1495,7 @@ impl Blocks {
                             if matches!(
                                 opcode,
                                 AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
-                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
@@ -1503,12 +1503,12 @@ impl Blocks {
                             if matches!(
                                 opcode,
                                 AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
-                            ) && jump_thread(self, block_idx, i, &target, opcode)? =>
+                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
                         Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
-                            let next = self[inst.target.idx()].next;
+                            let next = self[inst.target].next;
                             debug_assert!(next != BlockIdx::NULL);
                             debug_assert!(next != inst.target);
                             self[block_idx].instructions[i].target = next;
@@ -1521,12 +1521,17 @@ impl Blocks {
                     PseudoInstruction::Jump { .. } | PseudoInstruction::JumpNoInterrupt { .. },
                 ) => match target.instr.into() {
                     AnyOpcode::Pseudo(PseudoOpcode::Jump)
-                        if jump_thread(self, block_idx, i, &target, PseudoOpcode::Jump.into())? =>
+                        if self.jump_thread(
+                            block_idx,
+                            i,
+                            &target,
+                            PseudoOpcode::Jump.into(),
+                        )? =>
                     {
                         continue;
                     }
                     AnyOpcode::Pseudo(PseudoOpcode::JumpNoInterrupt)
-                        if jump_thread(self, block_idx, i, &target, inst.instr)? =>
+                        if self.jump_thread(block_idx, i, &target, inst.instr)? =>
                     {
                         continue;
                     }
@@ -2007,7 +2012,7 @@ impl Blocks {
             let mut block_idx = BlockIdx::new(0);
 
             while block_idx != BlockIdx::NULL {
-                basicblock_remove_redundant_nops(self, block_idx)?;
+                self.basicblock_remove_redundant_nops(block_idx)?;
                 if is_label(self[block_idx].cpython_label) {
                     instr = None;
                 }
@@ -2140,7 +2145,7 @@ impl Blocks {
         let mut current = BlockIdx(0);
         while current != BlockIdx::NULL {
             self[current].visited = true;
-            normalize_jumps_in_block(self, current)?;
+            self.normalize_jumps_in_block(current)?;
             current = self[current].next;
         }
 
@@ -2293,12 +2298,686 @@ impl Blocks {
             block_idx = next_block;
         }
 
-        let res = remove_redundant_nops(self)?;
+        let res = self.remove_redundant_nops()?;
 
         #[cfg(debug_assertions)]
-        assert!(no_redundant_nops(self));
+        assert!(self.no_redundant_nops());
 
         Ok(res)
+    }
+
+    /// Mark exception handler target blocks.
+    /// flowgraph.c mark_except_handlers
+    #[allow(clippy::unnecessary_wraps)]
+    pub(crate) fn mark_except_handlers(&mut self) -> crate::InternalResult<()> {
+        #[cfg(debug_assertions)]
+        {
+            let mut block_idx = BlockIdx(0);
+            while block_idx != BlockIdx::NULL {
+                assert!(!self[block_idx].except_handler);
+                block_idx = self[block_idx].next;
+            }
+        }
+
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[block_idx].instructions[i];
+                if is_block_push(&instr) {
+                    debug_assert!(instr.target != BlockIdx::NULL);
+                    self[instr.target].except_handler = true;
+                }
+            }
+            block_idx = next;
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c mark_cold (two-pass to match CPython).
+    ///
+    /// Phase 1 (mark_warm): propagate "warm" from entry via fall-through and
+    /// jump targets. CPython asserts while visiting warm blocks that they are not
+    /// exception handlers.
+    ///
+    /// Phase 2 (mark_cold): propagate "cold" from except_handler blocks via
+    /// forward edges. Blocks reached only via runtime exception dispatch are
+    /// marked cold and pushed to the end by push_cold_blocks_to_end.
+    ///
+    /// Blocks reached by neither phase remain `cold=false`. They are typically
+    /// empty unreachable placeholders left by remove_unreachable; they stay in
+    /// their original chain position (e.g. between entry and the post-try
+    /// continuation for a nested try/except whose inner_end was emptied by
+    /// optimize_cfg). This matches CPython's behavior and is necessary for
+    /// optimize_load_fast to terminate fall-through at those placeholders.
+    /// flowgraph.c mark_warm
+    fn mark_warm(&mut self) -> crate::InternalResult<()> {
+        let mut stack = self.make_cfg_traversal_stack()?;
+        stack.push(BlockIdx(0));
+        self[0].visited = true;
+        while let Some(block_idx) = stack.pop() {
+            debug_assert!(!self[block_idx].except_handler);
+            self[block_idx].warm = true;
+
+            let next = self[block_idx].next;
+            if next != BlockIdx::NULL && bb_has_fallthrough(&self[block_idx]) && !self[next].visited
+            {
+                stack.push(next);
+                self[next].visited = true;
+            }
+
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[block_idx].instructions[i];
+                if is_jump(&instr) {
+                    let target = instr.target;
+                    debug_assert!(target != BlockIdx::NULL);
+                    if !self[target].visited {
+                        stack.push(target);
+                        self[target].visited = true;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn mark_cold(&mut self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block = &mut self[block_idx];
+            debug_assert!(!block.cold);
+            debug_assert!(!block.warm);
+            block_idx = block.next;
+        }
+
+        self.mark_warm()?;
+
+        let mut cold_stack = self.make_cfg_traversal_stack()?;
+        block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            let block = &self[block_idx];
+            if block.except_handler {
+                debug_assert!(!block.warm);
+                cold_stack.push(block_idx);
+                self[block_idx].visited = true;
+            }
+            block_idx = next;
+        }
+
+        while let Some(block_idx) = cold_stack.pop() {
+            self[block_idx].cold = true;
+            let next = self[block_idx].next;
+            if next != BlockIdx::NULL
+                && bb_has_fallthrough(&self[block_idx])
+                && !self[next].warm
+                && !self[next].visited
+            {
+                cold_stack.push(next);
+                self[next].visited = true;
+            }
+
+            let instr_count = self[block_idx].instruction_used;
+            for i in 0..instr_count {
+                let instr = self[block_idx].instructions[i];
+                if is_jump(&instr) {
+                    debug_assert_eq!(i, instr_count - 1);
+                    let target = instr.target;
+                    debug_assert!(target != BlockIdx::NULL);
+                    if !self[target].warm && !self[target].visited {
+                        cold_stack.push(target);
+                        self[target].visited = true;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c push_cold_blocks_to_end
+    fn push_cold_blocks_to_end(&mut self) -> crate::InternalResult<()> {
+        if self[0].next == BlockIdx::NULL {
+            return Ok(());
+        }
+
+        self.mark_cold()?;
+        let mut next_label = get_max_label(self) + 1;
+
+        // If a cold block falls through to a warm block, add an explicit jump
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            if self[block_idx].cold
+                && bb_has_fallthrough(&self[block_idx])
+                && next != BlockIdx::NULL
+                && self[next].warm
+            {
+                let explicit_jump = self.blocks_new_block()?;
+                if !is_label(self[next].cpython_label) {
+                    self[next].cpython_label = InstructionSequenceLabel::from_index(next_label);
+                    next_label += 1;
+                }
+                let jump_label = self[next].cpython_label;
+                debug_assert!(is_label(jump_label));
+                basicblock_addop(
+                    &mut self[explicit_jump],
+                    InstructionInfo {
+                        instr: PseudoOpcode::JumpNoInterrupt.into(),
+                        arg: instruction_sequence_label_oparg(jump_label),
+                        target: BlockIdx::NULL,
+                        location: SourceLocation::default(),
+                        end_location: SourceLocation::default(),
+                        except_handler: None,
+                        lineno_override: Some(NO_LOCATION_OVERRIDE),
+                    },
+                )?;
+                self[explicit_jump].cold = true;
+                self[explicit_jump].next = next;
+                self[explicit_jump].predecessors = 1;
+                self[block_idx].next = explicit_jump;
+                let target = self[explicit_jump].next;
+                let last = basicblock_last_instr_mut(&mut self[explicit_jump])
+                    .expect("missing explicit jump");
+                last.target = target;
+            }
+            block_idx = self[block_idx].next;
+        }
+
+        assert!(!self[0].cold);
+        let mut cold_blocks: BlockIdx = BlockIdx::NULL;
+        let mut cold_blocks_tail: BlockIdx = BlockIdx::NULL;
+        let mut block_idx = BlockIdx(0);
+
+        while self[block_idx].next != BlockIdx::NULL {
+            debug_assert!(!self[block_idx].cold);
+            while self[block_idx].next != BlockIdx::NULL && !self[self[block_idx].next].cold {
+                block_idx = self[block_idx].next;
+            }
+
+            if self[block_idx].next == BlockIdx::NULL {
+                break;
+            }
+
+            debug_assert!(!self[block_idx].cold);
+            debug_assert!(self[self[block_idx].next].cold);
+
+            let mut block_end = self[block_idx].next;
+            while self[block_end].next != BlockIdx::NULL && self[self[block_end].next].cold {
+                block_end = self[block_end].next;
+            }
+
+            debug_assert!(self[block_end].cold);
+            debug_assert!(
+                self[block_end].next == BlockIdx::NULL || !self[self[block_end].next].cold
+            );
+
+            if cold_blocks == BlockIdx::NULL {
+                cold_blocks = self[block_idx].next;
+            } else {
+                self[cold_blocks_tail].next = self[block_idx].next;
+            }
+
+            cold_blocks_tail = block_end;
+            self[block_idx].next = self[block_end].next;
+            self[block_end].next = BlockIdx::NULL;
+        }
+
+        debug_assert!(self[block_idx].next == BlockIdx::NULL);
+        self[block_idx].next = cold_blocks;
+
+        if cold_blocks != BlockIdx::NULL {
+            self.remove_redundant_nops_and_jumps()?;
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c check_cfg
+    fn check_cfg(&self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let block = &self[block_idx];
+            for i in 0..block.instruction_used {
+                let opcode = block.instructions[i].instr;
+                debug_assert!(!opcode.is_assembler());
+                if opcode.is_terminator() && i != block.instruction_used - 1 {
+                    return Err(InternalError::MalformedControlFlowGraph);
+                }
+            }
+            block_idx = block.next;
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c jump_thread
+    fn jump_thread(
+        &mut self,
+        block_idx: BlockIdx,
+        instr_idx: usize,
+        target: &InstructionInfo,
+        opcode: AnyInstruction,
+    ) -> crate::InternalResult<bool> {
+        debug_assert!(is_jump(&self[block_idx].instructions[instr_idx]));
+        debug_assert!(is_jump(target));
+        debug_assert_eq!(instr_idx + 1, self[block_idx].instruction_used);
+        debug_assert!(target.target != BlockIdx::NULL);
+        if self[block_idx].instructions[instr_idx].target != target.target {
+            set_to_nop(&mut self[block_idx].instructions[instr_idx]);
+            self.basicblock_add_jump(block_idx, opcode, target.target, target)?;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// flowgraph.c basicblock_add_jump
+    fn basicblock_add_jump(
+        &mut self,
+        block_idx: BlockIdx,
+        instr: AnyInstruction,
+        target: BlockIdx,
+        loc_source: &InstructionInfo,
+    ) -> crate::InternalResult<()> {
+        let last = basicblock_last_instr(&self[block_idx]);
+        if last.is_some_and(is_jump) {
+            return Err(InternalError::MalformedControlFlowGraph);
+        }
+        debug_assert!(target != BlockIdx::NULL);
+        let label = self[target].cpython_label;
+        debug_assert!(is_label(label));
+        let arg = instruction_sequence_label_oparg(label);
+        let block = &mut self[block_idx];
+        basicblock_addop(
+            block,
+            InstructionInfo {
+                instr,
+                arg,
+                target: BlockIdx::NULL,
+                location: loc_source.location,
+                end_location: loc_source.end_location,
+                except_handler: None,
+                lineno_override: loc_source.lineno_override,
+            },
+        )?;
+        let last = basicblock_last_instr_mut(block).expect("missing jump");
+        debug_assert!(match (last.instr, instr) {
+            (AnyInstruction::Real(last), AnyInstruction::Real(opcode)) =>
+                last.as_opcode() == opcode.as_opcode(),
+            (AnyInstruction::Pseudo(last), AnyInstruction::Pseudo(opcode)) =>
+                last.as_opcode() == opcode.as_opcode(),
+            _ => false,
+        });
+        last.target = target;
+        Ok(())
+    }
+
+    /// flowgraph.c convert_pseudo_conditional_jumps
+    fn convert_pseudo_conditional_jumps(&mut self) -> crate::InternalResult<()> {
+        let mut block_idx = BlockIdx(0);
+        while block_idx != BlockIdx::NULL {
+            let next = self[block_idx].next;
+            let block = &mut self[block_idx];
+            let mut i = 0;
+            while i < block.instruction_used {
+                let instr = block.instructions[i];
+                let opcode = instr.instr;
+                if matches!(
+                    opcode.pseudo_opcode(),
+                    Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue)
+                ) {
+                    debug_assert_eq!(i, block.instruction_used - 1);
+                    block.instructions[i].instr =
+                        if matches!(opcode.pseudo_opcode(), Some(PseudoOpcode::JumpIfFalse)) {
+                            Opcode::PopJumpIfFalse
+                        } else {
+                            Opcode::PopJumpIfTrue
+                        }
+                        .into();
+
+                    let location = instr.location;
+                    let end_location = instr.end_location;
+                    let except_handler = instr.except_handler;
+                    let lineno_override = instr.lineno_override;
+                    let copy = InstructionInfo {
+                        instr: Opcode::Copy.into(),
+                        arg: OpArg::new(1),
+                        target: BlockIdx::NULL,
+                        location,
+                        end_location,
+                        except_handler,
+                        lineno_override,
+                    };
+                    basicblock_insert_instruction(block, i, copy)?;
+                    i += 1;
+
+                    let to_bool = InstructionInfo {
+                        instr: Opcode::ToBool.into(),
+                        arg: OpArg::new(0),
+                        target: BlockIdx::NULL,
+                        location,
+                        end_location,
+                        except_handler,
+                        lineno_override,
+                    };
+                    basicblock_insert_instruction(block, i, to_bool)?;
+                    i += 1;
+                }
+                i += 1;
+            }
+            block_idx = next;
+        }
+        Ok(())
+    }
+
+    /// flowgraph.c normalize_jumps_in_block
+    fn normalize_jumps_in_block(&mut self, block_idx: BlockIdx) -> crate::InternalResult<()> {
+        let Some(last_ins) = basicblock_last_instr(&self[block_idx]).copied() else {
+            return Ok(());
+        };
+        if !is_conditional_jump_opcode(last_ins.instr) {
+            return Ok(());
+        }
+        debug_assert!(!last_ins.instr.is_assembler());
+
+        debug_assert!(last_ins.target != BlockIdx::NULL);
+        let is_forward = !self[last_ins.target].visited;
+
+        if is_forward {
+            // Insert NOT_TAKEN after forward conditional jump.
+            let not_taken = InstructionInfo {
+                instr: Opcode::NotTaken.into(),
+                arg: OpArg::new(0),
+                target: BlockIdx::NULL,
+                location: last_ins.location,
+                end_location: last_ins.end_location,
+                except_handler: None,
+                lineno_override: last_ins.lineno_override,
+            };
+            basicblock_addop(&mut self[block_idx], not_taken)?;
+            return Ok(());
+        }
+
+        let reversed_opcode = match last_ins.instr.real_opcode() {
+            Some(Opcode::PopJumpIfNotNone) => Opcode::PopJumpIfNone.into(),
+            Some(Opcode::PopJumpIfNone) => Opcode::PopJumpIfNotNone.into(),
+            Some(Opcode::PopJumpIfFalse) => Opcode::PopJumpIfTrue.into(),
+            Some(Opcode::PopJumpIfTrue) => Opcode::PopJumpIfFalse.into(),
+            _ => unreachable!("conditional jump has reverse opcode"),
+        };
+
+        // Transform 'conditional jump T' to 'reversed_jump b_next' followed by
+        // 'jump_backwards T'.
+        let loc = last_ins.location;
+        let end_loc = last_ins.end_location;
+
+        let target = last_ins.target;
+        let backwards_jump_idx = self.blocks_new_block()?;
+        basicblock_addop(
+            &mut self[backwards_jump_idx],
+            InstructionInfo {
+                instr: Opcode::NotTaken.into(),
+                arg: OpArg::new(0),
+                target: BlockIdx::NULL,
+                location: loc,
+                end_location: end_loc,
+                except_handler: None,
+                lineno_override: last_ins.lineno_override,
+            },
+        )?;
+        self.basicblock_add_jump(
+            backwards_jump_idx,
+            PseudoOpcode::Jump.into(),
+            target,
+            &last_ins,
+        )?;
+        self[backwards_jump_idx].start_depth = self[target].start_depth;
+
+        let old_next = self[block_idx].next;
+        debug_assert!(old_next != BlockIdx::NULL);
+
+        let last_mut = basicblock_last_instr_mut(&mut self[block_idx]).unwrap();
+        last_mut.instr = reversed_opcode;
+        last_mut.target = old_next;
+
+        self[backwards_jump_idx].cold = self[block_idx].cold;
+        self[backwards_jump_idx].next = old_next;
+        self[block_idx].next = backwards_jump_idx;
+        Ok(())
+    }
+
+    /// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
+    fn basicblock_inline_small_or_no_lineno_blocks(
+        &mut self,
+        block_idx: BlockIdx,
+    ) -> crate::InternalResult<bool> {
+        let Some(last) = basicblock_last_instr(&self[block_idx]).copied() else {
+            return Ok(false);
+        };
+
+        if !last.instr.is_unconditional_jump() {
+            return Ok(false);
+        }
+
+        let target = last.target;
+        debug_assert!(target != BlockIdx::NULL);
+        let small_exit_block =
+            basicblock_exits_scope(&self[target]) && self[target].instruction_used <= MAX_COPY_SIZE;
+        let no_lineno_no_fallthrough =
+            basicblock_has_no_lineno(&self[target]) && !bb_has_fallthrough(&self[target]);
+        if small_exit_block || no_lineno_no_fallthrough {
+            debug_assert!(is_jump(&last));
+            let removed_jump_opcode = last.instr;
+            let last = basicblock_last_instr_mut(&mut self[block_idx])
+                .expect("non-empty block has last instruction");
+            set_to_nop(last);
+            self.basicblock_append_block_instructions(block_idx, target)?;
+            if no_lineno_no_fallthrough {
+                let last = basicblock_last_instr_mut(&mut self[block_idx]).unwrap();
+                if last.instr.is_unconditional_jump()
+                    && matches!(
+                        removed_jump_opcode.into(),
+                        AnyOpcode::Pseudo(PseudoOpcode::Jump)
+                    )
+                {
+                    last.instr = PseudoOpcode::Jump.into();
+                }
+            }
+            self[target].predecessors -= 1;
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
+    /// flowgraph.c inline_small_or_no_lineno_blocks
+    fn inline_small_or_no_lineno_blocks(&mut self) -> crate::InternalResult<bool> {
+        loop {
+            let mut changes = false;
+            let mut current = BlockIdx(0);
+            while current != BlockIdx::NULL {
+                let next = self[current].next;
+                let res = self.basicblock_inline_small_or_no_lineno_blocks(current)?;
+                if res {
+                    changes = true;
+                }
+
+                current = next;
+            }
+            if !changes {
+                return Ok(changes);
+            }
+        }
+    }
+
+    /// flowgraph.c basicblock_remove_redundant_nops
+    #[allow(clippy::unnecessary_wraps)]
+    fn basicblock_remove_redundant_nops(
+        &mut self,
+        block_idx: BlockIdx,
+    ) -> crate::InternalResult<usize> {
+        let mut dest = 0;
+        let mut prev_lineno = -1i32;
+        let instr_count = self[block_idx].instruction_used;
+
+        for src in 0..instr_count {
+            let instr = self[block_idx].instructions[src];
+            let lineno = instruction_lineno(&instr);
+
+            if matches!(instr.instr.real(), Some(Instruction::Nop)) {
+                if lineno < 0 {
+                    continue;
+                }
+                if prev_lineno == lineno {
+                    continue;
+                }
+                if src < instr_count - 1 {
+                    let next_lineno = instruction_lineno(&self[block_idx].instructions[src + 1]);
+                    if next_lineno == lineno {
+                        continue;
+                    }
+                    if next_lineno < 0 {
+                        instr_set_loc(
+                            &mut self[block_idx].instructions[src + 1],
+                            instr.location,
+                            instr.end_location,
+                            instr.lineno_override,
+                        );
+                        continue;
+                    }
+                } else {
+                    let next = next_nonempty_block(self, self[block_idx].next);
+                    if next != BlockIdx::NULL {
+                        let mut next_loc = no_linetable_location();
+                        let mut next_i = 0;
+                        while next_i < self[next].instruction_used {
+                            let instr = self[next].instructions[next_i];
+                            if matches!(instr.instr.real(), Some(Instruction::Nop))
+                                && instruction_lineno(&instr) < 0
+                            {
+                                next_i += 1;
+                                continue;
+                            }
+                            next_loc = instruction_linetable_location(&instr);
+                            break;
+                        }
+                        if lineno == next_loc.line {
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            if dest != src {
+                self[block_idx].instructions[dest] = self[block_idx].instructions[src];
+            }
+            dest += 1;
+            prev_lineno = lineno;
+        }
+
+        debug_assert!(dest <= instr_count);
+        let num_removed = instr_count - dest;
+        self[block_idx].instruction_used = dest;
+        Ok(num_removed)
+    }
+
+    /// flowgraph.c remove_redundant_nops
+    #[allow(clippy::unnecessary_wraps)]
+    fn remove_redundant_nops(&mut self) -> crate::InternalResult<usize> {
+        let mut changes = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let next = self[current].next;
+            let change = self.basicblock_remove_redundant_nops(current)?;
+            changes += change;
+            current = next;
+        }
+        Ok(changes)
+    }
+
+    /// flowgraph.c no_redundant_nops
+    #[cfg(debug_assertions)]
+    fn no_redundant_nops(&mut self) -> bool {
+        matches!(self.remove_redundant_nops(), Ok(0))
+    }
+
+    /// flowgraph.c remove_redundant_jumps
+    fn remove_redundant_jumps(&mut self) -> crate::InternalResult<usize> {
+        let mut changes = 0;
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let Some(last) = basicblock_last_instr(&self[current]).copied() else {
+                current = self[current].next;
+                continue;
+            };
+
+            debug_assert!(!last.instr.is_assembler());
+            if last.instr.is_unconditional_jump() {
+                let jump_target = next_nonempty_block(self, last.target);
+                if jump_target == BlockIdx::NULL {
+                    return Err(InternalError::MalformedControlFlowGraph);
+                }
+                let next = next_nonempty_block(self, self[current].next);
+                if jump_target == next {
+                    changes += 1;
+                    let last = basicblock_last_instr_mut(&mut self[current]).unwrap();
+                    set_to_nop(last);
+                }
+            }
+            current = self[current].next;
+        }
+        Ok(changes)
+    }
+
+    /// flowgraph.c no_redundant_jumps
+    #[cfg(debug_assertions)]
+    fn no_redundant_jumps(&self) -> bool {
+        let mut current = BlockIdx(0);
+        while current != BlockIdx::NULL {
+            let block = &self[current];
+            if let Some(last) = basicblock_last_instr(block)
+                && last.instr.is_unconditional_jump()
+            {
+                let next = next_nonempty_block(self, block.next);
+                let jump_target = next_nonempty_block(self, last.target);
+                if jump_target == next {
+                    assert!(next != BlockIdx::NULL);
+                    if instruction_lineno(last) == instruction_lineno(&self[next].instructions[0]) {
+                        assert_ne!(
+                            instruction_lineno(last),
+                            instruction_lineno(&self[next].instructions[0]),
+                            "redundant jump has same line as fallthrough target"
+                        );
+                        return false;
+                    }
+                }
+            }
+            current = block.next;
+        }
+        true
+    }
+
+    fn remove_redundant_nops_and_jumps(&mut self) -> crate::InternalResult<()> {
+        loop {
+            // Convergence is guaranteed because the number of redundant jumps and
+            // nops only decreases.
+            let removed_nops = self.remove_redundant_nops()?;
+            let removed_jumps = self.remove_redundant_jumps()?;
+            if removed_nops + removed_jumps == 0 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    fn blocks_new_block(&mut self) -> crate::InternalResult<BlockIdx> {
+        self.try_reserve(1)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        let block_idx = BlockIdx(
+            self.len()
+                .to_u32()
+                .ok_or(InternalError::MalformedControlFlowGraph)?,
+        );
+        self.push(Block::default());
+        Ok(block_idx)
     }
 }
 
@@ -2825,7 +3504,7 @@ fn optimize_code_unit(
     // Phase 1: _PyCfg_OptimizeCodeUnit (flowgraph.c)
     *blocks = cfg_from_instruction_sequence(instr_sequence)?;
     translate_jump_labels_to_targets(blocks)?;
-    mark_except_handlers(blocks)?;
+    blocks.mark_except_handlers()?;
     label_exception_targets(blocks)?;
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     blocks.remove_unused_consts(&mut metadata.consts)?;
@@ -2834,7 +3513,7 @@ fn optimize_code_unit(
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
     blocks.insert_superinstructions()?;
-    push_cold_blocks_to_end(blocks)?;
+    blocks.push_cold_blocks_to_end()?;
     // CPython resolves line numbers again after cold-block extraction.
     blocks.resolve_line_numbers(metadata.firstlineno)?;
     Ok(())
@@ -2849,8 +3528,8 @@ fn optimize_cfg(
     // CPython optimize_cfg() starts with check_cfg() and raises
     // SystemError if a jump or scope exit is not the last instruction in
     // its block.
-    check_cfg(blocks)?;
-    inline_small_or_no_lineno_blocks(blocks)?;
+    blocks.check_cfg()?;
+    blocks.inline_small_or_no_lineno_blocks()?;
     // CPython does not re-run instruction-sequence label-map/CFG conversion
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
@@ -2873,9 +3552,9 @@ fn optimize_cfg(
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
     blocks.remove_unreachable()?;
-    remove_redundant_nops_and_jumps(blocks)?;
+    blocks.remove_redundant_nops_and_jumps()?;
     #[cfg(debug_assertions)]
-    assert!(no_redundant_jumps(blocks));
+    assert!(blocks.no_redundant_jumps());
     Ok(())
 }
 
@@ -2885,7 +3564,7 @@ fn optimized_cfg_to_instruction_sequence(
     blocks: &mut Blocks,
 ) -> crate::InternalResult<(u32, usize, InstructionSequence)> {
     // Phase 2: _PyCfg_OptimizedCfgToInstructionSequence (flowgraph.c)
-    convert_pseudo_conditional_jumps(blocks)?;
+    blocks.convert_pseudo_conditional_jumps()?;
     let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
     let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
@@ -2894,7 +3573,7 @@ fn optimized_cfg_to_instruction_sequence(
     convert_pseudo_ops(blocks)?;
     blocks.normalize_jumps()?;
     #[cfg(debug_assertions)]
-    assert!(no_redundant_jumps(blocks));
+    assert!(blocks.no_redundant_jumps());
     // optimize_load_fast: after normalize_jumps
     blocks.optimize_load_fast()?;
 
@@ -4705,10 +5384,10 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
         translate_jump_labels_to_targets(&mut self.blocks)?;
-        mark_except_handlers(&mut self.blocks)?;
+        self.blocks.mark_except_handlers()?;
         label_exception_targets(&mut self.blocks)?;
-        check_cfg(&self.blocks)?;
-        inline_small_or_no_lineno_blocks(&mut self.blocks)?;
+        self.blocks.check_cfg()?;
+        self.blocks.inline_small_or_no_lineno_blocks()?;
         trace.push((
             "after_inline_small_or_no_lineno_blocks".to_owned(),
             self.debug_block_dump(),
@@ -4734,9 +5413,11 @@ impl CodeInfo {
         ));
         self.blocks.remove_redundant_nops_and_pairs()?;
         self.blocks.remove_unreachable()?;
-        remove_redundant_nops_and_jumps(&mut self.blocks)?;
+        self.blocks.remove_redundant_nops_and_jumps()?;
+
         #[cfg(debug_assertions)]
-        assert!(no_redundant_jumps(&self.blocks));
+        assert!(self.blocks.no_redundant_jumps());
+
         self.blocks
             .remove_unused_consts(&mut self.metadata.consts)?;
         trace.push((
@@ -4747,7 +5428,7 @@ impl CodeInfo {
         let nparams = self.nparams;
         add_checks_for_loads_of_uninitialized_variables(&mut self.blocks, nlocals, nparams)?;
         self.blocks.insert_superinstructions()?;
-        push_cold_blocks_to_end(&mut self.blocks)?;
+        self.blocks.push_cold_blocks_to_end()?;
         trace.push((
             "after_push_cold_before_chain_reorder".to_owned(),
             self.debug_block_dump(),
@@ -4764,7 +5445,7 @@ impl CodeInfo {
             self.debug_block_dump(),
         ));
 
-        convert_pseudo_conditional_jumps(&mut self.blocks)?;
+        self.blocks.convert_pseudo_conditional_jumps()?;
         trace.push((
             "after_convert_pseudo_conditional_jumps".to_owned(),
             self.debug_block_dump(),
@@ -4779,8 +5460,10 @@ impl CodeInfo {
         ));
 
         self.blocks.normalize_jumps()?;
+
         #[cfg(debug_assertions)]
-        assert!(no_redundant_jumps(&self.blocks));
+        assert!(self.blocks.no_redundant_jumps());
+
         trace.push(("after_normalize_jumps".to_owned(), self.debug_block_dump()));
         self.blocks.optimize_load_fast()?;
         trace.push((
@@ -5317,312 +6000,6 @@ fn assemble_exception_table(
     Ok(table.into_boxed_slice())
 }
 
-/// Mark exception handler target blocks.
-/// flowgraph.c mark_except_handlers
-#[allow(clippy::unnecessary_wraps)]
-pub(crate) fn mark_except_handlers(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    #[cfg(debug_assertions)]
-    {
-        let mut block_idx = BlockIdx(0);
-        while block_idx != BlockIdx::NULL {
-            assert!(!blocks[block_idx].except_handler);
-            block_idx = blocks[block_idx].next;
-        }
-    }
-
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx].next;
-        let instr_count = blocks[block_idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[block_idx].instructions[i];
-            if is_block_push(&instr) {
-                debug_assert!(instr.target != BlockIdx::NULL);
-                blocks[instr.target].except_handler = true;
-            }
-        }
-        block_idx = next;
-    }
-    Ok(())
-}
-
-/// flowgraph.c mark_cold (two-pass to match CPython).
-///
-/// Phase 1 (mark_warm): propagate "warm" from entry via fall-through and
-/// jump targets. CPython asserts while visiting warm blocks that they are not
-/// exception handlers.
-///
-/// Phase 2 (mark_cold): propagate "cold" from except_handler blocks via
-/// forward edges. Blocks reached only via runtime exception dispatch are
-/// marked cold and pushed to the end by push_cold_blocks_to_end.
-///
-/// Blocks reached by neither phase remain `cold=false`. They are typically
-/// empty unreachable placeholders left by remove_unreachable; they stay in
-/// their original chain position (e.g. between entry and the post-try
-/// continuation for a nested try/except whose inner_end was emptied by
-/// optimize_cfg). This matches CPython's behavior and is necessary for
-/// optimize_load_fast to terminate fall-through at those placeholders.
-/// flowgraph.c mark_warm
-fn mark_warm(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut stack = blocks.make_cfg_traversal_stack()?;
-    stack.push(BlockIdx(0));
-    blocks[0].visited = true;
-    while let Some(block_idx) = stack.pop() {
-        let idx = block_idx.idx();
-        debug_assert!(!blocks[idx].except_handler);
-        blocks[idx].warm = true;
-
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) && !blocks[next].visited {
-            stack.push(next);
-            blocks[next.idx()].visited = true;
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) {
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                if !blocks[target.idx()].visited {
-                    stack.push(target);
-                    blocks[target.idx()].visited = true;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn mark_cold(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block = &mut blocks[block_idx];
-        debug_assert!(!block.cold);
-        debug_assert!(!block.warm);
-        block_idx = block.next;
-    }
-
-    mark_warm(blocks)?;
-
-    let mut cold_stack = blocks.make_cfg_traversal_stack()?;
-    block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let i = block_idx.idx();
-        let next = blocks[i].next;
-        let block = &blocks[i];
-        if block.except_handler {
-            debug_assert!(!block.warm);
-            cold_stack.push(block_idx);
-            blocks[i].visited = true;
-        }
-        block_idx = next;
-    }
-    while let Some(block_idx) = cold_stack.pop() {
-        let idx = block_idx.idx();
-        blocks[idx].cold = true;
-        let next = blocks[idx].next;
-        if next != BlockIdx::NULL && bb_has_fallthrough(&blocks[idx]) {
-            let next_idx = next.idx();
-            if !blocks[next_idx].warm && !blocks[next_idx].visited {
-                cold_stack.push(next);
-                blocks[next_idx].visited = true;
-            }
-        }
-
-        let instr_count = blocks[idx].instruction_used;
-        for i in 0..instr_count {
-            let instr = blocks[idx].instructions[i];
-            if is_jump(&instr) {
-                debug_assert_eq!(i, instr_count - 1);
-                let target = instr.target;
-                debug_assert!(target != BlockIdx::NULL);
-                if !blocks[target.idx()].warm && !blocks[target.idx()].visited {
-                    cold_stack.push(target);
-                    blocks[target.idx()].visited = true;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-/// flowgraph.c push_cold_blocks_to_end
-fn push_cold_blocks_to_end(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    if blocks[0].next == BlockIdx::NULL {
-        return Ok(());
-    }
-
-    mark_cold(blocks)?;
-    let mut next_label = get_max_label(blocks) + 1;
-
-    // If a cold block falls through to a warm block, add an explicit jump
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx].next;
-        if blocks[block_idx].cold
-            && bb_has_fallthrough(&blocks[block_idx])
-            && next != BlockIdx::NULL
-            && blocks[next].warm
-        {
-            let explicit_jump = blocks_new_block(blocks)?;
-            if !is_label(blocks[next].cpython_label) {
-                blocks[next].cpython_label = InstructionSequenceLabel::from_index(next_label);
-                next_label += 1;
-            }
-            let jump_label = blocks[next].cpython_label;
-            debug_assert!(is_label(jump_label));
-            basicblock_addop(
-                &mut blocks[explicit_jump],
-                InstructionInfo {
-                    instr: PseudoOpcode::JumpNoInterrupt.into(),
-                    arg: instruction_sequence_label_oparg(jump_label),
-                    target: BlockIdx::NULL,
-                    location: SourceLocation::default(),
-                    end_location: SourceLocation::default(),
-                    except_handler: None,
-                    lineno_override: Some(NO_LOCATION_OVERRIDE),
-                },
-            )?;
-            blocks[explicit_jump].cold = true;
-            blocks[explicit_jump].next = next;
-            blocks[explicit_jump].predecessors = 1;
-            blocks[block_idx].next = explicit_jump;
-            let target = blocks[explicit_jump].next;
-            let last = basicblock_last_instr_mut(&mut blocks[explicit_jump])
-                .expect("missing explicit jump");
-            last.target = target;
-        }
-        block_idx = blocks[block_idx].next;
-    }
-
-    assert!(!blocks[0].cold);
-    let mut cold_blocks: BlockIdx = BlockIdx::NULL;
-    let mut cold_blocks_tail: BlockIdx = BlockIdx::NULL;
-    let mut block_idx = BlockIdx(0);
-
-    while blocks[block_idx].next != BlockIdx::NULL {
-        debug_assert!(!blocks[block_idx].cold);
-        while blocks[block_idx].next != BlockIdx::NULL && !blocks[blocks[block_idx].next].cold {
-            block_idx = blocks[block_idx].next;
-        }
-        if blocks[block_idx].next == BlockIdx::NULL {
-            break;
-        }
-
-        debug_assert!(!blocks[block_idx].cold);
-        debug_assert!(blocks[blocks[block_idx].next].cold);
-
-        let mut block_end = blocks[block_idx].next;
-        while blocks[block_end].next != BlockIdx::NULL && blocks[blocks[block_end].next].cold {
-            block_end = blocks[block_end].next;
-        }
-
-        debug_assert!(blocks[block_end].cold);
-        debug_assert!(
-            blocks[block_end].next == BlockIdx::NULL || !blocks[blocks[block_end].next].cold
-        );
-
-        if cold_blocks == BlockIdx::NULL {
-            cold_blocks = blocks[block_idx].next;
-        } else {
-            blocks[cold_blocks_tail].next = blocks[block_idx].next;
-        }
-
-        cold_blocks_tail = block_end;
-        blocks[block_idx].next = blocks[block_end].next;
-        blocks[block_end].next = BlockIdx::NULL;
-    }
-
-    debug_assert!(blocks[block_idx].next == BlockIdx::NULL);
-    blocks[block_idx].next = cold_blocks;
-
-    if cold_blocks != BlockIdx::NULL {
-        remove_redundant_nops_and_jumps(blocks)?;
-    }
-    Ok(())
-}
-
-/// flowgraph.c check_cfg
-fn check_cfg(blocks: &Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let block = &blocks[block_idx];
-        for i in 0..block.instruction_used {
-            let opcode = block.instructions[i].instr;
-            debug_assert!(!opcode.is_assembler());
-            if opcode.is_terminator() && i != block.instruction_used - 1 {
-                return Err(InternalError::MalformedControlFlowGraph);
-            }
-        }
-        block_idx = block.next;
-    }
-    Ok(())
-}
-
-/// flowgraph.c jump_thread
-fn jump_thread(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-    instr_idx: usize,
-    target: &InstructionInfo,
-    opcode: AnyInstruction,
-) -> crate::InternalResult<bool> {
-    let bi = block_idx.idx();
-    debug_assert!(is_jump(&blocks[bi].instructions[instr_idx]));
-    debug_assert!(is_jump(target));
-    debug_assert_eq!(instr_idx + 1, blocks[bi].instruction_used);
-    debug_assert!(target.target != BlockIdx::NULL);
-    if blocks[bi].instructions[instr_idx].target != target.target {
-        set_to_nop(&mut blocks[bi].instructions[instr_idx]);
-        basicblock_add_jump(blocks, block_idx, opcode, target.target, target)?;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-/// flowgraph.c basicblock_add_jump
-fn basicblock_add_jump(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-    instr: AnyInstruction,
-    target: BlockIdx,
-    loc_source: &InstructionInfo,
-) -> crate::InternalResult<()> {
-    let bi = block_idx.idx();
-    let last = basicblock_last_instr(&blocks[bi]);
-    if last.is_some_and(is_jump) {
-        return Err(InternalError::MalformedControlFlowGraph);
-    }
-    debug_assert!(target != BlockIdx::NULL);
-    let label = blocks[target.idx()].cpython_label;
-    debug_assert!(is_label(label));
-    let arg = instruction_sequence_label_oparg(label);
-    let block = &mut blocks[bi];
-    basicblock_addop(
-        block,
-        InstructionInfo {
-            instr,
-            arg,
-            target: BlockIdx::NULL,
-            location: loc_source.location,
-            end_location: loc_source.end_location,
-            except_handler: None,
-            lineno_override: loc_source.lineno_override,
-        },
-    )?;
-    let last = basicblock_last_instr_mut(block).expect("missing jump");
-    debug_assert!(match (last.instr, instr) {
-        (AnyInstruction::Real(last), AnyInstruction::Real(opcode)) =>
-            last.as_opcode() == opcode.as_opcode(),
-        (AnyInstruction::Pseudo(last), AnyInstruction::Pseudo(opcode)) =>
-            last.as_opcode() == opcode.as_opcode(),
-        _ => false,
-    });
-    last.target = target;
-    Ok(())
-}
-
 /// pycore_opcode_utils.h IS_CONDITIONAL_JUMP_OPCODE
 fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     matches!(
@@ -5636,381 +6013,6 @@ fn is_conditional_jump_opcode(instr: AnyInstruction) -> bool {
     )
 }
 
-/// flowgraph.c convert_pseudo_conditional_jumps
-fn convert_pseudo_conditional_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    let mut block_idx = BlockIdx(0);
-    while block_idx != BlockIdx::NULL {
-        let next = blocks[block_idx.idx()].next;
-        let block = &mut blocks[block_idx.idx()];
-        let mut i = 0;
-        while i < block.instruction_used {
-            let instr = block.instructions[i];
-            let opcode = instr.instr;
-            if matches!(
-                opcode.pseudo_opcode(),
-                Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue)
-            ) {
-                debug_assert_eq!(i, block.instruction_used - 1);
-                block.instructions[i].instr =
-                    if matches!(opcode.pseudo_opcode(), Some(PseudoOpcode::JumpIfFalse)) {
-                        Opcode::PopJumpIfFalse
-                    } else {
-                        Opcode::PopJumpIfTrue
-                    }
-                    .into();
-
-                let location = instr.location;
-                let end_location = instr.end_location;
-                let except_handler = instr.except_handler;
-                let lineno_override = instr.lineno_override;
-                let copy = InstructionInfo {
-                    instr: Opcode::Copy.into(),
-                    arg: OpArg::new(1),
-                    target: BlockIdx::NULL,
-                    location,
-                    end_location,
-                    except_handler,
-                    lineno_override,
-                };
-                basicblock_insert_instruction(block, i, copy)?;
-                i += 1;
-
-                let to_bool = InstructionInfo {
-                    instr: Opcode::ToBool.into(),
-                    arg: OpArg::new(0),
-                    target: BlockIdx::NULL,
-                    location,
-                    end_location,
-                    except_handler,
-                    lineno_override,
-                };
-                basicblock_insert_instruction(block, i, to_bool)?;
-                i += 1;
-            }
-            i += 1;
-        }
-        block_idx = next;
-    }
-    Ok(())
-}
-
-/// flowgraph.c normalize_jumps_in_block
-fn normalize_jumps_in_block(blocks: &mut Blocks, block_idx: BlockIdx) -> crate::InternalResult<()> {
-    let idx = block_idx.idx();
-    let Some(last_ins) = basicblock_last_instr(&blocks[idx]).copied() else {
-        return Ok(());
-    };
-    if !is_conditional_jump_opcode(last_ins.instr) {
-        return Ok(());
-    }
-    debug_assert!(!last_ins.instr.is_assembler());
-
-    debug_assert!(last_ins.target != BlockIdx::NULL);
-    let is_forward = !blocks[last_ins.target.idx()].visited;
-
-    if is_forward {
-        // Insert NOT_TAKEN after forward conditional jump.
-        let not_taken = InstructionInfo {
-            instr: Opcode::NotTaken.into(),
-            arg: OpArg::new(0),
-            target: BlockIdx::NULL,
-            location: last_ins.location,
-            end_location: last_ins.end_location,
-            except_handler: None,
-            lineno_override: last_ins.lineno_override,
-        };
-        basicblock_addop(&mut blocks[idx], not_taken)?;
-        return Ok(());
-    }
-
-    let reversed_opcode = match last_ins.instr.real_opcode() {
-        Some(Opcode::PopJumpIfNotNone) => Opcode::PopJumpIfNone.into(),
-        Some(Opcode::PopJumpIfNone) => Opcode::PopJumpIfNotNone.into(),
-        Some(Opcode::PopJumpIfFalse) => Opcode::PopJumpIfTrue.into(),
-        Some(Opcode::PopJumpIfTrue) => Opcode::PopJumpIfFalse.into(),
-        _ => unreachable!("conditional jump has reverse opcode"),
-    };
-
-    // Transform 'conditional jump T' to 'reversed_jump b_next' followed by
-    // 'jump_backwards T'.
-    let loc = last_ins.location;
-    let end_loc = last_ins.end_location;
-
-    let target = last_ins.target;
-    let backwards_jump_idx = blocks_new_block(blocks)?;
-    basicblock_addop(
-        &mut blocks[backwards_jump_idx.idx()],
-        InstructionInfo {
-            instr: Opcode::NotTaken.into(),
-            arg: OpArg::new(0),
-            target: BlockIdx::NULL,
-            location: loc,
-            end_location: end_loc,
-            except_handler: None,
-            lineno_override: last_ins.lineno_override,
-        },
-    )?;
-    basicblock_add_jump(
-        blocks,
-        backwards_jump_idx,
-        PseudoOpcode::Jump.into(),
-        target,
-        &last_ins,
-    )?;
-    blocks[backwards_jump_idx.idx()].start_depth = blocks[target.idx()].start_depth;
-
-    let old_next = blocks[idx].next;
-    debug_assert!(old_next != BlockIdx::NULL);
-
-    let last_mut = basicblock_last_instr_mut(&mut blocks[idx]).unwrap();
-    last_mut.instr = reversed_opcode;
-    last_mut.target = old_next;
-
-    blocks[backwards_jump_idx.idx()].cold = blocks[idx].cold;
-    blocks[backwards_jump_idx.idx()].next = old_next;
-    blocks[idx].next = backwards_jump_idx;
-    Ok(())
-}
-
-/// flowgraph.c basicblock_inline_small_or_no_lineno_blocks
-fn basicblock_inline_small_or_no_lineno_blocks(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<bool> {
-    let Some(last) = basicblock_last_instr(&blocks[block_idx]).copied() else {
-        return Ok(false);
-    };
-    if !last.instr.is_unconditional_jump() {
-        return Ok(false);
-    }
-
-    let target = last.target;
-    debug_assert!(target != BlockIdx::NULL);
-    let small_exit_block =
-        basicblock_exits_scope(&blocks[target]) && blocks[target].instruction_used <= MAX_COPY_SIZE;
-    let no_lineno_no_fallthrough =
-        basicblock_has_no_lineno(&blocks[target]) && !bb_has_fallthrough(&blocks[target]);
-    if small_exit_block || no_lineno_no_fallthrough {
-        debug_assert!(is_jump(&last));
-        let removed_jump_opcode = last.instr;
-        let last = basicblock_last_instr_mut(&mut blocks[block_idx])
-            .expect("non-empty block has last instruction");
-        set_to_nop(last);
-        blocks.basicblock_append_block_instructions(block_idx, target)?;
-        if no_lineno_no_fallthrough {
-            let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
-            if last.instr.is_unconditional_jump()
-                && matches!(
-                    removed_jump_opcode.into(),
-                    AnyOpcode::Pseudo(PseudoOpcode::Jump)
-                )
-            {
-                last.instr = PseudoOpcode::Jump.into();
-            }
-        }
-        blocks[target].predecessors -= 1;
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-/// flowgraph.c inline_small_or_no_lineno_blocks
-fn inline_small_or_no_lineno_blocks(blocks: &mut Blocks) -> crate::InternalResult<bool> {
-    loop {
-        let mut changes = false;
-        let mut current = BlockIdx(0);
-        while current != BlockIdx::NULL {
-            let next = blocks[current.idx()].next;
-            let res = basicblock_inline_small_or_no_lineno_blocks(blocks, current)?;
-            if res {
-                changes = true;
-            }
-
-            current = next;
-        }
-        if !changes {
-            return Ok(changes);
-        }
-    }
-}
-
-/// flowgraph.c basicblock_remove_redundant_nops
-#[allow(clippy::unnecessary_wraps)]
-fn basicblock_remove_redundant_nops(
-    blocks: &mut Blocks,
-    block_idx: BlockIdx,
-) -> crate::InternalResult<usize> {
-    let bi = block_idx.idx();
-    let mut dest = 0;
-    let mut prev_lineno = -1i32;
-    let instr_count = blocks[bi].instruction_used;
-
-    for src in 0..instr_count {
-        let instr = blocks[bi].instructions[src];
-        let lineno = instruction_lineno(&instr);
-
-        if matches!(instr.instr.real(), Some(Instruction::Nop)) {
-            if lineno < 0 {
-                continue;
-            }
-            if prev_lineno == lineno {
-                continue;
-            }
-            if src < instr_count - 1 {
-                let next_lineno = instruction_lineno(&blocks[bi].instructions[src + 1]);
-                if next_lineno == lineno {
-                    continue;
-                }
-                if next_lineno < 0 {
-                    instr_set_loc(
-                        &mut blocks[bi].instructions[src + 1],
-                        instr.location,
-                        instr.end_location,
-                        instr.lineno_override,
-                    );
-                    continue;
-                }
-            } else {
-                let next = next_nonempty_block(blocks, blocks[bi].next);
-                if next != BlockIdx::NULL {
-                    let mut next_loc = no_linetable_location();
-                    let mut next_i = 0;
-                    while next_i < blocks[next.idx()].instruction_used {
-                        let instr = blocks[next.idx()].instructions[next_i];
-                        if matches!(instr.instr.real(), Some(Instruction::Nop))
-                            && instruction_lineno(&instr) < 0
-                        {
-                            next_i += 1;
-                            continue;
-                        }
-                        next_loc = instruction_linetable_location(&instr);
-                        break;
-                    }
-                    if lineno == next_loc.line {
-                        continue;
-                    }
-                }
-            }
-        }
-
-        if dest != src {
-            blocks[bi].instructions[dest] = blocks[bi].instructions[src];
-        }
-        dest += 1;
-        prev_lineno = lineno;
-    }
-
-    debug_assert!(dest <= instr_count);
-    let num_removed = instr_count - dest;
-    blocks[bi].instruction_used = dest;
-    Ok(num_removed)
-}
-
-/// flowgraph.c remove_redundant_nops
-#[allow(clippy::unnecessary_wraps)]
-fn remove_redundant_nops(blocks: &mut Blocks) -> crate::InternalResult<usize> {
-    let mut changes = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let next = blocks[current.idx()].next;
-        let change = basicblock_remove_redundant_nops(blocks, current)?;
-        changes += change;
-        current = next;
-    }
-    Ok(changes)
-}
-
-/// flowgraph.c no_redundant_nops
-#[cfg(debug_assertions)]
-fn no_redundant_nops(blocks: &mut Blocks) -> bool {
-    matches!(remove_redundant_nops(blocks), Ok(0))
-}
-
-/// flowgraph.c remove_redundant_jumps
-fn remove_redundant_jumps(blocks: &mut Blocks) -> crate::InternalResult<usize> {
-    let mut changes = 0;
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let block_idx = current.idx();
-        let Some(last) = basicblock_last_instr(&blocks[block_idx]).copied() else {
-            current = blocks[block_idx].next;
-            continue;
-        };
-        debug_assert!(!last.instr.is_assembler());
-        if last.instr.is_unconditional_jump() {
-            let jump_target = next_nonempty_block(blocks, last.target);
-            if jump_target == BlockIdx::NULL {
-                return Err(InternalError::MalformedControlFlowGraph);
-            }
-            let next = next_nonempty_block(blocks, blocks[block_idx].next);
-            if jump_target == next {
-                changes += 1;
-                let last = basicblock_last_instr_mut(&mut blocks[block_idx]).unwrap();
-                set_to_nop(last);
-            }
-        }
-        current = blocks[block_idx].next;
-    }
-    Ok(changes)
-}
-
-/// flowgraph.c no_redundant_jumps
-#[cfg(debug_assertions)]
-fn no_redundant_jumps(blocks: &Blocks) -> bool {
-    let mut current = BlockIdx(0);
-    while current != BlockIdx::NULL {
-        let block = &blocks[current.idx()];
-        if let Some(last) = basicblock_last_instr(block)
-            && last.instr.is_unconditional_jump()
-        {
-            let next = next_nonempty_block(blocks, block.next);
-            let jump_target = next_nonempty_block(blocks, last.target);
-            if jump_target == next {
-                assert!(next != BlockIdx::NULL);
-                if instruction_lineno(last)
-                    == instruction_lineno(&blocks[next.idx()].instructions[0])
-                {
-                    assert_ne!(
-                        instruction_lineno(last),
-                        instruction_lineno(&blocks[next.idx()].instructions[0]),
-                        "redundant jump has same line as fallthrough target"
-                    );
-                    return false;
-                }
-            }
-        }
-        current = block.next;
-    }
-    true
-}
-
-fn remove_redundant_nops_and_jumps(blocks: &mut Blocks) -> crate::InternalResult<()> {
-    loop {
-        // Convergence is guaranteed because the number of redundant jumps and
-        // nops only decreases.
-        let removed_nops = remove_redundant_nops(blocks)?;
-        let removed_jumps = remove_redundant_jumps(blocks)?;
-        if removed_nops + removed_jumps == 0 {
-            break;
-        }
-    }
-    Ok(())
-}
-
-fn blocks_new_block(blocks: &mut Blocks) -> crate::InternalResult<BlockIdx> {
-    blocks
-        .try_reserve(1)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    let block_idx = BlockIdx(
-        blocks
-            .len()
-            .to_u32()
-            .ok_or(InternalError::MalformedControlFlowGraph)?,
-    );
-    blocks.push(Block::default());
-    Ok(block_idx)
-}
-
 /// flowgraph.c struct _PyCfgBuilder
 struct CfgBuilder {
     blocks: Blocks,
@@ -6022,7 +6024,7 @@ struct CfgBuilder {
 
 /// flowgraph.c cfg_builder_new_block
 fn cfg_builder_new_block(g: &mut CfgBuilder) -> crate::InternalResult<BlockIdx> {
-    let block = blocks_new_block(&mut g.blocks)?;
+    let block = g.blocks.blocks_new_block()?;
     g.blocks[block.idx()].allocation_next = g.block_list;
     g.blocks[block.idx()].cpython_label = InstructionSequenceLabel::NO_LABEL;
     g.block_list = block;
@@ -6760,7 +6762,7 @@ pub(crate) fn convert_pseudo_ops(blocks: &mut Blocks) -> crate::InternalResult<(
     }
     // CPython flowgraph.c::convert_pseudo_ops() finishes by calling
     // remove_redundant_nops_and_jumps().
-    remove_redundant_nops_and_jumps(blocks)
+    blocks.remove_redundant_nops_and_jumps()
 }
 
 /// flowgraph.c build_cellfixedoffsets
