@@ -26,6 +26,24 @@ use crate::{
     vm::VirtualMachine,
 };
 
+/// Recognise [`ParseErrorType::OtherError`] messages whose CPython equivalent
+/// preserves the initial uppercase letter, so we can opt out of the generic
+/// lowercase-first-letter step applied to default ruff messages.
+#[cfg(feature = "parser")]
+fn starts_with_uppercase_message(s: &str) -> bool {
+    [
+        "Did you mean to use 'from ... import ...' instead?",
+        "Function parameters cannot be parenthesized",
+        "Lambda expression parameters cannot be parenthesized",
+        "Generator expression must be parenthesized",
+        "Invalid star expression",
+        "Type parameter list cannot be empty",
+        "Star import must be the only import",
+        "Yield expression cannot be used here",
+    ]
+    .contains(&s)
+}
+
 macro_rules! define_exception_fn {
     (
         fn $fn_name:ident, $attr:ident, $python_repr:ident
@@ -118,8 +136,6 @@ impl SyntaxErrorInfo {
                 "invalid syntax".into()
             }
 
-            ParseErrorType::InvalidDeleteTarget => "invalid syntax".into(),
-
             ParseErrorType::Lexical(LexicalErrorType::LineContinuationError) => {
                 "unexpected character after line continuation character".into()
             }
@@ -152,10 +168,6 @@ impl SyntaxErrorInfo {
 
             ParseErrorType::NonDefaultParamAfterDefaultParam => {
                 "parameter without a default follows parameter with a default".into()
-            }
-
-            ParseErrorType::VarParameterWithDefault => {
-                "var-positional argument cannot have default value".into()
             }
 
             ParseErrorType::PositionalAfterKeywordArgument => {
@@ -258,6 +270,11 @@ impl SyntaxErrorInfo {
             {
                 r#"cannot have both 'except' and 'except*' on the same 'try'"#.into()
             }
+
+            // Messages that intentionally start with an uppercase letter
+            // (CPython preserves case here). Override the unconditional
+            // lowercase done above.
+            ParseErrorType::OtherError(s) if starts_with_uppercase_message(s) => s.clone(),
 
             _ => return,
         };

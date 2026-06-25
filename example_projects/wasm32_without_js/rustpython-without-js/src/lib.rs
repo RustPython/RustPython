@@ -1,5 +1,9 @@
 use rustpython_vm::Interpreter;
 
+// These are resolved at runtime from the host environment (see the wasmer
+// `imports! { "env" => { … } }` in ../../wasm-runtime/src/main.rs). The
+// `wasm_import_module` link attribute marks them as wasm imports so the linker
+// emits them in the import section instead of failing with "undefined symbol".
 #[link(wasm_import_module = "env")]
 unsafe extern "C" {
     fn kv_get(kp: i32, kl: i32, vp: i32, vl: i32) -> i32;

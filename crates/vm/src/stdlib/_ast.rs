@@ -369,21 +369,15 @@ pub(crate) fn parse(
     target_version: Option<ast::PythonVersion>,
     type_comments: bool,
 ) -> Result<PyObjectRef, CompileError> {
-    let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
+    let source_file = SourceFileBuilder::new("<unknown>".to_owned(), source.to_owned()).finish();
     let mut options = parser::ParseOptions::from(mode);
     let target_version = target_version.unwrap_or(ast::PythonVersion::PY314);
     options = options.with_target_version(target_version);
-    let parsed = parser::parse(source, options).map_err(|parse_error| {
-        let range = text_range_to_source_range(&source_file, parse_error.location);
-        ParseError {
-            error: parse_error.error,
-            raw_location: parse_error.location,
-            location: range.start.to_source_location(),
-            end_location: range.end.to_source_location(),
-            source_path: "<unknown>".to_string(),
-            is_unclosed_bracket: false,
-        }
-    })?;
+    // Route parse errors through `from_ruff_parse_error` so the `ast.parse()` /
+    // `compile(..., PyCF_ONLY_AST)` path gets the same CPython-aligned messages
+    // as the normal exec/compile path (which goes through `_compile`).
+    let parsed = parser::parse(source, options)
+        .map_err(|parse_error| CompileError::from_ruff_parse_error(parse_error, &source_file))?;
 
     if let Some(error) = parsed.unsupported_syntax_errors().first() {
         let range = text_range_to_source_range(&source_file, error.range());
@@ -476,17 +470,10 @@ pub(crate) fn parse_func_type(
     let right = source[split_at + 2..].trim();
 
     let parse_expr = |expr_src: &str| -> Result<ast::Expr, CompileError> {
-        let source_file = SourceFileBuilder::new("".to_owned(), expr_src.to_owned()).finish();
+        let source_file =
+            SourceFileBuilder::new("<unknown>".to_owned(), expr_src.to_owned()).finish();
         let parsed = parser::parse_expression(expr_src).map_err(|parse_error| {
-            let range = text_range_to_source_range(&source_file, parse_error.location);
-            ParseError {
-                error: parse_error.error,
-                raw_location: parse_error.location,
-                location: range.start.to_source_location(),
-                end_location: range.end.to_source_location(),
-                source_path: "<unknown>".to_string(),
-                is_unclosed_bracket: false,
-            }
+            CompileError::from_ruff_parse_error(parse_error, &source_file)
         })?;
         Ok(*parsed.into_syntax().body)
     };

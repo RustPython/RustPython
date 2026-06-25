@@ -4643,6 +4643,27 @@ impl Compiler {
         Ok(true)
     }
 
+    /// Reject `__debug__` used as a type-parameter name, e.g.
+    /// `def f[__debug__](): ...` or `class C[__debug__]: ...`.
+    fn validate_type_params_no_debug(
+        &mut self,
+        type_params: Option<&ast::TypeParams>,
+    ) -> CompileResult<()> {
+        if let Some(params) = type_params {
+            for tp in &params.type_params {
+                let tp_name = match tp {
+                    ast::TypeParam::TypeVar(t) => &t.name,
+                    ast::TypeParam::TypeVarTuple(t) => &t.name,
+                    ast::TypeParam::ParamSpec(t) => &t.name,
+                };
+                if tp_name.as_str() == "__debug__" {
+                    return Err(self.error(CodegenErrorType::Assign("__debug__")));
+                }
+            }
+        }
+        Ok(())
+    }
+
     // = compiler_function
     #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_function_def(
@@ -4656,6 +4677,11 @@ impl Compiler {
         type_params: Option<&ast::TypeParams>,
         preserve_value_before_store: bool,
     ) -> CompileResult<()> {
+        if name == "__debug__" {
+            return Err(self.error(CodegenErrorType::Assign("__debug__")));
+        }
+        // Reject `def f[__debug__](): ...` type parameter (mirrors class defs).
+        self.validate_type_params_no_debug(type_params)?;
         // CPython's FunctionDef/AsyncFunctionDef LOC(s) starts at the
         // definition line even when decorators are present.
         let stmt_source_range = self.current_source_range;
@@ -5225,6 +5251,20 @@ impl Compiler {
         arguments: Option<&ast::Arguments>,
         preserve_value_before_store: bool,
     ) -> CompileResult<()> {
+        if name == "__debug__" {
+            return Err(self.error(CodegenErrorType::Assign("__debug__")));
+        }
+        // Reject `class C(__debug__=...)` keyword argument.
+        if let Some(args) = arguments
+            && args
+                .keywords
+                .iter()
+                .any(|kw| kw.arg.as_ref().is_some_and(|n| n.as_str() == "__debug__"))
+        {
+            return Err(self.error(CodegenErrorType::Assign("__debug__")));
+        }
+        // Reject `class C[__debug__]: ...` type parameter.
+        self.validate_type_params_no_debug(type_params)?;
         // CPython's ClassDef LOC(s) starts at the class line even when
         // decorators are present.
         let stmt_source_range = self.current_source_range;
@@ -6046,6 +6086,13 @@ impl Compiler {
                 Ok(())
             }
             Some(name) => {
+                // `case … as _` — `_` is the wildcard and cannot be a capture
+                // target (CPython: "cannot use '_' as a target").
+                if name.as_str() == "_" {
+                    return Err(self.error(CodegenErrorType::SyntaxError(
+                        "cannot use '_' as a target".to_owned(),
+                    )));
+                }
                 // Check if the name is forbidden for storing.
                 if self.forbidden_name(name.as_str(), NameUsage::Store)? {
                     return Err(self.compile_error_forbidden_name(name.as_str()));

@@ -1828,6 +1828,9 @@ impl SymbolTableBuilder {
                         self.scan_expression(expression, ExpressionContext::Load)?;
                     }
                     if let Some(name) = name {
+                        // `except ... as NAME` binds NAME, so reject `__debug__`
+                        // ("cannot assign to __debug__") like any other store.
+                        self.check_name(name.as_str(), ExpressionContext::Store, name.range)?;
                         self.register_ident(name, SymbolUsage::Assigned)?;
                     }
                     self.scan_statements(body)?;
@@ -1979,7 +1982,9 @@ impl SymbolTableBuilder {
             } else if let Some(table) = self.tables.last()
                 && table.typ == CompilerScope::TypeParams
             {
-                Some("a type parameter")
+                // CPython phrases the bare type-param scope (a generic class/def's
+                // bases & keywords) as "the definition of a generic".
+                Some("the definition of a generic")
             } else if self.in_annotation {
                 Some("an annotation")
             } else if self.in_type_alias {
@@ -2935,6 +2940,12 @@ impl SymbolTableBuilder {
             // Role already set..
             match role {
                 SymbolUsage::Global if !symbol.is_global() => {
+                    if flags.contains(SymbolFlags::NONLOCAL) {
+                        return Err(SymbolTableError {
+                            error: format!("name '{name}' is nonlocal and global"),
+                            location,
+                        });
+                    }
                     if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and global"),
@@ -2963,6 +2974,12 @@ impl SymbolTableBuilder {
                     }
                 }
                 SymbolUsage::Nonlocal => {
+                    if flags.contains(SymbolFlags::GLOBAL) {
+                        return Err(SymbolTableError {
+                            error: format!("name '{name}' is nonlocal and global"),
+                            location,
+                        });
+                    }
                     if flags.contains(SymbolFlags::PARAMETER) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and nonlocal"),
