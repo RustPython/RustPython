@@ -205,7 +205,7 @@ impl Constructor for PyFloat {
     }
 }
 
-fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         use crate::common::str::PyKindStr;

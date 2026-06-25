@@ -98,6 +98,7 @@ pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
 pub(crate) mod descriptor;
 
+pub use float::float_from_string as parse_float_from_string;
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
 
