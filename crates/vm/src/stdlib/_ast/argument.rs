@@ -1,36 +1,41 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
-pub(super) enum PositionalArguments {
-    Args {
-        range: TextRange,
-        args: Box<[ast::Expr]>,
-    },
-    RuntimeValues {
-        range: TextRange,
-        values: Vec<Option<ast::Expr>>,
-    },
+pub(super) struct PositionalArguments {
+    range: TextRange,
+    kind: PositionalArgumentsKind,
+}
+
+enum PositionalArgumentsKind {
+    Args(Box<[ast::Expr]>),
+    RuntimeValues(Vec<Option<ast::Expr>>),
 }
 
 impl PositionalArguments {
     pub(super) fn ast_from_field(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         let values: Vec<Option<ast::Expr>> =
-            get_node_list_field(ctx, source_file, object, field, typ)?;
+            get_node_list_field(vm, source_file, object, field, typ)?;
         Ok(Self::from_values(TextRange::default(), values))
     }
 
     fn from_args(range: TextRange, args: Box<[ast::Expr]>) -> Self {
-        Self::Args { range, args }
+        Self {
+            range,
+            kind: PositionalArgumentsKind::Args(args),
+        }
     }
 
     fn from_runtime_values(range: TextRange, values: Vec<Option<ast::Expr>>) -> Self {
-        Self::RuntimeValues { range, values }
+        Self {
+            range,
+            kind: PositionalArgumentsKind::RuntimeValues(values),
+        }
     }
 
     fn from_values(range: TextRange, values: Vec<Option<ast::Expr>>) -> Self {
@@ -49,15 +54,13 @@ impl PositionalArguments {
     }
 
     fn range(&self) -> TextRange {
-        match self {
-            Self::Args { range, .. } | Self::RuntimeValues { range, .. } => *range,
-        }
+        self.range
     }
 
     fn into_args_and_runtime_values(self) -> (Box<[ast::Expr]>, Option<Vec<Option<ast::Expr>>>) {
-        match self {
-            Self::Args { args, .. } => (args, None),
-            Self::RuntimeValues { values, .. } => (
+        match self.kind {
+            PositionalArgumentsKind::Args(args) => (args, None),
+            PositionalArgumentsKind::RuntimeValues(values) => (
                 lower_runtime_expr_list(values.clone()).into_boxed_slice(),
                 Some(values),
             ),
@@ -67,18 +70,18 @@ impl PositionalArguments {
 
 impl Node for PositionalArguments {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        match self {
-            Self::Args { args, .. } => BoxedSlice(args).ast_to_object(vm, source_file),
-            Self::RuntimeValues { values, .. } => values.ast_to_object(vm, source_file),
+        match self.kind {
+            PositionalArgumentsKind::Args(args) => BoxedSlice(args).ast_to_object(vm, source_file),
+            PositionalArgumentsKind::RuntimeValues(values) => values.ast_to_object(vm, source_file),
         }
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
+        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self::from_args(TextRange::default(), args.0))
     }
 }
@@ -90,14 +93,14 @@ pub(super) struct KeywordArguments {
 
 impl KeywordArguments {
     pub(super) fn ast_from_field(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         Ok(Self {
-            keywords: get_node_boxed_slice_field(ctx, source_file, object, field, typ)?,
+            keywords: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
             range: TextRange::default(),
         })
     }
@@ -105,18 +108,17 @@ impl KeywordArguments {
 
 impl Node for KeywordArguments {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         let Self { keywords, range: _ } = self;
         // TODO: use range
         BoxedSlice(keywords).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let keywords: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
+        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             keywords: keywords.0,
             range: TextRange::default(),

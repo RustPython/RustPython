@@ -4,7 +4,6 @@ use rustpython_compiler_core::SourceFile;
 // product
 impl Node for ast::MatchCase {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         let Self {
             node_index: _,
             pattern,
@@ -30,18 +29,18 @@ impl Node for ast::MatchCase {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let body: Vec<Option<ast::Stmt>> =
-            get_node_list_field(ctx, source_file, &object, "body", "match_case")?;
+            get_node_list_field(vm, source_file, &object, "body", "match_case")?;
         let (runtime_body, body) = runtime_stmt_list_from_values(body);
         Ok(Self {
             node_index: Default::default(),
-            pattern: get_required_node_field(ctx, source_file, &object, "pattern", "match_case")?,
-            guard: get_node_field_opt(ctx, &object, "guard")?
-                .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+            pattern: get_required_node_field(vm, source_file, &object, "pattern", "match_case")?,
+            guard: get_node_field_opt(vm, &object, "guard")?
+                .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
             body,
             range: Default::default(),
@@ -53,7 +52,6 @@ impl Node for ast::MatchCase {
 // sum
 impl Node for ast::Pattern {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         match self {
             Self::MatchValue(cons) => cons.ast_to_object(vm, source_file),
             Self::MatchSingleton(cons) => cons.ast_to_object(vm, source_file),
@@ -66,14 +64,14 @@ impl Node for ast::Pattern {
         }
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if ctx.is_none(&object) {
-            return Err(ctx.new_type_error(format!(
+        if vm.is_none(&object) {
+            return Err(vm.new_type_error(format!(
                 "expected some sort of pattern, but got {}",
-                object.repr(ctx)?
+                object.repr(vm)?
             )));
         }
         enum PatternKind {
@@ -86,69 +84,65 @@ impl Node for ast::Pattern {
             As,
             Or,
         }
-        let kind = if is_node_instance(ctx, &object, pyast::NodePatternMatchValue::static_type())? {
+        let kind = if is_node_instance(vm, &object, pyast::NodePatternMatchValue::static_type())? {
             PatternKind::Value
-        } else if is_node_instance(
-            ctx,
-            &object,
-            pyast::NodePatternMatchSingleton::static_type(),
-        )? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchSingleton::static_type())? {
             PatternKind::Singleton
-        } else if is_node_instance(ctx, &object, pyast::NodePatternMatchSequence::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchSequence::static_type())? {
             PatternKind::Sequence
-        } else if is_node_instance(ctx, &object, pyast::NodePatternMatchMapping::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchMapping::static_type())? {
             PatternKind::Mapping
-        } else if is_node_instance(ctx, &object, pyast::NodePatternMatchClass::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchClass::static_type())? {
             PatternKind::Class
-        } else if is_node_instance(ctx, &object, pyast::NodePatternMatchStar::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchStar::static_type())? {
             PatternKind::Star
-        } else if is_node_instance(ctx, &object, pyast::NodePatternMatchAs::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchAs::static_type())? {
             PatternKind::As
-        } else if is_node_instance(ctx, &object, pyast::NodePatternMatchOr::static_type())? {
+        } else if is_node_instance(vm, &object, pyast::NodePatternMatchOr::static_type())? {
             PatternKind::Or
         } else {
-            return Err(ctx.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "expected some sort of pattern, but got {}",
-                object.repr(ctx)?
+                object.repr(vm)?
             )));
         };
-        let range = pattern_range_from_object(ctx, source_file, object.clone())?;
+        let range = pattern_range_from_object(vm, source_file, object.clone())?;
         Ok(match kind {
             PatternKind::Value => Self::MatchValue(pattern_match_value_from_object_with_range(
-                ctx,
+                vm,
                 source_file,
                 object,
                 range,
             )?),
             PatternKind::Singleton => Self::MatchSingleton(
-                pattern_match_singleton_from_object_with_range(ctx, source_file, object, range)?,
+                pattern_match_singleton_from_object_with_range(vm, source_file, object, range)?,
             ),
             PatternKind::Sequence => Self::MatchSequence(
-                pattern_match_sequence_from_object_with_range(ctx, source_file, object, range)?,
+                pattern_match_sequence_from_object_with_range(vm, source_file, object, range)?,
             ),
             PatternKind::Mapping => Self::MatchMapping(
-                pattern_match_mapping_from_object_with_range(ctx, source_file, object, range)?,
+                pattern_match_mapping_from_object_with_range(vm, source_file, object, range)?,
             ),
             PatternKind::Class => Self::MatchClass(pattern_match_class_from_object_with_range(
-                ctx,
+                vm,
                 source_file,
                 object,
                 range,
             )?),
             PatternKind::Star => Self::MatchStar(pattern_match_star_from_object_with_range(
-                ctx,
+                vm,
                 source_file,
                 object,
                 range,
             )?),
             PatternKind::As => Self::MatchAs(pattern_match_as_from_object_with_range(
-                ctx,
+                vm,
                 source_file,
                 object,
                 range,
             )?),
             PatternKind::Or => Self::MatchOr(pattern_match_or_from_object_with_range(
-                ctx,
+                vm,
                 source_file,
                 object,
                 range,
@@ -190,7 +184,7 @@ fn lower_nullable_exprs(values: &[Option<ast::Expr>], range: TextRange) -> Vec<a
 }
 
 fn pattern_list_from_field(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: &PyObject,
     field: &'static str,
@@ -198,56 +192,55 @@ fn pattern_list_from_field(
     range: TextRange,
 ) -> PyResult<(Option<Vec<Option<ast::Pattern>>>, Vec<ast::Pattern>)> {
     let values: Vec<Option<ast::Pattern>> =
-        get_node_list_field(ctx, source_file, object, field, typ)?;
+        get_node_list_field(vm, source_file, object, field, typ)?;
     let runtime_patterns = values.iter().any(Option::is_none).then(|| values.clone());
     Ok((runtime_patterns, lower_nullable_patterns(&values, range)))
 }
 
 // constructor
 fn pattern_match_value_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchValue> {
     Ok(ast::PatternMatchValue {
         node_index: Default::default(),
-        value: get_required_node_field(ctx, source_file, &object, "value", "MatchValue")?,
+        value: get_required_node_field(vm, source_file, &object, "value", "MatchValue")?,
         range,
     })
 }
 
 impl Node for ast::PatternMatchValue {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             node_index: _,
             value,
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(ctx, pyast::NodePatternMatchValue::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchValue::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value.ast_to_object(vm, source_file), ctx)
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchValue")?;
-        pattern_match_value_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchValue")?;
+        pattern_match_value_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 // constructor
 fn pattern_match_singleton_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -255,9 +248,9 @@ fn pattern_match_singleton_from_object_with_range(
     Ok(ast::PatternMatchSingleton {
         node_index: Default::default(),
         value: Node::ast_from_object(
-            ctx,
+            vm,
             source_file,
-            get_node_field(ctx, &object, "value", "MatchSingleton")?,
+            get_node_field(vm, &object, "value", "MatchSingleton")?,
         )?,
         range,
     })
@@ -284,18 +277,17 @@ impl Node for ast::PatternMatchSingleton {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchSingleton")?;
-        pattern_match_singleton_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchSingleton")?;
+        pattern_match_singleton_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 impl Node for ast::Singleton {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
         match self {
             Self::None => vm.ctx.none(),
             Self::True => vm.ctx.new_bool(true).into(),
@@ -304,37 +296,31 @@ impl Node for ast::Singleton {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if ctx.is_none(&object) {
+        if vm.is_none(&object) {
             Ok(Self::None)
-        } else if object.is(&ctx.ctx.true_value) {
+        } else if object.is(&vm.ctx.true_value) {
             Ok(Self::True)
-        } else if object.is(&ctx.ctx.false_value) {
+        } else if object.is(&vm.ctx.false_value) {
             Ok(Self::False)
         } else {
-            Err(ctx.new_value_error("MatchSingleton can only contain True, False and None"))
+            Err(vm.new_value_error("MatchSingleton can only contain True, False and None"))
         }
     }
 }
 
 // constructor
 fn pattern_match_sequence_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchSequence> {
-    let (runtime_patterns, patterns) = pattern_list_from_field(
-        ctx,
-        source_file,
-        &object,
-        "patterns",
-        "MatchSequence",
-        range,
-    )?;
+    let (runtime_patterns, patterns) =
+        pattern_list_from_field(vm, source_file, &object, "patterns", "MatchSequence", range)?;
     Ok(ast::PatternMatchSequence {
         node_index: Default::default(),
         patterns: patterns.to_vec(),
@@ -345,7 +331,6 @@ fn pattern_match_sequence_from_object_with_range(
 
 impl Node for ast::PatternMatchSequence {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             node_index: _,
             patterns,
@@ -354,7 +339,7 @@ impl Node for ast::PatternMatchSequence {
         } = self;
         let node = NodeAst
             .into_ref_with_type(
-                ctx,
+                vm,
                 pyast::NodePatternMatchSequence::static_type().to_owned(),
             )
             .unwrap();
@@ -363,32 +348,32 @@ impl Node for ast::PatternMatchSequence {
             || patterns.ast_to_object(vm, source_file),
             |values| values.ast_to_object(vm, source_file),
         );
-        dict.set_item("patterns", patterns, ctx).unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        dict.set_item("patterns", patterns, vm).unwrap();
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchSequence")?;
-        pattern_match_sequence_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchSequence")?;
+        pattern_match_sequence_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 // constructor
 fn pattern_match_mapping_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchMapping> {
     let keys: Vec<Option<ast::Expr>> =
-        get_node_list_field(ctx, source_file, &object, "keys", "MatchMapping")?;
+        get_node_list_field(vm, source_file, &object, "keys", "MatchMapping")?;
     let patterns: Vec<Option<ast::Pattern>> =
-        get_node_list_field(ctx, source_file, &object, "patterns", "MatchMapping")?;
+        get_node_list_field(vm, source_file, &object, "patterns", "MatchMapping")?;
     let runtime_keys = keys.iter().any(Option::is_none).then(|| keys.clone());
     let runtime_patterns = patterns
         .iter()
@@ -398,8 +383,8 @@ fn pattern_match_mapping_from_object_with_range(
         node_index: Default::default(),
         keys: lower_nullable_exprs(&keys, range),
         patterns: lower_nullable_patterns(&patterns, range),
-        rest: get_node_field_opt(ctx, &object, "rest")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        rest: get_node_field_opt(vm, &object, "rest")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
         runtime_keys,
@@ -439,34 +424,34 @@ impl Node for ast::PatternMatchMapping {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchMapping")?;
-        pattern_match_mapping_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchMapping")?;
+        pattern_match_mapping_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 // constructor
 fn pattern_match_class_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchClass> {
-    let cls = get_required_node_field(ctx, source_file, &object, "cls", "MatchClass")?;
+    let cls = get_required_node_field(vm, source_file, &object, "cls", "MatchClass")?;
     let patterns: Vec<Option<ast::Pattern>> =
-        get_node_list_field(ctx, source_file, &object, "patterns", "MatchClass")?;
+        get_node_list_field(vm, source_file, &object, "patterns", "MatchClass")?;
     let kwd_attrs = PatternMatchClassKeywordAttributes::ast_from_field(
-        ctx,
+        vm,
         source_file,
         &object,
         "kwd_attrs",
         "MatchClass",
     )?;
     let kwd_patterns: Vec<Option<ast::Pattern>> =
-        get_node_list_field(ctx, source_file, &object, "kwd_patterns", "MatchClass")?;
+        get_node_list_field(vm, source_file, &object, "kwd_patterns", "MatchClass")?;
     let has_runtime_shape = kwd_attrs.0.len() != kwd_patterns.len()
         || patterns.iter().any(Option::is_none)
         || kwd_patterns.iter().any(Option::is_none);
@@ -496,7 +481,6 @@ fn pattern_match_class_from_object_with_range(
 
 impl Node for ast::PatternMatchClass {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             node_index: _,
             cls,
@@ -507,10 +491,10 @@ impl Node for ast::PatternMatchClass {
             runtime_kwd_patterns,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(ctx, pyast::NodePatternMatchClass::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchClass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("cls", cls.ast_to_object(vm, source_file), ctx)
+        dict.set_item("cls", cls.ast_to_object(vm, source_file), vm)
             .unwrap();
         let (patterns, kwd_attrs, kwd_patterns) =
             if let (Some(patterns), Some(kwd_attrs), Some(kwd_patterns)) =
@@ -529,20 +513,20 @@ impl Node for ast::PatternMatchClass {
                     kwd_patterns.ast_to_object(vm, source_file),
                 )
             };
-        dict.set_item("patterns", patterns, ctx).unwrap();
-        dict.set_item("kwd_attrs", kwd_attrs, ctx).unwrap();
-        dict.set_item("kwd_patterns", kwd_patterns, ctx).unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        dict.set_item("patterns", patterns, vm).unwrap();
+        dict.set_item("kwd_attrs", kwd_attrs, vm).unwrap();
+        dict.set_item("kwd_patterns", kwd_patterns, vm).unwrap();
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchClass")?;
-        pattern_match_class_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchClass")?;
+        pattern_match_class_from_object_with_range(vm, source_file, object, range)
     }
 }
 
@@ -550,16 +534,15 @@ struct PatternMatchClassPatterns(Vec<ast::Pattern>);
 
 impl Node for PatternMatchClassPatterns {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         self.0.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(Self(Node::ast_from_object(ctx, source_file, object)?))
+        Ok(Self(Node::ast_from_object(vm, source_file, object)?))
     }
 }
 
@@ -567,14 +550,14 @@ struct PatternMatchClassKeywordAttributes(Vec<ast::Identifier>);
 
 impl PatternMatchClassKeywordAttributes {
     fn ast_from_field(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         Ok(Self(get_node_list_field(
-            ctx,
+            vm,
             source_file,
             object,
             field,
@@ -585,16 +568,15 @@ impl PatternMatchClassKeywordAttributes {
 
 impl Node for PatternMatchClassKeywordAttributes {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         self.0.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(Self(Node::ast_from_object(ctx, source_file, object)?))
+        Ok(Self(Node::ast_from_object(vm, source_file, object)?))
     }
 }
 
@@ -602,29 +584,28 @@ struct PatternMatchClassKeywordPatterns(Vec<ast::Pattern>);
 
 impl Node for PatternMatchClassKeywordPatterns {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         self.0.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Ok(Self(Node::ast_from_object(ctx, source_file, object)?))
+        Ok(Self(Node::ast_from_object(vm, source_file, object)?))
     }
 }
 // constructor
 fn pattern_match_star_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchStar> {
     Ok(ast::PatternMatchStar {
         node_index: Default::default(),
-        name: get_node_field_opt(ctx, &object, "name")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        name: get_node_field_opt(vm, &object, "name")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
     })
@@ -648,29 +629,29 @@ impl Node for ast::PatternMatchStar {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchStar")?;
-        pattern_match_star_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchStar")?;
+        pattern_match_star_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 // constructor
 fn pattern_match_as_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchAs> {
     Ok(ast::PatternMatchAs {
         node_index: Default::default(),
-        pattern: get_node_field_opt(ctx, &object, "pattern")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        pattern: get_node_field_opt(vm, &object, "pattern")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
-        name: get_node_field_opt(ctx, &object, "name")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        name: get_node_field_opt(vm, &object, "name")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
     })
@@ -678,7 +659,6 @@ fn pattern_match_as_from_object_with_range(
 
 impl Node for ast::PatternMatchAs {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             node_index: _,
             pattern,
@@ -686,36 +666,36 @@ impl Node for ast::PatternMatchAs {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(ctx, pyast::NodePatternMatchAs::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodePatternMatchAs::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("pattern", pattern.ast_to_object(vm, source_file), ctx)
+        dict.set_item("pattern", pattern.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("name", name.ast_to_object(vm, source_file), ctx)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchAs")?;
-        pattern_match_as_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchAs")?;
+        pattern_match_as_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 // constructor
 fn pattern_match_or_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::PatternMatchOr> {
     let (runtime_patterns, patterns) =
-        pattern_list_from_field(ctx, source_file, &object, "patterns", "MatchOr", range)?;
+        pattern_list_from_field(vm, source_file, &object, "patterns", "MatchOr", range)?;
     Ok(ast::PatternMatchOr {
         node_index: Default::default(),
         patterns: patterns.to_vec(),
@@ -745,12 +725,12 @@ impl Node for ast::PatternMatchOr {
         node.into()
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "MatchOr")?;
-        pattern_match_or_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "MatchOr")?;
+        pattern_match_or_from_object_with_range(vm, source_file, object, range)
     }
 }
 

@@ -66,23 +66,6 @@ impl VmCompileError {
 }
 
 impl CompileWarningError {
-    fn into_codegen_error(
-        self,
-        location: compiler::core::SourceLocation,
-        source_path: String,
-        vm: &VirtualMachine,
-    ) -> compiler::codegen::error::CodegenError {
-        let message = self.exception.as_object().str(vm).map_or_else(
-            |_| "compiler warning raised as an exception".to_owned(),
-            |message| message.as_wtf8().to_string(),
-        );
-        compiler::codegen::error::CodegenError {
-            location: Some(location),
-            error: compiler::codegen::error::CodegenErrorType::SyntaxError(message),
-            source_path,
-        }
-    }
-
     fn into_pyexception(self, vm: &VirtualMachine, source: Option<&str>) -> PyBaseExceptionRef {
         if !self
             .exception
@@ -351,7 +334,7 @@ impl VirtualMachine {
                     );
                 }
             };
-            let _ = _ast::parse(
+            _ast::parse(
                 self,
                 source,
                 parser_mode,
@@ -416,17 +399,35 @@ impl VirtualMachine {
         }
         #[cfg(feature = "parser")]
         let code = {
+            // A warning the filter escalates to an exception is stashed here so
+            // its precise category survives; codegen only sees an abort marker.
+            let escalated: core::cell::Cell<Option<CompileWarningError>> =
+                core::cell::Cell::new(None);
             let mut syntax_warning_handler = |location, message| {
                 escape_warnings::warn_syntax_at_location(&source_path, location, message, self)
-                    .map_err(|err| err.into_codegen_error(location, source_path.clone(), self))
+                    .map_err(|warning| {
+                        escalated.set(Some(warning));
+                        // Recovered below via `escalated`, so this is never surfaced.
+                        compiler::codegen::error::CodegenError {
+                            location: Some(location),
+                            error: compiler::codegen::error::CodegenErrorType::SyntaxError(
+                                String::new(),
+                            ),
+                            source_path: source_path.clone(),
+                        }
+                    })
             };
-            compiler::compile_with_syntax_warning_handler(
+            let result = compiler::compile_with_syntax_warning_handler(
                 source,
                 mode,
                 &source_path,
                 opts,
                 &mut syntax_warning_handler,
-            )
+            );
+            match escalated.take() {
+                Some(warning) => return Err(VmCompileError::Warning(warning)),
+                None => result,
+            }
         };
         #[cfg(not(feature = "parser"))]
         let code = compiler::compile(source, mode, &source_path, opts);

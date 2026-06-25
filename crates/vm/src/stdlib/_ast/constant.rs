@@ -135,10 +135,10 @@ pub(super) fn invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
 }
 
 pub(super) fn runtime_string_from_pyobject(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     object: PyObjectRef,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
-    runtime_string_from_object(ctx, object)
+    runtime_string_from_object(vm, object)
 }
 
 pub(super) fn runtime_string_object(
@@ -154,7 +154,6 @@ pub(super) fn expr_constant_to_object(
     source_file: &SourceFile,
     expr: ast::ExprConstant,
 ) -> PyObjectRef {
-    let ctx = vm;
     let ast::ExprConstant {
         node_index: _,
         range,
@@ -164,14 +163,14 @@ pub(super) fn expr_constant_to_object(
     } = expr;
     let constant = ast_constant_value_to_constant_data(value);
     let node = NodeAst
-        .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
+        .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
         .unwrap();
     let dict = node.as_object().dict().unwrap();
-    dict.set_item("value", constant_data_to_object(ctx, constant), ctx)
+    dict.set_item("value", constant_data_to_object(vm, constant), vm)
         .unwrap();
-    let kind = kind.map_or_else(|| ctx.ctx.none(), |kind| ctx.ctx.new_str(kind).into());
-    dict.set_item("kind", kind, ctx).unwrap();
-    node_add_location(&dict, range, ctx, source_file);
+    let kind = kind.map_or_else(|| vm.ctx.none(), |kind| vm.ctx.new_str(kind).into());
+    dict.set_item("kind", kind, vm).unwrap();
+    node_add_location(&dict, range, vm, source_file);
     node.into()
 }
 
@@ -305,11 +304,11 @@ pub(super) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
 }
 
 pub(super) fn constant_object_to_constant_data(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     value_object: PyObjectRef,
 ) -> PyResult<ConstantData> {
-    let value = ConstantLiteral::ast_from_object(ctx, source_file, value_object)?;
+    let value = ConstantLiteral::ast_from_object(vm, source_file, value_object)?;
     Ok(constant_literal_to_constant_data(&value))
 }
 
@@ -351,33 +350,30 @@ fn runtime_string_to_object(
     }
 }
 
-fn first_invalid_constant_type(
-    ctx: &VirtualMachine,
-    value_object: PyObjectRef,
-) -> PyResult<String> {
+fn first_invalid_constant_type(vm: &VirtualMachine, value_object: PyObjectRef) -> PyResult<String> {
     let cls = value_object.class();
     let class_name = cls.name().to_owned();
-    if cls.is(ctx.ctx.types.tuple_type) {
-        ctx.with_recursion(" during compilation", || {
+    if cls.is(vm.ctx.types.tuple_type) {
+        vm.with_recursion(" during compilation", || {
             let tuple = value_object.clone().downcast::<PyTuple>().map_err(|obj| {
-                ctx.new_type_error(format!(
+                vm.new_type_error(format!(
                     "Expected type {}, not {}",
                     PyTuple::static_type().name(),
                     obj.class().name()
                 ))
             })?;
             for item in tuple.iter() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(ctx, item.clone())? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item.clone())? {
                     return Ok(invalid_type);
                 }
             }
             Ok(class_name)
         })
-    } else if cls.is(ctx.ctx.types.frozenset_type) {
-        ctx.with_recursion(" during compilation", || {
+    } else if cls.is(vm.ctx.types.frozenset_type) {
+        vm.with_recursion(" during compilation", || {
             let set = value_object.clone().downcast::<PyFrozenSet>().unwrap();
             for item in set.elements() {
-                if let Some(invalid_type) = first_invalid_constant_type_opt(ctx, item)? {
+                if let Some(invalid_type) = first_invalid_constant_type_opt(vm, item)? {
                     return Ok(invalid_type);
                 }
             }
@@ -389,23 +385,23 @@ fn first_invalid_constant_type(
 }
 
 fn first_invalid_constant_type_opt(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     value_object: PyObjectRef,
 ) -> PyResult<Option<String>> {
     let cls = value_object.class();
-    if cls.is(ctx.ctx.types.none_type)
-        || cls.is(ctx.ctx.types.bool_type)
-        || cls.is(ctx.ctx.types.str_type)
-        || cls.is(ctx.ctx.types.bytes_type)
-        || cls.is(ctx.ctx.types.int_type)
-        || cls.is(ctx.ctx.types.float_type)
-        || cls.is(ctx.ctx.types.complex_type)
-        || cls.is(ctx.ctx.types.ellipsis_type)
+    if cls.is(vm.ctx.types.none_type)
+        || cls.is(vm.ctx.types.bool_type)
+        || cls.is(vm.ctx.types.str_type)
+        || cls.is(vm.ctx.types.bytes_type)
+        || cls.is(vm.ctx.types.int_type)
+        || cls.is(vm.ctx.types.float_type)
+        || cls.is(vm.ctx.types.complex_type)
+        || cls.is(vm.ctx.types.ellipsis_type)
     {
         return Ok(None);
     }
-    if cls.is(ctx.ctx.types.tuple_type) || cls.is(ctx.ctx.types.frozenset_type) {
-        return first_invalid_constant_type(ctx, value_object).map(Some);
+    if cls.is(vm.ctx.types.tuple_type) || cls.is(vm.ctx.types.frozenset_type) {
+        return first_invalid_constant_type(vm, value_object).map(Some);
     }
     Ok(Some(cls.name().to_owned()))
 }
@@ -441,26 +437,26 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
 
 // constructor
 pub(super) fn constant_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<Constant> {
-    let value_object = get_node_field(ctx, &object, "value", "Constant")?;
+    let value_object = get_node_field(vm, &object, "value", "Constant")?;
     let (value, invalid_type) =
-        match ConstantLiteral::ast_from_object(ctx, source_file, value_object.clone()) {
+        match ConstantLiteral::ast_from_object(vm, source_file, value_object.clone()) {
             Ok(value) => (value, None),
             Err(_) => (
                 ConstantLiteral::None,
-                Some(first_invalid_constant_type(ctx, value_object)?),
+                Some(first_invalid_constant_type(vm, value_object)?),
             ),
         };
-    let kind = get_node_field_opt(ctx, &object, "kind")?
+    let kind = get_node_field_opt(vm, &object, "kind")?
         .map(|object| {
-            if !object.class().is(ctx.ctx.types.str_type) {
-                return Err(ctx.new_type_error("AST string must be of type str"));
+            if !object.class().is(vm.ctx.types.str_type) {
+                return Err(vm.new_type_error("AST string must be of type str"));
             }
-            Ok(object.try_to_value::<String>(ctx)?.into_boxed_str())
+            Ok(object.try_to_value::<String>(vm)?.into_boxed_str())
         })
         .transpose()?;
 
@@ -474,7 +470,6 @@ pub(super) fn constant_from_object_with_range(
 
 impl Node for Constant {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             range,
             value,
@@ -482,89 +477,87 @@ impl Node for Constant {
             invalid_type: _,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(ctx, pyast::NodeExprConstant::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprConstant::static_type().to_owned())
             .unwrap();
         let kind = kind
             .or_else(|| constant_literal_kind(&value))
-            .map_or_else(|| ctx.ctx.none(), |kind| ctx.ctx.new_str(kind).into());
+            .map_or_else(|| vm.ctx.none(), |kind| vm.ctx.new_str(kind).into());
         let value = value.ast_to_object(vm, source_file);
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value, ctx).unwrap();
-        dict.set_item("kind", kind, ctx).unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        dict.set_item("value", value, vm).unwrap();
+        dict.set_item("kind", kind, vm).unwrap();
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "Constant")?;
-        constant_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "Constant")?;
+        constant_from_object_with_range(vm, source_file, object, range)
     }
 }
 
 impl Node for ConstantLiteral {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
-        let _source_file = source_file;
         match self {
-            Self::None => ctx.ctx.none(),
-            Self::Bool(value) => ctx.ctx.new_bool(value).to_pyobject(ctx),
-            Self::Str { value, .. } => ctx.ctx.new_str(value).to_pyobject(ctx),
-            Self::Bytes(value) => ctx.ctx.new_bytes(value.into()).to_pyobject(ctx),
+            Self::None => vm.ctx.none(),
+            Self::Bool(value) => vm.ctx.new_bool(value).to_pyobject(vm),
+            Self::Str { value, .. } => vm.ctx.new_str(value).to_pyobject(vm),
+            Self::Bytes(value) => vm.ctx.new_bytes(value.into()).to_pyobject(vm),
             Self::Int(value) => value.ast_to_object(vm, source_file),
             Self::Tuple(value) => {
                 let value = value
                     .into_iter()
                     .map(|c| c.ast_to_object(vm, source_file))
                     .collect();
-                ctx.ctx.new_tuple(value).to_pyobject(ctx)
+                vm.ctx.new_tuple(value).to_pyobject(vm)
             }
             Self::FrozenSet(value) => PyFrozenSet::from_iter(
-                ctx,
+                vm,
                 value.into_iter().map(|c| c.ast_to_object(vm, source_file)),
             )
             .unwrap()
-            .into_pyobject(ctx),
-            Self::Float(value) => ctx.ctx.new_float(value).into_pyobject(ctx),
-            Self::Complex { real, imag } => ctx
+            .into_pyobject(vm),
+            Self::Float(value) => vm.ctx.new_float(value).into_pyobject(vm),
+            Self::Complex { real, imag } => vm
                 .ctx
                 .new_complex(num_complex::Complex::new(real, imag))
-                .into_pyobject(ctx),
-            Self::Ellipsis => ctx.ctx.ellipsis.clone().into(),
+                .into_pyobject(vm),
+            Self::Ellipsis => vm.ctx.ellipsis.clone().into(),
         }
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         value_object: PyObjectRef,
     ) -> PyResult<Self> {
         let cls = value_object.class();
-        let value = if cls.is(ctx.ctx.types.none_type) {
+        let value = if cls.is(vm.ctx.types.none_type) {
             Self::None
-        } else if cls.is(ctx.ctx.types.bool_type) {
-            Self::Bool(if value_object.is(&ctx.ctx.true_value) {
+        } else if cls.is(vm.ctx.types.bool_type) {
+            Self::Bool(if value_object.is(&vm.ctx.true_value) {
                 true
-            } else if value_object.is(&ctx.ctx.false_value) {
+            } else if value_object.is(&vm.ctx.false_value) {
                 false
             } else {
-                value_object.try_to_value(ctx)?
+                value_object.try_to_value(vm)?
             })
-        } else if cls.is(ctx.ctx.types.str_type) {
+        } else if cls.is(vm.ctx.types.str_type) {
             Self::Str {
-                value: value_object.try_to_value::<String>(ctx)?.into(),
+                value: value_object.try_to_value::<String>(vm)?.into(),
                 prefix: StringLiteralPrefix::Empty,
             }
-        } else if cls.is(ctx.ctx.types.bytes_type) {
-            Self::Bytes(value_object.try_to_value::<Vec<u8>>(ctx)?.into())
-        } else if cls.is(ctx.ctx.types.int_type) {
-            Self::Int(Node::ast_from_object(ctx, source_file, value_object)?)
-        } else if cls.is(ctx.ctx.types.tuple_type) {
+        } else if cls.is(vm.ctx.types.bytes_type) {
+            Self::Bytes(value_object.try_to_value::<Vec<u8>>(vm)?.into())
+        } else if cls.is(vm.ctx.types.int_type) {
+            Self::Int(Node::ast_from_object(vm, source_file, value_object)?)
+        } else if cls.is(vm.ctx.types.tuple_type) {
             let tuple = value_object.downcast::<PyTuple>().map_err(|obj| {
-                ctx.new_type_error(format!(
+                vm.new_type_error(format!(
                     "Expected type {}, not {}",
                     PyTuple::static_type().name(),
                     obj.class().name()
@@ -574,32 +567,32 @@ impl Node for ConstantLiteral {
                 .into_iter()
                 .map(|object| {
                     let object = object.clone();
-                    ctx.with_recursion("during compilation", || {
-                        Node::ast_from_object(ctx, source_file, object)
+                    vm.with_recursion("during compilation", || {
+                        Node::ast_from_object(vm, source_file, object)
                     })
                 })
                 .collect::<PyResult<_>>()?;
             Self::Tuple(tuple)
-        } else if cls.is(ctx.ctx.types.frozenset_type) {
+        } else if cls.is(vm.ctx.types.frozenset_type) {
             let set = value_object.downcast::<PyFrozenSet>().unwrap();
             let elements = set
                 .elements()
                 .into_iter()
                 .map(|object| {
-                    ctx.with_recursion("during compilation", || {
-                        Node::ast_from_object(ctx, source_file, object)
+                    vm.with_recursion("during compilation", || {
+                        Node::ast_from_object(vm, source_file, object)
                     })
                 })
                 .collect::<PyResult<_>>()?;
             Self::FrozenSet(elements)
-        } else if cls.is(ctx.ctx.types.float_type) {
-            let float = value_object.try_into_value(ctx)?;
+        } else if cls.is(vm.ctx.types.float_type) {
+            let float = value_object.try_into_value(vm)?;
             Self::Float(float)
-        } else if cls.is(ctx.ctx.types.complex_type) {
-            let complex = value_object.try_complex(ctx)?;
+        } else if cls.is(vm.ctx.types.complex_type) {
+            let complex = value_object.try_complex(vm)?;
             let complex = match complex {
                 None => {
-                    return Err(ctx.new_type_error(format!(
+                    return Err(vm.new_type_error(format!(
                         "Expected type {}, not {}",
                         PyComplex::static_type().name(),
                         value_object.class().name()
@@ -611,10 +604,10 @@ impl Node for ConstantLiteral {
                 real: complex.re,
                 imag: complex.im,
             }
-        } else if cls.is(ctx.ctx.types.ellipsis_type) {
+        } else if cls.is(vm.ctx.types.ellipsis_type) {
             Self::Ellipsis
         } else {
-            return Err(ctx.new_type_error(format!(
+            return Err(vm.new_type_error(format!(
                 "got an invalid type in Constant: {}",
                 value_object.class().name()
             )));

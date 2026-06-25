@@ -2057,7 +2057,7 @@ impl<'warnings> Compiler<'warnings> {
 
     // compiler_exit_scope
     fn exit_scope(&mut self) -> CodeObject {
-        let _table = self.pop_symbol_table();
+        self.pop_symbol_table();
         // Various scopes can have sub_tables:
         // - ast::TypeParams scope can have sub_tables (the function body's symbol table)
         // - Module scope can have sub_tables (for TypeAlias scopes, nested functions, classes)
@@ -9920,7 +9920,7 @@ impl<'warnings> Compiler<'warnings> {
         {
             let _ = self.push_symbol_table()?;
         }
-        let _ = self.pop_symbol_table();
+        self.pop_symbol_table();
         Ok(())
     }
 
@@ -13887,7 +13887,7 @@ mod tests {
                 source_path: "source_path".to_owned(),
             })
         };
-        let _ = compile_top_with_syntax_warning_handler(
+        compile_top_with_syntax_warning_handler(
             parsed,
             source_file,
             Mode::Eval,
@@ -13916,7 +13916,7 @@ mod tests {
                 source_path: "source_path".to_owned(),
             })
         };
-        let _ = compile_top_with_syntax_warning_handler(
+        compile_top_with_syntax_warning_handler(
             parsed,
             source_file,
             Mode::Exec,
@@ -14643,7 +14643,7 @@ def f(x, y, z):
         let mut compiler =
             Compiler::new_with_syntax_warning_handler(opts, source_file, "<module>", None);
         compiler.compile_program(&ast, symbol_table).unwrap();
-        let _table = compiler.pop_symbol_table();
+        compiler.pop_symbol_table();
         let stack_top = compiler.code_stack.pop().unwrap();
         stack_top.debug_late_cfg_trace().unwrap()
     }
@@ -14709,7 +14709,7 @@ def f(x, y, z):
             in_async_scope: is_async,
         };
         compiler.set_qualname();
-        let (_doc_str, body) = split_doc(body, &compiler.opts);
+        let (_, body) = split_doc(body, &compiler.opts);
         let start_label = compiler.use_cpython_function_start_label();
         let is_gen = is_async || compiler.current_symbol_table().is_generator;
         let stop_iteration_block = if is_gen {
@@ -14749,7 +14749,7 @@ def f(x, y, z):
             compiler.set_no_location();
         }
 
-        let _table = compiler.pop_symbol_table();
+        compiler.pop_symbol_table();
         let stack_top = compiler.code_stack.pop().unwrap();
         stack_top.debug_late_cfg_trace().unwrap()
     }

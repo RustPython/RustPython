@@ -4,7 +4,6 @@ use rustpython_compiler_core::SourceFile;
 // product
 impl Node for ast::Parameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         let Self {
             node_index: _,
             posonlyargs,
@@ -12,7 +11,7 @@ impl Node for ast::Parameters {
             vararg,
             kwonlyargs,
             kwarg,
-            range,
+            range: _,
             runtime_defaults,
         } = self;
         let (posonlyargs, args, mut defaults) =
@@ -49,46 +48,40 @@ impl Node for ast::Parameters {
             |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("defaults", defaults, vm).unwrap();
-        let _ = range;
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let posonlyargs = PositionalParameters::ast_from_field(
-            ctx,
+            vm,
             source_file,
             &object,
             "posonlyargs",
             "arguments",
         )?;
         let args =
-            PositionalParameters::ast_from_field(ctx, source_file, &object, "args", "arguments")?;
-        let vararg = get_node_field_opt(ctx, &object, "vararg")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+            PositionalParameters::ast_from_field(vm, source_file, &object, "args", "arguments")?;
+        let vararg = get_node_field_opt(vm, &object, "vararg")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?;
-        let kwonlyargs = KeywordParameters::ast_from_field(
-            ctx,
-            source_file,
-            &object,
-            "kwonlyargs",
-            "arguments",
-        )?;
+        let kwonlyargs =
+            KeywordParameters::ast_from_field(vm, source_file, &object, "kwonlyargs", "arguments")?;
         let kw_defaults = ParameterDefaults::ast_from_field(
-            ctx,
+            vm,
             source_file,
             &object,
             "kw_defaults",
             "arguments",
         )?;
-        let kwarg = get_node_field_opt(ctx, &object, "kwarg")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        let kwarg = get_node_field_opt(vm, &object, "kwarg")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?;
         let defaults = ParameterDefaults::ast_from_field_preserve_none(
-            ctx,
+            vm,
             source_file,
             &object,
             "defaults",
@@ -100,9 +93,9 @@ impl Node for ast::Parameters {
             defaults,
             _range: _,
         } = defaults;
-        let kwonlyargs = merge_keyword_parameter_defaults(ctx, kwonlyargs, kw_defaults)?;
+        let kwonlyargs = merge_keyword_parameter_defaults(vm, kwonlyargs, kw_defaults)?;
         let (posonlyargs, args) =
-            merge_positional_parameter_defaults(ctx, posonlyargs, args, defaults)?;
+            merge_positional_parameter_defaults(vm, posonlyargs, args, defaults)?;
 
         Ok(Self {
             node_index: Default::default(),
@@ -157,20 +150,20 @@ impl Node for ast::Parameter {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
-        let name = get_required_identifier_field(ctx, source_file, &_object, "arg", "arg")?;
-        let annotation = get_node_field_opt(ctx, &_object, "annotation")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        let name = get_required_identifier_field(vm, source_file, &_object, "arg", "arg")?;
+        let annotation = get_node_field_opt(vm, &_object, "annotation")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?;
-        let type_comment = get_ast_string_field_opt(ctx, &_object, "type_comment")?;
+        let type_comment = get_ast_string_field_opt(vm, &_object, "type_comment")?;
         let (runtime_type_comment, runtime_type_comment_bytes) = type_comment
             .map_or((None, None), |type_comment| {
-                super::constant::runtime_string_from_pyobject(ctx, type_comment)
+                super::constant::runtime_string_from_pyobject(vm, type_comment)
             });
-        let range = range_from_object(ctx, source_file, _object, "arg")?;
+        let range = range_from_object(vm, source_file, _object, "arg")?;
         Ok(Self {
             node_index: Default::default(),
             name,
@@ -203,17 +196,17 @@ impl Node for ast::Keyword {
         node.into()
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
             node_index: Default::default(),
-            arg: get_node_field_opt(ctx, &_object, "arg")?
-                .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+            arg: get_node_field_opt(vm, &_object, "arg")?
+                .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
-            value: get_required_node_field(ctx, source_file, &_object, "value", "keyword")?,
-            range: range_from_object(ctx, source_file, _object, "keyword")?,
+            value: get_required_node_field(vm, source_file, &_object, "value", "keyword")?,
+            range: range_from_object(vm, source_file, _object, "keyword")?,
         })
     }
 }
@@ -225,14 +218,14 @@ struct PositionalParameters {
 
 impl PositionalParameters {
     fn ast_from_field(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         Ok(Self {
-            args: get_node_boxed_slice_field(ctx, source_file, object, field, typ)?,
+            args: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
             _range: TextRange::default(),
         })
     }
@@ -240,16 +233,15 @@ impl PositionalParameters {
 
 impl Node for PositionalParameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         BoxedSlice(self.args).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
+        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             args: args.0,
             _range: TextRange::default(),
@@ -264,14 +256,14 @@ struct KeywordParameters {
 
 impl KeywordParameters {
     fn ast_from_field(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         Ok(Self {
-            keywords: get_node_boxed_slice_field(ctx, source_file, object, field, typ)?,
+            keywords: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
             _range: TextRange::default(),
         })
     }
@@ -279,16 +271,15 @@ impl KeywordParameters {
 
 impl Node for KeywordParameters {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         BoxedSlice(self.keywords).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let keywords: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
+        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             keywords: keywords.0,
             _range: TextRange::default(),
@@ -304,28 +295,28 @@ struct ParameterDefaults {
 
 impl ParameterDefaults {
     fn ast_from_field(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         Ok(Self {
-            defaults: get_node_boxed_slice_field(ctx, source_file, object, field, typ)?,
+            defaults: get_node_boxed_slice_field(vm, source_file, object, field, typ)?,
             runtime_defaults: None,
             _range: TextRange::default(),
         })
     }
 
     fn ast_from_field_preserve_none(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
         let defaults: Vec<Option<Box<ast::Expr>>> =
-            get_node_list_field(ctx, source_file, object, field, typ)?;
+            get_node_list_field(vm, source_file, object, field, typ)?;
         let runtime_defaults = defaults.iter().any(Option::is_none).then(|| {
             defaults
                 .iter()
@@ -342,16 +333,15 @@ impl ParameterDefaults {
 
 impl Node for ParameterDefaults {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         BoxedSlice(self.defaults).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let defaults: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
+        let defaults: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
             defaults: defaults.0,
             runtime_defaults: None,

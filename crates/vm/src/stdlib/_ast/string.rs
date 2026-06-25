@@ -489,13 +489,13 @@ fn joined_str_part_to_ruff_fstring_element(
 
 // constructor
 pub(super) fn joined_str_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<JoinedStr> {
     let values: Vec<Option<ast::Expr>> =
-        get_node_list_field(ctx, source_file, &object, "values", "JoinedStr")?;
+        get_node_list_field(vm, source_file, &object, "values", "JoinedStr")?;
     Ok(JoinedStr {
         values: Vec::new().into_boxed_slice(),
         runtime_values: Some(values),
@@ -505,14 +505,13 @@ pub(super) fn joined_str_from_object_with_range(
 
 impl Node for JoinedStr {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             values,
             runtime_values,
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(ctx, pyast::NodeExprJoinedStr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprJoinedStr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let values = if let Some(runtime_values) = runtime_values {
@@ -520,17 +519,17 @@ impl Node for JoinedStr {
         } else {
             BoxedSlice(values).ast_to_object(vm, source_file)
         };
-        dict.set_item("values", values, ctx).unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        dict.set_item("values", values, vm).unwrap();
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "JoinedStr")?;
-        joined_str_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "JoinedStr")?;
+        joined_str_from_object_with_range(vm, source_file, object, range)
     }
 }
 
@@ -543,26 +542,25 @@ pub(super) enum JoinedStrPart {
 // constructor
 impl Node for JoinedStrPart {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         match self {
             Self::FormattedValue(value) => value.ast_to_object(vm, source_file),
             Self::Constant(value) => value.ast_to_object(vm, source_file),
         }
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if is_node_instance(ctx, &object, pyast::NodeExprFormattedValue::static_type())? {
+        if is_node_instance(vm, &object, pyast::NodeExprFormattedValue::static_type())? {
             Ok(Self::FormattedValue(Node::ast_from_object(
-                ctx,
+                vm,
                 source_file,
                 object,
             )?))
         } else {
             Ok(Self::Constant(Node::ast_from_object(
-                ctx,
+                vm,
                 source_file,
                 object,
             )?))
@@ -580,20 +578,20 @@ pub(super) struct FormattedValue {
 
 // constructor
 pub(super) fn formatted_value_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<FormattedValue> {
     Ok(FormattedValue {
-        value: get_required_node_field(ctx, source_file, &object, "value", "FormattedValue")?,
+        value: get_required_node_field(vm, source_file, &object, "value", "FormattedValue")?,
         conversion: Node::ast_from_object(
-            ctx,
+            vm,
             source_file,
-            get_node_field(ctx, &object, "conversion", "FormattedValue")?,
+            get_node_field(vm, &object, "conversion", "FormattedValue")?,
         )?,
-        format_spec: get_node_field_opt(ctx, &object, "format_spec")?
-            .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+        format_spec: get_node_field_opt(vm, &object, "format_spec")?
+            .map(|obj| Node::ast_from_object(vm, source_file, obj))
             .transpose()?,
         range,
     })
@@ -625,12 +623,12 @@ impl Node for FormattedValue {
         node.into()
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "FormattedValue")?;
-        formatted_value_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "FormattedValue")?;
+        formatted_value_from_object_with_range(vm, source_file, object, range)
     }
 }
 
@@ -652,7 +650,6 @@ pub(super) fn fstring_to_object(
     source_file: &SourceFile,
     expression: ast::ExprFString,
 ) -> PyObjectRef {
-    let ctx = vm;
     let ast::ExprFString {
         range,
         mut value,
@@ -717,7 +714,7 @@ pub(super) fn fstring_to_object(
         if let JoinedStrPart::FormattedValue(value) = part
             && let Some(format_spec) = &value.format_spec
         {
-            warn_invalid_escape_sequences_in_format_spec(ctx, source_file, format_spec.range());
+            warn_invalid_escape_sequences_in_format_spec(vm, source_file, format_spec.range());
         }
     }
     let c = JoinedStr {
@@ -878,7 +875,7 @@ pub(super) struct TemplateStr {
 }
 
 pub(super) fn template_str_to_expr(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     template: TemplateStr,
 ) -> PyResult<ast::Expr> {
@@ -887,7 +884,7 @@ pub(super) fn template_str_to_expr(
         values,
         runtime_values: raw_runtime_values,
     } = template;
-    let elements = template_parts_to_elements(ctx, source_file, values)?;
+    let elements = template_parts_to_elements(vm, source_file, values)?;
     let tstring = ast::TString {
         range,
         node_index: Default::default(),
@@ -912,13 +909,13 @@ pub(super) fn template_str_to_expr(
 }
 
 pub(super) fn interpolation_to_expr(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     interpolation: TStringInterpolation,
 ) -> PyResult<ast::Expr> {
     let range = interpolation.range;
     let part = TemplateStrPart::Interpolation(interpolation);
-    let elements = template_parts_to_elements(ctx, source_file, vec![part].into_boxed_slice())?;
+    let elements = template_parts_to_elements(vm, source_file, vec![part].into_boxed_slice())?;
     let tstring = ast::TString {
         range,
         node_index: Default::default(),
@@ -935,26 +932,26 @@ pub(super) fn interpolation_to_expr(
 }
 
 fn template_parts_to_elements(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     values: Box<[TemplateStrPart]>,
 ) -> PyResult<ast::InterpolatedStringElements> {
     let mut elements = Vec::with_capacity(values.len());
     for value in values.into_vec() {
-        elements.push(template_part_to_element(ctx, source_file, value)?);
+        elements.push(template_part_to_element(vm, source_file, value)?);
     }
     Ok(ast::InterpolatedStringElements::from(elements))
 }
 
 fn template_part_to_element(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     part: TemplateStrPart,
 ) -> PyResult<ast::InterpolatedStringElement> {
     match part {
         TemplateStrPart::Constant(constant) => {
             let ConstantLiteral::Str { value, .. } = constant.value else {
-                return Err(ctx.new_type_error("TemplateStr constant values must be strings"));
+                return Err(vm.new_type_error("TemplateStr constant values must be strings"));
             };
             Ok(ast::InterpolatedStringElement::Literal(
                 ast::InterpolatedStringLiteralElement {
@@ -973,7 +970,7 @@ fn template_part_to_element(
                 range,
             } = interpolation;
             let str_constant =
-                super::constant::constant_object_to_constant_data(ctx, source_file, str)?;
+                super::constant::constant_object_to_constant_data(vm, source_file, str)?;
             let runtime_str = Some(super::constant::constant_data_to_ast_constant_value(
                 str_constant,
             ));
@@ -998,13 +995,13 @@ fn template_part_to_element(
 
 // constructor
 pub(super) fn template_str_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<TemplateStr> {
     let values: Vec<Option<ast::Expr>> =
-        get_node_list_field(ctx, source_file, &object, "values", "TemplateStr")?;
+        get_node_list_field(vm, source_file, &object, "values", "TemplateStr")?;
     Ok(TemplateStr {
         values: Vec::new().into_boxed_slice(),
         runtime_values: Some(values),
@@ -1033,12 +1030,12 @@ impl Node for TemplateStr {
         node.into()
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "TemplateStr")?;
-        template_str_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "TemplateStr")?;
+        template_str_from_object_with_range(vm, source_file, object, range)
     }
 }
 
@@ -1051,26 +1048,25 @@ pub(super) enum TemplateStrPart {
 // constructor
 impl Node for TemplateStrPart {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let _source_file = source_file;
         match self {
             Self::Interpolation(value) => value.ast_to_object(vm, source_file),
             Self::Constant(value) => value.ast_to_object(vm, source_file),
         }
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if is_node_instance(ctx, &object, pyast::NodeExprInterpolation::static_type())? {
+        if is_node_instance(vm, &object, pyast::NodeExprInterpolation::static_type())? {
             Ok(Self::Interpolation(Node::ast_from_object(
-                ctx,
+                vm,
                 source_file,
                 object,
             )?))
         } else {
             Ok(Self::Constant(Node::ast_from_object(
-                ctx,
+                vm,
                 source_file,
                 object,
             )?))
@@ -1089,20 +1085,20 @@ pub(super) struct TStringInterpolation {
 
 // constructor
 pub(super) fn tstring_interpolation_from_object_with_range(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<TStringInterpolation> {
-    let value = get_required_node_field(ctx, source_file, &object, "value", "Interpolation")?;
-    let str = get_node_field(ctx, &object, "str", "Interpolation")?;
+    let value = get_required_node_field(vm, source_file, &object, "value", "Interpolation")?;
+    let str = get_node_field(vm, &object, "str", "Interpolation")?;
     let conversion = Node::ast_from_object(
-        ctx,
+        vm,
         source_file,
-        get_node_field(ctx, &object, "conversion", "Interpolation")?,
+        get_node_field(vm, &object, "conversion", "Interpolation")?,
     )?;
-    let format_spec: Option<Box<ast::Expr>> = get_node_field_opt(ctx, &object, "format_spec")?
-        .map(|obj| Node::ast_from_object(ctx, source_file, obj))
+    let format_spec: Option<Box<ast::Expr>> = get_node_field_opt(vm, &object, "format_spec")?
+        .map(|obj| Node::ast_from_object(vm, source_file, obj))
         .transpose()?;
     Ok(TStringInterpolation {
         value,
@@ -1115,7 +1111,6 @@ pub(super) fn tstring_interpolation_from_object_with_range(
 
 impl Node for TStringInterpolation {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let ctx = vm;
         let Self {
             value,
             str,
@@ -1124,30 +1119,30 @@ impl Node for TStringInterpolation {
             range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(ctx, pyast::NodeExprInterpolation::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeExprInterpolation::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value.ast_to_object(vm, source_file), ctx)
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("str", str, ctx).unwrap();
-        dict.set_item("conversion", conversion.ast_to_object(vm, source_file), ctx)
+        dict.set_item("str", str, vm).unwrap();
+        dict.set_item("conversion", conversion.ast_to_object(vm, source_file), vm)
             .unwrap();
         dict.set_item(
             "format_spec",
             format_spec.ast_to_object(vm, source_file),
-            ctx,
+            vm,
         )
         .unwrap();
-        node_add_location(&dict, range, ctx, source_file);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let range = range_from_object(ctx, source_file, object.clone(), "Interpolation")?;
-        tstring_interpolation_from_object_with_range(ctx, source_file, object, range)
+        let range = range_from_object(vm, source_file, object.clone(), "Interpolation")?;
+        tstring_interpolation_from_object_with_range(vm, source_file, object, range)
     }
 }
 
@@ -1156,7 +1151,6 @@ pub(super) fn tstring_to_object(
     source_file: &SourceFile,
     expression: ast::ExprTString,
 ) -> PyObjectRef {
-    let _source_file = source_file;
     let ast::ExprTString {
         range,
         mut value,

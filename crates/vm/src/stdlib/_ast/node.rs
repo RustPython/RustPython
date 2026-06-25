@@ -5,7 +5,7 @@ use thin_vec::ThinVec;
 pub(crate) trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef;
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self>;
@@ -28,12 +28,12 @@ impl<T: Node> Node for Vec<T> {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let list = object.downcast_ref::<PyList>().ok_or_else(|| {
-            ctx.new_type_error(format!(
+            vm.new_type_error(format!(
                 "AST list field must be a list, not a {}",
                 object.class().name()
             ))
@@ -45,16 +45,16 @@ impl<T: Node> Node for Vec<T> {
                 let items = list.borrow_vec();
                 if items.len() != len {
                     return Err(
-                        ctx.new_runtime_error("AST list field changed size during iteration")
+                        vm.new_runtime_error("AST list field changed size during iteration")
                     );
                 }
                 items[i].clone()
             };
-            result.push(ctx.with_recursion("while traversing AST node", || {
-                Node::ast_from_object(ctx, source_file, item)
+            result.push(vm.with_recursion("while traversing AST node", || {
+                Node::ast_from_object(vm, source_file, item)
             })?);
             if list.borrow_vec().len() != len {
-                return Err(ctx.new_runtime_error("AST list field changed size during iteration"));
+                return Err(vm.new_runtime_error("AST list field changed size during iteration"));
             }
         }
         Ok(result)
@@ -73,11 +73,11 @@ impl<T: Node> Node for ThinVec<T> {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        Vec::<T>::ast_from_object(ctx, source_file, object).map(Into::into)
+        Vec::<T>::ast_from_object(vm, source_file, object).map(Into::into)
     }
 }
 
@@ -87,12 +87,12 @@ impl<T: Node> Node for Box<T> {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        ctx.with_recursion("while traversing AST node", || {
-            T::ast_from_object(ctx, source_file, object).map(Self::new)
+        vm.with_recursion("while traversing AST node", || {
+            T::ast_from_object(vm, source_file, object).map(Self::new)
         })
     }
 
@@ -110,14 +110,14 @@ impl<T: Node> Node for Option<T> {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if ctx.is_none(&object) {
+        if vm.is_none(&object) {
             Ok(None)
         } else {
-            let x = T::ast_from_object(ctx, source_file, object)?;
+            let x = T::ast_from_object(vm, source_file, object)?;
             Ok((!x.is_none()).then_some(x))
         }
     }
@@ -131,12 +131,12 @@ impl<T: Node> Node for BoxedSlice<T> {
     }
 
     fn ast_from_object(
-        ctx: &VirtualMachine,
+        vm: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self(
-            <Vec<T> as Node>::ast_from_object(ctx, source_file, object)?.into_boxed_slice(),
+            <Vec<T> as Node>::ast_from_object(vm, source_file, object)?.into_boxed_slice(),
         ))
     }
 }

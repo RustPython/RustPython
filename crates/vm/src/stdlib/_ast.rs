@@ -98,33 +98,33 @@ fn get_node_field_required(
 }
 
 fn get_required_identifier_field<T: Node>(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<T> {
-    let value = get_node_field_required(ctx, obj, field, typ)?;
-    if ctx.is_none(&value) {
-        return Err(ctx.new_value_error(format!("field '{field}' is required for {typ}")));
+    let value = get_node_field_required(vm, obj, field, typ)?;
+    if vm.is_none(&value) {
+        return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
     }
-    Node::ast_from_object(ctx, source_file, value)
+    Node::ast_from_object(vm, source_file, value)
 }
 
 fn get_required_node_field<T: Node>(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<T> {
-    let value = get_node_field_required(ctx, obj, field, typ)?;
-    if ctx.is_none(&value) {
-        return Err(ctx.new_value_error(format!("field '{field}' is required for {typ}")));
+    let value = get_node_field_required(vm, obj, field, typ)?;
+    if vm.is_none(&value) {
+        return Err(vm.new_value_error(format!("field '{field}' is required for {typ}")));
     }
     let recursion_context = format!(" while traversing '{typ}' node");
-    ctx.with_recursion(&recursion_context, || {
-        Node::ast_from_object(ctx, source_file, value)
+    vm.with_recursion(&recursion_context, || {
+        Node::ast_from_object(vm, source_file, value)
     })
 }
 
@@ -139,15 +139,15 @@ fn get_node_field_opt(
 }
 
 fn get_node_list_field<T: Node>(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<Vec<T>> {
-    let value = get_node_list_field_object(ctx, obj, field, typ)?;
+    let value = get_node_list_field_object(vm, obj, field, typ)?;
     let list = value.downcast_ref::<PyList>().unwrap();
-    convert_node_list_field(ctx, source_file, list, field, typ)
+    convert_node_list_field(vm, source_file, list, field, typ)
 }
 
 fn get_node_list_field_object(
@@ -169,7 +169,7 @@ fn get_node_list_field_object(
 }
 
 fn convert_node_list_field<T: Node>(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     list: &PyList,
     field: &'static str,
@@ -182,17 +182,17 @@ fn convert_node_list_field<T: Node>(
         let item = {
             let items = list.borrow_vec();
             if items.len() != len {
-                return Err(ctx.new_runtime_error(format!(
+                return Err(vm.new_runtime_error(format!(
                     r#"{typ} field "{field}" changed size during iteration"#
                 )));
             }
             items[i].clone()
         };
-        result.push(ctx.with_recursion(&recursion_context, || {
-            Node::ast_from_object(ctx, source_file, item)
+        result.push(vm.with_recursion(&recursion_context, || {
+            Node::ast_from_object(vm, source_file, item)
         })?);
         if list.borrow_vec().len() != len {
-            return Err(ctx.new_runtime_error(format!(
+            return Err(vm.new_runtime_error(format!(
                 r#"{typ} field "{field}" changed size during iteration"#
             )));
         }
@@ -201,13 +201,13 @@ fn convert_node_list_field<T: Node>(
 }
 
 fn get_node_boxed_slice_field<T: Node>(
-    ctx: &VirtualMachine,
+    vm: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
     typ: &str,
 ) -> PyResult<Box<[T]>> {
-    Ok(get_node_list_field(ctx, source_file, obj, field, typ)?.into_boxed_slice())
+    Ok(get_node_list_field(vm, source_file, obj, field, typ)?.into_boxed_slice())
 }
 
 fn runtime_expr_list_from_values(
@@ -2068,7 +2068,6 @@ pub(crate) fn parse_func_type(
     let func_type = ModFunctionType {
         argtypes: argtypes.into_boxed_slice(),
         returns,
-        range: TextRange::default(),
         runtime_argtypes: None,
     };
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
@@ -2436,6 +2435,11 @@ pub(crate) fn compile(
     #[cfg(feature = "parser")]
     let code = {
         let source_path = filename.to_owned();
+        // A warning the filter escalates to an exception is stashed here so a
+        // non-SyntaxWarning category propagates unchanged, matching
+        // PyErr_ExceptionMatches(SyntaxWarning) in compiler_warn.
+        let escalated: core::cell::Cell<Option<crate::builtins::PyBaseExceptionRef>> =
+            core::cell::Cell::new(None);
         let mut syntax_warning_handler = |location: SourceLocation, message: String| {
             let fname = vm.ctx.new_str(source_path.as_str());
             let message = vm.ctx.new_str(message);
@@ -2455,20 +2459,28 @@ pub(crate) fn compile(
                     |_| "compiler warning raised as an exception".to_owned(),
                     |message| message.as_wtf8().to_string(),
                 );
-                codegen::error::CodegenError {
+                let marker = codegen::error::CodegenError {
                     location: Some(location),
                     error: codegen::error::CodegenErrorType::SyntaxError(message),
                     source_path: source_path.clone(),
-                }
+                };
+                escalated.set(Some(exception));
+                marker
             })
         };
-        codegen::compile::compile_top_with_syntax_warning_handler(
+        let result = codegen::compile::compile_top_with_syntax_warning_handler(
             ast,
             source_file,
             mode,
             opts,
             Some(&mut syntax_warning_handler),
-        )
+        );
+        match escalated.take() {
+            Some(exception) if !exception.fast_isinstance(vm.ctx.exceptions.syntax_warning) => {
+                return Err(exception);
+            }
+            _ => result,
+        }
     };
     #[cfg(not(feature = "parser"))]
     let code = codegen::compile::compile_top(ast, source_file, mode, opts);
