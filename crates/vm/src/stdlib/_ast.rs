@@ -4,6 +4,8 @@
 //! This module makes use of the parser logic, and translates all ast nodes
 //! into python ast.AST objects.
 
+use thin_vec::ThinVec;
+
 pub(crate) use python::_ast::module_def;
 
 mod pyast;
@@ -559,7 +561,7 @@ fn strip_docstrings(top: &mut ast::Mod) {
 }
 
 #[cfg(feature = "parser")]
-fn strip_docstring_in_body(body: &mut Vec<ast::Stmt>) {
+fn strip_docstring_in_body(body: &mut ThinVec<ast::Stmt>) {
     if let Some(range) = take_docstring(body)
         && body.is_empty()
     {
@@ -581,7 +583,7 @@ fn strip_docstring_in_body(body: &mut Vec<ast::Stmt>) {
 }
 
 #[cfg(feature = "parser")]
-fn take_docstring(body: &mut Vec<ast::Stmt>) -> Option<TextRange> {
+fn take_docstring(body: &mut ThinVec<ast::Stmt>) -> Option<TextRange> {
     let ast::Stmt::Expr(expr_stmt) = body.first()? else {
         return None;
     };

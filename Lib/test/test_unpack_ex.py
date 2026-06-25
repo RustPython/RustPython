@@ -168,7 +168,7 @@ List comprehension element unpacking
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> {**{} for a in [1]} # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> {**{} for a in [1]}
     Traceback (most recent call last):
     ...
     SyntaxError: dict unpacking cannot be used in dict comprehension

@@ -283,7 +283,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertRaises(SyntaxError, compile, stmt, 'tmp', 'single')
             self.assertRaises(SyntaxError, compile, stmt, 'tmp', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile
     def test_import(self):
         succeed = [
             'import sys',

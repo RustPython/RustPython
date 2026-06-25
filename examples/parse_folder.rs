@@ -75,7 +75,7 @@ fn parse_python_file(filename: &Path) -> ParsedFile {
         Ok(source) => {
             let num_lines = source.lines().count();
             let result = parse_module(&source)
-                .map(|x| x.into_suite())
+                .map(|x| x.into_suite().into())
                 .map_err(|e| e.to_string());
             ParsedFile { num_lines, result }
         }

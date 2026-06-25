@@ -1,15 +1,17 @@
+use thin_vec::ThinVec;
+
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
 pub(super) struct PositionalArguments {
     pub range: TextRange,
-    pub args: Box<[ast::Expr]>,
+    pub args: ThinVec<ast::Expr>,
 }
 
 impl Node for PositionalArguments {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { args, range: _ } = self;
-        BoxedSlice(args).ast_to_object(vm, source_file)
+        args.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
@@ -17,9 +19,9 @@ impl Node for PositionalArguments {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let args: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
+        let args: ThinVec<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
-            args: args.0,
+            args,
             range: TextRange::default(), // TODO
         })
     }
@@ -27,14 +29,14 @@ impl Node for PositionalArguments {
 
 pub(super) struct KeywordArguments {
     pub range: TextRange,
-    pub keywords: Box<[ast::Keyword]>,
+    pub keywords: ThinVec<ast::Keyword>,
 }
 
 impl Node for KeywordArguments {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self { keywords, range: _ } = self;
         // TODO: use range
-        BoxedSlice(keywords).ast_to_object(vm, source_file)
+        keywords.ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
@@ -42,9 +44,9 @@ impl Node for KeywordArguments {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let keywords: BoxedSlice<_> = Node::ast_from_object(vm, source_file, object)?;
+        let keywords: ThinVec<_> = Node::ast_from_object(vm, source_file, object)?;
         Ok(Self {
-            keywords: keywords.0,
+            keywords,
             range: TextRange::default(), // TODO
         })
     }
@@ -59,7 +61,7 @@ pub(super) fn merge_function_call_arguments(
     ast::Arguments {
         node_index: Default::default(),
         range,
-        args: pos_args.args,
+        args: pos_args.args.into(),
         keywords: key_args.keywords,
     }
 }
@@ -82,7 +84,7 @@ pub(super) fn split_function_call_arguments(
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
         range: positional_arguments_range,
-        args,
+        args: args.into(),
     };
 
     let keyword_arguments_range = keywords
@@ -121,7 +123,7 @@ pub(super) fn split_class_def_args(
     // debug_assert!(range.contains_range(positional_arguments_range));
     let positional_arguments = PositionalArguments {
         range: positional_arguments_range,
-        args,
+        args: args.into(),
     };
 
     let keyword_arguments_range = keywords
@@ -149,18 +151,18 @@ pub(super) fn merge_class_def_args(
     let args = if let Some(positional_arguments) = positional_arguments {
         positional_arguments.args
     } else {
-        vec![].into_boxed_slice()
+        ThinVec::new()
     };
     let keywords = if let Some(keyword_arguments) = keyword_arguments {
         keyword_arguments.keywords
     } else {
-        vec![].into_boxed_slice()
+        ThinVec::new()
     };
 
     Some(Box::new(ast::Arguments {
         node_index: Default::default(),
         range: Default::default(), // TODO
-        args,
+        args: args.into(),
         keywords,
     }))
 }

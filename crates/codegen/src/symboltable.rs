@@ -2163,6 +2163,19 @@ impl SymbolTableBuilder {
                     self.in_iter_def_exp = true;
                 }
                 // Dict comprehension - is_generator = false (can be inlined)
+
+                let Some(key) = key else {
+                    // RustPython does not support PEP 798 yet
+                    return Err(SymbolTableError {
+                        error: "dict unpacking cannot be used in dict comprehension".into(),
+                        location: Some(
+                            self.source_file
+                                .to_source_code()
+                                .source_location(range.start(), PositionEncoding::Utf8),
+                        ),
+                    });
+                };
+
                 self.scan_comprehension("<dictcomp>", key, Some(value), generators, *range, false)?;
                 self.in_iter_def_exp = was_in_iter_def_exp;
             }

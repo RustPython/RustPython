@@ -381,7 +381,13 @@ fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -
         }
         ast::Expr::DictComp(dict) => {
             validate_comprehension(vm, &dict.generators)?;
-            validate_expr(vm, &dict.key, ast::ExprContext::Load)?;
+            validate_expr(
+                vm,
+                dict.key
+                    .as_ref()
+                    .expect("RustPython does not support PEP798 yet"),
+                ast::ExprContext::Load,
+            )?;
             validate_expr(vm, &dict.value, ast::ExprContext::Load)
         }
         ast::Expr::Generator(generator) => {

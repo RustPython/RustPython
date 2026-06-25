@@ -1,3 +1,5 @@
+use thin_vec::ThinVec;
+
 use crate::{PyObjectRef, PyResult, VirtualMachine};
 use rustpython_compiler_core::SourceFile;
 
@@ -39,6 +41,34 @@ impl<T: Node> Node for Vec<T> {
                 Node::ast_from_object(vm, source_file, obj)
             })
         })
+    }
+}
+
+impl<T: Node> Node for ThinVec<T> {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        vm.ctx
+            .new_list(
+                self.into_iter()
+                    .map(|node| node.ast_to_object(vm, source_file))
+                    .collect(),
+            )
+            .into()
+    }
+
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        // Recursion guard for each element: prevents stack overflow when a
+        // sequence element transitively references the sequence itself
+        // (e.g. `l = ast.List(...); l.elts = [l]`). See issue #4862.
+        vm.extract_elements_with(&object, |obj| {
+            vm.with_recursion("while traversing AST node", || {
+                Node::ast_from_object(vm, source_file, obj)
+            })
+        })
+        .map(Into::into)
     }
 }
 
