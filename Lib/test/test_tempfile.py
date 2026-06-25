@@ -332,7 +332,9 @@ class TestBadTempdir:
         with _inside_empty_temp_dir():
             probe = os.path.join(tempfile.tempdir, 'probe')
             if os.name == 'nt':
-                cmd = ['icacls', tempfile.tempdir, '/deny', 'Everyone:(W)']
+                # Use security identifier *S-1-1-0 instead
+                # of localized "Everyone" to not depend on the locale.
+                cmd = ['icacls', tempfile.tempdir, '/deny', '*S-1-1-0:(W)']
                 stdout = None if support.verbose > 1 else subprocess.DEVNULL
                 subprocess.run(cmd, check=True, stdout=stdout)
             else:
@@ -355,7 +357,9 @@ class TestBadTempdir:
                     self.make_temp()
             finally:
                 if os.name == 'nt':
-                    cmd = ['icacls', tempfile.tempdir, '/grant:r', 'Everyone:(M)']
+                    # Use security identifier *S-1-1-0 instead
+                    # of localized "Everyone" to not depend on the locale.
+                    cmd = ['icacls', tempfile.tempdir, '/grant:r', '*S-1-1-0:(M)']
                     subprocess.run(cmd, check=True, stdout=stdout)
                 else:
                     os.chmod(tempfile.tempdir, oldmode)
@@ -1747,7 +1751,7 @@ class TestTemporaryDirectory(BaseTestCase):
         d2.cleanup()
 
     @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; flaky, sometimes pollute env on CI")
-    @unittest.expectedFailureIf(sys.platform in ("android", "linux"), "TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory: '<LONG_PATH>'")
+    @unittest.expectedFailureIf(sys.platform in ('android', 'linux'), "TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory: '<LONG_PATH>'")
     @os_helper.skip_unless_symlink
     def test_cleanup_with_symlink_modes(self):
         # cleanup() should not follow symlinks when fixing mode bits (#91133)
