@@ -1,57 +1,85 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
-pub(super) struct PositionalArguments {
-    pub runtime_values: Option<Vec<Option<ast::Expr>>>,
-    pub range: TextRange,
-    pub args: Box<[ast::Expr]>,
+pub(super) enum PositionalArguments {
+    Args {
+        range: TextRange,
+        args: Box<[ast::Expr]>,
+    },
+    RuntimeValues {
+        range: TextRange,
+        values: Vec<Option<ast::Expr>>,
+    },
 }
 
 impl PositionalArguments {
     pub(super) fn ast_from_field(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
         typ: &str,
     ) -> PyResult<Self> {
-        let args: Vec<Option<ast::Expr>> =
+        let values: Vec<Option<ast::Expr>> =
             get_node_list_field(ctx, source_file, object, field, typ)?;
-        let (runtime_values, args) = public_expr_boxed_slice_from_values(args);
-        Ok(Self {
-            runtime_values,
-            args,
-            range: TextRange::default(),
-        })
+        Ok(Self::from_values(TextRange::default(), values))
+    }
+
+    fn from_args(range: TextRange, args: Box<[ast::Expr]>) -> Self {
+        Self::Args { range, args }
+    }
+
+    fn from_runtime_values(range: TextRange, values: Vec<Option<ast::Expr>>) -> Self {
+        Self::RuntimeValues { range, values }
+    }
+
+    fn from_values(range: TextRange, values: Vec<Option<ast::Expr>>) -> Self {
+        if values.iter().any(Option::is_none) {
+            Self::from_runtime_values(range, values)
+        } else {
+            Self::from_args(
+                range,
+                values
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            )
+        }
+    }
+
+    fn range(&self) -> TextRange {
+        match self {
+            Self::Args { range, .. } | Self::RuntimeValues { range, .. } => *range,
+        }
+    }
+
+    fn into_args_and_runtime_values(self) -> (Box<[ast::Expr]>, Option<Vec<Option<ast::Expr>>>) {
+        match self {
+            Self::Args { args, .. } => (args, None),
+            Self::RuntimeValues { values, .. } => (
+                lower_runtime_expr_list(values.clone()).into_boxed_slice(),
+                Some(values),
+            ),
+        }
     }
 }
 
 impl Node for PositionalArguments {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
-        let Self {
-            runtime_values,
-            args,
-            range: _,
-        } = self;
-        runtime_values.map_or_else(
-            || BoxedSlice(args).ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
-        )
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        match self {
+            Self::Args { args, .. } => BoxedSlice(args).ast_to_object(vm, source_file),
+            Self::RuntimeValues { values, .. } => values.ast_to_object(vm, source_file),
+        }
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         let args: BoxedSlice<_> = Node::ast_from_object(ctx, source_file, object)?;
-        Ok(Self {
-            runtime_values: None,
-            args: args.0,
-            range: TextRange::default(),
-        })
+        Ok(Self::from_args(TextRange::default(), args.0))
     }
 }
 
@@ -62,7 +90,7 @@ pub(super) struct KeywordArguments {
 
 impl KeywordArguments {
     pub(super) fn ast_from_field(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: &PyObject,
         field: &'static str,
@@ -76,16 +104,15 @@ impl KeywordArguments {
 }
 
 impl Node for KeywordArguments {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let Self { keywords, range: _ } = self;
         // TODO: use range
-        BoxedSlice(keywords).ast_to_object(to_ctx)
+        BoxedSlice(keywords).ast_to_object(vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -101,14 +128,15 @@ pub(super) fn merge_function_call_arguments(
     pos_args: PositionalArguments,
     key_args: KeywordArguments,
 ) -> ast::Arguments {
-    let range = pos_args.range.cover(key_args.range);
+    let range = pos_args.range().cover(key_args.range);
+    let (args, runtime_args) = pos_args.into_args_and_runtime_values();
 
     ast::Arguments {
         node_index: Default::default(),
         range,
-        args: pos_args.args,
+        args,
         keywords: key_args.keywords,
-        runtime_args: pos_args.runtime_values,
+        runtime_args,
         runtime_bases: None,
     }
 }
@@ -131,11 +159,10 @@ pub(super) fn split_function_call_arguments(
         .reduce(|acc, next| acc.cover(next))
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
-    let positional_arguments = PositionalArguments {
-        runtime_values: runtime_args,
-        range: positional_arguments_range,
-        args,
-    };
+    let positional_arguments = runtime_args.map_or_else(
+        || PositionalArguments::from_args(positional_arguments_range, args),
+        |values| PositionalArguments::from_runtime_values(positional_arguments_range, values),
+    );
 
     let keyword_arguments_range = keywords
         .iter()
@@ -173,11 +200,10 @@ pub(super) fn split_class_def_args(
         .reduce(|acc, next| acc.cover(next))
         .unwrap_or_default();
     // debug_assert!(range.contains_range(positional_arguments_range));
-    let positional_arguments = PositionalArguments {
-        runtime_values: runtime_bases,
-        range: positional_arguments_range,
-        args,
-    };
+    let positional_arguments = runtime_bases.map_or_else(
+        || PositionalArguments::from_args(positional_arguments_range, args),
+        |values| PositionalArguments::from_runtime_values(positional_arguments_range, values),
+    );
 
     let keyword_arguments_range = keywords
         .iter()
@@ -201,13 +227,10 @@ pub(super) fn merge_class_def_args(
         return None;
     }
 
-    let (runtime_bases, args) = if let Some(positional_arguments) = positional_arguments {
-        (
-            positional_arguments.runtime_values,
-            positional_arguments.args,
-        )
+    let (args, runtime_bases) = if let Some(positional_arguments) = positional_arguments {
+        positional_arguments.into_args_and_runtime_values()
     } else {
-        (None, vec![].into_boxed_slice())
+        (vec![].into_boxed_slice(), None)
     };
     let keywords = if let Some(keyword_arguments) = keyword_arguments {
         keyword_arguments.keywords

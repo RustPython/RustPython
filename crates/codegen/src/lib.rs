@@ -53,7 +53,7 @@ pub(crate) fn constant_data_to_ast_constant_value(value: ConstantData) -> ast::C
         },
         ConstantData::Ellipsis => ast::ConstantValue::Ellipsis,
         ConstantData::Code { .. } | ConstantData::Slice { .. } => {
-            unreachable!("public AST constants cannot contain code objects or slices")
+            unreachable!("ast.Constant values cannot contain code objects or slices")
         }
     }
 }
@@ -71,7 +71,7 @@ pub(crate) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
         ast::ConstantValue::Integer(value) => ConstantData::Integer {
             value: value
                 .parse()
-                .expect("RustPython public AST integer constants are decimal integers"),
+                .expect("RustPython ast.Constant integer values are decimal integers"),
         },
         ast::ConstantValue::Tuple(elements) => ConstantData::Tuple {
             elements: elements

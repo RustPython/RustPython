@@ -4,15 +4,14 @@ use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::Identifier {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let id = self.as_str();
         vm.ctx.intern_str(id).to_object()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -26,14 +25,13 @@ impl Node for ast::Identifier {
 }
 
 impl Node for ast::Int {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         vm.ctx.new_int(ruff_int_to_bigint(&self).unwrap()).into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -44,14 +42,13 @@ impl Node for ast::Int {
 }
 
 impl Node for bool {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         vm.ctx.new_int(self as u8).into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {

@@ -2,14 +2,13 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::ConversionFlag {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         vm.ctx.new_int(self as i8).into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -25,14 +24,13 @@ impl Node for ast::ConversionFlag {
 
 // /// This is just a string, not strictly an AST node. But it makes AST conversions easier.
 impl Node for ast::name::Name {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         vm.ctx.intern_str(self.as_str()).to_object()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -47,14 +45,13 @@ impl Node for ast::name::Name {
 }
 
 impl Node for ast::Decorator {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
-        ast::Expr::ast_to_object(self.expression, to_ctx)
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
+        ast::Expr::ast_to_object(self.expression, vm, source_file)
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -70,9 +67,7 @@ impl Node for ast::Decorator {
 
 // product
 impl Node for ast::Alias {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             name,
@@ -83,16 +78,16 @@ impl Node for ast::Alias {
             .into_ref_with_type(vm, pyast::NodeAlias::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("asname", asname.ast_to_object(to_ctx), vm)
+        dict.set_item("asname", asname.ast_to_object(vm, source_file), vm)
             .unwrap();
         node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -109,9 +104,8 @@ impl Node for ast::Alias {
 
 // product
 impl Node for ast::WithItem {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let Self {
             node_index: _,
             context_expr,
@@ -122,15 +116,23 @@ impl Node for ast::WithItem {
             .into_ref_with_type(vm, pyast::NodeWithItem::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("context_expr", context_expr.ast_to_object(to_ctx), vm)
-            .unwrap();
-        dict.set_item("optional_vars", optional_vars.ast_to_object(to_ctx), vm)
-            .unwrap();
+        dict.set_item(
+            "context_expr",
+            context_expr.ast_to_object(vm, source_file),
+            vm,
+        )
+        .unwrap();
+        dict.set_item(
+            "optional_vars",
+            optional_vars.ast_to_object(vm, source_file),
+            vm,
+        )
+        .unwrap();
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {

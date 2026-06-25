@@ -3,15 +3,14 @@ use rustpython_compiler_core::SourceFile;
 
 // sum
 impl Node for ast::ExceptHandler {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         match self {
-            Self::ExceptHandler(cons) => cons.ast_to_object(to_ctx),
+            Self::ExceptHandler(cons) => cons.ast_to_object(vm, source_file),
         }
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -43,14 +42,14 @@ impl Node for ast::ExceptHandler {
 
 // constructor
 fn except_handler_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::ExceptHandlerExceptHandler> {
     let body: Vec<Option<ast::Stmt>> =
         get_node_list_field(ctx, source_file, &object, "body", "ExceptHandler")?;
-    let (runtime_body, body) = public_stmt_list_from_values(body);
+    let (runtime_body, body) = runtime_stmt_list_from_values(body);
     Ok(ast::ExceptHandlerExceptHandler {
         node_index: Default::default(),
         type_: get_node_field_opt(ctx, &object, "type")?
@@ -66,7 +65,7 @@ fn except_handler_from_object_with_range(
 }
 
 pub(super) fn except_handler_from_object_unvalidated_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
 ) -> PyResult<ast::ExceptHandler> {
@@ -93,9 +92,7 @@ pub(super) fn except_handler_from_object_unvalidated_range(
 }
 
 impl Node for ast::ExceptHandlerExceptHandler {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             type_,
@@ -111,13 +108,13 @@ impl Node for ast::ExceptHandlerExceptHandler {
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("type", type_.ast_to_object(to_ctx), vm)
+        dict.set_item("type", type_.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("body", body, vm).unwrap();
         node_add_location(&dict, range, vm, source_file);
@@ -125,7 +122,7 @@ impl Node for ast::ExceptHandlerExceptHandler {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {

@@ -19,7 +19,7 @@ use crate::{
     compiler::{CompileError, ParseError},
     convert::ToPyObject,
 };
-use node::{AstFromObjectContext, AstToObjectContext, Node};
+use node::Node;
 use ruff_python_ast as ast;
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
@@ -98,7 +98,7 @@ fn get_node_field_required(
 }
 
 fn get_required_identifier_field<T: Node>(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
@@ -112,7 +112,7 @@ fn get_required_identifier_field<T: Node>(
 }
 
 fn get_required_node_field<T: Node>(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
@@ -139,7 +139,7 @@ fn get_node_field_opt(
 }
 
 fn get_node_list_field<T: Node>(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
@@ -169,7 +169,7 @@ fn get_node_list_field_object(
 }
 
 fn convert_node_list_field<T: Node>(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     list: &PyList,
     field: &'static str,
@@ -201,7 +201,7 @@ fn convert_node_list_field<T: Node>(
 }
 
 fn get_node_boxed_slice_field<T: Node>(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     obj: &PyObject,
     field: &'static str,
@@ -210,63 +210,63 @@ fn get_node_boxed_slice_field<T: Node>(
     Ok(get_node_list_field(ctx, source_file, obj, field, typ)?.into_boxed_slice())
 }
 
-fn public_expr_list_from_values(
+fn runtime_expr_list_from_values(
     values: Vec<Option<ast::Expr>>,
 ) -> (Option<Vec<Option<ast::Expr>>>, Vec<ast::Expr>) {
-    let metadata = public_expr_list_metadata(&values);
-    (metadata, lower_public_expr_list(values))
+    let metadata = runtime_expr_list_metadata(&values);
+    (metadata, lower_runtime_expr_list(values))
 }
 
-fn public_expr_boxed_slice_from_values(
+fn runtime_expr_boxed_slice_from_values(
     values: Vec<Option<ast::Expr>>,
 ) -> (Option<Vec<Option<ast::Expr>>>, Box<[ast::Expr]>) {
-    let (metadata, values) = public_expr_list_from_values(values);
+    let (metadata, values) = runtime_expr_list_from_values(values);
     (metadata, values.into_boxed_slice())
 }
 
-fn public_expr_list_metadata(values: &[Option<ast::Expr>]) -> Option<Vec<Option<ast::Expr>>> {
+fn runtime_expr_list_metadata(values: &[Option<ast::Expr>]) -> Option<Vec<Option<ast::Expr>>> {
     values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
-fn public_stmt_list_from_values(
+fn runtime_stmt_list_from_values(
     values: Vec<Option<ast::Stmt>>,
 ) -> (Option<Vec<Option<ast::Stmt>>>, ast::Suite) {
-    let metadata = public_stmt_list_metadata(&values);
-    (metadata, lower_public_stmt_list(values))
+    let metadata = runtime_stmt_list_metadata(&values);
+    (metadata, lower_runtime_stmt_list(values))
 }
 
-fn public_stmt_list_metadata(values: &[Option<ast::Stmt>]) -> Option<Vec<Option<ast::Stmt>>> {
+fn runtime_stmt_list_metadata(values: &[Option<ast::Stmt>]) -> Option<Vec<Option<ast::Stmt>>> {
     values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
-fn public_except_handler_list_metadata(
+fn runtime_except_handler_list_metadata(
     values: &[Option<ast::ExceptHandler>],
 ) -> Option<Vec<Option<ast::ExceptHandler>>> {
     values.iter().any(Option::is_none).then(|| values.to_vec())
 }
 
-fn lower_public_stmt_list(values: Vec<Option<ast::Stmt>>) -> ast::Suite {
+fn lower_runtime_stmt_list(values: Vec<Option<ast::Stmt>>) -> ast::Suite {
     values
         .into_iter()
-        .map(|value| value.unwrap_or_else(public_null_stmt_placeholder))
+        .map(|value| value.unwrap_or_else(runtime_null_stmt_placeholder))
         .collect()
 }
 
-fn lower_public_expr_list(values: Vec<Option<ast::Expr>>) -> Vec<ast::Expr> {
+fn lower_runtime_expr_list(values: Vec<Option<ast::Expr>>) -> Vec<ast::Expr> {
     values
         .into_iter()
-        .map(|value| value.unwrap_or_else(public_null_expr_placeholder))
+        .map(|value| value.unwrap_or_else(runtime_null_expr_placeholder))
         .collect()
 }
 
-fn public_null_stmt_placeholder() -> ast::Stmt {
+fn runtime_null_stmt_placeholder() -> ast::Stmt {
     ast::Stmt::Pass(ast::StmtPass {
         range: Default::default(),
         node_index: Default::default(),
     })
 }
 
-fn public_null_expr_placeholder() -> ast::Expr {
+fn runtime_null_expr_placeholder() -> ast::Expr {
     ast::Expr::NoneLiteral(ast::ExprNoneLiteral {
         range: Default::default(),
         node_index: Default::default(),
@@ -938,10 +938,10 @@ fn node_add_location(
     .unwrap();
 }
 
-/// Return the expected public AST root type class for a compile() mode string.
+/// Return the expected Python AST root type class for a compile() mode string.
 ///
 /// CPython's builtin compile() accepts func_type only with PyCF_ONLY_AST.
-/// Source-string func_type parsing is handled separately, but public AST
+/// Source-string func_type parsing is handled separately, but Python AST
 /// FunctionType still uses the mode check before obj-to-AST conversion.
 pub(crate) fn mode_type_and_name(mode: &str) -> Option<(PyRef<PyType>, &'static str)> {
     match mode {
@@ -1906,8 +1906,7 @@ pub(crate) fn parse(
         }),
         ast::Mod::Expression(e) => Mod::Expression(e),
     };
-    let ctx = AstToObjectContext::new(vm, &source_file);
-    let obj = top.ast_to_object(&ctx);
+    let obj = top.ast_to_object(vm, &source_file);
     if let Some(lines) = &type_comment_source
         && obj.class().is(pyast::NodeModModule::static_type())
     {
@@ -2073,8 +2072,7 @@ pub(crate) fn parse_func_type(
         runtime_argtypes: None,
     };
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
-    let ctx = AstToObjectContext::new(vm, &source_file);
-    Ok(func_type.ast_to_object(&ctx))
+    Ok(func_type.ast_to_object(vm, &source_file))
 }
 
 fn type_ignores_from_source(
@@ -2346,9 +2344,7 @@ pub(crate) fn preprocess_ast_object(
     let original_object = object.clone();
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text).finish();
-    let ast = constant::with_ast_from_object_context(vm, |from_ctx| {
-        Node::ast_from_object(from_ctx, &source_file, object)
-    })?;
+    let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let syntax_check_only = !optimized_ast;
 
@@ -2405,8 +2401,7 @@ pub(crate) fn preprocess_ast_object(
         }
         Mod::FunctionType(function_type) => Mod::FunctionType(function_type),
     };
-    let ctx = AstToObjectContext::new(vm, &source_file);
-    let result = ast.ast_to_object(&ctx);
+    let result = ast.ast_to_object(vm, &source_file);
     copy_ast_passthrough_fields(vm, &original_object, &result)?;
     Ok(result)
 }
@@ -2421,9 +2416,7 @@ pub(crate) fn compile(
 ) -> PyResult {
     let text = synthetic_source_from_ast_object(vm, &object)?;
     let source_file = SourceFileBuilder::new(filename.to_owned(), text.clone()).finish();
-    let ast = constant::with_ast_from_object_context(vm, |from_ctx| {
-        Node::ast_from_object(from_ctx, &source_file, object)
-    })?;
+    let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     let ast = match ast {
         Mod::Module(m) => ast::Mod::Module(m.module),
@@ -2486,9 +2479,7 @@ pub(crate) fn compile(
 #[cfg(not(feature = "rustpython-codegen"))]
 pub(crate) fn validate_ast_object(vm: &VirtualMachine, object: PyObjectRef) -> PyResult<()> {
     let source_file = SourceFileBuilder::new("<ast>".to_owned(), "".to_owned()).finish();
-    let ast = constant::with_ast_from_object_context(vm, |from_ctx| {
-        Node::ast_from_object(from_ctx, &source_file, object)
-    })?;
+    let ast = Node::ast_from_object(vm, &source_file, object)?;
     validate::validate_mod(vm, &ast)?;
     Ok(())
 }

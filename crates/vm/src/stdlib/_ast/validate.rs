@@ -2,43 +2,9 @@
 
 use super::module::Mod;
 use crate::{PyResult, VirtualMachine, compiler::CompileError};
-use core::ops::Deref;
 use ruff_python_ast as ast;
 use rustpython_codegen::error::{CodegenError, CodegenErrorType};
 use rustpython_compiler_core::bytecode::ConstantData;
-
-struct Validator<'a> {
-    vm: &'a VirtualMachine,
-}
-
-impl Deref for Validator<'_> {
-    type Target = VirtualMachine;
-
-    fn deref(&self) -> &Self::Target {
-        self.vm
-    }
-}
-
-fn invalid_constant_type(vm: &Validator<'_>, expr: &ast::Expr) -> Option<String> {
-    let _ = vm;
-    super::constant::invalid_constant_type(expr).map(|value| value.to_string())
-}
-
-fn runtime_joined_str_values(
-    vm: &Validator<'_>,
-    expr: &ast::ExprFString,
-) -> Option<Vec<ast::Expr>> {
-    let _ = vm;
-    expr.runtime_joined_str.clone()
-}
-
-fn runtime_template_str_values(
-    vm: &Validator<'_>,
-    expr: &ast::ExprTString,
-) -> Option<Vec<ast::Expr>> {
-    let _ = vm;
-    expr.runtime_template_str.clone()
-}
 
 fn expr_context_name(ctx: ast::ExprContext) -> &'static str {
     match ctx {
@@ -60,7 +26,7 @@ fn invalid_syntax_error(vm: &VirtualMachine) -> crate::builtins::PyBaseException
     )
 }
 
-fn validate_name(vm: &Validator<'_>, name: &ast::name::Name) -> PyResult<()> {
+fn validate_name(vm: &VirtualMachine, name: &ast::name::Name) -> PyResult<()> {
     match name.as_str() {
         "None" | "True" | "False" => Err(vm.new_value_error(format!(
             "identifier field can't represent '{}' constant",
@@ -70,34 +36,34 @@ fn validate_name(vm: &Validator<'_>, name: &ast::name::Name) -> PyResult<()> {
     }
 }
 
-fn validate_comprehension(vm: &Validator<'_>, gens: &[ast::Comprehension]) -> PyResult<()> {
+fn validate_comprehension(vm: &VirtualMachine, gens: &[ast::Comprehension]) -> PyResult<()> {
     if gens.is_empty() {
         return Err(vm.new_value_error("comprehension with no generators"));
     }
     for comp in gens {
         validate_expr(vm, &comp.target, ast::ExprContext::Store)?;
         validate_expr(vm, &comp.iter, ast::ExprContext::Load)?;
-        validate_public_expr_list_slots(vm, comp.runtime_ifs.as_ref(), ast::ExprContext::Load)?;
+        validate_runtime_expr_list_slots(vm, comp.runtime_ifs.as_ref(), ast::ExprContext::Load)?;
         validate_exprs(vm, &comp.ifs, ast::ExprContext::Load, false)?;
     }
     Ok(())
 }
 
-fn validate_keywords(vm: &Validator<'_>, keywords: &[ast::Keyword]) -> PyResult<()> {
+fn validate_keywords(vm: &VirtualMachine, keywords: &[ast::Keyword]) -> PyResult<()> {
     for keyword in keywords {
         validate_expr(vm, &keyword.value, ast::ExprContext::Load)?;
     }
     Ok(())
 }
 
-fn validate_parameter_annotation(vm: &Validator<'_>, parameter: &ast::Parameter) -> PyResult<()> {
+fn validate_parameter_annotation(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<()> {
     if let Some(annotation) = &parameter.annotation {
         validate_expr(vm, annotation, ast::ExprContext::Load)?;
     }
     Ok(())
 }
 
-fn validate_parameters(vm: &Validator<'_>, params: &ast::Parameters) -> PyResult<()> {
+fn validate_parameters(vm: &VirtualMachine, params: &ast::Parameters) -> PyResult<()> {
     for param in params.posonlyargs.iter().chain(&params.args) {
         validate_parameter_annotation(vm, &param.parameter)?;
     }
@@ -114,7 +80,7 @@ fn validate_parameters(vm: &Validator<'_>, params: &ast::Parameters) -> PyResult
     {
         validate_expr(vm, annotation, ast::ExprContext::Load)?;
     }
-    if let Some(defaults) = public_expr_option_list(vm, params.runtime_defaults.as_ref()) {
+    if let Some(defaults) = params.runtime_defaults.as_ref() {
         for default in defaults {
             let Some(default) = default else {
                 return Err(vm.new_value_error("None disallowed in expression list"));
@@ -137,7 +103,7 @@ fn validate_parameters(vm: &Validator<'_>, params: &ast::Parameters) -> PyResult
 }
 
 fn validate_nonempty_seq(
-    vm: &Validator<'_>,
+    vm: &VirtualMachine,
     len: usize,
     what: &'static str,
     owner: &'static str,
@@ -149,7 +115,7 @@ fn validate_nonempty_seq(
 }
 
 fn validate_assignlist(
-    vm: &Validator<'_>,
+    vm: &VirtualMachine,
     targets: &[ast::Expr],
     ctx: ast::ExprContext,
 ) -> PyResult<()> {
@@ -167,18 +133,18 @@ fn validate_assignlist(
 }
 
 fn validate_body(
-    vm: &Validator<'_>,
+    vm: &VirtualMachine,
     body: &[ast::Stmt],
     metadata: Option<&Vec<Option<ast::Stmt>>>,
     owner: &'static str,
 ) -> PyResult<()> {
     validate_nonempty_seq(vm, body.len(), "body", owner)?;
-    validate_public_stmt_list_slots(vm, metadata)?;
+    validate_runtime_stmt_list_slots(vm, metadata)?;
     validate_stmts(vm, body)
 }
 
 fn validate_interpolated_elements<'a>(
-    vm: &Validator<'_>,
+    vm: &VirtualMachine,
     elements: impl IntoIterator<Item = ast::InterpolatedStringElementRef<'a>>,
 ) -> PyResult<()> {
     for element in elements {
@@ -237,14 +203,14 @@ fn ensure_literal_complex(expr: &ast::Expr) -> bool {
     real_left && ensure_literal_number(&bin.right, false, true)
 }
 
-fn ast_constant_override(expr: &ast::Expr) -> Option<ConstantData> {
+fn ast_constant_value(expr: &ast::Expr) -> Option<ConstantData> {
     expr.as_constant_expr()
         .map(|expr| super::constant::ast_constant_value_to_constant_data(expr.value.clone()))
 }
 
-fn validate_pattern_match_value(vm: &Validator<'_>, expr: &ast::Expr) -> PyResult<()> {
+fn validate_pattern_match_value(vm: &VirtualMachine, expr: &ast::Expr) -> PyResult<()> {
     validate_expr(vm, expr, ast::ExprContext::Load)?;
-    if let Some(constant) = ast_constant_override(expr) {
+    if let Some(constant) = ast_constant_value(expr) {
         return match &constant {
             ConstantData::Integer { .. }
             | ConstantData::Float { .. }
@@ -271,21 +237,21 @@ fn validate_pattern_match_value(vm: &Validator<'_>, expr: &ast::Expr) -> PyResul
     }
 }
 
-fn validate_capture(vm: &Validator<'_>, name: &ast::Identifier) -> PyResult<()> {
+fn validate_capture(vm: &VirtualMachine, name: &ast::Identifier) -> PyResult<()> {
     if name.as_str() == "_" {
         return Err(vm.new_value_error("can't capture name '_' in patterns"));
     }
     validate_name(vm, name.id())
 }
 
-fn validate_pattern(vm: &Validator<'_>, pattern: &ast::Pattern, star_ok: bool) -> PyResult<()> {
+fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) -> PyResult<()> {
     match pattern {
         ast::Pattern::MatchValue(value) => validate_pattern_match_value(vm, &value.value),
         ast::Pattern::MatchSingleton(singleton) => match singleton.value {
             ast::Singleton::None | ast::Singleton::True | ast::Singleton::False => Ok(()),
         },
         ast::Pattern::MatchSequence(seq) => {
-            validate_public_pattern_list_slots(vm, seq.runtime_patterns.as_ref())?;
+            validate_runtime_pattern_list_slots(vm, seq.runtime_patterns.as_ref())?;
             validate_patterns(vm, &seq.patterns, true)
         }
         ast::Pattern::MatchMapping(mapping) => {
@@ -297,14 +263,14 @@ fn validate_pattern(vm: &Validator<'_>, pattern: &ast::Pattern, star_ok: bool) -
             if let Some(rest) = &mapping.rest {
                 validate_capture(vm, rest)?;
             }
-            validate_public_expr_option_list_slots(vm, mapping.runtime_keys.as_ref())?;
+            validate_runtime_expr_option_list_slots(vm, mapping.runtime_keys.as_ref())?;
             for key in &mapping.keys {
                 if let ast::Expr::BooleanLiteral(_) | ast::Expr::NoneLiteral(_) = key {
                     continue;
                 }
                 validate_pattern_match_value(vm, key)?;
             }
-            validate_public_pattern_list_slots(vm, mapping.runtime_patterns.as_ref())?;
+            validate_runtime_pattern_list_slots(vm, mapping.runtime_patterns.as_ref())?;
             validate_patterns(vm, &mapping.patterns, false)
         }
         ast::Pattern::MatchClass(match_class) => {
@@ -336,11 +302,11 @@ fn validate_pattern(vm: &Validator<'_>, pattern: &ast::Pattern, star_ok: bool) -
                 validate_name(vm, keyword.attr.id())?;
             }
             if let Some(patterns) = &match_class.runtime_patterns {
-                validate_public_nullable_patterns(vm, patterns)?;
+                validate_runtime_nullable_patterns(vm, patterns)?;
             }
             validate_patterns(vm, &match_class.arguments.patterns, false)?;
             if let Some(kwd_patterns) = &match_class.runtime_kwd_patterns {
-                validate_public_nullable_patterns(vm, kwd_patterns)?;
+                validate_runtime_nullable_patterns(vm, kwd_patterns)?;
             }
             for keyword in &match_class.arguments.keywords {
                 validate_pattern(vm, &keyword.pattern, false)?;
@@ -376,58 +342,34 @@ fn validate_pattern(vm: &Validator<'_>, pattern: &ast::Pattern, star_ok: bool) -
             if match_or.patterns.len() < 2 {
                 return Err(vm.new_value_error("MatchOr requires at least 2 patterns"));
             }
-            validate_public_pattern_list_slots(vm, match_or.runtime_patterns.as_ref())?;
+            validate_runtime_pattern_list_slots(vm, match_or.runtime_patterns.as_ref())?;
             validate_patterns(vm, &match_or.patterns, false)
         }
     }
 }
 
-fn public_pattern_list_has_null(
-    vm: &Validator<'_>,
-    values: Option<&Vec<Option<ast::Pattern>>>,
-) -> bool {
-    let _ = vm;
-    values.is_some_and(|values| values.iter().any(Option::is_none))
-}
-
-fn validate_public_pattern_list_slots(
-    vm: &Validator<'_>,
+fn validate_runtime_pattern_list_slots(
+    vm: &VirtualMachine,
     values: Option<&Vec<Option<ast::Pattern>>>,
 ) -> PyResult<()> {
-    if public_pattern_list_has_null(vm, values) {
+    if values.is_some_and(|values| values.iter().any(Option::is_none)) {
         return Err(vm.new_value_error("unexpected pattern"));
     }
     Ok(())
 }
 
-fn public_expr_option_list_has_null(
-    vm: &Validator<'_>,
-    values: Option<&Vec<Option<ast::Expr>>>,
-) -> bool {
-    let _ = vm;
-    values.is_some_and(|values| values.iter().any(Option::is_none))
-}
-
-fn public_expr_option_list<'a>(
-    vm: &Validator<'_>,
-    values: Option<&'a Vec<Option<ast::Expr>>>,
-) -> Option<&'a Vec<Option<ast::Expr>>> {
-    let _ = vm;
-    values
-}
-
-fn validate_public_expr_option_list_slots(
-    vm: &Validator<'_>,
+fn validate_runtime_expr_option_list_slots(
+    vm: &VirtualMachine,
     values: Option<&Vec<Option<ast::Expr>>>,
 ) -> PyResult<()> {
-    if public_expr_option_list_has_null(vm, values) {
+    if values.is_some_and(|values| values.iter().any(Option::is_none)) {
         return Err(vm.new_value_error("None disallowed in expression list"));
     }
     Ok(())
 }
 
-fn validate_public_expr_list_slots(
-    vm: &Validator<'_>,
+fn validate_runtime_expr_list_slots(
+    vm: &VirtualMachine,
     values: Option<&Vec<Option<ast::Expr>>>,
     ctx: ast::ExprContext,
 ) -> PyResult<()> {
@@ -442,8 +384,8 @@ fn validate_public_expr_list_slots(
     Ok(())
 }
 
-fn validate_public_stmt_list_slots(
-    vm: &Validator<'_>,
+fn validate_runtime_stmt_list_slots(
+    vm: &VirtualMachine,
     values: Option<&Vec<Option<ast::Stmt>>>,
 ) -> PyResult<()> {
     if let Some(values) = values
@@ -454,26 +396,18 @@ fn validate_public_stmt_list_slots(
     Ok(())
 }
 
-fn public_except_handler_list_has_null(
-    vm: &Validator<'_>,
-    values: Option<&Vec<Option<ast::ExceptHandler>>>,
-) -> bool {
-    let _ = vm;
-    values.is_some_and(|values| values.iter().any(Option::is_none))
-}
-
-fn validate_public_except_handler_list_slots(
-    vm: &Validator<'_>,
+fn validate_runtime_except_handler_list_slots(
+    vm: &VirtualMachine,
     values: Option<&Vec<Option<ast::ExceptHandler>>>,
 ) -> PyResult<()> {
-    if public_except_handler_list_has_null(vm, values) {
+    if values.is_some_and(|values| values.iter().any(Option::is_none)) {
         return Err(vm.new_value_error("unexpected excepthandler"));
     }
     Ok(())
 }
 
-fn validate_public_nullable_patterns(
-    vm: &Validator<'_>,
+fn validate_runtime_nullable_patterns(
+    vm: &VirtualMachine,
     patterns: &[Option<ast::Pattern>],
 ) -> PyResult<()> {
     if patterns.iter().any(Option::is_none) {
@@ -482,14 +416,18 @@ fn validate_public_nullable_patterns(
     Ok(())
 }
 
-fn validate_patterns(vm: &Validator<'_>, patterns: &[ast::Pattern], star_ok: bool) -> PyResult<()> {
+fn validate_patterns(
+    vm: &VirtualMachine,
+    patterns: &[ast::Pattern],
+    star_ok: bool,
+) -> PyResult<()> {
     for pattern in patterns {
         validate_pattern(vm, pattern, star_ok)?;
     }
     Ok(())
 }
 
-fn validate_typeparam(vm: &Validator<'_>, tp: &ast::TypeParam) -> PyResult<()> {
+fn validate_typeparam(vm: &VirtualMachine, tp: &ast::TypeParam) -> PyResult<()> {
     match tp {
         ast::TypeParam::TypeVar(tp) => {
             validate_name(vm, tp.name.id())?;
@@ -516,7 +454,10 @@ fn validate_typeparam(vm: &Validator<'_>, tp: &ast::TypeParam) -> PyResult<()> {
     Ok(())
 }
 
-fn validate_type_params(vm: &Validator<'_>, type_params: Option<&ast::TypeParams>) -> PyResult<()> {
+fn validate_type_params(
+    vm: &VirtualMachine,
+    type_params: Option<&ast::TypeParams>,
+) -> PyResult<()> {
     if let Some(type_params) = type_params {
         if let Some(values) = type_params.runtime_type_params.as_ref() {
             for tp in values.iter().flatten() {
@@ -532,7 +473,7 @@ fn validate_type_params(vm: &Validator<'_>, type_params: Option<&ast::TypeParams
 }
 
 fn validate_exprs(
-    vm: &Validator<'_>,
+    vm: &VirtualMachine,
     exprs: &[ast::Expr],
     ctx: ast::ExprContext,
     _null_ok: bool,
@@ -543,7 +484,7 @@ fn validate_exprs(
     Ok(())
 }
 
-fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) -> PyResult<()> {
+fn validate_expr(vm: &VirtualMachine, expr: &ast::Expr, ctx: ast::ExprContext) -> PyResult<()> {
     let mut check_ctx = true;
     let actual_ctx = match expr {
         ast::Expr::Attribute(attr) => attr.ctx,
@@ -579,7 +520,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             if op.values.len() < 2 {
                 return Err(vm.new_value_error("BoolOp with less than 2 values"));
             }
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 op.runtime_values.as_ref(),
                 ast::ExprContext::Load,
@@ -609,7 +550,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             validate_expr(vm, &ifexp.orelse, ast::ExprContext::Load)
         }
         ast::Expr::Dict(dict) => {
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 dict.runtime_values.as_ref(),
                 ast::ExprContext::Load,
@@ -623,7 +564,11 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             Ok(())
         }
         ast::Expr::Set(set) => {
-            validate_public_expr_list_slots(vm, set.runtime_elts.as_ref(), ast::ExprContext::Load)?;
+            validate_runtime_expr_list_slots(
+                vm,
+                set.runtime_elts.as_ref(),
+                ast::ExprContext::Load,
+            )?;
             validate_exprs(vm, &set.elts, ast::ExprContext::Load, false)
         }
         ast::Expr::ListComp(list) => {
@@ -664,7 +609,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
                     "Compare has a different number of comparators and operands",
                 ));
             }
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 compare.runtime_comparators.as_ref(),
                 ast::ExprContext::Load,
@@ -674,7 +619,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         }
         ast::Expr::Call(call) => {
             validate_expr(vm, &call.func, ast::ExprContext::Load)?;
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 call.arguments.runtime_args.as_ref(),
                 ast::ExprContext::Load,
@@ -683,13 +628,13 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             validate_keywords(vm, &call.arguments.keywords)
         }
         ast::Expr::FString(fstring) => {
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 fstring.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
-            if let Some(joined_str) = runtime_joined_str_values(vm, fstring) {
-                validate_exprs(vm, &joined_str, ast::ExprContext::Load, false)
+            if let Some(joined_str) = fstring.runtime_joined_str.as_ref() {
+                validate_exprs(vm, joined_str, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
                     vm,
@@ -701,13 +646,13 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
             }
         }
         ast::Expr::TString(tstring) => {
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 tstring.runtime_values.as_ref(),
                 ast::ExprContext::Load,
             )?;
-            if let Some(template_str) = runtime_template_str_values(vm, tstring) {
-                validate_exprs(vm, &template_str, ast::ExprContext::Load, false)
+            if let Some(template_str) = tstring.runtime_template_str.as_ref() {
+                validate_exprs(vm, template_str, ast::ExprContext::Load, false)
             } else {
                 validate_interpolated_elements(
                     vm,
@@ -725,7 +670,7 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         | ast::Expr::BooleanLiteral(_)
         | ast::Expr::NoneLiteral(_)
         | ast::Expr::EllipsisLiteral(_) => {
-            if let Some(invalid_type) = invalid_constant_type(vm, expr) {
+            if let Some(invalid_type) = super::constant::invalid_constant_type(expr) {
                 Err(vm.new_type_error(format!("got an invalid type in Constant: {invalid_type}")))
             } else {
                 Ok(())
@@ -739,11 +684,11 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
         ast::Expr::Starred(star) => validate_expr(vm, &star.value, ctx),
         ast::Expr::Name(_) => Ok(()),
         ast::Expr::List(list) => {
-            validate_public_expr_list_slots(vm, list.runtime_elts.as_ref(), ctx)?;
+            validate_runtime_expr_list_slots(vm, list.runtime_elts.as_ref(), ctx)?;
             validate_exprs(vm, &list.elts, ctx, false)
         }
         ast::Expr::Tuple(tuple) => {
-            validate_public_expr_list_slots(vm, tuple.runtime_elts.as_ref(), ctx)?;
+            validate_runtime_expr_list_slots(vm, tuple.runtime_elts.as_ref(), ctx)?;
             validate_exprs(vm, &tuple.elts, ctx, false)
         }
         ast::Expr::Slice(slice) => {
@@ -762,14 +707,14 @@ fn validate_expr(vm: &Validator<'_>, expr: &ast::Expr, ctx: ast::ExprContext) ->
     }
 }
 
-fn validate_decorators(vm: &Validator<'_>, decorators: &[ast::Decorator]) -> PyResult<()> {
+fn validate_decorators(vm: &VirtualMachine, decorators: &[ast::Decorator]) -> PyResult<()> {
     for decorator in decorators {
         validate_expr(vm, &decorator.expression, ast::ExprContext::Load)?;
     }
     Ok(())
 }
 
-fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
+fn validate_stmt(vm: &VirtualMachine, stmt: &ast::Stmt) -> PyResult<()> {
     match stmt {
         ast::Stmt::FunctionDef(func) => {
             let owner = if func.is_async {
@@ -780,7 +725,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
             validate_body(vm, &func.body, func.runtime_body.as_ref(), owner)?;
             validate_type_params(vm, func.type_params.as_deref())?;
             validate_parameters(vm, &func.parameters)?;
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 func.runtime_decorator_list.as_ref(),
                 ast::ExprContext::Load,
@@ -800,7 +745,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
             )?;
             validate_type_params(vm, class_def.type_params.as_deref())?;
             if let Some(arguments) = &class_def.arguments {
-                validate_public_expr_list_slots(
+                validate_runtime_expr_list_slots(
                     vm,
                     arguments.runtime_bases.as_ref(),
                     ast::ExprContext::Load,
@@ -808,7 +753,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
                 validate_exprs(vm, &arguments.args, ast::ExprContext::Load, false)?;
                 validate_keywords(vm, &arguments.keywords)?;
             }
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 class_def.runtime_decorator_list.as_ref(),
                 ast::ExprContext::Load,
@@ -822,7 +767,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
             Ok(())
         }
         ast::Stmt::Delete(del) => {
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 del.runtime_targets.as_ref(),
                 ast::ExprContext::Del,
@@ -830,7 +775,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
             validate_assignlist(vm, &del.targets, ast::ExprContext::Del)
         }
         ast::Stmt::Assign(assign) => {
-            validate_public_expr_list_slots(
+            validate_runtime_expr_list_slots(
                 vm,
                 assign.runtime_targets.as_ref(),
                 ast::ExprContext::Store,
@@ -865,7 +810,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
             validate_expr(vm, &for_stmt.target, ast::ExprContext::Store)?;
             validate_expr(vm, &for_stmt.iter, ast::ExprContext::Load)?;
             validate_body(vm, &for_stmt.body, for_stmt.runtime_body.as_ref(), owner)?;
-            validate_public_stmt_list_slots(vm, for_stmt.runtime_orelse.as_ref())?;
+            validate_runtime_stmt_list_slots(vm, for_stmt.runtime_orelse.as_ref())?;
             validate_stmts(vm, &for_stmt.orelse)
         }
         ast::Stmt::While(while_stmt) => {
@@ -876,7 +821,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
                 while_stmt.runtime_body.as_ref(),
                 "While",
             )?;
-            validate_public_stmt_list_slots(vm, while_stmt.runtime_orelse.as_ref())?;
+            validate_runtime_stmt_list_slots(vm, while_stmt.runtime_orelse.as_ref())?;
             validate_stmts(vm, &while_stmt.orelse)
         }
         ast::Stmt::If(if_stmt) => {
@@ -887,7 +832,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
                     validate_expr(vm, test, ast::ExprContext::Load)?;
                 }
                 validate_body(vm, &clause.body, clause.runtime_body.as_ref(), "If")?;
-                validate_public_stmt_list_slots(vm, clause.runtime_orelse.as_ref())?;
+                validate_runtime_stmt_list_slots(vm, clause.runtime_orelse.as_ref())?;
             }
             Ok(())
         }
@@ -942,7 +887,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
                     vm.new_value_error(format!("{owner} has orelse but no except handlers"))
                 );
             }
-            validate_public_except_handler_list_slots(vm, try_stmt.runtime_handlers.as_ref())?;
+            validate_runtime_except_handler_list_slots(vm, try_stmt.runtime_handlers.as_ref())?;
             for handler in &try_stmt.handlers {
                 let ast::ExceptHandler::ExceptHandler(handler) = handler;
                 if let Some(type_expr) = &handler.type_ {
@@ -955,9 +900,9 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
                     "ExceptHandler",
                 )?;
             }
-            validate_public_stmt_list_slots(vm, try_stmt.runtime_finalbody.as_ref())?;
+            validate_runtime_stmt_list_slots(vm, try_stmt.runtime_finalbody.as_ref())?;
             validate_stmts(vm, &try_stmt.finalbody)?;
-            validate_public_stmt_list_slots(vm, try_stmt.runtime_orelse.as_ref())?;
+            validate_runtime_stmt_list_slots(vm, try_stmt.runtime_orelse.as_ref())?;
             validate_stmts(vm, &try_stmt.orelse)
         }
         ast::Stmt::Assert(assert_stmt) => {
@@ -994,7 +939,7 @@ fn validate_stmt(vm: &Validator<'_>, stmt: &ast::Stmt) -> PyResult<()> {
     }
 }
 
-fn validate_stmts(vm: &Validator<'_>, stmts: &[ast::Stmt]) -> PyResult<()> {
+fn validate_stmts(vm: &VirtualMachine, stmts: &[ast::Stmt]) -> PyResult<()> {
     for stmt in stmts {
         validate_stmt(vm, stmt)?;
     }
@@ -1002,21 +947,18 @@ fn validate_stmts(vm: &Validator<'_>, stmts: &[ast::Stmt]) -> PyResult<()> {
 }
 
 pub(super) fn validate_mod(vm: &VirtualMachine, module: &Mod) -> PyResult<()> {
-    let validator = Validator { vm };
-    let vm = &validator;
-
     match module {
         Mod::Module(module) => {
-            validate_public_stmt_list_slots(vm, module.module.runtime_body.as_ref())?;
+            validate_runtime_stmt_list_slots(vm, module.module.runtime_body.as_ref())?;
             validate_stmts(vm, &module.module.body)
         }
         Mod::Interactive(module) => {
-            validate_public_stmt_list_slots(vm, module.runtime_body.as_ref())?;
+            validate_runtime_stmt_list_slots(vm, module.runtime_body.as_ref())?;
             validate_stmts(vm, &module.body)
         }
         Mod::Expression(expr) => validate_expr(vm, &expr.body, ast::ExprContext::Load),
         Mod::FunctionType(func_type) => {
-            validate_public_expr_option_list_slots(vm, func_type.runtime_argtypes.as_ref())?;
+            validate_runtime_expr_option_list_slots(vm, func_type.runtime_argtypes.as_ref())?;
             validate_exprs(vm, &func_type.argtypes, ast::ExprContext::Load, false)?;
             validate_expr(vm, &func_type.returns, ast::ExprContext::Load)
         }

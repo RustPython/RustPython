@@ -172,7 +172,6 @@ enum NameUsage {
 struct Compiler<'a> {
     code_stack: Vec<ir::CodeInfo>,
     symbol_table_stack: Vec<SymbolTable>,
-    annotation_symbol_sources: Vec<AnnotationSymbolSource>,
     source_file: SourceFile,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
@@ -199,12 +198,6 @@ enum DoneWithFuture {
     No,
     DoneWithDoc,
     Yes,
-}
-
-#[derive(Clone, Copy)]
-enum AnnotationSymbolSource {
-    Sibling,
-    Hidden,
 }
 
 #[derive(Clone, Copy)]
@@ -729,7 +722,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn infer_type(&self, expr: &ast::Expr) -> Option<InferredType> {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return Self::infer_type_constant(&constant);
         }
         match expr {
@@ -756,7 +749,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn is_constant_expr(&self, expr: &ast::Expr) -> bool {
-        if self.ast_constant_override(expr).is_some() {
+        if self.ast_constant_value(expr).is_some() {
             return true;
         }
         matches!(
@@ -790,7 +783,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn check_is_arg(&self, expr: &ast::Expr) -> bool {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return matches!(
                 constant,
                 ConstantData::None | ConstantData::Boolean { .. } | ConstantData::Ellipsis
@@ -825,7 +818,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn check_caller(&mut self, func: &ast::Expr) -> CompileResult<()> {
-        let warns = self.ast_constant_override(func).is_some()
+        let warns = self.ast_constant_value(func).is_some()
             || matches!(
                 func,
                 ast::Expr::StringLiteral(_)
@@ -905,7 +898,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn check_subscripter(&mut self, value: &ast::Expr) -> CompileResult<()> {
         let warns = self
-            .ast_constant_override(value)
+            .ast_constant_value(value)
             .is_some_and(|constant| Self::constant_warns_as_subscripter(&constant))
             || matches!(
                 value,
@@ -939,7 +932,7 @@ impl<'warnings> Compiler<'warnings> {
             return Ok(());
         }
 
-        let constant_warns = self.ast_constant_override(value).is_some_and(|constant| {
+        let constant_warns = self.ast_constant_value(value).is_some_and(|constant| {
             matches!(
                 constant,
                 ConstantData::Str { .. } | ConstantData::Bytes { .. } | ConstantData::Tuple { .. }
@@ -972,7 +965,7 @@ impl<'warnings> Compiler<'warnings> {
         let warns = match &*assert_stmt.test {
             ast::Expr::Tuple(tuple) => !tuple.elts.is_empty(),
             _ => matches!(
-                self.ast_constant_override(&assert_stmt.test),
+                self.ast_constant_value(&assert_stmt.test),
                 Some(ConstantData::Tuple { ref elements }) if !elements.is_empty()
             ),
         };
@@ -1034,7 +1027,6 @@ impl<'warnings> Compiler<'warnings> {
         Self {
             code_stack: vec![module_code],
             symbol_table_stack: Vec::new(),
-            annotation_symbol_sources: Vec::new(),
             source_file,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
@@ -1525,7 +1517,7 @@ impl<'warnings> Compiler<'warnings> {
     /// arguments AST node. Without future annotations they are also children;
     /// with future annotations they are hidden from children and consumed here.
     fn push_annotation_symbol_table(&mut self) -> bool {
-        let Some((annotation_table, source)) = ({
+        let Some(annotation_table) = ({
             let current_table = self
                 .symbol_table_stack
                 .last_mut()
@@ -1537,16 +1529,13 @@ impl<'warnings> Compiler<'warnings> {
             {
                 let next_table = current_table.sub_tables[next_idx].clone();
                 current_table.next_sub_table += 1;
-                Some((next_table, AnnotationSymbolSource::Sibling))
+                Some(next_table)
             } else if current_table.next_hidden_annotation_block
                 < current_table.hidden_annotation_blocks.len()
             {
                 let idx = current_table.next_hidden_annotation_block;
                 current_table.next_hidden_annotation_block += 1;
-                Some((
-                    current_table.hidden_annotation_blocks[idx].clone(),
-                    AnnotationSymbolSource::Hidden,
-                ))
+                Some(current_table.hidden_annotation_blocks[idx].clone())
             } else {
                 None
             }
@@ -1555,7 +1544,6 @@ impl<'warnings> Compiler<'warnings> {
         };
 
         self.symbol_table_stack.push(annotation_table);
-        self.annotation_symbol_sources.push(source);
         true
     }
 
@@ -1598,13 +1586,6 @@ impl<'warnings> Compiler<'warnings> {
     /// Pop the annotation symbol table.
     fn pop_annotation_symbol_table(&mut self) {
         self.symbol_table_stack.pop().expect("compiler bug");
-        let source = self
-            .annotation_symbol_sources
-            .pop()
-            .expect("missing annotation symbol source");
-        match source {
-            AnnotationSymbolSource::Sibling | AnnotationSymbolSource::Hidden => {}
-        }
     }
 
     /// Pop the current symbol table off the stack
@@ -8593,46 +8574,20 @@ impl<'warnings> Compiler<'warnings> {
         send_block
     }
 
-    fn ast_constant_override(&self, expr: &ast::Expr) -> Option<ConstantData> {
+    fn ast_constant_value(&self, expr: &ast::Expr) -> Option<ConstantData> {
         expr.as_constant_expr()
             .map(|expr| ast_constant_value_to_constant_data(expr.value.clone()))
     }
 
-    fn runtime_interpolation_override(
-        &self,
+    fn single_runtime_interpolation(
         expr_tstring: &ast::ExprTString,
-    ) -> Option<(ast::ConstantValue, Option<Box<ast::Expr>>)> {
+    ) -> Option<(&ast::ConstantValue, Option<&ast::Expr>)> {
         let tstring = expr_tstring.as_single_part_tstring()?;
         let interpolation = tstring.elements.first()?.as_interpolation()?;
         Some((
-            interpolation.runtime_str.clone()?,
-            interpolation.runtime_interpolation_format_spec.clone(),
+            interpolation.runtime_str.as_ref()?,
+            interpolation.runtime_interpolation_format_spec.as_deref(),
         ))
-    }
-
-    fn runtime_interpolation_override_by_element(
-        &self,
-        element: &ast::InterpolatedElement,
-    ) -> Option<(ast::ConstantValue, Option<Box<ast::Expr>>)> {
-        Some((
-            element.runtime_str.clone()?,
-            element.runtime_interpolation_format_spec.clone(),
-        ))
-    }
-
-    fn runtime_formatted_value_format_spec_by_element(
-        &self,
-        element: &ast::InterpolatedElement,
-    ) -> Option<Box<ast::Expr>> {
-        element.runtime_formatted_value_format_spec.clone()
-    }
-
-    fn runtime_joined_str_override(&self, fstring: &ast::ExprFString) -> Option<Vec<ast::Expr>> {
-        fstring.runtime_joined_str.clone()
-    }
-
-    fn runtime_template_str_override(&self, tstring: &ast::ExprTString) -> Option<Vec<ast::Expr>> {
-        tstring.runtime_template_str.clone()
     }
 
     fn compile_expression(&mut self, expression: &ast::Expr) -> CompileResult<()> {
@@ -8640,7 +8595,7 @@ impl<'warnings> Compiler<'warnings> {
         let range = expression.range();
         self.set_source_range(range);
 
-        if let Some(constant) = self.ast_constant_override(expression) {
+        if let Some(constant) = self.ast_constant_value(expression) {
             self.emit_load_const(constant);
             return Ok(());
         }
@@ -9119,16 +9074,16 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_source_range(target.range());
             }
             ast::Expr::FString(fstring) => {
-                if let Some(joined_str) = self.runtime_joined_str_override(fstring) {
+                if let Some(joined_str) = fstring.runtime_joined_str.as_ref() {
                     return self.compile_runtime_joined_str(fstring, joined_str);
                 }
                 self.compile_expr_fstring(fstring)?;
             }
             ast::Expr::TString(tstring) => {
-                if let Some(template_str) = self.runtime_template_str_override(tstring) {
+                if let Some(template_str) = tstring.runtime_template_str.as_ref() {
                     return self.compile_runtime_template_str(tstring, template_str);
                 }
-                if let Some(interpolation) = self.runtime_interpolation_override(tstring)
+                if let Some(interpolation) = Self::single_runtime_interpolation(tstring)
                     && self.compile_runtime_interpolation(tstring, interpolation)?
                 {
                     return Ok(());
@@ -11571,7 +11526,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn try_fold_constant_expr(&mut self, expr: &ast::Expr) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return Ok(Some(constant));
         }
         Ok(Some(match expr {
@@ -11762,7 +11717,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return Ok(Some(constant));
         }
         Ok(Some(match expr {
@@ -11792,7 +11747,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return Ok(match constant {
                 ConstantData::Boolean { .. } | ConstantData::None => Some(constant),
                 _ => None,
@@ -11829,7 +11784,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return Ok(match constant {
                 ConstantData::Integer { .. }
                 | ConstantData::Float { .. }
@@ -11962,7 +11917,7 @@ impl<'warnings> Compiler<'warnings> {
         &mut self,
         expr: &ast::Expr,
     ) -> CompileResult<Option<ConstantData>> {
-        if let Some(constant) = self.ast_constant_override(expr) {
+        if let Some(constant) = self.ast_constant_value(expr) {
             return Ok(match constant {
                 ConstantData::Integer { .. }
                 | ConstantData::Float { .. }
@@ -12536,10 +12491,9 @@ impl<'warnings> Compiler<'warnings> {
     fn compile_runtime_joined_str(
         &mut self,
         fstring: &ast::ExprFString,
-        joined_str: Vec<ast::Expr>,
+        values: &[ast::Expr],
     ) -> CompileResult<()> {
         let range = fstring.range;
-        let values = joined_str;
         let value_count: u32 = values
             .len()
             .try_into()
@@ -12552,7 +12506,7 @@ impl<'warnings> Compiler<'warnings> {
             let join_idx = self.get_global_name_index("join");
             self.emit_load_attr_method(join_idx);
             emit!(self, Instruction::BuildList { count: 0 });
-            for value in &values {
+            for value in values {
                 self.compile_expression(value)?;
                 self.set_source_range(range);
                 emit!(self, Instruction::ListAppend { i: 1 });
@@ -12560,7 +12514,7 @@ impl<'warnings> Compiler<'warnings> {
             self.set_source_range(range);
             emit!(self, Instruction::Call { argc: 1 });
         } else {
-            for value in &values {
+            for value in values {
                 self.compile_expression(value)?;
             }
             if value_count > 1 {
@@ -12989,9 +12943,9 @@ impl<'warnings> Compiler<'warnings> {
                     }
 
                     if let Some(format_spec) =
-                        self.runtime_formatted_value_format_spec_by_element(fstring_expr)
+                        fstring_expr.runtime_formatted_value_format_spec.as_deref()
                     {
-                        self.compile_expression(&format_spec)?;
+                        self.compile_expression(format_spec)?;
 
                         self.set_source_range(formatted_value_range);
                         emit!(self, Instruction::FormatWithSpec);
@@ -13153,12 +13107,11 @@ impl<'warnings> Compiler<'warnings> {
     fn compile_runtime_template_str(
         &mut self,
         expr_tstring: &ast::ExprTString,
-        template_str: Vec<ast::Expr>,
+        values: &[ast::Expr],
     ) -> CompileResult<()> {
-        let values = template_str;
         let mut last_was_interpolation = true;
         let mut strings_len = 0;
-        for value in &values {
+        for value in values {
             if self.runtime_template_value_interpolation(value).is_some() {
                 if last_was_interpolation {
                     self.set_source_range(expr_tstring.range);
@@ -13185,7 +13138,7 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, Instruction::BuildTuple { count: strings_len });
 
         let mut interpolations_len = 0;
-        for value in &values {
+        for value in values {
             if let Some((tstring, interpolation)) = self.runtime_template_value_interpolation(value)
             {
                 self.compile_runtime_interpolation(tstring, interpolation)?;
@@ -13209,12 +13162,12 @@ impl<'warnings> Compiler<'warnings> {
         value: &'a ast::Expr,
     ) -> Option<(
         &'a ast::ExprTString,
-        (ast::ConstantValue, Option<Box<ast::Expr>>),
+        (&'a ast::ConstantValue, Option<&'a ast::Expr>),
     )> {
         let ast::Expr::TString(tstring) = value else {
             return None;
         };
-        let interpolation = self.runtime_interpolation_override(tstring)?;
+        let interpolation = Self::single_runtime_interpolation(tstring)?;
         Self::single_tstring_interpolation(tstring)?;
         Some((tstring, interpolation))
     }
@@ -13222,7 +13175,7 @@ impl<'warnings> Compiler<'warnings> {
     fn compile_runtime_interpolation(
         &mut self,
         expr_tstring: &ast::ExprTString,
-        interpolation: (ast::ConstantValue, Option<Box<ast::Expr>>),
+        interpolation: (&ast::ConstantValue, Option<&ast::Expr>),
     ) -> CompileResult<bool> {
         let Some(interp) = Self::single_tstring_interpolation(expr_tstring) else {
             return Ok(false);
@@ -13235,12 +13188,12 @@ impl<'warnings> Compiler<'warnings> {
     fn compile_interpolation(
         &mut self,
         interp: &ast::InterpolatedElement,
-        interpolation: (ast::ConstantValue, Option<Box<ast::Expr>>),
+        interpolation: (&ast::ConstantValue, Option<&ast::Expr>),
     ) -> CompileResult<()> {
         let (str, format_spec) = interpolation;
         self.compile_expression(&interp.expression)?;
         self.set_source_range(interp.range);
-        self.emit_load_const(ast_constant_value_to_constant_data(str));
+        self.emit_load_const(ast_constant_value_to_constant_data(str.clone()));
 
         let conversion = match interp.conversion {
             ast::ConversionFlag::None => 0,
@@ -13250,7 +13203,7 @@ impl<'warnings> Compiler<'warnings> {
         };
 
         let has_format_spec = format_spec.is_some();
-        if let Some(format_spec) = &format_spec {
+        if let Some(format_spec) = format_spec {
             self.compile_expression(format_spec)?;
         }
 
@@ -13351,7 +13304,11 @@ impl<'warnings> Compiler<'warnings> {
                 continue;
             };
 
-            if let Some(interpolation) = self.runtime_interpolation_override_by_element(interp) {
+            if let Some(runtime_str) = interp.runtime_str.as_ref() {
+                let interpolation = (
+                    runtime_str,
+                    interp.runtime_interpolation_format_spec.as_deref(),
+                );
                 self.compile_interpolation(interp, interpolation)?;
                 continue;
             }
@@ -13896,7 +13853,7 @@ mod tests {
         compile_top(parsed, source_file, Mode::Eval, opts).unwrap()
     }
 
-    fn set_public_constant(expr: &mut ast::Expr, constant: ConstantData) {
+    fn set_ast_constant(expr: &mut ast::Expr, constant: ConstantData) {
         let constant = crate::constant_data_to_ast_constant_value(constant);
         let range = expr.range();
         *expr = ast::Expr::Constant(ast::ExprConstant {
@@ -13908,12 +13865,12 @@ mod tests {
         });
     }
 
-    fn compile_public_constant_expr(mut expr: ast::Expr, constant: ConstantData) -> CodeObject {
-        set_public_constant(&mut expr, constant);
+    fn compile_ast_constant_expr(mut expr: ast::Expr, constant: ConstantData) -> CodeObject {
+        set_ast_constant(&mut expr, constant);
         compile_eval_ast_with_options(expr, CompileOpts::default())
     }
 
-    fn first_public_constant_warning(expr: ast::Expr) -> String {
+    fn first_ast_constant_warning(expr: ast::Expr) -> String {
         let opts = CompileOpts::default();
         let source_file = SourceFileBuilder::new("source_path", "").finish();
         let parsed = ruff_python_ast::Mod::Expression(ast::ModExpression {
@@ -14044,7 +14001,7 @@ mod tests {
 
     #[test]
     fn ast_constant_frozenset_compiles_as_load_const() {
-        let code = compile_public_constant_expr(
+        let code = compile_ast_constant_expr(
             frozenset_call_expr(),
             ConstantData::Frozenset {
                 elements: vec![ConstantData::Integer {
@@ -14089,7 +14046,7 @@ mod tests {
     #[test]
     fn ast_constant_is_not_scanned_as_lowered_expression() {
         let mut expr = frozenset_call_expr();
-        set_public_constant(
+        set_ast_constant(
             &mut expr,
             ConstantData::Frozenset {
                 elements: Vec::new(),
@@ -14118,13 +14075,13 @@ mod tests {
     #[test]
     fn ast_constant_frozenset_call_warns_like_cpython_constant() {
         let mut func = frozenset_call_expr();
-        set_public_constant(
+        set_ast_constant(
             &mut func,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
         );
-        let message = first_public_constant_warning(ast::Expr::Call(ast::ExprCall {
+        let message = first_ast_constant_warning(ast::Expr::Call(ast::ExprCall {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
             func: Box::new(func),
@@ -14146,13 +14103,13 @@ mod tests {
     #[test]
     fn ast_constant_frozenset_subscript_warns_like_cpython_constant() {
         let mut value = frozenset_call_expr();
-        set_public_constant(
+        set_ast_constant(
             &mut value,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
         );
-        let message = first_public_constant_warning(ast::Expr::Subscript(ast::ExprSubscript {
+        let message = first_ast_constant_warning(ast::Expr::Subscript(ast::ExprSubscript {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
             value: Box::new(value),
@@ -14172,13 +14129,13 @@ mod tests {
     #[test]
     fn ast_constant_str_bad_index_warns_like_cpython_constant() {
         let mut value = frozenset_call_expr();
-        set_public_constant(
+        set_ast_constant(
             &mut value,
             ConstantData::Str {
                 value: "abc".into(),
             },
         );
-        let message = first_public_constant_warning(ast::Expr::Subscript(ast::ExprSubscript {
+        let message = first_ast_constant_warning(ast::Expr::Subscript(ast::ExprSubscript {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
             value: Box::new(value),
@@ -14198,13 +14155,13 @@ mod tests {
     #[test]
     fn ast_constant_frozenset_is_warns_like_cpython_constant() {
         let mut left = frozenset_call_expr();
-        set_public_constant(
+        set_ast_constant(
             &mut left,
             ConstantData::Frozenset {
                 elements: Vec::new(),
             },
         );
-        let message = first_public_constant_warning(ast::Expr::Compare(ast::ExprCompare {
+        let message = first_ast_constant_warning(ast::Expr::Compare(ast::ExprCompare {
             node_index: ast::AtomicNodeIndex::NONE,
             range: TextRange::default(),
             left: Box::new(left),
@@ -14231,7 +14188,7 @@ mod tests {
             parenthesized: true,
             runtime_elts: None,
         });
-        let code = compile_public_constant_expr(
+        let code = compile_ast_constant_expr(
             expr,
             ConstantData::Tuple {
                 elements: vec![ConstantData::Integer {
@@ -14272,7 +14229,7 @@ mod tests {
     #[test]
     fn ast_constant_slice_bound_uses_cpython_constant_slice_path() {
         let mut lower = frozenset_call_expr();
-        set_public_constant(
+        set_ast_constant(
             &mut lower,
             ConstantData::Integer {
                 value: BigInt::from(1u8),
@@ -30237,8 +30194,8 @@ x = 1
         assert!(
             jump_positions
                 .iter()
-                .any(|(position, override_)| *position == (1, 6, 1, 8)
-                    && *override_ != Some(ir::NO_LOCATION_OVERRIDE)),
+                .any(|(position, lineno_override)| *position == (1, 6, 1, 8)
+                    && *lineno_override != Some(ir::NO_LOCATION_OVERRIDE)),
             "CPython codegen_with_inner() emits the normal-exit JUMP at LOC(context_expr), not NO_LOCATION; got {jump_positions:?}"
         );
     }

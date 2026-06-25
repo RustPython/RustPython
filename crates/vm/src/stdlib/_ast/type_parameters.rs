@@ -2,17 +2,16 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 impl Node for ast::TypeParams {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         self.runtime_type_params.map_or_else(
-            || self.type_params.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || self.type_params.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         )
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -28,7 +27,7 @@ impl Node for ast::TypeParams {
 }
 
 pub(super) fn type_params_from_field(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: &PyObject,
     field: &'static str,
@@ -41,7 +40,7 @@ pub(super) fn type_params_from_field(
 }
 
 fn type_params_from_values(
-    _ctx: &AstFromObjectContext<'_>,
+    _ctx: &VirtualMachine,
     values: Vec<Option<ast::TypeParam>>,
 ) -> ast::TypeParams {
     let runtime_type_params = values.iter().any(Option::is_none).then(|| values.clone());
@@ -63,17 +62,17 @@ fn lower_nullable_type_params(values: &[Option<ast::TypeParam>]) -> Vec<ast::Typ
 
 // sum
 impl Node for ast::TypeParam {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         match self {
-            Self::TypeVar(cons) => cons.ast_to_object(to_ctx),
-            Self::ParamSpec(cons) => cons.ast_to_object(to_ctx),
-            Self::TypeVarTuple(cons) => cons.ast_to_object(to_ctx),
+            Self::TypeVar(cons) => cons.ast_to_object(vm, source_file),
+            Self::ParamSpec(cons) => cons.ast_to_object(vm, source_file),
+            Self::TypeVarTuple(cons) => cons.ast_to_object(vm, source_file),
         }
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -127,7 +126,7 @@ impl Node for ast::TypeParam {
 
 // constructor
 fn type_var_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -146,9 +145,7 @@ fn type_var_from_object_with_range(
 }
 
 impl Node for ast::TypeParamTypeVar {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             name,
@@ -160,18 +157,18 @@ impl Node for ast::TypeParamTypeVar {
             .into_ref_with_type(vm, pyast::NodeTypeParamTypeVar::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("bound", bound.ast_to_object(to_ctx), vm)
+        dict.set_item("bound", bound.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("default_value", default.ast_to_object(to_ctx), vm)
+        dict.set_item("default_value", default.ast_to_object(vm, source_file), vm)
             .unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -182,7 +179,7 @@ impl Node for ast::TypeParamTypeVar {
 
 // constructor
 fn param_spec_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -198,9 +195,8 @@ fn param_spec_from_object_with_range(
 }
 
 impl Node for ast::TypeParamParamSpec {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             name,
@@ -211,16 +207,16 @@ impl Node for ast::TypeParamParamSpec {
             .into_ref_with_type(ctx, pyast::NodeTypeParamParamSpec::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), ctx)
+        dict.set_item("name", name.ast_to_object(vm, source_file), ctx)
             .unwrap();
-        dict.set_item("default_value", default.ast_to_object(to_ctx), ctx)
+        dict.set_item("default_value", default.ast_to_object(vm, source_file), ctx)
             .unwrap();
         node_add_location(&dict, range, ctx, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -231,7 +227,7 @@ impl Node for ast::TypeParamParamSpec {
 
 // constructor
 fn type_var_tuple_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -247,9 +243,7 @@ fn type_var_tuple_from_object_with_range(
 }
 
 impl Node for ast::TypeParamTypeVarTuple {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             name,
@@ -263,16 +257,16 @@ impl Node for ast::TypeParamTypeVarTuple {
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("default_value", default.ast_to_object(to_ctx), vm)
+        dict.set_item("default_value", default.ast_to_object(vm, source_file), vm)
             .unwrap();
         node_add_location(&dict, range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {

@@ -90,7 +90,7 @@ impl Constant {
         }
     }
 
-    pub(crate) fn into_expr(self, _ctx: Option<&AstFromObjectContext<'_>>) -> ast::Expr {
+    pub(crate) fn into_expr(self) -> ast::Expr {
         let Self {
             range,
             value,
@@ -127,14 +127,6 @@ pub(crate) enum ConstantLiteral {
     Ellipsis,
 }
 
-pub(super) fn with_ast_from_object_context<T>(
-    vm: &VirtualMachine,
-    f: impl FnOnce(&AstFromObjectContext<'_>) -> PyResult<T>,
-) -> PyResult<T> {
-    let from_ctx = AstFromObjectContext::new(vm);
-    f(&from_ctx)
-}
-
 pub(super) fn invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
     match expr {
         ast::Expr::Constant(expr) => expr.invalid_type.clone(),
@@ -143,26 +135,26 @@ pub(super) fn invalid_constant_type(expr: &ast::Expr) -> Option<Box<str>> {
 }
 
 pub(super) fn runtime_string_from_pyobject(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     object: PyObjectRef,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
     runtime_string_from_object(ctx, object)
 }
 
 pub(super) fn runtime_string_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    runtime_string_to_object(to_ctx.vm, value, bytes)
+    runtime_string_to_object(vm, value, bytes)
 }
 
 pub(super) fn expr_constant_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     expr: ast::ExprConstant,
 ) -> PyObjectRef {
-    let ctx = to_ctx.vm;
-    let source_file = to_ctx.source_file;
+    let ctx = vm;
     let ast::ExprConstant {
         node_index: _,
         range,
@@ -184,23 +176,23 @@ pub(super) fn expr_constant_to_object(
 }
 
 pub(super) fn runtime_interpolation_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
     str: Option<ast::ConstantValue>,
     format_spec: Option<Box<ast::Expr>>,
 ) -> Option<(PyObjectRef, Option<Box<ast::Expr>>)> {
     let str = str?;
     Some((
-        constant_data_to_object(to_ctx.vm, ast_constant_value_to_constant_data(str)),
+        constant_data_to_object(vm, ast_constant_value_to_constant_data(str)),
         format_spec,
     ))
 }
 
 pub(super) fn runtime_stmt_type_comment_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,
 ) -> Option<PyObjectRef> {
-    runtime_string_object(to_ctx, value, bytes)
+    runtime_string_object(vm, value, bytes)
 }
 
 fn constant_literal_to_constant_data(value: &ConstantLiteral) -> ConstantData {
@@ -272,7 +264,7 @@ pub(super) fn constant_data_to_ast_constant_value(value: ConstantData) -> ast::C
         },
         ConstantData::Ellipsis => ast::ConstantValue::Ellipsis,
         ConstantData::Code { .. } | ConstantData::Slice { .. } => {
-            unreachable!("public AST constants cannot contain code objects or slices")
+            unreachable!("ast.Constant values cannot contain code objects or slices")
         }
     }
 }
@@ -290,7 +282,7 @@ pub(super) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
         ast::ConstantValue::Integer(value) => ConstantData::Integer {
             value: value
                 .parse()
-                .expect("RustPython public AST integer constants are decimal integers"),
+                .expect("RustPython ast.Constant integer values are decimal integers"),
         },
         ast::ConstantValue::Tuple(elements) => ConstantData::Tuple {
             elements: elements
@@ -313,7 +305,7 @@ pub(super) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
 }
 
 pub(super) fn constant_object_to_constant_data(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     value_object: PyObjectRef,
 ) -> PyResult<ConstantData> {
@@ -360,7 +352,7 @@ fn runtime_string_to_object(
 }
 
 fn first_invalid_constant_type(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     value_object: PyObjectRef,
 ) -> PyResult<String> {
     let cls = value_object.class();
@@ -397,7 +389,7 @@ fn first_invalid_constant_type(
 }
 
 fn first_invalid_constant_type_opt(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     value_object: PyObjectRef,
 ) -> PyResult<Option<String>> {
     let cls = value_object.class();
@@ -442,14 +434,14 @@ fn constant_data_to_object(vm: &VirtualMachine, constant: ConstantData) -> PyObj
         ConstantData::Complex { value } => vm.ctx.new_complex(value).into_pyobject(vm),
         ConstantData::Ellipsis => vm.ctx.ellipsis.clone().into(),
         ConstantData::Code { .. } | ConstantData::Slice { .. } => {
-            unreachable!("public AST constants cannot contain code objects or slices")
+            unreachable!("ast.Constant values cannot contain code objects or slices")
         }
     }
 }
 
 // constructor
 pub(super) fn constant_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -481,9 +473,8 @@ pub(super) fn constant_from_object_with_range(
 }
 
 impl Node for Constant {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             range,
             value,
@@ -496,7 +487,7 @@ impl Node for Constant {
         let kind = kind
             .or_else(|| constant_literal_kind(&value))
             .map_or_else(|| ctx.ctx.none(), |kind| ctx.ctx.new_str(kind).into());
-        let value = value.ast_to_object(to_ctx);
+        let value = value.ast_to_object(vm, source_file);
         let dict = node.as_object().dict().unwrap();
         dict.set_item("value", value, ctx).unwrap();
         dict.set_item("kind", kind, ctx).unwrap();
@@ -505,7 +496,7 @@ impl Node for Constant {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -515,24 +506,28 @@ impl Node for Constant {
 }
 
 impl Node for ConstantLiteral {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
+        let _source_file = source_file;
         match self {
             Self::None => ctx.ctx.none(),
             Self::Bool(value) => ctx.ctx.new_bool(value).to_pyobject(ctx),
             Self::Str { value, .. } => ctx.ctx.new_str(value).to_pyobject(ctx),
             Self::Bytes(value) => ctx.ctx.new_bytes(value.into()).to_pyobject(ctx),
-            Self::Int(value) => value.ast_to_object(to_ctx),
+            Self::Int(value) => value.ast_to_object(vm, source_file),
             Self::Tuple(value) => {
-                let value = value.into_iter().map(|c| c.ast_to_object(to_ctx)).collect();
+                let value = value
+                    .into_iter()
+                    .map(|c| c.ast_to_object(vm, source_file))
+                    .collect();
                 ctx.ctx.new_tuple(value).to_pyobject(ctx)
             }
-            Self::FrozenSet(value) => {
-                PyFrozenSet::from_iter(ctx, value.into_iter().map(|c| c.ast_to_object(to_ctx)))
-                    .unwrap()
-                    .into_pyobject(ctx)
-            }
+            Self::FrozenSet(value) => PyFrozenSet::from_iter(
+                ctx,
+                value.into_iter().map(|c| c.ast_to_object(vm, source_file)),
+            )
+            .unwrap()
+            .into_pyobject(ctx),
             Self::Float(value) => ctx.ctx.new_float(value).into_pyobject(ctx),
             Self::Complex { real, imag } => ctx
                 .ctx
@@ -543,7 +538,7 @@ impl Node for ConstantLiteral {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         value_object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -629,7 +624,8 @@ impl Node for ConstantLiteral {
 }
 
 pub(super) fn number_literal_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     constant: ast::ExprNumberLiteral,
 ) -> PyObjectRef {
     let ast::ExprNumberLiteral {
@@ -643,11 +639,12 @@ pub(super) fn number_literal_to_object(
         ast::Number::Float(n) => Constant::new_float(n, range),
         ast::Number::Complex { real, imag } => Constant::new_complex(real, imag, range),
     };
-    c.ast_to_object(to_ctx)
+    c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn string_literal_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     constant: ast::ExprStringLiteral,
 ) -> PyObjectRef {
     let ast::ExprStringLiteral {
@@ -661,11 +658,12 @@ pub(super) fn string_literal_to_object(
         .next()
         .map_or(StringLiteralPrefix::Empty, |part| part.flags.prefix());
     let c = Constant::new_str(value.to_str(), prefix, range);
-    c.ast_to_object(to_ctx)
+    c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn bytes_literal_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     constant: ast::ExprBytesLiteral,
 ) -> PyObjectRef {
     let ast::ExprBytesLiteral {
@@ -676,11 +674,12 @@ pub(super) fn bytes_literal_to_object(
     } = constant;
     let bytes = value.as_slice().iter().flat_map(|b| b.value.iter());
     let c = Constant::new_bytes(bytes.copied().collect(), range);
-    c.ast_to_object(to_ctx)
+    c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn boolean_literal_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     constant: ast::ExprBooleanLiteral,
 ) -> PyObjectRef {
     let ast::ExprBooleanLiteral {
@@ -690,11 +689,12 @@ pub(super) fn boolean_literal_to_object(
         ..
     } = constant;
     let c = Constant::new_bool(value, range);
-    c.ast_to_object(to_ctx)
+    c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn none_literal_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     constant: ast::ExprNoneLiteral,
 ) -> PyObjectRef {
     let ast::ExprNoneLiteral {
@@ -703,11 +703,12 @@ pub(super) fn none_literal_to_object(
         ..
     } = constant;
     let c = Constant::new_none(range);
-    c.ast_to_object(to_ctx)
+    c.ast_to_object(vm, source_file)
 }
 
 pub(super) fn ellipsis_literal_to_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
+    source_file: &SourceFile,
     constant: ast::ExprEllipsisLiteral,
 ) -> PyObjectRef {
     let ast::ExprEllipsisLiteral {
@@ -716,5 +717,5 @@ pub(super) fn ellipsis_literal_to_object(
         ..
     } = constant;
     let c = Constant::new_ellipsis(range);
-    c.ast_to_object(to_ctx)
+    c.ast_to_object(vm, source_file)
 }

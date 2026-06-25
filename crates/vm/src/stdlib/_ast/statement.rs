@@ -6,21 +6,21 @@ use crate::stdlib::_ast::exception::except_handler_from_object_unvalidated_range
 use crate::stdlib::_ast::type_parameters::type_params_from_field;
 use rustpython_compiler_core::SourceFile;
 
-fn public_decorator_expr_list(values: &[Option<ast::Decorator>]) -> Vec<Option<ast::Expr>> {
+fn runtime_decorator_expr_list(values: &[Option<ast::Decorator>]) -> Vec<Option<ast::Expr>> {
     values
         .iter()
         .map(|value| value.as_ref().map(|decorator| decorator.expression.clone()))
         .collect()
 }
 
-fn lower_public_decorator_list(values: Vec<Option<ast::Decorator>>) -> Vec<ast::Decorator> {
+fn lower_runtime_decorator_list(values: Vec<Option<ast::Decorator>>) -> Vec<ast::Decorator> {
     values
         .into_iter()
         .map(|value| {
             value.unwrap_or_else(|| ast::Decorator {
                 range: Default::default(),
                 node_index: Default::default(),
-                expression: public_null_expr_placeholder(),
+                expression: runtime_null_expr_placeholder(),
             })
         })
         .collect()
@@ -45,7 +45,7 @@ fn definition_range_from_name(
 }
 
 fn runtime_stmt_type_comment(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     type_comment: Option<PyObjectRef>,
 ) -> (Option<Box<str>>, Option<Vec<u8>>) {
     type_comment.map_or((None, None), |type_comment| {
@@ -54,44 +54,43 @@ fn runtime_stmt_type_comment(
 }
 
 fn runtime_stmt_type_comment_object(
-    to_ctx: &AstToObjectContext<'_>,
+    vm: &VirtualMachine,
     value: Option<Box<str>>,
     bytes: Option<Vec<u8>>,
 ) -> PyObjectRef {
-    super::constant::runtime_stmt_type_comment_object(to_ctx, value, bytes)
-        .unwrap_or_else(|| to_ctx.vm.ctx.none())
+    super::constant::runtime_stmt_type_comment_object(vm, value, bytes)
+        .unwrap_or_else(|| vm.ctx.none())
 }
 
 // sum
 impl Node for ast::Stmt {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         match self {
-            Self::FunctionDef(cons) => cons.ast_to_object(to_ctx),
-            Self::ClassDef(cons) => cons.ast_to_object(to_ctx),
-            Self::Return(cons) => cons.ast_to_object(to_ctx),
-            Self::Delete(cons) => cons.ast_to_object(to_ctx),
-            Self::Assign(cons) => cons.ast_to_object(to_ctx),
-            Self::TypeAlias(cons) => cons.ast_to_object(to_ctx),
-            Self::AugAssign(cons) => cons.ast_to_object(to_ctx),
-            Self::AnnAssign(cons) => cons.ast_to_object(to_ctx),
-            Self::For(cons) => cons.ast_to_object(to_ctx),
-            Self::While(cons) => cons.ast_to_object(to_ctx),
-            Self::If(cons) => cons.ast_to_object(to_ctx),
-            Self::With(cons) => cons.ast_to_object(to_ctx),
-            Self::Match(cons) => cons.ast_to_object(to_ctx),
-            Self::Raise(cons) => cons.ast_to_object(to_ctx),
-            Self::Try(cons) => cons.ast_to_object(to_ctx),
-            Self::Assert(cons) => cons.ast_to_object(to_ctx),
-            Self::Import(cons) => cons.ast_to_object(to_ctx),
-            Self::ImportFrom(cons) => cons.ast_to_object(to_ctx),
-            Self::Global(cons) => cons.ast_to_object(to_ctx),
-            Self::Nonlocal(cons) => cons.ast_to_object(to_ctx),
-            Self::Expr(cons) => cons.ast_to_object(to_ctx),
-            Self::Pass(cons) => cons.ast_to_object(to_ctx),
-            Self::Break(cons) => cons.ast_to_object(to_ctx),
-            Self::Continue(cons) => cons.ast_to_object(to_ctx),
+            Self::FunctionDef(cons) => cons.ast_to_object(vm, source_file),
+            Self::ClassDef(cons) => cons.ast_to_object(vm, source_file),
+            Self::Return(cons) => cons.ast_to_object(vm, source_file),
+            Self::Delete(cons) => cons.ast_to_object(vm, source_file),
+            Self::Assign(cons) => cons.ast_to_object(vm, source_file),
+            Self::TypeAlias(cons) => cons.ast_to_object(vm, source_file),
+            Self::AugAssign(cons) => cons.ast_to_object(vm, source_file),
+            Self::AnnAssign(cons) => cons.ast_to_object(vm, source_file),
+            Self::For(cons) => cons.ast_to_object(vm, source_file),
+            Self::While(cons) => cons.ast_to_object(vm, source_file),
+            Self::If(cons) => cons.ast_to_object(vm, source_file),
+            Self::With(cons) => cons.ast_to_object(vm, source_file),
+            Self::Match(cons) => cons.ast_to_object(vm, source_file),
+            Self::Raise(cons) => cons.ast_to_object(vm, source_file),
+            Self::Try(cons) => cons.ast_to_object(vm, source_file),
+            Self::Assert(cons) => cons.ast_to_object(vm, source_file),
+            Self::Import(cons) => cons.ast_to_object(vm, source_file),
+            Self::ImportFrom(cons) => cons.ast_to_object(vm, source_file),
+            Self::Global(cons) => cons.ast_to_object(vm, source_file),
+            Self::Nonlocal(cons) => cons.ast_to_object(vm, source_file),
+            Self::Expr(cons) => cons.ast_to_object(vm, source_file),
+            Self::Pass(cons) => cons.ast_to_object(vm, source_file),
+            Self::Break(cons) => cons.ast_to_object(vm, source_file),
+            Self::Continue(cons) => cons.ast_to_object(vm, source_file),
             Self::IpyEscapeCommand(_) => {
                 unreachable!("IPython escape command is not part of Python AST")
             }
@@ -99,7 +98,7 @@ impl Node for ast::Stmt {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -337,7 +336,7 @@ impl Node for ast::Stmt {
 
 // constructor
 fn stmt_function_def_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -357,11 +356,11 @@ fn stmt_function_def_from_object_with_range(
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(ctx, source_file, &object, "body", typ)?;
     let decorator_list: Vec<Option<ast::Decorator>> =
         get_node_list_field(ctx, source_file, &object, "decorator_list", typ)?;
-    let public_decorator_list = public_decorator_expr_list(&decorator_list);
-    let runtime_body = public_stmt_list_metadata(&body);
-    let runtime_decorator_list = public_expr_list_metadata(&public_decorator_list);
-    let body = lower_public_stmt_list(body);
-    let decorator_list = lower_public_decorator_list(decorator_list);
+    let runtime_decorator_exprs = runtime_decorator_expr_list(&decorator_list);
+    let runtime_body = runtime_stmt_list_metadata(&body);
+    let runtime_decorator_list = runtime_expr_list_metadata(&runtime_decorator_exprs);
+    let body = lower_runtime_stmt_list(body);
+    let decorator_list = lower_runtime_decorator_list(decorator_list);
     let returns = get_node_field_opt(ctx, &object, "returns")?
         .map(|obj| Node::ast_from_object(ctx, source_file, obj))
         .transpose()?;
@@ -386,9 +385,8 @@ fn stmt_function_def_from_object_with_range(
 }
 
 impl Node for ast::StmtFunctionDef {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             name,
@@ -421,31 +419,27 @@ impl Node for ast::StmtFunctionDef {
         let dict = node.as_object().dict().unwrap();
         dict.set_item("name", ctx.ctx.new_str(name.as_str()).to_pyobject(ctx), ctx)
             .unwrap();
-        dict.set_item("args", parameters.ast_to_object(to_ctx), ctx)
+        dict.set_item("args", parameters.ast_to_object(vm, source_file), ctx)
             .unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("body", body, ctx).unwrap();
         dict.set_item(
             "decorator_list",
             runtime_decorator_list.map_or_else(
-                || decorator_list.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
+                || decorator_list.ast_to_object(vm, source_file),
+                |values| values.ast_to_object(vm, source_file),
             ),
             ctx,
         )
         .unwrap();
-        dict.set_item("returns", returns.ast_to_object(to_ctx), ctx)
+        dict.set_item("returns", returns.ast_to_object(vm, source_file), ctx)
             .unwrap();
         dict.set_item(
             "type_comment",
-            runtime_stmt_type_comment_object(
-                to_ctx,
-                runtime_type_comment,
-                runtime_type_comment_bytes,
-            ),
+            runtime_stmt_type_comment_object(vm, runtime_type_comment, runtime_type_comment_bytes),
             ctx,
         )
         .unwrap();
@@ -453,7 +447,7 @@ impl Node for ast::StmtFunctionDef {
             "type_params",
             type_params.map_or_else(
                 || ctx.ctx.new_list(vec![]).into(),
-                |tp| tp.ast_to_object(to_ctx),
+                |tp| tp.ast_to_object(vm, source_file),
             ),
             ctx,
         )
@@ -463,7 +457,7 @@ impl Node for ast::StmtFunctionDef {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -484,7 +478,7 @@ impl Node for ast::StmtFunctionDef {
 
 // constructor
 fn stmt_class_def_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -498,11 +492,11 @@ fn stmt_class_def_from_object_with_range(
         get_node_list_field(ctx, source_file, &object, "body", "ClassDef")?;
     let decorator_list: Vec<Option<ast::Decorator>> =
         get_node_list_field(ctx, source_file, &object, "decorator_list", "ClassDef")?;
-    let public_decorator_list = public_decorator_expr_list(&decorator_list);
-    let runtime_body = public_stmt_list_metadata(&body);
-    let runtime_decorator_list = public_expr_list_metadata(&public_decorator_list);
-    let body = lower_public_stmt_list(body);
-    let decorator_list = lower_public_decorator_list(decorator_list);
+    let runtime_decorator_exprs = runtime_decorator_expr_list(&decorator_list);
+    let runtime_body = runtime_stmt_list_metadata(&body);
+    let runtime_decorator_list = runtime_expr_list_metadata(&runtime_decorator_exprs);
+    let body = lower_runtime_stmt_list(body);
+    let decorator_list = lower_runtime_decorator_list(decorator_list);
     let type_params = type_params_from_field(ctx, source_file, &object, "type_params", "ClassDef")?;
     Ok(ast::StmtClassDef {
         node_index: Default::default(),
@@ -518,9 +512,7 @@ fn stmt_class_def_from_object_with_range(
 }
 
 impl Node for ast::StmtClassDef {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             name,
@@ -536,57 +528,57 @@ impl Node for ast::StmtClassDef {
         let range =
             definition_range_from_name(source_file, name.range.start(), range.end(), "class");
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtClassDef::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtClassDef::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), _vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
         dict.set_item(
             "bases",
             bases.map_or_else(
-                || _vm.ctx.new_list(vec![]).into(),
-                |b| b.ast_to_object(to_ctx),
+                || vm.ctx.new_list(vec![]).into(),
+                |b| b.ast_to_object(vm, source_file),
             ),
-            _vm,
+            vm,
         )
         .unwrap();
         dict.set_item(
             "keywords",
             keywords.map_or_else(
-                || _vm.ctx.new_list(vec![]).into(),
-                |k| k.ast_to_object(to_ctx),
+                || vm.ctx.new_list(vec![]).into(),
+                |k| k.ast_to_object(vm, source_file),
             ),
-            _vm,
+            vm,
         )
         .unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
-        dict.set_item("body", body, _vm).unwrap();
+        dict.set_item("body", body, vm).unwrap();
         dict.set_item(
             "decorator_list",
             runtime_decorator_list.map_or_else(
-                || decorator_list.ast_to_object(to_ctx),
-                |values| values.ast_to_object(to_ctx),
+                || decorator_list.ast_to_object(vm, source_file),
+                |values| values.ast_to_object(vm, source_file),
             ),
-            _vm,
+            vm,
         )
         .unwrap();
         dict.set_item(
             "type_params",
             type_params.map_or_else(
-                || _vm.ctx.new_list(vec![]).into(),
-                |tp| tp.ast_to_object(to_ctx),
+                || vm.ctx.new_list(vec![]).into(),
+                |tp| tp.ast_to_object(vm, source_file),
             ),
-            _vm,
+            vm,
         )
         .unwrap();
-        node_add_location(&dict, range, _vm, source_file);
+        node_add_location(&dict, range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -596,7 +588,7 @@ impl Node for ast::StmtClassDef {
 }
 // constructor
 fn stmt_return_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -611,9 +603,8 @@ fn stmt_return_from_object_with_range(
 }
 
 impl Node for ast::StmtReturn {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             value,
@@ -623,13 +614,13 @@ impl Node for ast::StmtReturn {
             .into_ref_with_type(ctx, pyast::NodeStmtReturn::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value.ast_to_object(to_ctx), ctx)
+        dict.set_item("value", value.ast_to_object(vm, source_file), ctx)
             .unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -639,14 +630,14 @@ impl Node for ast::StmtReturn {
 }
 // constructor
 fn stmt_delete_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::StmtDelete> {
     let targets: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "targets", "Delete")?;
-    let (runtime_targets, targets) = public_expr_list_from_values(targets);
+    let (runtime_targets, targets) = runtime_expr_list_from_values(targets);
     Ok(ast::StmtDelete {
         node_index: Default::default(),
         targets,
@@ -656,9 +647,7 @@ fn stmt_delete_from_object_with_range(
 }
 
 impl Node for ast::StmtDelete {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             targets,
@@ -666,19 +655,19 @@ impl Node for ast::StmtDelete {
             runtime_targets,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtDelete::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtDelete::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let targets = runtime_targets.map_or_else(
-            || targets.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || targets.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
-        dict.set_item("targets", targets, _vm).unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        dict.set_item("targets", targets, vm).unwrap();
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -689,14 +678,14 @@ impl Node for ast::StmtDelete {
 
 // constructor
 fn stmt_assign_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
 ) -> PyResult<ast::StmtAssign> {
     let targets: Vec<Option<ast::Expr>> =
         get_node_list_field(ctx, source_file, &object, "targets", "Assign")?;
-    let (runtime_targets, targets) = public_expr_list_from_values(targets);
+    let (runtime_targets, targets) = runtime_expr_list_from_values(targets);
     let value = get_required_node_field(ctx, source_file, &object, "value", "Assign")?;
     let (runtime_type_comment, runtime_type_comment_bytes) =
         runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
@@ -712,9 +701,8 @@ fn stmt_assign_from_object_with_range(
 }
 
 impl Node for ast::StmtAssign {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             targets,
@@ -729,19 +717,15 @@ impl Node for ast::StmtAssign {
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let targets = runtime_targets.map_or_else(
-            || targets.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || targets.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("targets", targets, ctx).unwrap();
-        dict.set_item("value", value.ast_to_object(to_ctx), ctx)
+        dict.set_item("value", value.ast_to_object(vm, source_file), ctx)
             .unwrap();
         dict.set_item(
             "type_comment",
-            runtime_stmt_type_comment_object(
-                to_ctx,
-                runtime_type_comment,
-                runtime_type_comment_bytes,
-            ),
+            runtime_stmt_type_comment_object(vm, runtime_type_comment, runtime_type_comment_bytes),
             ctx,
         )
         .unwrap();
@@ -749,7 +733,7 @@ impl Node for ast::StmtAssign {
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -760,7 +744,7 @@ impl Node for ast::StmtAssign {
 
 // constructor
 fn stmt_type_alias_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -775,9 +759,7 @@ fn stmt_type_alias_from_object_with_range(
 }
 
 impl Node for ast::StmtTypeAlias {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             name,
@@ -786,28 +768,28 @@ impl Node for ast::StmtTypeAlias {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtTypeAlias::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtTypeAlias::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", name.ast_to_object(to_ctx), _vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
         dict.set_item(
             "type_params",
             type_params.map_or_else(
-                || _vm.ctx.new_list(Vec::new()).into(),
-                |tp| tp.ast_to_object(to_ctx),
+                || vm.ctx.new_list(Vec::new()).into(),
+                |tp| tp.ast_to_object(vm, source_file),
             ),
-            _vm,
+            vm,
         )
         .unwrap();
-        dict.set_item("value", value.ast_to_object(to_ctx), _vm)
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -818,7 +800,7 @@ impl Node for ast::StmtTypeAlias {
 
 // constructor
 fn stmt_aug_assign_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -837,9 +819,8 @@ fn stmt_aug_assign_from_object_with_range(
 }
 
 impl Node for ast::StmtAugAssign {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             target,
@@ -851,16 +832,17 @@ impl Node for ast::StmtAugAssign {
             .into_ref_with_type(ctx, pyast::NodeStmtAugAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("target", target.ast_to_object(to_ctx), ctx)
+        dict.set_item("target", target.ast_to_object(vm, source_file), ctx)
             .unwrap();
-        dict.set_item("op", op.ast_to_object(to_ctx), ctx).unwrap();
-        dict.set_item("value", value.ast_to_object(to_ctx), ctx)
+        dict.set_item("op", op.ast_to_object(vm, source_file), ctx)
+            .unwrap();
+        dict.set_item("value", value.ast_to_object(vm, source_file), ctx)
             .unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -871,7 +853,7 @@ impl Node for ast::StmtAugAssign {
 
 // constructor
 fn stmt_ann_assign_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -896,9 +878,7 @@ fn stmt_ann_assign_from_object_with_range(
 }
 
 impl Node for ast::StmtAnnAssign {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             target,
@@ -909,25 +889,25 @@ impl Node for ast::StmtAnnAssign {
             runtime_simple,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtAnnAssign::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAnnAssign::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("target", target.ast_to_object(to_ctx), _vm)
+        dict.set_item("target", target.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("annotation", annotation.ast_to_object(to_ctx), _vm)
+        dict.set_item("annotation", annotation.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("value", value.ast_to_object(to_ctx), _vm)
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
         let simple = runtime_simple.map_or_else(
-            || simple.ast_to_object(to_ctx),
-            |simple| _vm.ctx.new_int(simple).into(),
+            || simple.ast_to_object(vm, source_file),
+            |simple| vm.ctx.new_int(simple).into(),
         );
-        dict.set_item("simple", simple, _vm).unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        dict.set_item("simple", simple, vm).unwrap();
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -938,7 +918,7 @@ impl Node for ast::StmtAnnAssign {
 
 // constructor
 fn stmt_for_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -950,10 +930,10 @@ fn stmt_for_from_object_with_range(
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(ctx, source_file, &object, "body", typ)?;
     let orelse: Vec<Option<ast::Stmt>> =
         get_node_list_field(ctx, source_file, &object, "orelse", typ)?;
-    let runtime_body = public_stmt_list_metadata(&body);
-    let runtime_orelse = public_stmt_list_metadata(&orelse);
-    let body = lower_public_stmt_list(body);
-    let orelse = lower_public_stmt_list(orelse);
+    let runtime_body = runtime_stmt_list_metadata(&body);
+    let runtime_orelse = runtime_stmt_list_metadata(&orelse);
+    let body = lower_runtime_stmt_list(body);
+    let orelse = lower_runtime_stmt_list(orelse);
     let (runtime_type_comment, runtime_type_comment_bytes) =
         runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtFor {
@@ -972,9 +952,8 @@ fn stmt_for_from_object_with_range(
 }
 
 impl Node for ast::StmtFor {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             is_async,
@@ -997,27 +976,23 @@ impl Node for ast::StmtFor {
 
         let node = NodeAst.into_ref_with_type(ctx, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("target", target.ast_to_object(to_ctx), ctx)
+        dict.set_item("target", target.ast_to_object(vm, source_file), ctx)
             .unwrap();
-        dict.set_item("iter", iter.ast_to_object(to_ctx), ctx)
+        dict.set_item("iter", iter.ast_to_object(vm, source_file), ctx)
             .unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("body", body, ctx).unwrap();
         let orelse = runtime_orelse.map_or_else(
-            || orelse.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || orelse.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("orelse", orelse, ctx).unwrap();
         dict.set_item(
             "type_comment",
-            runtime_stmt_type_comment_object(
-                to_ctx,
-                runtime_type_comment,
-                runtime_type_comment_bytes,
-            ),
+            runtime_stmt_type_comment_object(vm, runtime_type_comment, runtime_type_comment_bytes),
             ctx,
         )
         .unwrap();
@@ -1026,7 +1001,7 @@ impl Node for ast::StmtFor {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1043,7 +1018,7 @@ impl Node for ast::StmtFor {
 
 // constructor
 fn stmt_while_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1052,13 +1027,13 @@ fn stmt_while_from_object_with_range(
         get_node_list_field(ctx, source_file, &object, "body", "While")?;
     let orelse: Vec<Option<ast::Stmt>> =
         get_node_list_field(ctx, source_file, &object, "orelse", "While")?;
-    let runtime_body = public_stmt_list_metadata(&body);
-    let runtime_orelse = public_stmt_list_metadata(&orelse);
+    let runtime_body = runtime_stmt_list_metadata(&body);
+    let runtime_orelse = runtime_stmt_list_metadata(&orelse);
     Ok(ast::StmtWhile {
         node_index: Default::default(),
         test: get_required_node_field(ctx, source_file, &object, "test", "While")?,
-        body: lower_public_stmt_list(body),
-        orelse: lower_public_stmt_list(orelse),
+        body: lower_runtime_stmt_list(body),
+        orelse: lower_runtime_stmt_list(orelse),
         range,
         runtime_body,
         runtime_orelse,
@@ -1066,9 +1041,7 @@ fn stmt_while_from_object_with_range(
 }
 
 impl Node for ast::StmtWhile {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             test,
@@ -1079,27 +1052,27 @@ impl Node for ast::StmtWhile {
             runtime_orelse,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtWhile::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtWhile::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("test", test.ast_to_object(to_ctx), _vm)
+        dict.set_item("test", test.ast_to_object(vm, source_file), vm)
             .unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
-        dict.set_item("body", body, _vm).unwrap();
+        dict.set_item("body", body, vm).unwrap();
         let orelse = runtime_orelse.map_or_else(
-            || orelse.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || orelse.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
-        dict.set_item("orelse", orelse, _vm).unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        dict.set_item("orelse", orelse, vm).unwrap();
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1109,9 +1082,8 @@ impl Node for ast::StmtWhile {
 }
 // constructor
 impl Node for ast::StmtIf {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let Self {
             node_index,
             test,
@@ -1130,11 +1102,12 @@ impl Node for ast::StmtIf {
                 runtime_orelse: None,
             },
             elif_else_clauses.into_iter(),
-            to_ctx,
+            vm,
+            source_file,
         )
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1144,7 +1117,7 @@ impl Node for ast::StmtIf {
 }
 // constructor
 fn stmt_with_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1153,7 +1126,7 @@ fn stmt_with_from_object_with_range(
     let typ = if is_async { "AsyncWith" } else { "With" };
     let items = get_node_list_field(ctx, source_file, &object, "items", typ)?;
     let body: Vec<Option<ast::Stmt>> = get_node_list_field(ctx, source_file, &object, "body", typ)?;
-    let (runtime_body, body) = public_stmt_list_from_values(body);
+    let (runtime_body, body) = runtime_stmt_list_from_values(body);
     let (runtime_type_comment, runtime_type_comment_bytes) =
         runtime_stmt_type_comment(ctx, get_ast_string_field_opt(ctx, &object, "type_comment")?);
     Ok(ast::StmtWith {
@@ -1169,9 +1142,8 @@ fn stmt_with_from_object_with_range(
 }
 
 impl Node for ast::StmtWith {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             is_async,
@@ -1191,20 +1163,16 @@ impl Node for ast::StmtWith {
 
         let node = NodeAst.into_ref_with_type(ctx, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("items", items.ast_to_object(to_ctx), ctx)
+        dict.set_item("items", items.ast_to_object(vm, source_file), ctx)
             .unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("body", body, ctx).unwrap();
         dict.set_item(
             "type_comment",
-            runtime_stmt_type_comment_object(
-                to_ctx,
-                runtime_type_comment,
-                runtime_type_comment_bytes,
-            ),
+            runtime_stmt_type_comment_object(vm, runtime_type_comment, runtime_type_comment_bytes),
             ctx,
         )
         .unwrap();
@@ -1212,7 +1180,7 @@ impl Node for ast::StmtWith {
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1228,7 +1196,7 @@ impl Node for ast::StmtWith {
 }
 // constructor
 fn stmt_match_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1242,9 +1210,7 @@ fn stmt_match_from_object_with_range(
 }
 
 impl Node for ast::StmtMatch {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             subject,
@@ -1252,18 +1218,18 @@ impl Node for ast::StmtMatch {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtMatch::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtMatch::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("subject", subject.ast_to_object(to_ctx), _vm)
+        dict.set_item("subject", subject.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("cases", cases.ast_to_object(to_ctx), _vm)
+        dict.set_item("cases", cases.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1273,7 +1239,7 @@ impl Node for ast::StmtMatch {
 }
 // constructor
 fn stmt_raise_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1291,9 +1257,8 @@ fn stmt_raise_from_object_with_range(
 }
 
 impl Node for ast::StmtRaise {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             exc,
@@ -1304,15 +1269,15 @@ impl Node for ast::StmtRaise {
             .into_ref_with_type(ctx, pyast::NodeStmtRaise::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("exc", exc.ast_to_object(to_ctx), ctx)
+        dict.set_item("exc", exc.ast_to_object(vm, source_file), ctx)
             .unwrap();
-        dict.set_item("cause", cause.ast_to_object(to_ctx), ctx)
+        dict.set_item("cause", cause.ast_to_object(vm, source_file), ctx)
             .unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1322,7 +1287,7 @@ impl Node for ast::StmtRaise {
 }
 // constructor
 fn stmt_try_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1334,18 +1299,18 @@ fn stmt_try_from_object_with_range(
         get_node_list_field(ctx, source_file, &object, "orelse", typ)?;
     let finalbody: Vec<Option<ast::Stmt>> =
         get_node_list_field(ctx, source_file, &object, "finalbody", typ)?;
-    let (public_handlers, handlers) =
+    let (runtime_handler_values, handlers) =
         except_handler_list_from_field(ctx, source_file, &object, typ, is_star, range)?;
-    let runtime_body = public_stmt_list_metadata(&body);
-    let runtime_orelse = public_stmt_list_metadata(&orelse);
-    let runtime_finalbody = public_stmt_list_metadata(&finalbody);
-    let runtime_handlers = public_except_handler_list_metadata(&public_handlers);
+    let runtime_body = runtime_stmt_list_metadata(&body);
+    let runtime_orelse = runtime_stmt_list_metadata(&orelse);
+    let runtime_finalbody = runtime_stmt_list_metadata(&finalbody);
+    let runtime_handlers = runtime_except_handler_list_metadata(&runtime_handler_values);
     Ok(ast::StmtTry {
         node_index: Default::default(),
-        body: lower_public_stmt_list(body),
+        body: lower_runtime_stmt_list(body),
         handlers,
-        orelse: lower_public_stmt_list(orelse),
-        finalbody: lower_public_stmt_list(finalbody),
+        orelse: lower_runtime_stmt_list(orelse),
+        finalbody: lower_runtime_stmt_list(finalbody),
         range,
         is_star,
         runtime_body,
@@ -1356,7 +1321,7 @@ fn stmt_try_from_object_with_range(
 }
 
 fn except_handler_list_from_field(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: &PyObject,
     typ: &str,
@@ -1367,7 +1332,7 @@ fn except_handler_list_from_field(
     let list = value.downcast_ref::<PyList>().unwrap();
     let len = list.borrow_vec().len();
     let mut result = Vec::with_capacity(len);
-    let mut public_values = Vec::with_capacity(len);
+    let mut runtime_values = Vec::with_capacity(len);
     let recursion_context = format!(" while traversing '{typ}' node");
     for i in 0..len {
         let item = {
@@ -1379,7 +1344,7 @@ fn except_handler_list_from_field(
             }
             items[i].clone()
         };
-        let public_handler = if ctx.is_none(&item) {
+        let runtime_handler = if ctx.is_none(&item) {
             None
         } else {
             Some(ctx.with_recursion(&recursion_context, || {
@@ -1390,7 +1355,7 @@ fn except_handler_list_from_field(
                 }
             })?)
         };
-        let handler = public_handler.clone().unwrap_or_else(|| {
+        let handler = runtime_handler.clone().unwrap_or_else(|| {
             ast::ExceptHandler::ExceptHandler(ast::ExceptHandlerExceptHandler {
                 node_index: Default::default(),
                 range,
@@ -1400,7 +1365,7 @@ fn except_handler_list_from_field(
                 runtime_body: None,
             })
         });
-        public_values.push(public_handler);
+        runtime_values.push(runtime_handler);
         result.push(handler);
         if list.borrow_vec().len() != len {
             return Err(ctx.new_runtime_error(format!(
@@ -1408,13 +1373,12 @@ fn except_handler_list_from_field(
             )));
         }
     }
-    Ok((public_values, result))
+    Ok((runtime_values, result))
 }
 
 impl Node for ast::StmtTry {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             body,
@@ -1439,30 +1403,30 @@ impl Node for ast::StmtTry {
         let node = NodeAst.into_ref_with_type(ctx, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
         let body = runtime_body.map_or_else(
-            || body.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || body.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("body", body, ctx).unwrap();
         let handlers = runtime_handlers.map_or_else(
-            || handlers.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || handlers.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("handlers", handlers, ctx).unwrap();
         let orelse = runtime_orelse.map_or_else(
-            || orelse.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || orelse.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("orelse", orelse, ctx).unwrap();
         let finalbody = runtime_finalbody.map_or_else(
-            || finalbody.ast_to_object(to_ctx),
-            |values| values.ast_to_object(to_ctx),
+            || finalbody.ast_to_object(vm, source_file),
+            |values| values.ast_to_object(vm, source_file),
         );
         dict.set_item("finalbody", finalbody, ctx).unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1479,7 +1443,7 @@ impl Node for ast::StmtTry {
 
 // constructor
 fn stmt_assert_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1495,9 +1459,7 @@ fn stmt_assert_from_object_with_range(
 }
 
 impl Node for ast::StmtAssert {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             test,
@@ -1505,18 +1467,18 @@ impl Node for ast::StmtAssert {
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtAssert::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtAssert::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("test", test.ast_to_object(to_ctx), _vm)
+        dict.set_item("test", test.ast_to_object(vm, source_file), vm)
             .unwrap();
-        dict.set_item("msg", msg.ast_to_object(to_ctx), _vm)
+        dict.set_item("msg", msg.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1526,7 +1488,7 @@ impl Node for ast::StmtAssert {
 }
 // constructor
 fn stmt_import_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1540,9 +1502,8 @@ fn stmt_import_from_object_with_range(
 }
 
 impl Node for ast::StmtImport {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             names,
@@ -1553,14 +1514,14 @@ impl Node for ast::StmtImport {
             .into_ref_with_type(ctx, pyast::NodeStmtImport::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("names", names.ast_to_object(to_ctx), ctx)
+        dict.set_item("names", names.ast_to_object(vm, source_file), ctx)
             .unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1570,7 +1531,7 @@ impl Node for ast::StmtImport {
 }
 // constructor
 fn stmt_import_from_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1591,7 +1552,7 @@ fn stmt_import_from_from_object_with_range(
 }
 
 fn import_from_level_from_field(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     object: &PyObjectRef,
 ) -> PyResult<(u32, Option<i32>)> {
     let Some(value) = get_node_field_opt(ctx, object, "level")? else {
@@ -1607,9 +1568,8 @@ fn import_from_level_from_field(
 }
 
 impl Node for ast::StmtImportFrom {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             module,
@@ -1623,9 +1583,9 @@ impl Node for ast::StmtImportFrom {
             .into_ref_with_type(ctx, pyast::NodeStmtImportFrom::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("module", module.ast_to_object(to_ctx), ctx)
+        dict.set_item("module", module.ast_to_object(vm, source_file), ctx)
             .unwrap();
-        dict.set_item("names", names.ast_to_object(to_ctx), ctx)
+        dict.set_item("names", names.ast_to_object(vm, source_file), ctx)
             .unwrap();
         let level = runtime_level.map_or_else(
             || ctx.ctx.new_int(level).to_pyobject(ctx),
@@ -1637,7 +1597,7 @@ impl Node for ast::StmtImportFrom {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1647,7 +1607,7 @@ impl Node for ast::StmtImportFrom {
 }
 // constructor
 fn stmt_global_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1660,25 +1620,23 @@ fn stmt_global_from_object_with_range(
 }
 
 impl Node for ast::StmtGlobal {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             names,
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtGlobal::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtGlobal::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("names", names.ast_to_object(to_ctx), _vm)
+        dict.set_item("names", names.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1688,7 +1646,7 @@ impl Node for ast::StmtGlobal {
 }
 // constructor
 fn stmt_nonlocal_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1701,9 +1659,8 @@ fn stmt_nonlocal_from_object_with_range(
 }
 
 impl Node for ast::StmtNonlocal {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let ctx = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let ctx = vm;
         let Self {
             node_index: _,
             names,
@@ -1713,13 +1670,13 @@ impl Node for ast::StmtNonlocal {
             .into_ref_with_type(ctx, pyast::NodeStmtNonlocal::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("names", names.ast_to_object(to_ctx), ctx)
+        dict.set_item("names", names.ast_to_object(vm, source_file), ctx)
             .unwrap();
         node_add_location(&dict, _range, ctx, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1729,7 +1686,7 @@ impl Node for ast::StmtNonlocal {
 }
 // constructor
 fn stmt_expr_from_object_with_range(
-    ctx: &AstFromObjectContext<'_>,
+    ctx: &VirtualMachine,
     source_file: &SourceFile,
     object: PyObjectRef,
     range: TextRange,
@@ -1742,25 +1699,23 @@ fn stmt_expr_from_object_with_range(
 }
 
 impl Node for ast::StmtExpr {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             value,
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtExpr::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtExpr::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("value", value.ast_to_object(to_ctx), _vm)
+        dict.set_item("value", value.ast_to_object(vm, source_file), vm)
             .unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1777,15 +1732,13 @@ fn stmt_pass_from_object_with_range(range: TextRange) -> ast::StmtPass {
 }
 
 impl Node for ast::StmtPass {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtPass::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtPass::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
         let location = super::text_range_to_source_range(source_file, _range);
@@ -1803,18 +1756,18 @@ impl Node for ast::StmtPass {
             location.end.column.get()
         };
 
-        dict.set_item("lineno", _vm.ctx.new_int(start_row).into(), _vm)
+        dict.set_item("lineno", vm.ctx.new_int(start_row).into(), vm)
             .unwrap();
-        dict.set_item("col_offset", _vm.ctx.new_int(start_col).into(), _vm)
+        dict.set_item("col_offset", vm.ctx.new_int(start_col).into(), vm)
             .unwrap();
-        dict.set_item("end_lineno", _vm.ctx.new_int(end_row).into(), _vm)
+        dict.set_item("end_lineno", vm.ctx.new_int(end_row).into(), vm)
             .unwrap();
-        dict.set_item("end_col_offset", _vm.ctx.new_int(end_col).into(), _vm)
+        dict.set_item("end_col_offset", vm.ctx.new_int(end_col).into(), vm)
             .unwrap();
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1831,23 +1784,21 @@ fn stmt_break_from_object_with_range(range: TextRange) -> ast::StmtBreak {
 }
 
 impl Node for ast::StmtBreak {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtBreak::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtBreak::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -1865,22 +1816,20 @@ fn stmt_continue_from_object_with_range(range: TextRange) -> ast::StmtContinue {
 }
 
 impl Node for ast::StmtContinue {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let _vm = to_ctx.vm;
-        let source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         let Self {
             node_index: _,
             range: _range,
         } = self;
         let node = NodeAst
-            .into_ref_with_type(_vm, pyast::NodeStmtContinue::static_type().to_owned())
+            .into_ref_with_type(vm, pyast::NodeStmtContinue::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        node_add_location(&dict, _range, _vm, source_file);
+        node_add_location(&dict, _range, vm, source_file);
         node.into()
     }
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         source_file: &SourceFile,
         _object: PyObjectRef,
     ) -> PyResult<Self> {

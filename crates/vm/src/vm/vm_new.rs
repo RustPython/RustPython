@@ -54,15 +54,6 @@ impl SyntaxErrorInfo {
         Self { msg, narrow_caret }
     }
 
-    fn with_msg(&mut self, msg: &str) {
-        self.msg = msg.into();
-    }
-
-    #[cfg(feature = "parser")]
-    const fn with_narrow_caret(&mut self, narrow_caret: bool) {
-        self.narrow_caret = narrow_caret;
-    }
-
     #[cfg(feature = "parser")]
     #[must_use]
     const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
@@ -114,7 +105,7 @@ impl SyntaxErrorInfo {
             }
 
             ParseErrorType::InvalidStarredExpressionUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "invalid syntax".into()
             }
 
@@ -134,7 +125,7 @@ impl SyntaxErrorInfo {
             ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
 
             ParseErrorType::InvalidStarPatternUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "cannot use starred expression here".into()
             }
 
@@ -272,7 +263,7 @@ impl SyntaxErrorInfo {
             _ => return,
         };
 
-        self.with_msg(&msg);
+        self.msg = msg;
     }
 }
 
@@ -803,10 +794,10 @@ impl VirtualMachine {
         };
 
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
+            syntax_error_info.msg = "inconsistent use of tabs and spaces in indentation".to_owned();
         }
         if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
-            syntax_error_info.with_msg("incomplete input");
+            syntax_error_info.msg = "incomplete input".to_owned();
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;

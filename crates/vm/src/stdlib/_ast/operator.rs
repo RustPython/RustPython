@@ -3,9 +3,8 @@ use rustpython_compiler_core::SourceFile;
 
 // sum
 impl Node for ast::BoolOp {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let node_type = match self {
             Self::And => pyast::NodeBoolOpAnd::static_type(),
             Self::Or => pyast::NodeBoolOpOr::static_type(),
@@ -14,7 +13,7 @@ impl Node for ast::BoolOp {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -35,9 +34,8 @@ impl Node for ast::BoolOp {
 
 // sum
 impl Node for ast::Operator {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let node_type = match self {
             Self::Add => pyast::NodeOperatorAdd::static_type(),
             Self::Sub => pyast::NodeOperatorSub::static_type(),
@@ -57,7 +55,7 @@ impl Node for ast::Operator {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -100,9 +98,8 @@ impl Node for ast::Operator {
 
 // sum
 impl Node for ast::UnaryOp {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let node_type = match self {
             Self::Invert => pyast::NodeUnaryOpInvert::static_type(),
             Self::Not => pyast::NodeUnaryOpNot::static_type(),
@@ -113,7 +110,7 @@ impl Node for ast::UnaryOp {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
@@ -138,9 +135,8 @@ impl Node for ast::UnaryOp {
 
 // sum
 impl Node for ast::CmpOp {
-    fn ast_to_object(self, to_ctx: &AstToObjectContext<'_>) -> PyObjectRef {
-        let vm = to_ctx.vm;
-        let _source_file = to_ctx.source_file;
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        let _source_file = source_file;
         let node_type = match self {
             Self::Eq => pyast::NodeCmpOpEq::static_type(),
             Self::NotEq => pyast::NodeCmpOpNotEq::static_type(),
@@ -157,7 +153,7 @@ impl Node for ast::CmpOp {
     }
 
     fn ast_from_object(
-        ctx: &AstFromObjectContext<'_>,
+        ctx: &VirtualMachine,
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {

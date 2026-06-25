@@ -165,16 +165,21 @@ impl ConstantPool {
             .expect("constant key canonicalization only fails on allocation error")
     }
 
+    /// Index of an already-stored constant equal to `constant`, if any.
+    /// _PyCode_ConstantKey() keeps NaN-bearing constants distinct because
+    /// Python-level NaN keys do not compare equal.
+    fn find_existing(&self, constant: &ConstantData) -> Option<usize> {
+        if Self::constant_contains_nan(constant) {
+            return None;
+        }
+        self.constants
+            .iter()
+            .position(|existing| Self::constant_key_eq(existing, constant))
+    }
+
     pub fn insert_full(&mut self, constant: ConstantData) -> (usize, bool) {
         let constant = Self::canonicalize_constant_key_infallible(constant);
-        // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
-        // because Python-level NaN keys do not compare equal.
-        if !Self::constant_contains_nan(&constant)
-            && let Some(idx) = self
-                .constants
-                .iter()
-                .position(|existing| Self::constant_key_eq(existing, &constant))
-        {
+        if let Some(idx) = self.find_existing(&constant) {
             return (idx, false);
         }
         let idx = self.constants.len();
@@ -184,14 +189,7 @@ impl ConstantPool {
 
     fn try_insert_full(&mut self, constant: ConstantData) -> crate::InternalResult<(usize, bool)> {
         let constant = Self::canonicalize_constant_key(constant)?;
-        // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
-        // because Python-level NaN keys do not compare equal.
-        if !Self::constant_contains_nan(&constant)
-            && let Some(idx) = self
-                .constants
-                .iter()
-                .position(|existing| Self::constant_key_eq(existing, &constant))
-        {
+        if let Some(idx) = self.find_existing(&constant) {
             return Ok((idx, false));
         }
         self.constants
@@ -6623,21 +6621,19 @@ fn get_max_label(blocks: &Blocks) -> i32 {
 }
 
 /// flowgraph.c make_except_stack
-#[allow(clippy::unnecessary_wraps)]
-fn make_except_stack() -> crate::InternalResult<CfgExceptStack> {
+fn make_except_stack() -> CfgExceptStack {
     let handlers = [BlockIdx::NULL; CO_MAXBLOCKS + 2];
     debug_assert_eq!(handlers[0], BlockIdx::NULL);
-    Ok(CfgExceptStack { handlers, depth: 0 })
+    CfgExceptStack { handlers, depth: 0 }
 }
 
 /// flowgraph.c copy_except_stack
-#[allow(clippy::unnecessary_wraps)]
-fn copy_except_stack(stack: &CfgExceptStack) -> crate::InternalResult<CfgExceptStack> {
+fn copy_except_stack(stack: &CfgExceptStack) -> CfgExceptStack {
     debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
-    Ok(CfgExceptStack {
+    CfgExceptStack {
         handlers: stack.handlers,
         depth: stack.depth,
-    })
+    }
 }
 
 /// flowgraph.c except_stack_top
@@ -6689,7 +6685,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
 
     todo.push(BlockIdx(0));
     blocks[0].visited = true;
-    blocks[0].except_stack = Some(make_except_stack()?);
+    blocks[0].except_stack = Some(make_except_stack());
 
     while let Some(block_idx) = todo.pop() {
         let bi = block_idx.idx();
@@ -6716,7 +6712,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
                 if !blocks[target].visited {
                     blocks[target].except_stack = Some(copy_except_stack(
                         stack.as_ref().expect("active exception stack"),
-                    )?);
+                    ));
                     todo.push(target);
                     blocks[target].visited = true;
                 }
@@ -6740,7 +6736,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
                     if bb_has_fallthrough(&blocks[bi]) {
                         blocks[target].except_stack = Some(copy_except_stack(
                             stack.as_ref().expect("active exception stack"),
-                        )?);
+                        ));
                     } else {
                         blocks[target].except_stack = stack.take();
                         stack_transferred = true;
@@ -7095,7 +7091,7 @@ mod tests {
 
     #[test]
     fn except_stack_tracks_cpython_depth_and_handler_slots() {
-        let mut stack = make_except_stack().unwrap();
+        let mut stack = make_except_stack();
         assert_eq!(stack.depth, 0);
         assert_eq!(stack.handlers.len(), CO_MAXBLOCKS + 2);
         assert_eq!(stack.handlers[0], BlockIdx::NULL);
@@ -7119,7 +7115,7 @@ mod tests {
         assert!(handler.preserve_lasti);
         assert!(blocks[1].preserve_lasti);
 
-        let copy = copy_except_stack(&stack).unwrap();
+        let copy = copy_except_stack(&stack);
         assert_eq!(copy.depth, stack.depth);
         assert_eq!(copy.handlers, stack.handlers);
 
