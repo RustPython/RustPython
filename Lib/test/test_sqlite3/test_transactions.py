@@ -387,7 +387,7 @@ class AutocommitAttribute(unittest.TestCase):
                     cx.autocommit = mode
                     self.assertEqual(cx.autocommit, mode)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit validation error messages differ
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit validation error messages differ
     def test_autocommit_setget_invalid(self):
         msg = "autocommit must be True, False, or.*LEGACY"
         for mode in "a", 12, (), None:
@@ -395,7 +395,7 @@ class AutocommitAttribute(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, msg):
                     sqlite.connect(":memory:", autocommit=mode)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit behavior differs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled(self):
         expected = [
             "SELECT 1",
@@ -411,7 +411,7 @@ class AutocommitAttribute(unittest.TestCase):
                 cx.commit()
                 cx.rollback()
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit behavior differs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_implicit_rollback(self):
         expected = ["ROLLBACK"]
         with memory_database(autocommit=False) as cx:
@@ -438,7 +438,7 @@ class AutocommitAttribute(unittest.TestCase):
                         meth()  # expect this to pass silently
                         self.assertFalse(cx.in_transaction)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit behavior differs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_then_enabled(self):
         expected = ["COMMIT"]
         with memory_database(autocommit=False) as cx:
@@ -472,7 +472,7 @@ class AutocommitAttribute(unittest.TestCase):
                     self.assertFalse(cx.in_transaction)
                 self.assertFalse(cx.in_transaction)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit behavior differs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_ctx_mgr(self):
         expected = ["COMMIT", "BEGIN"]
         with memory_database(autocommit=False) as cx:
@@ -492,7 +492,7 @@ class AutocommitAttribute(unittest.TestCase):
                     self.assertTrue(cx.in_transaction)
                 self.assertFalse(cx.in_transaction)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit behavior differs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_enabled_executescript(self):
         expected = ["BEGIN", "SELECT 1"]
         with memory_database(autocommit=True) as cx:
@@ -502,7 +502,7 @@ class AutocommitAttribute(unittest.TestCase):
                 cx.executescript("SELECT 1")
                 self.assertTrue(cx.in_transaction)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON autocommit behavior differs
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_executescript(self):
         expected = ["SELECT 1"]
         with memory_database(autocommit=False) as cx:

@@ -40,7 +40,7 @@ class MyCursor(sqlite.Cursor):
         self.row_factory = dict_factory
 
 class ConnectionFactoryTests(unittest.TestCase):
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connection_factories(self):
         class DefectFactory(sqlite.Connection):
             def __init__(self, *args, **kwargs):
@@ -56,7 +56,7 @@ class ConnectionFactoryTests(unittest.TestCase):
             with memory_database(factory=DefectFactory) as con:
                 self.assertIsInstance(con, DefectFactory)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connection_factory_relayed_call(self):
         # gh-95132: keyword args must not be passed as positional args
         class Factory(sqlite.Connection):
@@ -68,7 +68,7 @@ class ConnectionFactoryTests(unittest.TestCase):
             self.assertIsNone(con.isolation_level)
             self.assertIsInstance(con, Factory)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connection_factory_as_positional_arg(self):
         class Factory(sqlite.Connection):
             def __init__(self, *args, **kwargs):
@@ -89,9 +89,6 @@ class ConnectionFactoryTests(unittest.TestCase):
 
 
 class CursorFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
-
-    def tearDown(self):
-        self.con.close()
 
     def test_is_instance(self):
         cur = self.con.cursor()
@@ -131,7 +128,7 @@ class RowFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
         row = self.con.execute("select 1, 2").fetchone()
         self.assertIsInstance(row, list)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite_row_index(self):
         row = self.con.execute("select 1 as a_1, 2 as b").fetchone()
         self.assertIsInstance(row, sqlite.Row)
@@ -162,7 +159,17 @@ class RowFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertRaises(IndexError):
             row[complex()]  # index must be int or string
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    def test_delete_connection_row_factory(self):
+        # gh-149738: deleting row_factory should raise an exception
+        with self.assertRaises(AttributeError):
+            del self.con.row_factory
+
+    def test_delete_connection_text_factory(self):
+        # gh-149738: deleting text_factory should raise an exception
+        with self.assertRaises(AttributeError):
+            del self.con.text_factory
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_sqlite_row_index_unicode(self):
         row = self.con.execute("select 1 as \xff").fetchone()
         self.assertEqual(row["\xff"], 1)
