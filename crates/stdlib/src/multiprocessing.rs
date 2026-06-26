@@ -333,7 +333,7 @@ mod _multiprocessing {
     }
 
     #[pyfunction]
-    fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<libc::c_int> {
+    fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
         buf.with_ref(|b| {
             host_multiprocessing::send_socket(socket as host_multiprocessing::RawSocket, b)
         })
@@ -355,7 +355,7 @@ mod _multiprocessing {
     };
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
     #[cfg(target_vendor = "apple")]
-    use libc::sem_t;
+    use rustpython_host_env::multiprocessing::sem_t;
     use rustpython_host_env::multiprocessing::{
         self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
     };
@@ -373,7 +373,7 @@ mod _multiprocessing {
     #[cfg(target_vendor = "apple")]
     fn sem_timedwait_polled(
         sem: *mut sem_t,
-        deadline: &libc::timespec,
+        deadline: &host_multiprocessing::timespec,
         vm: &VirtualMachine,
     ) -> Result<(), SemWaitError> {
         let mut delay: u64 = 0;

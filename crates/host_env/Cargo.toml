@@ -25,6 +25,16 @@ rustix = { workspace = true }
 [target.'cfg(any(not(target_arch = "wasm32"), target_os = "wasi"))'.dependencies]
 num_cpus = "1.17.0"
 
+[target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
+mac_address = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+dns-lookup = { workspace = true }
+gethostname = { workspace = true }
+rustyline = { workspace = true }
+socket2 = { workspace = true, features = ["all"] }
+which = { workspace = true }
+
 [target.'cfg(all(unix, not(target_os = "ios"), not(target_os = "redox")))'.dependencies]
 termios = { workspace = true }
 
@@ -34,6 +44,9 @@ libloading = "0.9"
 
 [target.'cfg(all(any(target_os = "linux", target_os = "macos", target_os = "windows", target_os = "android"), not(any(target_env = "musl", target_env = "sgx"))))'.dependencies]
 libffi = { workspace = true, features = ["system"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+system-configuration = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 junction = { workspace = true }

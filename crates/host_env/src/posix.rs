@@ -10,6 +10,8 @@ use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
+pub use libc::{c_char, pid_t};
+
 pub struct UnameInfo {
     pub sysname: String,
     pub nodename: String,
