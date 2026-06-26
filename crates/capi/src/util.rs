@@ -101,6 +101,14 @@ impl FfiResult<isize> for usize {
     }
 }
 
+impl FfiResult for isize {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 impl FfiResult for c_long {
     const ERR_VALUE: Self = -1;
 
