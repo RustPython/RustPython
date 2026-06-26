@@ -2438,6 +2438,7 @@ pub(crate) fn compile(
         }
     };
     opts.future_features |= codegen::preprocess::future_features(&ast);
+    let source = text.clone();
     let source_file = SourceFileBuilder::new(filename, text).finish();
     #[cfg(feature = "parser")]
     let code = {
@@ -2491,7 +2492,7 @@ pub(crate) fn compile(
     };
     #[cfg(not(feature = "parser"))]
     let code = codegen::compile::compile_top(ast, source_file, mode, opts);
-    let code = code.map_err(|err| vm.new_syntax_error(&err.into(), None))?; // FIXME source
+    let code = code.map_err(|err| vm.new_syntax_error(&err.into(), Some(source.as_str())))?;
     Ok(crate::builtins::PyCode::new_ref_from_bytecode(vm, code).into())
 }
 
