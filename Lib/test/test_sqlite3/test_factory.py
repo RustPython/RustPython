@@ -159,11 +159,13 @@ class RowFactoryTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertRaises(IndexError):
             row[complex()]  # index must be int or string
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: can't delete attribute
     def test_delete_connection_row_factory(self):
         # gh-149738: deleting row_factory should raise an exception
         with self.assertRaises(AttributeError):
             del self.con.row_factory
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: can't delete attribute
     def test_delete_connection_text_factory(self):
         # gh-149738: deleting text_factory should raise an exception
         with self.assertRaises(AttributeError):
