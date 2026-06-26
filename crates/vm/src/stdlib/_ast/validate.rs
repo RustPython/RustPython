@@ -265,7 +265,15 @@ fn validate_pattern(vm: &VirtualMachine, pattern: &ast::Pattern, star_ok: bool) 
             }
             validate_runtime_expr_option_list_slots(vm, mapping.runtime_keys.as_ref())?;
             for key in &mapping.keys {
-                if let ast::Expr::BooleanLiteral(_) | ast::Expr::NoneLiteral(_) = key {
+                if matches!(
+                    key,
+                    ast::Expr::BooleanLiteral(_)
+                        | ast::Expr::NoneLiteral(_)
+                        | ast::Expr::Constant(ast::ExprConstant {
+                            value: ast::ConstantValue::Boolean(_) | ast::ConstantValue::None,
+                            ..
+                        })
+                ) {
                     continue;
                 }
                 validate_pattern_match_value(vm, key)?;

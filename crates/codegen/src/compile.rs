@@ -11750,7 +11750,13 @@ impl<'warnings> Compiler<'warnings> {
     ) -> CompileResult<Option<ConstantData>> {
         if let Some(constant) = self.ast_constant_value(expr) {
             return Ok(match constant {
-                ConstantData::Boolean { .. } | ConstantData::None => Some(constant),
+                ConstantData::Integer { .. }
+                | ConstantData::Float { .. }
+                | ConstantData::Bytes { .. }
+                | ConstantData::Complex { .. }
+                | ConstantData::Str { .. }
+                | ConstantData::Boolean { .. }
+                | ConstantData::None => Some(constant),
                 _ => None,
             });
         }
@@ -14435,6 +14441,55 @@ def f(x):
             return None
 ",
         );
+    }
+
+    #[test]
+    fn match_mapping_accepts_public_ast_constant_keys_like_cpython() {
+        let source = "\
+match x:
+    case {'a': _, b'b': _, 2: _, 1.5: _, 1j: _, True: _, None: _}:
+        pass
+";
+        let source_file = SourceFileBuilder::new("source_path", source).finish();
+        let parsed = ruff_python_parser::parse(
+            source_file.source_text(),
+            ruff_python_parser::Mode::Module.into(),
+        )
+        .unwrap();
+        let mut ast = parsed.into_syntax();
+        let ast::Mod::Module(module) = &mut ast else {
+            unreachable!();
+        };
+        let ast::Stmt::Match(match_stmt) = &mut module.body[0] else {
+            unreachable!();
+        };
+        let ast::Pattern::MatchMapping(mapping) = &mut match_stmt.cases[0].pattern else {
+            unreachable!();
+        };
+
+        for (key, value) in mapping.keys.iter_mut().zip([
+            ast::ConstantValue::Str("a".into()),
+            ast::ConstantValue::Bytes(vec![b'b'].into_boxed_slice()),
+            ast::ConstantValue::Integer("2".into()),
+            ast::ConstantValue::Float(1.5),
+            ast::ConstantValue::Complex {
+                real: 0.0,
+                imag: 1.0,
+            },
+            ast::ConstantValue::Boolean(true),
+            ast::ConstantValue::None,
+        ]) {
+            let range = key.range();
+            *key = ast::Expr::Constant(ast::ExprConstant {
+                node_index: ast::AtomicNodeIndex::NONE,
+                range,
+                value,
+                kind: None,
+                invalid_type: None,
+            });
+        }
+
+        compile_top(ast, source_file, Mode::Exec, CompileOpts::default()).unwrap();
     }
 
     #[test]

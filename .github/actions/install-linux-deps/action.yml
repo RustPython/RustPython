@@ -50,8 +50,20 @@ runs:
           sudo apt-get update
         fi
 
-        sudo apt-get install --no-install-recommends
-        ${{ fromJSON(inputs.gcc-multilib) && 'gcc-multilib' || '' }}
-        ${{ fromJSON(inputs.musl-tools) && 'musl-tools' || '' }}
-        ${{ fromJSON(inputs.clang) && 'clang' || '' }}
-        ${{ fromJSON(inputs.gcc-aarch64-linux-gnu) && 'gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross' || '' }}
+        packages=()
+        if [[ "${{ inputs.gcc-multilib }}" == "true" ]]; then
+          packages+=(gcc-multilib)
+        fi
+        if [[ "${{ inputs.musl-tools }}" == "true" ]]; then
+          packages+=(musl-tools)
+        fi
+        if [[ "${{ inputs.clang }}" == "true" ]]; then
+          packages+=(clang)
+        fi
+        if [[ "${{ inputs.gcc-aarch64-linux-gnu }}" == "true" ]]; then
+          packages+=(gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross)
+        fi
+
+        if ((${#packages[@]})); then
+          sudo apt-get install --no-install-recommends "${packages[@]}"
+        fi
