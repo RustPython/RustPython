@@ -10,6 +10,7 @@ use rustpython_vm::{
     compiler::{self},
     readline::{Readline, ReadlineResult},
     scope::Scope,
+    vm::VmCompileError,
 };
 
 enum ShellExecResult {
@@ -45,25 +46,25 @@ fn shell_exec(
                 ShellExecResult::Ok
             }
         }
-        Err(CompileError::Parse(ParseError {
+        Err(VmCompileError::Compile(CompileError::Parse(ParseError {
             error: ParseErrorType::Lexical(LexicalErrorType::Eof),
             ..
-        })) => ShellExecResult::ContinueLine,
-        Err(CompileError::Parse(ParseError {
+        }))) => ShellExecResult::ContinueLine,
+        Err(VmCompileError::Compile(CompileError::Parse(ParseError {
             error:
                 ParseErrorType::Lexical(LexicalErrorType::FStringError(
                     InterpolatedStringErrorType::UnterminatedTripleQuotedString,
                 )),
             ..
-        })) => ShellExecResult::ContinueLine,
+        }))) => ShellExecResult::ContinueLine,
         Err(err) => {
             // Check if the error is from an unclosed triple quoted string (which should always
             // continue)
-            if let CompileError::Parse(ParseError {
+            if let VmCompileError::Compile(CompileError::Parse(ParseError {
                 error: ParseErrorType::Lexical(LexicalErrorType::UnclosedStringError),
                 raw_location,
                 ..
-            }) = err
+            })) = &err
             {
                 let loc = raw_location.start().to_usize();
                 let mut iter = source.chars();
@@ -80,8 +81,8 @@ fn shell_exec(
             // since indentations errors on columns other than 0 should be ignored.
             // if its an unrecognized token for dedent, set to false
 
-            let bad_error = match err {
-                CompileError::Parse(ref p) => {
+            let bad_error = match &err {
+                VmCompileError::Compile(CompileError::Parse(p)) => {
                     match &p.error {
                         ParseErrorType::Lexical(LexicalErrorType::IndentationError) => {
                             continuing_block
@@ -97,7 +98,7 @@ fn shell_exec(
 
             // If we are handling an error on an empty line or an error worthy of throwing
             if empty_line_given || bad_error {
-                ShellExecResult::PyErr(vm.new_syntax_error(&err, Some(source)))
+                ShellExecResult::PyErr(err.into_pyexception(vm, Some(source)))
             } else {
                 ShellExecResult::ContinueBlock
             }

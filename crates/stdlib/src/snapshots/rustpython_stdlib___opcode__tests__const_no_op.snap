@@ -1,6 +1,7 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: x = not True
+assertion_line: 281
+expression: "dis(r#\"\nx = not True\n\"#)"
 ---
   0           RESUME                   0
 

@@ -70,6 +70,7 @@ static_assertions = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
+thin-vec = { workspace = true }
 memchr = { workspace = true }
 
 flamer = { workspace = true, optional = true }

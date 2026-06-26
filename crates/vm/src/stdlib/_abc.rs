@@ -9,11 +9,11 @@ pub(crate) use _abc::module_def;
 mod _abc {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyFrozenSet, PyList, PySet, PyStr, PyTupleRef, PyTypeRef, PyWeak},
+        builtins::{PyFrozenSet, PyList, PySet, PyStr, PyTupleRef, PyType, PyTypeRef, PyWeak},
         common::lock::PyRwLock,
         convert::ToPyObject,
         protocol::PyIterReturn,
-        types::Constructor,
+        types::{Constructor, PyTypeFlags},
     };
     use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -237,6 +237,23 @@ mod _abc {
 
         // Invalidate negative cache
         increment_invalidation_counter();
+
+        if let Some(cls_type) = cls.downcast_ref::<PyType>()
+            && let Some(subclass_type) = subclass.downcast_ref::<PyType>()
+        {
+            // _abc_register propagates Py_TPFLAGS_SEQUENCE/MAPPING
+            // recursively so MATCH_SEQUENCE/MATCH_MAPPING see ABC registration.
+            let collection_mask = PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING;
+            let collection_flags = (cls_type.slots.flags
+                | PyTypeFlags::from_bits_truncate(cls_type.abc_tpflags.load(Ordering::Acquire)))
+                & collection_mask;
+            if !subclass_type.is(vm.ctx.types.str_type)
+                && !subclass_type.is(vm.ctx.types.bytes_type)
+                && !subclass_type.is(vm.ctx.types.bytearray_type)
+            {
+                subclass_type.set_abc_collection_flags_recursive(collection_flags);
+            }
+        }
 
         Ok(subclass)
     }

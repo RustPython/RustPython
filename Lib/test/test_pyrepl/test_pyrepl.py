@@ -466,7 +466,6 @@ class TestPyReplAutoindent(TestCase):
         reader = ReadlineAlikeReader(console=console, config=config)
         return reader
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_auto_indent_default(self):
         # fmt: off
         input_code = (
@@ -486,7 +485,6 @@ class TestPyReplAutoindent(TestCase):
         output = multiline_input(reader)
         self.assertEqual(output, output_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_auto_indent_continuation(self):
         # auto indenting according to previous user indentation
         # fmt: off
@@ -514,7 +512,6 @@ class TestPyReplAutoindent(TestCase):
         output = multiline_input(reader)
         self.assertEqual(output, output_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_auto_indent_prev_block(self):
         # auto indenting according to indentation in different block
         # fmt: off
@@ -546,7 +543,6 @@ class TestPyReplAutoindent(TestCase):
         output2 = multiline_input(reader)
         self.assertEqual(output2, output_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_auto_indent_multiline(self):
         # fmt: off
         events = itertools.chain(
@@ -586,7 +582,6 @@ class TestPyReplAutoindent(TestCase):
         output = multiline_input(reader)
         self.assertEqual(output, output_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_auto_indent_with_comment(self):
         # fmt: off
         events = code_to_events(
@@ -605,7 +600,6 @@ class TestPyReplAutoindent(TestCase):
         output = multiline_input(reader)
         self.assertEqual(output, output_code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_auto_indent_with_multicomment(self):
         # fmt: off
         events = code_to_events(
@@ -680,7 +674,6 @@ class TestPyReplOutput(ScreenEqualMixin, TestCase):
         wrapper = _ReadlineWrapper(f_in=None, f_out=None, reader=reader)
         self.assertIs(type(wrapper.get_line_buffer()), str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiline_edit(self):
         events = itertools.chain(
             code_to_events("def f():\n...\n\n"),
@@ -744,7 +737,6 @@ class TestPyReplOutput(ScreenEqualMixin, TestCase):
         self.assertEqual(output, "1+1")
         self.assert_screen_equal(reader, "1+1", clean=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_history_with_multiline_entries(self):
         code = "def foo():\nx = 1\ny = 2\nz = 3\n\ndef bar():\nreturn 42\n\n"
         events = list(itertools.chain(
@@ -1426,7 +1418,6 @@ class TestPasteEvent(TestCase):
         output = multiline_input(reader)
         self.assertEqual(output, code)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_paste_mid_newlines_not_in_paste_mode(self):
         # fmt: off
         code = (
@@ -1448,7 +1439,6 @@ class TestPasteEvent(TestCase):
         output = multiline_input(reader)
         self.assertEqual(output, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_paste_not_in_paste_mode(self):
         # fmt: off
         input_code = (
