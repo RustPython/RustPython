@@ -39,6 +39,11 @@ runs:
     - name: Install Linux dependencies
       shell: bash
       if: ${{ runner.os == 'Linux' }}
+      env:
+        GCC_MULTILIB: ${{ inputs.gcc-multilib }}
+        MUSL_TOOLS: ${{ inputs.musl-tools }}
+        CLANG: ${{ inputs.clang }}
+        GCC_AARCH64_LINUX_GNU: ${{ inputs.gcc-aarch64-linux-gnu }}
       run: |
         if ! sudo apt-get update; then
           echo "::warning::apt-get update failed; disabling nonessential Microsoft apt sources and retrying"
@@ -51,16 +56,16 @@ runs:
         fi
 
         packages=()
-        if [[ "${{ inputs.gcc-multilib }}" == "true" ]]; then
+        if [[ "$GCC_MULTILIB" == "true" ]]; then
           packages+=(gcc-multilib)
         fi
-        if [[ "${{ inputs.musl-tools }}" == "true" ]]; then
+        if [[ "$MUSL_TOOLS" == "true" ]]; then
           packages+=(musl-tools)
         fi
-        if [[ "${{ inputs.clang }}" == "true" ]]; then
+        if [[ "$CLANG" == "true" ]]; then
           packages+=(clang)
         fi
-        if [[ "${{ inputs.gcc-aarch64-linux-gnu }}" == "true" ]]; then
+        if [[ "$GCC_AARCH64_LINUX_GNU" == "true" ]]; then
           packages+=(gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross)
         fi
 
