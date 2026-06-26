@@ -3528,7 +3528,7 @@ impl CodeInfo {
         instr_sequence
     }
 
-    fn prepare_cfg_from_codegen(&mut self) -> crate::InternalResult<InstructionSequence> {
+    fn prepare_cfg_from_codegen(&mut self) -> InstructionSequence {
         // compile.c optimize_and_assemble_code_unit passes
         // u_instr_sequence directly into flowgraph.c _PyCfg_FromInstructionSequence().
         self.take_recorded_instr_sequence()
