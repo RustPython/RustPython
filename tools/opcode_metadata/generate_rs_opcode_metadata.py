@@ -11,6 +11,7 @@ import sys
 import typing
 
 import tomllib
+
 from cpython import Analysis, get_analysis, get_stack_effect
 from opcodes import OpcodeInfo
 from utils import DEFAULT_INPUT, ROOT, get_conf, to_pascal_case

@@ -6,9 +6,14 @@ use crate::{
 use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
 use js_sys::{Object, TypeError};
+use ruff_text_size::Ranged;
 use rustpython_vm::{
-    Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine, builtins::PyWeak,
-    compiler::Mode, function::ArgMapping, scope::Scope,
+    Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine,
+    builtins::PyWeak,
+    compiler::{self, Mode},
+    function::ArgMapping,
+    scope::Scope,
+    vm::VmCompileError,
 };
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -19,6 +24,25 @@ pub(crate) struct StoredVirtualMachine {
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
     held_objects: RefCell<Vec<PyObjectRef>>,
+}
+
+fn compile_err_to_js(vm: &VirtualMachine, err: VmCompileError) -> JsValue {
+    match err {
+        VmCompileError::Compile(err) => convert::syntax_err(err).into(),
+        err => convert::py_err_to_js_err(vm, &err.into_pyexception(vm, None)),
+    }
+}
+
+fn statement_chunks(source: &str) -> Option<Vec<&str>> {
+    let module = compiler::parser::parse_module(source).ok()?.into_syntax();
+    module
+        .body
+        .iter()
+        .map(|stmt| {
+            let range = stmt.range();
+            source.get(range.start().to_usize()..range.end().to_usize())
+        })
+        .collect()
 }
 
 #[pymodule]
@@ -263,8 +287,8 @@ impl WASMVirtualMachine {
     ) -> Result<(), JsValue> {
         self.with_vm(|vm, _| {
             let code = vm
-                .compile(source, Mode::Exec, &name)
-                .map_err(convert::syntax_err)?;
+                .compile(source, Mode::Exec, name.as_str())
+                .map_err(|err| compile_err_to_js(vm, err))?;
             let attrs = vm.ctx.new_dict();
             attrs
                 .set_item("__name__", vm.new_pyobj(name.as_str()), vm)
@@ -327,10 +351,43 @@ impl WASMVirtualMachine {
     ) -> Result<JsValue, JsValue> {
         self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
-            let code = vm.compile(source, mode, &source_path);
-            let code = code.map_err(convert::syntax_err)?;
+            let code = vm.compile(source, mode, source_path.as_str());
+            let code = code.map_err(|err| compile_err_to_js(vm, err))?;
             let result = vm.run_code_obj(code, scope.clone());
             convert::pyresult_to_js_result(vm, result)
+        })?
+    }
+
+    pub(crate) fn run_single(
+        &self,
+        source: &str,
+        source_path: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
+            let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
+            let Some(chunks) = statement_chunks(source) else {
+                let code = vm.compile(source, Mode::Single, source_path.as_str());
+                let code = code.map_err(|err| compile_err_to_js(vm, err))?;
+                let result = vm.run_code_obj(code, scope.clone());
+                return convert::pyresult_to_js_result(vm, result);
+            };
+
+            if chunks.is_empty() {
+                return Ok(convert::py_to_js(vm, vm.ctx.none()));
+            }
+
+            let displayhook = vm
+                .sys_module
+                .get_attr("displayhook", vm)
+                .map_err(|_| TypeError::new("lost sys.displayhook"))?;
+            let mut result = vm.ctx.none();
+            for chunk in chunks {
+                let code = vm.compile(chunk, Mode::BlockExpr, source_path.as_str());
+                let code = code.map_err(|err| compile_err_to_js(vm, err))?;
+                result = vm.run_code_obj(code, scope.clone()).into_js(vm)?;
+                displayhook.call((result.clone(),), vm).into_js(vm)?;
+            }
+            Ok(convert::py_to_js(vm, result))
         })?
     }
 
@@ -348,6 +405,6 @@ impl WASMVirtualMachine {
         source: &str,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.run(source, Mode::Single, source_path)
+        self.run_single(source, source_path)
     }
 }

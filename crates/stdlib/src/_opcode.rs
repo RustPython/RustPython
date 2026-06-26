@@ -205,7 +205,7 @@ mod tests {
             let scope = vm.new_scope_with_builtins();
             let code_obj = vm
                 .compile(source.trim(), Mode::Exec, FNAME)
-                .map_err(|err| vm.new_syntax_error(&err, Some(source)))
+                .map_err(|err| err.into_pyexception(vm, Some(source)))
                 .unwrap();
             scope.globals.set_item("code", code_obj.into(), vm).unwrap();
 
@@ -228,7 +228,7 @@ output = re.sub(r'(<code object \w+ at )0x[0-9a-fA-F]+', r'\g<1>0xdeadbeef', tmp
 
             let py_code_obj = vm
                 .compile(py_source, Mode::Exec, FNAME)
-                .map_err(|err| vm.new_syntax_error(&err, Some(py_source)))
+                .map_err(|err| err.into_pyexception(vm, Some(py_source)))
                 .unwrap();
 
             vm.run_code_obj(py_code_obj, scope.clone()).unwrap();

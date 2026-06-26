@@ -159,7 +159,7 @@ Verify that syntax error's are raised for genexps used as lvalues
        ...
     SyntaxError: cannot assign to generator expression
 
-    >>> (y for y in (1,2)) += 10  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> (y for y in (1,2)) += 10
     Traceback (most recent call last):
        ...
     SyntaxError: 'generator expression' is an illegal expression for augmented assignment

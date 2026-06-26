@@ -4,35 +4,30 @@ GLOBAL_VAR = None
 
 class NamedExpressionInvalidTest(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_01(self):
         code = """x := 0"""
 
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_02(self):
         code = """x = y := 0"""
 
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_03(self):
         code = """y := f(x)"""
 
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_04(self):
         code = """y0 = y1 := f(x)"""
 
         with self.assertRaisesRegex(SyntaxError, "invalid syntax"):
             exec(code, {}, {})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_06(self):
         code = """((a, b) := (1, 2))"""
 

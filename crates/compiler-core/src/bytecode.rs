@@ -468,6 +468,13 @@ bitflags! {
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
         const ASYNC_GENERATOR = 0x0200;
+        const FUTURE_DIVISION = 0x20000;
+        const FUTURE_ABSOLUTE_IMPORT = 0x40000;
+        const FUTURE_WITH_STATEMENT = 0x80000;
+        const FUTURE_PRINT_FUNCTION = 0x100000;
+        const FUTURE_UNICODE_LITERALS = 0x200000;
+        const FUTURE_BARRY_AS_BDFL = 0x400000;
+        const FUTURE_GENERATOR_STOP = 0x800000;
         const FUTURE_ANNOTATIONS = 0x1000000;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.

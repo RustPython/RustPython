@@ -719,6 +719,7 @@ impl VirtualMachine {
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
+            tracing_depth: Cell::new(0),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,

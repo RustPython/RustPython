@@ -754,9 +754,8 @@ impl Opcode {
     /// Stack effect when the instruction takes its branch (jump=true).
     ///
     /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-    /// For most instructions this equals the fallthrough effect.
-    /// Override for instructions where branch and fallthrough differ
-    /// (e.g. [`Self::ForIter`]: fallthrough = +1, branch = −1).
+    /// Current opcode metadata has the same real-opcode stack effect
+    /// for jump and fallthrough stack-depth calculation.
     #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {
         self.stack_effect(oparg)
@@ -1413,6 +1412,26 @@ mod tests {
 
         assert!(!PseudoOpcode::LoadClosure.has_const());
         assert!(!AnyInstruction::from(PseudoOpcode::Jump).has_const());
+    }
+
+    #[test]
+    fn stack_effects_match_cpython_opcode_metadata() {
+        assert_eq!(Opcode::ForIter.stack_effect_info(0).popped(), 1);
+        assert_eq!(Opcode::ForIter.stack_effect_info(0).pushed(), 2);
+        assert_eq!(Opcode::ForIter.stack_effect(0), 1);
+        assert_eq!(Opcode::ForIter.stack_effect_jump(0), 1);
+
+        assert_eq!(Opcode::EndAsyncFor.stack_effect_info(0).popped(), 2);
+        assert_eq!(Opcode::EndAsyncFor.stack_effect_info(0).pushed(), 0);
+        assert_eq!(Opcode::PopJumpIfFalse.stack_effect(0), -1);
+        assert_eq!(Opcode::PopJumpIfFalse.stack_effect_jump(0), -1);
+
+        assert_eq!(PseudoOpcode::SetupFinally.stack_effect_info(0).pushed(), 1);
+        assert_eq!(PseudoOpcode::SetupFinally.stack_effect(0), 0);
+        assert_eq!(PseudoOpcode::SetupFinally.stack_effect_jump(0), 1);
+        assert_eq!(PseudoOpcode::SetupCleanup.stack_effect_info(0).pushed(), 2);
+        assert_eq!(PseudoOpcode::SetupCleanup.stack_effect(0), 0);
+        assert_eq!(PseudoOpcode::SetupCleanup.stack_effect_jump(0), 2);
     }
 
     #[test]
