@@ -189,7 +189,7 @@ struct Compiler<'a> {
     /// When > 0, the compiler walks AST (consuming sub_tables) but emits no bytecode.
     /// Mirrors CPython's `c_do_not_emit_bytecode`.
     do_not_emit_bytecode: u32,
-    /// Mirrors CPython's `c_disable_warning` while compiling FINALLY_END copies.
+    /// Mirrors `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
 }
@@ -1514,7 +1514,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     /// Push the function annotation symbol table.
-    /// CPython stores signature annotation blocks in st_blocks keyed by the
+    /// Signature annotation blocks are stored in st_blocks keyed by the
     /// arguments AST node. Without future annotations they are also children;
     /// with future annotations they are hidden from children and consumed here.
     fn push_annotation_symbol_table(&mut self) -> bool {
@@ -1634,7 +1634,7 @@ impl<'warnings> Compiler<'warnings> {
         {
             return None;
         }
-        // CPython then checks the top-level scope and rejects any statically
+        // Then check the top-level scope and reject any statically
         // visible symbol for "super", not just local bindings.
         if let Some(top_table) = self.symbol_table_stack.first()
             && top_table.lookup("super").is_some()
@@ -2118,7 +2118,7 @@ impl<'warnings> Compiler<'warnings> {
             lineno.to_u32(),
         )?;
 
-        // Keep CPython's internal ".format" name; exit_annotation_scope()
+        // Keep the internal ".format" name; exit_annotation_scope()
         // renames it to "format" on the final code object.
         self.current_code_info()
             .metadata
@@ -2226,7 +2226,7 @@ impl<'warnings> Compiler<'warnings> {
         fblock
     }
 
-    /// CPython `_PyCompile_PushFBlock()` call used by
+    /// `_PyCompile_PushFBlock()` call used by
     /// `codegen_unwind_fblock_stack()` to restore the copied fblock after
     /// recursive unwinding.
     fn restore_fblock_info(&mut self, fblock: FBlockInfo) -> CompileResult<()> {
@@ -4243,9 +4243,9 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, PseudoInstruction::PopBlock);
         self.set_no_location();
 
-        // CPython's symtable stores child scopes in AST visit order
+        // The symtable stores child scopes in AST visit order
         // (body, handlers, orelse), while codegen_try_except() emits orelse
-        // before the exception handlers. Keep the symbol table in CPython order
+        // before the exception handlers. Keep the symbol table in symtable order
         // and only move the codegen cursor while compiling orelse.
         let handler_symbol_table_cursors = self.current_symbol_table_cursors();
         self.consume_skipped_nested_scopes_in_except_handlers(handlers)?;
@@ -4566,7 +4566,7 @@ impl<'warnings> Compiler<'warnings> {
                 emit!(self, Instruction::Copy { i: 2 });
             }
 
-            // Compile exception type. CPython's public-AST validator allows a
+            // Compile exception type. The public-AST validator allows a
             // NULL type here, so codegen only emits CHECK_EG_MATCH when present.
             if let Some(exc_type) = type_ {
                 self.compile_expression(exc_type)?;
@@ -5173,7 +5173,7 @@ impl<'warnings> Compiler<'warnings> {
             lineno.to_u32(),
         )?;
 
-        // Keep CPython's internal ".format" name; the final code object
+        // Keep the internal ".format" name; the final code object
         // exposes this parameter as "format".
         self.current_code_info()
             .metadata
@@ -5321,9 +5321,9 @@ impl<'warnings> Compiler<'warnings> {
             if is_async { "async def " } else { "def " },
         );
 
-        // CPython's symtable visits defaults before decorators, but
+        // The symtable visits defaults before decorators, but
         // codegen_function() emits decorators first. Keep the symbol table in
-        // CPython order and only move the codegen cursor while compiling
+        // symtable order and only move the codegen cursor while compiling
         // decorators.
         let defaults_symbol_table_cursors = self.current_symbol_table_cursors();
         self.consume_skipped_nested_scopes_in_parameter_defaults(parameters)?;
@@ -5331,7 +5331,7 @@ impl<'warnings> Compiler<'warnings> {
         let after_decorators_symbol_table_cursors = self.current_symbol_table_cursors();
         self.set_symbol_table_cursors(defaults_symbol_table_cursors);
 
-        // CPython uses the first decorator line for code objects created by
+        // The first decorator line is used for code objects created by
         // this definition, but LOC(s) for the surrounding instructions.
         let firstlineno_range = decorator_list
             .first()
@@ -5411,7 +5411,7 @@ impl<'warnings> Compiler<'warnings> {
             annotations_flag.insert(bytecode::MakeFunctionFlag::Annotate);
         }
 
-        // Compile function body. CPython's codegen_function() uses the first
+        // Compile function body. codegen_function() uses the first
         // decorator line for co_firstlineno, but LOC(s) for MAKE_FUNCTION.
         self.set_source_range(firstlineno_range);
         let final_funcflags = funcflags | annotations_flag;
@@ -6368,7 +6368,7 @@ impl<'warnings> Compiler<'warnings> {
         self.set_no_location();
 
         if is_async {
-            // CPython codegen_async_for() pops the loop fblock before the
+            // codegen_async_for() pops the loop fblock before the
             // END_ASYNC_FOR exception block. Sync codegen_for() keeps the
             // fblock through END_FOR/POP_ITER and pops below.
             self.pop_fblock_label(FBlockType::ForLoop, for_label);
@@ -6919,7 +6919,7 @@ impl<'warnings> Compiler<'warnings> {
             ));
         }
 
-        // CPython rejects `case {**_}:` before codegen. RustPython's parser
+        // `case {**_}:` is rejected before codegen. RustPython's parser
         // currently lets it through, so keep the compiler boundary equivalent.
         if let Some(rest) = star_target
             && rest.as_str() == "_"
@@ -8884,7 +8884,7 @@ impl<'warnings> Compiler<'warnings> {
                     .flags
                     .contains(bytecode::CodeFlags::GENERATOR);
                 if is_generator {
-                    // CPython codegen_lambda() calls OptimizeAndAssemble with
+                    // codegen_lambda() calls OptimizeAndAssemble with
                     // addNone=0, so AddReturnAtEnd appends RETURN_VALUE without
                     // adding None to co_consts.
                     emit!(self, Instruction::ReturnValue);
@@ -9500,7 +9500,7 @@ impl<'warnings> Compiler<'warnings> {
         has_starred || has_double_star || too_big
     }
 
-    /// Compile subkwargs: emit key-value pairs for BUILD_MAP
+    /// Reject duplicate keyword-argument names in a call.
     fn validate_keywords(&mut self, keywords: &[ast::Keyword]) -> CompileResult<()> {
         for (i, keyword) in keywords.iter().enumerate() {
             let Some(arg) = &keyword.arg else {
@@ -10786,7 +10786,7 @@ impl<'warnings> Compiler<'warnings> {
 
         let result = (|| {
             // If the symbol table still carries the inlined comprehension as
-            // a child, splice its children here. CPython's symtable normally
+            // a child, splice its children here. The symtable normally
             // performs this splice before codegen, and the Inlined source path
             // has already done so.
             if matches!(comp_source, ComprehensionSymbolSource::Child)
@@ -11150,7 +11150,7 @@ impl<'warnings> Compiler<'warnings> {
                 // Python 3 features; we've already implemented them by default
                 "nested_scopes" | "generators" | "division" | "absolute_import"
                 | "with_statement" | "print_function" | "unicode_literals" | "generator_stop" => {}
-                // Accept the CPython future feature name, but do not implement
+                // Accept the future feature name, but do not implement
                 // Barry-as-BDFL parser mode.
                 "barry_as_FLUFL" => {}
                 "annotations" => {
@@ -14611,7 +14611,7 @@ match x:
     #[test]
     fn empty_module_implicit_return_inherits_resume_location_like_cpython() {
         let code = compile_exec("");
-        // CPython 3.14 codegen emits the implicit LOAD_CONST/RETURN_VALUE with
+        // codegen emits the implicit LOAD_CONST/RETURN_VALUE with
         // NO_LOCATION, then flowgraph.c::propagate_line_numbers() propagates
         // the module RESUME location, whose line is 0.
         assert_eq!(code.linetable.as_ref(), &[0xf2, 0x03, 0x01, 0x01, 0x01]);
@@ -14626,7 +14626,7 @@ x = 1
 ",
         );
 
-        // CPython 3.14 codegen_body() emits the docstring LOAD_CONST at the
+        // codegen_body() emits the docstring LOAD_CONST at the
         // string expression location, then emits STORE_NAME __doc__ with
         // NO_LOCATION.
         assert_eq!(
@@ -16598,7 +16598,7 @@ def g():
         let code = compile_exec("def f(*args: *Ts): pass\n");
         let annotate = find_code(&code, "__annotate__").expect("missing annotation code");
 
-        // CPython 3.14 codegen_argannotation() visits `Ts` at the annotation
+        // codegen_argannotation() visits `Ts` at the annotation
         // expression location, then emits UNPACK_SEQUENCE at LOC(function).
         assert_eq!(
             annotate.linetable.as_ref(),
@@ -16619,7 +16619,7 @@ Y: str
         );
         let annotate = find_code(&code, "__annotate__").expect("missing __annotate__ code");
 
-        // CPython 3.14 compile.c::start_location() passes the first module
+        // compile.c::start_location() passes the first module
         // statement location into _PyCodegen_Module(), and
         // codegen_process_deferred_annotations() uses that loc for annotation
         // scope setup, BUILD_MAP, STORE_SUBSCR, and RETURN_VALUE.
@@ -16982,7 +16982,7 @@ def f(c):
         let type_params =
             find_code(&code, "<generic parameters of A>").expect("missing type params code");
 
-        // CPython 3.14 codegen_typealias() assembles the generic-parameters
+        // codegen_typealias() assembles the generic-parameters
         // wrapper with addNone=0 after codegen_typealias_body() leaves the type
         // alias object on the stack. The final RETURN_VALUE keeps LOC(type alias).
         assert_eq!(
@@ -17058,7 +17058,7 @@ def f[T](): pass
         let type_params =
             find_code(&code, "<generic parameters of f>").expect("missing type params code");
 
-        // CPython codegen_function() passes firstlineno, not LOC(s).lineno, to
+        // codegen_function() passes firstlineno, not LOC(s).lineno, to
         // the generic-parameters scope.
         assert_eq!(type_params.first_line_number.unwrap().get(), 2);
     }
@@ -17303,7 +17303,7 @@ class C[T]: pass
         let type_params =
             find_code(&code, "<generic parameters of C>").expect("missing type params code");
 
-        // CPython codegen_class() also enters the generic-parameters scope with
+        // codegen_class() also enters the generic-parameters scope with
         // firstlineno, which is the first decorator line when decorators exist.
         assert_eq!(type_params.first_line_number.unwrap().get(), 2);
     }
@@ -19155,7 +19155,7 @@ def boolop(fields):
         let boolop = find_code(&code, "boolop").expect("missing boolop code");
         let boolop_gen = find_code(boolop, "<genexpr>").expect("missing boolop genexpr code");
 
-        // CPython 3.14 codegen_sync_comprehension_generator() emits the
+        // codegen_sync_comprehension_generator() emits the
         // comprehension guard jump to if_cleanup, then emits the if_cleanup
         // backedge with elt_loc. flowgraph.c::jump_thread() copies that target
         // jump location to the threaded POP_JUMP/NOT_TAKEN cleanup path.
@@ -19190,7 +19190,7 @@ def f(self, node):
         );
         let f = find_code(&code, "f").expect("missing f code");
 
-        // CPython 3.14 codegen_try_finally() emits the exception path
+        // codegen_try_finally() emits the exception path
         // SETUP_CLEANUP/PUSH_EXC_INFO and POP_EXCEPT_AND_RERAISE with
         // NO_LOCATION; flowgraph line propagation then gives only the
         // finalbody's direct RERAISE the finalbody location.

@@ -567,7 +567,7 @@ impl Node for ConstantLiteral {
                 .into_iter()
                 .map(|object| {
                     let object = object.clone();
-                    vm.with_recursion("during compilation", || {
+                    vm.with_recursion(" during compilation", || {
                         Node::ast_from_object(vm, source_file, object)
                     })
                 })
@@ -579,7 +579,7 @@ impl Node for ConstantLiteral {
                 .elements()
                 .into_iter()
                 .map(|object| {
-                    vm.with_recursion("during compilation", || {
+                    vm.with_recursion(" during compilation", || {
                         Node::ast_from_object(vm, source_file, object)
                     })
                 })

@@ -239,7 +239,7 @@ pub fn checked_future_features_in_body(
                         "annotations" => {
                             future_features.insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
                         }
-                        // Accept the CPython future feature name, but leave it
+                        // Accept the future feature name, but leave it
                         // as a RustPython no-op.
                         "barry_as_FLUFL" => {}
                         "braces" => {

@@ -1111,7 +1111,7 @@ impl VirtualMachine {
     ) -> PyResult {
         use crate::builtins::PyFunction;
 
-        // Create a function object for module code, similar to CPython's PyEval_EvalCode
+        // Create a function object for module code, similar to PyEval_EvalCode
         let mut func = PyFunction::new(code, scope.globals.clone(), self)?;
         func.closure = closure;
         let func = func.into_ref(&self.ctx);
@@ -1431,7 +1431,7 @@ impl VirtualMachine {
     }
 
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
-    /// CPython doubles the margin for debug/sanitized builds because frame
+    /// The margin is doubled for debug/sanitized builds because frame
     /// evaluation consumes more native stack in those configurations.
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize =

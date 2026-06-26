@@ -1,6 +1,22 @@
 use super::*;
 use rustpython_compiler_core::SourceFile;
 
+fn ensure_excepthandler_node(vm: &VirtualMachine, object: &PyObjectRef) -> PyResult<()> {
+    if vm.is_none(object)
+        || !is_node_instance(
+            vm,
+            object,
+            pyast::NodeExceptHandlerExceptHandler::static_type(),
+        )?
+    {
+        return Err(vm.new_type_error(format!(
+            "expected some sort of excepthandler, but got {}",
+            object.repr(vm)?
+        )));
+    }
+    Ok(())
+}
+
 // sum
 impl Node for ast::ExceptHandler {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
@@ -13,22 +29,7 @@ impl Node for ast::ExceptHandler {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        if vm.is_none(&object) {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of excepthandler, but got {}",
-                object.repr(vm)?
-            )));
-        }
-        if !is_node_instance(
-            vm,
-            &object,
-            pyast::NodeExceptHandlerExceptHandler::static_type(),
-        )? {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of excepthandler, but got {}",
-                object.repr(vm)?
-            )));
-        }
+        ensure_excepthandler_node(vm, &object)?;
         let range = excepthandler_range_from_object(vm, source_file, object.clone())?;
         Ok(Self::ExceptHandler(except_handler_from_object_with_range(
             vm,
@@ -68,22 +69,7 @@ pub(super) fn except_handler_from_object_unvalidated_range(
     source_file: &SourceFile,
     object: PyObjectRef,
 ) -> PyResult<ast::ExceptHandler> {
-    if vm.is_none(&object) {
-        return Err(vm.new_type_error(format!(
-            "expected some sort of excepthandler, but got {}",
-            object.repr(vm)?
-        )));
-    }
-    if !is_node_instance(
-        vm,
-        &object,
-        pyast::NodeExceptHandlerExceptHandler::static_type(),
-    )? {
-        return Err(vm.new_type_error(format!(
-            "expected some sort of excepthandler, but got {}",
-            object.repr(vm)?
-        )));
-    }
+    ensure_excepthandler_node(vm, &object)?;
     let range = excepthandler_range_from_object_unvalidated(vm, source_file, object.clone())?;
     Ok(ast::ExceptHandler::ExceptHandler(
         except_handler_from_object_with_range(vm, source_file, object, range)?,

@@ -2426,10 +2426,10 @@ impl Blocks {
         Ok(())
     }
 
-    /// flowgraph.c mark_cold (two-pass to match CPython).
+    /// flowgraph.c mark_cold (two-pass).
     ///
     /// Phase 1 (mark_warm): propagate "warm" from entry via fall-through and
-    /// jump targets. CPython asserts while visiting warm blocks that they are not
+    /// jump targets. The pass asserts while visiting warm blocks that they are not
     /// exception handlers.
     ///
     /// Phase 2 (mark_cold): propagate "cold" from except_handler blocks via
@@ -2440,7 +2440,7 @@ impl Blocks {
     /// empty unreachable placeholders left by remove_unreachable; they stay in
     /// their original chain position (e.g. between entry and the post-try
     /// continuation for a nested try/except whose inner_end was emptied by
-    /// optimize_cfg). This matches CPython's behavior and is necessary for
+    /// optimize_cfg). This is necessary for
     /// optimize_load_fast to terminate fall-through at those placeholders.
     /// flowgraph.c mark_warm
     fn mark_warm(&mut self) -> crate::InternalResult<()> {
@@ -3160,7 +3160,7 @@ impl CfgTraversalStack {
 #[derive(Clone, Debug)]
 pub(crate) struct InstructionSequenceLabelMap {
     block_labels: Vec<InstructionSequenceLabel>,
-    /// Codegen-side shadow of CPython's instruction-sequence label map.
+    /// Codegen-side shadow of the instruction-sequence label map.
     ///
     /// `_PyInstructionSequence_UseLabel()` can map multiple labels to the same
     /// instruction offset before `_PyCfg_FromInstructionSequence()` materializes
@@ -3366,7 +3366,7 @@ pub struct CodeInfo {
 
     // Reference to the symbol table for this scope
     pub symbol_table_index: usize,
-    // CPython compile.c uses PyList_GET_SIZE(u->u_ste->ste_varnames)
+    // compile.c uses PyList_GET_SIZE(u->u_ste->ste_varnames)
     // when calling flowgraph.c _PyCfg_OptimizeCodeUnit().
     pub nparams: usize,
 
@@ -3549,7 +3549,7 @@ impl CodeInfo {
     }
 
     fn prepare_cfg_from_codegen(&mut self) -> crate::InternalResult<InstructionSequence> {
-        // CPython compile.c optimize_and_assemble_code_unit passes
+        // compile.c optimize_and_assemble_code_unit passes
         // u_instr_sequence directly into flowgraph.c _PyCfg_FromInstructionSequence().
         self.take_recorded_instr_sequence()
     }
@@ -3570,12 +3570,12 @@ fn optimize_code_unit(
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     blocks.remove_unused_consts(&mut metadata.consts)?;
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
-    // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
+    // Superinstructions are inserted in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
     blocks.insert_superinstructions()?;
     blocks.push_cold_blocks_to_end()?;
-    // CPython resolves line numbers again after cold-block extraction.
+    // Line numbers are resolved again after cold-block extraction.
     blocks.resolve_line_numbers(metadata.firstlineno)?;
     Ok(())
 }
@@ -3586,20 +3586,20 @@ fn optimize_cfg(
     firstlineno: OneIndexed,
 ) -> crate::InternalResult<()> {
     // flowgraph.c optimize_cfg
-    // CPython optimize_cfg() starts with check_cfg() and raises
+    // optimize_cfg() starts with check_cfg() and raises
     // SystemError if a jump or scope exit is not the last instruction in
     // its block.
     blocks.check_cfg()?;
     blocks.inline_small_or_no_lineno_blocks()?;
-    // CPython does not re-run instruction-sequence label-map/CFG conversion
+    // The instruction-sequence label-map/CFG conversion is not re-run
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
     blocks.remove_unreachable()?;
-    // CPython optimize_cfg resolves line numbers before local checks and
+    // optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
     blocks.resolve_line_numbers(firstlineno)?;
-    // CPython optimize_cfg() runs optimize_load_const() and then
+    // optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
     optimize_load_const(metadata, blocks)?;
     let mut block_idx = BlockIdx(0);
@@ -3609,7 +3609,7 @@ fn optimize_cfg(
         block_idx = next_block;
     }
     blocks.remove_redundant_nops_and_pairs()?;
-    // CPython optimize_cfg() removes newly-unreachable blocks and
+    // optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
     blocks.remove_unreachable()?;
@@ -3629,7 +3629,7 @@ fn optimized_cfg_to_instruction_sequence(
     let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
     let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
-    // Match CPython order: pseudo ops are lowered after stackdepth and
+    // Pseudo ops are lowered after stackdepth and
     // localsplus preparation, before normalize_jumps.
     convert_pseudo_ops(blocks)?;
     blocks.normalize_jumps()?;
@@ -4334,7 +4334,7 @@ fn eval_const_complex_binop(
         BinOp::Add => left + right,
         BinOp::Subtract => {
             let re = left.re - right.re;
-            // Preserve CPython's signed-zero behavior for real-zero
+            // Preserve signed-zero behavior for real-zero
             // minus zero-complex expressions such as `0 - 0j`.
             let im = if left.re == 0.0
                 && left.im == 0.0
@@ -4898,7 +4898,7 @@ fn fold_constant_intrinsic_list_to_tuple(
     Ok(false)
 }
 
-/// Port of CPython's flowgraph.c optimize_lists_and_sets().
+/// Port of flowgraph.c optimize_lists_and_sets().
 fn optimize_lists_and_sets(
     metadata: &mut CodeUnitMetadata,
     block: &mut Block,
@@ -7549,7 +7549,7 @@ mod tests {
         optimize_load_const(&mut code.metadata, &mut code.blocks)
             .expect("optimize_load_const succeeds");
 
-        // CPython `basicblock_optimize_load_const()` assigns the current
+        // `basicblock_optimize_load_const()` assigns the current
         // pseudo opcode to its effective opcode slot, so the following COPY 1
         // is not treated as a copy of the earlier LOAD_CONST.
         assert!(matches!(
@@ -7824,7 +7824,7 @@ mod tests {
             .optimize_basic_block(&mut metadata, BlockIdx::new(0))
             .expect("valid conditional jump chain");
 
-        // CPython only rewrites JUMP_IF_FALSE -> JUMP_IF_TRUE through
+        // Only rewrite JUMP_IF_FALSE -> JUMP_IF_TRUE through
         // target->b_next. For same-direction jumps, a failed jump_thread()
         // leaves the original target unchanged.
         assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(1));

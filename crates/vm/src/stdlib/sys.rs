@@ -1228,7 +1228,7 @@ pub mod sys {
             vm.state.int_max_str_digits.store(maxdigits);
             Ok(())
         } else {
-            let error = format!("maxdigits must be >= {threshold} or 0 for unlimited");
+            let error = format!("maxdigits must be 0 or larger than {threshold}");
             Err(vm.new_value_error(error))
         }
     }
@@ -1770,7 +1770,7 @@ pub mod sys {
         args: &PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        // CPython suppresses tracing while dispatching Python audit hooks,
+        // Tracing is suppressed while dispatching Python audit hooks,
         // except for hooks that explicitly opt in with __cantrace__.
         vm.enter_tracing();
         let can_trace = audit_hook_can_trace(hook, vm);

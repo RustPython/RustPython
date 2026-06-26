@@ -241,7 +241,7 @@ mod _abc {
         if let Some(cls_type) = cls.downcast_ref::<PyType>()
             && let Some(subclass_type) = subclass.downcast_ref::<PyType>()
         {
-            // CPython _abc_register propagates Py_TPFLAGS_SEQUENCE/MAPPING
+            // _abc_register propagates Py_TPFLAGS_SEQUENCE/MAPPING
             // recursively so MATCH_SEQUENCE/MATCH_MAPPING see ABC registration.
             let collection_mask = PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING;
             let collection_flags = (cls_type.slots.flags

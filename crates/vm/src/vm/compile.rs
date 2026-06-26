@@ -1017,7 +1017,7 @@ mod escape_warnings {
     }
 
     impl VirtualMachine {
-        /// Emit tokenizer-level SyntaxWarnings that CPython raises before
+        /// Emit tokenizer-level SyntaxWarnings raised before
         /// code generation.
         pub(super) fn emit_tokenizer_syntax_warnings(
             &self,

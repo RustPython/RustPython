@@ -3053,7 +3053,9 @@ impl ExecutingFrame<'_> {
                 let Some(cls_type) = cls.downcast_ref::<PyType>() else {
                     return Err(vm.new_type_error("called match pattern must be a class"));
                 };
-                let type_name = cls_type.name().to_string();
+                // Only the error paths need the class name; compute it lazily so a
+                // successful match does not take the name lock or allocate.
+                let type_name = || cls_type.name().to_string();
 
                 // Check if subject is an instance of cls
                 if subject.is_instance(cls.as_ref(), vm)? {
@@ -3072,12 +3074,7 @@ impl ExecutingFrame<'_> {
                                 Ok(tuple) => tuple,
                                 Err(match_args) => {
                                     // __match_args__ must be a tuple
-                                    // Get type names for error message
-                                    let type_name = cls
-                                        .downcast::<crate::builtins::PyType>()
-                                        .ok()
-                                        .and_then(|t| t.__name__(vm).to_str().map(str::to_owned))
-                                        .unwrap_or_else(|| String::from("?"));
+                                    let type_name = type_name();
                                     let match_args_type_name = match_args.class().__name__(vm);
                                     return Err(vm.new_type_error(format!(
                                         "{type_name}.__match_args__ must be a tuple (got {match_args_type_name})"
@@ -3087,6 +3084,7 @@ impl ExecutingFrame<'_> {
 
                             // Check if we have enough match args
                             if match_args.len() < nargs_val {
+                                let type_name = type_name();
                                 let plural = if match_args.len() == 1 { "" } else { "s" };
                                 return Err(vm.new_type_error(format!(
                                     "{type_name}() accepts {} positional sub-pattern{} ({} given)",
@@ -3109,6 +3107,7 @@ impl ExecutingFrame<'_> {
                                     }
                                 };
                                 if seen_attrs.__contains__(attr_name.as_object(), vm)? {
+                                    let type_name = type_name();
                                     let attr_repr = attr_name.as_object().repr(vm)?;
                                     return Err(vm.new_type_error(format!(
                                         "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
@@ -3140,6 +3139,7 @@ impl ExecutingFrame<'_> {
                                     extracted.push(subject.clone());
                                 } else if nargs_val > 1 {
                                     // Too many positional arguments for MATCH_SELF
+                                    let type_name = type_name();
                                     return Err(vm.new_type_error(format!(
                                         "{type_name}() accepts 1 positional sub-pattern ({nargs_val} given)"
                                     )));
@@ -3147,6 +3147,7 @@ impl ExecutingFrame<'_> {
                             } else {
                                 // No __match_args__ and not a MATCH_SELF type
                                 if nargs_val > 0 {
+                                    let type_name = type_name();
                                     return Err(vm.new_type_error(format!(
                                         "{type_name}() accepts 0 positional sub-patterns ({nargs_val} given)"
                                     )));
@@ -3159,6 +3160,7 @@ impl ExecutingFrame<'_> {
                     for name in kwd_attrs {
                         let name_str = name.downcast_ref::<PyStr>().unwrap();
                         if seen_attrs.__contains__(name_str.as_object(), vm)? {
+                            let type_name = type_name();
                             let attr_repr = name.as_object().repr(vm)?;
                             return Err(vm.new_type_error(format!(
                                 "{type_name}() got multiple sub-patterns for attribute {attr_repr}"

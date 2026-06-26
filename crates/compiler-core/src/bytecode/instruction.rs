@@ -754,7 +754,7 @@ impl Opcode {
     /// Stack effect when the instruction takes its branch (jump=true).
     ///
     /// CPython equivalent: `stack_effect(opcode, oparg, jump=True)`.
-    /// Current CPython opcode metadata has the same real-opcode stack effect
+    /// Current opcode metadata has the same real-opcode stack effect
     /// for jump and fallthrough stack-depth calculation.
     #[must_use]
     pub fn stack_effect_jump(&self, oparg: u32) -> i32 {

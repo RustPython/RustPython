@@ -45,14 +45,14 @@ pub struct SymbolTable {
     /// AST nodes.
     pub sub_tables: Vec<Self>,
 
-    /// Annotation scopes that CPython registers in st_blocks but does not add
+    /// Annotation scopes registered in st_blocks but not added
     /// to ste_children, e.g. future-annotation function signatures.
     pub hidden_annotation_blocks: Vec<Self>,
 
     /// Cursor pointing to the next hidden annotation block to consume.
     pub next_hidden_annotation_block: usize,
 
-    /// Inlined comprehension scopes that CPython removes from ste_children but
+    /// Inlined comprehension scopes removed from ste_children but
     /// can still find through st_blocks keyed by the comprehension expression.
     pub inlined_comprehension_blocks: Vec<Self>,
 
@@ -1155,7 +1155,7 @@ struct SymbolTableBuilder {
     in_iter_def_exp: bool,
     // Track if we're scanning an inner loop iteration target (not the first generator)
     in_comp_inner_loop_target: bool,
-    // CPython rejects yield/yield from inside comprehension scopes with a
+    // yield/yield from inside comprehension scopes is rejected with a
     // message that names the comprehension kind.
     comprehension_yield_context: Option<&'static str>,
     // PEP 649: Track if we're inside a conditional block (if/for/while/etc.)

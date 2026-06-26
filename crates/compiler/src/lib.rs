@@ -5040,7 +5040,7 @@ fn ends_with_implied_dedent(source: &str) -> bool {
 
 /// Detect input that only parses because Ruff's lexer closes indentation at EOF.
 ///
-/// CPython's `PyCF_DONT_IMPLY_DEDENT` is used by `codeop` and interactive compile
+/// `PyCF_DONT_IMPLY_DEDENT` is used by `codeop` and interactive compile
 /// paths to keep an indented block incomplete until a terminating newline is seen.
 #[must_use]
 pub fn dont_imply_dedent_source_error(source_file: &SourceFile) -> Option<CompileError> {

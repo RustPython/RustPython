@@ -85,7 +85,7 @@ fn get_node_field(vm: &VirtualMachine, obj: &PyObject, field: &'static str, typ:
         .ok_or_else(|| vm.new_type_error(format!(r#"required field "{field}" missing from {typ}"#)))
 }
 
-/// Read a required scalar field. CPython's generated `obj2ast_*` converters only
+/// Read a required scalar field. The generated `obj2ast_*` converters only
 /// reject a missing required attribute here; if the field exists but is `None`,
 /// the nested converter handles it.
 fn get_node_field_required(
@@ -940,7 +940,7 @@ fn node_add_location(
 
 /// Return the expected Python AST root type class for a compile() mode string.
 ///
-/// CPython's builtin compile() accepts func_type only with PyCF_ONLY_AST.
+/// builtin compile() accepts func_type only with PyCF_ONLY_AST.
 /// Source-string func_type parsing is handled separately, but Python AST
 /// FunctionType still uses the mode check before obj-to-AST conversion.
 pub(crate) fn mode_type_and_name(mode: &str) -> Option<(PyRef<PyType>, &'static str)> {

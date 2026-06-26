@@ -109,7 +109,7 @@ mod builtins {
         mode: PyUtf8StrRef,
         // CPython parity: flags / optimize accept any object with __index__,
         // not just exact int. Matches the argument conversion used by
-        // CPython's builtin_compile_impl.
+        // builtin_compile_impl.
         #[pyarg(any, optional)]
         flags: OptionalArg<ArgPrimitiveIndex<i32>>,
         // CPython parity: dont_inherit goes through PyObject_IsTrue, so
@@ -319,8 +319,9 @@ mod builtins {
 
             #[cfg(not(feature = "parser"))]
             {
-                const PARSER_NOT_SUPPORTED: &str = "can't compile() source code when the `parser` feature of rustpython is disabled";
-                Err(vm.new_type_error(PARSER_NOT_SUPPORTED))
+                Err(vm.new_type_error(
+                    "can't compile() source code when the `parser` feature of rustpython is disabled",
+                ))
             }
             #[cfg(feature = "parser")]
             {
