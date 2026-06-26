@@ -325,6 +325,7 @@ pub struct Symbol {
     pub name: String,
     pub scope: SymbolScope,
     pub flags: SymbolFlags,
+    pub location: Option<SourceLocation>,
 }
 
 impl Symbol {
@@ -334,6 +335,7 @@ impl Symbol {
             // table,
             scope: SymbolScope::Unknown,
             flags: SymbolFlags::empty(),
+            location: None,
         }
     }
 
@@ -777,117 +779,98 @@ impl SymbolTableAnalyzer {
         sub_tables: &[SymbolTable],
         class_entry: Option<&SymbolMap>,
     ) -> SymbolTableResult {
-        if symbol
-            .flags
-            .contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
-            && st_typ == CompilerScope::Comprehension
-        {
-            // propagate symbol to next higher level that can hold it,
-            // i.e., function or module. Comprehension is skipped and
-            // Class is not allowed and detected as error.
-            self.analyze_symbol_comprehension(symbol, 0)?
-        } else {
-            match symbol.scope {
-                SymbolScope::Free => {
-                    if !self.tables.as_ref().is_empty() {
-                        let scope_depth = self.tables.as_ref().len();
-                        // check if the name is already defined in any outer scope
-                        if scope_depth < 2
-                            || self.found_in_outer_scope(
-                                &symbol.name,
-                                st_typ,
-                                skip_enclosing_function_scope,
-                            ) != Some(SymbolScope::Free)
-                        {
-                            return Err(SymbolTableError {
-                                error: format!("no binding for nonlocal '{}' found", symbol.name),
-                                // TODO: accurate location info, somehow
-                                location: None,
-                            });
-                        }
-                        // Check if the nonlocal binding refers to a type parameter
-                        if symbol.flags.contains(SymbolFlags::NONLOCAL) {
-                            for (symbols, _typ, _skip) in self.tables.iter().rev() {
-                                if let Some(sym) = symbols.get(&symbol.name) {
-                                    if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
-                                        return Err(SymbolTableError {
-                                            error: format!(
-                                                "nonlocal binding not allowed for type parameter '{}'",
-                                                symbol.name
-                                            ),
-                                            location: None,
-                                        });
-                                    }
-                                    if sym.is_bound() {
-                                        break;
-                                    }
+        match symbol.scope {
+            SymbolScope::Free => {
+                if !self.tables.as_ref().is_empty() {
+                    let scope_depth = self.tables.as_ref().len();
+                    // check if the name is already defined in any outer scope
+                    if scope_depth < 2
+                        || self.found_in_outer_scope(
+                            &symbol.name,
+                            st_typ,
+                            skip_enclosing_function_scope,
+                        ) != Some(SymbolScope::Free)
+                    {
+                        return Err(SymbolTableError {
+                            error: format!("no binding for nonlocal '{}' found", symbol.name),
+                            location: symbol.location,
+                        });
+                    }
+                    // Check if the nonlocal binding refers to a type parameter
+                    if symbol.flags.contains(SymbolFlags::NONLOCAL) {
+                        for (symbols, _typ, _skip) in self.tables.iter().rev() {
+                            if let Some(sym) = symbols.get(&symbol.name) {
+                                if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
+                                    return Err(SymbolTableError {
+                                        error: format!(
+                                            "nonlocal binding not allowed for type parameter '{}'",
+                                            symbol.name
+                                        ),
+                                        location: symbol.location,
+                                    });
+                                }
+                                if sym.is_bound() {
+                                    break;
                                 }
                             }
                         }
-                    } else {
-                        return Err(SymbolTableError {
-                            error: format!(
-                                "nonlocal {} defined at place without an enclosing scope",
-                                symbol.name
-                            ),
-                            // TODO: accurate location info, somehow
-                            location: None,
-                        });
                     }
+                } else {
+                    return Err(SymbolTableError {
+                        error: format!(
+                            "nonlocal {} defined at place without an enclosing scope",
+                            symbol.name
+                        ),
+                        location: symbol.location,
+                    });
                 }
-                SymbolScope::GlobalExplicit | SymbolScope::GlobalImplicit => {
-                    // TODO: add more checks for globals?
-                }
-                SymbolScope::Local | SymbolScope::Cell => {
-                    // all is well
-                }
-                SymbolScope::Unknown => {
-                    // Try hard to figure out what the scope of this symbol is.
-                    let scope = if symbol.is_bound() {
-                        if symbol.flags.contains(SymbolFlags::COMP_CELL)
-                            && matches!(st_typ, CompilerScope::Module | CompilerScope::Class)
-                        {
-                            // CPython keeps comprehension-only cells in
-                            // module/class scopes as normal local/name
-                            // bindings and uses DEF_COMP_CELL to allocate the
-                            // synthetic cell slot. The spliced comp child
-                            // should not force the outer name itself to CELL.
-                            SymbolScope::Local
-                        } else {
-                            self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
-                                .unwrap_or(SymbolScope::Local)
-                        }
-                    } else if let Some(scope) = class_entry
-                        .and_then(|class_symbols| class_symbols.get(&symbol.name))
-                        .and_then(|class_sym| {
-                            if class_sym.flags.contains(SymbolFlags::GLOBAL) {
-                                Some(SymbolScope::GlobalExplicit)
-                            } else if class_sym.is_bound() && class_sym.scope != SymbolScope::Free {
-                                // If name is bound in enclosing class, use GlobalImplicit
-                                // so it can be accessed via __classdict__
-                                Some(SymbolScope::GlobalImplicit)
-                            } else {
-                                None
-                            }
-                        })
+            }
+            SymbolScope::GlobalExplicit | SymbolScope::GlobalImplicit => {}
+            SymbolScope::Local | SymbolScope::Cell => {}
+            SymbolScope::Unknown => {
+                // Try hard to figure out what the scope of this symbol is.
+                let scope = if symbol.is_bound() {
+                    if symbol.flags.contains(SymbolFlags::COMP_CELL)
+                        && matches!(st_typ, CompilerScope::Module | CompilerScope::Class)
                     {
-                        scope
-                    } else if let Some(scope) = self.found_in_outer_scope(
-                        &symbol.name,
-                        st_typ,
-                        skip_enclosing_function_scope,
-                    ) {
-                        // If found in enclosing scope (function/TypeParams), use that
-                        scope
-                    } else if self.tables.is_empty() {
-                        // Don't make assumptions when we don't know.
-                        SymbolScope::Unknown
+                        // CPython keeps comprehension-only cells in
+                        // module/class scopes as normal local/name
+                        // bindings and uses DEF_COMP_CELL to allocate the
+                        // synthetic cell slot. The spliced comp child
+                        // should not force the outer name itself to CELL.
+                        SymbolScope::Local
                     } else {
-                        // If there are scopes above we assume global.
-                        SymbolScope::GlobalImplicit
-                    };
-                    symbol.scope = scope;
-                }
+                        self.found_in_inner_scope(sub_tables, &symbol.name, st_typ)
+                            .unwrap_or(SymbolScope::Local)
+                    }
+                } else if let Some(scope) = class_entry
+                    .and_then(|class_symbols| class_symbols.get(&symbol.name))
+                    .and_then(|class_sym| {
+                        if class_sym.flags.contains(SymbolFlags::GLOBAL) {
+                            Some(SymbolScope::GlobalExplicit)
+                        } else if class_sym.is_bound() && class_sym.scope != SymbolScope::Free {
+                            // If name is bound in enclosing class, use GlobalImplicit
+                            // so it can be accessed via __classdict__
+                            Some(SymbolScope::GlobalImplicit)
+                        } else {
+                            None
+                        }
+                    })
+                {
+                    scope
+                } else if let Some(scope) =
+                    self.found_in_outer_scope(&symbol.name, st_typ, skip_enclosing_function_scope)
+                {
+                    // If found in enclosing scope (function/TypeParams), use that
+                    scope
+                } else if self.tables.is_empty() {
+                    // Don't make assumptions when we don't know.
+                    SymbolScope::Unknown
+                } else {
+                    // If there are scopes above we assume global.
+                    SymbolScope::GlobalImplicit
+                };
+                symbol.scope = scope;
             }
         }
         Ok(())
@@ -1022,106 +1005,6 @@ impl SymbolTableAnalyzer {
                 None
             }
         })
-    }
-
-    // Implements the symbol analysis and scope extension for names
-    // assigned by a named expression in a comprehension. See:
-    // https://github.com/python/cpython/blob/7b78e7f9fd77bb3280ee39fb74b86772a7d46a70/Python/symtable.c#L1435
-    fn analyze_symbol_comprehension(
-        &mut self,
-        symbol: &mut Symbol,
-        parent_offset: usize,
-    ) -> SymbolTableResult {
-        // when this is called, we expect to be in the direct parent scope of the scope that contains 'symbol'
-        let last = self.tables.iter_mut().rev().nth(parent_offset).unwrap();
-        let symbols = &mut last.0;
-        let table_type = last.1;
-
-        // it is not allowed to use an iterator variable as assignee in a named expression
-        if symbol.flags.contains(SymbolFlags::ITER) {
-            return Err(SymbolTableError {
-                error: format!(
-                    "assignment expression cannot rebind comprehension iteration variable {}",
-                    symbol.name
-                ),
-                // TODO: accurate location info, somehow
-                location: None,
-            });
-        }
-
-        match table_type {
-            CompilerScope::Module => {
-                symbol.scope = SymbolScope::GlobalImplicit;
-            }
-            CompilerScope::Class => {
-                // named expressions are forbidden in comprehensions on class scope
-                return Err(SymbolTableError {
-                    error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
-                    // TODO: accurate location info, somehow
-                    location: None,
-                });
-            }
-            CompilerScope::Function | CompilerScope::AsyncFunction | CompilerScope::Lambda => {
-                if let Some(parent_symbol) = symbols.get_mut(&symbol.name) {
-                    if let SymbolScope::Unknown = parent_symbol.scope {
-                        // this information is new, as the assignment is done in inner scope
-                        parent_symbol.flags.insert(SymbolFlags::ASSIGNED);
-                    }
-
-                    symbol.scope = if parent_symbol.is_global() {
-                        parent_symbol.scope
-                    } else {
-                        SymbolScope::Free
-                    };
-                } else {
-                    let mut cloned_sym = symbol.clone();
-                    cloned_sym.scope = SymbolScope::Cell;
-                    last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
-                }
-            }
-            CompilerScope::Comprehension => {
-                // TODO check for conflicts - requires more context information about variables
-                match symbols.get_mut(&symbol.name) {
-                    Some(parent_symbol) => {
-                        // check if assignee is an iterator in top scope
-                        if parent_symbol.flags.contains(SymbolFlags::ITER) {
-                            return Err(SymbolTableError {
-                                error: format!(
-                                    "assignment expression cannot rebind comprehension iteration variable {}",
-                                    symbol.name
-                                ),
-                                location: None,
-                            });
-                        }
-
-                        // we synthesize the assignment to the symbol from inner scope
-                        parent_symbol.flags.insert(SymbolFlags::ASSIGNED); // more checks are required
-                    }
-                    None => {
-                        // extend the scope of the inner symbol
-                        // as we are in a nested comprehension, we expect that the symbol is needed
-                        // outside, too, and set it therefore to non-local scope. I.e., we expect to
-                        // find a definition on a higher level
-                        let mut cloned_sym = symbol.clone();
-                        cloned_sym.scope = SymbolScope::Free;
-                        last.0.insert(cloned_sym.name.to_owned(), cloned_sym);
-                    }
-                }
-
-                self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
-            }
-            CompilerScope::TypeParams => {
-                // Named expression in comprehension cannot be used in type params
-                return Err(SymbolTableError {
-                    error: "assignment expression within a comprehension cannot be used within the definition of a generic".to_string(),
-                    location: None,
-                });
-            }
-            CompilerScope::Annotation | CompilerScope::TypeAlias | CompilerScope::TypeVariable => {
-                self.analyze_symbol_comprehension(symbol, parent_offset + 1)?;
-            }
-        }
-        Ok(())
     }
 }
 
@@ -3474,6 +3357,10 @@ impl SymbolTableBuilder {
             let symbol = Symbol::new(name.as_ref());
             table.symbols.entry(name.into_owned()).or_insert(symbol)
         };
+
+        if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) {
+            symbol.location = location;
+        }
 
         // Set proper scope and flags on symbol:
         let flags = &mut symbol.flags;

@@ -88,7 +88,6 @@ pub enum CodegenErrorType {
     ConflictingNameBindPattern,
     /// break/continue/return inside except* block
     BreakContinueReturnInExceptStar,
-    NotImplementedYet, // RustPython marker for unimplemented features
 }
 
 impl core::error::Error for CodegenErrorType {}
@@ -172,9 +171,6 @@ impl fmt::Display for CodegenErrorType {
                     f,
                     "'break', 'continue' and 'return' cannot appear in an except* block"
                 )
-            }
-            Self::NotImplementedYet => {
-                write!(f, "RustPython does not implement this feature yet")
             }
         }
     }
