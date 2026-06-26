@@ -5,7 +5,8 @@ use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyStr, PyType, object_generic_set_dict, object_get_dict};
 use rustpython_vm::bytecode::ComparisonOperator;
 use rustpython_vm::function::PySetterValue;
-use rustpython_vm::{AsObject, Py, PyPayload};
+use rustpython_vm::types::{PyComparisonOp, hash_not_implemented};
+use rustpython_vm::{AsObject, Py, PyPayload, PyResult, VirtualMachine};
 
 pub type PyTypeObject = Py<PyType>;
 
@@ -100,25 +101,27 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) 
     })
 }
 
+#[inline]
+fn get_constant(vm: &VirtualMachine, constant_id: c_uint) -> PyResult<&PyObject> {
+    let ctx = &vm.ctx;
+    match constant_id {
+        0 => Ok(ctx.none.as_object()),
+        1 => Ok(ctx.false_value.as_object()),
+        2 => Ok(ctx.true_value.as_object()),
+        3 => Ok(ctx.ellipsis.as_object()),
+        4 => Ok(ctx.not_implemented.as_object()),
+        _ => Err(vm.new_system_error("Invalid constant ID passed to Py_GetConstantBorrowed")),
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_GetConstantBorrowed(constant_id: c_uint) -> *mut PyObject {
-    with_vm(|vm| {
-        let ctx = &vm.ctx;
-        let constant = match constant_id {
-            0 => ctx.none.as_object(),
-            1 => ctx.false_value.as_object(),
-            2 => ctx.true_value.as_object(),
-            3 => ctx.ellipsis.as_object(),
-            4 => ctx.not_implemented.as_object(),
-            _ => {
-                return Err(
-                    vm.new_system_error("Invalid constant ID passed to Py_GetConstantBorrowed")
-                );
-            }
-        }
-        .as_raw();
-        Ok(constant)
-    })
+    with_vm(|vm| get_constant(vm, constant_id).map(PyObject::as_raw))
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetConstant(constant_id: c_uint) -> *mut PyObject {
+    with_vm(|vm| get_constant(vm, constant_id).map(ToOwned::to_owned))
 }
 
 #[unsafe(no_mangle)]
@@ -143,10 +146,20 @@ pub unsafe extern "C" fn PyObject_GetAttrString(
         let name = unsafe {
             CStr::from_ptr(attr_name)
                 .to_str()
-                .expect("attribute name must be valid UTF-8")
+                .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?
         };
         obj.get_attr(name, vm)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_ASCII(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*obj }.ascii(vm))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Bytes(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*obj }.to_owned().bytes(vm))
 }
 
 #[unsafe(no_mangle)]
@@ -173,6 +186,31 @@ pub unsafe extern "C" fn PyObject_GetOptionalAttr(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetOptionalAttrString(
+    obj: *mut PyObject,
+    attr_name: *const c_char,
+    result: *mut *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        unsafe {
+            *result = core::ptr::null_mut();
+        }
+        let obj = unsafe { &*obj };
+        let name = unsafe { CStr::from_ptr(attr_name) }
+            .to_str()
+            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
+        if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
+            unsafe {
+                *result = attr.into_raw().as_ptr();
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_SetAttrString(
     obj: *mut PyObject,
     attr_name: *const c_char,
@@ -182,7 +220,7 @@ pub unsafe extern "C" fn PyObject_SetAttrString(
         let obj = unsafe { &*obj };
         let name = unsafe { CStr::from_ptr(attr_name) }
             .to_str()
-            .expect("attribute name must be valid UTF-8");
+            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
         let value = unsafe { &*value }.to_owned();
         obj.set_attr(name, value, vm)
     })
@@ -203,6 +241,46 @@ pub unsafe extern "C" fn PyObject_SetAttr(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_DelAttr(obj: *mut PyObject, name: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        obj.del_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_DelAttrString(
+    obj: *mut PyObject,
+    attr_name: *const c_char,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { CStr::from_ptr(attr_name) }
+            .to_str()
+            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
+        obj.del_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GenericSetAttr(
+    obj: *mut PyObject,
+    name: *mut PyObject,
+    value: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let value = match NonNull::new(value) {
+            Some(value) => PySetterValue::Assign(unsafe { value.as_ref() }.to_owned()),
+            None => PySetterValue::Delete,
+        };
+        obj.generic_setattr(name, value, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_HasAttrWithError(
     obj: *mut PyObject,
     attr_name: *mut PyObject,
@@ -210,6 +288,63 @@ pub unsafe extern "C" fn PyObject_HasAttrWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
+        obj.has_attr(name, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_HasAttr(obj: *mut PyObject, attr_name: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = match unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm) {
+            Ok(name) => name,
+            Err(err) => {
+                vm.run_unraisable(err, None, obj.to_owned());
+                return false;
+            }
+        };
+
+        match obj.has_attr(name, vm) {
+            Ok(has_attr) => has_attr,
+            Err(err) => {
+                vm.run_unraisable(err, None, obj.to_owned());
+                false
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_HasAttrString(
+    obj: *mut PyObject,
+    attr_name: *const c_char,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let Ok(name) = unsafe { CStr::from_ptr(attr_name) }.to_str() else {
+            return false;
+        };
+
+        match obj.has_attr(name, vm) {
+            Ok(has_attr) => has_attr,
+            Err(err) => {
+                vm.run_unraisable(err, None, obj.to_owned());
+                false
+            }
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_HasAttrStringWithError(
+    obj: *mut PyObject,
+    attr_name: *const c_char,
+) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let name = unsafe { CStr::from_ptr(attr_name) }
+            .to_str()
+            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
         obj.has_attr(name, vm)
     })
 }
@@ -248,6 +383,20 @@ pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
     })
 }
 
+#[inline]
+fn parse_richcompare_op(vm: &VirtualMachine, op: c_int) -> PyResult<PyComparisonOp> {
+    match op {
+        0 => Ok(ComparisonOperator::Less),
+        1 => Ok(ComparisonOperator::LessOrEqual),
+        2 => Ok(ComparisonOperator::Equal),
+        3 => Ok(ComparisonOperator::NotEqual),
+        4 => Ok(ComparisonOperator::Greater),
+        5 => Ok(ComparisonOperator::GreaterOrEqual),
+        _ => Err(vm.new_system_error("invalid comparison operator")),
+    }
+    .map(Into::into)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_RichCompare(
     left: *mut PyObject,
@@ -255,19 +404,23 @@ pub unsafe extern "C" fn PyObject_RichCompare(
     op: c_int,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let op = match op {
-            0 => ComparisonOperator::Less,
-            1 => ComparisonOperator::LessOrEqual,
-            2 => ComparisonOperator::Equal,
-            3 => ComparisonOperator::NotEqual,
-            4 => ComparisonOperator::Greater,
-            5 => ComparisonOperator::GreaterOrEqual,
-            _ => return Err(vm.new_system_error("invalid comparison operator")),
-        };
         let left = unsafe { &*left };
         let right = unsafe { &*right };
         left.to_owned()
-            .rich_compare(right.to_owned(), op.into(), vm)
+            .rich_compare(right.to_owned(), parse_richcompare_op(vm, op)?, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_RichCompareBool(
+    left: *mut PyObject,
+    right: *mut PyObject,
+    op: c_int,
+) -> c_int {
+    with_vm(|vm| {
+        let left = unsafe { &*left };
+        let right = unsafe { &*right };
+        left.rich_compare_bool(right, parse_richcompare_op(vm, op)?, vm)
     })
 }
 
@@ -295,6 +448,69 @@ pub unsafe extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         obj.to_owned().is_true(vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Not(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        obj.to_owned().not(vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Hash(obj: *mut PyObject) -> isize {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        obj.hash(vm).map(|hash| hash as isize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_HashNotImplemented(obj: *mut PyObject) -> isize {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        hash_not_implemented(obj, vm).map(|hash| hash as isize)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_SelfIter(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|_vm| unsafe { (&*obj).to_owned() })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_Is(x: *mut PyObject, y: *mut PyObject) -> c_int {
+    (x == y) as c_int
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_IsNone(x: *mut PyObject) -> c_int {
+    with_vm(|vm| vm.is_none(unsafe { &*x }))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_ReprEnter(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let id = obj.get_id();
+        let mut guards = vm.repr_guards.borrow_mut();
+        if guards.contains(&id) {
+            true
+        } else {
+            guards.insert(id);
+            false
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_ReprLeave(obj: *mut PyObject) {
+    with_vm(|vm| {
+        vm.repr_guards
+            .borrow_mut()
+            .remove(&unsafe { &*obj }.get_id());
     })
 }
 

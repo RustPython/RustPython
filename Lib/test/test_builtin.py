@@ -486,7 +486,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
                                 msg=f"source={source} mode={mode}")
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_top_level_await(self):
         """Test whether code with top level await can be compiled.
 
@@ -627,7 +626,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         exec(co, glob)
         self.assertEqual(type(glob['ticker']()), AsyncGeneratorType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <_ast.Name object at 0xb40000731e3d1360> is not an instance of <class '_ast.Constant'>
     def test_compile_ast(self):
         args = ("a*__debug__", "f.py", "exec")
         raw = compile(*args, flags = ast.PyCF_ONLY_AST).body[0]
@@ -1020,7 +1018,6 @@ class BuiltinTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         finally:
             sys.stdout = savestdout
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument closure
     def test_exec_closure(self):
         def function_without_closures():
             return 3 * 5

@@ -114,7 +114,6 @@ class TokenTests(unittest.TestCase):
         # Sanity check: no literal begins with an underscore
         self.assertRaises(NameError, eval, "_0")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_numerical_literals(self):
         check = self.check_syntax_error
         check("0b12", "invalid digit '2' in binary literal")
@@ -137,7 +136,6 @@ class TokenTests(unittest.TestCase):
         check("1e2_", "invalid decimal literal")
         check("1e+", "invalid decimal literal")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_end_of_numerical_literals(self):
         def check(test, error=False):
             with self.subTest(expr=test):
@@ -251,7 +249,6 @@ the \'lazy\' dog.\n\
                 compile(s, "<test>", "exec")
             self.assertIn("was never closed", str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     @skip_wasi_stack_overflow()
     def test_max_level(self):
         # Macro defined in Parser/lexer/state.h
@@ -298,7 +295,6 @@ class GrammarTests(unittest.TestCase):
         my_lst[one()-1]: int = 5
         self.assertEqual(my_lst, [5])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_var_annot_syntax_errors(self):
         # parser pass
         check_syntax_error(self, "def f: int")
@@ -751,7 +747,6 @@ class GrammarTests(unittest.TestCase):
 
     # Check the heuristic for print & exec covers significant cases
     # As well as placing some limits on false positives
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_former_statements_refer_to_builtins(self):
         keywords = "print", "exec"
         # Cases where we want the custom error
@@ -1165,7 +1160,6 @@ class GrammarTests(unittest.TestCase):
             """,
             True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_yield(self):
         # Allowed as standalone statement
         def g(): yield 1
@@ -1205,7 +1199,6 @@ class GrammarTests(unittest.TestCase):
         # Check annotation refleak on SyntaxError
         check_syntax_error(self, "def g(a:(yield)): pass")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_yield_in_comprehensions(self):
         # Check yield in comprehensions
         def g(): [x for x in [(yield 1)]]
@@ -1302,7 +1295,6 @@ class GrammarTests(unittest.TestCase):
         else:
             self.fail("AssertionError not raised by 'assert False'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_assert_syntax_warnings(self):
         # Ensure that we warn users if they provide a non-zero length tuple as
         # the assertion test.
@@ -1317,7 +1309,6 @@ class GrammarTests(unittest.TestCase):
             compile('assert x, "msg"', '<testcase>', 'exec')
             compile('assert False, "msg"', '<testcase>', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_assert_warning_promotes_to_syntax_error(self):
         # If SyntaxWarning is configured to be an error, it actually raises a
         # SyntaxError.
@@ -1496,7 +1487,6 @@ class GrammarTests(unittest.TestCase):
         if 1 not in (): pass
         if 1 < 1 > 1 == 1 >= 1 <= 1 != 1 in 1 not in x is x is not x: pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_comparison_is_literal(self):
         def check(test, msg):
             self.check_syntax_warning(test, msg)
@@ -1526,7 +1516,6 @@ class GrammarTests(unittest.TestCase):
             compile('True is x', '<testcase>', 'exec')
             compile('... is x', '<testcase>', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_warn_missed_comma(self):
         def check(test):
             self.check_syntax_warning(test, msg)
