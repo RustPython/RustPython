@@ -243,6 +243,20 @@ mod _json {
             } else if let Some(ref parse_int) = self.parse_int {
                 parse_int.call((buf,), vm)
             } else {
+                // Honor sys.int_max_str_digits (PEP 651), matching CPython's
+                // PyLong_FromString path used by Modules/_json.c.
+                let digit_limit = vm.state.int_max_str_digits.load();
+                if digit_limit != 0 {
+                    let digits = buf.strip_prefix('-').unwrap_or(buf).len();
+                    if digits > digit_limit {
+                        return Some((
+                            Err(vm.new_value_error(format!(
+                                "Exceeds the limit ({digit_limit} digits) for integer string conversion: value has {digits} digits"
+                            ))),
+                            buf.len(),
+                        ));
+                    }
+                }
                 Ok(vm.new_pyobj(BigInt::from_str(buf).unwrap()))
             };
             Some((ret, buf.len()))
