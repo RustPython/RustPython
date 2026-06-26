@@ -236,7 +236,6 @@ class GCTests(unittest.TestCase):
         # is 3 because it includes f's code object.
         self.assertIn(gc.collect(), (2, 3))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - weakref clear ordering differs from 3.15+
     def test_function_tp_clear_leaves_consistent_state(self):
         # https://github.com/python/cpython/issues/91636
         code = """if 1:
@@ -831,7 +830,6 @@ class GCTests(unittest.TestCase):
         rc, out, err = assert_python_ok(TESTFN)
         self.assertEqual(out.strip(), b'__del__ called')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_get_stats(self):
         stats = gc.get_stats()
         self.assertEqual(len(stats), 3)
