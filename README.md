@@ -15,6 +15,27 @@ A Python-3 (CPython >= 3.14.0) Interpreter written in Rust :snake: :scream:
 [![dependency status](https://deps.rs/crate/rustpython/0.1.1/status.svg)](https://deps.rs/crate/rustpython/0.1.1)
 [![Open in Gitpod](https://img.shields.io/static/v1?label=Open%20in&message=Gitpod&color=1aa6e4&logo=gitpod)](https://gitpod.io#https://github.com/RustPython/RustPython)
 
+
+## Motivation
+
+RustPython exists to make the Python language available in places where
+embedding or shipping CPython is difficult or undesirable. By implementing
+the interpreter in Rust, the project aims to:
+
+- **Embed Python in Rust applications** with a memory-safe implementation
+  and idiomatic Rust APIs, without requiring a C toolchain at link time
+  for the interpreter itself.
+- **Run Python on new platforms** such as WebAssembly, where a pure-Rust
+  stack can be compiled and deployed more easily than CPython.
+- **Experiment with interpreter design** (for example alternative VMs,
+  sandboxing, or tighter integration with the Rust ecosystem) while
+  staying compatible with Python 3 and the standard library where
+  practical.
+
+It is not intended as a drop-in replacement for CPython in every
+workload today; performance and compatibility continue to improve, and
+contributions that close gaps with CPython are welcome.
+
 ## Usage
 
 **Check out our [online demo](https://rustpython.github.io/demo/) running on WebAssembly.**
