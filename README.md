@@ -41,7 +41,7 @@ needed to prevent stack overflow on Windows):
 
 ```bash
 $ cd RustPython
-$ cargo run --release demo_closures.py
+$ cargo run --release demo_hello.py
 Hello, RustPython!
 ```
 
