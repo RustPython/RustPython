@@ -369,7 +369,7 @@ impl Representable for PySlice {
     }
 }
 
-#[pyclass(module = false, name = "EllipsisType")]
+#[pyclass(module = false, name = "ellipsis")]
 #[derive(Debug)]
 pub struct PyEllipsis;
 
