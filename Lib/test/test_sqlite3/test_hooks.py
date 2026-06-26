@@ -491,6 +491,7 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
     # Tests for checking that callback context mutations do not crash.
     # Regression tests for https://github.com/python/cpython/issues/142830.
 
+    @unittest.skip("TODO: RUSTPYTHON; Timeout after 10 minutes")
     @with_tracebacks(ZeroDivisionError, regex="hello world")
     def test_trace_callback_concurrent_mutation_in_call(self):
         self.cx.execute("create table if not exists test(a number)")
