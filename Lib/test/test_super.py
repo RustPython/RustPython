@@ -112,7 +112,7 @@ class TestSuper(unittest.TestCase):
                     __class__""", globals(), {})
         self.assertIs(type(e.exception), NameError) # Not UnboundLocalError
         class X:
-            # global __class__  # TODO: RUSTPYTHON; SyntaxError: name '__class__' is assigned to before global declaration
+            global __class__
             __class__ = 42
             def f():
                 __class__
@@ -120,7 +120,7 @@ class TestSuper(unittest.TestCase):
         del globals()["__class__"]
         self.assertNotIn("__class__", X.__dict__)
         class X:
-            # nonlocal __class__  # TODO: RUSTPYTHON; SyntaxError: name '__class__' is assigned to before nonlocal declaration
+            nonlocal __class__
             __class__ = 42
             def f():
                 __class__
