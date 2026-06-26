@@ -231,7 +231,6 @@ class ExceptionTests(unittest.TestCase):
                     line = line.removeprefix('\ufeff')
                 self.assertIn(line, cm.exception.text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_error_offset_continuation_characters(self):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)

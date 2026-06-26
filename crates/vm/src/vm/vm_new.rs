@@ -54,15 +54,6 @@ impl SyntaxErrorInfo {
         Self { msg, narrow_caret }
     }
 
-    fn with_msg(&mut self, msg: &str) {
-        self.msg = msg.into();
-    }
-
-    #[cfg(feature = "parser")]
-    const fn with_narrow_caret(&mut self, narrow_caret: bool) {
-        self.narrow_caret = narrow_caret;
-    }
-
     #[cfg(feature = "parser")]
     #[must_use]
     const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
@@ -114,7 +105,7 @@ impl SyntaxErrorInfo {
             }
 
             ParseErrorType::InvalidStarredExpressionUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "invalid syntax".into()
             }
 
@@ -134,7 +125,7 @@ impl SyntaxErrorInfo {
             ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
 
             ParseErrorType::InvalidStarPatternUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "cannot use starred expression here".into()
             }
 
@@ -179,9 +170,19 @@ impl SyntaxErrorInfo {
             | ParseErrorType::SimpleAndCompoundStatementOnSameLine
             | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
 
+            ParseErrorType::OtherError(s) if s.starts_with("Expected an identifier") => {
+                "invalid syntax".into()
+            }
+
             ParseErrorType::OtherError(s)
-                if s.starts_with("Expected an identifier, but found a keyword") =>
+                if s.eq_ignore_ascii_case(
+                    "Expected a type parameter or the end of the type parameter list",
+                ) =>
             {
+                "invalid syntax".into()
+            }
+
+            ParseErrorType::OtherError(s) if s.eq_ignore_ascii_case("Expected a statement") => {
                 "invalid syntax".into()
             }
 
@@ -262,7 +263,7 @@ impl SyntaxErrorInfo {
             _ => return,
         };
 
-        self.with_msg(&msg);
+        self.msg = msg;
     }
 }
 
@@ -576,6 +577,16 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        if matches!(
+            error,
+            crate::compiler::CompileError::Codegen(crate::compiler::codegen::error::CodegenError {
+                error: crate::compiler::codegen::error::CodegenErrorType::RecursionError,
+                ..
+            })
+        ) {
+            return self.new_recursion_error(error.to_string());
+        }
+
         let incomplete_or_syntax = |allow| -> &'static Py<crate::builtins::PyType> {
             if allow {
                 self.ctx.exceptions.incomplete_input_error
@@ -687,7 +698,9 @@ impl VirtualMachine {
                 raw_location,
                 ..
             }) => {
-                if s.starts_with("Expected an indented block after") {
+                if s.starts_with("Expected an indented block after")
+                    || s.starts_with("expected an indented block after")
+                {
                     if allow_incomplete {
                         // Check that all chars in the error are whitespace, if so, the source is
                         // incomplete. Otherwise, we've found code that might violates
@@ -717,6 +730,12 @@ impl VirtualMachine {
                     } else {
                         self.ctx.exceptions.indentation_error
                     }
+                } else if allow_incomplete
+                    && source.is_some_and(|source| {
+                        raw_location.end().to_usize() >= source.len() && !source.ends_with('\n')
+                    })
+                {
+                    self.ctx.exceptions.incomplete_input_error
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
@@ -738,7 +757,29 @@ impl VirtualMachine {
         let statement = source.and_then(|src| get_statement(src, error.location()));
 
         let mut msg = error.to_string();
-        if let Some(msg) = msg.get_mut(..1) {
+        if !msg.starts_with("Exceeds the limit ")
+            && !msg.starts_with("Did you mean ")
+            && !msg.starts_with("Invalid star expression")
+            && !msg.starts_with("Function parameters cannot be parenthesized")
+            && !msg.starts_with("Lambda expression parameters cannot be parenthesized")
+            && !msg.starts_with("Cannot have two type comments on def")
+            && !msg.starts_with("Variable annotation syntax is")
+            && !msg.starts_with("The '@' operator is")
+            && !msg.starts_with("Async functions are")
+            && !msg.starts_with("Async comprehensions are")
+            && !msg.starts_with("Async for loops are")
+            && !msg.starts_with("Async with statements are")
+            && !msg.starts_with("Exception groups are")
+            && !msg.starts_with("Positional-only parameters are")
+            && !msg.starts_with("Pattern matching is")
+            && !msg.starts_with("Type statement is")
+            && !msg.starts_with("Type parameter lists are")
+            && !msg.starts_with("Type parameter defaults are")
+            && !msg.starts_with("Assignment expressions are")
+            && !msg.starts_with("Await expressions are")
+            && !msg.starts_with("Underscores in numeric literals are")
+            && let Some(msg) = msg.get_mut(..1)
+        {
             msg.make_ascii_lowercase();
         }
 
@@ -753,17 +794,26 @@ impl VirtualMachine {
         };
 
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
+            syntax_error_info.msg = "inconsistent use of tabs and spaces in indentation".to_owned();
+        }
+        if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+            syntax_error_info.msg = "incomplete input".to_owned();
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
+        let check_version_suite_error = msg.starts_with("Async functions are")
+            || msg.starts_with("Async for loops are")
+            || msg.starts_with("Async with statements are")
+            || msg.starts_with("Exception groups are")
+            || msg.starts_with("except expressions without parentheses are")
+            || msg.starts_with("Pattern matching is");
+        let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
-        let (lineno, offset) = error.python_location();
-        let lineno = self.ctx.new_int(lineno);
-        let offset = self.ctx.new_int(offset);
-
+        let (lineno_raw, offset_raw) = error.python_location();
+        let lineno = self.ctx.new_int(lineno_raw);
+        let offset = self.ctx.new_int(offset_raw);
         set_attrs!(
             syntax_error.as_object(), self, unwrap,
             "lineno" => lineno,
@@ -772,15 +822,23 @@ impl VirtualMachine {
 
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
-            let (end_lineno, end_offset) = if narrow_caret {
+            let (end_lineno, end_offset) = if check_version_suite_error
+                && statement
+                    .as_deref()
+                    .and_then(|line| line.chars().next())
+                    .is_some_and(|ch| ch.is_ascii_whitespace())
+            {
+                (end_lineno, -1)
+            } else if line_end_binary_operator_error && end_offset == offset_raw {
+                (end_lineno, (end_offset + 1) as isize)
+            } else if narrow_caret {
                 let (l, o) = error.python_location();
-                (l, o + 1)
+                (l, (o + 1) as isize)
             } else {
-                (end_lineno, end_offset)
+                (end_lineno, end_offset as isize)
             };
             let end_lineno = self.ctx.new_int(end_lineno);
             let end_offset = self.ctx.new_int(end_offset);
-
             set_attrs!(
                 syntax_error.as_object(), self, unwrap,
                 "end_lineno" => end_lineno,

@@ -117,7 +117,6 @@ class TestSimpleInteract(unittest.TestCase):
 SyntaxError: duplicate argument 'x' in function definition"""
         self.assertIn(r, f.getvalue())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_runsource_shows_syntax_error_for_failed_compilation(self):
         console = InteractiveColoredConsole()
         source = "print('Hello, world!'"
@@ -133,7 +132,6 @@ SyntaxError: duplicate argument 'x' in function definition"""
             console.runsource(source)
             mock_showsyntaxerror.assert_called_once()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_runsource_survives_null_bytes(self):
         console = InteractiveColoredConsole()
         source = "\x00\n"
@@ -155,7 +153,6 @@ SyntaxError: duplicate argument 'x' in function definition"""
         self.assertFalse(result)
         self.assertEqual(f.getvalue(), "{'x': <class 'int'>}\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_annotations(self):
         console = InteractiveColoredConsole()
         source = dedent("""\
@@ -210,7 +207,6 @@ class TestMoreLines(unittest.TestCase):
         console = InteractiveColoredConsole(namespace, filename="<stdin>")
         self.assertFalse(_more_lines(console, code))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiline_single_block(self):
         namespace = {}
         code = dedent("""\
@@ -227,7 +223,6 @@ class TestMoreLines(unittest.TestCase):
         console = InteractiveColoredConsole(namespace, filename="<stdin>")
         self.assertFalse(_more_lines(console, code))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiple_statements(self):
         namespace = {}
         code = dedent("""\
@@ -237,7 +232,6 @@ class TestMoreLines(unittest.TestCase):
         console = InteractiveColoredConsole(namespace, filename="<stdin>")
         self.assertTrue(_more_lines(console, code))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_multiple_blocks(self):
         namespace = {}
         code = dedent("""\
@@ -285,7 +279,6 @@ class TestMoreLines(unittest.TestCase):
 
 
 class TestWarnings(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pep_765_warning(self):
         """
         Test that a SyntaxWarning emitted from the

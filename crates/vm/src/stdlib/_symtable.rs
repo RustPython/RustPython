@@ -153,7 +153,9 @@ mod _symtable {
                 CompilerScope::Class => TYPE_CLASS,
                 CompilerScope::Module => TYPE_MODULE,
                 CompilerScope::Annotation => TYPE_ANNOTATION,
+                CompilerScope::TypeAlias => TYPE_TYPE_ALIAS,
                 CompilerScope::TypeParams => TYPE_TYPE_PARAMETERS,
+                CompilerScope::TypeVariable => TYPE_TYPE_VARIABLE,
             }
         }
 

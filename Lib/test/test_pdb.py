@@ -2165,7 +2165,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +EXPECTED_FAILURE
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     'x = await task',
             ...     'p x',
             ...     'x = await test()',
@@ -2280,7 +2280,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+            >>> with PdbTestInput([
             ...     'p var.get()',
             ...     'print(await get_var())',
             ...     'print(await asyncio.create_task(set_var(100)))',
@@ -2768,7 +2768,7 @@ def test_pdb_multiline_statement():
     >>> def test_function():
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'def f(x):',
     ...     '  return x * 2',
     ...     '',

@@ -437,7 +437,6 @@ class TestAsyncioREPL(unittest.TestCase):
         expected = "toplevel contextvar test: ok"
         self.assertIn(expected, output, expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 101 != 0
     def test_toplevel_contextvars_async(self):
         user_input = dedent("""\
         from contextvars import ContextVar

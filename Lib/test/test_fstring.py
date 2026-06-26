@@ -701,7 +701,6 @@ x = (
                             ["f'{ {{}} }'", # dict in a set
                              ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_compile_time_concat(self):
         x = 'def'
         self.assertEqual('abc' f'## {x}ghi', 'abc## defghi')
@@ -816,7 +815,6 @@ x = (
         s = "f'{1}' 'x' 'y'" * 1024
         self.assertEqual(eval(s), '1xy' * 1024)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_format_specifier_expressions(self):
         width = 10
         precision = 4
@@ -947,7 +945,6 @@ x = (
                             ["f'{3)+(4}'",
                              ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_newlines_before_syntax_error(self):
         self.assertAllRaise(SyntaxError,
                             "f-string: expecting a valid expression after '{'",
@@ -1031,7 +1028,6 @@ x = (
                              r"'\N{GREEK CAPITAL LETTER DELTA'",
                              ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_backslashes_in_expression_part(self):
         self.assertEqual(f"{(
                         1 +
@@ -1732,7 +1728,6 @@ x = (
         with self.assertRaisesRegex(ValueError, error_msg):
             f'{1:_,}'
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "f-string: expecting a valid expression after '{'" does not match "invalid syntax (?, line 1)"
     def test_syntax_error_for_starred_expressions(self):
         with self.assertRaisesRegex(SyntaxError, "can't use starred expression here"):
             compile("f'{*a}'", "?", "exec")

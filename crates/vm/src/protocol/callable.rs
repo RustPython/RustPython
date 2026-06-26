@@ -207,7 +207,7 @@ impl VirtualMachine {
         event: TraceEvent,
         arg: Option<PyObjectRef>,
     ) -> PyResult<Option<PyObjectRef>> {
-        if self.use_tracing.get() {
+        if self.use_tracing.get() && !self.tracing_is_suppressed() {
             self._trace_event_inner(event, arg)
         } else {
             Ok(None)
@@ -247,7 +247,9 @@ impl VirtualMachine {
         // tracing function itself.
         if is_trace_event && !self.is_none(&trace_func) {
             self.use_tracing.set(false);
+            self.enter_tracing();
             let res = trace_func.call(args.clone(), self);
+            self.leave_tracing();
             self.use_tracing.set(true);
             match res {
                 Ok(result) => {
@@ -268,7 +270,9 @@ impl VirtualMachine {
 
         if is_profile_event && !self.is_none(&profile_func) {
             self.use_tracing.set(false);
+            self.enter_tracing();
             let res = profile_func.call(args, self);
+            self.leave_tracing();
             self.use_tracing.set(true);
             if res.is_err() {
                 *self.profile_func.borrow_mut() = self.ctx.none();

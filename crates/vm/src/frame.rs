@@ -3050,9 +3050,17 @@ impl ExecutingFrame<'_> {
                 let subject = self.pop_value();
                 let nargs_val = nargs.get(arg) as usize;
 
+                let Some(cls_type) = cls.downcast_ref::<PyType>() else {
+                    return Err(vm.new_type_error("called match pattern must be a class"));
+                };
+                // Only the error paths need the class name; compute it lazily so a
+                // successful match does not take the name lock or allocate.
+                let type_name = || cls_type.name().to_string();
+
                 // Check if subject is an instance of cls
                 if subject.is_instance(cls.as_ref(), vm)? {
                     let mut extracted = vec![];
+                    let seen_attrs = PySet::default().into_ref(&vm.ctx);
 
                     // Get __match_args__ for positional arguments if nargs > 0
                     if nargs_val > 0 {
@@ -3066,12 +3074,7 @@ impl ExecutingFrame<'_> {
                                 Ok(tuple) => tuple,
                                 Err(match_args) => {
                                     // __match_args__ must be a tuple
-                                    // Get type names for error message
-                                    let type_name = cls
-                                        .downcast::<crate::builtins::PyType>()
-                                        .ok()
-                                        .and_then(|t| t.__name__(vm).to_str().map(str::to_owned))
-                                        .unwrap_or_else(|| String::from("?"));
+                                    let type_name = type_name();
                                     let match_args_type_name = match_args.class().__name__(vm);
                                     return Err(vm.new_type_error(format!(
                                         "{type_name}.__match_args__ must be a tuple (got {match_args_type_name})"
@@ -3081,9 +3084,12 @@ impl ExecutingFrame<'_> {
 
                             // Check if we have enough match args
                             if match_args.len() < nargs_val {
+                                let type_name = type_name();
+                                let plural = if match_args.len() == 1 { "" } else { "s" };
                                 return Err(vm.new_type_error(format!(
-                                    "class pattern accepts at most {} positional sub-patterns ({} given)",
+                                    "{type_name}() accepts {} positional sub-pattern{} ({} given)",
                                     match_args.len(),
+                                    plural,
                                     nargs_val
                                 )));
                             }
@@ -3094,11 +3100,20 @@ impl ExecutingFrame<'_> {
                                 let attr_name_str = match attr_name.downcast_ref::<PyStr>() {
                                     Some(s) => s,
                                     None => {
-                                        return Err(vm.new_type_error(
-                                            "__match_args__ elements must be strings",
-                                        ));
+                                        let attr_type_name = attr_name.class().name();
+                                        return Err(vm.new_type_error(format!(
+                                            "__match_args__ elements must be strings (got {attr_type_name})"
+                                        )));
                                     }
                                 };
+                                if seen_attrs.__contains__(attr_name.as_object(), vm)? {
+                                    let type_name = type_name();
+                                    let attr_repr = attr_name.as_object().repr(vm)?;
+                                    return Err(vm.new_type_error(format!(
+                                        "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
+                                    )));
+                                }
+                                seen_attrs.add(attr_name.clone(), vm)?;
                                 match subject.get_attr(attr_name_str, vm) {
                                     Ok(value) => extracted.push(value),
                                     Err(e)
@@ -3115,9 +3130,8 @@ impl ExecutingFrame<'_> {
                             // No __match_args__, check if this is a type with MATCH_SELF behavior
                             // For built-in types like bool, int, str, list, tuple, dict, etc.
                             // they match the subject itself as the single positional argument
-                            let is_match_self_type = cls
-                                .downcast::<PyType>()
-                                .is_ok_and(|t| t.slots.flags.contains(PyTypeFlags::_MATCH_SELF));
+                            let is_match_self_type =
+                                cls_type.slots.flags.contains(PyTypeFlags::_MATCH_SELF);
 
                             if is_match_self_type {
                                 if nargs_val == 1 {
@@ -3125,16 +3139,18 @@ impl ExecutingFrame<'_> {
                                     extracted.push(subject.clone());
                                 } else if nargs_val > 1 {
                                     // Too many positional arguments for MATCH_SELF
-                                    return Err(vm.new_type_error(
-                                        "class pattern accepts at most 1 positional sub-pattern for MATCH_SELF types",
-                                    ));
+                                    let type_name = type_name();
+                                    return Err(vm.new_type_error(format!(
+                                        "{type_name}() accepts 1 positional sub-pattern ({nargs_val} given)"
+                                    )));
                                 }
                             } else {
                                 // No __match_args__ and not a MATCH_SELF type
                                 if nargs_val > 0 {
-                                    return Err(vm.new_type_error(
-                                        "class pattern defines no positional sub-patterns (__match_args__ missing)",
-                                    ));
+                                    let type_name = type_name();
+                                    return Err(vm.new_type_error(format!(
+                                        "{type_name}() accepts 0 positional sub-patterns ({nargs_val} given)"
+                                    )));
                                 }
                             }
                         }
@@ -3143,6 +3159,14 @@ impl ExecutingFrame<'_> {
                     // Extract keyword attributes
                     for name in kwd_attrs {
                         let name_str = name.downcast_ref::<PyStr>().unwrap();
+                        if seen_attrs.__contains__(name_str.as_object(), vm)? {
+                            let type_name = type_name();
+                            let attr_repr = name.as_object().repr(vm)?;
+                            return Err(vm.new_type_error(format!(
+                                "{type_name}() got multiple sub-patterns for attribute {attr_repr}"
+                            )));
+                        }
+                        seen_attrs.add(name.clone(), vm)?;
                         match subject.get_attr(name_str, vm) {
                             Ok(value) => extracted.push(value),
                             Err(e) if e.fast_isinstance(vm.ctx.exceptions.attribute_error) => {
@@ -3166,10 +3190,14 @@ impl ExecutingFrame<'_> {
                 let subject = self.nth_value(1); // stack[-2]
 
                 // Check if subject is a mapping and extract values for keys
-                if subject.class().slots.flags.contains(PyTypeFlags::MAPPING) {
+                if subject
+                    .class()
+                    .has_patma_collection_flag(PyTypeFlags::MAPPING)
+                {
                     let keys = keys_tuple.downcast_ref::<PyTuple>().unwrap();
                     let mut values = Vec::new();
                     let mut all_match = true;
+                    let seen_keys = PySet::default().into_ref(&vm.ctx);
 
                     // We use the two argument form of map.get(key, default) for two reasons:
                     // - Atomically check for a key and get its value without error handling.
@@ -3186,6 +3214,13 @@ impl ExecutingFrame<'_> {
                             .new_base_object(vm.ctx.types.object_type.to_owned(), None);
 
                         for key in keys {
+                            if seen_keys.__contains__(key.as_object(), vm)? {
+                                return Err(vm.new_value_error(format!(
+                                    "mapping pattern checks duplicate key ({})",
+                                    key.as_object().repr(vm)?
+                                )));
+                            }
+                            seen_keys.add(key.as_object().to_owned(), vm)?;
                             // value = map.get(key, dummy)
                             match get_method.call((key.as_object(), dummy.clone()), vm) {
                                 Ok(value) => {
@@ -3202,6 +3237,13 @@ impl ExecutingFrame<'_> {
                     } else {
                         // Fallback if .get() method is not available (shouldn't happen for mappings)
                         for key in keys {
+                            if seen_keys.__contains__(key.as_object(), vm)? {
+                                return Err(vm.new_value_error(format!(
+                                    "mapping pattern checks duplicate key ({})",
+                                    key.as_object().repr(vm)?
+                                )));
+                            }
+                            seen_keys.add(key.as_object().to_owned(), vm)?;
                             match subject.get_item(key.as_object(), vm) {
                                 Ok(value) => values.push(value),
                                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
@@ -3231,7 +3273,9 @@ impl ExecutingFrame<'_> {
                 let subject = self.pop_value();
 
                 // Check if the type has the MAPPING flag
-                let is_mapping = subject.class().slots.flags.contains(PyTypeFlags::MAPPING);
+                let is_mapping = subject
+                    .class()
+                    .has_patma_collection_flag(PyTypeFlags::MAPPING);
 
                 self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_mapping).into());
@@ -3242,7 +3286,9 @@ impl ExecutingFrame<'_> {
                 let subject = self.pop_value();
 
                 // Check if the type has the SEQUENCE flag
-                let is_sequence = subject.class().slots.flags.contains(PyTypeFlags::SEQUENCE);
+                let is_sequence = subject
+                    .class()
+                    .has_patma_collection_flag(PyTypeFlags::SEQUENCE);
 
                 self.push_value(subject);
                 self.push_value(vm.ctx.new_bool(is_sequence).into());
@@ -6845,7 +6891,7 @@ impl ExecutingFrame<'_> {
         }
     }
 
-    fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u8) -> FrameResult {
+    fn execute_unpack_ex(&mut self, vm: &VirtualMachine, before: u8, after: u32) -> FrameResult {
         let (before, after) = (before as usize, after as usize);
         let value = self.pop_value();
         let not_iterable = value.class().slots.iter.load().is_none()

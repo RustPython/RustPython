@@ -78,15 +78,108 @@ impl ConstantPool {
         }
     }
 
-    pub fn insert_full(&mut self, constant: ConstantData) -> (usize, bool) {
-        // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
-        // because Python-level NaN keys do not compare equal.
-        if !Self::constant_contains_nan(&constant)
-            && let Some(idx) = self
-                .constants
+    fn frozenset_key_contains(elements: &[ConstantData], needle: &ConstantData) -> bool {
+        if Self::constant_contains_nan(needle) {
+            return false;
+        }
+        elements.iter().any(|element| {
+            !Self::constant_contains_nan(element) && Self::constant_key_eq(element, needle)
+        })
+    }
+
+    fn frozenset_key_eq(left: &[ConstantData], right: &[ConstantData]) -> bool {
+        left.iter()
+            .all(|element| Self::frozenset_key_contains(right, element))
+            && right
                 .iter()
-                .position(|existing| existing == &constant)
-        {
+                .all(|element| Self::frozenset_key_contains(left, element))
+    }
+
+    fn constant_key_eq(left: &ConstantData, right: &ConstantData) -> bool {
+        match (left, right) {
+            (ConstantData::Tuple { elements: left }, ConstantData::Tuple { elements: right }) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right.iter())
+                        .all(|(left, right)| Self::constant_key_eq(left, right))
+            }
+            (
+                ConstantData::Frozenset { elements: left },
+                ConstantData::Frozenset { elements: right },
+            ) => Self::frozenset_key_eq(left, right),
+            (ConstantData::Slice { elements: left }, ConstantData::Slice { elements: right }) => {
+                left.iter()
+                    .zip(right.iter())
+                    .all(|(left, right)| Self::constant_key_eq(left, right))
+            }
+            _ => left == right,
+        }
+    }
+
+    fn canonicalize_constant_key(constant: ConstantData) -> crate::InternalResult<ConstantData> {
+        match constant {
+            ConstantData::Tuple { elements } => {
+                let mut canonical = Vec::new();
+                canonical
+                    .try_reserve_exact(elements.len())
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                for element in elements {
+                    canonical.push(Self::canonicalize_constant_key(element)?);
+                }
+                Ok(ConstantData::Tuple {
+                    elements: canonical,
+                })
+            }
+            ConstantData::Slice { elements } => {
+                let [start, stop, step] = *elements;
+                Ok(ConstantData::Slice {
+                    elements: Box::new([
+                        Self::canonicalize_constant_key(start)?,
+                        Self::canonicalize_constant_key(stop)?,
+                        Self::canonicalize_constant_key(step)?,
+                    ]),
+                })
+            }
+            ConstantData::Frozenset { elements } => {
+                let mut canonical = Vec::new();
+                canonical
+                    .try_reserve_exact(elements.len())
+                    .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+                for element in elements {
+                    let element = Self::canonicalize_constant_key(element)?;
+                    if !Self::frozenset_key_contains(&canonical, &element) {
+                        canonical.push(element);
+                    }
+                }
+                Ok(ConstantData::Frozenset {
+                    elements: canonical,
+                })
+            }
+            other => Ok(other),
+        }
+    }
+
+    fn canonicalize_constant_key_infallible(constant: ConstantData) -> ConstantData {
+        Self::canonicalize_constant_key(constant)
+            .expect("constant key canonicalization only fails on allocation error")
+    }
+
+    /// Index of an already-stored constant equal to `constant`, if any.
+    /// _PyCode_ConstantKey() keeps NaN-bearing constants distinct because
+    /// Python-level NaN keys do not compare equal.
+    fn find_existing(&self, constant: &ConstantData) -> Option<usize> {
+        if Self::constant_contains_nan(constant) {
+            return None;
+        }
+        self.constants
+            .iter()
+            .position(|existing| Self::constant_key_eq(existing, constant))
+    }
+
+    pub fn insert_full(&mut self, constant: ConstantData) -> (usize, bool) {
+        let constant = Self::canonicalize_constant_key_infallible(constant);
+        if let Some(idx) = self.find_existing(&constant) {
             return (idx, false);
         }
         let idx = self.constants.len();
@@ -95,14 +188,8 @@ impl ConstantPool {
     }
 
     fn try_insert_full(&mut self, constant: ConstantData) -> crate::InternalResult<(usize, bool)> {
-        // CPython's _PyCode_ConstantKey() keeps NaN-bearing constants distinct
-        // because Python-level NaN keys do not compare equal.
-        if !Self::constant_contains_nan(&constant)
-            && let Some(idx) = self
-                .constants
-                .iter()
-                .position(|existing| existing == &constant)
-        {
+        let constant = Self::canonicalize_constant_key(constant)?;
+        if let Some(idx) = self.find_existing(&constant) {
             return Ok((idx, false));
         }
         self.constants
@@ -1485,6 +1572,7 @@ impl Blocks {
                     | PseudoInstruction::JumpIfTrue { .. }),
                 ) => {
                     let opcode = pseudo.into();
+                    let opcode_is_false = matches!(pseudo, PseudoInstruction::JumpIfFalse { .. });
                     match target.instr.pseudo().map(Into::into) {
                         Some(PseudoOpcode::Jump)
                             if self.jump_thread(block_idx, i, &target, opcode)? =>
@@ -1492,22 +1580,25 @@ impl Blocks {
                             continue;
                         }
                         Some(PseudoOpcode::JumpIfFalse)
-                            if matches!(
-                                opcode,
-                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfFalse { .. })
-                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
+                            if opcode_is_false
+                                && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
                         Some(PseudoOpcode::JumpIfTrue)
-                            if matches!(
-                                opcode,
-                                AnyInstruction::Pseudo(PseudoInstruction::JumpIfTrue { .. })
-                            ) && self.jump_thread(block_idx, i, &target, opcode)? =>
+                            if !opcode_is_false
+                                && self.jump_thread(block_idx, i, &target, opcode)? =>
                         {
                             continue;
                         }
-                        Some(PseudoOpcode::JumpIfFalse | PseudoOpcode::JumpIfTrue) => {
+                        Some(PseudoOpcode::JumpIfTrue) if opcode_is_false => {
+                            let next = self[inst.target].next;
+                            debug_assert!(next != BlockIdx::NULL);
+                            debug_assert!(next != inst.target);
+                            self[block_idx].instructions[i].target = next;
+                            continue;
+                        }
+                        Some(PseudoOpcode::JumpIfFalse) if !opcode_is_false => {
                             let next = self[inst.target].next;
                             debug_assert!(next != BlockIdx::NULL);
                             debug_assert!(next != inst.target);
@@ -2335,10 +2426,10 @@ impl Blocks {
         Ok(())
     }
 
-    /// flowgraph.c mark_cold (two-pass to match CPython).
+    /// flowgraph.c mark_cold (two-pass).
     ///
     /// Phase 1 (mark_warm): propagate "warm" from entry via fall-through and
-    /// jump targets. CPython asserts while visiting warm blocks that they are not
+    /// jump targets. The pass asserts while visiting warm blocks that they are not
     /// exception handlers.
     ///
     /// Phase 2 (mark_cold): propagate "cold" from except_handler blocks via
@@ -2349,7 +2440,7 @@ impl Blocks {
     /// empty unreachable placeholders left by remove_unreachable; they stay in
     /// their original chain position (e.g. between entry and the post-try
     /// continuation for a nested try/except whose inner_end was emptied by
-    /// optimize_cfg). This matches CPython's behavior and is necessary for
+    /// optimize_cfg). This is necessary for
     /// optimize_load_fast to terminate fall-through at those placeholders.
     /// flowgraph.c mark_warm
     fn mark_warm(&mut self) -> crate::InternalResult<()> {
@@ -2981,39 +3072,9 @@ impl Blocks {
     }
 }
 
-impl From<Vec<Block>> for Blocks {
-    fn from(value: Vec<Block>) -> Self {
-        Self(value)
-    }
-}
-
-impl From<Box<[Block]>> for Blocks {
-    fn from(value: Box<[Block]>) -> Self {
-        Self(value.into())
-    }
-}
-
-impl From<&[Block]> for Blocks {
-    fn from(value: &[Block]) -> Self {
-        Self(value.to_vec())
-    }
-}
-
-impl From<&mut [Block]> for Blocks {
-    fn from(value: &mut [Block]) -> Self {
-        Self(value.to_vec())
-    }
-}
-
 impl<const N: usize> From<[Block; N]> for Blocks {
     fn from(value: [Block; N]) -> Self {
         Self(value.into())
-    }
-}
-
-impl<const N: usize> From<&[Block; N]> for Blocks {
-    fn from(value: &[Block; N]) -> Self {
-        Self(value.to_vec())
     }
 }
 
@@ -3060,7 +3121,7 @@ impl IndexMut<BlockIdx> for Blocks {
 }
 
 pub(crate) const START_DEPTH_UNSET: i32 = i32::MIN;
-const CO_MAXBLOCKS: usize = 20;
+const CO_MAXBLOCKS: usize = 21;
 
 /// flowgraph.c struct _PyCfgExceptStack
 #[derive(Clone, Debug)]
@@ -3099,7 +3160,7 @@ impl CfgTraversalStack {
 #[derive(Clone, Debug)]
 pub(crate) struct InstructionSequenceLabelMap {
     block_labels: Vec<InstructionSequenceLabel>,
-    /// Codegen-side shadow of CPython's instruction-sequence label map.
+    /// Codegen-side shadow of the instruction-sequence label map.
     ///
     /// `_PyInstructionSequence_UseLabel()` can map multiple labels to the same
     /// instruction offset before `_PyCfg_FromInstructionSequence()` materializes
@@ -3305,7 +3366,7 @@ pub struct CodeInfo {
 
     // Reference to the symbol table for this scope
     pub symbol_table_index: usize,
-    // CPython compile.c uses PyList_GET_SIZE(u->u_ste->ste_varnames)
+    // compile.c uses PyList_GET_SIZE(u->u_ste->ste_varnames)
     // when calling flowgraph.c _PyCfg_OptimizeCodeUnit().
     pub nparams: usize,
 
@@ -3488,7 +3549,7 @@ impl CodeInfo {
     }
 
     fn prepare_cfg_from_codegen(&mut self) -> crate::InternalResult<InstructionSequence> {
-        // CPython compile.c optimize_and_assemble_code_unit passes
+        // compile.c optimize_and_assemble_code_unit passes
         // u_instr_sequence directly into flowgraph.c _PyCfg_FromInstructionSequence().
         self.take_recorded_instr_sequence()
     }
@@ -3509,12 +3570,12 @@ fn optimize_code_unit(
     optimize_cfg(metadata, blocks, metadata.firstlineno)?;
     blocks.remove_unused_consts(&mut metadata.consts)?;
     add_checks_for_loads_of_uninitialized_variables(blocks, nlocals, nparams)?;
-    // CPython inserts superinstructions in _PyCfg_OptimizeCodeUnit, before
+    // Superinstructions are inserted in _PyCfg_OptimizeCodeUnit, before
     // later jump normalization / block reordering can create adjacencies
     // that never exist at this stage in flowgraph.c.
     blocks.insert_superinstructions()?;
     blocks.push_cold_blocks_to_end()?;
-    // CPython resolves line numbers again after cold-block extraction.
+    // Line numbers are resolved again after cold-block extraction.
     blocks.resolve_line_numbers(metadata.firstlineno)?;
     Ok(())
 }
@@ -3525,20 +3586,20 @@ fn optimize_cfg(
     firstlineno: OneIndexed,
 ) -> crate::InternalResult<()> {
     // flowgraph.c optimize_cfg
-    // CPython optimize_cfg() starts with check_cfg() and raises
+    // optimize_cfg() starts with check_cfg() and raises
     // SystemError if a jump or scope exit is not the last instruction in
     // its block.
     blocks.check_cfg()?;
     blocks.inline_small_or_no_lineno_blocks()?;
-    // CPython does not re-run instruction-sequence label-map/CFG conversion
+    // The instruction-sequence label-map/CFG conversion is not re-run
     // after this point. Unreferenced label blocks left by jump inlining
     // remain block boundaries and can preserve line-marker NOPs.
     blocks.remove_unreachable()?;
-    // CPython optimize_cfg resolves line numbers before local checks and
+    // optimize_cfg resolves line numbers before local checks and
     // superinstruction insertion, so fusion decisions see propagated
     // source locations.
     blocks.resolve_line_numbers(firstlineno)?;
-    // CPython optimize_cfg() runs optimize_load_const() and then
+    // optimize_cfg() runs optimize_load_const() and then
     // optimize_basic_block() after line numbers are resolved.
     optimize_load_const(metadata, blocks)?;
     let mut block_idx = BlockIdx(0);
@@ -3548,7 +3609,7 @@ fn optimize_cfg(
         block_idx = next_block;
     }
     blocks.remove_redundant_nops_and_pairs()?;
-    // CPython optimize_cfg() removes newly-unreachable blocks and
+    // optimize_cfg() removes newly-unreachable blocks and
     // redundant NOP/jump chains before _PyCfg_OptimizeCodeUnit() prunes
     // unused constants.
     blocks.remove_unreachable()?;
@@ -3568,7 +3629,7 @@ fn optimized_cfg_to_instruction_sequence(
     let max_stackdepth = blocks.calculate_stackdepth()?;
     debug_assert!(!is_generator(flags) || max_stackdepth != 0);
     let nlocalsplus = prepare_localsplus(metadata, blocks, flags)?;
-    // Match CPython order: pseudo ops are lowered after stackdepth and
+    // Pseudo ops are lowered after stackdepth and
     // localsplus preparation, before normalize_jumps.
     convert_pseudo_ops(blocks)?;
     blocks.normalize_jumps()?;
@@ -3636,6 +3697,9 @@ impl CodeInfo {
             kwonlyargcount: kwonlyarg_count,
             firstlineno: first_line_number,
         } = metadata;
+        let code_arg_count = posonlyarg_count
+            .checked_add(arg_count)
+            .ok_or(InternalError::MalformedControlFlowGraph)?;
 
         resolve_unconditional_jumps(&mut instr_sequence)?;
         resolve_jump_offsets(&mut instr_sequence)?;
@@ -3653,7 +3717,7 @@ impl CodeInfo {
         Ok(CodeObject {
             flags,
             posonlyarg_count,
-            arg_count,
+            arg_count: code_arg_count,
             kwonlyarg_count,
             source_path,
             first_line_number: Some(first_line_number),
@@ -4109,8 +4173,13 @@ fn const_folding_safe_multiply(left: &ConstantData, right: &ConstantData) -> Opt
             const_folding_safe_multiply(right, left)
         }
         (ConstantData::Tuple { elements }, ConstantData::Integer { value: n }) => {
+            if elements.is_empty() {
+                return Some(ConstantData::Tuple {
+                    elements: Vec::new(),
+                });
+            }
             let n = n.to_usize()?;
-            if n != 0 && !elements.is_empty() {
+            if n != 0 {
                 if n > MAX_COLLECTION_SIZE / elements.len() {
                     return None;
                 }
@@ -4265,7 +4334,7 @@ fn eval_const_complex_binop(
         BinOp::Add => left + right,
         BinOp::Subtract => {
             let re = left.re - right.re;
-            // Preserve CPython's signed-zero behavior for real-zero
+            // Preserve signed-zero behavior for real-zero
             // minus zero-complex expressions such as `0 - 0j`.
             let im = if left.re == 0.0
                 && left.im == 0.0
@@ -4829,7 +4898,7 @@ fn fold_constant_intrinsic_list_to_tuple(
     Ok(false)
 }
 
-/// Port of CPython's flowgraph.c optimize_lists_and_sets().
+/// Port of flowgraph.c optimize_lists_and_sets().
 fn optimize_lists_and_sets(
     metadata: &mut CodeUnitMetadata,
     block: &mut Block,
@@ -4889,8 +4958,7 @@ fn optimize_lists_and_sets(
 
     if !contains_or_iter {
         debug_assert!(i >= 2);
-        let folded_loc = block.instructions[i].location;
-        let end_loc = block.instructions[i].end_location;
+        let folded_loc = instr_location(&block.instructions[i]);
 
         nop_out(block, &operand_indices);
 
@@ -4901,9 +4969,7 @@ fn optimize_lists_and_sets(
         }
         .into();
         instr_set_op1(&mut block.instructions[i - 2], build_instr, OpArg::new(0));
-        block.instructions[i - 2].location = folded_loc;
-        block.instructions[i - 2].end_location = end_loc;
-        block.instructions[i - 2].lineno_override = None;
+        instr_set_location(&mut block.instructions[i - 2], folded_loc);
 
         instr_set_op1(
             &mut block.instructions[i - 1],
@@ -5152,7 +5218,7 @@ fn basicblock_optimize_load_const(
     block: &mut Block,
 ) -> crate::InternalResult<()> {
     let mut i = 0;
-    let mut effective_opcode = None;
+    let mut effective_opcode = Instruction::Nop.into();
     let mut effective_oparg = OpArg::new(0);
     while i < block.instruction_used {
         if matches!(
@@ -5166,21 +5232,19 @@ fn basicblock_optimize_load_const(
         let curr = block.instructions[i];
         let curr_arg = curr.arg;
 
-        // Only combine if the source is a real instruction.
-        let Some(curr_instr) = curr.instr.real() else {
-            i += 1;
-            continue;
-        };
-
         let is_copy_of_load_const = matches!(
-            (effective_opcode, curr_instr),
-            (Some(Instruction::LoadConst { .. }), Instruction::Copy { i }) if i.get(curr_arg) == 1
+            (effective_opcode, curr.instr.real()),
+            (AnyInstruction::Real(Instruction::LoadConst { .. }), Some(Instruction::Copy { i }))
+                if i.get(curr_arg) == 1
         );
         if !is_copy_of_load_const {
-            effective_opcode = Some(curr_instr);
+            effective_opcode = curr.instr;
             effective_oparg = curr_arg;
         }
-        let Some(const_instr) = effective_opcode else {
+        debug_assert!(!effective_opcode.is_assembler());
+        let Some(const_instr @ (Instruction::LoadConst { .. } | Instruction::LoadSmallInt { .. })) =
+            effective_opcode.real()
+        else {
             i += 1;
             continue;
         };
@@ -5273,7 +5337,7 @@ fn basicblock_optimize_load_const(
                     Opcode::PopJumpIfNone
                 }
                 .into();
-                i = jump_idx;
+                i += 1;
                 continue;
             }
         }
@@ -6557,21 +6621,19 @@ fn get_max_label(blocks: &Blocks) -> i32 {
 }
 
 /// flowgraph.c make_except_stack
-#[allow(clippy::unnecessary_wraps)]
-fn make_except_stack() -> crate::InternalResult<CfgExceptStack> {
+fn make_except_stack() -> CfgExceptStack {
     let handlers = [BlockIdx::NULL; CO_MAXBLOCKS + 2];
     debug_assert_eq!(handlers[0], BlockIdx::NULL);
-    Ok(CfgExceptStack { handlers, depth: 0 })
+    CfgExceptStack { handlers, depth: 0 }
 }
 
 /// flowgraph.c copy_except_stack
-#[allow(clippy::unnecessary_wraps)]
-fn copy_except_stack(stack: &CfgExceptStack) -> crate::InternalResult<CfgExceptStack> {
+fn copy_except_stack(stack: &CfgExceptStack) -> CfgExceptStack {
     debug_assert!(stack.depth <= CO_MAXBLOCKS + 1);
-    Ok(CfgExceptStack {
+    CfgExceptStack {
         handlers: stack.handlers,
         depth: stack.depth,
-    })
+    }
 }
 
 /// flowgraph.c except_stack_top
@@ -6623,7 +6685,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
 
     todo.push(BlockIdx(0));
     blocks[0].visited = true;
-    blocks[0].except_stack = Some(make_except_stack()?);
+    blocks[0].except_stack = Some(make_except_stack());
 
     while let Some(block_idx) = todo.pop() {
         let bi = block_idx.idx();
@@ -6650,7 +6712,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
                 if !blocks[target].visited {
                     blocks[target].except_stack = Some(copy_except_stack(
                         stack.as_ref().expect("active exception stack"),
-                    )?);
+                    ));
                     todo.push(target);
                     blocks[target].visited = true;
                 }
@@ -6674,7 +6736,7 @@ pub(crate) fn label_exception_targets(blocks: &mut Blocks) -> crate::InternalRes
                     if bb_has_fallthrough(&blocks[bi]) {
                         blocks[target].except_stack = Some(copy_except_stack(
                             stack.as_ref().expect("active exception stack"),
-                        )?);
+                        ));
                     } else {
                         blocks[target].except_stack = stack.take();
                         stack_transferred = true;
@@ -6852,6 +6914,58 @@ pub(crate) fn fix_cell_offsets(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rustpython_compiler_core::bytecode::Arg;
+
+    fn int_const(value: i32) -> ConstantData {
+        ConstantData::Integer {
+            value: BigInt::from(value),
+        }
+    }
+
+    fn nan_const() -> ConstantData {
+        ConstantData::Float { value: f64::NAN }
+    }
+
+    #[test]
+    fn constant_pool_frozenset_key_ignores_order_and_duplicates_like_cpython() {
+        let mut pool = ConstantPool::default();
+        let (first, inserted) = pool.insert_full(ConstantData::Frozenset {
+            elements: vec![int_const(1), int_const(2)],
+        });
+        assert_eq!(first, 0);
+        assert!(inserted);
+
+        let (second, inserted) = pool.insert_full(ConstantData::Frozenset {
+            elements: vec![int_const(2), int_const(1), int_const(1)],
+        });
+        assert_eq!(
+            second, first,
+            "CPython _PyCode_ConstantKey uses frozenset item keys, not insertion order"
+        );
+        assert!(!inserted);
+        assert!(matches!(
+            &pool.constants[first],
+            ConstantData::Frozenset { elements } if elements.len() == 2
+        ));
+    }
+
+    #[test]
+    fn constant_pool_frozenset_key_preserves_nan_duplicates_like_cpython() {
+        let mut pool = ConstantPool::default();
+        let (idx, inserted) = pool.insert_full(ConstantData::Frozenset {
+            elements: vec![nan_const(), nan_const()],
+        });
+
+        assert_eq!(idx, 0);
+        assert!(inserted);
+        assert!(matches!(
+            &pool.constants[idx],
+            ConstantData::Frozenset { elements }
+                if elements.iter().filter(|constant| {
+                    matches!(constant, ConstantData::Float { value } if value.is_nan())
+                }).count() == 2
+        ));
+    }
 
     fn test_location(line: u32) -> SourceLocation {
         SourceLocation {
@@ -6882,6 +6996,13 @@ mod tests {
     fn test_cond_jump(target: BlockIdx, line: u32) -> InstructionInfo {
         let mut instr = test_instr(Instruction::Nop, line);
         instr.instr = PseudoOpcode::JumpIfFalse.into();
+        instr.target = target;
+        instr
+    }
+
+    fn test_true_cond_jump(target: BlockIdx, line: u32) -> InstructionInfo {
+        let mut instr = test_instr(Instruction::Nop, line);
+        instr.instr = PseudoOpcode::JumpIfTrue.into();
         instr.target = target;
         instr
     }
@@ -6970,7 +7091,7 @@ mod tests {
 
     #[test]
     fn except_stack_tracks_cpython_depth_and_handler_slots() {
-        let mut stack = make_except_stack().unwrap();
+        let mut stack = make_except_stack();
         assert_eq!(stack.depth, 0);
         assert_eq!(stack.handlers.len(), CO_MAXBLOCKS + 2);
         assert_eq!(stack.handlers[0], BlockIdx::NULL);
@@ -6994,7 +7115,7 @@ mod tests {
         assert!(handler.preserve_lasti);
         assert!(blocks[1].preserve_lasti);
 
-        let copy = copy_except_stack(&stack).unwrap();
+        let copy = copy_except_stack(&stack);
         assert_eq!(copy.depth, stack.depth);
         assert_eq!(copy.handlers, stack.handlers);
 
@@ -7400,6 +7521,52 @@ mod tests {
     }
 
     #[test]
+    fn optimize_load_const_pseudo_opcode_breaks_effective_load_const() {
+        let mut block = Block::default();
+        test_block_push(
+            &mut block,
+            test_instr(
+                Instruction::LoadConst {
+                    consti: Arg::marker(),
+                },
+                90,
+            ),
+        );
+        test_block_push(&mut block, test_true_cond_jump(BlockIdx::new(0), 90));
+        let mut copy = test_instr(Instruction::Copy { i: Arg::marker() }, 90);
+        copy.arg = OpArg::new(1);
+        test_block_push(&mut block, copy);
+        test_block_push(&mut block, test_instr(Instruction::ToBool, 90));
+
+        let mut code = test_code_info(block);
+        let (const_idx, _) = code.metadata.consts.insert_full(ConstantData::Tuple {
+            elements: vec![ConstantData::Integer {
+                value: BigInt::from(1),
+            }],
+        });
+        code.blocks[0].instructions[0].arg = OpArg::new(const_idx as u32);
+
+        optimize_load_const(&mut code.metadata, &mut code.blocks)
+            .expect("optimize_load_const succeeds");
+
+        // `basicblock_optimize_load_const()` assigns the current
+        // pseudo opcode to its effective opcode slot, so the following COPY 1
+        // is not treated as a copy of the earlier LOAD_CONST.
+        assert!(matches!(
+            code.blocks[0].instructions[1].instr.pseudo(),
+            Some(PseudoInstruction::Jump { .. })
+        ));
+        assert!(matches!(
+            code.blocks[0].instructions[2].instr.real(),
+            Some(Instruction::Copy { .. })
+        ));
+        assert!(matches!(
+            code.blocks[0].instructions[3].instr.real(),
+            Some(Instruction::ToBool)
+        ));
+    }
+
+    #[test]
     fn optimize_load_fast_records_no_input_opcode_ref_at_cpython_produced_index() {
         let mut block = Block::default();
         test_block_push(&mut block, test_instr(Opcode::LoadFast.into(), 10));
@@ -7485,6 +7652,24 @@ mod tests {
         assert!(matches!(
             &metadata.consts[u32::from(folded.arg) as usize],
             ConstantData::Tuple { elements } if elements.len() == 2
+        ));
+    }
+
+    #[test]
+    fn empty_tuple_repeat_folds_negative_count_like_cpython() {
+        let folded = const_folding_safe_multiply(
+            &ConstantData::Tuple {
+                elements: Vec::new(),
+            },
+            &ConstantData::Integer {
+                value: BigInt::from(-1),
+            },
+        )
+        .expect("CPython skips repeat-count checks for empty tuples");
+
+        assert!(matches!(
+            folded,
+            ConstantData::Tuple { elements } if elements.is_empty()
         ));
     }
 
@@ -7620,5 +7805,52 @@ mod tests {
         ));
         assert_eq!(threaded.target, BlockIdx::new(3));
         assert_eq!(u32::from(threaded.arg), 3);
+    }
+
+    #[test]
+    fn same_direction_pseudo_conditional_jump_thread_false_keeps_target() {
+        let mut blocks = Blocks::from([Block::default(), Block::default(), Block::default()]);
+        for (i, block) in blocks.iter_mut().enumerate() {
+            block.cpython_label = InstructionSequenceLabel::from_index(i as i32);
+        }
+        blocks[0].next = BlockIdx::new(1);
+        blocks[1].next = BlockIdx::new(2);
+        test_block_push(&mut blocks[0], test_cond_jump(BlockIdx::new(1), 10));
+        test_block_push(&mut blocks[1], test_cond_jump(BlockIdx::new(1), 20));
+        test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
+
+        let mut metadata = test_code_info(Block::default()).metadata;
+        blocks
+            .optimize_basic_block(&mut metadata, BlockIdx::new(0))
+            .expect("valid conditional jump chain");
+
+        // Only rewrite JUMP_IF_FALSE -> JUMP_IF_TRUE through
+        // target->b_next. For same-direction jumps, a failed jump_thread()
+        // leaves the original target unchanged.
+        assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(1));
+        assert!(matches!(
+            blocks[0].instructions[0].instr.pseudo(),
+            Some(PseudoInstruction::JumpIfFalse { .. })
+        ));
+    }
+
+    #[test]
+    fn opposite_direction_pseudo_conditional_uses_target_fallthrough() {
+        let mut blocks = Blocks::from([Block::default(), Block::default(), Block::default()]);
+        for (i, block) in blocks.iter_mut().enumerate() {
+            block.cpython_label = InstructionSequenceLabel::from_index(i as i32);
+        }
+        blocks[0].next = BlockIdx::new(1);
+        blocks[1].next = BlockIdx::new(2);
+        test_block_push(&mut blocks[0], test_cond_jump(BlockIdx::new(1), 10));
+        test_block_push(&mut blocks[1], test_true_cond_jump(BlockIdx::new(2), 20));
+        test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
+
+        let mut metadata = test_code_info(Block::default()).metadata;
+        blocks
+            .optimize_basic_block(&mut metadata, BlockIdx::new(0))
+            .expect("valid conditional jump chain");
+
+        assert_eq!(blocks[0].instructions[0].target, BlockIdx::new(2));
     }
 }

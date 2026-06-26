@@ -312,7 +312,7 @@ is *not* valid syntax.)
     >>> f4.__annotations__
     {'args': StarredB, 'arg1': <class 'int'>}
 
-    >>> def f5(*args: *b = (1,)): pass  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> def f5(*args: *b = (1,)): pass
     Traceback (most recent call last):
         ...
     SyntaxError: invalid syntax

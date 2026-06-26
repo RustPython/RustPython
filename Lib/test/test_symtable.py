@@ -198,7 +198,6 @@ class SymtableTest(unittest.TestCase):
     T = find_block(GenericMine, "T")
     U = find_block(GenericMine, "U")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <SymbolTableType.ANNOTATION: 'annotation'> != 'type alias'
     def test_type(self):
         self.assertEqual(self.top.get_type(), "module")
         self.assertEqual(self.Mine.get_type(), "class")

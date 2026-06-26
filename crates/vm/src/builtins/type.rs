@@ -34,7 +34,7 @@ use core::{
     ops::Deref,
     pin::Pin,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, AtomicU64, Ordering},
 };
 use indexmap::{IndexMap, map::Entry};
 use itertools::Itertools;
@@ -53,6 +53,7 @@ pub struct PyType {
     pub heaptype_ext: Option<Pin<Box<HeapTypeExt>>>,
     /// Type version tag for inline caching. 0 means unassigned/invalidated.
     pub tp_version_tag: AtomicU32,
+    pub abc_tpflags: AtomicU64,
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
@@ -590,10 +591,64 @@ impl PyType {
 
         // Check each base in order and inherit the first collection flag found
         for base in bases {
-            let base_flags = base.slots.flags & COLLECTION_FLAGS;
+            let base_flags = (base.slots.flags
+                | PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire)))
+                & COLLECTION_FLAGS;
             if !base_flags.is_empty() {
                 slots.flags |= base_flags;
                 return;
+            }
+        }
+    }
+
+    fn inherited_abc_tpflags(bases: &[PyRef<Self>]) -> u64 {
+        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
+            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
+        );
+        for base in bases {
+            let base_flags =
+                PyTypeFlags::from_bits_truncate(base.abc_tpflags.load(Ordering::Acquire))
+                    & COLLECTION_FLAGS;
+            if !base_flags.is_empty() {
+                return base_flags.bits();
+            }
+        }
+        0
+    }
+
+    pub fn has_patma_collection_flag(&self, flag: PyTypeFlags) -> bool {
+        debug_assert!(matches!(flag, PyTypeFlags::SEQUENCE | PyTypeFlags::MAPPING));
+        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
+            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
+        );
+        let slot_flags = self.slots.flags & COLLECTION_FLAGS;
+        if !slot_flags.is_empty() {
+            return slot_flags.contains(flag);
+        }
+        PyTypeFlags::from_bits_truncate(self.abc_tpflags.load(Ordering::Acquire)).contains(flag)
+    }
+
+    pub fn set_abc_collection_flags_recursive(&self, flags: PyTypeFlags) {
+        const COLLECTION_FLAGS: PyTypeFlags = PyTypeFlags::from_bits_truncate(
+            PyTypeFlags::SEQUENCE.bits() | PyTypeFlags::MAPPING.bits(),
+        );
+        let flags = flags & COLLECTION_FLAGS;
+        if flags.is_empty() {
+            return;
+        }
+        let collection_bits = COLLECTION_FLAGS.bits();
+        let flags_bits = flags.bits();
+        let _ = self
+            .abc_tpflags
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                Some((old & !collection_bits) | flags_bits)
+            });
+        self.modified();
+        for weak_ref in self.subclasses.read().iter() {
+            if let Some(subclass) = weak_ref.upgrade()
+                && let Some(subclass) = subclass.downcast_ref::<Self>()
+            {
+                subclass.set_abc_collection_flags_recursive(flags);
             }
         }
     }
@@ -626,21 +681,19 @@ impl PyType {
                         .to_owned(),
                 );
             }
-            // Don't override flags already inherited from a base class.
-            if !slots.flags.intersects(COLLECTION_FLAGS) {
-                slots.flags |= masked;
-            }
+            slots.flags.remove(COLLECTION_FLAGS);
+            slots.flags |= masked;
             return Ok(());
         }
 
-        // No __abc_tpflags__ on this class — inheritance already happened
-        // in inherit_patma_flags, so nothing more to do if those bits are set.
+        // No __abc_tpflags__ on this class. Inheritance already happened in
+        // inherit_patma_flags, using base order and including ABC markers.
         if slots.flags.intersects(COLLECTION_FLAGS) {
             return Ok(());
         }
 
-        // Then check in base classes (legacy path for cases that bypass
-        // inherit_patma_flags).
+        // Then check in base classes for legacy paths that bypassed
+        // inherit_patma_flags.
         for base in bases {
             if let Some(abc_tpflags_obj) = base.find_name_in_mro(abc_tpflags_name)
                 && let Some(int_obj) = abc_tpflags_obj.downcast_ref::<crate::builtins::int::PyInt>()
@@ -654,6 +707,7 @@ impl PyType {
                             .to_owned(),
                     );
                 }
+                slots.flags.remove(COLLECTION_FLAGS);
                 slots.flags |= masked;
                 return Ok(());
             }
@@ -716,6 +770,7 @@ impl PyType {
             ));
         }
 
+        let inherited_abc_tpflags = Self::inherited_abc_tpflags(&bases);
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base),
@@ -726,6 +781,7 @@ impl PyType {
                 slots,
                 heaptype_ext: Some(Pin::new(Box::new(heaptype_ext))),
                 tp_version_tag: AtomicU32::new(0),
+                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,
@@ -775,6 +831,7 @@ impl PyType {
             slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
         }
 
+        let inherited_abc_tpflags = Self::inherited_abc_tpflags(core::slice::from_ref(&base));
         let bases = PyRwLock::new(vec![base.clone()]);
         let mro = base.mro_map_collect(|x| x.to_owned());
 
@@ -788,6 +845,7 @@ impl PyType {
                 slots,
                 heaptype_ext: None,
                 tp_version_tag: AtomicU32::new(0),
+                abc_tpflags: AtomicU64::new(inherited_abc_tpflags),
             },
             metaclass,
             None,

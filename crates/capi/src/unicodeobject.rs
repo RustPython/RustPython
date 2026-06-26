@@ -4,8 +4,8 @@ use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;
 use core::str;
-use rustpython_vm::PyObjectRef;
-use rustpython_vm::builtins::PyStr;
+use rustpython_vm::builtins::{PyStr, PyStrRef};
+use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyUnicode_Check, types.str_type);
 define_py_check!(exact fn PyUnicode_CheckExact, types.str_type);
@@ -113,24 +113,40 @@ pub unsafe extern "C" fn PyUnicode_DecodeFSDefaultAndSize(
             .try_into()
             .map_err(|_| vm.new_system_error("size must be non-negative"))?;
 
-        let bytes = if s.is_null() {
-            if size != 0 {
-                return Err(vm.new_system_error(
-                    "PyUnicode_DecodeFSDefaultAndSize called with null data and non-zero size",
-                ));
-            }
-            &[][..]
-        } else {
-            unsafe { slice::from_raw_parts(s.cast::<u8>(), size) }
-        };
-
-        vm.state.codec_registry.decode_text(
-            vm.ctx.new_bytes(bytes.to_vec()).into(),
-            vm.fs_encoding().as_str(),
-            Some(vm.fs_encode_errors().to_owned()),
-            vm,
-        )
+        decode_fsdefault_and_size(vm, s, size)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeFSDefault(s: *const c_char) -> *mut PyObject {
+    with_vm(|vm| {
+        let size = unsafe { CStr::from_ptr(s) }.to_bytes().len();
+        decode_fsdefault_and_size(vm, s, size)
+    })
+}
+
+pub(crate) fn decode_fsdefault_and_size(
+    vm: &VirtualMachine,
+    s: *const c_char,
+    size: usize,
+) -> PyResult<PyStrRef> {
+    let bytes = if s.is_null() {
+        if size != 0 {
+            return Err(vm.new_system_error(
+                "PyUnicode_DecodeFSDefaultAndSize called with null data and non-zero size",
+            ));
+        }
+        &[][..]
+    } else {
+        unsafe { slice::from_raw_parts(s.cast::<u8>(), size) }
+    };
+
+    vm.state.codec_registry.decode_text(
+        vm.ctx.new_bytes(bytes.to_vec()).into(),
+        vm.fs_encoding().as_str(),
+        Some(vm.fs_encode_errors().to_owned()),
+        vm,
+    )
 }
 
 #[unsafe(no_mangle)]

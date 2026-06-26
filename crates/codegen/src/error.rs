@@ -3,21 +3,6 @@ use core::fmt::Display;
 use rustpython_compiler_core::SourceLocation;
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug)]
-pub enum PatternUnreachableReason {
-    NameCapture,
-    Wildcard,
-}
-
-impl Display for PatternUnreachableReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NameCapture => write!(f, "name capture"),
-            Self::Wildcard => write!(f, "wildcard"),
-        }
-    }
-}
-
 // pub type CodegenError = rustpython_parser_core::source_code::LocatedError<CodegenErrorType>;
 
 #[derive(Error, Debug)]
@@ -70,6 +55,8 @@ pub enum CodegenErrorType {
     SyntaxError(String),
     /// Multiple `*` detected
     MultipleStarArgs,
+    MultipleStarredExpressionsInSequencePattern,
+    MultipleStarredNamesInSequencePattern,
     /// Misplaced `*` expression
     InvalidStarExpr,
     /// Break statement outside of loop.
@@ -87,14 +74,17 @@ pub enum CodegenErrorType {
     AsyncReturnValue,
     InvalidFuturePlacement,
     InvalidFutureFeature(String),
-    FunctionImportStar,
+    InvalidFutureBraces,
+    RecursionError,
     TooManyStarUnpack,
+    TooManyExpressionsInStarUnpackingSequencePattern,
     EmptyWithItems,
     EmptyWithBody,
     ForbiddenName,
     DuplicateStore(String),
-    UnreachablePattern(PatternUnreachableReason),
-    RepeatedAttributePattern,
+    UnreachableWildcardPattern,
+    UnreachableNameCapturePattern(String),
+    RepeatedAttributePattern(String),
     ConflictingNameBindPattern,
     /// break/continue/return inside except* block
     BreakContinueReturnInExceptStar,
@@ -112,6 +102,12 @@ impl fmt::Display for CodegenErrorType {
             Self::MultipleStarArgs => {
                 write!(f, "multiple starred expressions in assignment")
             }
+            Self::MultipleStarredExpressionsInSequencePattern => {
+                write!(f, "multiple starred expressions in sequence pattern")
+            }
+            Self::MultipleStarredNamesInSequencePattern => {
+                write!(f, "multiple starred names in sequence pattern")
+            }
             Self::InvalidStarExpr => write!(f, "can't use starred expression here"),
             Self::InvalidBreak => write!(f, "'break' outside loop"),
             Self::InvalidContinue => write!(f, "'continue' not properly in loop"),
@@ -128,9 +124,7 @@ impl fmt::Display for CodegenErrorType {
                 )
             }
             Self::AsyncYieldFrom => write!(f, "'yield from' inside async function"),
-            Self::AsyncReturnValue => {
-                write!(f, "'return' with value inside async generator")
-            }
+            Self::AsyncReturnValue => write!(f, "'return' with value in async generator"),
             Self::InvalidFuturePlacement => write!(
                 f,
                 "from __future__ imports must occur at the beginning of the file"
@@ -138,11 +132,15 @@ impl fmt::Display for CodegenErrorType {
             Self::InvalidFutureFeature(feat) => {
                 write!(f, "future feature {feat} is not defined")
             }
-            Self::FunctionImportStar => {
-                write!(f, "import * only allowed at module level")
+            Self::InvalidFutureBraces => write!(f, "not a chance"),
+            Self::RecursionError => {
+                write!(f, "maximum recursion depth exceeded during compilation")
             }
             Self::TooManyStarUnpack => {
                 write!(f, "too many expressions in star-unpacking assignment")
+            }
+            Self::TooManyExpressionsInStarUnpackingSequencePattern => {
+                write!(f, "too many expressions in star-unpacking sequence pattern")
             }
             Self::EmptyWithItems => {
                 write!(f, "empty items on With")
@@ -153,14 +151,18 @@ impl fmt::Display for CodegenErrorType {
             Self::ForbiddenName => {
                 write!(f, "forbidden attribute name")
             }
-            Self::DuplicateStore(s) => {
-                write!(f, "duplicate store {s}")
+            Self::DuplicateStore(s) => write!(f, "multiple assignments to name '{s}' in pattern"),
+            Self::UnreachableWildcardPattern => {
+                write!(f, "wildcard makes remaining patterns unreachable")
             }
-            Self::UnreachablePattern(reason) => {
-                write!(f, "{reason} makes remaining patterns unreachable")
+            Self::UnreachableNameCapturePattern(name) => {
+                write!(
+                    f,
+                    "name capture '{name}' makes remaining patterns unreachable"
+                )
             }
-            Self::RepeatedAttributePattern => {
-                write!(f, "attribute name repeated in class pattern")
+            Self::RepeatedAttributePattern(name) => {
+                write!(f, "attribute name repeated in class pattern: {name}")
             }
             Self::ConflictingNameBindPattern => {
                 write!(f, "alternative patterns bind different names")

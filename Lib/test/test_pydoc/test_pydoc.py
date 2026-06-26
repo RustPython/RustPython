@@ -932,7 +932,6 @@ class PydocDocTest(unittest.TestCase):
             synopsis = pydoc.synopsis(TESTFN, {})
             self.assertEqual(synopsis, 'line 1: h\xe9')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_source_synopsis(self):
         def check(source, expected, encoding=None):
             if isinstance(source, str):
