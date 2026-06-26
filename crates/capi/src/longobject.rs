@@ -1,11 +1,13 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use bitflags::bitflags;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_longlong, c_ulong, c_ulonglong, c_void};
+use malachite_bigint::{BigInt, Sign};
 use rustpython_vm::builtins::{PyInt, try_bigint_to_f64, try_f64_to_bigint};
 use rustpython_vm::common::int::bytes_to_int;
 use rustpython_vm::protocol::handle_bytes_to_int_err;
-use rustpython_vm::{AsObject, PyResult};
+use rustpython_vm::{AsObject, PyResult, VirtualMachine};
 
 define_py_check!(fn PyLong_Check, types.int_type);
 define_py_check!(exact fn PyLong_CheckExact, types.int_type);
@@ -63,6 +65,97 @@ pub extern "C" fn PyLong_FromUInt32(value: u32) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyLong_FromUInt64(value: u64) -> *mut PyObject {
     with_vm(|vm| vm.ctx.new_int(value))
+}
+
+bitflags! {
+    #[derive(Clone, Copy)]
+    struct AsNativeBytesFlags: c_int {
+        const BIG_ENDIAN = 0;
+        const LITTLE_ENDIAN = 1;
+        const NATIVE_ENDIAN = 3;
+        const UNSIGNED_BUFFER = 4;
+        const REJECT_NEGATIVE = 8;
+        const ALLOW_INDEX = 16;
+    }
+}
+
+impl AsNativeBytesFlags {
+    #[inline]
+    fn is_little_endian(self) -> bool {
+        if self.contains(Self::NATIVE_ENDIAN) {
+            cfg!(target_endian = "little")
+        } else {
+            self.contains(Self::LITTLE_ENDIAN)
+        }
+    }
+
+    fn from_bits_or_default(vm: &VirtualMachine, raw_flags: c_int) -> PyResult<Self> {
+        const PY_ASNATIVEBYTES_DEFAULTS: c_int = -1;
+        if raw_flags == PY_ASNATIVEBYTES_DEFAULTS {
+            return Ok(Self::default());
+        };
+
+        let flags = Self::from_bits(raw_flags)
+            .ok_or_else(|| vm.new_value_error("Invalid NativeBytes flags"))?;
+        if flags.contains(Self::LITTLE_ENDIAN) & flags.contains(Self::NATIVE_ENDIAN) {
+            Err(vm.new_value_error("Cannot specify both LITTLE_ENDIAN and NATIVE_ENDIAN"))
+        } else {
+            Ok(flags)
+        }
+    }
+}
+
+impl Default for AsNativeBytesFlags {
+    fn default() -> Self {
+        Self::NATIVE_ENDIAN | Self::UNSIGNED_BUFFER
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_FromNativeBytes(
+    buffer: *const c_void,
+    n_bytes: usize,
+    flags: c_int,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let flags = AsNativeBytesFlags::from_bits_or_default(vm, flags)?;
+        let little_endian = flags.is_little_endian();
+        let bytes = unsafe { core::slice::from_raw_parts(buffer.cast::<u8>(), n_bytes) };
+
+        let value = if flags.contains(AsNativeBytesFlags::UNSIGNED_BUFFER) {
+            if little_endian {
+                BigInt::from_bytes_le(Sign::Plus, bytes)
+            } else {
+                BigInt::from_bytes_be(Sign::Plus, bytes)
+            }
+        } else if little_endian {
+            BigInt::from_signed_bytes_le(bytes)
+        } else {
+            BigInt::from_signed_bytes_be(bytes)
+        };
+
+        Ok(vm.ctx.new_bigint(&value))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyLong_FromUnsignedNativeBytes(
+    buffer: *const c_void,
+    n_bytes: usize,
+    flags: c_int,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let flags = AsNativeBytesFlags::from_bits_or_default(vm, flags)?;
+        let bytes = unsafe { core::slice::from_raw_parts(buffer.cast::<u8>(), n_bytes) };
+
+        let value = if flags.is_little_endian() {
+            BigInt::from_bytes_le(Sign::Plus, bytes)
+        } else {
+            BigInt::from_bytes_be(Sign::Plus, bytes)
+        };
+
+        Ok(vm.ctx.new_bigint(&value))
+    })
 }
 
 #[unsafe(no_mangle)]
