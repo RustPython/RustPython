@@ -29,31 +29,28 @@ mod _symtable {
     pub(super) const DEF_PARAM: i32 = SymbolFlags::DEF_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_NONLOCAL: i32 = 2 << 2;
+    pub(super) const DEF_NONLOCAL: i32 = SymbolFlags::NONLOCAL.bits() as i32;
 
     #[pyattr]
     pub(super) const USE: i32 = SymbolFlags::USE.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE: i32 = 2 << 4;
+    pub(super) const DEF_FREE_CLASS: i32 = SymbolFlags::FREE_CLASS.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE_CLASS: i32 = 2 << 5;
+    pub(super) const DEF_IMPORT: i32 = SymbolFlags::IMPORTED.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_IMPORT: i32 = 2 << 6;
+    pub(super) const DEF_ANNOT: i32 = SymbolFlags::ANNOTATED.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_ANNOT: i32 = 2 << 7;
+    pub(super) const DEF_COMP_ITER: i32 = SymbolFlags::COMP_ITER.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_ITER: i32 = 2 << 8;
+    pub(super) const DEF_TYPE_PARAM: i32 = SymbolFlags::TYPE_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_TYPE_PARAM: i32 = 2 << 9;
-
-    #[pyattr]
-    pub(super) const DEF_COMP_CELL: i32 = 2 << 10;
+    pub(super) const DEF_COMP_CELL: i32 = SymbolFlags::COMP_CELL.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
