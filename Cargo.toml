@@ -378,6 +378,7 @@ unused_peekable = "warn"
 unused_rounding = "warn"
 use_self = "warn"
 useless_let_if_seq = "warn"
+while_float = "warn"
 
 # pedantic lints to enforce gradually
 assigning_clones = "warn"
