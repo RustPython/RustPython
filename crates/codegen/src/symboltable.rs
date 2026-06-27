@@ -289,11 +289,11 @@ impl From<SymbolScope> for i32 {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
-        const DEF_GLOBAL = 0x200;
-        const DEF_LOCAL  = 2;
-        const DEF_PARAM = 0x004;
-        const DEF_NONLOCAL = 0x020;
-        const USE = 0x001;
+        const DEF_GLOBAL   = 1;
+        const DEF_LOCAL    = 2;
+        const DEF_PARAM    = 2 << 1;
+        const DEF_NONLOCAL = 2 << 2;
+        const USE          = 2 << 3;
 
         /// indicates that the symbol is a free variable in a class method from the scope that the
         /// class is defined in, e.g.:
@@ -303,12 +303,12 @@ bitflags! {
         ///         def method(self):
         ///             return x // is_free_class
         /// ```
-        const DEF_FREE_CLASS = 0x100;
-        const DEF_IMPORT = 0x010;
-        const DEF_ANNOT = 0x008;
-        const DEF_COMP_ITER = 0x400;
-        const DEF_TYPE_PARAM = 0x1000;
-        const DEF_COMP_CELL = 0x800;
+        const DEF_FREE_CLASS = 2 << 5;
+        const DEF_IMPORT     = 2 << 6;
+        const DEF_ANNOT      = 2 << 7;
+        const DEF_COMP_ITER  = 2 << 8;
+        const DEF_TYPE_PARAM = 2 << 9;
+        const DEF_COMP_CELL  = 2 << 10;
         const DEF_BOUND = (
             Self::DEF_LOCAL.bits()
             | Self::DEF_PARAM.bits()
@@ -318,13 +318,14 @@ bitflags! {
         );
 
 
+        // TODO: Remove these, RustPython specific
 
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
-        const ASSIGNED_IN_COMPREHENSION = 0x040;
+        const ASSIGNED_IN_COMPREHENSION = 2 << 11;
         // indicates that the symbol is used a bound iterator variable. We distinguish this case
         // from normal assignment to detect disallowed re-assignment to iterator variables.
-        const ITER = 0x080;
+        const ITER = 2 << 12;
     }
 }
 
