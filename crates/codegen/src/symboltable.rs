@@ -305,6 +305,9 @@ bitflags! {
         const DEF_FREE_CLASS = 0x100;
         const DEF_IMPORT = 0x010;
         const DEF_ANNOT = 0x008;
+        const DEF_COMP_ITER = 0x400;
+        const DEF_TYPE_PARAM = 0x1000;
+        const DEF_COMP_CELL = 0x800;
 
 
 
@@ -315,10 +318,7 @@ bitflags! {
         // indicates that the symbol is used a bound iterator variable. We distinguish this case
         // from normal assignment to detect disallowed re-assignment to iterator variables.
         const ITER = 0x080;
-        const COMP_ITER = 0x400;   // DEF_COMP_ITER
-        const COMP_CELL = 0x800;   // DEF_COMP_CELL
-        const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
-        const BOUND = Self::DEF_LOCAL.bits() | Self::DEF_PARAM.bits() | Self::DEF_IMPORT.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
+        const BOUND = Self::DEF_LOCAL.bits() | Self::DEF_PARAM.bits() | Self::DEF_IMPORT.bits() | Self::ITER.bits() | Self::DEF_TYPE_PARAM.bits();
     }
 }
 
@@ -453,7 +453,7 @@ fn inline_comprehension(
 
         // Track inlined cells
         if sub_symbol.scope == SymbolScope::Cell
-            || sub_symbol.flags.contains(SymbolFlags::COMP_CELL)
+            || sub_symbol.flags.contains(SymbolFlags::DEF_COMP_CELL)
         {
             inlined_cells.insert(name.clone());
         }
@@ -711,7 +711,7 @@ impl SymbolTableAnalyzer {
 
         for symbol in symbol_table.symbols.values_mut() {
             if inlined_cells.contains(&symbol.name) {
-                symbol.flags.insert(SymbolFlags::COMP_CELL);
+                symbol.flags.insert(SymbolFlags::DEF_COMP_CELL);
             }
         }
 
@@ -806,7 +806,7 @@ impl SymbolTableAnalyzer {
                     if symbol.flags.contains(SymbolFlags::NONLOCAL) {
                         for (symbols, _typ, _skip) in self.tables.iter().rev() {
                             if let Some(sym) = symbols.get(&symbol.name) {
-                                if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
+                                if sym.flags.contains(SymbolFlags::DEF_TYPE_PARAM) {
                                     return Err(SymbolTableError {
                                         error: format!(
                                             "nonlocal binding not allowed for type parameter '{}'",
@@ -836,7 +836,7 @@ impl SymbolTableAnalyzer {
             SymbolScope::Unknown => {
                 // Try hard to figure out what the scope of this symbol is.
                 let scope = if symbol.is_bound() {
-                    if symbol.flags.contains(SymbolFlags::COMP_CELL)
+                    if symbol.flags.contains(SymbolFlags::DEF_COMP_CELL)
                         && matches!(st_typ, CompilerScope::Module | CompilerScope::Class)
                     {
                         // CPython keeps comprehension-only cells in
@@ -3264,7 +3264,8 @@ impl SymbolTableBuilder {
             }
 
             // Role already set..
-            if matches!(role, SymbolUsage::TypeParam) && flags.contains(SymbolFlags::TYPE_PARAM) {
+            if matches!(role, SymbolUsage::TypeParam) && flags.contains(SymbolFlags::DEF_TYPE_PARAM)
+            {
                 return Err(SymbolTableError {
                     error: format!("duplicate type parameter '{name}'"),
                     location,
@@ -3412,10 +3413,10 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::USE);
             }
             SymbolUsage::Iter => {
-                flags.insert(SymbolFlags::ITER | SymbolFlags::COMP_ITER);
+                flags.insert(SymbolFlags::ITER | SymbolFlags::DEF_COMP_ITER);
             }
             SymbolUsage::TypeParam => {
-                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::TYPE_PARAM);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_TYPE_PARAM);
             }
         }
 
@@ -3564,7 +3565,7 @@ mod tests {
             .expect("missing comprehension iteration target");
 
         assert!(
-            symbol.flags.contains(SymbolFlags::COMP_ITER),
+            symbol.flags.contains(SymbolFlags::DEF_COMP_ITER),
             "CPython symtable_add_def_helper sets DEF_COMP_ITER on comprehension iteration targets"
         );
     }

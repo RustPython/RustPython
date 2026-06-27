@@ -1788,7 +1788,7 @@ impl<'warnings> Compiler<'warnings> {
             .symbols
             .iter()
             .filter(|(_, s)| {
-                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::COMP_CELL)
+                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::DEF_COMP_CELL)
             })
             .map(|(name, _)| name.clone())
             .collect();

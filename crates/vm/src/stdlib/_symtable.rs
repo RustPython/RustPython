@@ -44,13 +44,13 @@ mod _symtable {
     pub(super) const DEF_ANNOT: i32 = SymbolFlags::DEF_ANNOT.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_ITER: i32 = SymbolFlags::COMP_ITER.bits() as i32;
+    pub(super) const DEF_COMP_ITER: i32 = SymbolFlags::DEF_COMP_ITER.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_TYPE_PARAM: i32 = SymbolFlags::TYPE_PARAM.bits() as i32;
+    pub(super) const DEF_TYPE_PARAM: i32 = SymbolFlags::DEF_TYPE_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_CELL: i32 = SymbolFlags::COMP_CELL.bits() as i32;
+    pub(super) const DEF_COMP_CELL: i32 = SymbolFlags::DEF_COMP_CELL.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
