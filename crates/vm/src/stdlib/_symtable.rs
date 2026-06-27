@@ -284,7 +284,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_assigned(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::ASSIGNED)
+            self.symbol.flags.contains(SymbolFlags::DEF_LOCAL)
         }
 
         #[pymethod]

@@ -290,7 +290,7 @@ bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
         const REFERENCED = 0x001;  // USE
-        const ASSIGNED = 0x002;    // DEF_LOCAL
+        const DEF_LOCAL  = 2;
         const PARAMETER = 0x004;   // DEF_PARAM
         const ANNOTATED = 0x008;   // DEF_ANNOT
         const IMPORTED = 0x010;    // DEF_IMPORT
@@ -314,7 +314,7 @@ bitflags! {
         const COMP_ITER = 0x400;   // DEF_COMP_ITER
         const COMP_CELL = 0x800;   // DEF_COMP_CELL
         const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
-        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
+        const BOUND = Self::DEF_LOCAL.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
     }
 }
 
@@ -3123,7 +3123,7 @@ impl SymbolTableBuilder {
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
-                    symbol.flags.insert(SymbolFlags::ASSIGNED);
+                    symbol.flags.insert(SymbolFlags::DEF_LOCAL);
                     return Ok(());
                 }
                 CompilerScope::Module => {
@@ -3283,7 +3283,7 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ASSIGNED) {
+                    if flags.contains(SymbolFlags::DEF_LOCAL) {
                         return Err(SymbolTableError {
                             error: format!(
                                 "name '{name}' is assigned to before global declaration"
@@ -3311,7 +3311,7 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ASSIGNED) {
+                    if flags.contains(SymbolFlags::DEF_LOCAL) {
                         return Err(SymbolTableError {
                             error: format!(
                                 "name '{name}' is assigned to before nonlocal declaration"
@@ -3370,7 +3370,7 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::NONLOCAL);
             }
             SymbolUsage::Imported => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::IMPORTED);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::IMPORTED);
             }
             SymbolUsage::Parameter => {
                 flags.insert(SymbolFlags::PARAMETER);
@@ -3389,13 +3389,13 @@ impl SymbolTableBuilder {
                 }
             }
             SymbolUsage::AnnotationAssigned => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ANNOTATED);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::ANNOTATED);
             }
             SymbolUsage::Assigned => {
-                flags.insert(SymbolFlags::ASSIGNED);
+                flags.insert(SymbolFlags::DEF_LOCAL);
             }
             SymbolUsage::AssignedNamedExprInComprehension => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
@@ -3408,7 +3408,7 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::ITER | SymbolFlags::COMP_ITER);
             }
             SymbolUsage::TypeParam => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::TYPE_PARAM);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::TYPE_PARAM);
             }
         }
 

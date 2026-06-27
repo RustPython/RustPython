@@ -10809,7 +10809,7 @@ impl<'warnings> Compiler<'warnings> {
                 }
                 let is_local = sym
                     .flags
-                    .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
+                    .intersects(SymbolFlags::DEF_LOCAL | SymbolFlags::ITER)
                     && !sym.flags.contains(SymbolFlags::NONLOCAL);
                 if is_local {
                     pushed_locals.push(name.clone());
