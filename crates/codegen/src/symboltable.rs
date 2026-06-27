@@ -1632,8 +1632,9 @@ impl SymbolTableBuilder {
                     }
 
                     if type_params.is_none() {
-                        self.class_name = prev_class.clone();
+                        self.class_name.clone_from(&prev_class);
                     }
+
                     if let Some(arguments) = arguments {
                         self.scan_expressions(&arguments.args, ExpressionContext::Load)?;
                         for keyword in &arguments.keywords {

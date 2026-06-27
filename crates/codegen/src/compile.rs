@@ -2073,7 +2073,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn expose_annotation_format_parameter(code: &mut CodeObject) {
         if let Some(first) = code.varnames.first_mut() {
-            *first = "format".to_owned();
+            *first = String::from("format");
         }
     }
 
