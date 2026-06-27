@@ -455,6 +455,11 @@ impl GcState {
 
         // Step 2: Build gc_refs map (copy reference counts)
         let mut gc_refs: std::collections::HashMap<GcPtr, usize> = std::collections::HashMap::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for &ptr in &collecting {
             let obj = unsafe { ptr.0.as_ref() };
             gc_refs.insert(ptr, obj.strong_count());
@@ -468,6 +473,11 @@ impl GcState {
         // results, causing live objects to be incorrectly collected.
         let mut referents_map: std::collections::HashMap<GcPtr, Vec<NonNull<PyObject>>> =
             std::collections::HashMap::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for &ptr in &collecting {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.strong_count() == 0 {
@@ -489,6 +499,10 @@ impl GcState {
         let mut reachable: HashSet<GcPtr> = HashSet::new();
         let mut worklist: Vec<GcPtr> = Vec::new();
 
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (&ptr, &refs) in &gc_refs {
             if refs > 0 {
                 reachable.insert(ptr);
