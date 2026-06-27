@@ -3048,7 +3048,7 @@ impl<'warnings> Compiler<'warnings> {
                     .rev()
                     .find(|table| table.typ == CompilerScope::Class)
                     .and_then(|table| table.lookup(name.as_ref()))
-                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
+                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::DEF_GLOBAL));
 
             (
                 symbol.map(|s| s.scope),

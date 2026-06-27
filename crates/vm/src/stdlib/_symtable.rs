@@ -20,10 +20,10 @@ mod _symtable {
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
 
     #[pyattr]
-    pub(super) const DEF_GLOBAL: i32 = 1;
+    pub(super) const DEF_GLOBAL: i32 = SymbolFlags::DEF_GLOBAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_LOCAL: i32 = 2;
+    pub(super) const DEF_LOCAL: i32 = SymbolFlags::DEF_LOCAL.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_PARAM: i32 = 2 << 1;

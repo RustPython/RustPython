@@ -289,6 +289,7 @@ impl From<SymbolScope> for i32 {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
+        const DEF_GLOBAL = 0x200;
         const REFERENCED = 0x001;  // USE
         const DEF_LOCAL  = 2;
         const PARAMETER = 0x004;   // DEF_PARAM
@@ -310,7 +311,6 @@ bitflags! {
         ///             return x // is_free_class
         /// ```
         const FREE_CLASS = 0x100;  // DEF_FREE_CLASS
-        const GLOBAL = 0x200;      // DEF_GLOBAL
         const COMP_ITER = 0x400;   // DEF_COMP_ITER
         const COMP_CELL = 0x800;   // DEF_COMP_CELL
         const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
@@ -846,7 +846,7 @@ impl SymbolTableAnalyzer {
                 } else if let Some(scope) = class_entry
                     .and_then(|class_symbols| class_symbols.get(&symbol.name))
                     .and_then(|class_sym| {
-                        if class_sym.flags.contains(SymbolFlags::GLOBAL) {
+                        if class_sym.flags.contains(SymbolFlags::DEF_GLOBAL) {
                             Some(SymbolScope::GlobalExplicit)
                         } else if class_sym.is_bound() && class_sym.scope != SymbolScope::Free {
                             // If name is bound in enclosing class, use GlobalImplicit
@@ -1833,9 +1833,10 @@ impl SymbolTableBuilder {
                                     .last()
                                     .is_some_and(|table| table.typ != CompilerScope::Module)
                                     && let Some(flags) = existing_flags
-                                    && flags.intersects(SymbolFlags::GLOBAL | SymbolFlags::NONLOCAL)
+                                    && flags
+                                        .intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::NONLOCAL)
                                 {
-                                    let usage = if flags.contains(SymbolFlags::GLOBAL) {
+                                    let usage = if flags.contains(SymbolFlags::DEF_GLOBAL) {
                                         "global"
                                     } else {
                                         "nonlocal"
@@ -3105,14 +3106,14 @@ impl SymbolTableBuilder {
                     let parent_is_global = self.tables[table_idx]
                         .symbols
                         .get(mangled.as_str())
-                        .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
+                        .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::DEF_GLOBAL));
                     let current = self.tables.last_mut().unwrap();
                     let current_symbol = current
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
                     if parent_is_global {
-                        current_symbol.flags.insert(SymbolFlags::GLOBAL);
+                        current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                         current_symbol.scope = SymbolScope::GlobalExplicit;
                     } else {
                         current_symbol.flags.insert(SymbolFlags::NONLOCAL);
@@ -3132,14 +3133,14 @@ impl SymbolTableBuilder {
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
-                    current_symbol.flags.insert(SymbolFlags::GLOBAL);
+                    current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                     current_symbol.scope = SymbolScope::GlobalExplicit;
 
                     let symbol = self.tables[table_idx]
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
-                    symbol.flags.insert(SymbolFlags::GLOBAL);
+                    symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                     symbol.scope = SymbolScope::GlobalExplicit;
                     return Ok(());
                 }
@@ -3322,9 +3323,9 @@ impl SymbolTableBuilder {
                 }
                 SymbolUsage::AnnotationAssigned
                     if current_scope != CompilerScope::Module
-                        && flags.intersects(SymbolFlags::GLOBAL | SymbolFlags::NONLOCAL) =>
+                        && flags.intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::NONLOCAL) =>
                 {
-                    let usage = if flags.contains(SymbolFlags::GLOBAL) {
+                    let usage = if flags.contains(SymbolFlags::DEF_GLOBAL) {
                         "global"
                     } else {
                         "nonlocal"
@@ -3399,7 +3400,7 @@ impl SymbolTableBuilder {
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
-                flags.insert(SymbolFlags::GLOBAL);
+                flags.insert(SymbolFlags::DEF_GLOBAL);
             }
             SymbolUsage::Used => {
                 flags.insert(SymbolFlags::REFERENCED);
