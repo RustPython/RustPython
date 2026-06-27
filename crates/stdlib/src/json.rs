@@ -146,7 +146,7 @@ mod _json {
 
             macro_rules! parse_const {
                 ($s:literal, $val:expr) => {
-                    if rest.starts_with($s.as_bytes()) {
+                    if rest.starts_with($s) {
                         return Ok(PyIterReturn::Return(
                             vm.new_tuple(($val, char_idx + $s.len())).into(),
                         ));
@@ -154,9 +154,9 @@ mod _json {
                 };
             }
 
-            parse_const!("null", vm.ctx.none());
-            parse_const!("true", true);
-            parse_const!("false", false);
+            parse_const!(b"null", vm.ctx.none());
+            parse_const!(b"true", true);
+            parse_const!(b"false", false);
 
             if let Some((res, len)) = self.parse_number(rest, vm) {
                 return Ok(PyIterReturn::Return(
@@ -166,7 +166,7 @@ mod _json {
 
             macro_rules! parse_constant {
                 ($s:literal) => {
-                    if rest.starts_with($s.as_bytes()) {
+                    if rest.starts_with($s) {
                         return Ok(PyIterReturn::Return(
                             vm.new_tuple((
                                 self.parse_constant.call(($s,), vm)?,
@@ -178,9 +178,9 @@ mod _json {
                 };
             }
 
-            parse_constant!("NaN");
-            parse_constant!("Infinity");
-            parse_constant!("-Infinity");
+            parse_constant!(b"NaN");
+            parse_constant!(b"Infinity");
+            parse_constant!(b"-Infinity");
 
             Ok(PyIterReturn::StopIteration(Some(
                 vm.ctx.new_int(char_idx).into(),
