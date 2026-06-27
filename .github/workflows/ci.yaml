@@ -295,6 +295,7 @@ jobs:
         - os: macos-latest
           extra_test_args:
             - '-u all'
+            - '--timeout 600'
           env_polluting_tests:
             - test_set
           skips: []
@@ -302,6 +303,7 @@ jobs:
         - os: ubuntu-latest
           extra_test_args:
             - '-u all'
+            - '--timeout 600'
           env_polluting_tests:
             - test_set
           skips: []
@@ -309,6 +311,7 @@ jobs:
         - os: windows-2025
           extra_test_args:
             - '-u all'
+            - '--timeout 600'
           env_polluting_tests:
             - test_set
           skips: []
@@ -360,7 +363,7 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -u -m test -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.skips, ' ') }}
+          target/release/rustpython -u -m test --slow-ci -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.skips, ' ') }}
         timeout-minutes: ${{ matrix.timeout }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
@@ -371,7 +374,7 @@ jobs:
             echo "::group::Attempt ${attempt}"
 
             set +e
-            target/release/rustpython -u -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 ${{ env.FLAKY_MP_TESTS }}
+            target/release/rustpython -u -m test --slow-ci -j 1 ${{ join(matrix.extra_test_args, ' ') }} ${{ env.FLAKY_MP_TESTS }}
             status=$?
             set -e
 
@@ -396,7 +399,7 @@ jobs:
           for thing in "${target_array[@]}"; do
             for i in $(seq 1 10); do
               set +e
-              target/release/rustpython -u -m test -j 1 --slowest --fail-env-changed --timeout 600 "${thing}"
+              target/release/rustpython -u -m test --slow-ci -u all -j 1 --timeout 600 "${thing}"
               exit_code=$?
               set -e
               if [ "${exit_code}" -eq 3 ]; then
