@@ -26,7 +26,7 @@ mod _symtable {
     pub(super) const DEF_LOCAL: i32 = SymbolFlags::DEF_LOCAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_PARAM: i32 = 2 << 1;
+    pub(super) const DEF_PARAM: i32 = SymbolFlags::DEF_PARAM.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_NONLOCAL: i32 = 2 << 2;
@@ -289,7 +289,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_parameter(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::PARAMETER)
+            self.symbol.flags.contains(SymbolFlags::DEF_PARAM)
         }
 
         #[pymethod]

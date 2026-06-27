@@ -161,7 +161,7 @@ impl SymbolTable {
             .or_insert_with(|| Symbol::new(name));
         symbol
             .flags
-            .insert(SymbolFlags::PARAMETER | SymbolFlags::USE);
+            .insert(SymbolFlags::DEF_PARAM | SymbolFlags::USE);
         if !self.varnames.iter().any(|varname| varname == name) {
             self.varnames.push(name.to_owned());
         }
@@ -291,9 +291,9 @@ bitflags! {
     pub struct SymbolFlags: u16 {
         const DEF_GLOBAL = 0x200;
         const DEF_LOCAL  = 2;
+        const DEF_PARAM = 0x004;
         const USE = 0x001;
 
-        const PARAMETER = 0x004;   // DEF_PARAM
         const ANNOTATED = 0x008;   // DEF_ANNOT
         const IMPORTED = 0x010;    // DEF_IMPORT
         const NONLOCAL = 0x020;    // DEF_NONLOCAL
@@ -315,7 +315,7 @@ bitflags! {
         const COMP_ITER = 0x400;   // DEF_COMP_ITER
         const COMP_CELL = 0x800;   // DEF_COMP_CELL
         const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
-        const BOUND = Self::DEF_LOCAL.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
+        const BOUND = Self::DEF_LOCAL.bits() | Self::DEF_PARAM.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
     }
 }
 
@@ -444,7 +444,7 @@ fn inline_comprehension(
     let mut removed_class_implicits = IndexSet::default();
     for (name, sub_symbol) in &comp.symbols {
         // Skip the .0 parameter
-        if sub_symbol.flags.contains(SymbolFlags::PARAMETER) {
+        if sub_symbol.flags.contains(SymbolFlags::DEF_PARAM) {
             continue;
         }
 
@@ -3250,7 +3250,7 @@ impl SymbolTableBuilder {
             if matches!(
                 role,
                 SymbolUsage::Parameter | SymbolUsage::AnnotationParameter
-            ) && flags.contains(SymbolFlags::PARAMETER)
+            ) && flags.contains(SymbolFlags::DEF_PARAM)
             {
                 return Err(SymbolTableError {
                     error: format!("duplicate argument '{original_name}' in function definition"),
@@ -3267,7 +3267,7 @@ impl SymbolTableBuilder {
             }
             match role {
                 SymbolUsage::Global if !symbol.is_global() => {
-                    if flags.contains(SymbolFlags::PARAMETER) {
+                    if flags.contains(SymbolFlags::DEF_PARAM) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and global"),
                             location,
@@ -3295,7 +3295,7 @@ impl SymbolTableBuilder {
                     }
                 }
                 SymbolUsage::Nonlocal => {
-                    if flags.contains(SymbolFlags::PARAMETER) {
+                    if flags.contains(SymbolFlags::DEF_PARAM) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and nonlocal"),
                             location,
@@ -3375,7 +3375,7 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::IMPORTED);
             }
             SymbolUsage::Parameter => {
-                flags.insert(SymbolFlags::PARAMETER);
+                flags.insert(SymbolFlags::DEF_PARAM);
                 // Parameters are always added to varnames first
                 let name_str = symbol.name.clone();
                 if !self.current_varnames.contains(&name_str) {
@@ -3383,7 +3383,7 @@ impl SymbolTableBuilder {
                 }
             }
             SymbolUsage::AnnotationParameter => {
-                flags.insert(SymbolFlags::PARAMETER | SymbolFlags::ANNOTATED);
+                flags.insert(SymbolFlags::DEF_PARAM | SymbolFlags::ANNOTATED);
                 // Annotated parameters are also added to varnames
                 let name_str = symbol.name.clone();
                 if !self.current_varnames.contains(&name_str) {
@@ -3622,7 +3622,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::USE),
+                .contains(SymbolFlags::DEF_PARAM | SymbolFlags::USE),
             "CPython symtable_enter_block() adds both DEF_PARAM and USE for annotation-like .format"
         );
 
@@ -3638,7 +3638,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::USE),
+                .contains(SymbolFlags::DEF_PARAM | SymbolFlags::USE),
             "CPython TypeAliasBlock .format has DEF_PARAM | USE"
         );
 
@@ -3659,7 +3659,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::USE),
+                .contains(SymbolFlags::DEF_PARAM | SymbolFlags::USE),
             "CPython TypeVariableBlock .format has DEF_PARAM | USE"
         );
     }

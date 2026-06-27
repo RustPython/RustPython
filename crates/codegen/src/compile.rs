@@ -10804,7 +10804,7 @@ impl<'warnings> Compiler<'warnings> {
             let mut pushed_locals: Vec<String> = Vec::new();
             let mut fast_hidden_locals: Vec<String> = Vec::new();
             for (name, sym) in &comp_table.symbols {
-                if sym.flags.contains(SymbolFlags::PARAMETER) {
+                if sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
                 let is_local = sym
@@ -10824,7 +10824,7 @@ impl<'warnings> Compiler<'warnings> {
             // module/class scopes, also enable temporary fast locals for
             // comprehension-bound names only.
             for (name, comp_sym) in &comp_table.symbols {
-                if comp_sym.flags.contains(SymbolFlags::PARAMETER) {
+                if comp_sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
                 let comp_scope = comp_sym.scope;
