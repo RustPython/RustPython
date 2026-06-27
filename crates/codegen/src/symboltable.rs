@@ -294,6 +294,18 @@ bitflags! {
         const DEF_PARAM = 0x004;
         const USE = 0x001;
 
+        /// indicates that the symbol is a free variable in a class method from the scope that the
+        /// class is defined in, e.g.:
+        /// ```python
+        /// def foo(x):
+        ///     class A:
+        ///         def method(self):
+        ///             return x // is_free_class
+        /// ```
+        const DEF_FREE_CLASS = 0x100;
+
+
+
         const ANNOTATED = 0x008;   // DEF_ANNOT
         const IMPORTED = 0x010;    // DEF_IMPORT
         const NONLOCAL = 0x020;    // DEF_NONLOCAL
@@ -303,15 +315,6 @@ bitflags! {
         // indicates that the symbol is used a bound iterator variable. We distinguish this case
         // from normal assignment to detect disallowed re-assignment to iterator variables.
         const ITER = 0x080;
-        /// indicates that the symbol is a free variable in a class method from the scope that the
-        /// class is defined in, e.g.:
-        /// ```python
-        /// def foo(x):
-        ///     class A:
-        ///         def method(self):
-        ///             return x // is_free_class
-        /// ```
-        const FREE_CLASS = 0x100;  // DEF_FREE_CLASS
         const COMP_ITER = 0x400;   // DEF_COMP_ITER
         const COMP_CELL = 0x800;   // DEF_COMP_CELL
         const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
@@ -731,7 +734,9 @@ impl SymbolTableAnalyzer {
             }
 
             // Collect free variables from this scope
-            if symbol.scope == SymbolScope::Free || symbol.flags.contains(SymbolFlags::FREE_CLASS) {
+            if symbol.scope == SymbolScope::Free
+                || symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
+            {
                 newfree.insert(symbol.name.clone());
             }
         }
@@ -764,7 +769,7 @@ impl SymbolTableAnalyzer {
         if symbol_table.typ == CompilerScope::Class || symbol_table.can_see_class_scope {
             for name in &newfree {
                 if let Some(symbol) = symbol_table.symbols.get_mut(name) {
-                    symbol.flags.insert(SymbolFlags::FREE_CLASS);
+                    symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                 }
             }
         }
@@ -948,10 +953,10 @@ impl SymbolTableAnalyzer {
             for (table, typ, _skip) in self.tables.iter_mut().rev().take(decl_depth) {
                 if let CompilerScope::Class = typ {
                     if let Some(free_class) = table.get_mut(name) {
-                        free_class.flags.insert(SymbolFlags::FREE_CLASS)
+                        free_class.flags.insert(SymbolFlags::DEF_FREE_CLASS)
                     } else {
                         let mut symbol = Symbol::new(name);
-                        symbol.flags.insert(SymbolFlags::FREE_CLASS);
+                        symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                         symbol.scope = SymbolScope::Free;
                         table.insert(name.to_owned(), symbol);
                     }
@@ -990,7 +995,7 @@ impl SymbolTableAnalyzer {
             }
             let sym = st.symbols.get(name)?;
             if sym.scope == SymbolScope::Free
-                || (sym.flags.contains(SymbolFlags::FREE_CLASS)
+                || (sym.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     && !matches!(st_typ, CompilerScope::Module))
             {
                 if st_typ == CompilerScope::Class && name != "__class__" {
@@ -1308,7 +1313,7 @@ impl SymbolTableBuilder {
         symbol.scope = SymbolScope::Free;
         symbol
             .flags
-            .insert(SymbolFlags::USE | SymbolFlags::FREE_CLASS);
+            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
     }
 
     fn add_conditional_annotations_freevar(&mut self) {
@@ -1321,7 +1326,7 @@ impl SymbolTableBuilder {
         symbol.scope = SymbolScope::Free;
         symbol
             .flags
-            .insert(SymbolFlags::USE | SymbolFlags::FREE_CLASS);
+            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
     }
 
     /// Walk up the scope chain to determine if we're inside an async function.

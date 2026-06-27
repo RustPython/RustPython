@@ -35,7 +35,7 @@ mod _symtable {
     pub(super) const USE: i32 = SymbolFlags::USE.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE_CLASS: i32 = SymbolFlags::FREE_CLASS.bits() as i32;
+    pub(super) const DEF_FREE_CLASS: i32 = SymbolFlags::DEF_FREE_CLASS.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_IMPORT: i32 = SymbolFlags::IMPORTED.bits() as i32;

@@ -1667,10 +1667,10 @@ impl<'warnings> Compiler<'warnings> {
                 }
 
                 // Check if __class__ is available as a cell/free variable
-                // The scope must be Free (from enclosing class) or have FREE_CLASS flag
+                // The scope must be Free (from enclosing class) or have DEF_FREE_CLASS flag
                 if let Some(symbol) = table.lookup("__class__") {
                     if symbol.scope != SymbolScope::Free
-                        && !symbol.flags.contains(SymbolFlags::FREE_CLASS)
+                        && !symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     {
                         return None;
                     }
@@ -1836,9 +1836,9 @@ impl<'warnings> Compiler<'warnings> {
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Free
                     || (scope_type != CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS))
+                        && s.flags.contains(SymbolFlags::DEF_FREE_CLASS))
                     || (scope_type == CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS)
+                        && s.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                         && self.has_enclosing_non_module_code_scope())
             })
             .filter(|(name, symbol)| {
@@ -5513,7 +5513,7 @@ impl<'warnings> Compiler<'warnings> {
             Some(symbol) => match symbol.scope {
                 SymbolScope::Cell => Ok(SymbolScope::Cell),
                 SymbolScope::Free => Ok(SymbolScope::Free),
-                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => Ok(SymbolScope::Free),
+                _ if symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS) => Ok(SymbolScope::Free),
                 _ => Err(CodegenErrorType::SyntaxError(format!(
                     "get_ref_type: invalid scope for '{name}'"
                 ))),
