@@ -32,7 +32,7 @@ mod _symtable {
     pub(super) const DEF_NONLOCAL: i32 = 2 << 2;
 
     #[pyattr]
-    pub(super) const USE: i32 = 2 << 3;
+    pub(super) const USE: i32 = SymbolFlags::USE.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_FREE: i32 = 2 << 4;
@@ -279,7 +279,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_referenced(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::REFERENCED)
+            self.symbol.flags.contains(SymbolFlags::USE)
         }
 
         #[pymethod]

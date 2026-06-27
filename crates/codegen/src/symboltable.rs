@@ -161,7 +161,7 @@ impl SymbolTable {
             .or_insert_with(|| Symbol::new(name));
         symbol
             .flags
-            .insert(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED);
+            .insert(SymbolFlags::PARAMETER | SymbolFlags::USE);
         if !self.varnames.iter().any(|varname| varname == name) {
             self.varnames.push(name.to_owned());
         }
@@ -290,8 +290,9 @@ bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
         const DEF_GLOBAL = 0x200;
-        const REFERENCED = 0x001;  // USE
         const DEF_LOCAL  = 2;
+        const USE = 0x001;
+
         const PARAMETER = 0x004;   // DEF_PARAM
         const ANNOTATED = 0x008;   // DEF_ANNOT
         const IMPORTED = 0x010;    // DEF_IMPORT
@@ -1307,7 +1308,7 @@ impl SymbolTableBuilder {
         symbol.scope = SymbolScope::Free;
         symbol
             .flags
-            .insert(SymbolFlags::REFERENCED | SymbolFlags::FREE_CLASS);
+            .insert(SymbolFlags::USE | SymbolFlags::FREE_CLASS);
     }
 
     fn add_conditional_annotations_freevar(&mut self) {
@@ -1320,7 +1321,7 @@ impl SymbolTableBuilder {
         symbol.scope = SymbolScope::Free;
         symbol
             .flags
-            .insert(SymbolFlags::REFERENCED | SymbolFlags::FREE_CLASS);
+            .insert(SymbolFlags::USE | SymbolFlags::FREE_CLASS);
     }
 
     /// Walk up the scope chain to determine if we're inside an async function.
@@ -3272,7 +3273,7 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::REFERENCED) {
+                    if flags.contains(SymbolFlags::USE) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to global declaration"),
                             location,
@@ -3300,7 +3301,7 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::REFERENCED) {
+                    if flags.contains(SymbolFlags::USE) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to nonlocal declaration"),
                             location,
@@ -3403,7 +3404,7 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::DEF_GLOBAL);
             }
             SymbolUsage::Used => {
-                flags.insert(SymbolFlags::REFERENCED);
+                flags.insert(SymbolFlags::USE);
             }
             SymbolUsage::Iter => {
                 flags.insert(SymbolFlags::ITER | SymbolFlags::COMP_ITER);
@@ -3621,7 +3622,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED),
+                .contains(SymbolFlags::PARAMETER | SymbolFlags::USE),
             "CPython symtable_enter_block() adds both DEF_PARAM and USE for annotation-like .format"
         );
 
@@ -3637,7 +3638,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED),
+                .contains(SymbolFlags::PARAMETER | SymbolFlags::USE),
             "CPython TypeAliasBlock .format has DEF_PARAM | USE"
         );
 
@@ -3658,7 +3659,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED),
+                .contains(SymbolFlags::PARAMETER | SymbolFlags::USE),
             "CPython TypeVariableBlock .format has DEF_PARAM | USE"
         );
     }
