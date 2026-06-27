@@ -296,6 +296,7 @@ jobs:
           extra_test_args:
             - '-u all'
             - '--timeout 600'
+            - '--dont-add-python-opts'
           env_polluting_tests:
             - test_set
           skips: []
@@ -304,6 +305,7 @@ jobs:
           extra_test_args:
             - '-u all'
             - '--timeout 600'
+            - '--dont-add-python-opts'
           env_polluting_tests:
             - test_set
           skips: []
@@ -312,6 +314,7 @@ jobs:
           extra_test_args:
             - '-u all'
             - '--timeout 600'
+            - '--dont-add-python-opts'
           env_polluting_tests:
             - test_set
           skips: []
@@ -399,7 +402,7 @@ jobs:
           for thing in "${target_array[@]}"; do
             for i in $(seq 1 10); do
               set +e
-              target/release/rustpython -u -m test --slow-ci -u all -j 1 --timeout 600 "${thing}"
+              target/release/rustpython -u -m test --slow-ci -u all -j 1 --timeout 600 --dont-add-python-opts "${thing}"
               exit_code=$?
               set -e
               if [ "${exit_code}" -eq 3 ]; then
