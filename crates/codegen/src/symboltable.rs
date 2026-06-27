@@ -294,7 +294,6 @@ bitflags! {
         const DEF_PARAM    = 2 << 1;
         const DEF_NONLOCAL = 2 << 2;
         const USE          = 2 << 3;
-
         /// indicates that the symbol is a free variable in a class method from the scope that the
         /// class is defined in, e.g.:
         /// ```python
