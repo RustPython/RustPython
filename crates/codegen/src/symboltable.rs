@@ -303,11 +303,11 @@ bitflags! {
         ///             return x // is_free_class
         /// ```
         const DEF_FREE_CLASS = 0x100;
+        const DEF_IMPORT = 0x010;
 
 
 
         const ANNOTATED = 0x008;   // DEF_ANNOT
-        const IMPORTED = 0x010;    // DEF_IMPORT
         const NONLOCAL = 0x020;    // DEF_NONLOCAL
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
@@ -318,7 +318,7 @@ bitflags! {
         const COMP_ITER = 0x400;   // DEF_COMP_ITER
         const COMP_CELL = 0x800;   // DEF_COMP_CELL
         const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
-        const BOUND = Self::DEF_LOCAL.bits() | Self::DEF_PARAM.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
+        const BOUND = Self::DEF_LOCAL.bits() | Self::DEF_PARAM.bits() | Self::DEF_IMPORT.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
     }
 }
 
@@ -3377,7 +3377,7 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::NONLOCAL);
             }
             SymbolUsage::Imported => {
-                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::IMPORTED);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_IMPORT);
             }
             SymbolUsage::Parameter => {
                 flags.insert(SymbolFlags::DEF_PARAM);

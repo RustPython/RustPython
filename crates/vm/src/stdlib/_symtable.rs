@@ -38,7 +38,7 @@ mod _symtable {
     pub(super) const DEF_FREE_CLASS: i32 = SymbolFlags::DEF_FREE_CLASS.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_IMPORT: i32 = SymbolFlags::IMPORTED.bits() as i32;
+    pub(super) const DEF_IMPORT: i32 = SymbolFlags::DEF_IMPORT.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_ANNOT: i32 = SymbolFlags::ANNOTATED.bits() as i32;
@@ -260,7 +260,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_imported(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::IMPORTED)
+            self.symbol.flags.contains(SymbolFlags::DEF_IMPORT)
         }
 
         #[pymethod]

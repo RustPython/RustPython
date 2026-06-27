@@ -1389,7 +1389,7 @@ impl<'warnings> Compiler<'warnings> {
         self.symbol_table_stack
             .first()
             .and_then(|table| table.symbols.get(name))
-            .is_some_and(|sym| sym.flags.contains(SymbolFlags::IMPORTED))
+            .is_some_and(|sym| sym.flags.contains(SymbolFlags::DEF_IMPORT))
     }
 
     /// Get the cell-relative index of a free variable.
