@@ -41,7 +41,7 @@ mod _symtable {
     pub(super) const DEF_IMPORT: i32 = SymbolFlags::DEF_IMPORT.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_ANNOT: i32 = SymbolFlags::ANNOTATED.bits() as i32;
+    pub(super) const DEF_ANNOT: i32 = SymbolFlags::DEF_ANNOT.bits() as i32;
 
     #[pyattr]
     pub(super) const DEF_COMP_ITER: i32 = SymbolFlags::COMP_ITER.bits() as i32;
@@ -301,7 +301,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_annotated(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::ANNOTATED)
+            self.symbol.flags.contains(SymbolFlags::DEF_ANNOT)
         }
 
         #[pymethod]

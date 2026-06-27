@@ -304,10 +304,10 @@ bitflags! {
         /// ```
         const DEF_FREE_CLASS = 0x100;
         const DEF_IMPORT = 0x010;
+        const DEF_ANNOT = 0x008;
 
 
 
-        const ANNOTATED = 0x008;   // DEF_ANNOT
         const NONLOCAL = 0x020;    // DEF_NONLOCAL
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
@@ -3284,7 +3284,7 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ANNOTATED) {
+                    if flags.contains(SymbolFlags::DEF_ANNOT) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be global"),
                             location,
@@ -3312,7 +3312,7 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ANNOTATED) {
+                    if flags.contains(SymbolFlags::DEF_ANNOT) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be nonlocal"),
                             location,
@@ -3388,7 +3388,7 @@ impl SymbolTableBuilder {
                 }
             }
             SymbolUsage::AnnotationParameter => {
-                flags.insert(SymbolFlags::DEF_PARAM | SymbolFlags::ANNOTATED);
+                flags.insert(SymbolFlags::DEF_PARAM | SymbolFlags::DEF_ANNOT);
                 // Annotated parameters are also added to varnames
                 let name_str = symbol.name.clone();
                 if !self.current_varnames.contains(&name_str) {
@@ -3396,7 +3396,7 @@ impl SymbolTableBuilder {
                 }
             }
             SymbolUsage::AnnotationAssigned => {
-                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::ANNOTATED);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_ANNOT);
             }
             SymbolUsage::Assigned => {
                 flags.insert(SymbolFlags::DEF_LOCAL);
