@@ -292,6 +292,7 @@ bitflags! {
         const DEF_GLOBAL = 0x200;
         const DEF_LOCAL  = 2;
         const DEF_PARAM = 0x004;
+        const DEF_NONLOCAL = 0x020;
         const USE = 0x001;
 
         /// indicates that the symbol is a free variable in a class method from the scope that the
@@ -308,17 +309,22 @@ bitflags! {
         const DEF_COMP_ITER = 0x400;
         const DEF_TYPE_PARAM = 0x1000;
         const DEF_COMP_CELL = 0x800;
+        const DEF_BOUND = (
+            Self::DEF_LOCAL.bits()
+            | Self::DEF_PARAM.bits()
+            | Self::DEF_IMPORT.bits()
+            | Self::ITER.bits()
+            | Self::DEF_TYPE_PARAM.bits()
+        );
 
 
 
-        const NONLOCAL = 0x020;    // DEF_NONLOCAL
         // indicates if the symbol gets a value assigned by a named expression in a comprehension
         // this is required to correct the scope in the analysis.
         const ASSIGNED_IN_COMPREHENSION = 0x040;
         // indicates that the symbol is used a bound iterator variable. We distinguish this case
         // from normal assignment to detect disallowed re-assignment to iterator variables.
         const ITER = 0x080;
-        const BOUND = Self::DEF_LOCAL.bits() | Self::DEF_PARAM.bits() | Self::DEF_IMPORT.bits() | Self::ITER.bits() | Self::DEF_TYPE_PARAM.bits();
     }
 }
 
@@ -358,7 +364,7 @@ impl Symbol {
 
     #[must_use]
     pub const fn is_bound(&self) -> bool {
-        self.flags.intersects(SymbolFlags::BOUND)
+        self.flags.intersects(SymbolFlags::DEF_BOUND)
     }
 }
 
@@ -803,7 +809,7 @@ impl SymbolTableAnalyzer {
                         });
                     }
                     // Check if the nonlocal binding refers to a type parameter
-                    if symbol.flags.contains(SymbolFlags::NONLOCAL) {
+                    if symbol.flags.contains(SymbolFlags::DEF_NONLOCAL) {
                         for (symbols, _typ, _skip) in self.tables.iter().rev() {
                             if let Some(sym) = symbols.get(&symbol.name) {
                                 if sym.flags.contains(SymbolFlags::DEF_TYPE_PARAM) {
@@ -1839,8 +1845,9 @@ impl SymbolTableBuilder {
                                     .last()
                                     .is_some_and(|table| table.typ != CompilerScope::Module)
                                     && let Some(flags) = existing_flags
-                                    && flags
-                                        .intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::NONLOCAL)
+                                    && flags.intersects(
+                                        SymbolFlags::DEF_GLOBAL | SymbolFlags::DEF_NONLOCAL,
+                                    )
                                 {
                                     let usage = if flags.contains(SymbolFlags::DEF_GLOBAL) {
                                         "global"
@@ -3122,7 +3129,7 @@ impl SymbolTableBuilder {
                         current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                         current_symbol.scope = SymbolScope::GlobalExplicit;
                     } else {
-                        current_symbol.flags.insert(SymbolFlags::NONLOCAL);
+                        current_symbol.flags.insert(SymbolFlags::DEF_NONLOCAL);
                         current_symbol.scope = SymbolScope::Free;
                     }
 
@@ -3330,7 +3337,8 @@ impl SymbolTableBuilder {
                 }
                 SymbolUsage::AnnotationAssigned
                     if current_scope != CompilerScope::Module
-                        && flags.intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::NONLOCAL) =>
+                        && flags
+                            .intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::DEF_NONLOCAL) =>
                 {
                     let usage = if flags.contains(SymbolFlags::DEF_GLOBAL) {
                         "global"
@@ -3375,7 +3383,7 @@ impl SymbolTableBuilder {
         match role {
             SymbolUsage::Nonlocal => {
                 symbol.scope = SymbolScope::Free;
-                flags.insert(SymbolFlags::NONLOCAL);
+                flags.insert(SymbolFlags::DEF_NONLOCAL);
             }
             SymbolUsage::Imported => {
                 flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_IMPORT);

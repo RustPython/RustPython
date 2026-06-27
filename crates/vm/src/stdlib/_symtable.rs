@@ -29,7 +29,7 @@ mod _symtable {
     pub(super) const DEF_PARAM: i32 = SymbolFlags::DEF_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_NONLOCAL: i32 = SymbolFlags::NONLOCAL.bits() as i32;
+    pub(super) const DEF_NONLOCAL: i32 = SymbolFlags::DEF_NONLOCAL.bits() as i32;
 
     #[pyattr]
     pub(super) const USE: i32 = SymbolFlags::USE.bits() as i32;
@@ -53,7 +53,7 @@ mod _symtable {
     pub(super) const DEF_COMP_CELL: i32 = SymbolFlags::DEF_COMP_CELL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
+    pub(super) const DEF_BOUND: i32 = SymbolFlags::DEF_BOUND.bits() as i32;
 
     #[pyattr]
     pub(super) const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
@@ -271,7 +271,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_nonlocal(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::NONLOCAL)
+            self.symbol.flags.contains(SymbolFlags::DEF_NONLOCAL)
         }
 
         #[pymethod]
