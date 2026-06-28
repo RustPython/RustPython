@@ -180,49 +180,14 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
-    #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
-    let builder = &mut self.builder;
-    match val {
-        JitValue::Tuple(elements) => {
-            let val = JitValue::Tuple(elements);
-            match &self.variables[idx] {
-                Some(existing @ Local::Tuple { .. }) => {
-                    // reuse existing vars
-                    Self::update_local(builder, existing, val)
-                }
-                Some(Local::Scalar { .. }) => Err(JitCompileError::NotSupported),
-                None => {
-                    let local = Self::local_from_value(builder, val)?;
-                    self.variables[idx] = Some(local);
-                    Ok(())
-                }
-            }
-        }
-        _ => {
-            // primitive
-            let vty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-            let local = self.variables[idx].get_or_insert_with(|| {
-                let var = builder.declare_var(vty.to_cranelift());
-                Local::Scalar {
-                    var,
-                    ty: vty.clone(),
-                }
-            });
+        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
+        let builder = &mut self.builder;
 
-            match local {
-                Local::Scalar { var, ty } => {
-                    if vty != *ty {
-                        Err(JitCompileError::NotSupported)
-                    } else {
-                        self.builder.def_var(*var, val.into_value().unwrap());
-                        Ok(())
-                    }
-                }
-                _ => Err(JitCompileError::NotSupported)
-            }
-        }
+        let local = Self::local_from_value(builder, val)?;
+        self.variables[idx] = Some(local);
+
+        Ok(())
     }
-}
 
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
         match val {
