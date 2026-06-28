@@ -7,7 +7,7 @@ def foo():
         1
     )
     t = 1
-    return 3
+    return e
 
 foo.__jit__()
 print(foo())

@@ -75,6 +75,7 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
     label_to_block: HashMap<Label, Block>,
+    tuple_pool: Vec<Vec<JitValue>>,
     pub(crate) sig: JitSig,
 }
 
@@ -95,6 +96,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 args: arg_types.to_vec(),
                 ret: ret_type,
             },
+            tuple_pool: Vec::new(),
         };
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
         for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
@@ -113,35 +115,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.stack.drain(stack_len - count..).collect()
     }
 
-    fn update_local(
-        builder: &mut FunctionBuilder,
-        local: &Local,
-        val: JitValue,
-    ) -> Result<(), JitCompileError> {
-        match (local, val) {
-            (Local::Scalar { var, ty }, scalar) => {
-                let vty = scalar.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-                if vty != *ty {
-                    return Err(JitCompileError::NotSupported);
-                }
-                builder.def_var(*var, scalar.into_value().unwrap());
-                Ok(())
-            }
-            (Local::Tuple { elements }, JitValue::Tuple(values)) => {
-                if elements.len() != values.len() {
-                    return Err(JitCompileError::NotSupported);
-                }
-                for (elem_local, value) in elements.iter().zip(values) {
-                    Self::update_local(builder, elem_local, value)?;
-                }
-                Ok(())
-            }
-            _ => Err(JitCompileError::NotSupported),
-        }
-    }
-
     fn local_from_value(
-        builder: &mut FunctionBuilder,
+        builder: &mut FunctionBuilder<'_>,
         value: JitValue,
     ) -> Result<Local, JitCompileError> {
         match value {
@@ -163,7 +138,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         }
     }
 
-    fn local_to_value(builder: &mut FunctionBuilder, local: &Local) -> Result<JitValue, JitCompileError> {
+    fn local_to_value(builder: &mut FunctionBuilder<'_>, local: &Local) -> Result<JitValue, JitCompileError> {
         match local {
             Local::Scalar { var, ty } => Ok(JitValue::from_type_and_value(
                 ty.clone(),
@@ -400,26 +375,27 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         Ok(value)
     }
 
-    fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
-        if let Some(ref ty) = self.sig.ret {
-            // If the signature has a return type, enforce it
-            if val.to_jit_type().as_ref() != Some(ty) {
-                return Err(JitCompileError::NotSupported);
-            }
-        } else {
-            // First time we see a return, define it in the signature
-            let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-            self.sig.ret = Some(ty.clone());
-            self.builder
-                .func
-                .signature
-                .returns
-                .push(AbiParam::new(ty.to_cranelift()));
-        }
+    fn tuple_alloc(&mut self, elements: Vec<JitValue>) -> Value {
+        let idx = self.tuple_pool.len();
+        self.tuple_pool.push(elements);
 
-        // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
-        // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
-        let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
+        let ptr_val = self.builder.ins().iconst(types::I64, idx as i64);
+        ptr_val
+    }
+
+    fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
+        let cr_val = match val {
+            JitValue::Tuple(elements) => self.tuple_alloc(elements),
+            _ => val.into_value().ok_or(JitCompileError::NotSupported)?,
+        };
+
+        // single abi type
+        if self.sig.ret.is_none() {
+            self.sig.ret = Some(JitType::Int);
+            self.builder.func.signature
+                .returns
+                .push(AbiParam::new(types::I64));
+        }
 
         self.builder.ins().return_(&[cr_val]);
         Ok(())
