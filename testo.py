@@ -6,6 +6,7 @@ def foo():
         (3, 4),
         1
     )
+    t = 1
     return 3
 
 foo.__jit__()
