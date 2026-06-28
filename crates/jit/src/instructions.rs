@@ -17,9 +17,14 @@ enum CustomTrapCode {
 }
 
 #[derive(Clone)]
-struct Local {
-    var: Variable,
-    ty: JitType,
+enum Local {
+    Scalar {
+        var: Variable,
+        ty: JitType,
+    },
+    Tuple {
+        elements: Vec<Local>,
+    },
 }
 
 #[derive(Debug)]
@@ -108,24 +113,116 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.stack.drain(stack_len - count..).collect()
     }
 
-    fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
-        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
-        let builder = &mut self.builder;
-        let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-        let local = self.variables[idx].get_or_insert_with(|| {
-            let var = builder.declare_var(ty.to_cranelift());
-            Local {
-                var,
-                ty: ty.clone(),
+    fn update_local(
+        builder: &mut FunctionBuilder,
+        local: &Local,
+        val: JitValue,
+    ) -> Result<(), JitCompileError> {
+        match (local, val) {
+            (Local::Scalar { var, ty }, scalar) => {
+                let vty = scalar.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+                if vty != *ty {
+                    return Err(JitCompileError::NotSupported);
+                }
+                builder.def_var(*var, scalar.into_value().unwrap());
+                Ok(())
             }
-        });
-        if ty != local.ty {
-            Err(JitCompileError::NotSupported)
-        } else {
-            self.builder.def_var(local.var, val.into_value().unwrap());
-            Ok(())
+            (Local::Tuple { elements }, JitValue::Tuple(values)) => {
+                if elements.len() != values.len() {
+                    return Err(JitCompileError::NotSupported);
+                }
+                for (elem_local, value) in elements.iter().zip(values) {
+                    Self::update_local(builder, elem_local, value)?;
+                }
+                Ok(())
+            }
+            _ => Err(JitCompileError::NotSupported),
         }
     }
+
+    fn local_from_value(
+        builder: &mut FunctionBuilder,
+        value: JitValue,
+    ) -> Result<Local, JitCompileError> {
+        match value {
+            JitValue::Tuple(elements) => {
+                let mut locals = Vec::with_capacity(elements.len());
+                for element in elements {
+                    locals.push(Self::local_from_value(builder, element)?);
+                }
+                Ok(Local::Tuple { elements: locals })
+            }
+
+            scalar => {
+                let ty = scalar.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+                let var = builder.declare_var(ty.to_cranelift());
+                builder.def_var(var, scalar.into_value().unwrap());
+
+                Ok(Local::Scalar { var, ty })
+            }
+        }
+    }
+
+    fn local_to_value(builder: &mut FunctionBuilder, local: &Local) -> Result<JitValue, JitCompileError> {
+        match local {
+            Local::Scalar { var, ty } => Ok(JitValue::from_type_and_value(
+                ty.clone(),
+                builder.use_var(*var),
+            )),
+            Local::Tuple { elements } => {
+                let mut values = Vec::with_capacity(elements.len());
+                for element in elements {
+                    values.push(Self::local_to_value(builder, element)?);
+                }
+                Ok(JitValue::Tuple(values))
+            }
+        }
+    }
+
+    fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
+    #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
+    let builder = &mut self.builder;
+    match val {
+        JitValue::Tuple(elements) => {
+            let val = JitValue::Tuple(elements);
+            match &self.variables[idx] {
+                Some(existing @ Local::Tuple { .. }) => {
+                    // reuse existing vars
+                    Self::update_local(builder, existing, val)
+                }
+                Some(Local::Scalar { .. }) => Err(JitCompileError::NotSupported),
+                None => {
+                    let local = Self::local_from_value(builder, val)?;
+                    self.variables[idx] = Some(local);
+                    Ok(())
+                }
+            }
+        }
+        _ => {
+            // primitive
+            let vty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+            let local = self.variables[idx].get_or_insert_with(|| {
+                let var = builder.declare_var(vty.to_cranelift());
+                Local::Scalar {
+                    var,
+                    ty: vty.clone(),
+                }
+            });
+
+            match local {
+                Local::Scalar { var, ty } => {
+                    if vty != *ty {
+                        Err(JitCompileError::NotSupported)
+                    } else {
+                        self.builder.def_var(*var, val.into_value().unwrap());
+                        Ok(())
+                    }
+                }
+                _ => Err(JitCompileError::NotSupported)
+            }
+        }
+    }
+}
 
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
         match val {
@@ -320,6 +417,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             BorrowedConstant::Boolean { value } => {
                 let val = self.builder.ins().iconst(types::I8, value as i64);
                 JitValue::Bool(val)
+            }
+            BorrowedConstant::Tuple { elements } => {
+                let mut vals = Vec::new();
+
+                for el in elements {
+                    let b = el.borrow_constant();
+                    let res = self.prepare_const(b)?;
+                    vals.push(res);
+                }
+
+                JitValue::Tuple(vals)
             }
             BorrowedConstant::None => JitValue::None,
             _ => return Err(JitCompileError::NotSupported),
@@ -656,10 +764,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[var_num.get(arg)]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue::from_type_and_value(
-                    local.ty.clone(),
-                    self.builder.use_var(local.var),
-                ));
+                let value = Self::local_to_value(self.builder, local)?;
+                self.stack.push(value);
                 Ok(())
             }
             Instruction::LoadFastLoadFast { var_nums }
@@ -670,10 +776,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     let local = self.variables[idx]
                         .as_ref()
                         .ok_or(JitCompileError::BadBytecode)?;
-                    self.stack.push(JitValue::from_type_and_value(
-                        local.ty.clone(),
-                        self.builder.use_var(local.var),
-                    ));
+                    let value = Self::local_to_value(self.builder, local)?;
+                    self.stack.push(value);
                 }
                 Ok(())
             }
@@ -746,10 +850,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[load_idx]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue::from_type_and_value(
-                    local.ty.clone(),
-                    self.builder.use_var(local.var),
-                ));
+                match local {
+                    Local::Scalar { var, ty } => {
+                        self.stack.push(JitValue::from_type_and_value(
+                            ty.clone(),
+                            self.builder.use_var(*var),
+                        ));
+                    },
+                    Local::Tuple { elements: _} => {
+                        self.stack.push(Self::local_to_value(self.builder, local)?);
+                    }
+                }
                 Ok(())
             }
             Instruction::StoreFastStoreFast { var_nums } => {
