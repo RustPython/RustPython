@@ -319,7 +319,7 @@ struct AstPreprocessor {
 }
 
 impl AstPreprocessor {
-    fn visit_astfold_body(&self, body: &mut ast::Suite) {
+    fn visit_astfold_body(self, body: &mut ast::Suite) {
         let mut docstring = body_starts_with_docstring(body);
         if docstring && self.optimize >= 2 {
             remove_docstring_from_body(body);
