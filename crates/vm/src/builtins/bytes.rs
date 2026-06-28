@@ -60,18 +60,6 @@ impl ToPyObject for Vec<u8> {
     }
 }
 
-impl<const N: usize> ToPyObject for [u8; N] {
-    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytes(self.into()).into()
-    }
-}
-
-impl<const N: usize> ToPyObject for &[u8; N] {
-    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_bytes(self.into()).into()
-    }
-}
-
 impl Deref for PyBytes {
     type Target = [u8];
 
@@ -85,7 +73,6 @@ impl AsRef<[u8]> for PyBytes {
         self.as_bytes()
     }
 }
-
 impl AsRef<[u8]> for PyBytesRef {
     fn as_ref(&self) -> &[u8] {
         self.as_bytes()
