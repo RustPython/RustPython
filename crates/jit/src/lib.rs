@@ -1,9 +1,7 @@
-// lib.rs
 mod instructions;
 
-extern crate alloc;
-
-use alloc::alloc::{alloc, handle_alloc_error, Layout};
+extern crate alloc
+use alloc::alloc::{Layout, alloc, handle_alloc_error};
 use alloc::fmt;
 use core::mem::ManuallyDrop;
 use cranelift::prelude::*;
@@ -38,6 +36,7 @@ pub enum JitArgumentError {
     WrongNumberOfArguments,
 }
 
+/// Allocates a tuple in the heap and returns it's pointer, Unsafe function
 extern "C" fn jit_alloc_tuple(len: i64) -> i64 {
     let layout = Layout::array::<i64>(len as usize + 1).unwrap();
     let ptr = unsafe { alloc(layout) };
@@ -249,7 +248,7 @@ pub enum AbiValue {
     Float(f64),
     Int(i64),
     Bool(bool),
-    Object(usize)
+    Object(usize),
 }
 
 impl AbiValue {
@@ -258,7 +257,7 @@ impl AbiValue {
             Self::Int(i) => libffi::middle::Arg::new(i),
             Self::Float(f) => libffi::middle::Arg::new(f),
             Self::Bool(b) => libffi::middle::Arg::new(b),
-            Self::Object(p) => libffi::middle::Arg::new(p)
+            Self::Object(p) => libffi::middle::Arg::new(p),
         }
     }
 }
@@ -357,7 +356,7 @@ impl UnTypedAbiValue {
                 JitType::Int => AbiValue::Int(self.int),
                 JitType::Float => AbiValue::Float(self.float),
                 JitType::Bool => AbiValue::Bool(self.boolean != 0),
-                JitType::Object => AbiValue::Object(self.object)
+                JitType::Object => AbiValue::Object(self.object),
             }
         }
     }
@@ -414,6 +413,41 @@ impl<'a> ArgsBuilder<'a> {
         }
         Some(Args {
             values: self.values.into_iter().map(|v| v.unwrap()).collect(),
+            code: self.code,
+        })
+    }
+}
+
+pub struct Args<'a> {
+    values: Vec<AbiValue>,
+    code: &'a CompiledCode,
+}
+
+impl Args<'_> {
+    #[must_use]
+    pub fn invoke(&self) -> Option<AbiValue> {
+        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
+        unsafe { self.code.invoke_raw(&cif_args) }
+    }
+}
+es: self.values.into_iter().map(|v| v.unwrap()).collect(),
+            code: self.code,
+        })
+    }
+}
+
+pub struct Args<'a> {
+    values: Vec<AbiValue>,
+    code: &'a CompiledCode,
+}
+
+impl Args<'_> {
+    #[must_use]
+    pub fn invoke(&self) -> Option<AbiValue> {
+        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
+        unsafe { self.code.invoke_raw(&cif_args) }
+    }
+}: self.values.into_iter().map(|v| v.unwrap()).collect(),
             code: self.code,
         })
     }
