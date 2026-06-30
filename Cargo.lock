@@ -3448,6 +3448,7 @@ dependencies = [
  "bitflags 2.13.0",
  "itertools 0.14.0",
  "libc",
+ "malachite-bigint",
  "num-complex",
  "pyo3",
  "rustpython-pylib",
