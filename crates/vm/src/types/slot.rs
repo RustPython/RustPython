@@ -1667,11 +1667,10 @@ pub trait Initializer: PyPayload {
                             .matches(&class_name_for_debug as &str)
                             .count()
                             == 2;
-                        if double_appearance {
-                            panic!(
-                                "This type `{class_name_for_debug}` doesn't seem to support `init`. Override `slot_init` instead: {msg}"
-                            );
-                        }
+                        assert!(
+                            !double_appearance,
+                            "This type `{class_name_for_debug}` doesn't seem to support `init`. Override `slot_init` instead: {msg}"
+                        )
                     }
                 }
                 return Err(err);

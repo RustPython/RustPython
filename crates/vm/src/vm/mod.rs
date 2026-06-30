@@ -908,9 +908,7 @@ impl VirtualMachine {
     fn initialize(&mut self) {
         flame_guard!("init VirtualMachine");
 
-        if self.initialized {
-            panic!("Double Initialize Error");
-        }
+        assert!(!self.initialized, "Double Initialize Error");
 
         // Initialize main thread ident before any threading operations
         #[cfg(feature = "threading")]
