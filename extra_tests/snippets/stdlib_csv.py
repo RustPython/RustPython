@@ -72,3 +72,56 @@ def test_quote_strings_and_notnull_writer():
 
 
 test_quote_strings_and_notnull_writer()
+
+
+def test_quote_none_writer_without_quotechar():
+    no_quotechar_buf = io.StringIO()
+    csv.writer(
+        no_quotechar_buf,
+        quoting=csv.QUOTE_NONE,
+        quotechar=None,
+        escapechar="\\",
+    ).writerow(["a,b", 'x"y'])
+    assert no_quotechar_buf.getvalue() == 'a\\,b,x"y\r\n'
+
+    default_quotechar_buf = io.StringIO()
+    csv.writer(
+        default_quotechar_buf,
+        quoting=csv.QUOTE_NONE,
+        escapechar="\\",
+    ).writerow(["a,b", 'x"y'])
+    assert default_quotechar_buf.getvalue() == 'a\\,b,x\\"y\r\n'
+
+    escapechar_buf = io.StringIO()
+    csv.writer(
+        escapechar_buf,
+        quoting=csv.QUOTE_NONE,
+        quotechar=None,
+        escapechar="\\",
+    ).writerow(["a\\b"])
+    assert escapechar_buf.getvalue() == "a\\\\b\r\n"
+
+    with assert_raises(csv.Error):
+        csv.writer(io.StringIO(), quoting=csv.QUOTE_NONE, quotechar=None).writerow(
+            ["a,b"]
+        )
+
+    with assert_raises(csv.Error):
+        csv.writer(
+            io.StringIO(),
+            quoting=csv.QUOTE_NONE,
+            quotechar=None,
+            escapechar="\\",
+        ).writerow([None])
+
+    two_empty_buf = io.StringIO()
+    csv.writer(
+        two_empty_buf,
+        quoting=csv.QUOTE_NONE,
+        quotechar=None,
+        escapechar="\\",
+    ).writerow([None, ""])
+    assert two_empty_buf.getvalue() == ",\r\n"
+
+
+test_quote_none_writer_without_quotechar()
