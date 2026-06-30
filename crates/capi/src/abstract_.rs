@@ -142,7 +142,34 @@ pub unsafe extern "C" fn PyVectorcall_Call(
     tuple: *mut PyObject,
     kwargs: *mut PyObject,
 ) -> *mut PyObject {
-    unsafe { PyObject_Call(callable, tuple, kwargs) }
+    with_vm(|vm| {
+        let callable = unsafe { &*callable };
+        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+
+        let mut args = tuple.iter().cloned().collect::<Vec<_>>();
+        let num_positional_args = args.len();
+
+        let mut kwnames = Vec::new();
+        if let Some(kwargs) = unsafe { kwargs.as_ref() } {
+            let kwargs = kwargs.try_downcast_ref::<PyDict>(vm)?;
+            for (key, value) in kwargs.items_vec() {
+                let key = key
+                    .downcast_ref::<PyStr>()
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                kwnames.push(key.into());
+                args.push(value);
+            }
+        }
+
+        let kwnames = if kwnames.is_empty() {
+            None
+        } else {
+            Some(kwnames.as_slice())
+        };
+
+        callable.vectorcall(args, num_positional_args, kwnames, vm)
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -195,8 +222,11 @@ pub unsafe extern "C" fn PyObject_Format(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let format_spec = unsafe { &*format_spec }.try_downcast_ref::<PyStr>(vm)?;
-        vm.format(obj, format_spec.to_owned())
+        let spec = unsafe { format_spec.as_ref() }
+            .map(|spec| spec.try_downcast_ref::<PyStr>(vm))
+            .transpose()?
+            .unwrap_or_else(|| vm.ctx.empty_str);
+        vm.format(obj, spec.to_owned())
     })
 }
 
