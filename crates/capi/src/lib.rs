@@ -23,6 +23,7 @@ pub mod longobject;
 pub mod methodobject;
 pub mod moduleobject;
 pub mod object;
+pub mod pybuffer;
 pub mod pycapsule;
 pub mod pyerrors;
 pub mod pylifecycle;
