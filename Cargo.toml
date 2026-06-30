@@ -190,7 +190,7 @@ ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.
 ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", tag = "0.15.19-rustpython" }
 
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
-phf = { version = "0.13.1", default-features = false, features = ["macros"]}
+phf = { version = "0.14.0", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
 ascii = "1.1"
