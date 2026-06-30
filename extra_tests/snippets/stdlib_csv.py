@@ -101,6 +101,15 @@ def test_quote_none_writer_without_quotechar():
     ).writerow(["a\\b"])
     assert escapechar_buf.getvalue() == "a\\\\b\r\n"
 
+    linebreak_buf = io.StringIO()
+    csv.writer(
+        linebreak_buf,
+        quoting=csv.QUOTE_NONE,
+        quotechar=None,
+        escapechar="\\",
+    ).writerow(["a\rb", "c\nd"])
+    assert linebreak_buf.getvalue() == "a\\\rb,c\\\nd\r\n"
+
     with assert_raises(csv.Error):
         csv.writer(io.StringIO(), quoting=csv.QUOTE_NONE, quotechar=None).writerow(
             ["a,b"]

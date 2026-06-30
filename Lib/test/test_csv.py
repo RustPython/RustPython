@@ -854,7 +854,6 @@ class EscapedExcel(csv.excel):
 class TestEscapedExcel(TestCsvBase):
     dialect = EscapedExcel()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_escape_fieldsep(self):
         self.writerAssertEqual([['abc,def']], 'abc\\,def\r\n')
 
