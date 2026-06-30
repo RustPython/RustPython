@@ -273,10 +273,16 @@ impl StopTheWorldState {
         let registry = vm.state.thread_frames.lock();
         let mut attached_seen = 0u64;
         let mut forced_parks = 0u64;
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (&id, slot) in registry.iter() {
             if id == requester {
                 continue;
             }
+
             let state = slot.state.load(Ordering::Relaxed);
             if state == THREAD_DETACHED {
                 // CAS DETACHED → SUSPENDED (park without thread cooperation)
@@ -412,10 +418,16 @@ impl StopTheWorldState {
         // thread-slot initialization.
         self.requested.store(false, Ordering::Release);
         self.world_stopped.store(false, Ordering::Release);
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (&id, slot) in registry.iter() {
             if id == requester {
                 continue;
             }
+
             slot.stop_requested.store(false, Ordering::Release);
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
@@ -427,6 +439,7 @@ impl StopTheWorldState {
                 slot.thread.unpark();
             }
         }
+
         drop(registry);
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
@@ -506,10 +519,16 @@ impl StopTheWorldState {
         use thread::THREAD_SUSPENDED;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = vm.state.thread_frames.lock();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (&id, slot) in registry.iter() {
             if id == requester {
                 continue;
             }
+
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
                 state == THREAD_SUSPENDED,
@@ -523,10 +542,16 @@ impl StopTheWorldState {
         use thread::THREAD_SUSPENDED;
         let requester = self.requester.load(Ordering::Relaxed);
         let registry = vm.state.thread_frames.lock();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (&id, slot) in registry.iter() {
             if id == requester {
                 continue;
             }
+
             let state = slot.state.load(Ordering::Relaxed);
             debug_assert!(
                 state != THREAD_SUSPENDED,
