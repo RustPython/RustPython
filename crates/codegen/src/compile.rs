@@ -201,6 +201,90 @@ enum DoneWithFuture {
     Yes,
 }
 
+/// A Python `__future__` feature flag imported via `from __future__ import <feature>`.
+///
+/// # See Also
+///
+/// - [Python documentation on `__future__`](https://docs.python.org/3.14/library/__future__.html)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FutureFeature {
+    /// ```py
+    /// from __future__ import absolute_import
+    /// ```
+    AbsoluteImport,
+
+    /// ```py
+    /// from __future__ import annotations
+    /// ```
+    Annotations,
+
+    /// ```py
+    /// from __future__ import barry_as_FLUFL
+    /// ```
+    BarryAsFLUFL,
+
+    /// ```py
+    /// from __future__ import braces
+    /// ```
+    Braces,
+
+    /// ```py
+    /// from __future__ import division
+    /// ```
+    Division,
+
+    /// ```py
+    /// from __future__ import generator_stop
+    /// ```
+    GeneratorStop,
+
+    /// ```py
+    /// from __future__ import generators
+    /// ```
+    Generators,
+
+    /// ```py
+    /// from __future__ import nested_scopes
+    /// ```
+    NestedScopes,
+
+    /// ```py
+    /// from __future__ import print_function
+    /// ```
+    PrintFunction,
+
+    /// ```py
+    /// from __future__ import unicode_literals
+    /// ```
+    UnicodeLiterals,
+
+    /// ```py
+    /// from __future__ import with_statement
+    /// ```
+    WithStatement,
+}
+
+impl TryFrom<&str> for FutureFeature {
+    type Error = String;
+
+    fn try_from(name: &str) -> Result<Self, Self::Error> {
+        Ok(match name {
+            "absolute_import" => Self::AbsoluteImport,
+            "annotations" => Self::Annotations,
+            "barry_as_FLUFL" => Self::BarryAsFLUFL,
+            "braces" => Self::Braces,
+            "division" => Self::Division,
+            "generator_stop" => Self::GeneratorStop,
+            "generators" => Self::Generators,
+            "nested_scopes" => Self::NestedScopes,
+            "print_function" => Self::PrintFunction,
+            "unicode_literals" => Self::UnicodeLiterals,
+            "with_statement" => Self::WithStatement,
+            _ => return Err(name.into()),
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ComprehensionSymbolSource {
     Child,
@@ -11144,16 +11228,21 @@ impl<'warnings> Compiler<'warnings> {
         if let DoneWithFuture::Yes = self.done_with_future_stmts {
             return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
+
         self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
+
         for feature in features {
-            match feature.name.as_str() {
-                // Python 3 features; we've already implemented them by default
-                "nested_scopes" | "generators" | "division" | "absolute_import"
-                | "with_statement" | "print_function" | "unicode_literals" | "generator_stop" => {}
-                // Accept the future feature name, but do not implement
-                // Barry-as-BDFL parser mode.
-                "barry_as_FLUFL" => {}
-                "annotations" => {
+            let future_feature = feature.name.as_str().try_into().map_err(|name| {
+                self.error_ranged(CodegenErrorType::InvalidFutureFeature(name), feature.range)
+            })?;
+
+            match future_feature {
+                FutureFeature::Braces => {
+                    return Err(
+                        self.error_ranged(CodegenErrorType::InvalidFutureBraces, feature.range)
+                    );
+                }
+                FutureFeature::Annotations => {
                     self.future_annotations = true;
                     self.future_features
                         .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
@@ -11161,16 +11250,18 @@ impl<'warnings> Compiler<'warnings> {
                         .flags
                         .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
                 }
-                "braces" => {
-                    return Err(
-                        self.error_ranged(CodegenErrorType::InvalidFutureBraces, feature.range)
-                    );
+                FutureFeature::BarryAsFLUFL => {
+                    // We do not support Barry-as-BDFL parser mode yet. This is a nop for now.
                 }
-                other => {
-                    return Err(self.error_ranged(
-                        CodegenErrorType::InvalidFutureFeature(other.to_owned()),
-                        feature.range,
-                    ));
+                FutureFeature::AbsoluteImport
+                | FutureFeature::Division
+                | FutureFeature::GeneratorStop
+                | FutureFeature::Generators
+                | FutureFeature::NestedScopes
+                | FutureFeature::PrintFunction
+                | FutureFeature::UnicodeLiterals
+                | FutureFeature::WithStatement => {
+                    // Python 3 features. They are already implemented by default.
                 }
             }
         }
