@@ -57,9 +57,10 @@ const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
     // operation. if T isn't zero-sized, we don't have to worry about it because we'll fail to compile.
     core::mem::forget(x);
     const {
-        if core::mem::size_of::<T>() != 0 {
-            panic!("can't use a non-zero-sized type here")
-        }
+        assert!(
+            core::mem::size_of::<T>() == 0,
+            "can't use a non-zero-sized type here"
+        );
         // SAFETY: we just confirmed that T is zero-sized, so we can
         //         pull a value of it out of thin air.
         unsafe { core::ptr::NonNull::<T>::dangling().as_ref() }
