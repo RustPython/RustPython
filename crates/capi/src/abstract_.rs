@@ -1,6 +1,6 @@
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
-use core::ffi::c_int;
+use core::ffi::{CStr, c_char, c_int};
 pub use iter::*;
 pub use mapping::*;
 pub use number::*;
@@ -55,6 +55,21 @@ pub unsafe extern "C" fn PyObject_Call(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| unsafe { &*callable }.call((), vm))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_CallObject(
+    callable: *mut PyObject,
+    args: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let callable = unsafe { &*callable };
+        if let Some(args) = unsafe { args.as_ref() } {
+            callable.call(tuple_to_args(args.try_downcast_ref::<PyTuple>(vm)?), vm)
+        } else {
+            callable.call((), vm)
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -122,6 +137,15 @@ pub unsafe extern "C" fn PyObject_VectorcallMethod(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyVectorcall_Call(
+    callable: *mut PyObject,
+    tuple: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject {
+    unsafe { PyObject_Call(callable, tuple, kwargs) }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
@@ -154,6 +178,29 @@ pub unsafe extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_DelItemString(obj: *mut PyObject, key: *const c_char) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let key = unsafe { CStr::from_ptr(key) }
+            .to_str()
+            .map_err(|_| vm.new_value_error("mapping key must be valid UTF-8"))?;
+        obj.del_item(key, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Format(
+    obj: *mut PyObject,
+    format_spec: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let format_spec = unsafe { &*format_spec }.try_downcast_ref::<PyStr>(vm)?;
+        vm.format(obj, format_spec.to_owned())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let derived = unsafe { &*derived };
@@ -177,4 +224,14 @@ pub unsafe extern "C" fn PyObject_Size(obj: *mut PyObject) -> isize {
         let obj = unsafe { &*obj };
         obj.length(vm)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Length(obj: *mut PyObject) -> isize {
+    unsafe { PyObject_Size(obj) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Type(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|_vm| unsafe { &*obj }.obj_type())
 }
