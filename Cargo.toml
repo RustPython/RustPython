@@ -190,7 +190,7 @@ ruff_text_size = { package = "rustpython-ruff_text_size", git = "https://github.
 ruff_source_file = { package = "rustpython-ruff_source_file", git = "https://github.com/RustPython/ruff.git", tag = "0.15.19-rustpython" }
 
 der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
-phf = { version = "0.13.1", default-features = false, features = ["macros"]}
+phf = { version = "0.14.0", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
 ascii = "1.1"
@@ -350,6 +350,7 @@ similar_names = "allow"
 # restriction lints
 alloc_instead_of_core = "warn"
 cfg_not_test = "warn"
+iter_over_hash_type = "warn"
 redundant_test_prefix = "warn"
 std_instead_of_alloc = "warn"
 std_instead_of_core = "warn"
@@ -370,14 +371,17 @@ search_is_some = "warn"
 significant_drop_in_scrutinee = "warn"
 single_option_map = "warn"
 trait_duplication_in_bounds = "warn"
+tuple_array_conversions = "warn"
 type_repetition_in_bounds = "warn"
 unnecessary_struct_initialization = "warn"
 unused_peekable = "warn"
 unused_rounding = "warn"
 use_self = "warn"
 useless_let_if_seq = "warn"
+while_float = "warn"
 
 # pedantic lints to enforce gradually
+assigning_clones = "warn"
 bool_to_int_with_if = "warn"
 checked_conversions = "warn"
 cloned_instead_of_copied = "warn"
@@ -403,6 +407,7 @@ iter_filter_is_ok = "warn"
 iter_filter_is_some = "warn"
 large_futures = "warn"
 large_types_passed_by_value = "warn"
+manual_assert = "warn"
 manual_instant_elapsed = "warn"
 manual_is_variant_and = "warn"
 map_unwrap_or = "warn"

@@ -794,10 +794,10 @@ impl VirtualMachine {
         };
 
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.msg = "inconsistent use of tabs and spaces in indentation".to_owned();
-        }
-        if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
-            syntax_error_info.msg = "incomplete input".to_owned();
+            syntax_error_info.msg =
+                String::from("inconsistent use of tabs and spaces in indentation");
+        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+            syntax_error_info.msg = String::from("incomplete input");
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;

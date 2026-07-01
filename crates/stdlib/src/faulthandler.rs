@@ -304,10 +304,15 @@ mod decl {
             let registry = vm.state.thread_frames.lock();
 
             // First dump non-current threads, then current thread last
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Iteration order doesn't matter here"
+            )]
             for (&tid, slot) in registry.iter() {
                 if tid == current_tid {
                     continue;
                 }
+
                 let frames_guard = slot.frames.lock();
                 dump_traceback_thread_frames(fd, tid, false, &frames_guard);
                 puts(fd, "\n");

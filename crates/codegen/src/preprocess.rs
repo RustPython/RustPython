@@ -8,6 +8,8 @@ use ruff_python_ast::{
     visitor::transformer::{self, Transformer},
 };
 use ruff_text_size::{Ranged, TextRange};
+
+use crate::compile::FutureFeature;
 use rustpython_compiler_core::bytecode;
 
 const MAXDIGITS: usize = 3;
@@ -232,29 +234,40 @@ pub fn checked_future_features_in_body(
                 ..
             }) if *level == 0 && module.as_ref().map(|id| id.as_str()) == Some("__future__") => {
                 for alias in names {
-                    match alias.name.as_str() {
-                        "nested_scopes" | "generators" | "division" | "absolute_import"
-                        | "with_statement" | "print_function" | "unicode_literals"
-                        | "generator_stop" => {}
-                        "annotations" => {
-                            future_features.insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
-                        }
-                        // Accept the future feature name, but leave it
-                        // as a RustPython no-op.
-                        "barry_as_FLUFL" => {}
-                        "braces" => {
+                    let future_feature =
+                        alias
+                            .name
+                            .as_str()
+                            .try_into()
+                            .map_err(|name| FutureFeatureError {
+                                features: future_features,
+                                range: alias.range,
+                                kind: FutureFeatureErrorKind::InvalidFeature(name),
+                            })?;
+
+                    match future_feature {
+                        FutureFeature::Braces => {
                             return Err(FutureFeatureError {
                                 features: future_features,
                                 range: alias.range,
                                 kind: FutureFeatureErrorKind::InvalidBraces,
                             });
                         }
-                        other => {
-                            return Err(FutureFeatureError {
-                                features: future_features,
-                                range: alias.range,
-                                kind: FutureFeatureErrorKind::InvalidFeature(other.to_owned()),
-                            });
+                        FutureFeature::Annotations => {
+                            future_features.insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS)
+                        }
+                        FutureFeature::BarryAsFLUFL => {
+                            // We do not support Barry-as-BDFL parser mode yet. This is a nop for now.
+                        }
+                        FutureFeature::AbsoluteImport
+                        | FutureFeature::Division
+                        | FutureFeature::GeneratorStop
+                        | FutureFeature::Generators
+                        | FutureFeature::NestedScopes
+                        | FutureFeature::PrintFunction
+                        | FutureFeature::UnicodeLiterals
+                        | FutureFeature::WithStatement => {
+                            // Python 3 features. They are already implemented by default.
                         }
                     }
                 }
@@ -298,6 +311,7 @@ pub fn preprocess_mod(
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct AstPreprocessor {
     optimize: u8,
     future_annotations: bool,
@@ -305,7 +319,7 @@ struct AstPreprocessor {
 }
 
 impl AstPreprocessor {
-    fn visit_astfold_body(&self, body: &mut ast::Suite) {
+    fn visit_astfold_body(self, body: &mut ast::Suite) {
         let mut docstring = body_starts_with_docstring(body);
         if docstring && self.optimize >= 2 {
             remove_docstring_from_body(body);

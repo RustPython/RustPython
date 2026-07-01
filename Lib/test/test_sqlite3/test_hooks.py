@@ -24,10 +24,14 @@ import contextlib
 import sqlite3 as sqlite
 import unittest
 
+from test.support import import_helper
 from test.support.os_helper import TESTFN, unlink
 
 from .util import memory_database, cx_limit, with_tracebacks
 from .util import MemoryDatabaseMixin
+
+# TODO(picnixz): increase test coverage for other callbacks
+# such as 'func', 'step', 'finalize', and 'collation'.
 
 
 class CollationTests(MemoryDatabaseMixin, unittest.TestCase):
@@ -116,6 +120,21 @@ class CollationTests(MemoryDatabaseMixin, unittest.TestCase):
         self.assertEqual(result[0][0], 'b')
         self.assertEqual(result[1][0], 'a')
 
+    def test_collation_register_when_busy(self):
+        # See https://github.com/python/cpython/issues/146090.
+        con = self.con
+        con.create_collation("mycoll", lambda x, y: (x > y) - (x < y))
+        con.execute("CREATE TABLE t(x TEXT)")
+        con.execute("INSERT INTO t VALUES (?)", ("a",))
+        con.execute("INSERT INTO t VALUES (?)", ("b",))
+        con.commit()
+
+        cursor = self.con.execute("SELECT x FROM t ORDER BY x COLLATE mycoll")
+        next(cursor)
+        # Replace the collation while the statement is active -> SQLITE_BUSY.
+        with self.assertRaises(sqlite.OperationalError) as cm:
+            self.con.create_collation("mycoll", lambda a, b: 0)
+
     def test_deregister_collation(self):
         """
         Register a collation, then deregister it. Make sure an error is raised if we try
@@ -129,7 +148,55 @@ class CollationTests(MemoryDatabaseMixin, unittest.TestCase):
         self.assertEqual(str(cm.exception), 'no such collation sequence: mycoll')
 
 
+class AuthorizerTests(MemoryDatabaseMixin, unittest.TestCase):
+
+    def assert_not_authorized(self, func, /, *args, **kwargs):
+        with self.assertRaisesRegex(sqlite.DatabaseError, "not authorized"):
+            func(*args, **kwargs)
+
+    # When a handler has an invalid signature, the exception raised is
+    # the same that would be raised if the handler "negatively" replied.
+
+    def test_authorizer_invalid_signature(self):
+        self.cx.execute("create table if not exists test(a number)")
+        self.cx.set_authorizer(lambda: None)
+        self.assert_not_authorized(self.cx.execute, "select * from test")
+
+    # Tests for checking that callback context mutations do not crash.
+    # Regression tests for https://github.com/python/cpython/issues/142830.
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
+    @with_tracebacks(ZeroDivisionError, regex="hello world")
+    def test_authorizer_concurrent_mutation_in_call(self):
+        self.cx.execute("create table if not exists test(a number)")
+
+        def handler(*a, **kw):
+            self.cx.set_authorizer(None)
+            raise ZeroDivisionError("hello world")
+
+        self.cx.set_authorizer(handler)
+        self.assert_not_authorized(self.cx.execute, "select * from test")
+
+    @with_tracebacks(OverflowError)
+    def test_authorizer_concurrent_mutation_with_overflown_value(self):
+        _testcapi = import_helper.import_module("_testcapi")
+        self.cx.execute("create table if not exists test(a number)")
+
+        def handler(*a, **kw):
+            self.cx.set_authorizer(None)
+            # We expect 'int' at the C level, so this one will raise
+            # when converting via PyLong_Int().
+            return _testcapi.INT_MAX + 1
+
+        self.cx.set_authorizer(handler)
+        self.assert_not_authorized(self.cx.execute, "select * from test")
+
+
 class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
+
+    def assert_interrupted(self, func, /, *args, **kwargs):
+        with self.assertRaisesRegex(sqlite.OperationalError, "interrupted"):
+            func(*args, **kwargs)
 
     def test_progress_handler_used(self):
         """
@@ -196,7 +263,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
         con.execute("select 1 union select 2 union select 3").fetchall()
         self.assertEqual(action, 0, "progress handler was not cleared")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @with_tracebacks(ZeroDivisionError, msg_regex="bad_progress")
     def test_error_in_progress_handler(self):
         def bad_progress():
@@ -207,7 +274,7 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
                 create table foo(a, b)
                 """)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON unraisable exception handling not implemented
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, msg_regex="bad_progress")
     def test_error_in_progress_handler_result(self):
         class BadBool:
@@ -221,8 +288,8 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
                 create table foo(a, b)
                 """)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON keyword-only arguments not supported for set_progress_handler
-    def test_progress_handler_keyword_args(self):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_progress_handler
+    def test_set_progress_handler_keyword_args(self):
         regex = (
             r"Passing keyword argument 'progress_handler' to "
             r"_sqlite3.Connection.set_progress_handler\(\) is deprecated. "
@@ -233,6 +300,44 @@ class ProgressTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
             self.con.set_progress_handler(progress_handler=lambda: None, n=1)
         self.assertEqual(cm.filename, __file__)
+
+    # When a handler has an invalid signature, the exception raised is
+    # the same that would be raised if the handler "negatively" replied.
+
+    def test_progress_handler_invalid_signature(self):
+        self.cx.execute("create table if not exists test(a number)")
+        self.cx.set_progress_handler(lambda x: None, 1)
+        self.assert_interrupted(self.cx.execute, "select * from test")
+
+    # Tests for checking that callback context mutations do not crash.
+    # Regression tests for https://github.com/python/cpython/issues/142830.
+
+    @unittest.skip("TODO: RUSTPYTHON; Timeout after 10 minutes")
+    @with_tracebacks(ZeroDivisionError, regex="hello world")
+    def test_progress_handler_concurrent_mutation_in_call(self):
+        self.cx.execute("create table if not exists test(a number)")
+
+        def handler(*a, **kw):
+            self.cx.set_progress_handler(None, 1)
+            raise ZeroDivisionError("hello world")
+
+        self.cx.set_progress_handler(handler, 1)
+        self.assert_interrupted(self.cx.execute, "select * from test")
+
+    def test_progress_handler_concurrent_mutation_in_conversion(self):
+        self.cx.execute("create table if not exists test(a number)")
+
+        class Handler:
+            def __bool__(_):
+                # clear the progress handler
+                self.cx.set_progress_handler(None, 1)
+                raise ValueError  # force PyObject_True() to fail
+
+        self.cx.set_progress_handler(Handler.__init__, 1)
+        self.assert_interrupted(self.cx.execute, "select * from test")
+
+        # Running with tracebacks makes the second execution of this
+        # function raise another exception because of a database change.
 
 
 class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
@@ -325,7 +430,7 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
                 cx.execute("create table t(t)")
                 cx.executemany("insert into t values(?)", ((v,) for v in range(3)))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON unraisable exception handling not implemented
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(
         sqlite.DataError,
         regex="Expanded SQL string exceeds the maximum string length"
@@ -350,15 +455,15 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
             with self.check_stmt_trace(cx, [expanded_query]):
                 cx.execute(unexpanded_query, (ok_param,))
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON unraisable exception handling not implemented
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; unraisable exception handling not implemented
     @with_tracebacks(ZeroDivisionError, regex="division by zero")
     def test_trace_bad_handler(self):
         with memory_database() as cx:
             cx.set_trace_callback(lambda stmt: 5/0)
             cx.execute("select 1")
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON keyword-only arguments not supported for set_trace_callback
-    def test_trace_keyword_args(self):
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; keyword-only arguments not supported for set_trace_callback
+    def test_set_trace_callback_keyword_args(self):
         regex = (
             r"Passing keyword argument 'trace_callback' to "
             r"_sqlite3.Connection.set_trace_callback\(\) is deprecated. "
@@ -369,6 +474,37 @@ class TraceCallbackTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertWarnsRegex(DeprecationWarning, regex) as cm:
             self.con.set_trace_callback(trace_callback=lambda: None)
         self.assertEqual(cm.filename, __file__)
+
+    # When a handler has an invalid signature, the exception raised is
+    # the same that would be raised if the handler "negatively" replied,
+    # but for the trace handler, exceptions are never re-raised (only
+    # printed when needed).
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'exc_type'
+    @with_tracebacks(
+        TypeError,
+        regex=r".*<lambda>\(\) missing 6 required positional arguments",
+    )
+    def test_trace_handler_invalid_signature(self):
+        self.cx.execute("create table if not exists test(a number)")
+        self.cx.set_trace_callback(lambda x, y, z, t, a, b, c: None)
+        self.cx.execute("select * from test")
+
+    # Tests for checking that callback context mutations do not crash.
+    # Regression tests for https://github.com/python/cpython/issues/142830.
+
+    @unittest.skip("TODO: RUSTPYTHON; Timeout after 10 minutes")
+    @with_tracebacks(ZeroDivisionError, regex="hello world")
+    def test_trace_callback_concurrent_mutation_in_call(self):
+        self.cx.execute("create table if not exists test(a number)")
+
+        def handler(statement):
+            # clear the progress handler
+            self.cx.set_trace_callback(None)
+            raise ZeroDivisionError("hello world")
+
+        self.cx.set_trace_callback(handler)
+        self.cx.execute("select * from test")
 
 
 if __name__ == "__main__":
