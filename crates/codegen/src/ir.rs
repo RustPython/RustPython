@@ -5421,7 +5421,7 @@ impl CodeInfo {
         while block_idx != BlockIdx::NULL {
             use core::fmt::Write;
             let block = &self.blocks[block_idx];
-            let block_return = if basicblock_returns(block) {
+            let block_return = if block.basicblock_returns() {
                 " return"
             } else {
                 ""
@@ -6973,7 +6973,9 @@ mod tests {
     }
 
     fn test_block_push(block: &mut Block, info: InstructionInfo) {
-        let off = basicblock_next_instr(block).expect("test block instruction slot");
+        let off = block
+            .basicblock_next_instr()
+            .expect("test block instruction slot");
         block.instructions[off] = info;
     }
 
@@ -7223,9 +7225,10 @@ mod tests {
         let mut stale = test_instr(Instruction::Nop, 11);
         stale.except_handler = Some(handler);
         test_block_push(&mut block, stale);
-        basicblock_clear(&mut block);
+        block.basicblock_clear();
 
-        basicblock_addop(&mut block, test_instr(Instruction::PopTop, 12))
+        block
+            .basicblock_addop(test_instr(Instruction::PopTop, 12))
             .expect("basicblock_addop succeeds");
 
         // CPython `basicblock_addop()` writes opcode/oparg/target/location into
@@ -7239,14 +7242,16 @@ mod tests {
     fn basicblock_next_instr_tracks_cpython_c_array_allocation() {
         let mut block = Block::default();
         for i in 0..15 {
-            basicblock_addop(&mut block, test_instr(Instruction::PopTop, 10 + i))
+            block
+                .basicblock_addop(test_instr(Instruction::PopTop, 10 + i))
                 .expect("basicblock_addop succeeds");
         }
         assert_eq!(block.instruction_allocation, DEFAULT_BLOCK_SIZE);
 
         // CPython calls `_Py_CArray_EnsureCapacity(b_iused + 1)`, so the 16th
         // instruction expands a 16-slot array to 32 before returning offset 15.
-        basicblock_addop(&mut block, test_instr(Instruction::PopTop, 25))
+        block
+            .basicblock_addop(test_instr(Instruction::PopTop, 25))
             .expect("basicblock_addop succeeds");
         assert_eq!(block.instruction_allocation, DEFAULT_BLOCK_SIZE * 2);
     }
@@ -7264,7 +7269,8 @@ mod tests {
         test_block_push(&mut block, stale);
         block.instruction_used = 1;
 
-        basicblock_insert_instruction(&mut block, 0, test_instr(Instruction::PopTop, 23))
+        block
+            .basicblock_insert_instruction(0, test_instr(Instruction::PopTop, 23))
             .expect("basicblock_insert_instruction succeeds");
 
         // CPython `basicblock_insert_instruction()` also obtains a slot with
@@ -7285,8 +7291,9 @@ mod tests {
         stale.except_handler = Some(handler);
         test_block_push(&mut block, stale);
 
-        basicblock_clear(&mut block);
-        basicblock_addop(&mut block, test_instr(Instruction::Nop, 32))
+        block.basicblock_clear();
+        block
+            .basicblock_addop(test_instr(Instruction::Nop, 32))
             .expect("basicblock_addop succeeds");
 
         // CPython `remove_unreachable()` sets `b_iused = 0` without clearing the
@@ -7308,9 +7315,10 @@ mod tests {
             test_block_push(&mut block, stale);
         }
 
-        basicblock_clear(&mut block);
+        block.basicblock_clear();
         for i in 0..3 {
-            basicblock_addop(&mut block, test_instr(Instruction::PopTop, 38 + i))
+            block
+                .basicblock_addop(test_instr(Instruction::PopTop, 38 + i))
                 .expect("basicblock_addop succeeds");
         }
 
@@ -7340,7 +7348,7 @@ mod tests {
         let mut stale = test_instr(Instruction::Nop, 41);
         stale.except_handler = Some(handler);
         test_block_push(&mut blocks[0], stale);
-        basicblock_clear(&mut blocks[0]);
+        blocks[0].basicblock_clear();
 
         test_block_push(&mut blocks[1], test_instr(Instruction::PopTop, 42));
         blocks
@@ -7396,7 +7404,9 @@ mod tests {
             test_block_push(&mut block, info);
         }
 
-        apply_static_swaps_block(&mut block).expect("apply_static_swaps_block succeeds");
+        block
+            .apply_static_swaps_block()
+            .expect("apply_static_swaps_block succeeds");
 
         // CPython `next_swappable_instruction()` compares `i_loc.lineno`
         // directly, so a following NO_LOCATION swaperand does not match the
@@ -7425,7 +7435,9 @@ mod tests {
             test_block_push(&mut block, info);
         }
 
-        apply_static_swaps_block(&mut block).expect("apply_static_swaps_block succeeds");
+        block
+            .apply_static_swaps_block()
+            .expect("apply_static_swaps_block succeeds");
 
         // Conversely, when the first swaperand has NO_LOCATION, CPython passes
         // `-1` as the line filter and does not enforce a boundary.
@@ -7708,7 +7720,7 @@ mod tests {
         test_block_push(&mut blocks[0], test_cond_jump(BlockIdx::new(1), 10));
         test_block_push(&mut blocks[1], test_instr(Instruction::Nop, 20));
         blocks[1].instructions[0].lineno_override = Some(NO_LOCATION_OVERRIDE);
-        basicblock_clear(&mut blocks[1]);
+        blocks[1].basicblock_clear();
         test_block_push(&mut blocks[2], test_instr(Instruction::ReturnValue, 30));
 
         blocks
@@ -7731,10 +7743,10 @@ mod tests {
 
         // CPython `basicblock_has_no_lineno()` treats every negative lineno as
         // no line number, including `NEXT_LOCATION` (`lineno == -2`).
-        assert!(basicblock_has_no_lineno(&block));
+        assert!(block.basicblock_has_no_lineno());
 
         test_block_push(&mut block, test_instr(Instruction::PopTop, 11));
-        assert!(!basicblock_has_no_lineno(&block));
+        assert!(!block.basicblock_has_no_lineno());
     }
 
     #[test]
@@ -7763,7 +7775,7 @@ mod tests {
 
         // CPython `optimize_basic_block()` continues after `jump_thread()`, so
         // the appended jump is immediately checked against the next jump target.
-        let threaded = basicblock_last_instr(&blocks[0]).expect("threaded jump");
+        let threaded = blocks[0].basicblock_last_instr().expect("threaded jump");
         assert!(matches!(
             threaded.instr.pseudo(),
             Some(PseudoInstruction::Jump { .. })
