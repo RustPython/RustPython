@@ -414,9 +414,21 @@ impl GcState {
         };
 
         // Keep a CDPT guard during collection, following origin/gc's
-        // coarse-grained guarded collection experiment.
+        // coarse-grained guarded collection experiment. Run CDPT in cooperative
+        // mode so it never spawns a background collector thread: the guard here
+        // is only a barrier, and a background thread would make the process
+        // multi-threaded (breaking fork/signal semantics) and burn CPU while
+        // idle. Selecting the mode before this first `pin()` keeps the thread
+        // from being deployed at all.
         #[cfg(not(target_arch = "wasm32"))]
-        let _cdpt_guard = cdpt::pin();
+        let _cdpt_guard = {
+            // This is the only `cdpt::pin()` in the process, and the mode is
+            // selected right before it, so cooperative mode always latches and
+            // no background collector thread is ever deployed.
+            let cooperative = cdpt::global().set_collection_mode(cdpt::CollectionMode::Cooperative);
+            debug_assert!(cooperative, "CDPT must run in cooperative mode");
+            cdpt::pin()
+        };
 
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
