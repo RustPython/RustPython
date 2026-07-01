@@ -1413,6 +1413,183 @@ impl Block {
         indices.reverse();
         Ok(Some(indices))
     }
+
+    /// flowgraph.c next_swappable_instruction
+    fn next_swappable_instruction(&self, mut i: usize, lineno: i32) -> Option<usize> {
+        loop {
+            i += 1;
+            if i >= self.instruction_used {
+                return None;
+            }
+
+            let info = &self.instructions[i];
+            let info_lineno = instruction_lineno(info);
+
+            if lineno >= 0 && info_lineno != lineno {
+                return None;
+            }
+
+            if matches!(info.instr, AnyInstruction::Real(Instruction::Nop)) {
+                continue;
+            }
+
+            if is_swappable(info.instr) {
+                return Some(i);
+            }
+
+            return None;
+        }
+    }
+
+    /// flowgraph.c swaptimize
+    fn swaptimize(&mut self, ix: &mut usize) -> crate::InternalResult<()> {
+        debug_assert!(matches!(
+            self.instructions[*ix].instr.real_opcode(),
+            Some(Opcode::Swap)
+        ));
+        let mut depth = u32::from(self.instructions[*ix].arg) as usize;
+        let mut len = 1usize;
+        let mut more = false;
+        let limit = self.instruction_used - *ix;
+        while len < limit {
+            match self.instructions[*ix + len].instr.real_opcode() {
+                Some(Opcode::Swap) => {
+                    depth = depth.max(u32::from(self.instructions[*ix + len].arg) as usize);
+                    more = true;
+                    len += 1;
+                }
+                Some(Opcode::Nop) => {
+                    len += 1;
+                }
+                _ => break,
+            }
+        }
+
+        if !more {
+            return Ok(());
+        }
+
+        let mut stack = Vec::new();
+        stack
+            .try_reserve_exact(depth)
+            .map_err(|_| InternalError::MalformedControlFlowGraph)?;
+        stack.resize(depth, 0);
+        let mut i = 0;
+        while i < depth {
+            stack[i] = i as i32;
+            i += 1;
+        }
+
+        i = 0;
+        while i < len {
+            let info = &self.instructions[*ix + i];
+            if matches!(info.instr.real_opcode(), Some(Opcode::Swap)) {
+                let oparg = u32::from(info.arg) as usize;
+                stack.swap(0, oparg - 1);
+            }
+            i += 1;
+        }
+
+        let mut current = len as isize - 1;
+        for i in 0..depth {
+            if stack[i] == VISITED || stack[i] == i as i32 {
+                continue;
+            }
+            let mut j = i;
+            loop {
+                if j != 0 {
+                    debug_assert!(current >= 0);
+                    let out = &mut self.instructions[*ix + current as usize];
+                    out.instr = Opcode::Swap.into();
+                    out.arg = OpArg::new((j + 1) as u32);
+                    current -= 1;
+                }
+                if stack[j] == VISITED {
+                    debug_assert_eq!(j, i);
+                    break;
+                }
+                let next_j = stack[j] as usize;
+                stack[j] = VISITED;
+                j = next_j;
+            }
+        }
+
+        while current >= 0 {
+            set_to_nop(&mut self.instructions[*ix + current as usize]);
+            current -= 1;
+        }
+        *ix += len - 1;
+        Ok(())
+    }
+
+    /// flowgraph.c apply_static_swaps
+    fn apply_static_swaps(&mut self, mut i: isize) {
+        while i >= 0 {
+            let idx = i as usize;
+            debug_assert!(idx < self.instruction_used);
+            let swap_arg = match self.instructions[idx].instr.real_opcode() {
+                Some(Opcode::Swap) => u32::from(self.instructions[idx].arg),
+                Some(Opcode::Nop | Opcode::PopTop | Opcode::StoreFast) => {
+                    i -= 1;
+                    continue;
+                }
+                _ if matches!(
+                    self.instructions[idx].instr.pseudo_opcode(),
+                    Some(PseudoOpcode::StoreFastMaybeNull)
+                ) =>
+                {
+                    i -= 1;
+                    continue;
+                }
+                _ => return,
+            };
+
+            let Some(j) = self.next_swappable_instruction(idx, -1) else {
+                return;
+            };
+            let lineno = instruction_lineno(&self.instructions[j]);
+            let mut k = j;
+            for _ in 1..swap_arg {
+                let Some(next) = self.next_swappable_instruction(k, lineno) else {
+                    return;
+                };
+                k = next;
+            }
+
+            let store_j = stores_to(&self.instructions[j]);
+            let store_k = stores_to(&self.instructions[k]);
+            if store_j >= 0 || store_k >= 0 {
+                if store_j == store_k {
+                    return;
+                }
+                let mut idx = j + 1;
+                while idx < k {
+                    let store_idx = stores_to(&self.instructions[idx]);
+                    if store_idx >= 0 && (store_idx == store_j || store_idx == store_k) {
+                        return;
+                    }
+                    idx += 1;
+                }
+            }
+
+            set_to_nop(&mut self.instructions[idx]);
+            self.instructions.swap(j, k);
+            i -= 1;
+        }
+    }
+
+    /// flowgraph.c optimize_basic_block swap pass
+    fn apply_static_swaps_block(&mut self) -> crate::InternalResult<()> {
+        let mut i = 0;
+        while i < self.instruction_used {
+            if matches!(self.instructions[i].instr.real_opcode(), Some(Opcode::Swap)) {
+                self.swaptimize(&mut i)?;
+                self.apply_static_swaps(i as isize);
+            }
+            i += 1;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1840,7 +2017,7 @@ impl Blocks {
 
             i += 1;
         }
-        apply_static_swaps_block(&mut self[block_idx])?;
+        self[block_idx].apply_static_swaps_block()?;
         Ok(())
     }
 
@@ -5056,186 +5233,6 @@ fn stores_to(info: &InstructionInfo) -> i32 {
         | AnyOpcode::Pseudo(PseudoOpcode::StoreFastMaybeNull) => u32::from(info.arg) as i32,
         _ => -1,
     }
-}
-
-/// flowgraph.c next_swappable_instruction
-fn next_swappable_instruction(block: &Block, mut i: usize, lineno: i32) -> Option<usize> {
-    loop {
-        i += 1;
-        if i >= block.instruction_used {
-            return None;
-        }
-
-        let info = &block.instructions[i];
-        let info_lineno = instruction_lineno(info);
-
-        if lineno >= 0 && info_lineno != lineno {
-            return None;
-        }
-
-        if matches!(info.instr, AnyInstruction::Real(Instruction::Nop)) {
-            continue;
-        }
-
-        if is_swappable(info.instr) {
-            return Some(i);
-        }
-
-        return None;
-    }
-}
-
-/// flowgraph.c swaptimize
-fn swaptimize(block: &mut Block, ix: &mut usize) -> crate::InternalResult<()> {
-    debug_assert!(matches!(
-        block.instructions[*ix].instr.real_opcode(),
-        Some(Opcode::Swap)
-    ));
-    let mut depth = u32::from(block.instructions[*ix].arg) as usize;
-    let mut len = 1usize;
-    let mut more = false;
-    let limit = block.instruction_used - *ix;
-    while len < limit {
-        match block.instructions[*ix + len].instr.real_opcode() {
-            Some(Opcode::Swap) => {
-                depth = depth.max(u32::from(block.instructions[*ix + len].arg) as usize);
-                more = true;
-                len += 1;
-            }
-            Some(Opcode::Nop) => {
-                len += 1;
-            }
-            _ => break,
-        }
-    }
-
-    if !more {
-        return Ok(());
-    }
-
-    let mut stack = Vec::new();
-    stack
-        .try_reserve_exact(depth)
-        .map_err(|_| InternalError::MalformedControlFlowGraph)?;
-    stack.resize(depth, 0);
-    let mut i = 0;
-    while i < depth {
-        stack[i] = i as i32;
-        i += 1;
-    }
-
-    i = 0;
-    while i < len {
-        let info = &block.instructions[*ix + i];
-        if matches!(info.instr.real_opcode(), Some(Opcode::Swap)) {
-            let oparg = u32::from(info.arg) as usize;
-            stack.swap(0, oparg - 1);
-        }
-        i += 1;
-    }
-
-    let mut current = len as isize - 1;
-    for i in 0..depth {
-        if stack[i] == VISITED || stack[i] == i as i32 {
-            continue;
-        }
-        let mut j = i;
-        loop {
-            if j != 0 {
-                debug_assert!(current >= 0);
-                let out = &mut block.instructions[*ix + current as usize];
-                out.instr = Opcode::Swap.into();
-                out.arg = OpArg::new((j + 1) as u32);
-                current -= 1;
-            }
-            if stack[j] == VISITED {
-                debug_assert_eq!(j, i);
-                break;
-            }
-            let next_j = stack[j] as usize;
-            stack[j] = VISITED;
-            j = next_j;
-        }
-    }
-
-    while current >= 0 {
-        set_to_nop(&mut block.instructions[*ix + current as usize]);
-        current -= 1;
-    }
-    *ix += len - 1;
-    Ok(())
-}
-
-/// flowgraph.c apply_static_swaps
-fn apply_static_swaps(block: &mut Block, mut i: isize) {
-    while i >= 0 {
-        let idx = i as usize;
-        debug_assert!(idx < block.instruction_used);
-        let swap_arg = match block.instructions[idx].instr.real_opcode() {
-            Some(Opcode::Swap) => u32::from(block.instructions[idx].arg),
-            Some(Opcode::Nop | Opcode::PopTop | Opcode::StoreFast) => {
-                i -= 1;
-                continue;
-            }
-            _ if matches!(
-                block.instructions[idx].instr.pseudo_opcode(),
-                Some(PseudoOpcode::StoreFastMaybeNull)
-            ) =>
-            {
-                i -= 1;
-                continue;
-            }
-            _ => return,
-        };
-
-        let Some(j) = next_swappable_instruction(block, idx, -1) else {
-            return;
-        };
-        let lineno = instruction_lineno(&block.instructions[j]);
-        let mut k = j;
-        for _ in 1..swap_arg {
-            let Some(next) = next_swappable_instruction(block, k, lineno) else {
-                return;
-            };
-            k = next;
-        }
-
-        let store_j = stores_to(&block.instructions[j]);
-        let store_k = stores_to(&block.instructions[k]);
-        if store_j >= 0 || store_k >= 0 {
-            if store_j == store_k {
-                return;
-            }
-            let mut idx = j + 1;
-            while idx < k {
-                let store_idx = stores_to(&block.instructions[idx]);
-                if store_idx >= 0 && (store_idx == store_j || store_idx == store_k) {
-                    return;
-                }
-                idx += 1;
-            }
-        }
-
-        set_to_nop(&mut block.instructions[idx]);
-        block.instructions.swap(j, k);
-        i -= 1;
-    }
-}
-
-/// flowgraph.c optimize_basic_block swap pass
-fn apply_static_swaps_block(block: &mut Block) -> crate::InternalResult<()> {
-    let mut i = 0;
-    while i < block.instruction_used {
-        if matches!(
-            block.instructions[i].instr.real_opcode(),
-            Some(Opcode::Swap)
-        ) {
-            swaptimize(block, &mut i)?;
-            apply_static_swaps(block, i as isize);
-        }
-        i += 1;
-    }
-    Ok(())
 }
 
 /// flowgraph.c maybe_instr_make_load_smallint
