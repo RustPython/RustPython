@@ -1401,6 +1401,8 @@ class MathTests(unittest.TestCase):
         self.assertEqual(sumprod([True, False] * 10, [0.1] * 20), 1.0)
         self.assertEqual(sumprod([1.0, 10E100, 1.0, -10E100], [1.0]*4), 2.0)
 
+    # TODO: RUSTPYTHON; this CPU stress test times out on Windows CI.
+    @unittest.skipIf(sys.platform == "win32", "TODO: RUSTPYTHON; times out on Windows CI")
     @support.requires_resource('cpu')
     def test_sumprod_stress(self):
         sumprod = math.sumprod

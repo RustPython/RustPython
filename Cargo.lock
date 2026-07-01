@@ -100,7 +100,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -111,7 +111,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -469,8 +469,7 @@ dependencies = [
 [[package]]
 name = "cdpt"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d0eb396bf1dacfc5f92972e6d9d5dec3b11ef6e8e6fa84f161554158662aafe"
+source = "git+https://github.com/youknowone/cdpt?rev=125a2a4c6c5ed3ba4f2550eeb8a3d44b71716a80#125a2a4c6c5ed3ba4f2550eeb8a3d44b71716a80"
 dependencies = [
  "arrayvec",
  "cdpt-derive",
@@ -486,8 +485,7 @@ dependencies = [
 [[package]]
 name = "cdpt-derive"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83bb6b4d5cec861158c8e0e2037f0a94afd01a7739dc118510c854b8f31f14b7"
+source = "git+https://github.com/youknowone/cdpt?rev=125a2a4c6c5ed3ba4f2550eeb8a3d44b71716a80#125a2a4c6c5ed3ba4f2550eeb8a3d44b71716a80"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1210,7 +1208,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2011,7 +2009,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "160f2eade097f30263b548aae5deb12ad349c909baa710fa24b92c9090b2e006"
 dependencies = [
  "scopeguard",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4264,7 +4262,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52d1cfed4120b4d927bf7c0f86d2087a4a7d6027c906d9f9d525a80573b9be51"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
