@@ -1,6 +1,6 @@
 mod instructions;
 
-extern crate alloc
+extern crate alloc;
 use alloc::alloc::{Layout, alloc, handle_alloc_error};
 use alloc::fmt;
 use core::mem::ManuallyDrop;
@@ -413,41 +413,6 @@ impl<'a> ArgsBuilder<'a> {
         }
         Some(Args {
             values: self.values.into_iter().map(|v| v.unwrap()).collect(),
-            code: self.code,
-        })
-    }
-}
-
-pub struct Args<'a> {
-    values: Vec<AbiValue>,
-    code: &'a CompiledCode,
-}
-
-impl Args<'_> {
-    #[must_use]
-    pub fn invoke(&self) -> Option<AbiValue> {
-        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
-        unsafe { self.code.invoke_raw(&cif_args) }
-    }
-}
-es: self.values.into_iter().map(|v| v.unwrap()).collect(),
-            code: self.code,
-        })
-    }
-}
-
-pub struct Args<'a> {
-    values: Vec<AbiValue>,
-    code: &'a CompiledCode,
-}
-
-impl Args<'_> {
-    #[must_use]
-    pub fn invoke(&self) -> Option<AbiValue> {
-        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
-        unsafe { self.code.invoke_raw(&cif_args) }
-    }
-}: self.values.into_iter().map(|v| v.unwrap()).collect(),
             code: self.code,
         })
     }
