@@ -161,7 +161,7 @@ impl SymbolTable {
             .or_insert_with(|| Symbol::new(name));
         symbol
             .flags
-            .insert(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED);
+            .insert(SymbolFlags::DEF_PARAM | SymbolFlags::USE);
         if !self.varnames.iter().any(|varname| varname == name) {
             self.varnames.push(name.to_owned());
         }
@@ -289,18 +289,11 @@ impl From<SymbolScope> for i32 {
 bitflags! {
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct SymbolFlags: u16 {
-        const REFERENCED = 0x001;  // USE
-        const ASSIGNED = 0x002;    // DEF_LOCAL
-        const PARAMETER = 0x004;   // DEF_PARAM
-        const ANNOTATED = 0x008;   // DEF_ANNOT
-        const IMPORTED = 0x010;    // DEF_IMPORT
-        const NONLOCAL = 0x020;    // DEF_NONLOCAL
-        // indicates if the symbol gets a value assigned by a named expression in a comprehension
-        // this is required to correct the scope in the analysis.
-        const ASSIGNED_IN_COMPREHENSION = 0x040;
-        // indicates that the symbol is used a bound iterator variable. We distinguish this case
-        // from normal assignment to detect disallowed re-assignment to iterator variables.
-        const ITER = 0x080;
+        const DEF_GLOBAL   = 1;
+        const DEF_LOCAL    = 2;
+        const DEF_PARAM    = 2 << 1;
+        const DEF_NONLOCAL = 2 << 2;
+        const USE          = 2 << 3;
         /// indicates that the symbol is a free variable in a class method from the scope that the
         /// class is defined in, e.g.:
         /// ```python
@@ -309,12 +302,29 @@ bitflags! {
         ///         def method(self):
         ///             return x // is_free_class
         /// ```
-        const FREE_CLASS = 0x100;  // DEF_FREE_CLASS
-        const GLOBAL = 0x200;      // DEF_GLOBAL
-        const COMP_ITER = 0x400;   // DEF_COMP_ITER
-        const COMP_CELL = 0x800;   // DEF_COMP_CELL
-        const TYPE_PARAM = 0x1000; // DEF_TYPE_PARAM
-        const BOUND = Self::ASSIGNED.bits() | Self::PARAMETER.bits() | Self::IMPORTED.bits() | Self::ITER.bits() | Self::TYPE_PARAM.bits();
+        const DEF_FREE_CLASS = 2 << 5;
+        const DEF_IMPORT     = 2 << 6;
+        const DEF_ANNOT      = 2 << 7;
+        const DEF_COMP_ITER  = 2 << 8;
+        const DEF_TYPE_PARAM = 2 << 9;
+        const DEF_COMP_CELL  = 2 << 10;
+        const DEF_BOUND = (
+            Self::DEF_LOCAL.bits()
+            | Self::DEF_PARAM.bits()
+            | Self::DEF_IMPORT.bits()
+            | Self::ITER.bits()
+            | Self::DEF_TYPE_PARAM.bits()
+        );
+
+
+        // TODO: Remove these, RustPython specific
+
+        // indicates if the symbol gets a value assigned by a named expression in a comprehension
+        // this is required to correct the scope in the analysis.
+        const ASSIGNED_IN_COMPREHENSION = 2 << 11;
+        // indicates that the symbol is used a bound iterator variable. We distinguish this case
+        // from normal assignment to detect disallowed re-assignment to iterator variables.
+        const ITER = 2 << 12;
     }
 }
 
@@ -354,7 +364,7 @@ impl Symbol {
 
     #[must_use]
     pub const fn is_bound(&self) -> bool {
-        self.flags.intersects(SymbolFlags::BOUND)
+        self.flags.intersects(SymbolFlags::DEF_BOUND)
     }
 }
 
@@ -443,13 +453,13 @@ fn inline_comprehension(
     let mut removed_class_implicits = IndexSet::default();
     for (name, sub_symbol) in &comp.symbols {
         // Skip the .0 parameter
-        if sub_symbol.flags.contains(SymbolFlags::PARAMETER) {
+        if sub_symbol.flags.contains(SymbolFlags::DEF_PARAM) {
             continue;
         }
 
         // Track inlined cells
         if sub_symbol.scope == SymbolScope::Cell
-            || sub_symbol.flags.contains(SymbolFlags::COMP_CELL)
+            || sub_symbol.flags.contains(SymbolFlags::DEF_COMP_CELL)
         {
             inlined_cells.insert(name.clone());
         }
@@ -707,7 +717,7 @@ impl SymbolTableAnalyzer {
 
         for symbol in symbol_table.symbols.values_mut() {
             if inlined_cells.contains(&symbol.name) {
-                symbol.flags.insert(SymbolFlags::COMP_CELL);
+                symbol.flags.insert(SymbolFlags::DEF_COMP_CELL);
             }
         }
 
@@ -730,7 +740,9 @@ impl SymbolTableAnalyzer {
             }
 
             // Collect free variables from this scope
-            if symbol.scope == SymbolScope::Free || symbol.flags.contains(SymbolFlags::FREE_CLASS) {
+            if symbol.scope == SymbolScope::Free
+                || symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
+            {
                 newfree.insert(symbol.name.clone());
             }
         }
@@ -763,7 +775,7 @@ impl SymbolTableAnalyzer {
         if symbol_table.typ == CompilerScope::Class || symbol_table.can_see_class_scope {
             for name in &newfree {
                 if let Some(symbol) = symbol_table.symbols.get_mut(name) {
-                    symbol.flags.insert(SymbolFlags::FREE_CLASS);
+                    symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                 }
             }
         }
@@ -797,10 +809,10 @@ impl SymbolTableAnalyzer {
                         });
                     }
                     // Check if the nonlocal binding refers to a type parameter
-                    if symbol.flags.contains(SymbolFlags::NONLOCAL) {
+                    if symbol.flags.contains(SymbolFlags::DEF_NONLOCAL) {
                         for (symbols, _typ, _skip) in self.tables.iter().rev() {
                             if let Some(sym) = symbols.get(&symbol.name) {
-                                if sym.flags.contains(SymbolFlags::TYPE_PARAM) {
+                                if sym.flags.contains(SymbolFlags::DEF_TYPE_PARAM) {
                                     return Err(SymbolTableError {
                                         error: format!(
                                             "nonlocal binding not allowed for type parameter '{}'",
@@ -830,7 +842,7 @@ impl SymbolTableAnalyzer {
             SymbolScope::Unknown => {
                 // Try hard to figure out what the scope of this symbol is.
                 let scope = if symbol.is_bound() {
-                    if symbol.flags.contains(SymbolFlags::COMP_CELL)
+                    if symbol.flags.contains(SymbolFlags::DEF_COMP_CELL)
                         && matches!(st_typ, CompilerScope::Module | CompilerScope::Class)
                     {
                         // CPython keeps comprehension-only cells in
@@ -846,7 +858,7 @@ impl SymbolTableAnalyzer {
                 } else if let Some(scope) = class_entry
                     .and_then(|class_symbols| class_symbols.get(&symbol.name))
                     .and_then(|class_sym| {
-                        if class_sym.flags.contains(SymbolFlags::GLOBAL) {
+                        if class_sym.flags.contains(SymbolFlags::DEF_GLOBAL) {
                             Some(SymbolScope::GlobalExplicit)
                         } else if class_sym.is_bound() && class_sym.scope != SymbolScope::Free {
                             // If name is bound in enclosing class, use GlobalImplicit
@@ -947,10 +959,10 @@ impl SymbolTableAnalyzer {
             for (table, typ, _skip) in self.tables.iter_mut().rev().take(decl_depth) {
                 if let CompilerScope::Class = typ {
                     if let Some(free_class) = table.get_mut(name) {
-                        free_class.flags.insert(SymbolFlags::FREE_CLASS)
+                        free_class.flags.insert(SymbolFlags::DEF_FREE_CLASS)
                     } else {
                         let mut symbol = Symbol::new(name);
-                        symbol.flags.insert(SymbolFlags::FREE_CLASS);
+                        symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                         symbol.scope = SymbolScope::Free;
                         table.insert(name.to_owned(), symbol);
                     }
@@ -989,7 +1001,7 @@ impl SymbolTableAnalyzer {
             }
             let sym = st.symbols.get(name)?;
             if sym.scope == SymbolScope::Free
-                || (sym.flags.contains(SymbolFlags::FREE_CLASS)
+                || (sym.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     && !matches!(st_typ, CompilerScope::Module))
             {
                 if st_typ == CompilerScope::Class && name != "__class__" {
@@ -1307,7 +1319,7 @@ impl SymbolTableBuilder {
         symbol.scope = SymbolScope::Free;
         symbol
             .flags
-            .insert(SymbolFlags::REFERENCED | SymbolFlags::FREE_CLASS);
+            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
     }
 
     fn add_conditional_annotations_freevar(&mut self) {
@@ -1320,7 +1332,7 @@ impl SymbolTableBuilder {
         symbol.scope = SymbolScope::Free;
         symbol
             .flags
-            .insert(SymbolFlags::REFERENCED | SymbolFlags::FREE_CLASS);
+            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
     }
 
     /// Walk up the scope chain to determine if we're inside an async function.
@@ -1834,9 +1846,11 @@ impl SymbolTableBuilder {
                                     .last()
                                     .is_some_and(|table| table.typ != CompilerScope::Module)
                                     && let Some(flags) = existing_flags
-                                    && flags.intersects(SymbolFlags::GLOBAL | SymbolFlags::NONLOCAL)
+                                    && flags.intersects(
+                                        SymbolFlags::DEF_GLOBAL | SymbolFlags::DEF_NONLOCAL,
+                                    )
                                 {
-                                    let usage = if flags.contains(SymbolFlags::GLOBAL) {
+                                    let usage = if flags.contains(SymbolFlags::DEF_GLOBAL) {
                                         "global"
                                     } else {
                                         "nonlocal"
@@ -3106,17 +3120,17 @@ impl SymbolTableBuilder {
                     let parent_is_global = self.tables[table_idx]
                         .symbols
                         .get(mangled.as_str())
-                        .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
+                        .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::DEF_GLOBAL));
                     let current = self.tables.last_mut().unwrap();
                     let current_symbol = current
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
                     if parent_is_global {
-                        current_symbol.flags.insert(SymbolFlags::GLOBAL);
+                        current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                         current_symbol.scope = SymbolScope::GlobalExplicit;
                     } else {
-                        current_symbol.flags.insert(SymbolFlags::NONLOCAL);
+                        current_symbol.flags.insert(SymbolFlags::DEF_NONLOCAL);
                         current_symbol.scope = SymbolScope::Free;
                     }
 
@@ -3124,7 +3138,7 @@ impl SymbolTableBuilder {
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
-                    symbol.flags.insert(SymbolFlags::ASSIGNED);
+                    symbol.flags.insert(SymbolFlags::DEF_LOCAL);
                     return Ok(());
                 }
                 CompilerScope::Module => {
@@ -3133,14 +3147,14 @@ impl SymbolTableBuilder {
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
-                    current_symbol.flags.insert(SymbolFlags::GLOBAL);
+                    current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                     current_symbol.scope = SymbolScope::GlobalExplicit;
 
                     let symbol = self.tables[table_idx]
                         .symbols
                         .entry(mangled.clone())
                         .or_insert_with(|| Symbol::new(mangled.as_str()));
-                    symbol.flags.insert(SymbolFlags::GLOBAL);
+                    symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                     symbol.scope = SymbolScope::GlobalExplicit;
                     return Ok(());
                 }
@@ -3249,7 +3263,7 @@ impl SymbolTableBuilder {
             if matches!(
                 role,
                 SymbolUsage::Parameter | SymbolUsage::AnnotationParameter
-            ) && flags.contains(SymbolFlags::PARAMETER)
+            ) && flags.contains(SymbolFlags::DEF_PARAM)
             {
                 return Err(SymbolTableError {
                     error: format!("duplicate argument '{original_name}' in function definition"),
@@ -3258,7 +3272,8 @@ impl SymbolTableBuilder {
             }
 
             // Role already set..
-            if matches!(role, SymbolUsage::TypeParam) && flags.contains(SymbolFlags::TYPE_PARAM) {
+            if matches!(role, SymbolUsage::TypeParam) && flags.contains(SymbolFlags::DEF_TYPE_PARAM)
+            {
                 return Err(SymbolTableError {
                     error: format!("duplicate type parameter '{name}'"),
                     location,
@@ -3266,25 +3281,25 @@ impl SymbolTableBuilder {
             }
             match role {
                 SymbolUsage::Global if !symbol.is_global() => {
-                    if flags.contains(SymbolFlags::PARAMETER) {
+                    if flags.contains(SymbolFlags::DEF_PARAM) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and global"),
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::REFERENCED) {
+                    if flags.contains(SymbolFlags::USE) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to global declaration"),
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ANNOTATED) {
+                    if flags.contains(SymbolFlags::DEF_ANNOT) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be global"),
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ASSIGNED) {
+                    if flags.contains(SymbolFlags::DEF_LOCAL) {
                         return Err(SymbolTableError {
                             error: format!(
                                 "name '{name}' is assigned to before global declaration"
@@ -3294,25 +3309,25 @@ impl SymbolTableBuilder {
                     }
                 }
                 SymbolUsage::Nonlocal => {
-                    if flags.contains(SymbolFlags::PARAMETER) {
+                    if flags.contains(SymbolFlags::DEF_PARAM) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and nonlocal"),
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::REFERENCED) {
+                    if flags.contains(SymbolFlags::USE) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to nonlocal declaration"),
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ANNOTATED) {
+                    if flags.contains(SymbolFlags::DEF_ANNOT) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be nonlocal"),
                             location,
                         });
                     }
-                    if flags.contains(SymbolFlags::ASSIGNED) {
+                    if flags.contains(SymbolFlags::DEF_LOCAL) {
                         return Err(SymbolTableError {
                             error: format!(
                                 "name '{name}' is assigned to before nonlocal declaration"
@@ -3323,9 +3338,10 @@ impl SymbolTableBuilder {
                 }
                 SymbolUsage::AnnotationAssigned
                     if current_scope != CompilerScope::Module
-                        && flags.intersects(SymbolFlags::GLOBAL | SymbolFlags::NONLOCAL) =>
+                        && flags
+                            .intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::DEF_NONLOCAL) =>
                 {
-                    let usage = if flags.contains(SymbolFlags::GLOBAL) {
+                    let usage = if flags.contains(SymbolFlags::DEF_GLOBAL) {
                         "global"
                     } else {
                         "nonlocal"
@@ -3368,13 +3384,13 @@ impl SymbolTableBuilder {
         match role {
             SymbolUsage::Nonlocal => {
                 symbol.scope = SymbolScope::Free;
-                flags.insert(SymbolFlags::NONLOCAL);
+                flags.insert(SymbolFlags::DEF_NONLOCAL);
             }
             SymbolUsage::Imported => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::IMPORTED);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_IMPORT);
             }
             SymbolUsage::Parameter => {
-                flags.insert(SymbolFlags::PARAMETER);
+                flags.insert(SymbolFlags::DEF_PARAM);
                 // Parameters are always added to varnames first
                 let name_str = symbol.name.clone();
                 if !self.current_varnames.contains(&name_str) {
@@ -3382,7 +3398,7 @@ impl SymbolTableBuilder {
                 }
             }
             SymbolUsage::AnnotationParameter => {
-                flags.insert(SymbolFlags::PARAMETER | SymbolFlags::ANNOTATED);
+                flags.insert(SymbolFlags::DEF_PARAM | SymbolFlags::DEF_ANNOT);
                 // Annotated parameters are also added to varnames
                 let name_str = symbol.name.clone();
                 if !self.current_varnames.contains(&name_str) {
@@ -3390,26 +3406,26 @@ impl SymbolTableBuilder {
                 }
             }
             SymbolUsage::AnnotationAssigned => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ANNOTATED);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_ANNOT);
             }
             SymbolUsage::Assigned => {
-                flags.insert(SymbolFlags::ASSIGNED);
+                flags.insert(SymbolFlags::DEF_LOCAL);
             }
             SymbolUsage::AssignedNamedExprInComprehension => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
             }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
-                flags.insert(SymbolFlags::GLOBAL);
+                flags.insert(SymbolFlags::DEF_GLOBAL);
             }
             SymbolUsage::Used => {
-                flags.insert(SymbolFlags::REFERENCED);
+                flags.insert(SymbolFlags::USE);
             }
             SymbolUsage::Iter => {
-                flags.insert(SymbolFlags::ITER | SymbolFlags::COMP_ITER);
+                flags.insert(SymbolFlags::ITER | SymbolFlags::DEF_COMP_ITER);
             }
             SymbolUsage::TypeParam => {
-                flags.insert(SymbolFlags::ASSIGNED | SymbolFlags::TYPE_PARAM);
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_TYPE_PARAM);
             }
         }
 
@@ -3558,7 +3574,7 @@ mod tests {
             .expect("missing comprehension iteration target");
 
         assert!(
-            symbol.flags.contains(SymbolFlags::COMP_ITER),
+            symbol.flags.contains(SymbolFlags::DEF_COMP_ITER),
             "CPython symtable_add_def_helper sets DEF_COMP_ITER on comprehension iteration targets"
         );
     }
@@ -3621,7 +3637,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED),
+                .contains(SymbolFlags::DEF_PARAM | SymbolFlags::USE),
             "CPython symtable_enter_block() adds both DEF_PARAM and USE for annotation-like .format"
         );
 
@@ -3637,7 +3653,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED),
+                .contains(SymbolFlags::DEF_PARAM | SymbolFlags::USE),
             "CPython TypeAliasBlock .format has DEF_PARAM | USE"
         );
 
@@ -3658,7 +3674,7 @@ mod tests {
         assert!(
             format
                 .flags
-                .contains(SymbolFlags::PARAMETER | SymbolFlags::REFERENCED),
+                .contains(SymbolFlags::DEF_PARAM | SymbolFlags::USE),
             "CPython TypeVariableBlock .format has DEF_PARAM | USE"
         );
     }
