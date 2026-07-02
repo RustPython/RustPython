@@ -1,7 +1,7 @@
 mod instructions;
 
-extern crate alloc;
-
+extern crate alloc
+use alloc::alloc::{Layout, alloc, handle_alloc_error};
 use alloc::fmt;
 use core::mem::ManuallyDrop;
 use cranelift::prelude::*;
@@ -36,20 +36,42 @@ pub enum JitArgumentError {
     WrongNumberOfArguments,
 }
 
+/// Allocates a tuple in the heap and returns it's pointer, Unsafe function
+extern "C" fn jit_alloc_tuple(len: i64) -> i64 {
+    let layout = Layout::array::<i64>(len as usize + 1).unwrap();
+    let ptr = unsafe { alloc(layout) };
+    if ptr.is_null() {
+        handle_alloc_error(layout);
+    }
+    unsafe {
+        *(ptr as *mut i64) = len;
+    }
+    ptr as i64
+}
+
 struct Jit {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
+    alloc_func_id: FuncId,
     module: JITModule,
 }
 
 impl Jit {
     fn new() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names())
+        let mut builder = JITBuilder::new(cranelift_module::default_libcall_names())
             .expect("Failed to build JITBuilder");
-        let module = JITModule::new(builder);
+        builder.symbol("jit_alloc_tuple", jit_alloc_tuple as *const u8);
+        let mut module = JITModule::new(builder);
+        let mut alloc_sig = Signature::new(module.target_config().default_call_conv);
+        alloc_sig.params.push(AbiParam::new(types::I64));
+        alloc_sig.returns.push(AbiParam::new(types::I64));
+        let alloc_func_id = module
+            .declare_function("jit_alloc_tuple", Linkage::Import, &alloc_sig)
+            .expect("Failed to declare jit_alloc_tuple");
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
+            alloc_func_id,
             module,
         }
     }
@@ -83,6 +105,9 @@ impl Jit {
         )?;
 
         let func_ref = self.module.declare_func_in_func(id, &mut self.ctx.func);
+        let alloc_func_ref = self
+            .module
+            .declare_func_in_func(self.alloc_func_id, &mut self.ctx.func);
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let entry_block = builder.create_block();
@@ -96,6 +121,7 @@ impl Jit {
                 args,
                 ret,
                 entry_block,
+                alloc_func_ref,
             );
 
             compiler.compile(func_ref, bytecode)?;
@@ -193,6 +219,7 @@ pub enum JitType {
     Int,
     Float,
     Bool,
+    Object,
 }
 
 impl JitType {
@@ -201,6 +228,7 @@ impl JitType {
             Self::Int => types::I64,
             Self::Float => types::F64,
             Self::Bool => types::I8,
+            Self::Object => types::I64,
         }
     }
 
@@ -209,6 +237,7 @@ impl JitType {
             Self::Int => libffi::middle::Type::i64(),
             Self::Float => libffi::middle::Type::f64(),
             Self::Bool => libffi::middle::Type::u8(),
+            Self::Object => libffi::middle::Type::pointer(),
         }
     }
 }
@@ -219,6 +248,7 @@ pub enum AbiValue {
     Float(f64),
     Int(i64),
     Bool(bool),
+    Object(usize),
 }
 
 impl AbiValue {
@@ -227,6 +257,7 @@ impl AbiValue {
             Self::Int(i) => libffi::middle::Arg::new(i),
             Self::Float(f) => libffi::middle::Arg::new(f),
             Self::Bool(b) => libffi::middle::Arg::new(b),
+            Self::Object(p) => libffi::middle::Arg::new(p),
         }
     }
 }
@@ -246,6 +277,12 @@ impl From<f64> for AbiValue {
 impl From<bool> for AbiValue {
     fn from(b: bool) -> Self {
         Self::Bool(b)
+    }
+}
+
+impl From<usize> for AbiValue {
+    fn from(p: usize) -> Self {
+        Self::Object(p)
     }
 }
 
@@ -282,11 +319,23 @@ impl TryFrom<AbiValue> for bool {
     }
 }
 
+impl TryFrom<AbiValue> for usize {
+    type Error = ();
+
+    fn try_from(value: AbiValue) -> Result<Self, Self::Error> {
+        match value {
+            AbiValue::Object(p) => Ok(p),
+            _ => Err(()),
+        }
+    }
+}
+
 fn type_check(ty: &JitType, val: &AbiValue) -> Result<(), JitArgumentError> {
     match (ty, val) {
         (JitType::Int, AbiValue::Int(_))
         | (JitType::Float, AbiValue::Float(_))
-        | (JitType::Bool, AbiValue::Bool(_)) => Ok(()),
+        | (JitType::Bool, AbiValue::Bool(_))
+        | (JitType::Object, AbiValue::Object(_)) => Ok(()),
         _ => Err(JitArgumentError::ArgumentTypeMismatch),
     }
 }
@@ -296,6 +345,7 @@ union UnTypedAbiValue {
     float: f64,
     int: i64,
     boolean: u8,
+    object: usize,
     _void: (),
 }
 
@@ -306,6 +356,7 @@ impl UnTypedAbiValue {
                 JitType::Int => AbiValue::Int(self.int),
                 JitType::Float => AbiValue::Float(self.float),
                 JitType::Bool => AbiValue::Bool(self.boolean != 0),
+                JitType::Object => AbiValue::Object(self.object),
             }
         }
     }
@@ -362,6 +413,41 @@ impl<'a> ArgsBuilder<'a> {
         }
         Some(Args {
             values: self.values.into_iter().map(|v| v.unwrap()).collect(),
+            code: self.code,
+        })
+    }
+}
+
+pub struct Args<'a> {
+    values: Vec<AbiValue>,
+    code: &'a CompiledCode,
+}
+
+impl Args<'_> {
+    #[must_use]
+    pub fn invoke(&self) -> Option<AbiValue> {
+        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
+        unsafe { self.code.invoke_raw(&cif_args) }
+    }
+}
+es: self.values.into_iter().map(|v| v.unwrap()).collect(),
+            code: self.code,
+        })
+    }
+}
+
+pub struct Args<'a> {
+    values: Vec<AbiValue>,
+    code: &'a CompiledCode,
+}
+
+impl Args<'_> {
+    #[must_use]
+    pub fn invoke(&self) -> Option<AbiValue> {
+        let cif_args: Vec<_> = self.values.iter().map(AbiValue::to_libffi_arg).collect();
+        unsafe { self.code.invoke_raw(&cif_args) }
+    }
+}: self.values.into_iter().map(|v| v.unwrap()).collect(),
             code: self.code,
         })
     }
