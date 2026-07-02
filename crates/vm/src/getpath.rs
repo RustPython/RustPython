@@ -121,7 +121,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     //   - sys.executable should be the launcher path (where user invoked Python)
     //   - sys._base_executable should be the real Python executable
     let exe_dir = if let Ok(launcher) = crate::host_env::os::var("__PYVENV_LAUNCHER__") {
-        paths.executable = launcher.clone();
+        paths.executable.clone_from(&launcher);
         paths.base_executable = real_executable;
         PathBuf::from(&launcher).parent().map(PathBuf::from)
     } else {
@@ -152,7 +152,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
         paths.base_prefix = calculated_prefix;
     } else {
         // Not in venv: prefix == base_prefix
-        paths.prefix = calculated_prefix.clone();
+        paths.prefix.clone_from(&calculated_prefix);
         paths.base_prefix = calculated_prefix;
     }
 
@@ -163,7 +163,7 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     } else {
         calculate_exec_prefix(search_dir.as_ref(), paths.prefix.as_ref())
     };
-    paths.base_exec_prefix = paths.base_prefix.clone();
+    paths.base_exec_prefix.clone_from(&paths.base_prefix);
 
     // Step 7: Calculate base_executable (if not already set by __PYVENV_LAUNCHER__)
     if paths.base_executable.is_empty() {

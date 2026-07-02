@@ -757,6 +757,11 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             | Instruction::LoadFastBorrowLoadFastBorrow { var_nums } => {
                 let oparg = var_nums.get(arg);
                 let (idx1, idx2) = oparg.indexes();
+
+                #[expect(
+                    clippy::tuple_array_conversions,
+                    reason = "Seems like a false positive"
+                )]
                 for idx in [idx1, idx2] {
                     let local = self.variables[idx]
                         .as_ref()

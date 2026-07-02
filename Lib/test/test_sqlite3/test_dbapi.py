@@ -364,7 +364,7 @@ class ConnectionTests(unittest.TestCase):
             with self.cx:
                 pass
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exceptions(self):
         # Optional DB-API extension.
         self.assertEqual(self.cx.Warning, sqlite.Warning)
@@ -401,7 +401,7 @@ class ConnectionTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             self.cx.in_transaction = True
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connection_exceptions(self):
         exceptions = [
             "DataError",
@@ -527,7 +527,7 @@ class ConnectionTests(unittest.TestCase):
                                    cx.executemany, "insert into t values(?)",
                                    ((v,) for v in range(3)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON SQLITE_DBCONFIG constants not implemented
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; SQLITE_DBCONFIG constants not implemented
     def test_connection_config(self):
         op = sqlite.SQLITE_DBCONFIG_ENABLE_FKEY
         with memory_database() as cx:
@@ -552,7 +552,7 @@ class ConnectionTests(unittest.TestCase):
             with self.assertRaisesRegex(sqlite.IntegrityError, "constraint"):
                 cx.execute("insert into u values(0)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON deprecation warning not emitted for positional args
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; deprecation warning not emitted for positional args
     def test_connect_positional_arguments(self):
         regex = (
             r"Passing more than 1 positional argument to sqlite3.connect\(\)"
@@ -566,14 +566,14 @@ class ConnectionTests(unittest.TestCase):
             cx.close()
         self.assertEqual(cm.filename, __file__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON ResourceWarning not emitted
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; ResourceWarning not emitted
     def test_connection_resource_warning(self):
         with self.assertWarns(ResourceWarning):
             cx = sqlite.connect(":memory:")
             del cx
             gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON Connection signature inspection not working
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Connection signature inspection not working
     def test_connection_signature(self):
         from inspect import signature
         sig = signature(self.cx)
@@ -584,7 +584,7 @@ class UninitialisedConnectionTests(unittest.TestCase):
     def setUp(self):
         self.cx = sqlite.Connection.__new__(sqlite.Connection)
 
-    @unittest.skip('TODO: RUSTPYTHON')
+    @unittest.skip("TODO: RUSTPYTHON")
     def test_uninit_operations(self):
         funcs = (
             lambda: self.cx.isolation_level,
@@ -726,7 +726,7 @@ class OpenTests(unittest.TestCase):
             self.assertTrue(os.path.exists(path))
             cx.execute(self._sql)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_factory_database_arg(self):
         def factory(database, *args, **kwargs):
             nonlocal database_arg
@@ -875,7 +875,7 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             self.cu.execute("select name from test where name=?", L())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON mixed named and positional parameters not validated
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; mixed named and positional parameters not validated
     def test_execute_named_param_and_sequence(self):
         dataset = (
             ("select :a", (1,)),
@@ -1396,6 +1396,11 @@ class BlobTests(unittest.TestCase):
     def test_blob_get_empty_slice(self):
         self.assertEqual(self.blob[5:5], b"")
 
+    def test_blob_get_empty_slice_oob_indices(self):
+        self.cx.execute("insert into test(b) values (?)", (b"abc",))
+        with self.cx.blobopen("test", "b", 2) as blob:
+            self.assertEqual(blob[5:-5], b"")
+
     def test_blob_get_slice_negative_index(self):
         self.assertEqual(self.blob[5:-5], self.data[5:-5])
 
@@ -1410,6 +1415,18 @@ class BlobTests(unittest.TestCase):
 
     def test_blob_set_empty_slice(self):
         self.blob[0:0] = b""
+        self.assertEqual(self.blob[:], self.data)
+
+    def test_blob_set_empty_slice_wrong_type(self):
+        with self.assertRaises(TypeError):
+            self.blob[5:5] = None
+
+    def test_blob_set_empty_slice_wrong_size(self):
+        with self.assertRaisesRegex(IndexError, "wrong size"):
+            self.blob[5:5] = b"123"
+
+    def test_blob_set_empty_slice_correct(self):
+        self.blob[5:5] = b""
         self.assertEqual(self.blob[:], self.data)
 
     def test_blob_set_slice_with_skip(self):
@@ -1603,7 +1620,7 @@ class ThreadTests(unittest.TestCase):
             with self.subTest(fn=fn):
                 self._run_test(fn)
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_check_cursor_thread(self):
         fns = [
             lambda: self.cur.execute("insert into test(name) values('a')"),
@@ -1758,29 +1775,29 @@ class ClosedConTests(unittest.TestCase):
         self.cur = self.con.cursor()
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_con_cursor(self):
         self.check(self.con.cursor)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_con_commit(self):
         self.check(self.con.commit)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_con_rollback(self):
         self.check(self.con.rollback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_cur_execute(self):
         self.check(self.cur.execute, "select 4")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_create_function(self):
         def f(x):
             return 17
         self.check(self.con.create_function, "foo", 1, f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_create_aggregate(self):
         class Agg:
             def __init__(self):
@@ -1791,19 +1808,19 @@ class ClosedConTests(unittest.TestCase):
                 return 17
         self.check(self.con.create_aggregate, "foo", 1, Agg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_set_authorizer(self):
         def authorizer(*args):
             return sqlite.DENY
         self.check(self.con.set_authorizer, authorizer)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_set_progress_callback(self):
         def progress():
             pass
         self.check(self.con.set_progress_handler, progress, 100)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON error message differs for closed connection
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_call(self):
         self.check(self.con)
 
@@ -2037,7 +2054,7 @@ class RowTests(unittest.TestCase):
 
         self.assertNotEqual(r1, r3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON Row with no description fails
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Row with no description fails
     def test_row_no_description(self):
         cu = self.cx.cursor()
         self.assertIsNone(cu.description)
