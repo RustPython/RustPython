@@ -592,14 +592,36 @@ pub(crate) mod _thread {
         vm.state.thread_count.fetch_sub(1);
     }
 
+    /// Default stack size for Python threads in **debug builds only**, where
+    /// Rust stack frames are substantially larger than in release. Rust's
+    /// `std::thread::Builder` otherwise defaults to 2 MB, which is too small
+    /// for the call chains the Python stdlib runs on helper threads in debug
+    /// (e.g. the SSL test server, see #7941). Release builds keep the prior
+    /// behavior — leave the stack size unset and let Rust's std default apply
+    /// — to avoid the multiprocessing slowdown observed when many forked
+    /// children spawn many threads with oversized virtual stack mappings.
+    #[cfg(debug_assertions)]
+    const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+    /// Configure a `thread::Builder` with the stack size to use for a new
+    /// Python thread. Uses the value set via `threading.stack_size(N)` when
+    /// the user has provided one (non-zero). Otherwise, debug builds fall
+    /// back to [`DEFAULT_THREAD_STACK_SIZE`] and release builds leave the
+    /// builder unmodified (Rust's std default applies).
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
         if configured != 0 {
-            thread_builder.stack_size(configured)
-        } else {
+            return thread_builder.stack_size(configured);
+        }
+        #[cfg(debug_assertions)]
+        {
+            thread_builder.stack_size(DEFAULT_THREAD_STACK_SIZE)
+        }
+        #[cfg(not(debug_assertions))]
+        {
             thread_builder
         }
     }
