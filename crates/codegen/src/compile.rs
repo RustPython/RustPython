@@ -1473,7 +1473,7 @@ impl<'warnings> Compiler<'warnings> {
         self.symbol_table_stack
             .first()
             .and_then(|table| table.symbols.get(name))
-            .is_some_and(|sym| sym.flags.contains(SymbolFlags::IMPORTED))
+            .is_some_and(|sym| sym.flags.contains(SymbolFlags::DEF_IMPORT))
     }
 
     /// Get the cell-relative index of a free variable.
@@ -1751,10 +1751,10 @@ impl<'warnings> Compiler<'warnings> {
                 }
 
                 // Check if __class__ is available as a cell/free variable
-                // The scope must be Free (from enclosing class) or have FREE_CLASS flag
+                // The scope must be Free (from enclosing class) or have DEF_FREE_CLASS flag
                 if let Some(symbol) = table.lookup("__class__") {
                     if symbol.scope != SymbolScope::Free
-                        && !symbol.flags.contains(SymbolFlags::FREE_CLASS)
+                        && !symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     {
                         return None;
                     }
@@ -1872,7 +1872,7 @@ impl<'warnings> Compiler<'warnings> {
             .symbols
             .iter()
             .filter(|(_, s)| {
-                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::COMP_CELL)
+                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::DEF_COMP_CELL)
             })
             .map(|(name, _)| name.clone())
             .collect();
@@ -1920,9 +1920,9 @@ impl<'warnings> Compiler<'warnings> {
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Free
                     || (scope_type != CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS))
+                        && s.flags.contains(SymbolFlags::DEF_FREE_CLASS))
                     || (scope_type == CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS)
+                        && s.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                         && self.has_enclosing_non_module_code_scope())
             })
             .filter(|(name, symbol)| {
@@ -3132,7 +3132,7 @@ impl<'warnings> Compiler<'warnings> {
                     .rev()
                     .find(|table| table.typ == CompilerScope::Class)
                     .and_then(|table| table.lookup(name.as_ref()))
-                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
+                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::DEF_GLOBAL));
 
             (
                 symbol.map(|s| s.scope),
@@ -5597,7 +5597,7 @@ impl<'warnings> Compiler<'warnings> {
             Some(symbol) => match symbol.scope {
                 SymbolScope::Cell => Ok(SymbolScope::Cell),
                 SymbolScope::Free => Ok(SymbolScope::Free),
-                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => Ok(SymbolScope::Free),
+                _ if symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS) => Ok(SymbolScope::Free),
                 _ => Err(CodegenErrorType::SyntaxError(format!(
                     "get_ref_type: invalid scope for '{name}'"
                 ))),
@@ -10888,13 +10888,13 @@ impl<'warnings> Compiler<'warnings> {
             let mut pushed_locals: Vec<String> = Vec::new();
             let mut fast_hidden_locals: Vec<String> = Vec::new();
             for (name, sym) in &comp_table.symbols {
-                if sym.flags.contains(SymbolFlags::PARAMETER) {
+                if sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
                 let is_local = sym
                     .flags
-                    .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
-                    && !sym.flags.contains(SymbolFlags::NONLOCAL);
+                    .intersects(SymbolFlags::DEF_LOCAL | SymbolFlags::ITER)
+                    && !sym.flags.contains(SymbolFlags::DEF_NONLOCAL);
                 if is_local {
                     pushed_locals.push(name.clone());
                 }
@@ -10908,7 +10908,7 @@ impl<'warnings> Compiler<'warnings> {
             // module/class scopes, also enable temporary fast locals for
             // comprehension-bound names only.
             for (name, comp_sym) in &comp_table.symbols {
-                if comp_sym.flags.contains(SymbolFlags::PARAMETER) {
+                if comp_sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
                 let comp_scope = comp_sym.scope;
