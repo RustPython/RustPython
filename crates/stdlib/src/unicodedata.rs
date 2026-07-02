@@ -339,30 +339,20 @@ mod unicodedata {
 
         #[pymethod]
         fn is_normalized(&self, form: super::NormalizeForm, unistr: PyStrRef) -> bool {
-            let text = unistr.as_wtf8();
-            let normalized: Wtf8Buf = match form {
+            match form {
                 NormalizeForm::Nfc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    ComposingNormalizerBorrowed::new_nfc().is_normalized_utf8(unistr.as_bytes())
                 }
                 NormalizeForm::Nfkc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    ComposingNormalizerBorrowed::new_nfkc().is_normalized_utf8(unistr.as_bytes())
                 }
                 NormalizeForm::Nfd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    DecomposingNormalizerBorrowed::new_nfd().is_normalized_utf8(unistr.as_bytes())
                 }
                 NormalizeForm::Nfkd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    DecomposingNormalizerBorrowed::new_nfkd().is_normalized_utf8(unistr.as_bytes())
                 }
-            };
-            text == &*normalized
+            }
         }
 
         #[pymethod]
