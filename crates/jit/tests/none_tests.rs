@@ -3,7 +3,7 @@ mod tests {
     #[test]
     fn basic_not() {
         let not_ = jit_function! { not_(x: i64) -> bool => r##"
-        def not_(x: int):
+        def not_(x: int) -> bool:
             return not None
     "## };
 
@@ -13,7 +13,7 @@ mod tests {
     #[test]
     fn basic_if_not() {
         let if_not = jit_function! { if_not(x: i64) -> i64 => r##"
-        def if_not(x: int):
+        def if_not(x: int) -> int:
             if not None:
                 return 1
             else:

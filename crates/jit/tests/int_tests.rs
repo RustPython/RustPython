@@ -5,7 +5,7 @@ mod tests {
     #[test]
     fn basic_add() {
         let add = jit_function! { add(a:i64, b:i64) -> i64 => r##"
-        def add(a: int, b: int):
+        def add(a: int, b: int) -> int:
             return a + b
     "## };
 
@@ -17,7 +17,7 @@ mod tests {
     #[test]
     fn basic_sub() {
         let sub = jit_function! { sub(a:i64, b:i64) -> i64 => r##"
-        def sub(a: int, b: int):
+        def sub(a: int, b: int) -> int:
             return a - b
     "## };
 
@@ -30,7 +30,7 @@ mod tests {
     #[test]
     fn basic_mul() {
         let mul = jit_function! { mul(a:i64, b:i64) -> i64 => r##"
-        def mul(a: int, b: int):
+        def mul(a: int, b: int) -> int:
             return a * b
     "## };
 
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn basic_div() {
         let div = jit_function! { div(a:i64, b:i64) -> f64 => r##"
-        def div(a: int, b: int):
+        def div(a: int, b: int) -> float:
             return a / b
     "## };
 
@@ -74,7 +74,7 @@ mod tests {
     #[test]
     fn basic_floor_div() {
         let floor_div = jit_function! { floor_div(a:i64, b:i64) -> i64 => r##"
-        def floor_div(a: int, b: int):
+        def floor_div(a: int, b: int) -> int:
             return a // b
     "## };
 
@@ -89,7 +89,7 @@ mod tests {
 
     fn basic_exp() {
         let exp = jit_function! { exp(a: i64, b: i64) -> i64 => r##"
-    def exp(a: int, b: int):
+    def exp(a: int, b: int) -> float:
         return a ** b
     "## };
 
@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn basic_mod() {
         let modulo = jit_function! { modulo(a:i64, b:i64) -> i64 => r##"
-        def modulo(a: int, b: int):
+        def modulo(a: int, b: int) -> int:
             return a % b
     "## };
 
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn basic_power() {
         let power = jit_function! { power(a:i64, b:i64) -> i64 => r##"
-        def power(a: int, b: int):
+        def power(a: int, b: int) -> float:
             return a ** b
     "##
         };
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn basic_lshift() {
         let lshift = jit_function! { lshift(a:i64, b:i64) -> i64 => r##"
-        def lshift(a: int, b: int):
+        def lshift(a: int, b: int) -> int:
             return a << b
     "## };
 
@@ -152,7 +152,7 @@ mod tests {
     #[test]
     fn basic_rshift() {
         let rshift = jit_function! { rshift(a:i64, b:i64) -> i64 => r##"
-        def rshift(a: int, b: int):
+        def rshift(a: int, b: int) -> int:
             return a >> b
     "## };
 
@@ -167,7 +167,7 @@ mod tests {
     #[test]
     fn basic_and() {
         let bitand = jit_function! { bitand(a:i64, b:i64) -> i64 => r##"
-        def bitand(a: int, b: int):
+        def bitand(a: int, b: int) -> int:
             return a & b
     "## };
 
@@ -182,7 +182,7 @@ mod tests {
     #[test]
     fn basic_or() {
         let bitor = jit_function! { bitor(a:i64, b:i64) -> i64 => r##"
-        def bitor(a: int, b: int):
+        def bitor(a: int, b: int) -> int:
             return a | b
     "## };
 
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn basic_xor() {
         let bitxor = jit_function! { bitxor(a:i64, b:i64) -> i64 => r##"
-        def bitxor(a: int, b: int):
+        def bitxor(a: int, b: int) -> int:
             return a ^ b
     "## };
 
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn basic_eq() {
         let eq = jit_function! { eq(a:i64, b:i64) -> i64 => r##"
-        def eq(a: int, b: int):
+        def eq(a: int, b: int) -> int:
             if a == b:
                 return 1
             return 0
@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn basic_gt() {
         let gt = jit_function! { gt(a:i64, b:i64) -> i64 => r##"
-        def gt(a: int, b: int):
+        def gt(a: int, b: int) -> int:
             if a > b:
                 return 1
             return 0
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn basic_lt() {
         let lt = jit_function! { lt(a:i64, b:i64) -> i64 => r##"
-        def lt(a: int, b: int):
+        def lt(a: int, b: int) -> int:
             if a < b:
                 return 1
             return 0
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn basic_gte() {
         let gte = jit_function! { gte(a:i64, b:i64) -> i64 => r##"
-        def gte(a: int, b: int):
+        def gte(a: int, b: int) -> int:
             if a >= b:
                 return 1
             return 0
@@ -275,7 +275,7 @@ mod tests {
     #[test]
     fn basic_lte() {
         let lte = jit_function! { lte(a:i64, b:i64) -> i64 => r##"
-        def lte(a: int, b: int):
+        def lte(a: int, b: int) -> int:
             if a <= b:
                 return 1
             return 0
@@ -290,7 +290,7 @@ mod tests {
     #[test]
     fn basic_minus() {
         let minus = jit_function! { minus(a:i64) -> i64 => r##"
-        def minus(a: int):
+        def minus(a: int) -> int:
             return -a
     "## };
 
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn basic_plus() {
         let plus = jit_function! { plus(a:i64) -> i64 => r##"
-        def plus(a: int):
+        def plus(a: int) -> int:
             return +a
     "## };
 
@@ -318,7 +318,7 @@ mod tests {
     #[test]
     fn basic_not() {
         let not_ = jit_function! { not_(a: i64) -> bool => r##"
-        def not_(a: int):
+        def not_(a: int) -> bool:
             return not a
     "## };
 
