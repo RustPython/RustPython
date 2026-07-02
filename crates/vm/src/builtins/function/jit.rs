@@ -57,7 +57,7 @@ fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyRes
         }
         else {
             Err(new_jit_error(
-                "Jit requires argument to be either int, float or bool".to_owned(),
+                "Jit requires argument to be either int, float, bool or a tuple".to_owned(),
                 vm,
             ))
         }
