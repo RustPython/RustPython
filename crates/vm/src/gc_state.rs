@@ -136,6 +136,21 @@ impl GcGeneration {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GcPtr(NonNull<PyObject>);
 
+fn clear_weakrefs_and_invoke_callbacks(objects: &[PyObjectRef]) {
+    let mut all_callbacks = Vec::new();
+    for obj_ref in objects {
+        let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks();
+        all_callbacks.extend(callbacks);
+    }
+    for (wr, cb) in all_callbacks {
+        if let Some(Err(e)) = crate::vm::thread::with_vm(&cb, |vm| cb.call((wr.clone(),), vm)) {
+            crate::vm::thread::with_vm(&cb, |vm| {
+                vm.run_unraisable(e.clone(), Some("weakref callback".to_owned()), cb.clone());
+            });
+        }
+    }
+}
+
 /// Global GC state
 pub struct GcState {
     /// 3 generations (0 = youngest, 2 = oldest)
@@ -398,6 +413,24 @@ impl GcState {
             _ => std::time::Instant::now(),
         };
 
+        // Keep a CDPT guard during collection, following origin/gc's
+        // coarse-grained guarded collection experiment. Run CDPT in cooperative
+        // mode so it never spawns a background collector thread: the guard here
+        // is only a barrier, and a background thread would make the process
+        // multi-threaded (breaking fork/signal semantics) and burn CPU while
+        // idle. Selecting the mode before this first `pin()` keeps the thread
+        // from being deployed at all.
+        #[cfg(not(target_arch = "wasm32"))]
+        let _cdpt_guard = {
+            // This is the only `cdpt::pin()` in the process, and the mode is
+            // selected right before it, so cooperative mode always latches and
+            // no background collector thread is ever deployed.
+            let cooperative =
+                cdpt::global().set_collection_mode(cdpt::CollectionMode::Cooperative);
+            debug_assert!(cooperative, "CDPT must run in cooperative mode");
+            cdpt::pin()
+        };
+
         // Memory barrier to ensure visibility of all reference count updates
         // from other threads before we start analyzing the object graph.
         core::sync::atomic::fence(Ordering::SeqCst);
@@ -616,20 +649,10 @@ impl GcState {
             })
             .collect();
 
-        // 6c: Clear existing weakrefs BEFORE calling __del__
-        let mut all_callbacks: Vec<(crate::PyRef<crate::object::PyWeak>, crate::PyObjectRef)> =
-            Vec::new();
-        for obj_ref in &unreachable_refs {
-            let callbacks = obj_ref.gc_clear_weakrefs_collect_callbacks();
-            all_callbacks.extend(callbacks);
-        }
-        for (wr, cb) in all_callbacks {
-            if let Some(Err(e)) = crate::vm::thread::with_vm(&cb, |vm| cb.call((wr.clone(),), vm)) {
-                crate::vm::thread::with_vm(&cb, |vm| {
-                    vm.run_unraisable(e.clone(), Some("weakref callback".to_owned()), cb.clone());
-                });
-            }
-        }
+        // 6c: Clear weakrefs that existed before finalizers. This prevents a
+        // later tp_clear side effect from observing callback-free weakrefs to
+        // garbage in this generation.
+        clear_weakrefs_and_invoke_callbacks(&unreachable_refs);
 
         // 6d: Call __del__ on unreachable objects (skip already-finalized).
         // try_call_finalizer() internally checks gc_finalized() and sets it,
@@ -637,6 +660,11 @@ impl GcState {
         for obj_ref in &unreachable_refs {
             obj_ref.try_call_finalizer();
         }
+
+        // 6e: Clear weakrefs after finalizers, but before tp_clear. Finalizers
+        // can create weakrefs to other unreachable objects, and those must not
+        // reveal an object while its clear function is running.
+        clear_weakrefs_and_invoke_callbacks(&unreachable_refs);
 
         // Detect resurrection
         let mut resurrected_set: HashSet<GcPtr> = HashSet::new();

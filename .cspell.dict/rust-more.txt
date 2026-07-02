@@ -13,6 +13,7 @@ bstr
 byteorder
 byteset
 caseless
+cdpt
 chrono
 consts
 cranelift

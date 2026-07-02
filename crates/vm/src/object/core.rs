@@ -1770,7 +1770,8 @@ impl PyObject {
     }
 
     /// Clear weakrefs but collect callbacks instead of calling them.
-    /// This is used by GC to ensure ALL weakrefs are cleared BEFORE any callbacks run.
+    /// GC uses this while handling a garbage set so callbacks run only after all
+    /// weakrefs in the current pass have been invalidated.
     /// Returns collected callbacks as (PyRef<PyWeak>, callback) pairs.
     // = handle_weakrefs
     pub fn gc_clear_weakrefs_collect_callbacks(&self) -> Vec<(PyRef<PyWeak>, PyObjectRef)> {

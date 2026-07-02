@@ -142,8 +142,6 @@ mod gc {
                 vm.ctx.new_int(stat.uncollectable).into(),
                 vm,
             )?;
-            dict.set_item("candidates", vm.ctx.new_int(stat.candidates).into(), vm)?;
-            dict.set_item("duration", vm.ctx.new_float(stat.duration).into(), vm)?;
             result.push(dict.into());
         }
 
