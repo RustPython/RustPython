@@ -432,10 +432,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let expected = self.sig.ret.as_ref().ok_or(JitCompileError::NotSupported)?;
 
         let value = match (expected, val) {
-            (JitType::Int,    JitValue::Int(v))        => v,
-            (JitType::Float,  JitValue::Float(v))      => v,
-            (JitType::Bool,   JitValue::Bool(v))       => v,
-            (JitType::Object, JitValue::Object(v, _))  => v,
+            (JitType::Int, JitValue::Int(v)) => v,
+            (JitType::Float, JitValue::Float(v)) => v,
+            (JitType::Bool, JitValue::Bool(v)) => v,
+            (JitType::Object, JitValue::Object(v, _)) => v,
             _ => return Err(JitCompileError::NotSupported),
         };
 
