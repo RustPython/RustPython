@@ -201,6 +201,90 @@ enum DoneWithFuture {
     Yes,
 }
 
+/// A Python `__future__` feature flag imported via `from __future__ import <feature>`.
+///
+/// # See Also
+///
+/// - [Python documentation on `__future__`](https://docs.python.org/3.14/library/__future__.html)
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FutureFeature {
+    /// ```py
+    /// from __future__ import absolute_import
+    /// ```
+    AbsoluteImport,
+
+    /// ```py
+    /// from __future__ import annotations
+    /// ```
+    Annotations,
+
+    /// ```py
+    /// from __future__ import barry_as_FLUFL
+    /// ```
+    BarryAsFLUFL,
+
+    /// ```py
+    /// from __future__ import braces
+    /// ```
+    Braces,
+
+    /// ```py
+    /// from __future__ import division
+    /// ```
+    Division,
+
+    /// ```py
+    /// from __future__ import generator_stop
+    /// ```
+    GeneratorStop,
+
+    /// ```py
+    /// from __future__ import generators
+    /// ```
+    Generators,
+
+    /// ```py
+    /// from __future__ import nested_scopes
+    /// ```
+    NestedScopes,
+
+    /// ```py
+    /// from __future__ import print_function
+    /// ```
+    PrintFunction,
+
+    /// ```py
+    /// from __future__ import unicode_literals
+    /// ```
+    UnicodeLiterals,
+
+    /// ```py
+    /// from __future__ import with_statement
+    /// ```
+    WithStatement,
+}
+
+impl TryFrom<&str> for FutureFeature {
+    type Error = String;
+
+    fn try_from(name: &str) -> Result<Self, Self::Error> {
+        Ok(match name {
+            "absolute_import" => Self::AbsoluteImport,
+            "annotations" => Self::Annotations,
+            "barry_as_FLUFL" => Self::BarryAsFLUFL,
+            "braces" => Self::Braces,
+            "division" => Self::Division,
+            "generator_stop" => Self::GeneratorStop,
+            "generators" => Self::Generators,
+            "nested_scopes" => Self::NestedScopes,
+            "print_function" => Self::PrintFunction,
+            "unicode_literals" => Self::UnicodeLiterals,
+            "with_statement" => Self::WithStatement,
+            _ => return Err(name.into()),
+        })
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ComprehensionSymbolSource {
     Child,
@@ -1389,7 +1473,7 @@ impl<'warnings> Compiler<'warnings> {
         self.symbol_table_stack
             .first()
             .and_then(|table| table.symbols.get(name))
-            .is_some_and(|sym| sym.flags.contains(SymbolFlags::IMPORTED))
+            .is_some_and(|sym| sym.flags.contains(SymbolFlags::DEF_IMPORT))
     }
 
     /// Get the cell-relative index of a free variable.
@@ -1667,10 +1751,10 @@ impl<'warnings> Compiler<'warnings> {
                 }
 
                 // Check if __class__ is available as a cell/free variable
-                // The scope must be Free (from enclosing class) or have FREE_CLASS flag
+                // The scope must be Free (from enclosing class) or have DEF_FREE_CLASS flag
                 if let Some(symbol) = table.lookup("__class__") {
                     if symbol.scope != SymbolScope::Free
-                        && !symbol.flags.contains(SymbolFlags::FREE_CLASS)
+                        && !symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     {
                         return None;
                     }
@@ -1788,7 +1872,7 @@ impl<'warnings> Compiler<'warnings> {
             .symbols
             .iter()
             .filter(|(_, s)| {
-                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::COMP_CELL)
+                s.scope == SymbolScope::Cell || s.flags.contains(SymbolFlags::DEF_COMP_CELL)
             })
             .map(|(name, _)| name.clone())
             .collect();
@@ -1836,9 +1920,9 @@ impl<'warnings> Compiler<'warnings> {
             .filter(|(_, s)| {
                 s.scope == SymbolScope::Free
                     || (scope_type != CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS))
+                        && s.flags.contains(SymbolFlags::DEF_FREE_CLASS))
                     || (scope_type == CompilerScope::Class
-                        && s.flags.contains(SymbolFlags::FREE_CLASS)
+                        && s.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                         && self.has_enclosing_non_module_code_scope())
             })
             .filter(|(name, symbol)| {
@@ -2073,7 +2157,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn expose_annotation_format_parameter(code: &mut CodeObject) {
         if let Some(first) = code.varnames.first_mut() {
-            *first = "format".to_owned();
+            *first = String::from("format");
         }
     }
 
@@ -3048,7 +3132,7 @@ impl<'warnings> Compiler<'warnings> {
                     .rev()
                     .find(|table| table.typ == CompilerScope::Class)
                     .and_then(|table| table.lookup(name.as_ref()))
-                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::GLOBAL));
+                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::DEF_GLOBAL));
 
             (
                 symbol.map(|s| s.scope),
@@ -5513,7 +5597,7 @@ impl<'warnings> Compiler<'warnings> {
             Some(symbol) => match symbol.scope {
                 SymbolScope::Cell => Ok(SymbolScope::Cell),
                 SymbolScope::Free => Ok(SymbolScope::Free),
-                _ if symbol.flags.contains(SymbolFlags::FREE_CLASS) => Ok(SymbolScope::Free),
+                _ if symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS) => Ok(SymbolScope::Free),
                 _ => Err(CodegenErrorType::SyntaxError(format!(
                     "get_ref_type: invalid scope for '{name}'"
                 ))),
@@ -10804,13 +10888,13 @@ impl<'warnings> Compiler<'warnings> {
             let mut pushed_locals: Vec<String> = Vec::new();
             let mut fast_hidden_locals: Vec<String> = Vec::new();
             for (name, sym) in &comp_table.symbols {
-                if sym.flags.contains(SymbolFlags::PARAMETER) {
+                if sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
                 let is_local = sym
                     .flags
-                    .intersects(SymbolFlags::ASSIGNED | SymbolFlags::ITER)
-                    && !sym.flags.contains(SymbolFlags::NONLOCAL);
+                    .intersects(SymbolFlags::DEF_LOCAL | SymbolFlags::ITER)
+                    && !sym.flags.contains(SymbolFlags::DEF_NONLOCAL);
                 if is_local {
                     pushed_locals.push(name.clone());
                 }
@@ -10824,7 +10908,7 @@ impl<'warnings> Compiler<'warnings> {
             // module/class scopes, also enable temporary fast locals for
             // comprehension-bound names only.
             for (name, comp_sym) in &comp_table.symbols {
-                if comp_sym.flags.contains(SymbolFlags::PARAMETER) {
+                if comp_sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
                 let comp_scope = comp_sym.scope;
@@ -11144,16 +11228,21 @@ impl<'warnings> Compiler<'warnings> {
         if let DoneWithFuture::Yes = self.done_with_future_stmts {
             return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
         }
+
         self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
+
         for feature in features {
-            match feature.name.as_str() {
-                // Python 3 features; we've already implemented them by default
-                "nested_scopes" | "generators" | "division" | "absolute_import"
-                | "with_statement" | "print_function" | "unicode_literals" | "generator_stop" => {}
-                // Accept the future feature name, but do not implement
-                // Barry-as-BDFL parser mode.
-                "barry_as_FLUFL" => {}
-                "annotations" => {
+            let future_feature = feature.name.as_str().try_into().map_err(|name| {
+                self.error_ranged(CodegenErrorType::InvalidFutureFeature(name), feature.range)
+            })?;
+
+            match future_feature {
+                FutureFeature::Braces => {
+                    return Err(
+                        self.error_ranged(CodegenErrorType::InvalidFutureBraces, feature.range)
+                    );
+                }
+                FutureFeature::Annotations => {
                     self.future_annotations = true;
                     self.future_features
                         .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
@@ -11161,16 +11250,18 @@ impl<'warnings> Compiler<'warnings> {
                         .flags
                         .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
                 }
-                "braces" => {
-                    return Err(
-                        self.error_ranged(CodegenErrorType::InvalidFutureBraces, feature.range)
-                    );
+                FutureFeature::BarryAsFLUFL => {
+                    // We do not support Barry-as-BDFL parser mode yet. This is a nop for now.
                 }
-                other => {
-                    return Err(self.error_ranged(
-                        CodegenErrorType::InvalidFutureFeature(other.to_owned()),
-                        feature.range,
-                    ));
+                FutureFeature::AbsoluteImport
+                | FutureFeature::Division
+                | FutureFeature::GeneratorStop
+                | FutureFeature::Generators
+                | FutureFeature::NestedScopes
+                | FutureFeature::PrintFunction
+                | FutureFeature::UnicodeLiterals
+                | FutureFeature::WithStatement => {
+                    // Python 3 features. They are already implemented by default.
                 }
             }
         }

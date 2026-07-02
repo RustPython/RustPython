@@ -1723,8 +1723,7 @@ class GrammarTests(unittest.TestCase):
         class H: pass
         @d := class_decorator
         class I: pass
-        # TODO: RUSTPYTHON; SyntaxError: the symbol 'class_decorator' must be present in the symbol table
-        # @lambda c: class_decorator(c)
+        @lambda c: class_decorator(c)
         class J: pass
         @[..., class_decorator, ...][1]
         class K: pass

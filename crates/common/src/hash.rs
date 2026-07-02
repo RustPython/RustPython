@@ -49,9 +49,7 @@ impl HashSecret {
         let k1 = u64::from_le_bytes(right.try_into().unwrap());
         Self { k0, k1 }
     }
-}
 
-impl HashSecret {
     pub fn hash_value<T: Hash + ?Sized>(&self, data: &T) -> PyHash {
         fix_sentinel(mod_int(self.hash_one(data) as _))
     }
@@ -94,7 +92,7 @@ pub const fn hash_pointer(value: usize) -> PyHash {
 
 #[inline]
 #[must_use]
-pub fn hash_float(value: f64) -> Option<PyHash> {
+pub const fn hash_float(value: f64) -> Option<PyHash> {
     // cpython _Py_HashDouble
     if !value.is_finite() {
         return if value.is_infinite() {
@@ -111,6 +109,8 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
     let mut m = frexp.0;
     let mut e = frexp.1;
     let mut x: PyUHash = 0;
+
+    #[expect(clippy::while_float, reason = "keep this loop like CPython does it")]
     while m != 0.0 {
         x = ((x << 28) & MODULUS) | (x >> (BITS - 28));
         m *= 268_435_456.0; // 2**28
@@ -137,13 +137,14 @@ pub fn hash_float(value: f64) -> Option<PyHash> {
 
 #[must_use]
 pub fn hash_bigint(value: &BigInt) -> PyHash {
-    let ret = match value.to_i64() {
-        Some(i) => mod_int(i),
-        None => (value % MODULUS).to_i64().unwrap_or_else(|| unsafe {
-            // SAFETY: MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
-            core::hint::unreachable_unchecked()
-        }),
+    let ret = if let Some(v) = value.to_i64() {
+        mod_int(v)
+    } else {
+        // SAFETY:
+        // MODULUS < i64::MAX, so value % MODULUS is guaranteed to be in the range of i64
+        unsafe { (value % MODULUS).to_i64().unwrap_unchecked() }
     };
+
     fix_sentinel(ret)
 }
 
