@@ -54,8 +54,7 @@ fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyRes
             Ok(JitType::Bool)
         } else if value.is(vm.ctx.types.tuple_type) {
             Ok(JitType::Object)
-        }
-        else {
+        } else {
             Err(new_jit_error(
                 "Jit requires argument to be either int, float, bool or a tuple".to_owned(),
                 vm,
