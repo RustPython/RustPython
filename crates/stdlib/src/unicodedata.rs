@@ -312,29 +312,22 @@ mod unicodedata {
 
         #[pymethod]
         fn normalize(&self, form: super::NormalizeForm, unistr: PyStrRef) -> Wtf8Buf {
-            let text = unistr.as_wtf8();
             match form {
                 NormalizeForm::Nfc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    ComposingNormalizerBorrowed::new_nfc().normalize_utf8(unistr.as_bytes())
                 }
                 NormalizeForm::Nfkc => {
-                    let normalizer = ComposingNormalizerBorrowed::new_nfkc();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    ComposingNormalizerBorrowed::new_nfkc().normalize_utf8(unistr.as_bytes())
                 }
                 NormalizeForm::Nfd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    DecomposingNormalizerBorrowed::new_nfd().normalize_utf8(unistr.as_bytes())
                 }
                 NormalizeForm::Nfkd => {
-                    let normalizer = DecomposingNormalizerBorrowed::new_nfkd();
-                    text.map_utf8(|s| normalizer.normalize_iter(s.chars()))
-                        .collect()
+                    DecomposingNormalizerBorrowed::new_nfkd().normalize_utf8(unistr.as_bytes())
                 }
             }
+            .to_string()
+            .into()
         }
 
         #[pymethod]
