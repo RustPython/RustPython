@@ -16,7 +16,7 @@ mod tests {
     #[test]
     fn invoke() {
         let func = jit_function! { func => r##"
-        def func(a: int, b: float):
+        def func(a: int, b: float) -> int:
             return 1
     "## };
 
@@ -41,7 +41,7 @@ mod tests {
     #[test]
     fn args_builder() {
         let func = jit_function! { func=> r##"
-        def func(a: int, b: float):
+        def func(a: int, b: float) -> int:
             return 1
     "## };
 
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn basic_if_else() {
         let if_else = jit_function! { if_else(a:i64) -> i64 => r##"
-        def if_else(a: int):
+        def if_else(a: int) -> int:
             if a:
                 return 42
             else:
@@ -90,7 +90,7 @@ mod tests {
     #[test]
     fn basic_while_loop() {
         let while_loop = jit_function! { while_loop(a:i64) -> i64 => r##"
-        def while_loop(a: int):
+        def while_loop(a: int) -> int:
             b = 0
             while a > 0:
                 b += 1
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn basic_unpack_tuple() {
         let unpack_tuple = jit_function! { unpack_tuple(a:i64, b:i64) -> i64 => r##"
-        def unpack_tuple(a: int, b: int):
+        def unpack_tuple(a: int, b: int) -> int:
             a, b = b, a
             return a
     "## };

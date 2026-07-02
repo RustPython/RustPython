@@ -3,7 +3,7 @@ mod tests {
     #[test]
     fn basic_return() {
         let return_ = jit_function! { return_(a: bool) -> bool => r##"
-        def return_(a: bool):
+        def return_(a: bool) -> bool:
             return a
     "## };
 
@@ -14,13 +14,13 @@ mod tests {
     #[test]
     fn basic_const() {
         let const_true = jit_function! { const_true(a: i64) -> bool => r##"
-        def const_true(a: int):
+        def const_true(a: int) -> bool:
             return True
     "## };
         assert_eq!(const_true(0), Ok(true));
 
         let const_false = jit_function! { const_false(a: i64) -> bool => r##"
-        def const_false(a: int):
+        def const_false(a: int) -> bool:
             return False
     "## };
         assert_eq!(const_false(0), Ok(false));
@@ -29,7 +29,7 @@ mod tests {
     #[test]
     fn basic_not() {
         let not_ = jit_function! { not_(a: bool) -> bool => r##"
-        def not_(a: bool):
+        def not_(a: bool) -> bool:
             return not a
     "## };
 
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn basic_if_not() {
         let if_not = jit_function! { if_not(a: bool) -> i64 => r##"
-        def if_not(a: bool):
+        def if_not(a: bool) -> int:
             if not a:
                 return 0
             else:
@@ -56,7 +56,7 @@ mod tests {
     #[test]
     fn basic_eq() {
         let eq = jit_function! { eq(a:bool, b:bool) -> i64 => r##"
-        def eq(a: bool, b: bool):
+        def eq(a: bool, b: bool) -> int:
             if a == b:
                 return 1
             return 0
@@ -71,7 +71,7 @@ mod tests {
     #[test]
     fn eq_with_integers() {
         let eq = jit_function! { eq(a:bool, b:i64) -> i64 => r##"
-        def eq(a: bool, b: int):
+        def eq(a: bool, b: int) -> int:
             if a == b:
                 return 1
             return 0
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn basic_gt() {
         let gt = jit_function! { gt(a:bool, b:bool) -> i64 => r##"
-        def gt(a: bool, b: bool):
+        def gt(a: bool, b: bool) -> int:
             if a > b:
                 return 1
             return 0
@@ -101,7 +101,7 @@ mod tests {
     #[test]
     fn gt_with_integers() {
         let gt = jit_function! { gt(a:i64, b:bool) -> i64 => r##"
-        def gt(a: int, b: bool):
+        def gt(a: int, b: bool) -> int:
             if a > b:
                 return 1
             return 0
@@ -116,7 +116,7 @@ mod tests {
     #[test]
     fn basic_lt() {
         let lt = jit_function! { lt(a:bool, b:bool) -> i64 => r##"
-        def lt(a: bool, b: bool):
+        def lt(a: bool, b: bool) -> int:
             if a < b:
                 return 1
             return 0
@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn lt_with_integers() {
         let lt = jit_function! { lt(a:i64, b:bool) -> i64 => r##"
-        def lt(a: int, b: bool):
+        def lt(a: int, b: bool) -> int:
             if a < b:
                 return 1
             return 0
@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn basic_gte() {
         let gte = jit_function! { gte(a:bool, b:bool) -> i64 => r##"
-        def gte(a: bool, b: bool):
+        def gte(a: bool, b: bool) -> int:
             if a >= b:
                 return 1
             return 0
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn gte_with_integers() {
         let gte = jit_function! { gte(a:bool, b:i64) -> i64 => r##"
-        def gte(a: bool, b: int):
+        def gte(a: bool, b: int) -> int:
             if a >= b:
                 return 1
             return 0
@@ -176,7 +176,7 @@ mod tests {
     #[test]
     fn basic_lte() {
         let lte = jit_function! { lte(a:bool, b:bool) -> i64 => r##"
-        def lte(a: bool, b: bool):
+        def lte(a: bool, b: bool) -> int:
             if a <= b:
                 return 1
             return 0
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn lte_with_integers() {
         let lte = jit_function! { lte(a:bool, b:i64) -> i64 => r##"
-        def lte(a: bool, b: int):
+        def lte(a: bool, b: int) -> int:
             if a <= b:
                 return 1
             return 0
