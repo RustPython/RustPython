@@ -1293,15 +1293,12 @@ mod _csv {
 
         #[pymethod]
         fn writerow(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-            if matches!(self.dialect.quoting, QuoteStyle::None) {
-                return self.writerow_quote_none(row, vm);
-            }
-
-            if matches!(
-                self.dialect.quoting,
-                QuoteStyle::Strings | QuoteStyle::Notnull
-            ) {
-                return self.writerow_quoted_strings(row, vm);
+            match self.dialect.quoting {
+                QuoteStyle::None => return self.writerow_quote_none(row, vm),
+                QuoteStyle::Strings | QuoteStyle::Notnull => {
+                    return self.writerow_quoted_strings(row, vm);
+                }
+                _ => {}
             }
 
             let mut state = self.state.lock();
