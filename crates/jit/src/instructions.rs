@@ -429,26 +429,17 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         values
     }
     fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
-        let (cr_val, ret_ty) = match val {
-            JitValue::Int(v) => (v, JitType::Int),
-            JitValue::Float(v) => (v, JitType::Float),
-            JitValue::Bool(v) => (v, JitType::Bool),
-            JitValue::Object(p, _) => (p, JitType::Object),
-            //JitValue::None        => (self.none_ptr(), JitType::Object),
+        let expected = self.sig.ret.as_ref().ok_or(JitCompileError::NotSupported)?;
+
+        let value = match (expected, val) {
+            (JitType::Int,    JitValue::Int(v))        => v,
+            (JitType::Float,  JitValue::Float(v))      => v,
+            (JitType::Bool,   JitValue::Bool(v))       => v,
+            (JitType::Object, JitValue::Object(v, _))  => v,
             _ => return Err(JitCompileError::NotSupported),
         };
 
-        // single abi type
-        if self.sig.ret.is_none() {
-            self.sig.ret = Some(ret_ty.clone());
-            self.builder
-                .func
-                .signature
-                .returns
-                .push(AbiParam::new(ret_ty.to_cranelift()));
-        }
-
-        self.builder.ins().return_(&[cr_val]);
+        self.builder.ins().return_(&[value]);
         Ok(())
     }
 
