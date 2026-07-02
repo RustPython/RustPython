@@ -44,7 +44,7 @@ use crate::{
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
@@ -143,7 +143,7 @@ impl Default for ExceptionStack {
 
 /// Stop-the-world state for fork safety. Before `fork()`, the requester
 /// stops all other Python threads so they are not holding internal locks.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub struct StopTheWorldState {
     /// Fast-path flag checked in the bytecode loop (like `_PY_EVAL_PLEASE_STOP_BIT`)
     pub(crate) requested: AtomicBool,
@@ -178,7 +178,7 @@ pub struct StopTheWorldState {
     stats_suspend_wait_yields: AtomicU64,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 #[derive(Debug, Clone, Copy)]
 pub struct StopTheWorldStats {
     pub stop_calls: u64,
@@ -194,14 +194,14 @@ pub struct StopTheWorldStats {
     pub world_stopped: bool,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 impl Default for StopTheWorldState {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 impl StopTheWorldState {
     #[must_use]
     pub const fn new() -> Self {
@@ -561,13 +561,13 @@ impl StopTheWorldState {
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub(super) fn stw_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| crate::host_env::os::var_os("RUSTPYTHON_STW_TRACE").is_some())
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
     if stw_trace_enabled() {
         use core::fmt::Write as _;
@@ -628,8 +628,11 @@ pub struct PyGlobalState {
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
     pub override_frozen_modules: AtomicCell<isize>,
+    #[cfg(feature = "fork")]
     pub before_forkers: PyMutex<Vec<PyObjectRef>>,
+    #[cfg(feature = "fork")]
     pub after_forkers_child: PyMutex<Vec<PyObjectRef>>,
+    #[cfg(feature = "fork")]
     pub after_forkers_parent: PyMutex<Vec<PyObjectRef>>,
     pub int_max_str_digits: AtomicCell<usize>,
     pub switch_interval: AtomicCell<f64>,
@@ -657,7 +660,7 @@ pub struct PyGlobalState {
     /// local version against this to decide whether re-instrumentation is needed.
     pub instrumentation_version: AtomicU64,
     /// Stop-the-world state for pre-fork thread suspension
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     pub stop_the_world: StopTheWorldState,
 }
 
@@ -2034,7 +2037,7 @@ impl VirtualMachine {
             return true;
         }
 
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "fork")]
         if thread::stop_requested_for_current_thread() {
             return true;
         }
@@ -2059,7 +2062,7 @@ impl VirtualMachine {
         }
 
         // Suspend this thread if stop-the-world is in progress
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "fork")]
         thread::suspend_if_needed(&self.state.stop_the_world);
 
         #[cfg(not(target_arch = "wasm32"))]

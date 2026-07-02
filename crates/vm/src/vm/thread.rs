@@ -19,11 +19,11 @@ use std::thread_local;
 //   DETACHED: not executing Python bytecode (in native code, or idle)
 //   ATTACHED: actively executing Python bytecode
 //   SUSPENDED: parked by a stop-the-world request
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub const THREAD_DETACHED: i32 = 0;
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub const THREAD_ATTACHED: i32 = 1;
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub const THREAD_SUSPENDED: i32 = 2;
 
 /// Per-thread shared state for sys._current_frames() and sys._current_exceptions().
@@ -35,13 +35,13 @@ pub struct ThreadSlot {
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
     /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     pub state: core::sync::atomic::AtomicI32,
     /// Per-thread stop request bit (eval breaker equivalent).
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     pub stop_requested: core::sync::atomic::AtomicBool,
     /// Handle for waking this thread from park in stop-the-world paths.
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     pub thread: std::thread::Thread,
 }
 
@@ -111,21 +111,21 @@ fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     // Outermost enter_vm: transition DETACHED → ATTACHED
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     let was_outermost = !current_vm_is_set();
 
     // Initialize thread slot for this thread if not already done
     #[cfg(feature = "threading")]
     init_thread_slot_if_needed(vm);
 
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     if was_outermost {
         attach_thread(vm);
     }
 
     scopeguard::defer! {
         // Outermost exit: transition ATTACHED → DETACHED
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "fork")]
         if was_outermost {
             detach_thread();
         }
@@ -161,7 +161,7 @@ pub fn attach_current_thread(
 
         init_thread_slot_if_needed(vm);
 
-        #[cfg(unix)]
+        #[cfg(feature = "fork")]
         attach_thread(vm);
 
         VM_STACK.with(|vms| {
@@ -188,7 +188,7 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
             .expect("release_current_thread() called without an attached VM");
     });
 
-    #[cfg(unix)]
+    #[cfg(feature = "fork")]
     detach_thread();
 }
 
@@ -203,7 +203,7 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             let new_slot = Arc::new(ThreadSlot {
                 frames: parking_lot::Mutex::new(Vec::new()),
                 exception: crate::PyAtomicRef::from(None::<PyBaseExceptionRef>),
-                #[cfg(unix)]
+                #[cfg(feature = "fork")]
                 state: core::sync::atomic::AtomicI32::new(
                     if vm.state.stop_the_world.requested.load(Ordering::Acquire) {
                         // Match init_threadstate(): new thread-state starts
@@ -213,9 +213,9 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
                         THREAD_DETACHED
                     },
                 ),
-                #[cfg(unix)]
+                #[cfg(feature = "fork")]
                 stop_requested: core::sync::atomic::AtomicBool::new(false),
-                #[cfg(unix)]
+                #[cfg(feature = "fork")]
                 thread: std::thread::current(),
             });
             registry.insert(thread_id, new_slot.clone());
@@ -227,7 +227,7 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
 
 /// Transition DETACHED → ATTACHED. Blocks if the thread was SUSPENDED by
 /// a stop-the-world request (like `_PyThreadState_Attach` + `tstate_wait_attach`).
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
     let mut wait_yields = 0u64;
     while slot.state.load(Ordering::Acquire) == THREAD_SUSPENDED {
@@ -237,7 +237,7 @@ fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
     wait_yields
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 fn attach_thread(vm: &VirtualMachine) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -271,7 +271,7 @@ fn attach_thread(vm: &VirtualMachine) {
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 fn detach_thread() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -301,7 +301,7 @@ fn detach_thread() {
 /// to park this thread during blocking operations.
 ///
 /// `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS` equivalent.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     // Preserve save/restore semantics:
     // only detach if this call observed ATTACHED at entry, and always restore
@@ -322,8 +322,8 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     result
 }
 
-/// No-op on non-unix or non-threading builds.
-#[cfg(not(all(unix, feature = "threading")))]
+/// No-op when fork feature is disabled.
+#[cfg(not(feature = "fork"))]
 pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     f()
 }
@@ -331,7 +331,7 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// Called from check_signals when stop-the-world is requested.
 /// Transitions ATTACHED → SUSPENDED and waits until released
 /// (like `_PyThreadState_Suspend` + `_PyThreadState_Attach`).
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 pub fn suspend_if_needed(stw: &super::StopTheWorldState) {
     let should_suspend = CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
@@ -354,7 +354,7 @@ pub fn suspend_if_needed(stw: &super::StopTheWorldState) {
     do_suspend(stw);
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 #[cold]
 fn do_suspend(stw: &super::StopTheWorldState) {
     CURRENT_THREAD_SLOT.with(|slot| {
@@ -431,7 +431,7 @@ fn do_suspend(stw: &super::StopTheWorldState) {
     });
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "fork")]
 #[inline]
 #[must_use]
 pub fn stop_requested_for_current_thread() -> bool {
@@ -519,7 +519,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
     // A dying thread should not remain logically ATTACHED while its
     // thread-state slot is being removed.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     if let Some(slot) = &current_slot {
         let _ = slot.state.compare_exchange(
             THREAD_ATTACHED,
@@ -540,8 +540,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     } else {
         None
     };
-
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "fork")]
     if let Some(slot) = &_removed
         && vm.state.stop_the_world.requested.load(Ordering::Acquire)
         && thread_id != vm.state.stop_the_world.requester_ident()
@@ -569,11 +568,11 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let new_slot = Arc::new(ThreadSlot {
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
-        #[cfg(unix)]
+        #[cfg(feature = "fork")]
         state: core::sync::atomic::AtomicI32::new(THREAD_ATTACHED),
-        #[cfg(unix)]
+        #[cfg(feature = "fork")]
         stop_requested: core::sync::atomic::AtomicBool::new(false),
-        #[cfg(unix)]
+        #[cfg(feature = "fork")]
         thread: std::thread::current(),
     });
 
