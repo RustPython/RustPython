@@ -777,19 +777,20 @@ oparg_enum!(
 #[derive(Copy, Clone)]
 pub struct UnpackExArgs {
     pub before: u8,
-    pub after: u8,
+    pub after: u32,
 }
 
 impl From<u32> for UnpackExArgs {
     fn from(value: u32) -> Self {
-        let [before, after, ..] = value.to_le_bytes();
+        let before = (value & 0xFF) as u8;
+        let after = value >> 8;
         Self { before, after }
     }
 }
 
 impl From<UnpackExArgs> for u32 {
     fn from(value: UnpackExArgs) -> Self {
-        Self::from_le_bytes([value.before, value.after, 0, 0])
+        Self::from(value.before) | (value.after << 8)
     }
 }
 

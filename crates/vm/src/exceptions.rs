@@ -2480,12 +2480,18 @@ pub(super) mod types {
             let maybe_lineno = zelf
                 .as_object()
                 .get_attr("lineno", vm)
-                .and_then(|obj| obj.str_utf8(vm))
-                .ok();
-            let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
-            });
+                .ok()
+                .filter(|obj| !vm.is_none(obj))
+                .and_then(|obj| obj.str_utf8(vm).ok());
+            let maybe_filename = zelf
+                .as_object()
+                .get_attr("filename", vm)
+                .ok()
+                .filter(|obj| !vm.is_none(obj))
+                .map(|obj| {
+                    obj.str(vm)
+                        .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+                });
 
             let msg = match zelf.as_object().get_attr("msg", vm) {
                 Ok(obj) => obj

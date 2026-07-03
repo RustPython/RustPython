@@ -738,6 +738,10 @@ impl Py<Frame> {
         #[cfg(feature = "threading")]
         {
             let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Iteration order doesn't matter here"
+            )]
             for slot in registry.values() {
                 let frames = slot.frames.lock();
                 // SAFETY: the owning thread can't pop while we hold the Mutex,

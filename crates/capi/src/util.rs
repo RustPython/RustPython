@@ -1,6 +1,6 @@
 use crate::PyObject;
 use core::convert::Infallible;
-use core::ffi::{c_char, c_double, c_int, c_long, c_ulonglong, c_void};
+use core::ffi::{c_char, c_double, c_int, c_long, c_ulong, c_void};
 use rustpython_vm::{PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 pub(crate) trait FfiResult<Output = Self> {
@@ -101,6 +101,31 @@ impl FfiResult<isize> for usize {
     }
 }
 
+impl FfiResult for isize {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+#[cfg(not(windows))]
+impl FfiResult for c_int {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+impl FfiResult for usize {
+    const ERR_VALUE: Self = Self::MAX;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 impl FfiResult for c_long {
     const ERR_VALUE: Self = -1;
 
@@ -109,8 +134,16 @@ impl FfiResult for c_long {
     }
 }
 
+impl FfiResult for c_ulong {
+    const ERR_VALUE: Self = Self::MAX;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 #[cfg(windows)]
-impl FfiResult for i64 {
+impl FfiResult for core::ffi::c_longlong {
     const ERR_VALUE: Self = -1;
 
     fn into_output(self, _vm: &VirtualMachine) -> Self {
@@ -118,7 +151,8 @@ impl FfiResult for i64 {
     }
 }
 
-impl FfiResult for c_ulonglong {
+#[cfg(windows)]
+impl FfiResult for core::ffi::c_ulonglong {
     const ERR_VALUE: Self = Self::MAX;
 
     fn into_output(self, _vm: &VirtualMachine) -> Self {
@@ -166,5 +200,41 @@ where
             },
             |obj| obj.into_output(vm),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::any::type_name;
+    use core::ffi::{c_longlong, c_ulonglong};
+    use core::fmt::Debug;
+
+    #[test]
+    fn ffi_result_err_value() {
+        fn assert_error_value<T, Output>(value: Output)
+        where
+            T: FfiResult<Output> + 'static,
+            Output: PartialEq + Debug,
+        {
+            assert_eq!(value, T::ERR_VALUE, "{}", type_name::<T>(),);
+        }
+
+        assert_error_value::<(), _>(());
+        assert_error_value::<(), c_int>(-1);
+
+        assert_error_value::<isize, _>(-1);
+        assert_error_value::<usize, _>(usize::MAX);
+        assert_error_value::<usize, isize>(-1);
+        assert_error_value::<c_int, _>(-1); // i32
+        assert_error_value::<c_long, _>(-1); //Windows i32, unix i64
+        assert_error_value::<c_ulong, _>(c_ulong::MAX); // Windows u32, unix u64
+        assert_error_value::<c_longlong, _>(-1); // i64
+        assert_error_value::<c_ulonglong, _>(c_ulonglong::MAX); // u64
+        assert_error_value::<c_double, _>(-1.0);
+        assert_error_value::<bool, _>(-1);
+
+        assert_error_value::<PyResult<c_int>, _>(-1);
+        assert_error_value::<PyResult<usize>, _>(usize::MAX);
     }
 }

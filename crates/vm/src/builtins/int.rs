@@ -319,32 +319,24 @@ impl PyInt {
     #[must_use]
     pub fn as_u32_mask(&self) -> u32 {
         let v = self.as_bigint();
-        v.to_u32()
-            .or_else(|| v.to_i32().map(|i| i as u32))
-            .unwrap_or_else(|| {
-                let out = v.iter_u32_digits().next().unwrap_or(0);
-                match v.sign() {
-                    Sign::Minus => out.wrapping_neg(),
-                    _ => out,
-                }
-            })
+        let out = v.iter_u32_digits().next().unwrap_or(0);
+        match v.sign() {
+            Sign::Minus => out.wrapping_neg(),
+            _ => out,
+        }
     }
 
     // _PyLong_AsUnsignedLongLongMask
     #[must_use]
     pub fn as_u64_mask(&self) -> u64 {
         let v = self.as_bigint();
-        v.to_u64()
-            .or_else(|| v.to_i64().map(|i| i as u64))
-            .unwrap_or_else(|| {
-                let mut digits = v.iter_u32_digits();
-                let out = u64::from(digits.next().unwrap_or(0))
-                    | (u64::from(digits.next().unwrap_or(0)) << 32);
-                match v.sign() {
-                    Sign::Minus => out.wrapping_neg(),
-                    _ => out,
-                }
-            })
+        let mut digits = v.iter_u32_digits();
+        let out =
+            u64::from(digits.next().unwrap_or(0)) | (u64::from(digits.next().unwrap_or(0)) << 32);
+        match v.sign() {
+            Sign::Minus => out.wrapping_neg(),
+            _ => out,
+        }
     }
 
     pub fn try_to_primitive<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>

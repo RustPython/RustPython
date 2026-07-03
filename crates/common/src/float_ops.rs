@@ -4,8 +4,8 @@ use num_traits::{Signed, ToPrimitive};
 
 #[must_use]
 pub const fn decompose_float(value: f64) -> (f64, i32) {
-    if 0.0 == value {
-        (0.0, 0i32)
+    if value == 0.0 {
+        (0.0, 0)
     } else {
         let bits = value.to_bits();
         let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;

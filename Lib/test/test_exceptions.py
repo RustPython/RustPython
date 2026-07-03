@@ -231,7 +231,6 @@ class ExceptionTests(unittest.TestCase):
                     line = line.removeprefix('\ufeff')
                 self.assertIn(line, cm.exception.text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_error_offset_continuation_characters(self):
         check = self.check
         check('"\\\n"(1 for c in I,\\\n\\', 2, 2)
@@ -2527,6 +2526,31 @@ class SyntaxErrorTests(unittest.TestCase):
 
         args = ("bad.py", 1, 2, "abcdefg", 1)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 is not None
+    def test_syntax_error_memory_leak(self):
+        # gh-146250: memory leak with re-initialization of SyntaxError
+        e = SyntaxError("msg", ("file.py", 1, 2, "txt", 2, 3))
+        e.__init__("new_msg", ("new_file.py", 2, 3, "new_txt", 3, 4))
+        self.assertEqual(e.msg, "new_msg")
+        self.assertEqual(e.args, ("new_msg", ("new_file.py", 2, 3, "new_txt", 3, 4)))
+        self.assertEqual(e.filename, "new_file.py")
+        self.assertEqual(e.lineno, 2)
+        self.assertEqual(e.offset, 3)
+        self.assertEqual(e.text, "new_txt")
+        self.assertEqual(e.end_lineno, 3)
+        self.assertEqual(e.end_offset, 4)
+
+        e = SyntaxError("msg", ("file.py", 1, 2, "txt", 2, 3))
+        e.__init__("new_msg", ("new_file.py", 2, 3, "new_txt"))
+        self.assertEqual(e.msg, "new_msg")
+        self.assertEqual(e.args, ("new_msg", ("new_file.py", 2, 3, "new_txt")))
+        self.assertEqual(e.filename, "new_file.py")
+        self.assertEqual(e.lineno, 2)
+        self.assertEqual(e.offset, 3)
+        self.assertEqual(e.text, "new_txt")
+        self.assertIsNone(e.end_lineno)
+        self.assertIsNone(e.end_offset)
 
 
 class TestInvalidExceptionMatcher(unittest.TestCase):

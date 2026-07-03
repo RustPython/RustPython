@@ -2,6 +2,7 @@ use super::*;
 use rustpython_compiler_core::SourceFile;
 
 pub(super) enum TypeIgnore {
+    None,
     TypeIgnore(TypeIgnoreTypeIgnore),
 }
 
@@ -9,6 +10,7 @@ pub(super) enum TypeIgnore {
 impl Node for TypeIgnore {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
         match self {
+            Self::None => vm.ctx.none(),
             Self::TypeIgnore(cons) => cons.ast_to_object(vm, source_file),
         }
     }
@@ -17,8 +19,9 @@ impl Node for TypeIgnore {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let cls = object.class();
-        Ok(if cls.is(pyast::NodeTypeIgnoreTypeIgnore::static_type()) {
+        Ok(if vm.is_none(&object) {
+            Self::None
+        } else if is_node_instance(vm, &object, pyast::NodeTypeIgnoreTypeIgnore::static_type())? {
             Self::TypeIgnore(TypeIgnoreTypeIgnore::ast_from_object(
                 vm,
                 source_file,
@@ -34,15 +37,14 @@ impl Node for TypeIgnore {
 }
 
 pub(super) struct TypeIgnoreTypeIgnore {
-    range: TextRange,
-    lineno: PyRefExact<PyInt>,
-    tag: PyRefExact<PyStr>,
+    lineno: i32,
+    tag: PyObjectRef,
 }
 
 // constructor
 impl Node for TypeIgnoreTypeIgnore {
-    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
-        let Self { lineno, tag, range } = self;
+    fn ast_to_object(self, vm: &VirtualMachine, _source_file: &SourceFile) -> PyObjectRef {
+        let Self { lineno, tag } = self;
         let node = NodeAst
             .into_ref_with_type(
                 vm,
@@ -50,25 +52,20 @@ impl Node for TypeIgnoreTypeIgnore {
             )
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("lineno", lineno.to_pyobject(vm), vm).unwrap();
-        dict.set_item("tag", tag.to_pyobject(vm), vm).unwrap();
-        node_add_location(&dict, range, vm, source_file);
+        dict.set_item("lineno", vm.ctx.new_int(lineno).into(), vm)
+            .unwrap();
+        dict.set_item("tag", tag, vm).unwrap();
         node.into()
     }
 
     fn ast_from_object(
         vm: &VirtualMachine,
-        source_file: &SourceFile,
+        _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
         Ok(Self {
-            lineno: get_node_field(vm, &object, "lineno", "TypeIgnore")?
-                .downcast_exact(vm)
-                .unwrap(),
-            tag: get_node_field(vm, &object, "tag", "TypeIgnore")?
-                .downcast_exact(vm)
-                .unwrap(),
-            range: range_from_object(vm, source_file, object, "TypeIgnore")?,
+            lineno: get_int_field(vm, &object, "lineno", "TypeIgnore")?,
+            tag: node_object_to_ast_string(vm, get_node_field(vm, &object, "tag", "TypeIgnore")?)?,
         })
     }
 }

@@ -1795,9 +1795,9 @@ pub(super) mod _os {
     #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
     fn getloadavg(vm: &VirtualMachine) -> PyResult<(f64, f64, f64)> {
-        let loadavg = crate::host_env::time::getloadavg()
-            .map_err(|_| vm.new_os_error("Load averages are unobtainable"))?;
-        Ok((loadavg[0], loadavg[1], loadavg[2]))
+        crate::host_env::time::getloadavg()
+            .map(Into::into)
+            .map_err(|_| vm.new_os_error("Load averages are unobtainable"))
     }
 
     #[cfg(unix)]
@@ -1918,7 +1918,6 @@ pub(super) mod _os {
         }
     }
 
-    /// Perform a statvfs system call on the given path.
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction]
     #[pyfunction(name = "fstatvfs")]

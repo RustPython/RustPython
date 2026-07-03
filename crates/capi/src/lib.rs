@@ -31,6 +31,7 @@ pub mod osmodule;
 pub mod pycapsule;
 pub mod pyerrors;
 pub mod pylifecycle;
+pub mod pymem;
 pub mod pystate;
 pub mod refcount;
 pub mod setobject;

@@ -258,7 +258,7 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             # Lone surrogate cannot be encoded to the default encoding (utf8)
             "\uDC80", collation_cb)
 
-    @unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
+    @unittest.skip("TODO: RUSTPYTHON; recursive cursor use causes lock contention")
     def test_recursive_cursor_use(self):
         """
         http://bugs.python.org/issue10811
@@ -305,7 +305,7 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
                 datetime.datetime(2012, 4, 4, 15, 6, 0, 123456),
             ])
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON; error message mismatch
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message mismatch
     def test_invalid_isolation_level_type(self):
         # isolation level is a string, not an integer
         regex = "isolation_level must be str or None"
@@ -396,7 +396,7 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
         with self.assertRaises(AttributeError):
             del self.con.isolation_level
 
-    @unittest.expectedFailure # TODO: RUSTPYTHON
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bpo37347(self):
         class Printer:
             def log(self, *args):
@@ -440,7 +440,7 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             con.execute("drop table t")
             con.commit()
 
-    @unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
+    @unittest.skip("TODO: RUSTPYTHON; recursive cursor use causes lock contention")
     def test_table_lock_cursor_non_readonly_select(self):
         with memory_database() as con:
             con.execute("create table t(t)")
@@ -469,7 +469,7 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
             self.assertEqual(steps, values)
 
 
-@unittest.skip('TODO: RUSTPYTHON; recursive cursor use causes lock contention')
+@unittest.skip("TODO: RUSTPYTHON; recursive cursor use causes lock contention")
 class RecursiveUseOfCursors(unittest.TestCase):
     # GH-80254: sqlite3 should not segfault for recursive use of cursors.
     msg = "Recursive use of cursors not allowed"

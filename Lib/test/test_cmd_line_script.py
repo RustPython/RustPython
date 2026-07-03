@@ -645,7 +645,6 @@ class CmdLineTest(unittest.TestCase):
             self.assertNotIn("\f", text)
             self.assertIn("\n    1 + 1 = 2\n    ^^^^^\n", text)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_syntaxerror_multi_line_fstring(self):
         script = 'foo = f"""{}\nfoo"""\n'
         with os_helper.temp_dir() as script_dir:
