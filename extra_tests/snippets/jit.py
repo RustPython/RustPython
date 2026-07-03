@@ -11,16 +11,19 @@ def bar() -> float:
 def baz(a: int, b: float) -> float:
     return a + b + 12
 
+
 def tuple_identity(t: tuple) -> tuple:
     return t
+
 
 def mixed_args(a: int, b: float, c: tuple) -> tuple:
     return a, b, c
 
+
 def fib(n: int) -> int:
     if n == 0 or n == 1:
         return 1
-    return fib(n-1) + fib(n-2)
+    return fib(n - 1) + fib(n - 2)
 
 
 def tests():
