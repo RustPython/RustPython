@@ -444,7 +444,7 @@ impl InstructionInfo {
     }
 
     /// flowgraph.c loads_const
-    fn loads_const(&self) -> bool {
+    const fn loads_const(&self) -> bool {
         self.instr.has_const() || matches!(self.instr.real_opcode(), Some(Opcode::LoadSmallInt))
     }
 
