@@ -2679,37 +2679,30 @@ impl Blocks {
                     .then(|| block.instructions[i + 1].instr.real_opcode())
                     .flatten();
 
-                match (block.instructions[i].instr.real_opcode(), nextop) {
-                    (Some(Opcode::LoadFast), _) => {
-                        if matches!(nextop, Some(Opcode::LoadFast)) {
-                            let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                            InstructionInfo::make_super_instruction(
-                                &mut inst1[0],
-                                &mut rest[0],
-                                Opcode::LoadFastLoadFast.into(),
-                            );
-                        }
+                let super_op = match (block.instructions[i].instr.real_opcode(), nextop) {
+                    (Some(Opcode::LoadFast), Some(Opcode::LoadFast)) => {
+                        Some(Opcode::LoadFastLoadFast)
                     }
 
                     (Some(Opcode::StoreFast), Some(Opcode::LoadFast)) => {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        InstructionInfo::make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::StoreFastLoadFast.into(),
-                        );
+                        Some(Opcode::StoreFastLoadFast)
                     }
 
                     (Some(Opcode::StoreFast), Some(Opcode::StoreFast)) => {
-                        let (inst1, rest) = block.instructions[i..].split_at_mut(1);
-                        InstructionInfo::make_super_instruction(
-                            &mut inst1[0],
-                            &mut rest[0],
-                            Opcode::StoreFastStoreFast.into(),
-                        );
+                        Some(Opcode::StoreFastStoreFast)
                     }
 
-                    (_, _) => {}
+                    (_, _) => None,
+                };
+
+                if let Some(super_op) = super_op {
+                    let (inst1, rest) = block.instructions[i..].split_at_mut(1);
+
+                    InstructionInfo::make_super_instruction(
+                        &mut inst1[0],
+                        &mut rest[0],
+                        super_op.into(),
+                    );
                 }
             }
 
