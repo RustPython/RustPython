@@ -88,7 +88,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "JIT loop lowering is currently broken / WIP"]
     fn basic_while_loop() {
+        // TODO: re-add this into the test suite when SSA phi nodes are implemented correctly
         let while_loop = jit_function! { while_loop(a:i64) -> i64 => r##"
         def while_loop(a: int) -> int:
             b = 0

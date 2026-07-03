@@ -434,6 +434,10 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let value = match (expected, val) {
             (JitType::Int, JitValue::Int(v)) => v,
             (JitType::Float, JitValue::Float(v)) => v,
+            (JitType::Float, JitValue::Int(v)) => {
+                self.builder.ins().fcvt_from_sint(types::F64, v)
+            }
+
             (JitType::Bool, JitValue::Bool(v)) => v,
             (JitType::Object, JitValue::Object(v, _)) => v,
             _ => return Err(JitCompileError::NotSupported),
