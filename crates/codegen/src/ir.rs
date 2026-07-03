@@ -5463,8 +5463,9 @@ impl CodeInfo {
                 },
                 block_return,
             );
+
             for info in &block.instructions[..block.instruction_used] {
-                let lineno = instruction_lineno(info);
+                let lineno = info.instruction_lineno();
                 let _ = writeln!(
                     out,
                     "  [disp={}:{} raw={}:{}-{}:{} override={:?}] {:?} arg={} target={}",
@@ -7342,7 +7343,7 @@ mod tests {
     #[test]
     fn instr_set_op0_nop_preserves_cpython_stale_target() {
         let mut info = test_jump(BlockIdx::new(1), 50);
-        set_to_nop(&mut info);
+        info.set_to_nop();
 
         assert_eq!(info.target, BlockIdx::new(1));
 
@@ -7656,9 +7657,9 @@ mod tests {
             blocks[duplicate].cpython_label,
             InstructionSequenceLabel::from_index(3)
         );
-        assert_eq!(instruction_lineno(&blocks[duplicate].instructions[0]), 10);
+        assert_eq!(blocks[duplicate].instructions[0].instruction_lineno(), 10);
         assert_eq!(blocks[1].instructions[0].target, exit);
-        assert_eq!(instruction_lineno(&blocks[exit].instructions[0]), 20);
+        assert_eq!(blocks[exit].instructions[0].instruction_lineno(), 20);
     }
 
     #[test]
@@ -7709,7 +7710,7 @@ mod tests {
         // for jump targets without checking `b_iused`. If
         // `remove_redundant_nops()` emptied the target, that writes the stale
         // backing slot rather than an active instruction.
-        assert_eq!(instruction_lineno(&blocks[1].instructions[0]), 10);
+        assert_eq!(blocks[1].instructions[0].instruction_lineno(), 10);
     }
 
     #[test]
