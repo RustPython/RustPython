@@ -168,7 +168,7 @@ List comprehension element unpacking
     ...
     SyntaxError: iterable unpacking cannot be used in comprehension
 
-    >>> {**{} for a in [1]} # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> {**{} for a in [1]}
     Traceback (most recent call last):
     ...
     SyntaxError: dict unpacking cannot be used in dict comprehension
@@ -356,7 +356,7 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: can't use starred expression here
 
-    >>> (*x),y = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> (*x),y = 1, 2
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
@@ -366,12 +366,12 @@ Now some general starred expressions (all fail).
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> z,(*x),y = 1, 2, 4 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> z,(*x),y = 1, 2, 4
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here
 
-    >>> z,(*x) = 1, 2 # TODO: RUSTPYTHON # doctest:+ELLIPSIS +EXPECTED_FAILURE
+    >>> z,(*x) = 1, 2
     Traceback (most recent call last):
       ...
     SyntaxError: cannot use starred expression here

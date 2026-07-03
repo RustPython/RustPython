@@ -198,7 +198,6 @@ class SymtableTest(unittest.TestCase):
     T = find_block(GenericMine, "T")
     U = find_block(GenericMine, "U")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <SymbolTableType.ANNOTATION: 'annotation'> != 'type alias'
     def test_type(self):
         self.assertEqual(self.top.get_type(), "module")
         self.assertEqual(self.Mine.get_type(), "class")
@@ -270,7 +269,6 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.top.lookup("some_non_assigned_global_var").is_global())
         self.assertTrue(self.top.lookup("some_assigned_global_var").is_global())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_nonlocal(self):
         self.assertFalse(self.spam.lookup("some_var").is_nonlocal())
         self.assertTrue(self.other_internal.lookup("some_var").is_nonlocal())
@@ -289,7 +287,6 @@ class SymtableTest(unittest.TestCase):
     def test_free(self):
         self.assertTrue(self.internal.lookup("x").is_free())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_referenced(self):
         self.assertTrue(self.internal.lookup("x").is_referenced())
         self.assertTrue(self.spam.lookup("internal").is_referenced())
@@ -359,7 +356,6 @@ class SymtableTest(unittest.TestCase):
                                 '    x: int',
                                 'test', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_imported(self):
         self.assertTrue(self.top.lookup("sys").is_imported())
 

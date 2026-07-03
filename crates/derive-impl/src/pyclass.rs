@@ -1433,6 +1433,11 @@ impl GetSetNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for ((name, _cfgs), (getter, setter)) in &self.map {
             if getter.is_none() {
                 errors.push(err_span!(
@@ -1442,6 +1447,7 @@ impl GetSetNursery {
                 ));
             };
         }
+
         errors.into_result()?;
         self.validated = true;
         Ok(())
@@ -1525,6 +1531,11 @@ impl MemberNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (name, entry) in &self.map {
             if entry.getter.is_none() {
                 errors.push(err_span!(
@@ -1534,6 +1545,7 @@ impl MemberNursery {
                 ));
             };
         }
+
         errors.into_result()?;
         self.validated = true;
         Ok(())

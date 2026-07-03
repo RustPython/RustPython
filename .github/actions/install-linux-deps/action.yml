@@ -39,11 +39,36 @@ runs:
     - name: Install Linux dependencies
       shell: bash
       if: ${{ runner.os == 'Linux' }}
-      run: >
-        sudo apt-get update
+      env:
+        GCC_MULTILIB: ${{ inputs.gcc-multilib }}
+        MUSL_TOOLS: ${{ inputs.musl-tools }}
+        CLANG: ${{ inputs.clang }}
+        GCC_AARCH64_LINUX_GNU: ${{ inputs.gcc-aarch64-linux-gnu }}
+      run: |
+        if ! sudo apt-get update; then
+          echo "::warning::apt-get update failed; disabling nonessential Microsoft apt sources and retrying"
+          for source in /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure-cli*; do
+            if [ -e "$source" ]; then
+              sudo mv "$source" "$source.disabled"
+            fi
+          done
+          sudo apt-get update
+        fi
 
-        sudo apt-get install --no-install-recommends
-        ${{ fromJSON(inputs.gcc-multilib) && 'gcc-multilib' || '' }}
-        ${{ fromJSON(inputs.musl-tools) && 'musl-tools' || '' }}
-        ${{ fromJSON(inputs.clang) && 'clang' || '' }}
-        ${{ fromJSON(inputs.gcc-aarch64-linux-gnu) && 'gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross' || '' }}
+        packages=()
+        if [[ "$GCC_MULTILIB" == "true" ]]; then
+          packages+=(gcc-multilib)
+        fi
+        if [[ "$MUSL_TOOLS" == "true" ]]; then
+          packages+=(musl-tools)
+        fi
+        if [[ "$CLANG" == "true" ]]; then
+          packages+=(clang)
+        fi
+        if [[ "$GCC_AARCH64_LINUX_GNU" == "true" ]]; then
+          packages+=(gcc-aarch64-linux-gnu linux-libc-dev-arm64-cross libc6-dev-arm64-cross)
+        fi
+
+        if ((${#packages[@]})); then
+          sudo apt-get install --no-install-recommends "${packages[@]}"
+        fi

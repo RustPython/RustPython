@@ -22,7 +22,7 @@ impl VirtualMachine {
     pub fn run_string(&self, scope: Scope, source: &str, source_path: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::Exec, source_path)
-            .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
+            .map_err(|err| err.into_pyexception(self, Some(source)))?;
         // linecache._register_code(code, source, filename)
         let _ = self.register_code_in_linecache(&code_obj, source);
         self.run_code_obj(code_obj, scope)
@@ -47,7 +47,7 @@ impl VirtualMachine {
     pub fn run_block_expr(&self, scope: Scope, source: &str) -> PyResult {
         let code_obj = self
             .compile(source, compiler::Mode::BlockExpr, "<embedded>")
-            .map_err(|err| self.new_syntax_error(&err, Some(source)))?;
+            .map_err(|err| err.into_pyexception(self, Some(source)))?;
         self.run_code_obj(code_obj, scope)
     }
 }
@@ -105,11 +105,19 @@ mod file_run {
                 if path != "<stdin>" {
                     set_main_loader(module_dict, path, "SourceFileLoader", self)?;
                 }
-                match crate::host_env::fs::read_to_string(path) {
-                    Ok(source) => {
+                match crate::host_env::fs::read(path) {
+                    Ok(source_bytes) => {
+                        if source_bytes.contains(&0) {
+                            return Err(self.new_exception_msg(
+                                self.ctx.exceptions.syntax_error.to_owned(),
+                                "source code cannot contain null bytes".into(),
+                            ));
+                        }
+                        let source = String::from_utf8(source_bytes)
+                            .map_err(|err| self.new_os_error(err.to_string()))?;
                         let code_obj = self
                             .compile(&source, compiler::Mode::Exec, path)
-                            .map_err(|err| self.new_syntax_error(&err, Some(&source)))?;
+                            .map_err(|err| err.into_pyexception(self, Some(&source)))?;
                         self.run_code_obj(code_obj, scope)?;
                     }
                     Err(err) => {

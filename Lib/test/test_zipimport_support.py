@@ -37,9 +37,8 @@ from test.test_doctest import (test_doctest,
 def _run_object_doctest(obj, module):
     from test.support.rustpython import DocTestChecker  # TODO: RUSTPYTHON
     finder = doctest.DocTestFinder(verbose=verbose, recurse=False)
-    # TODO: RUSTPYTHON
-    # runner = doctest.DocTestRunner(verbose=verbose)
-    runner = doctest.DocTestRunner(verbose=verbose, checker=DocTestChecker())
+    runner = doctest.DocTestRunner(verbose=verbose)
+    runner = doctest.DocTestRunner(verbose=verbose, checker=DocTestChecker())  # TODO: RUSTPYTHON
     # Use the object's fully qualified name if it has one
     # Otherwise, use the module's name
     try:

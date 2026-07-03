@@ -6,7 +6,7 @@ fn main() -> vm::PyResult<()> {
         let source = r#"print("Hello World!")"#;
         let code_obj = vm
             .compile(source, vm::compiler::Mode::Exec, "<embedded>")
-            .map_err(|err| vm.new_syntax_error(&err, Some(source)))?;
+            .map_err(|err| err.into_pyexception(vm, Some(source)))?;
 
         vm.run_code_obj(code_obj, scope)?;
 

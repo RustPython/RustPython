@@ -180,7 +180,6 @@ class TestReader(ScreenEqualMixin, TestCase):
         reader, _ = handle_all_events(events)
         self.assert_screen_equal(reader, "")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ
     def test_newline_within_block_trailing_whitespace(self):
         # fmt: off
         code = (

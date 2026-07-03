@@ -131,4 +131,4 @@ struct ParsedFile {
     result: ParseResult,
 }
 
-type ParseResult = Result<Vec<ast::Stmt>, String>;
+type ParseResult = Result<ast::Suite, String>;

@@ -20,43 +20,40 @@ mod _symtable {
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
 
     #[pyattr]
-    pub(super) const DEF_GLOBAL: i32 = 1;
+    pub(super) const DEF_GLOBAL: i32 = SymbolFlags::DEF_GLOBAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_LOCAL: i32 = 2;
+    pub(super) const DEF_LOCAL: i32 = SymbolFlags::DEF_LOCAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_PARAM: i32 = 2 << 1;
+    pub(super) const DEF_PARAM: i32 = SymbolFlags::DEF_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_NONLOCAL: i32 = 2 << 2;
+    pub(super) const DEF_NONLOCAL: i32 = SymbolFlags::DEF_NONLOCAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const USE: i32 = 2 << 3;
+    pub(super) const USE: i32 = SymbolFlags::USE.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE: i32 = 2 << 4;
+    pub(super) const DEF_FREE_CLASS: i32 = SymbolFlags::DEF_FREE_CLASS.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE_CLASS: i32 = 2 << 5;
+    pub(super) const DEF_IMPORT: i32 = SymbolFlags::DEF_IMPORT.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_IMPORT: i32 = 2 << 6;
+    pub(super) const DEF_ANNOT: i32 = SymbolFlags::DEF_ANNOT.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_ANNOT: i32 = 2 << 7;
+    pub(super) const DEF_COMP_ITER: i32 = SymbolFlags::DEF_COMP_ITER.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_ITER: i32 = 2 << 8;
+    pub(super) const DEF_TYPE_PARAM: i32 = SymbolFlags::DEF_TYPE_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_TYPE_PARAM: i32 = 2 << 9;
+    pub(super) const DEF_COMP_CELL: i32 = SymbolFlags::DEF_COMP_CELL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_CELL: i32 = 2 << 10;
-
-    #[pyattr]
-    pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
+    pub(super) const DEF_BOUND: i32 = SymbolFlags::DEF_BOUND.bits() as i32;
 
     #[pyattr]
     pub(super) const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
@@ -153,7 +150,9 @@ mod _symtable {
                 CompilerScope::Class => TYPE_CLASS,
                 CompilerScope::Module => TYPE_MODULE,
                 CompilerScope::Annotation => TYPE_ANNOTATION,
+                CompilerScope::TypeAlias => TYPE_TYPE_ALIAS,
                 CompilerScope::TypeParams => TYPE_TYPE_PARAMETERS,
+                CompilerScope::TypeVariable => TYPE_TYPE_VARIABLE,
             }
         }
 
@@ -261,7 +260,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_imported(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::IMPORTED)
+            self.symbol.flags.contains(SymbolFlags::DEF_IMPORT)
         }
 
         #[pymethod]
@@ -272,22 +271,22 @@ mod _symtable {
 
         #[pymethod]
         const fn is_nonlocal(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::NONLOCAL)
+            self.symbol.flags.contains(SymbolFlags::DEF_NONLOCAL)
         }
 
         #[pymethod]
         const fn is_referenced(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::REFERENCED)
+            self.symbol.flags.contains(SymbolFlags::USE)
         }
 
         #[pymethod]
         const fn is_assigned(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::ASSIGNED)
+            self.symbol.flags.contains(SymbolFlags::DEF_LOCAL)
         }
 
         #[pymethod]
         const fn is_parameter(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::PARAMETER)
+            self.symbol.flags.contains(SymbolFlags::DEF_PARAM)
         }
 
         #[pymethod]
@@ -302,7 +301,7 @@ mod _symtable {
 
         #[pymethod]
         const fn is_annotated(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::ANNOTATED)
+            self.symbol.flags.contains(SymbolFlags::DEF_ANNOT)
         }
 
         #[pymethod]

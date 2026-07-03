@@ -4,6 +4,7 @@ argdefs
 argtypes
 asdl
 asname
+ASNATIVEBYTES
 atopen
 atext
 attro
@@ -193,6 +194,7 @@ pyerrors
 Pyfunc
 pylifecycle
 pymain
+pymem
 pyrepl
 pystate
 PYTHONTRACEMALLOC

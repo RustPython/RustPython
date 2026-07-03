@@ -6,6 +6,7 @@ import enum
 import inspect
 import sys
 import unittest
+from test import support
 
 
 @dataclasses.dataclass
@@ -82,7 +83,6 @@ class TestInheritance(unittest.TestCase):
         self.assertEqual(self.check_mapping_then_sequence(S3()), "seq")
         self.assertEqual(self.check_mapping_then_sequence(S4()), "seq")
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_late_registration_mapping(self):
         class Parent:
             pass
@@ -106,7 +106,6 @@ class TestInheritance(unittest.TestCase):
         self.assertEqual(self.check_mapping_then_sequence(ChildPost()), "map")
         self.assertEqual(self.check_mapping_then_sequence(GrandchildPost()), "map")
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_late_registration_sequence(self):
         class Parent:
             pass
@@ -2246,7 +2245,6 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(f(None), {})
         self.assertEqual(f((1, 2)), {})
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patma_210(self):
         def f(w):
             match w:
@@ -2566,15 +2564,14 @@ class TestPatma(unittest.TestCase):
         self.assertEqual(y, 0)
         self.assertEqual(z, {0: 1})
 
-    # TODO: RUSTPYTHON
-    # def test_patma_241(self):
-    #     x = [[{0: 0}]]
-    #     match x:
-    #         case list([({-0-0j: int(real=0+0j, imag=0-0j) | (1) as z},)]):
-    #             y = 0
-    #     self.assertEqual(x, [[{0: 0}]])
-    #     self.assertEqual(y, 0)
-    #     self.assertEqual(z, 0)
+    def test_patma_241(self):
+        x = [[{0: 0}]]
+        match x:
+            case list([({-0-0j: int(real=0+0j, imag=0-0j) | (1) as z},)]):
+                y = 0
+        self.assertEqual(x, [[{0: 0}]])
+        self.assertEqual(y, 0)
+        self.assertEqual(z, 0)
 
     def test_patma_242(self):
         x = range(3)
@@ -2955,7 +2952,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_invalid_syntax_3(self):
         self.assert_syntax_error("""
         match ...:
@@ -3020,6 +3016,13 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
+    def test_multiple_assignments_to_name_in_pattern_6(self):
+        self.assert_syntax_error("""
+        match ...:
+            case a as a + 1:  # NAME and expression with no ()
+                pass
+        """)
+
     def test_multiple_starred_names_in_sequence_pattern_0(self):
         self.assert_syntax_error("""
         match ...:
@@ -3075,7 +3078,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patterns_may_only_match_literals_and_attribute_lookups_0(self):
         self.assert_syntax_error("""
         match ...:
@@ -3083,7 +3085,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_patterns_may_only_match_literals_and_attribute_lookups_1(self):
         self.assert_syntax_error("""
         match ...:
@@ -3126,7 +3127,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_real_number_wrong_ops(self):
         for op in ["*", "/", "@", "**", "%", "//"]:
             with self.subTest(op=op):
@@ -3202,7 +3202,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_mapping_pattern_duplicate_key_edge_case0(self):
         self.assert_syntax_error("""
         match ...:
@@ -3210,7 +3209,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_mapping_pattern_duplicate_key_edge_case1(self):
         self.assert_syntax_error("""
         match ...:
@@ -3225,8 +3223,6 @@ class TestSyntaxErrors(unittest.TestCase):
                 pass
         """)
 
-
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_mapping_pattern_duplicate_key_edge_case3(self):
         self.assert_syntax_error("""
         match ...:
@@ -3258,7 +3254,6 @@ class TestTypeErrors(unittest.TestCase):
         self.assertEqual(x, range(10))
         self.assertIs(y, None)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_got_multiple_subpatterns_for_attribute_0(self):
         class Class:
             __match_args__ = ("a", "a")
@@ -3273,7 +3268,6 @@ class TestTypeErrors(unittest.TestCase):
         self.assertIs(y, None)
         self.assertIs(z, None)
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_got_multiple_subpatterns_for_attribute_1(self):
         class Class:
             __match_args__ = ("a",)
@@ -3379,7 +3373,6 @@ class TestTypeErrors(unittest.TestCase):
 
 class TestValueErrors(unittest.TestCase):
 
-    @unittest.expectedFailure   # TODO: RUSTPYTHON
     def test_mapping_pattern_checks_duplicate_key_1(self):
         class Keys:
             KEY = "a"
@@ -3506,6 +3499,7 @@ class TestTracing(unittest.TestCase):
         self.assertListEqual(self._trace(f, 1), [1, 2, 3])
         self.assertListEqual(self._trace(f, 0), [1, 2, 5, 6])
 
+    @support.skip_wasi_stack_overflow()
     def test_parser_deeply_nested_patterns(self):
         # Deeply nested patterns can cause exponential backtracking when parsing.
         # See gh-93671 for more information.

@@ -2479,6 +2479,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             slots: PyType::make_slots(),
             heaptype_ext: None,
             tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+            abc_tpflags: core::sync::atomic::AtomicU64::new(0),
         };
         let object_payload = PyType {
             base: None,
@@ -2489,6 +2490,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             slots: object::PyBaseObject::make_slots(),
             heaptype_ext: None,
             tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+            abc_tpflags: core::sync::atomic::AtomicU64::new(0),
         };
         // Both type_type and object_type are instances of `type`, which has
         // HAS_DICT and HAS_WEAKREF, so they need both ObjExt and WeakRefList prefixes.
@@ -2585,6 +2587,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)

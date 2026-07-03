@@ -1795,7 +1795,6 @@ class TestCase(unittest.TestCase):
         self.assertIsNot(d['f'], t)
         self.assertEqual(d['f'].my_a(), 6)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_helper_asdict_defaultdict(self):
         # Ensure asdict() does not throw exceptions when a
         # defaultdict is a member of a dataclass
@@ -1938,7 +1937,6 @@ class TestCase(unittest.TestCase):
         t = astuple(c, tuple_factory=list)
         self.assertEqual(t, ['outer', T(1, ['inner', T(11, 12, 13)], 2)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_helper_astuple_defaultdict(self):
         # Ensure astuple() does not throw exceptions when a
         # defaultdict is a member of a dataclass

@@ -141,7 +141,7 @@ pub fn import_file(
             file_path,
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
+        .map_err(|err| err.into_pyexception(vm, Some(content)))?;
     import_code_obj(vm, module_name, code, true)
 }
 
@@ -154,7 +154,7 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
             "<source>",
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
+        .map_err(|err| err.into_pyexception(vm, Some(content)))?;
     import_code_obj(vm, module_name, code, false)
 }
 

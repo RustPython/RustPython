@@ -57,8 +57,7 @@ except ImportError:
 try:
     from _collections import defaultdict
 except ImportError:
-    # TODO: RUSTPYTHON - implement defaultdict in Rust
-    from ._defaultdict import defaultdict
+    pass
 
 heapq = None  # Lazily imported
 

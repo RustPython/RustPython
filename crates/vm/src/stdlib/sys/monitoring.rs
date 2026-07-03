@@ -747,7 +747,7 @@ fn fire(
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
     // Prevent recursive event firing
-    if FIRING.with(|f| f.get()) {
+    if vm.tracing_is_suppressed() || FIRING.with(|f| f.get()) {
         return Ok(());
     }
 
@@ -795,6 +795,7 @@ fn fire(
     let args = FuncArgs::from(args_vec);
 
     FIRING.with(|f| f.set(true));
+    vm.enter_tracing();
     let result = (|| {
         for (tool, cb) in callbacks {
             let result = cb.call(args.clone(), vm)?;
@@ -817,6 +818,7 @@ fn fire(
         }
         Ok(())
     })();
+    vm.leave_tracing();
     FIRING.with(|f| f.set(false));
     result
 }

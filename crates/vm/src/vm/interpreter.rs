@@ -300,8 +300,10 @@ impl Default for InterpreterBuilder {
 ///     let scope = vm.new_scope_with_builtins();
 ///     let source = r#"print("Hello World!")"#;
 ///     let code_obj = vm.compile(
-///         source, Mode::Exec, "<embedded>"
-///     ).map_err(|err| vm.new_syntax_error(&err, Some(source))).unwrap();
+///             source,
+///             Mode::Exec,
+///             "<embedded>",
+///     ).map_err(|err| err.into_pyexception(vm, Some(source))).unwrap();
 ///     vm.run_code_obj(code_obj, scope).unwrap();
 /// });
 /// ```

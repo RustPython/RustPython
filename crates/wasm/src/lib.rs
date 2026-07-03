@@ -70,7 +70,11 @@ pub mod eval {
         if let Some(js_vars) = js_vars {
             vm.add_to_scope("js_vars".into(), js_vars.into())?;
         }
-        vm.run(source, mode, None)
+        if matches!(mode, Mode::Single) {
+            vm.exec_single(source, None)
+        } else {
+            vm.run(source, mode, None)
+        }
     }
 
     /// Evaluate Python code

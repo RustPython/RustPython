@@ -1,5 +1,6 @@
 ---
 source: crates/stdlib/src/_opcode.rs
+assertion_line: 318
 expression: "dis(r#\"\ndef f(one: int):\n    int.new_attr: int\n    [list][0].new_attr: [int, str]\n    my_lst = [1]\n    my_lst[one]: int\n    return my_lst\n\"#)"
 ---
   0           RESUME                   0
@@ -15,7 +16,7 @@ expression: "dis(r#\"\ndef f(one: int):\n    int.new_attr: int\n    [list][0].ne
 
 Disassembly of <code object __annotate__ at 0xdeadbeef file "<?>", line 1>:
   1           RESUME                   0
-              LOAD_FAST_BORROW         0 (format)
+              LOAD_FAST_CHECK          0 (format)
               LOAD_SMALL_INT           2
               COMPARE_OP             132 (>)
               POP_JUMP_IF_FALSE        3 (to L1)
