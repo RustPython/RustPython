@@ -31,9 +31,9 @@ pub(super) enum ArgsError {
 impl ToPyObject for AbiValue {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            AbiValue::Int(i) => i.to_pyobject(vm),
-            AbiValue::Float(f) => f.to_pyobject(vm),
-            AbiValue::Bool(b) => b.to_pyobject(vm),
+            Self::Int(i) => i.to_pyobject(vm),
+            Self::Float(f) => f.to_pyobject(vm),
+            Self::Bool(b) => b.to_pyobject(vm),
             _ => unimplemented!(),
         }
     }

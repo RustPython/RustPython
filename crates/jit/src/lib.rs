@@ -1,6 +1,6 @@
+#![allow(clippy::alloc_instead_of_core)]
 mod instructions;
 
-#![allow(clippy::alloc_instead_of_core)]
 extern crate alloc;
 use alloc::alloc::{Layout, alloc, handle_alloc_error};
 use alloc::fmt;
