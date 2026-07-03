@@ -148,18 +148,12 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     /// Generates a JitValue out of a Local
-    fn local_to_value(
-        builder: &mut FunctionBuilder<'_>,
-        local: &Local,
-    ) -> Result<JitValue, JitCompileError> {
+    fn local_to_value(builder: &mut FunctionBuilder<'_>, local: &Local) -> JitValue {
         match local {
-            Local::Scalar { var, ty } => Ok(JitValue::from_type_and_value(
-                ty.clone(),
-                builder.use_var(*var),
-            )),
-            Local::Object { var, kind } => {
-                Ok(JitValue::Object(builder.use_var(*var), kind.clone()))
+            Local::Scalar { var, ty } => {
+                JitValue::from_type_and_value(ty.clone(), builder.use_var(*var))
             }
+            Local::Object { var, kind } => JitValue::Object(builder.use_var(*var), kind.clone()),
         }
     }
     /// Stores a Local into the variables array
@@ -434,9 +428,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         let value = match (expected, val) {
             (JitType::Int, JitValue::Int(v)) => v,
             (JitType::Float, JitValue::Float(v)) => v,
-            (JitType::Float, JitValue::Int(v)) => {
-                self.builder.ins().fcvt_from_sint(types::F64, v)
-            }
+            (JitType::Float, JitValue::Int(v)) => self.builder.ins().fcvt_from_sint(types::F64, v),
 
             (JitType::Bool, JitValue::Bool(v)) => v,
             (JitType::Object, JitValue::Object(v, _)) => v,
@@ -753,7 +745,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[var_num.get(arg)]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                let value = Self::local_to_value(self.builder, local)?;
+                let value = Self::local_to_value(self.builder, local);
                 self.stack.push(value);
                 Ok(())
             }
@@ -770,7 +762,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     let local = self.variables[idx]
                         .as_ref()
                         .ok_or(JitCompileError::BadBytecode)?;
-                    let value = Self::local_to_value(self.builder, local)?;
+                    let value = Self::local_to_value(self.builder, local);
                     self.stack.push(value);
                 }
                 Ok(())
@@ -844,7 +836,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[load_idx]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                let value = Self::local_to_value(self.builder, local)?;
+                let value = Self::local_to_value(self.builder, local);
                 self.stack.push(value);
                 Ok(())
             }
