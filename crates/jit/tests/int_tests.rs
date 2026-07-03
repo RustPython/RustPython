@@ -89,7 +89,7 @@ mod tests {
 
     fn basic_exp() {
         let exp = jit_function! { exp(a: i64, b: i64) -> i64 => r##"
-    def exp(a: int, b: int) -> float:
+    def exp(a: int, b: int) -> int:
         return a ** b
     "## };
 
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn basic_power() {
         let power = jit_function! { power(a:i64, b:i64) -> i64 => r##"
-        def power(a: int, b: int) -> float:
+        def power(a: int, b: int) -> int:
             return a ** b
     "##
         };
