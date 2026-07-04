@@ -116,7 +116,7 @@ pub unsafe extern "C" fn PySet_Size(anyset: *mut PyObject) -> isize {
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{PyFrozenSet, PyInt, PySet};

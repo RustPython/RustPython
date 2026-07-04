@@ -241,7 +241,7 @@ pub unsafe extern "C" fn PyUnicode_EqualToUTF8AndSize(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use std::ffi::{OsStr, OsString};
 

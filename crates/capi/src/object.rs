@@ -541,7 +541,7 @@ pub unsafe extern "C" fn PyObject_GenericSetDict(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::class::basic::CompareOp;
     use pyo3::prelude::*;

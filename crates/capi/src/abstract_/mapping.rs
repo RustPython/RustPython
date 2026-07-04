@@ -194,7 +194,7 @@ pub unsafe extern "C" fn PyMapping_SetItemString(
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyMapping, PyMappingMethods, PyTuple};

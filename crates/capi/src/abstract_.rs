@@ -178,3 +178,40 @@ pub unsafe extern "C" fn PyObject_Size(obj: *mut PyObject) -> isize {
         obj.length(vm)
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::{PyDict, PyString};
+
+    #[test]
+    fn call_method1() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert!(
+                string
+                    .call_method1("endswith", ("!",))
+                    .unwrap()
+                    .is_truthy()
+                    .unwrap()
+            );
+        })
+    }
+
+    #[test]
+    fn object_set_get_del_item() {
+        Python::attach(|py| {
+            let obj = PyDict::new(py).into_any();
+            obj.set_item("key", "value").unwrap();
+            assert_eq!(
+                obj.get_item("key")
+                    .unwrap()
+                    .cast_into::<PyString>()
+                    .unwrap(),
+                "value"
+            );
+            obj.del_item("key").unwrap();
+            assert!(obj.get_item("key").is_err());
+        })
+    }
+}

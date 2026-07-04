@@ -57,14 +57,14 @@ pub unsafe extern "C" fn PyFloat_FromString(obj: *mut PyObject) -> *mut PyObject
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use core::f64::consts::PI;
     use pyo3::prelude::*;
     use pyo3::types::PyFloat;
 
     #[test]
-    fn test_py_float() {
+    fn py_float() {
         Python::attach(|py| {
             let pi = PyFloat::new(py, PI);
             assert!(pi.is_instance_of::<PyFloat>());
