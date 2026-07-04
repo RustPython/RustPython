@@ -1,6 +1,5 @@
-use crate::PyObject;
 use crate::object::define_py_check;
-use crate::pystate::with_vm;
+use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyBytes;
 
@@ -46,13 +45,13 @@ pub unsafe extern "C" fn PyBytes_AsString(bytes: *mut PyObject) -> *mut c_char {
     })
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyBytes;
 
     #[test]
-    fn test_bytes() {
+    fn bytes() {
         Python::attach(|py| {
             let bytes = PyBytes::new(py, b"Hello, World!");
             assert_eq!(bytes.as_bytes(), b"Hello, World!");
@@ -60,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bytes_uninit() {
+    fn bytes_uninit() {
         Python::attach(|py| {
             let bytes = PyBytes::new_with(py, 13, |data| {
                 data.copy_from_slice(b"Hello, World!");
