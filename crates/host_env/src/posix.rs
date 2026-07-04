@@ -10,6 +10,8 @@ use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
+use crate::crt_fd;
+
 pub struct UnameInfo {
     pub sysname: String,
     pub nodename: String,
@@ -174,24 +176,14 @@ pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
-pub fn make_dir(path: &CStr, mode: u32) -> std::io::Result<()> {
-    let ret = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(all(not(windows), not(target_os = "redox")))]
-pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> std::io::Result<()> {
-    let ret = unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
+#[cfg(any(unix, target_os = "wasi"))]
+pub fn make_dir(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: &impl AsRef<Path>,
+    mode: libc::mode_t,
+) -> std::io::Result<()> {
+    let dir_fd = dir_fd.as_ref().map_or(rustix::fs::CWD, AsFd::as_fd);
+    rustix::fs::mkdirat(dir_fd, path.as_ref(), mode.into()).map_err(Into::into)
 }
 
 #[cfg(unix)]
