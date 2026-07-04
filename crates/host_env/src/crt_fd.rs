@@ -5,7 +5,7 @@ use alloc::fmt;
 use core::cmp;
 use std::{ffi, io};
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 use std::os::fd::AsFd;
 #[cfg(not(windows))]
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
@@ -209,42 +209,42 @@ impl Owned {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl From<Owned> for OwnedFd {
     fn from(fd: Owned) -> Self {
         fd.inner
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl From<OwnedFd> for Owned {
     fn from(fd: OwnedFd) -> Self {
         Self { inner: fd }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsFd for Owned {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.inner.as_fd()
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsRawFd for Owned {
     fn as_raw_fd(&self) -> RawFd {
         self.as_raw()
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl FromRawFd for Owned {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         unsafe { Self::from_raw(fd) }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl IntoRawFd for Owned {
     fn into_raw_fd(self) -> RawFd {
         self.into_raw()
@@ -287,28 +287,28 @@ impl Borrowed<'_> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl<'fd> From<Borrowed<'fd>> for BorrowedFd<'fd> {
     fn from(fd: Borrowed<'fd>) -> Self {
         fd.inner
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl<'fd> From<BorrowedFd<'fd>> for Borrowed<'fd> {
     fn from(fd: BorrowedFd<'fd>) -> Self {
         Self { inner: fd }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsFd for Borrowed<'_> {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.inner.as_fd()
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsRawFd for Borrowed<'_> {
     fn as_raw_fd(&self) -> RawFd {
         self.as_raw()
