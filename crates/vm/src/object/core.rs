@@ -1005,6 +1005,9 @@ impl<T: PyPayload> PyInner<T> {
             let has_ext =
                 flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
             let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
+            // Objects published to lock-free caches keep their memory mapped
+            // until a QSBR grace period passes; destructors still run now.
+            let published = (*ptr).ref_count.is_published();
 
             if has_ext || has_weakref {
                 // Reconstruct the same layout used in new()
@@ -1037,7 +1040,15 @@ impl<T: PyPayload> PyInner<T> {
                 }
                 // WeakRefList has no Drop (just raw pointers), no drop_in_place needed
 
-                alloc::alloc::dealloc(alloc_ptr, combined);
+                if published {
+                    crate::object::qsbr::free_delayed(alloc_ptr, combined);
+                } else {
+                    alloc::alloc::dealloc(alloc_ptr, combined);
+                }
+            } else if published {
+                let layout = core::alloc::Layout::new::<Self>();
+                core::ptr::drop_in_place(ptr);
+                crate::object::qsbr::free_delayed(ptr as *mut u8, layout);
             } else {
                 drop(Box::from_raw(ptr));
             }
@@ -1286,6 +1297,13 @@ impl PyObject {
         } else {
             None
         }
+    }
+
+    /// Mark this object as published to a lock-free cache. Its memory
+    /// reclamation is deferred through QSBR (see `object::qsbr`) so that
+    /// concurrent try-incref readers never touch freed memory.
+    pub(crate) fn mark_cache_published(&self) {
+        self.0.ref_count.mark_published();
     }
 }
 
