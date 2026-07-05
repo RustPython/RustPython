@@ -4982,7 +4982,9 @@ impl ExecutingFrame<'_> {
                     && cached_version != 0
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
-                    && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
+                    && let Some((init_func, init_func_version)) =
+                        cls.get_cached_init_for_specialization(cached_version)
+                    && init_func.func_version() == init_func_version
                     && init_func.has_exact_argcount(nargs + 1)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {

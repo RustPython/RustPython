@@ -293,6 +293,7 @@ pub struct HeapTypeExt {
 
 pub struct TypeSpecializationCache {
     pub init: PyAtomicRef<Option<PyFunction>>,
+    pub init_version: AtomicU32,
     pub getitem: PyAtomicRef<Option<PyFunction>>,
     pub getitem_version: AtomicU32,
 }
@@ -301,6 +302,7 @@ impl TypeSpecializationCache {
     fn new() -> Self {
         Self {
             init: PyAtomicRef::from(None::<PyRef<PyFunction>>),
+            init_version: AtomicU32::new(0),
             getitem: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem_version: AtomicU32::new(0),
         }
@@ -335,6 +337,7 @@ impl TypeSpecializationCache {
     #[inline]
     fn invalidate_for_type_modified(&self) {
         self.swap_init(None);
+        self.init_version.store(0, Ordering::Release);
         self.swap_getitem(None);
         self.getitem_version.store(0, Ordering::Release);
     }
@@ -353,6 +356,7 @@ impl TypeSpecializationCache {
         if let Some(old_init) = old_init {
             out.push(old_init.into());
         }
+        self.init_version.store(0, Ordering::Release);
         let old_getitem = unsafe { self.getitem.swap(None) };
         if let Some(old_getitem) = old_getitem {
             out.push(old_getitem.into());
@@ -1102,7 +1106,14 @@ impl PyType {
             if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
                 return false;
             }
+            let func_version = init.get_version_for_current_state();
+            if func_version == 0 {
+                return false;
+            }
             ext.specialization_cache.swap_init(Some(init));
+            ext.specialization_cache
+                .init_version
+                .store(func_version, Ordering::Release);
             true
         })
     }
@@ -1111,7 +1122,7 @@ impl PyType {
     pub(crate) fn get_cached_init_for_specialization(
         &self,
         tp_version: u32,
-    ) -> Option<PyRef<PyFunction>> {
+    ) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
         if tp_version == 0 {
             return None;
@@ -1119,9 +1130,19 @@ impl PyType {
         if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
             return None;
         }
-        ext.specialization_cache
+        // Check order: pointer (Acquire) then function version.
+        let init = ext
+            .specialization_cache
             .init
-            .try_to_owned(Ordering::Acquire)
+            .try_to_owned(Ordering::Acquire)?;
+        let cached_version = ext
+            .specialization_cache
+            .init_version
+            .load(Ordering::Relaxed);
+        if cached_version == 0 {
+            return None;
+        }
+        Some((init, cached_version))
     }
 
     /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
