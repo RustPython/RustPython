@@ -182,8 +182,9 @@ impl LocalsPlus {
     /// Create a new LocalsPlus backed by the thread data stack.
     /// All slots are zero-initialized.
     ///
-    /// The caller must call `materialize_localsplus()` when the frame finishes
-    /// to migrate data to the heap, then `datastack_pop()` to free the memory.
+    /// When the frame finishes, the caller must migrate data to the heap with
+    /// `materialize_localsplus()` (or drop it in place with
+    /// `release_localsplus()`), then `datastack_pop()` to free the memory.
     fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
         let capacity = nlocalsplus
             .checked_add(stacksize)
@@ -216,6 +217,29 @@ impl LocalsPlus {
         } else {
             None
         }
+    }
+
+    /// Drop all contained values and detach the data stack backing without
+    /// copying to the heap, leaving an empty heap-backed husk.
+    /// Returns the data stack base pointer for `DataStack::pop()`.
+    /// Returns `None` if already heap-backed.
+    ///
+    /// Only valid when the values can never be observed again (the enclosing
+    /// frame is uniquely referenced): the locals are gone afterwards.
+    fn release_datastack(&mut self) -> Option<*mut u8> {
+        let LocalsPlusData::DataStack { ptr, .. } = &self.data else {
+            return None;
+        };
+        let base = *ptr as *mut u8;
+        // Drop values while the backing store is still valid. Value drops may
+        // run `__del__`, which can push nested data stack frames above `base`;
+        // those are popped before the caller pops `base` (LIFO preserved).
+        self.drop_values();
+        self.data = LocalsPlusData::Heap(Box::default());
+        // Keep the accessors consistent with the empty backing store.
+        // stack_top is already 0 after drop_values().
+        self.nlocalsplus = 0;
+        Some(base)
     }
 
     /// Drop all contained values without freeing the backing storage.
@@ -893,6 +917,19 @@ impl Frame {
         unsafe { self.iframe_mut().localsplus.materialize_to_heap() }
     }
 
+    /// Drop all localsplus values in place and detach the data stack backing
+    /// without the heap copy. Returns the data stack base pointer for
+    /// `VirtualMachine::datastack_pop()`, or `None` if heap-backed.
+    ///
+    /// # Safety
+    /// Caller must ensure the frame is not executing, that no other reference
+    /// to the frame exists or can be created (localsplus is unobservable
+    /// afterwards), and that the returned pointer is passed to
+    /// `VirtualMachine::datastack_pop()`.
+    pub(crate) unsafe fn release_localsplus(&self) -> Option<*mut u8> {
+        unsafe { self.iframe_mut().localsplus.release_datastack() }
+    }
+
     /// Clear evaluation stack and state-owned cell/free references.
     /// For full local/cell cleanup, call `clear_locals_and_stack()`.
     pub(crate) fn clear_stack_and_cells(&self) {
@@ -1366,7 +1403,54 @@ fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> O
     }
 }
 
-fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
+/// Free a finished call frame's data stack storage.
+///
+/// When the caller holds the only reference to the frame, the locals and
+/// stack values are dropped in place and the storage is released without a
+/// heap copy. Otherwise (the frame escaped through a traceback,
+/// `sys._getframe`, a trace callback, ...) the values are copied to the heap
+/// first so they stay readable through the escaped reference.
+pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
+    let frame_obj = frame.as_object();
+    // Uniqueness argument: at this point the frame is already out of
+    // `vm.frames`, the thread-frames registry and the current-frame chain
+    // (all unlinked inside `with_frame_impl` before it returned), and the
+    // frame type has no weakref support, so with one exception no thread can
+    // mint a new reference without already holding one. The exception is the
+    // GC generation lists (`gc.get_objects`, `gc.get_referrers`, collection
+    // survivor refs), whose readers incref under the generation-list read
+    // lock. Untracking the frame takes the same list's write lock, so after
+    // `untrack_object` returns, no new list-based reference can appear and
+    // any previously minted one is visible to the count re-check below.
+    // This also keeps `__del__` side effects during `release_localsplus`
+    // (which can run arbitrary code, including `gc.get_objects`) from
+    // reaching the frame.
+    if frame_obj.strong_count() == 1 && frame_obj.is_gc_tracked() {
+        let ptr = NonNull::from(frame_obj);
+        // SAFETY: the frame is alive and currently tracked.
+        unsafe { crate::gc_state::gc_state().untrack_object(ptr) };
+        if frame_obj.strong_count() == 1 {
+            // A reference minted and already released by another thread ends
+            // in a release-decref; the fence orders that thread's reads of
+            // localsplus before our drops below.
+            atomic::fence(Acquire);
+            // SAFETY: unique owner and no way to mint a new reference, so
+            // localsplus can never be observed again. The base pointer came
+            // from this thread's data stack.
+            unsafe {
+                if let Some(base) = frame.release_localsplus() {
+                    vm.datastack_pop(base);
+                }
+            }
+            return;
+        }
+        // Lost the race: a reference was minted through the GC list before
+        // the untrack. Re-track and fall back to the copy path.
+        // SAFETY: the frame is alive and untracked.
+        unsafe { crate::gc_state::gc_state().track_object(ptr) };
+    }
+    // SAFETY: the frame finished executing; the base pointer came from this
+    // thread's data stack.
     unsafe {
         if let Some(base) = frame.materialize_localsplus() {
             vm.datastack_pop(base);

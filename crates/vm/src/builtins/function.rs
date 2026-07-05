@@ -598,11 +598,7 @@ impl Py<PyFunction> {
         } else {
             let result = vm.run_frame(frame.clone());
             // Release data stack memory after frame execution completes.
-            unsafe {
-                if let Some(base) = frame.materialize_localsplus() {
-                    vm.datastack_pop(base);
-                }
-            }
+            crate::frame::release_datastack_frame(&frame, vm);
             result
         }
     }
@@ -747,11 +743,7 @@ impl Py<PyFunction> {
         let frame = self.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
-        unsafe {
-            if let Some(base) = frame.materialize_localsplus() {
-                vm.datastack_pop(base);
-            }
-        }
+        crate::frame::release_datastack_frame(&frame, vm);
         result
     }
 }
@@ -1479,11 +1471,7 @@ pub(crate) fn vectorcall_function(
         let frame = zelf.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
-        unsafe {
-            if let Some(base) = frame.materialize_localsplus() {
-                vm.datastack_pop(base);
-            }
-        }
+        crate::frame::release_datastack_frame(&frame, vm);
         return result;
     }
 
