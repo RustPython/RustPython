@@ -43,6 +43,11 @@ pub struct ThreadSlot {
     /// Handle for waking this thread from park in stop-the-world paths.
     #[cfg(unix)]
     pub thread: std::thread::Thread,
+    /// QSBR state for deferred memory reclamation. On non-unix threading
+    /// builds there is no attach/detach state machine, so the slot stays
+    /// online from registration to thread exit; a thread blocked in native
+    /// code simply delays reclamation until it runs again.
+    pub qsbr: Arc<crate::object::qsbr::QsbrSlot>,
 }
 
 #[cfg(feature = "threading")]
@@ -226,6 +231,7 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
                 stop_requested: core::sync::atomic::AtomicBool::new(false),
                 #[cfg(unix)]
                 thread: std::thread::current(),
+                qsbr: crate::object::qsbr::QSBR.register(),
             });
             registry.insert(thread_id, new_slot.clone());
             drop(registry);
@@ -259,6 +265,7 @@ fn attach_thread(vm: &VirtualMachine) {
                     Ordering::Relaxed,
                 ) {
                     Ok(_) => {
+                        crate::object::qsbr::QSBR.online(&s.qsbr);
                         super::stw_trace(format_args!("attach DETACHED->ATTACHED"));
                         break;
                     }
@@ -290,7 +297,9 @@ fn detach_thread() {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => {}
+                Ok(_) => {
+                    crate::object::qsbr::QSBR.offline(&s.qsbr);
+                }
                 Err(THREAD_DETACHED) => {
                     debug_assert!(false, "detach called while already DETACHED");
                     return;
@@ -451,6 +460,49 @@ pub fn stop_requested_for_current_thread() -> bool {
     })
 }
 
+/// Whether the QSBR subsystem asked this thread to pass a checkpoint.
+/// A missed or racing read of this flag is harmless: the pending
+/// retirement is still processed at the next checkpoint or by the GC
+/// backstop.
+#[cfg(feature = "threading")]
+pub(crate) fn qsbr_break_requested() -> bool {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| s.qsbr.requested.load(Ordering::Relaxed))
+    })
+}
+
+/// Pass a QSBR checkpoint: the calling thread holds no borrowed cache
+/// pointers here (instruction boundary), so mark it quiescent and try to
+/// free retired allocations.
+#[cfg(feature = "threading")]
+pub(crate) fn qsbr_checkpoint() {
+    use crate::object::qsbr::QSBR;
+    CURRENT_THREAD_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            s.qsbr.requested.store(false, Ordering::Relaxed);
+            QSBR.quiescent_state(&s.qsbr);
+        }
+    });
+    QSBR.process();
+}
+
+/// Debug check: lock-free type-cache reads are only sound on threads that
+/// are registered with QSBR and currently ATTACHED.
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) fn debug_assert_current_thread_attached() {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            debug_assert_eq!(
+                s.state.load(Ordering::Relaxed),
+                THREAD_ATTACHED,
+                "type cache read while thread not ATTACHED"
+            );
+        }
+    });
+}
+
 /// Push a frame pointer onto the current thread's shared frame stack.
 /// The pointed-to frame must remain alive until the matching pop.
 #[cfg(feature = "threading")]
@@ -584,6 +636,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         stop_requested: core::sync::atomic::AtomicBool::new(false),
         #[cfg(unix)]
         thread: std::thread::current(),
+        qsbr: crate::object::qsbr::QSBR.register(),
     });
 
     // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.

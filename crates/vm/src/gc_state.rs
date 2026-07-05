@@ -409,6 +409,10 @@ impl GcState {
         // might prevent cycle collection (_PyType_ClearCache).
         crate::builtins::type_::type_cache_clear();
 
+        // Backstop for QSBR reclamation (threads may have missed requests).
+        #[cfg(feature = "threading")]
+        crate::object::qsbr::QSBR.process();
+
         // Step 1: Gather objects from generations 0..=generation
         // Hold read locks for the entire scan to prevent concurrent modifications.
         let gen_locks: Vec<_> = (0..=generation)

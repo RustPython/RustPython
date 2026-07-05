@@ -462,11 +462,18 @@ impl Interpreter {
             }
 
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
-            if exit_code == 0 && flush_status < 0 {
+            let exit_code = if exit_code == 0 && flush_status < 0 {
                 EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
-            }
+            };
+
+            // Daemon threads may still exist, so use the safe `process()`,
+            // not `drain_all()`.
+            #[cfg(feature = "threading")]
+            crate::object::qsbr::QSBR.process();
+
+            exit_code
         })
     }
 }

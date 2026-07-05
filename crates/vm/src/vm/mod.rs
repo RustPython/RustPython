@@ -2041,6 +2041,11 @@ impl VirtualMachine {
             return true;
         }
 
+        #[cfg(feature = "threading")]
+        if thread::qsbr_break_requested() {
+            return true;
+        }
+
         #[cfg(not(target_arch = "wasm32"))]
         if crate::signal::is_triggered() {
             return true;
@@ -2063,6 +2068,12 @@ impl VirtualMachine {
         // Suspend this thread if stop-the-world is in progress
         #[cfg(all(unix, feature = "threading"))]
         thread::suspend_if_needed(&self.state.stop_the_world);
+
+        // Pass a QSBR checkpoint if requested (deferred memory reclamation).
+        #[cfg(feature = "threading")]
+        if thread::qsbr_break_requested() {
+            thread::qsbr_checkpoint();
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         crate::signal::check_signals(self)?;
