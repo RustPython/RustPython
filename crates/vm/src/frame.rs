@@ -227,22 +227,6 @@ impl LocalsPlus {
         }
     }
 
-    /// Extract all contained values into `out` without freeing the backing
-    /// storage. Used by tp_clear so that child references are dropped by the
-    /// caller instead of recursively inside the frame.
-    fn clear_into(&mut self, out: &mut Vec<PyObjectRef>) {
-        while !self.stack_is_empty() {
-            if let Some(val) = self.stack_pop() {
-                out.push(val.to_pyobj());
-            }
-        }
-        for slot in self.fastlocals_mut() {
-            if let Some(obj) = slot.take() {
-                out.push(obj);
-            }
-        }
-    }
-
     // -- Data access helpers --
 
     #[inline(always)]
@@ -780,27 +764,15 @@ unsafe impl Traverse for Frame {
         iframe.f_locals_hidden_overlay.traverse(tracer_fn);
     }
 
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        let Some(mut iframe) = self.iframe.get_mut().take() else {
-            return;
-        };
-        // Extract all owned child references for cycle breaking; the
-        // remaining non-reference fields (atomics, flags, backing storage)
-        // drop with `iframe` at the end of this scope, leaving the payload
-        // as a trivially-droppable husk for the freelist.
-        iframe.localsplus.clear_into(out);
-        out.push(iframe.code.into());
-        out.extend(iframe.func_obj.take());
-        if let Some(locals) = iframe.locals.inner.take() {
-            out.push(locals.into());
-        }
-        out.push(iframe.globals.into());
-        out.push(iframe.builtins);
-        out.push(iframe.trace.into_inner());
-        out.append(iframe.temporary_refs.get_mut());
-        if let Some(overlay) = iframe.f_locals_hidden_overlay.into_inner() {
-            out.push(overlay.into());
-        }
+    fn clear(&mut self, _out: &mut Vec<PyObjectRef>) {
+        // Drop the interpreter frame in place instead of extracting children
+        // into `_out`: pushing ~10 refs per frame would grow the buffer, a
+        // heap allocation on the hot dealloc path. Direct drops release the
+        // same references under the same recursion protection (trashcan in
+        // dealloc, deferred-drop context in cycle collection) as the payload
+        // drop did before the freelist existed. The payload is left as a
+        // trivially-droppable husk for the freelist.
+        drop(self.iframe.get_mut().take());
     }
 }
 
