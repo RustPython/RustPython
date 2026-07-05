@@ -148,6 +148,61 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     set_current_vm(vm, f)
 }
 
+/// RAII counterpart to `enter_vm`, for code that runs Python bytecode across
+/// several statements interspersed with `&mut VirtualMachine` calls
+/// (`VirtualMachine::initialize`), where a single closure-based `enter_vm`
+/// scope cannot be expressed because the borrow checker won't let a closure
+/// hold `&mut VirtualMachine` at the same time `enter_vm` reborrows it as
+/// `&VirtualMachine`. Construction only needs a transient `&VirtualMachine`
+/// borrow, so it can be dropped before subsequent `&mut` use.
+///
+/// Without this, code that runs Python bytecode before any `enter_vm` scope
+/// exists would leave the thread not ATTACHED, making lock-free type cache
+/// reads unsound.
+#[must_use]
+pub(crate) struct VmBootstrapGuard {
+    #[cfg(all(unix, feature = "threading"))]
+    was_outermost: bool,
+}
+
+impl VmBootstrapGuard {
+    pub(crate) fn new(vm: &VirtualMachine) -> Self {
+        // Outermost: transition DETACHED → ATTACHED
+        #[cfg(all(unix, feature = "threading"))]
+        let was_outermost = !current_vm_is_set();
+
+        // Initialize thread slot for this thread if not already done
+        #[cfg(feature = "threading")]
+        init_thread_slot_if_needed(vm);
+
+        #[cfg(all(unix, feature = "threading"))]
+        if was_outermost {
+            attach_thread(vm);
+        }
+
+        VM_STACK.with(|vms| vms.borrow_mut().push(vm.into()));
+
+        Self {
+            #[cfg(all(unix, feature = "threading"))]
+            was_outermost,
+        }
+    }
+}
+
+impl Drop for VmBootstrapGuard {
+    fn drop(&mut self) {
+        VM_STACK.with(|vms| {
+            vms.borrow_mut().pop();
+        });
+
+        // Outermost exit: transition ATTACHED → DETACHED
+        #[cfg(all(unix, feature = "threading"))]
+        if self.was_outermost {
+            detach_thread();
+        }
+    }
+}
+
 #[cfg(feature = "threading")]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CurrentVmAttachState {

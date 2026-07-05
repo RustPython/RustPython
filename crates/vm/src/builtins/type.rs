@@ -57,7 +57,7 @@ pub struct PyType {
 }
 
 /// Monotonic counter for type version tags. Once it reaches `u32::MAX`,
-/// `assign_version_tag()` returns 0 permanently, disabling new inline-cache
+/// version assignment returns 0 permanently, disabling new inline-cache
 /// entries but not invalidating correctness (cache misses fall back to the
 /// generic path).
 static NEXT_TYPE_VERSION: AtomicU32 = AtomicU32::new(1);
@@ -505,24 +505,6 @@ impl PyType {
                 return current;
             }
         }
-    }
-
-    pub fn assign_version_tag(&self) -> u32 {
-        let version = self.tp_version_tag.load(Ordering::Acquire);
-        if version != 0 {
-            return version;
-        }
-        crate::vm::thread::try_with_current_vm(|vm| {
-            Self::with_type_lock(vm, || {
-                let version = self.tp_version_tag.load(Ordering::Acquire);
-                if version == 0 {
-                    self.assign_version_tag_inner()
-                } else {
-                    version
-                }
-            })
-        })
-        .unwrap_or_else(|| self.assign_version_tag_inner())
     }
 
     pub(crate) fn version_for_specialization(&self, vm: &VirtualMachine) -> u32 {
@@ -1034,13 +1016,21 @@ impl PyType {
         self.find_name_in_mro(attr_name)
     }
 
-    /// CPython-style `_PyType_LookupRefAndVersion` equivalent for interned names.
+    /// `_PyType_LookupRefAndVersion` equivalent for interned names.
     /// Returns the observed lookup result and the type version used for the lookup.
+    ///
+    /// Uses a lock-free SeqLock-style pattern:
+    ///   Read:  load sequence/version/name → load value + try_to_owned →
+    ///          validate value pointer + sequence
+    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
     pub(crate) fn lookup_ref_and_version_interned(
         &self,
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, u32) {
+        #[cfg(all(unix, feature = "threading", debug_assertions))]
+        crate::vm::thread::debug_assert_current_thread_attached();
+
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             let idx = type_cache_hash(version, name);
@@ -1091,6 +1081,9 @@ impl PyType {
                 entry.begin_write();
                 entry.version.store(0, Ordering::Release);
                 let new_ptr = result.as_ref().map_or(core::ptr::null_mut(), |found| {
+                    // Defer memory reclamation of cached values via QSBR so
+                    // racing readers never try-incref freed memory.
+                    found.mark_cache_published();
                     &**found as *const PyObject as *mut _
                 });
                 entry.value.store(new_ptr, Ordering::Relaxed);
@@ -1194,81 +1187,20 @@ impl PyType {
         Some((getitem, cached_version))
     }
 
-    fn find_name_in_mro_without_vm(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
-        let version = self.tp_version_tag.load(Ordering::Acquire);
-        if version != 0 {
-            let idx = type_cache_hash(version, name);
-            let entry = &TYPE_CACHE[idx];
-            let name_ptr = name as *const _ as *mut _;
-            loop {
-                let seq1 = entry.begin_read();
-                let v1 = entry.version.load(Ordering::Acquire);
-                let type_version = self.tp_version_tag.load(Ordering::Acquire);
-                if v1 != type_version
-                    || !core::ptr::eq(entry.name.load(Ordering::Relaxed), name_ptr)
-                {
-                    break;
-                }
-                let ptr = entry.value.load(Ordering::Acquire);
-                if ptr.is_null() {
-                    if entry.end_read(seq1) {
-                        break;
-                    }
-                    continue;
-                }
-                if let Some(cloned) = unsafe { PyObject::try_to_owned_from_ptr(ptr) } {
-                    let same_ptr = core::ptr::eq(entry.value.load(Ordering::Relaxed), ptr);
-                    if same_ptr && entry.end_read(seq1) {
-                        return Some(cloned);
-                    }
-                    drop(cloned);
-                    continue;
-                }
-                break;
-            }
-        }
-
-        let assigned = if version == 0 {
-            self.assign_version_tag()
-        } else {
-            version
-        };
-        let result = self.find_name_in_mro_uncached(name);
-        if let Some(ref found) = result
-            && assigned != 0
-            && !TYPE_CACHE_CLEARING.load(Ordering::Acquire)
-            && self.tp_version_tag.load(Ordering::Acquire) == assigned
-        {
-            let idx = type_cache_hash(assigned, name);
-            let entry = &TYPE_CACHE[idx];
-            let name_ptr = name as *const _ as *mut _;
-            entry.begin_write();
-            entry.version.store(0, Ordering::Release);
-            let new_ptr = &**found as *const PyObject as *mut PyObject;
-            entry.value.store(new_ptr, Ordering::Relaxed);
-            entry.name.store(name_ptr, Ordering::Relaxed);
-            entry.version.store(assigned, Ordering::Release);
-            entry.end_write();
-        }
-        result
-    }
-
     pub fn get_direct_attr(&self, attr_name: &'static PyStrInterned) -> Option<PyObjectRef> {
         self.attributes.read().get(attr_name).cloned()
     }
 
     /// find_name_in_mro with method cache (MCACHE).
     /// Looks in tp_dict of types in MRO, bypasses descriptors.
-    ///
-    /// Uses a lock-free SeqLock-style pattern:
-    ///   Read:  load sequence/version/name → load value + try_to_owned →
-    ///          validate value pointer + sequence
-    ///   Write: sequence(begin) → version=0 → swap value/name → version=assigned → sequence(end)
     fn find_name_in_mro(&self, name: &'static PyStrInterned) -> Option<PyObjectRef> {
         crate::vm::thread::try_with_current_vm(|vm| {
             self.lookup_ref_and_version_interned(name, vm).0
         })
-        .unwrap_or_else(|| self.find_name_in_mro_without_vm(name))
+        // No current VM: this thread is not registered for QSBR, so the
+        // lock-free cache read protocol is not sound here. Walk the MRO
+        // under the attributes locks instead (the dicts hold strong refs).
+        .unwrap_or_else(|| self.find_name_in_mro_uncached(name))
     }
 
     /// Raw MRO walk without cache.

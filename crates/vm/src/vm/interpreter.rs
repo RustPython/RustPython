@@ -150,7 +150,12 @@ where
     // Call custom init function (can mutate vm.state)
     init(&mut vm);
 
+    // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
+    // and `encodings`) before any `enter_vm` scope exists, so attach this
+    // thread for the duration so type cache reads see it as ATTACHED.
+    let vm_guard = thread::VmBootstrapGuard::new(&vm);
     vm.initialize();
+    drop(vm_guard);
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
