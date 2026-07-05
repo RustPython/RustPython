@@ -24,21 +24,22 @@ const QSBR_INITIAL: u64 = 1;
 const QSBR_INCR: u64 = 2;
 
 #[cfg(feature = "threading")]
-pub use threading::*;
+pub(crate) use threading::*;
 
 #[cfg(feature = "threading")]
 mod threading {
     use super::*;
+    use alloc::sync::{Arc, Weak};
     use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex, Weak};
+    use std::sync::Mutex;
 
     /// Per-thread QSBR state, owned by the thread's `ThreadSlot`.
-    pub struct QsbrSlot {
+    pub(crate) struct QsbrSlot {
         /// Last write sequence observed at a quiescent point;
         /// `QSBR_OFFLINE` while the thread is detached.
         seq: AtomicU64,
         /// Set when this thread should pass a checkpoint (eval-breaker bit).
-        pub requested: AtomicBool,
+        pub(crate) requested: AtomicBool,
     }
 
     struct Retired {
@@ -50,7 +51,7 @@ mod threading {
     // processing thread touches it.
     unsafe impl Send for Retired {}
 
-    pub struct Qsbr {
+    pub(crate) struct Qsbr {
         /// Global write sequence (_Py_qsbr wr_seq).
         wr_seq: AtomicU64,
         /// Cached minimum observed read sequence (rd_seq).
@@ -59,7 +60,7 @@ mod threading {
         queue: Mutex<Vec<Retired>>,
     }
 
-    pub static QSBR: Qsbr = Qsbr::new();
+    pub(crate) static QSBR: Qsbr = Qsbr::new();
 
     impl Qsbr {
         const fn new() -> Self {
@@ -73,7 +74,7 @@ mod threading {
 
         /// Register the calling thread. The returned slot is stored in the
         /// thread's `ThreadSlot`; dropping it unregisters the thread.
-        pub fn register(&self) -> Arc<QsbrSlot> {
+        pub(crate) fn register(&self) -> Arc<QsbrSlot> {
             let slot = Arc::new(QsbrSlot {
                 seq: AtomicU64::new(self.wr_seq.load(Ordering::Acquire)),
                 requested: AtomicBool::new(false),
@@ -90,7 +91,7 @@ mod threading {
 
         /// Record that the calling thread is at a quiescent point: it holds
         /// no borrowed cache pointers (_Py_qsbr_quiescent_state).
-        pub fn quiescent_state(&self, slot: &QsbrSlot) {
+        pub(crate) fn quiescent_state(&self, slot: &QsbrSlot) {
             slot.seq
                 .store(self.wr_seq.load(Ordering::Acquire), Ordering::Release);
         }
@@ -98,12 +99,12 @@ mod threading {
         /// Mark a thread offline (detached); it no longer delays grace
         /// periods (_Py_qsbr_detach). The thread must not perform lock-free
         /// cache reads while offline.
-        pub fn offline(&self, slot: &QsbrSlot) {
+        pub(crate) fn offline(&self, slot: &QsbrSlot) {
             slot.seq.store(QSBR_OFFLINE, Ordering::Release);
         }
 
         /// Mark a thread online again (_Py_qsbr_attach).
-        pub fn online(&self, slot: &QsbrSlot) {
+        pub(crate) fn online(&self, slot: &QsbrSlot) {
             self.quiescent_state(slot);
         }
 
@@ -142,7 +143,7 @@ mod threading {
         /// `ptr`/`layout` must describe an allocation whose contents have
         /// been dropped and which nothing accesses afterwards except the
         /// racing try-incref reads this mechanism protects against.
-        pub unsafe fn free_delayed(&self, ptr: *mut u8, layout: Layout) {
+        pub(crate) unsafe fn free_delayed(&self, ptr: *mut u8, layout: Layout) {
             let goal = self.advance();
             self.queue.lock().unwrap().push(Retired { ptr, layout, goal });
             // Ask every registered thread to pass a checkpoint.
@@ -155,13 +156,19 @@ mod threading {
 
         /// Free retired allocations whose grace period has passed
         /// (_PyMem_ProcessDelayed).
-        pub fn process(&self) {
+        pub(crate) fn process(&self) {
             let Ok(mut queue) = self.queue.try_lock() else {
                 // Another thread is already processing.
                 return;
             };
-            // Goals are monotonically increasing in push order: free the
-            // prefix whose grace period has passed.
+            // Goals are usually increasing in push order, but concurrent
+            // `free_delayed` calls can interleave their `advance()` and
+            // queue push, so a smaller goal can occasionally land behind a
+            // larger one. Free the longest prefix whose grace period has
+            // passed; each drained item individually passed `poll`, so this
+            // is sound regardless of ordering. A goal stuck behind an
+            // out-of-order neighbor just waits for the next checkpoint or
+            // GC pass, not a correctness issue.
             let safe_prefix = queue
                 .iter()
                 .position(|item| !self.poll(item.goal))
@@ -177,7 +184,7 @@ mod threading {
         /// # Safety
         /// Only sound when no other thread can be mid-read: the post-fork
         /// child, or teardown after all threads exited.
-        pub unsafe fn drain_all(&self) {
+        pub(crate) unsafe fn drain_all(&self) {
             let mut queue = self.queue.lock().unwrap();
             for item in queue.drain(..) {
                 // SAFETY: guaranteed single-threaded by the caller.
@@ -193,7 +200,7 @@ mod threading {
         /// # Safety
         /// Only sound in the single-threaded post-fork child, before the
         /// surviving thread re-registers.
-        pub unsafe fn reset_after_fork(&self) {
+        pub(crate) unsafe fn reset_after_fork(&self) {
             self.threads.lock().unwrap().clear();
             // SAFETY: single-threaded child, no concurrent reader exists.
             unsafe { self.drain_all() };

@@ -47,7 +47,7 @@ pub struct ThreadSlot {
     /// builds there is no attach/detach state machine, so the slot stays
     /// online from registration to thread exit; a thread blocked in native
     /// code simply delays reclamation until it runs again.
-    pub qsbr: Arc<crate::object::qsbr::QsbrSlot>,
+    pub(crate) qsbr: Arc<crate::object::qsbr::QsbrSlot>,
 }
 
 #[cfg(feature = "threading")]
