@@ -901,37 +901,33 @@ impl PyType {
                 // names must be resolved together: a Python-level override of
                 // either one forces the dispatching wrapper, and the native
                 // slot is only usable when every resolved name agrees on it.
-                if ADD {
-                    let extract = |sf: &SlotFunc| match sf {
-                        SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
-                        _ => None,
-                    };
-                    let setattr =
-                        self.lookup_slot_in_mro(identifier!(ctx, __setattr__), ctx, extract);
-                    let delattr =
-                        self.lookup_slot_in_mro(identifier!(ctx, __delattr__), ctx, extract);
-                    use SlotLookupResult::{NativeSlot, NotFound, PythonMethod};
-                    match (setattr, delattr) {
-                        (PythonMethod, _) | (_, PythonMethod) => {
-                            self.slots.setattro.store(Some(setattro_wrapper));
-                        }
-                        (NativeSlot(set), NativeSlot(del)) => {
-                            let func = if set as usize == del as usize {
-                                set
-                            } else {
-                                setattro_wrapper
-                            };
-                            self.slots.setattro.store(Some(func));
-                        }
-                        (NativeSlot(func), NotFound) | (NotFound, NativeSlot(func)) => {
-                            self.slots.setattro.store(Some(func));
-                        }
-                        (NotFound, NotFound) => {
-                            accessor.inherit_from_mro(self);
-                        }
+                // This resolution reads the current attribute dicts, so it
+                // applies the same whether a name was just added or removed.
+                let extract = |sf: &SlotFunc| match sf {
+                    SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
+                    _ => None,
+                };
+                let setattr = self.lookup_slot_in_mro(identifier!(ctx, __setattr__), ctx, extract);
+                let delattr = self.lookup_slot_in_mro(identifier!(ctx, __delattr__), ctx, extract);
+                use SlotLookupResult::{NativeSlot, NotFound, PythonMethod};
+                match (setattr, delattr) {
+                    (PythonMethod, _) | (_, PythonMethod) => {
+                        self.slots.setattro.store(Some(setattro_wrapper));
                     }
-                } else {
-                    accessor.inherit_from_mro(self);
+                    (NativeSlot(set), NativeSlot(del)) => {
+                        let func = if set as usize == del as usize {
+                            set
+                        } else {
+                            setattro_wrapper
+                        };
+                        self.slots.setattro.store(Some(func));
+                    }
+                    (NativeSlot(func), NotFound) | (NotFound, NativeSlot(func)) => {
+                        self.slots.setattro.store(Some(func));
+                    }
+                    (NotFound, NotFound) => {
+                        accessor.inherit_from_mro(self);
+                    }
                 }
             }
             SlotAccessor::TpDescrGet => update_main_slot!(descr_get, descr_get_wrapper, DescrGet),
