@@ -668,7 +668,7 @@ impl Py<PyFunction> {
 
     pub(crate) fn prepare_exact_args_frame(
         &self,
-        mut args: Vec<PyObjectRef>,
+        args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> FrameRef {
         let code: PyRef<PyCode> = (*self.code).to_owned();
@@ -706,7 +706,7 @@ impl Py<PyFunction> {
 
         {
             let fastlocals = unsafe { frame.fastlocals_mut() };
-            for (slot, arg) in fastlocals.iter_mut().zip(args.drain(..)) {
+            for (slot, arg) in fastlocals.iter_mut().zip(args) {
                 *slot = Some(arg);
             }
         }
@@ -714,37 +714,55 @@ impl Py<PyFunction> {
         frame
     }
 
-    /// Fast path for calling a simple function with exact positional args.
-    /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
-    /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,
-    /// and nargs == co_argcount.
-    pub fn invoke_exact_args(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
-        let code: PyRef<PyCode> = (*self.code).to_owned();
-
-        debug_assert_eq!(args.len(), code.arg_count as usize);
-        debug_assert!(code.flags.contains(bytecode::CodeFlags::OPTIMIZED));
-        debug_assert!(
-            !code
-                .flags
-                .intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
-        );
-        debug_assert_eq!(code.kwonlyarg_count, 0);
-
-        // Generator/coroutine code objects are SIMPLE_FUNCTION in call
-        // specialization classification, but their call path must still
-        // go through invoke() to produce generator/coroutine objects.
-        if code.flags.intersects(
-            bytecode::CodeFlags::GENERATOR
-                | bytecode::CodeFlags::COROUTINE
-                | bytecode::CodeFlags::ASYNC_GENERATOR,
-        ) {
-            return self.invoke(FuncArgs::from(args), vm);
-        }
+    fn invoke_prepared_exact_args(
+        &self,
+        args: impl ExactSizeIterator<Item = PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
         let frame = self.prepare_exact_args_frame(args, vm);
 
         let result = vm.run_frame(frame.clone());
         crate::frame::release_datastack_frame(&frame, vm);
         result
+    }
+
+    /// Fast path for calling a simple function with exact positional args.
+    /// Skips FuncArgs allocation, prepend_arg, and fill_locals_from_args.
+    /// Only valid when: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonlyargs,
+    /// and nargs == co_argcount.
+    pub fn invoke_exact_args(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
+        debug_assert_eq!(args.len(), self.code.arg_count as usize);
+
+        // Generator/coroutine code objects are SIMPLE_FUNCTION in call
+        // specialization classification, but their call path must still
+        // go through invoke() to produce generator/coroutine objects.
+        if self.is_generator_like() {
+            return self.invoke(FuncArgs::from(args), vm);
+        }
+        self.invoke_prepared_exact_args(args.into_iter(), vm)
+    }
+
+    /// Like `invoke_exact_args`, but moves the args out of caller-provided
+    /// slots (all filled with `Some`), so callers can stage them in a
+    /// fixed-size stack buffer instead of allocating a Vec per call.
+    pub(crate) fn invoke_exact_args_slots(
+        &self,
+        args: &mut [Option<PyObjectRef>],
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        debug_assert_eq!(args.len(), self.code.arg_count as usize);
+
+        let taken = args
+            .iter_mut()
+            .map(|slot| slot.take().expect("arg slot must be filled"));
+        // Generator/coroutine code objects are SIMPLE_FUNCTION in call
+        // specialization classification, but their call path must still
+        // go through invoke() to produce generator/coroutine objects.
+        if self.is_generator_like() {
+            let args: Vec<PyObjectRef> = taken.collect();
+            return self.invoke(FuncArgs::from(args), vm);
+        }
+        self.invoke_prepared_exact_args(taken, vm)
     }
 }
 
@@ -1468,7 +1486,7 @@ pub(crate) fn vectorcall_function(
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
         args.truncate(nargs);
-        let frame = zelf.prepare_exact_args_frame(args, vm);
+        let frame = zelf.prepare_exact_args_frame(args.into_iter(), vm);
 
         let result = vm.run_frame(frame.clone());
         crate::frame::release_datastack_frame(&frame, vm);

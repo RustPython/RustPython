@@ -1469,6 +1469,34 @@ struct BinaryOpExtendSpecializationDescr {
 
 const BINARY_OP_EXTEND_EXTERNAL_CACHE_OFFSET: usize = 1;
 
+/// Max total args (including self) staged in a fixed-size stack buffer by the
+/// exact-args call fast paths; larger arities fall back to a heap buffer.
+const MAX_INLINE_CALL_ARGS: usize = 8;
+
+/// Staging buffer for exact-args call fast paths: fixed-size inline storage
+/// for small arities, avoiding a per-call Vec allocation.
+enum CallArgBuffer {
+    Inline(usize, [Option<PyObjectRef>; MAX_INLINE_CALL_ARGS]),
+    Heap(Vec<Option<PyObjectRef>>),
+}
+
+impl CallArgBuffer {
+    fn new(total_nargs: usize) -> Self {
+        if total_nargs <= MAX_INLINE_CALL_ARGS {
+            Self::Inline(total_nargs, [const { None }; MAX_INLINE_CALL_ARGS])
+        } else {
+            Self::Heap(vec![None; total_nargs])
+        }
+    }
+
+    fn slots(&mut self) -> &mut [Option<PyObjectRef>] {
+        match self {
+            Self::Inline(len, buf) => &mut buf[..*len],
+            Self::Heap(buf) => buf,
+        }
+    }
+}
+
 #[inline]
 fn compactlongs_guard(lhs: &PyObject, rhs: &PyObject, vm: &VirtualMachine) -> bool {
     compact_int_from_obj(lhs, vm).is_some() && compact_int_from_obj(rhs, vm).is_some()
@@ -1647,22 +1675,25 @@ impl ExecutingFrame<'_> {
         .into_ref(&vm.ctx)
     }
 
+    /// `args` holds the `__init__` args with slot 0 left empty; it is filled
+    /// with `new_obj` here.
     fn specialization_run_init_cleanup_shim(
         &self,
         new_obj: PyObjectRef,
         init_func: &Py<PyFunction>,
-        pos_args: Vec<PyObjectRef>,
+        args: &mut [Option<PyObjectRef>],
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let shim = self.specialization_new_init_cleanup_frame(vm);
         let shim_result = vm.with_frame_untraced(shim.clone(), |shim| {
             shim.with_exec(vm, |mut exec| exec.push_value(new_obj.clone()));
 
-            let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-            all_args.push(new_obj.clone());
-            all_args.extend(pos_args);
+            args[0] = Some(new_obj);
+            let taken = args
+                .iter_mut()
+                .map(|slot| slot.take().expect("arg slot must be filled"));
 
-            let init_frame = init_func.prepare_exact_args_frame(all_args, vm);
+            let init_frame = init_func.prepare_exact_args_frame(taken, vm);
             let init_result = vm.run_frame(init_frame.clone());
             release_datastack_frame(&init_frame, vm);
             let init_result = init_result?;
@@ -4320,7 +4351,8 @@ impl ExecutingFrame<'_> {
                     debug_assert!(func.has_exact_argcount(2));
                     let owner = self.pop_value();
                     let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
-                    let result = func.invoke_exact_args(vec![owner, attr_name], vm)?;
+                    let result =
+                        func.invoke_exact_args_slots(&mut [Some(owner), Some(attr_name)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4367,7 +4399,7 @@ impl ExecutingFrame<'_> {
                     && self.specialization_has_datastack_space_for_func(vm, func)
                 {
                     let owner = self.pop_value();
-                    let result = func.invoke_exact_args(vec![owner], vm)?;
+                    let result = func.invoke_exact_args_slots(&mut [Some(owner)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4508,7 +4540,7 @@ impl ExecutingFrame<'_> {
                     debug_assert!(func.has_exact_argcount(2));
                     let sub = self.pop_value();
                     let owner = self.pop_value();
-                    let result = func.invoke_exact_args(vec![owner, sub], vm)?;
+                    let result = func.invoke_exact_args_slots(&mut [Some(owner), Some(sub)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4655,19 +4687,24 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    // Stage args without a per-call Vec: [self?, arg1, ..., argN]
+                    let base = usize::from(self_or_null_is_some);
+                    let mut arg_buf = CallArgBuffer::new(nargs as usize + base);
+                    let args = arg_buf.slots();
+                    for (slot, arg) in args[base..]
+                        .iter_mut()
+                        .zip(self.pop_multiple(nargs as usize))
+                    {
+                        *slot = Some(arg);
+                    }
                     let self_or_null = self.pop_value_opt();
+                    debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+                    if self_or_null.is_some() {
+                        args[0] = self_or_null;
+                    }
                     let callable = self.pop_value();
                     let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
-                    let args = if let Some(self_val) = self_or_null {
-                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                        all_args.push(self_val);
-                        all_args.extend(pos_args);
-                        all_args
-                    } else {
-                        pos_args
-                    };
-                    let result = func.invoke_exact_args(args, vm)?;
+                    let result = func.invoke_exact_args_slots(args, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -4707,14 +4744,19 @@ impl ExecutingFrame<'_> {
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
-                        let pos_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
+                        // Stage args without a per-call Vec:
+                        // [bound_self, arg1, ..., argN]
+                        let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
+                        let args = arg_buf.slots();
+                        for (slot, arg) in
+                            args[1..].iter_mut().zip(self.pop_multiple(nargs as usize))
+                        {
+                            *slot = Some(arg);
+                        }
                         self.pop_value_opt(); // null (self_or_null)
                         self.pop_value(); // callable (bound method)
-                        let mut all_args = Vec::with_capacity(pos_args.len() + 1);
-                        all_args.push(bound_self);
-                        all_args.extend(pos_args);
-                        let result = func.invoke_exact_args(all_args, vm)?;
+                        args[0] = Some(bound_self);
+                        let result = func.invoke_exact_args_slots(args, vm)?;
                         self.push_value(result);
                         return Ok(None);
                     }
@@ -5241,12 +5283,17 @@ impl ExecutingFrame<'_> {
                     let cls_ref = cls.to_owned();
                     let new_obj = cls_alloc(cls_ref, 0, vm)?;
 
-                    // Build args: [new_obj, arg1, ..., argN]
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs as usize).collect();
+                    // Stage args as [new_obj, arg1, ..., argN]; slot 0 is
+                    // filled by the shim runner.
+                    let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
+                    let args = arg_buf.slots();
+                    for (slot, arg) in args[1..].iter_mut().zip(self.pop_multiple(nargs as usize)) {
+                        *slot = Some(arg);
+                    }
                     let _null = self.pop_value_opt(); // self_or_null (None)
                     let _callable = self.pop_value(); // callable (type)
-                    let result = self
-                        .specialization_run_init_cleanup_shim(new_obj, &init_func, pos_args, vm)?;
+                    let result =
+                        self.specialization_run_init_cleanup_shim(new_obj, &init_func, args, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
