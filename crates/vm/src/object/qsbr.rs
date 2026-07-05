@@ -185,6 +185,20 @@ mod threading {
             }
         }
 
+        /// Reset after fork: drop all registered thread entries (dead
+        /// parent threads' slots would otherwise stay online forever and
+        /// stall every future grace period) and free all retired
+        /// allocations.
+        ///
+        /// # Safety
+        /// Only sound in the single-threaded post-fork child, before the
+        /// surviving thread re-registers.
+        pub unsafe fn reset_after_fork(&self) {
+            self.threads.lock().unwrap().clear();
+            // SAFETY: single-threaded child, no concurrent reader exists.
+            unsafe { self.drain_all() };
+        }
+
         #[cfg(test)]
         fn pending(&self) -> usize {
             self.queue.lock().unwrap().len()

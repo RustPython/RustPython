@@ -658,6 +658,14 @@ pub mod module {
         // Repair any type-cache entries left mid-update at fork time.
         unsafe { crate::builtins::type_::type_cache_after_fork() };
 
+        // Reset QSBR: dead parent threads' slots would stall reclamation
+        // forever, and retired memory can be freed immediately in the
+        // single-threaded child.
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::object::qsbr::QSBR.reset_after_fork()
+        };
+
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
