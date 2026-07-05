@@ -3,6 +3,7 @@ mod ext;
 mod payload;
 mod traverse;
 mod traverse_object;
+pub(crate) mod qsbr;
 
 pub use self::core::*;
 pub use self::ext::*;
