@@ -3,6 +3,11 @@
 Readers hammer method lookups while a mutator continuously replaces and
 deletes the method, dropping the old function objects. Guards against
 use-after-free in the cache read protocol (QSBR deferred reclamation).
+
+Also churns a freelist-eligible published value (a tuple class attribute):
+tuples normally go back through the freelist on dealloc, but once one is
+published to the type cache it must instead go through the QSBR-deferred
+reclamation path, so this exercises that bypass.
 """
 import threading
 import time
@@ -21,6 +26,10 @@ def reader(stop):
                 obj.m()
             except AttributeError:
                 pass
+            try:
+                obj.shape
+            except AttributeError:
+                pass
 
 def mutator(stop):
     i = 0
@@ -28,10 +37,15 @@ def mutator(stop):
         def m(self, _i=i):
             return _i
         C.m = m
+        C.shape = (i, i + 1)
         i += 1
         if i % 97 == 0:
             try:
                 del C.m
+            except AttributeError:
+                pass
+            try:
+                del C.shape
             except AttributeError:
                 pass
 

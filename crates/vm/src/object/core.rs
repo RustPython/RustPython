@@ -191,10 +191,16 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // Try to store in freelist for reuse BEFORE tp_clear, so that
     // size-based freelists (e.g. PyTuple) can read the payload directly.
     // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
+    // Published objects (e.g. a tuple stored as a type attribute) must skip the
+    // freelist: `PyRef::new_ref` would reuse the slot and overwrite the refcount
+    // word with a non-atomic write, racing a reader's atomic try-incref. Route
+    // them through `PyInner::dealloc` instead, whose QSBR hook defers the actual
+    // memory free until readers can no longer observe it.
     let typ = obj_ref.class();
     let pushed = if T::HAS_FREELIST
         && typ.heaptype_ext.is_none()
         && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+        && !obj_ref.0.ref_count.is_published()
     {
         unsafe { T::freelist_push(obj) }
     } else {
