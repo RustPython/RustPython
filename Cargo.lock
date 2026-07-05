@@ -3452,11 +3452,11 @@ name = "rustpython-literal"
 version = "0.5.0"
 dependencies = [
  "hexf-parse",
- "icu_properties",
  "is-macro",
  "lexical-parse-float",
  "num-traits",
  "rand 0.10.1",
+ "rustpython-unicode",
  "rustpython-wtf8",
 ]
 
@@ -3634,10 +3634,12 @@ dependencies = [
 name = "rustpython-unicode"
 version = "0.5.0"
 dependencies = [
+ "icu_casemap",
  "icu_normalizer",
  "icu_properties",
  "rustpython-wtf8",
  "unicode_names2 3.1.0",
+ "writeable",
 ]
 
 [[package]]
@@ -3692,6 +3694,7 @@ dependencies = [
  "rustpython-ruff_python_parser",
  "rustpython-ruff_text_size",
  "rustpython-sre_engine",
+ "rustpython-unicode",
  "rustyline",
  "scopeguard",
  "serde_core",

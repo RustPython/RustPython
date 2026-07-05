@@ -48,12 +48,13 @@ use rustpython_common::{
     wtf8::{CodePoint, Wtf8, Wtf8Buf, Wtf8Concat},
 };
 
-use icu_casemap::{CaseMapper, TitlecaseMapper};
+use icu_casemap::TitlecaseMapper;
 use icu_locale::LanguageIdentifier;
 use icu_properties::props::{
-    BidiClass, BinaryProperty, CaseIgnorable, Cased, EnumeratedProperty, GeneralCategory,
-    GeneralCategoryGroup, Lowercase, NumericType, Uppercase, XidContinue, XidStart,
+    BinaryProperty, CaseIgnorable, Cased, EnumeratedProperty, GeneralCategory,
+    GeneralCategoryGroup, Lowercase, Uppercase,
 };
+use rustpython_unicode as unicode;
 use writeable::Writeable;
 
 impl<'a> TryFromBorrowedObject<'a> for String {
@@ -752,22 +753,8 @@ impl PyStr {
     fn casefold(&self) -> Self {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
-            PyKindStr::Utf8(s) => CaseMapper::new().fold_string(s).to_string().into(),
-            PyKindStr::Wtf8(w) => {
-                let mut out = VecFmtWriter(Vec::with_capacity(w.len()));
-                let mapper = CaseMapper::new();
-                for chunk in w.as_bytes().utf8_chunks() {
-                    mapper
-                        .fold(chunk.valid())
-                        .write_to(&mut out)
-                        .expect("Writing to an in-memory buffer cannot fail.");
-                    out.0.extend(chunk.invalid());
-                }
-                // SAFETY:
-                // * CaseMapper only produces valid UTF-8
-                // * Surrogates are appended as-is
-                unsafe { Wtf8Buf::from_bytes_unchecked(out.0) }.into()
-            }
+            PyKindStr::Utf8(s) => unicode::case::casefold_str(s).into(),
+            PyKindStr::Wtf8(w) => unicode::case::casefold_wtf8(w).into(),
         }
     }
 
@@ -1011,41 +998,22 @@ impl PyStr {
 
     #[pymethod]
     fn isalnum(&self) -> bool {
-        !self.data.is_empty()
-            && self.char_all(|c| {
-                GeneralCategoryGroup::Letter
-                    .union(GeneralCategoryGroup::Number)
-                    .contains(GeneralCategory::for_char(c))
-            })
+        !self.data.is_empty() && self.char_all(unicode::classify::is_alnum)
     }
 
     #[pymethod]
     fn isnumeric(&self) -> bool {
-        !self.data.is_empty()
-            && self.char_all(|c| {
-                [
-                    NumericType::Decimal,
-                    NumericType::Digit,
-                    NumericType::Numeric,
-                ]
-                .contains(&NumericType::for_char(c))
-            })
+        !self.data.is_empty() && self.char_all(unicode::classify::is_numeric)
     }
 
     #[pymethod]
     fn isdigit(&self) -> bool {
-        !self.data.is_empty()
-            && self.char_all(|c| {
-                [NumericType::Digit, NumericType::Decimal].contains(&NumericType::for_char(c))
-            })
+        !self.data.is_empty() && self.char_all(unicode::classify::is_digit)
     }
 
     #[pymethod]
     fn isdecimal(&self) -> bool {
-        !self.data.is_empty()
-            && self.char_all(|c| {
-                matches!(GeneralCategory::for_char(c), GeneralCategory::DecimalNumber)
-            })
+        !self.data.is_empty() && self.char_all(unicode::classify::is_decimal)
     }
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -1143,9 +1111,7 @@ impl PyStr {
 
     #[pymethod]
     fn isalpha(&self) -> bool {
-        !self.data.is_empty()
-            && self
-                .char_all(|c| GeneralCategoryGroup::Letter.contains(GeneralCategory::for_char(c)))
+        !self.data.is_empty() && self.char_all(unicode::classify::is_alpha)
     }
 
     #[pymethod]
@@ -1175,23 +1141,12 @@ impl PyStr {
 
     #[pymethod]
     fn isprintable(&self) -> bool {
-        self.char_all(|c| c == '\u{0020}' || rustpython_literal::char::is_printable(c))
+        self.char_all(unicode::classify::is_printable)
     }
 
     #[pymethod]
     fn isspace(&self) -> bool {
-        !self.data.is_empty()
-            && self.char_all(|c| {
-                matches!(
-                    GeneralCategory::for_char(c),
-                    GeneralCategory::SpaceSeparator
-                ) || matches!(
-                    BidiClass::for_char(c),
-                    BidiClass::WhiteSpace
-                        | BidiClass::ParagraphSeparator
-                        | BidiClass::SegmentSeparator
-                )
-            })
+        !self.data.is_empty() && self.char_all(unicode::classify::is_space)
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
@@ -1452,12 +1407,10 @@ impl PyStr {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
 
-        let is_identifier_start = chars
-            .next()
-            .is_some_and(|c| c == '_' || XidStart::for_char(c));
+        let is_identifier_start = chars.next().is_some_and(unicode::identifier::is_start);
 
         // a string is not an identifier if it has whitespace or starts with a number
-        is_identifier_start && chars.all(XidContinue::for_char)
+        is_identifier_start && chars.all(unicode::identifier::is_continue)
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate

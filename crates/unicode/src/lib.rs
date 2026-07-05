@@ -5,7 +5,14 @@
 //! exception mapping stay with the caller. There is no global mutable state and
 //! results depend only on inputs.
 
+#![no_std]
+
+extern crate alloc;
+
+pub mod case;
+pub mod classify;
 pub mod data;
+pub mod identifier;
 pub mod normalize;
 
 pub use data::{Ucd, character_name, lookup_character, unicode_version};
@@ -38,6 +45,45 @@ mod tests {
     fn ucd_3_2_0_view_differs_from_modern() {
         let legacy = Ucd::new(false);
         assert_eq!(legacy.unidata_version(), "3.2.0");
+    }
+
+    #[test]
+    fn numeric_type_chain_holds() {
+        use crate::classify::{is_decimal, is_digit, is_numeric};
+
+        // isdecimal ⊂ isdigit ⊂ isnumeric
+        for c in ('\0'..='\u{2FFFF}').filter_map(|c| char::from_u32(c as u32)) {
+            if is_decimal(c) {
+                assert!(is_digit(c), "{c:?} decimal but not digit");
+            }
+            if is_digit(c) {
+                assert!(is_numeric(c), "{c:?} digit but not numeric");
+            }
+        }
+        assert!(crate::classify::is_decimal('5'));
+        assert!(!crate::classify::is_decimal('²'));
+        assert!(crate::classify::is_digit('²'));
+        assert!(!crate::classify::is_digit('⅓'));
+        assert!(crate::classify::is_numeric('⅓'));
+    }
+
+    #[test]
+    fn identifier_predicates() {
+        use crate::identifier::{is_continue, is_start};
+
+        assert!(is_start('_'));
+        assert!(is_start('가'));
+        assert!(!is_start('1'));
+        assert!(is_continue('1'));
+    }
+
+    #[test]
+    fn casefold_full_mappings() {
+        use crate::case::casefold_str;
+
+        // ß case-folds to "ss"
+        assert_eq!(casefold_str("ß"), "ss");
+        assert_eq!(casefold_str("Σ"), "σ");
     }
 
     #[test]

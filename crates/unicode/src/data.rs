@@ -7,6 +7,11 @@
 
 use core::{cmp::Ordering, fmt::Write, hint::cold_path};
 
+use alloc::{
+    format,
+    string::{String, ToString},
+};
+
 use icu_normalizer::properties::{CanonicalDecomposition, Decomposed};
 use icu_properties::props::{
     BidiClass, BidiMirrored, BinaryProperty, CanonicalCombiningClass, EastAsianWidth,
