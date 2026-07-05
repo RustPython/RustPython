@@ -9,14 +9,18 @@ tuples normally go back through the freelist on dealloc, but once one is
 published to the type cache it must instead go through the QSBR-deferred
 reclamation path, so this exercises that bypass.
 """
+
 import threading
 import time
+
 
 class C:
     def m(self):
         return -1
 
+
 DURATION = 1.5
+
 
 def reader(stop):
     obj = C()
@@ -31,11 +35,14 @@ def reader(stop):
             except AttributeError:
                 pass
 
+
 def mutator(stop):
     i = 0
     while not stop.is_set():
+
         def m(self, _i=i):
             return _i
+
         C.m = m
         C.shape = (i, i + 1)
         i += 1
@@ -48,6 +55,7 @@ def mutator(stop):
                 del C.shape
             except AttributeError:
                 pass
+
 
 stop = threading.Event()
 threads = [threading.Thread(target=reader, args=(stop,)) for _ in range(4)]
