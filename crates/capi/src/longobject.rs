@@ -1,6 +1,5 @@
-use crate::PyObject;
 use crate::object::define_py_check;
-use crate::pystate::with_vm;
+use crate::{PyObject, pystate::with_vm};
 use bitflags::bitflags;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_longlong, c_ulong, c_ulonglong, c_void};
 use malachite_bigint::{BigInt, Sign};
