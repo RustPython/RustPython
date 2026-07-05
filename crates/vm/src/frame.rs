@@ -4532,16 +4532,18 @@ impl ExecutingFrame<'_> {
                         .as_ref()
                         .is_some_and(|isinstance_callable| callable.is(isinstance_callable))
                     {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
+                        // Stack: [callable, self_or_null, args...]; effective_nargs == 2,
+                        // so the instance is either the first positional arg or self_or_null.
+                        let cls = self.pop_value();
+                        let inst = if nargs == 2 {
+                            let inst = self.pop_value();
+                            self.pop_value_opt(); // null
+                            inst
+                        } else {
+                            self.pop_value() // self_or_null holds the instance
+                        };
                         self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(2);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(pos_args);
-                        let result = all_args[0].is_instance(&all_args[1], vm)?;
+                        let result = inst.is_instance(&cls, vm)?;
                         self.push_value(vm.ctx.new_bool(result).into());
                         return Ok(None);
                     }
