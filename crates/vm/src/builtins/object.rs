@@ -346,23 +346,7 @@ impl PyBaseObject {
         Ok(res)
     }
 
-    /// Implement setattr(self, name, value).
-    #[pymethod]
-    fn __setattr__(
-        obj: PyObjectRef,
-        name: PyStrRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        obj.generic_setattr(&name, PySetterValue::Assign(value), vm)
-    }
-
-    /// Implement delattr(self, name).
-    #[pymethod]
-    fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.generic_setattr(&name, PySetterValue::Delete, vm)
-    }
-
+    // __setattr__ and __delattr__ are added as slot wrappers by add_operators.
     #[pyslot]
     pub(crate) fn slot_setattro(
         obj: &PyObject,
@@ -513,15 +497,12 @@ impl PyBaseObject {
     }
 
     /// Return getattr(self, name).
+    ///
+    /// __getattribute__ is added as a slot wrapper by add_operators.
     #[pyslot]
     pub(crate) fn getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
         obj.as_object().generic_getattr(name, vm)
-    }
-
-    #[pymethod]
-    fn __getattribute__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(&obj, &name, vm)
     }
 
     #[pymethod]
