@@ -1143,7 +1143,33 @@ impl Frame {
         Ok(())
     }
 
+    /// Reject locals access for a frame that is executing on another thread.
+    ///
+    /// A thread-owned frame mutates `localsplus` without synchronization, so
+    /// reading fastlocals from a different thread would be a data race (the
+    /// executing thread overwrites slots and drops the old values while the
+    /// reader clones them). Access from the executing thread itself (locals()
+    /// builtin, trace callbacks) is fine: the frame sits on the current
+    /// thread's frame chain and is at a bytecode boundary.
+    fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
+        let owner = FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire));
+        if owner != FrameOwner::Thread {
+            return Ok(());
+        }
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            if core::ptr::eq(cur, self) {
+                return Ok(());
+            }
+            cur = unsafe { (*cur).previous_frame() };
+        }
+        Err(vm.new_runtime_error(
+            "cannot access frame locals while the frame is executing in another thread",
+        ))
+    }
+
     pub fn f_locals_mapping(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
+        self.check_locals_access(vm)?;
         if !self.has_active_hidden_locals() {
             self.f_locals_hidden_overlay.lock().take();
             return self.locals(vm);

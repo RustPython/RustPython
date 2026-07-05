@@ -735,11 +735,81 @@ impl GcState {
             // gc.garbage, so they must not be cleared (delete_garbage
             // skips tp_clear for saved objects).
             let save_all = debug.contains(GcDebugFlags::SAVEALL);
+
+            // Untrack dead objects BEFORE clearing them, mirroring the
+            // untrack-then-clear ordering of the refcount dealloc path.
+            // A cleared object (e.g. a frame husk with iframe == None) must
+            // never be observable through the generation lists, or another
+            // thread could obtain a strong reference via gc.get_objects()
+            // and access the cleared payload.
+            let mut late_resurrected: HashSet<GcPtr> = HashSet::new();
+            if !save_all {
+                let mut expected_counts: std::collections::HashMap<GcPtr, usize> =
+                    std::collections::HashMap::new();
+                for obj_ref in &truly_dead {
+                    let obj = obj_ref.as_ref();
+                    if obj.is_gc_tracked() {
+                        unsafe { self.untrack_object(NonNull::from(obj)) };
+                    }
+                    // One strong reference held by the `truly_dead` vec itself.
+                    expected_counts.insert(GcPtr(NonNull::from(obj)), 1);
+                }
+                // With the objects out of the generation lists, no new external
+                // reference can appear. Count the references coming from within
+                // the dead set; any surplus in strong_count means another thread
+                // grabbed a reference before untracking (late resurrection) and
+                // the object must not be cleared.
+                let mut referents: std::collections::HashMap<GcPtr, Vec<NonNull<PyObject>>> =
+                    std::collections::HashMap::new();
+                for obj_ref in &truly_dead {
+                    let referent_ptrs = unsafe { obj_ref.gc_get_referent_ptrs() };
+                    for child_ptr in &referent_ptrs {
+                        if let Some(n) = expected_counts.get_mut(&GcPtr(*child_ptr)) {
+                            *n += 1;
+                        }
+                    }
+                    referents.insert(GcPtr(NonNull::from(obj_ref.as_ref())), referent_ptrs);
+                }
+                let mut worklist: Vec<GcPtr> = Vec::new();
+                for obj_ref in &truly_dead {
+                    let ptr = GcPtr(NonNull::from(obj_ref.as_ref()));
+                    if obj_ref.strong_count() > expected_counts[&ptr] && late_resurrected.insert(ptr)
+                    {
+                        worklist.push(ptr);
+                    }
+                }
+                // A holder of a late-resurrected object can reach its referents,
+                // so everything reachable from it must stay intact as well.
+                while let Some(ptr) = worklist.pop() {
+                    let Some(referent_ptrs) = referents.get(&ptr) else {
+                        continue;
+                    };
+                    for child_ptr in referent_ptrs {
+                        let child = GcPtr(*child_ptr);
+                        if expected_counts.contains_key(&child) && late_resurrected.insert(child) {
+                            worklist.push(child);
+                        }
+                    }
+                }
+                // Re-track late-resurrected objects so a future collection can
+                // retry once the external references are released.
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "Iteration order doesn't matter here"
+                )]
+                for &ptr in &late_resurrected {
+                    unsafe { self.track_object(ptr.0) };
+                }
+            }
             rustpython_common::refcount::with_deferred_drops(|| {
                 if !save_all {
                     for obj_ref in &truly_dead {
-                        if obj_ref.gc_has_clear() {
-                            let edges = unsafe { obj_ref.gc_clear() };
+                        let obj = obj_ref.as_ref();
+                        if late_resurrected.contains(&GcPtr(NonNull::from(obj))) {
+                            continue;
+                        }
+                        if obj.gc_has_clear() {
+                            let edges = unsafe { obj.gc_clear() };
                             drop(edges);
                         }
                     }
