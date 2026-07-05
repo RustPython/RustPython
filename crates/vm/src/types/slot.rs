@@ -843,12 +843,31 @@ impl PyType {
                 }
             }
             SlotAccessor::TpNew => {
-                // __new__ is not wrapped via PyWrapper
-                if ADD {
+                // __new__ is a staticmethod, not a PyWrapper descriptor, so
+                // lookup_slot_in_mro cannot classify it. Resolve __new__
+                // through the MRO dicts instead: a Python-level definition
+                // needs the dynamic new_wrapper, while a native type's
+                // builtin __new__ entry (or no entry at all) means the slot
+                // is inherited from the solid base, matching update_one_slot's
+                // tp_new special case over the tp_base-inherited value.
+                let needs_wrapper = if ADD && self.attributes.read().contains_key(name) {
+                    true
+                } else {
+                    // mro[0] is self, so skip it
+                    self.mro.read()[1..]
+                        .iter()
+                        .find(|cls| cls.attributes.read().contains_key(name))
+                        .is_some_and(|cls| {
+                            cls.slots.new.load().map(|f| f as usize)
+                                == Some(new_wrapper as NewFunc as usize)
+                        })
+                };
+                if needs_wrapper {
                     self.slots.new.store(Some(new_wrapper));
                     self.slots.vectorcall.store(None);
                 } else {
-                    accessor.inherit_from_mro(self);
+                    let inherited = self.base.as_ref().and_then(|base| base.slots.new.load());
+                    self.slots.new.store(inherited);
                 }
             }
             SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),

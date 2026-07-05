@@ -4983,6 +4983,7 @@ impl ExecutingFrame<'_> {
                     && let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.tp_version_tag.load(Acquire) == cached_version
                     && let Some(init_func) = cls.get_cached_init_for_specialization(cached_version)
+                    && init_func.has_exact_argcount(nargs + 1)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
                     // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
@@ -8576,7 +8577,8 @@ impl ExecutingFrame<'_> {
                     }
                     if let Some(init) = init
                         && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
-                        && init_func.is_simple_for_call_specialization()
+                        && init_func.can_specialize_call(nargs + 1)
+                        && !init_func.is_generator_like()
                         && cls.cache_init_for_specialization(init_func.to_owned(), version, vm)
                     {
                         unsafe {

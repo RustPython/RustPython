@@ -634,16 +634,6 @@ impl Py<PyFunction> {
         new_v
     }
 
-    /// function_kind(SIMPLE_FUNCTION) equivalent for CALL specialization.
-    /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args.
-    pub(crate) fn is_simple_for_call_specialization(&self) -> bool {
-        let code: &Py<PyCode> = &self.code;
-        let flags = code.flags;
-        flags.contains(bytecode::CodeFlags::OPTIMIZED)
-            && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
-            && code.kwonlyarg_count == 0
-    }
-
     /// Check if this function is eligible for exact-args call specialization.
     /// Returns true if: CO_OPTIMIZED, no VARARGS, no VARKEYWORDS, no kwonly args,
     /// and effective_nargs matches co_argcount.
@@ -654,6 +644,16 @@ impl Py<PyFunction> {
             && !flags.intersects(bytecode::CodeFlags::VARARGS | bytecode::CodeFlags::VARKEYWORDS)
             && code.kwonlyarg_count == 0
             && code.arg_count == effective_nargs
+    }
+
+    /// True if the code object is a generator, coroutine or async generator.
+    #[inline]
+    pub(crate) fn is_generator_like(&self) -> bool {
+        self.code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        )
     }
 
     /// Runtime guard for CALL_*_EXACT_ARGS specialization: check only argcount.
