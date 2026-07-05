@@ -295,7 +295,6 @@ pub struct TypeSpecializationCache {
     pub init: PyAtomicRef<Option<PyFunction>>,
     pub getitem: PyAtomicRef<Option<PyFunction>>,
     pub getitem_version: AtomicU32,
-    retired: PyRwLock<Vec<PyObjectRef>>,
 }
 
 impl TypeSpecializationCache {
@@ -304,48 +303,40 @@ impl TypeSpecializationCache {
             init: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem: PyAtomicRef::from(None::<PyRef<PyFunction>>),
             getitem_version: AtomicU32::new(0),
-            retired: PyRwLock::new(Vec::new()),
         }
     }
 
     #[inline]
-    fn retire_old_function(&self, old: Option<PyRef<PyFunction>>) {
-        if let Some(old) = old {
-            self.retired.write().push(old.into());
+    fn swap_init(&self, new_init: Option<PyRef<PyFunction>>) {
+        if let Some(new) = &new_init {
+            new.as_object().mark_cache_published();
         }
-    }
-
-    #[inline]
-    fn swap_init(&self, new_init: Option<PyRef<PyFunction>>, vm: Option<&VirtualMachine>) {
-        if let Some(vm) = vm {
-            // Keep replaced refs alive for the currently executing frame, matching
-            // CPython-style "old pointer remains valid during ongoing execution"
-            // without accumulating global retired refs.
-            self.init.swap_to_temporary_refs(new_init, vm);
-            return;
-        }
-        // SAFETY: old value is moved to `retired`, so it stays alive while
-        // concurrent readers may still hold borrowed references.
+        // SAFETY: reclamation of published objects is deferred via QSBR;
+        // racing try_to_owned readers never touch freed memory.
         let old = unsafe { self.init.swap(new_init) };
-        self.retire_old_function(old);
+        if let Some(old) = old {
+            // Dropping may run arbitrary Python; defer past the type lock.
+            rustpython_common::refcount::try_defer_drop(move || drop(old));
+        }
     }
 
     #[inline]
-    fn swap_getitem(&self, new_getitem: Option<PyRef<PyFunction>>, vm: Option<&VirtualMachine>) {
-        if let Some(vm) = vm {
-            self.getitem.swap_to_temporary_refs(new_getitem, vm);
-            return;
+    fn swap_getitem(&self, new_getitem: Option<PyRef<PyFunction>>) {
+        if let Some(new) = &new_getitem {
+            new.as_object().mark_cache_published();
         }
-        // SAFETY: old value is moved to `retired`, so it stays alive while
-        // concurrent readers may still hold borrowed references.
+        // SAFETY: as in swap_init.
         let old = unsafe { self.getitem.swap(new_getitem) };
-        self.retire_old_function(old);
+        if let Some(old) = old {
+            rustpython_common::refcount::try_defer_drop(move || drop(old));
+        }
     }
 
     #[inline]
     fn invalidate_for_type_modified(&self) {
-        self.swap_init(None, None);
-        self.swap_getitem(None, None);
+        self.swap_init(None);
+        self.swap_getitem(None);
+        self.getitem_version.store(0, Ordering::Release);
     }
 
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
@@ -355,11 +346,6 @@ impl TypeSpecializationCache {
         if let Some(getitem) = self.getitem.deref() {
             tracer_fn(getitem.as_object());
         }
-        self.retired
-            .read()
-            .iter()
-            .map(|obj| obj.traverse(tracer_fn))
-            .count();
     }
 
     fn clear_into(&self, out: &mut Vec<PyObjectRef>) {
@@ -372,7 +358,6 @@ impl TypeSpecializationCache {
             out.push(old_getitem.into());
         }
         self.getitem_version.store(0, Ordering::Release);
-        out.extend(self.retired.write().drain(..));
     }
 }
 
@@ -473,8 +458,12 @@ fn is_subtype_with_mro(a_mro: &[PyTypeRef], a: &Py<PyType>, b: &Py<PyType>) -> b
 impl PyType {
     #[inline]
     fn with_type_lock<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-        let _guard = vm.state.type_mutex.lock();
-        f()
+        // Drops deferred via try_defer_drop inside the critical section run
+        // after the guard is released, outside the lock.
+        rustpython_common::refcount::with_deferred_drops(|| {
+            let _guard = vm.state.type_mutex.lock();
+            f()
+        })
     }
 
     /// Assign a fresh version tag. Returns 0 if the version counter has been
@@ -1113,10 +1102,7 @@ impl PyType {
             if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
                 return false;
             }
-            if self.tp_version_tag.load(Ordering::Acquire) != tp_version {
-                return false;
-            }
-            ext.specialization_cache.swap_init(Some(init), Some(vm));
+            ext.specialization_cache.swap_init(Some(init));
             true
         })
     }
@@ -1135,7 +1121,7 @@ impl PyType {
         }
         ext.specialization_cache
             .init
-            .to_owned_ordering(Ordering::Acquire)
+            .try_to_owned(Ordering::Acquire)
     }
 
     /// Cache __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
@@ -1160,8 +1146,7 @@ impl PyType {
             if func_version == 0 {
                 return false;
             }
-            ext.specialization_cache
-                .swap_getitem(Some(getitem), Some(vm));
+            ext.specialization_cache.swap_getitem(Some(getitem));
             ext.specialization_cache
                 .getitem_version
                 .store(func_version, Ordering::Release);
@@ -1172,11 +1157,11 @@ impl PyType {
     /// Read cached __getitem__ for BINARY_OP_SUBSCR_GETITEM specialization.
     pub(crate) fn get_cached_getitem_for_specialization(&self) -> Option<(PyRef<PyFunction>, u32)> {
         let ext = self.heaptype_ext.as_ref()?;
-        // Match CPython check order: pointer (Acquire) then function version.
+        // Check order: pointer (Acquire) then function version.
         let getitem = ext
             .specialization_cache
             .getitem
-            .to_owned_ordering(Ordering::Acquire)?;
+            .try_to_owned(Ordering::Acquire)?;
         let cached_version = ext
             .specialization_cache
             .getitem_version
