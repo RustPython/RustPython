@@ -731,11 +731,17 @@ impl GcState {
         if !truly_dead.is_empty() {
             // Break cycles by clearing references (tp_clear)
             // Use deferred drop context to prevent stack overflow.
+            // With DEBUG_SAVEALL the objects stay reachable through
+            // gc.garbage, so they must not be cleared (delete_garbage
+            // skips tp_clear for saved objects).
+            let save_all = debug.contains(GcDebugFlags::SAVEALL);
             rustpython_common::refcount::with_deferred_drops(|| {
-                for obj_ref in &truly_dead {
-                    if obj_ref.gc_has_clear() {
-                        let edges = unsafe { obj_ref.gc_clear() };
-                        drop(edges);
+                if !save_all {
+                    for obj_ref in &truly_dead {
+                        if obj_ref.gc_has_clear() {
+                            let edges = unsafe { obj_ref.gc_clear() };
+                            drop(edges);
+                        }
                     }
                 }
                 drop(truly_dead);
