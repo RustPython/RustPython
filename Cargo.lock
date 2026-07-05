@@ -2794,7 +2794,7 @@ dependencies = [
  "libc",
  "once_cell",
  "portable-atomic",
- "pyo3-build-config 0.29.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "pyo3-build-config",
  "pyo3-ffi",
  "pyo3-macros",
 ]
@@ -2809,20 +2809,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "pyo3-build-config"
-version = "0.29.0"
-source = "git+https://github.com/PyO3/pyo3#75507833367e5267dd6fdd7e48de628e4b8e53e0"
-dependencies = [
- "target-lexicon",
-]
-
-[[package]]
 name = "pyo3-ffi"
 version = "0.29.0"
-source = "git+https://github.com/PyO3/pyo3#75507833367e5267dd6fdd7e48de628e4b8e53e0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca85c467da1bbc8d866eea5deff9cf29ea5f7785054a17da36e65bda9c05845b"
 dependencies = [
  "libc",
- "pyo3-build-config 0.29.0 (git+https://github.com/PyO3/pyo3)",
+ "pyo3-build-config",
 ]
 
 [[package]]

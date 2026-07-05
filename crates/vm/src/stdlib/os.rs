@@ -10,6 +10,12 @@ use crate::{
 };
 use std::{io, path::Path};
 
+#[cfg(not(windows))]
+use libc::mode_t;
+
+#[cfg(windows)]
+use crate::host_env::posix::mode_t;
+
 pub(crate) fn fs_metadata<P: AsRef<Path>>(
     path: P,
     follow_symlink: bool,
@@ -29,7 +35,7 @@ pub struct TargetIsDirectory {
 }
 
 cfg_select! {
-    all(any(unix, target_os = "wasi"), not(target_os = "redox")) => {
+    any(unix, target_os = "wasi") => {
         use libc::AT_FDCWD;
     }
     _ => {
@@ -154,7 +160,7 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 
 #[pymodule(sub)]
 pub(super) mod _os {
-    use super::{DirFd, FollowSymlinks, SupportFunc};
+    use super::{DirFd, FollowSymlinks, SupportFunc, mode_t};
     use crate::host_env::fileutils::StatStruct;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
@@ -184,7 +190,7 @@ pub(super) mod _os {
     use std::{fs, io, path::PathBuf, time::SystemTime};
 
     const OPEN_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
-    pub(crate) const MKDIR_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
+    pub(crate) const MKDIR_DIR_FD: bool = cfg!(any(unix, target_os = "wasi"));
     const STAT_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     const UTIME_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
     pub(crate) const SYMLINK_DIR_FD: bool = cfg!(not(any(windows, target_os = "redox")));
@@ -338,32 +344,24 @@ pub(super) mod _os {
         }
     }
 
-    #[cfg(not(windows))]
     #[pyfunction]
     fn mkdir(
         path: OsPath,
-        mode: OptionalArg<i32>,
-        dir_fd: DirFd<'_, { MKDIR_DIR_FD as usize }>,
+        mode: OptionalArg<mode_t>,
+        #[cfg_attr(not(any(unix, target_os = "wasi")), expect(unused_variables))] dir_fd: DirFd<
+            '_,
+            { MKDIR_DIR_FD as usize },
+        >,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let mode = mode.unwrap_or(0o777);
-        let c_path = path.clone().into_cstring(vm)?;
-        #[cfg(not(target_os = "redox"))]
-        if let Some(fd) = dir_fd.raw_opt() {
-            return if let Err(err) =
-                crate::host_env::posix::make_dir_at(fd, c_path.as_c_str(), mode as u32)
-            {
-                Err(OSErrorBuilder::with_filename(&err, path, vm))
-            } else {
-                Ok(())
-            };
-        }
-        #[cfg(target_os = "redox")]
-        let [] = dir_fd.0;
-        if let Err(err) = crate::host_env::posix::make_dir(c_path.as_c_str(), mode as u32) {
-            return Err(OSErrorBuilder::with_filename(&err, path, vm));
-        }
-        Ok(())
+        #[cfg(any(unix, target_os = "wasi"))]
+        let dir_fd = dir_fd.get_opt();
+        #[cfg(not(any(unix, target_os = "wasi")))]
+        let dir_fd = None;
+
+        crate::host_env::posix::make_dir(dir_fd, &path.path, mode)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]

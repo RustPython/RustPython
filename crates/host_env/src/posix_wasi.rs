@@ -1,17 +1,17 @@
 use alloc::ffi::CString;
 use core::{ffi::CStr, time::Duration};
-use std::{ffi::OsStr, io};
+use rustix::fd::AsFd;
+use std::{ffi::OsStr, io, path::Path};
 
-use crate::os::CheckLibcResult;
+use crate::{crt_fd, os::CheckLibcResult};
 
-pub fn make_dir(path: &CStr, mode: u32) -> io::Result<()> {
-    unsafe { libc::mkdir(path.as_ptr(), mode as _) }.check_libc_neg()?;
-    Ok(())
-}
-
-pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> io::Result<()> {
-    unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) }.check_libc_neg()?;
-    Ok(())
+pub fn make_dir(
+    dir_fd: Option<crt_fd::Borrowed<'_>>,
+    path: &impl AsRef<Path>,
+    mode: libc::mode_t,
+) -> std::io::Result<()> {
+    let dir_fd = dir_fd.as_ref().map_or(rustix::fs::CWD, AsFd::as_fd);
+    rustix::fs::mkdirat(dir_fd, path.as_ref(), mode.into()).map_err(Into::into)
 }
 
 pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> io::Result<()> {
