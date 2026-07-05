@@ -14,6 +14,7 @@ pub mod classify;
 pub mod data;
 pub mod identifier;
 pub mod normalize;
+pub mod regex;
 
 pub use data::{Ucd, character_name, lookup_character, unicode_version};
 pub use normalize::{NormalizeForm, is_normalized, normalize};
