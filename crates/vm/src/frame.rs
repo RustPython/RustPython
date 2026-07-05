@@ -1402,12 +1402,12 @@ impl ExecutingFrame<'_> {
     }
 
     fn specialization_new_init_cleanup_frame(&self, vm: &VirtualMachine) -> FrameRef {
+        // The shim code has NEWLOCALS, so passing no locals selects
+        // FrameLocals::lazy() and no locals dict is allocated; the shim
+        // never touches locals.
         Frame::new(
             vm.ctx.init_cleanup_code.clone(),
-            Scope::new(
-                Some(ArgMapping::from_dict_exact(vm.ctx.new_dict())),
-                self.globals.clone(),
-            ),
+            Scope::new(None, self.globals.clone()),
             self.builtins.clone(),
             &[],
             None,

@@ -421,7 +421,7 @@ impl Context {
         let code = bytecode::CodeObject {
             instructions: instructions.into(),
             locations: vec![(loc, loc); instructions.len()].into_boxed_slice(),
-            flags: CodeFlags::OPTIMIZED,
+            flags: CodeFlags::OPTIMIZED | CodeFlags::NEWLOCALS,
             posonlyarg_count: 0,
             arg_count: 0,
             kwonlyarg_count: 0,
