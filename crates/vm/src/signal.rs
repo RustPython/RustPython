@@ -2,7 +2,7 @@ use core::{
     cell::{Cell, RefCell},
     fmt,
     ops::{Deref, DerefMut, Index, IndexMut, Range},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 use std::sync::mpsc;
 
@@ -13,7 +13,16 @@ use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, Virtual
 
 pub(crate) const NSIG: usize = 64;
 
-static ANY_TRIGGERED: AtomicBool = AtomicBool::new(false);
+/// Eval-breaker word: bit flags checked once per bytecode instruction.
+/// Signal handlers and QSBR set bits with fetch_or (async-signal-safe,
+/// lock-free); consumers clear only their own bit with fetch_and.
+static EVAL_BREAKER: AtomicU8 = AtomicU8::new(0);
+
+/// A signal handler recorded a pending signal.
+const SIGNAL_BIT: u8 = 1 << 0;
+/// QSBR has retired allocations pending reclamation.
+#[cfg(feature = "threading")]
+const QSBR_BIT: u8 = 1 << 1;
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -49,12 +58,12 @@ pub fn check_signals(vm: &VirtualMachine) -> PyResult<()> {
 
     // Read-only check first: avoids cache-line invalidation on every
     // instruction when no signal is pending (the common case).
-    if !ANY_TRIGGERED.load(Ordering::Relaxed) {
+    if EVAL_BREAKER.load(Ordering::Relaxed) & SIGNAL_BIT == 0 {
         return Ok(());
     }
 
     // Atomic RMW only when a signal is actually pending.
-    if !ANY_TRIGGERED.swap(false, Ordering::Acquire) {
+    if EVAL_BREAKER.fetch_and(!SIGNAL_BIT, Ordering::Acquire) & SIGNAL_BIT == 0 {
         return Ok(());
     }
 
@@ -101,20 +110,37 @@ fn trigger_signals(vm: &VirtualMachine) -> PyResult<()> {
 }
 
 pub(crate) fn set_triggered() {
-    ANY_TRIGGERED.store(true, Ordering::Release);
+    // fetch_or (not store) so a signal handler never clobbers the QSBR bit;
+    // this compiles to a lock-free RMW, safe to call from a signal handler.
+    EVAL_BREAKER.fetch_or(SIGNAL_BIT, Ordering::Release);
 }
 
+/// Any eval-breaker bit pending? One relaxed load; checked per instruction.
 #[inline(always)]
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn is_triggered() -> bool {
-    ANY_TRIGGERED.load(Ordering::Relaxed)
+pub(crate) fn eval_breaker_pending() -> bool {
+    EVAL_BREAKER.load(Ordering::Relaxed) != 0
+}
+
+#[cfg(feature = "threading")]
+pub(crate) fn set_qsbr_bit() {
+    EVAL_BREAKER.fetch_or(QSBR_BIT, Ordering::Release);
+}
+
+#[cfg(feature = "threading")]
+pub(crate) fn clear_qsbr_bit() {
+    EVAL_BREAKER.fetch_and(!QSBR_BIT, Ordering::Release);
+}
+
+#[cfg(feature = "threading")]
+pub(crate) fn qsbr_bit_set() -> bool {
+    EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
 }
 
 /// Reset all signal trigger state after fork in child process.
 /// Stale triggers from the parent must not fire in the child.
 #[cfg(all(unix, feature = "host_env"))]
 pub(crate) fn clear_after_fork() {
-    ANY_TRIGGERED.store(false, Ordering::Release);
+    EVAL_BREAKER.fetch_and(!SIGNAL_BIT, Ordering::Release);
     for trigger in &TRIGGERS {
         trigger.store(false, Ordering::Relaxed);
     }

@@ -2041,13 +2041,10 @@ impl VirtualMachine {
             return true;
         }
 
-        #[cfg(feature = "threading")]
-        if crate::object::qsbr::QSBR.break_pending() && thread::qsbr_break_requested() {
-            return true;
-        }
-
+        // Signal and QSBR bits share one word: a single relaxed load per
+        // instruction covers both.
         #[cfg(not(target_arch = "wasm32"))]
-        if crate::signal::is_triggered() {
+        if crate::signal::eval_breaker_pending() {
             return true;
         }
 
@@ -2071,7 +2068,7 @@ impl VirtualMachine {
 
         // Pass a QSBR checkpoint if requested (deferred memory reclamation).
         #[cfg(feature = "threading")]
-        if crate::object::qsbr::QSBR.break_pending() && thread::qsbr_break_requested() {
+        if crate::signal::qsbr_bit_set() && thread::qsbr_break_requested() {
             thread::qsbr_checkpoint();
         }
 

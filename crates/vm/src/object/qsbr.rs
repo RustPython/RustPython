@@ -77,11 +77,26 @@ mod threading {
             }
         }
 
-        /// Whether retired allocations are pending. Cheap gate for the
-        /// per-instruction eval-breaker check.
+        /// Whether retired allocations are pending. The hot path now reads
+        /// the mirrored bit in the eval-breaker word instead; this stays
+        /// only for unit tests that exercise local, non-global instances.
         #[inline]
+        #[cfg_attr(not(test), allow(dead_code))]
         pub(crate) fn break_pending(&self) -> bool {
             self.pending.load(Ordering::Relaxed)
+        }
+
+        /// Mirror `pending` into the global eval-breaker word — only for
+        /// the global QSBR instance, so unit-test instances never touch
+        /// process-global state.
+        fn update_breaker_bit(&self, on: bool) {
+            if core::ptr::eq(self, &QSBR) {
+                if on {
+                    crate::signal::set_qsbr_bit();
+                } else {
+                    crate::signal::clear_qsbr_bit();
+                }
+            }
         }
 
         /// Register the calling thread. The returned slot is stored in the
@@ -164,6 +179,7 @@ mod threading {
                 // `process` clearing the flag under the same lock and no
                 // push can be left behind with the flag cleared.
                 self.pending.store(true, Ordering::Release);
+                self.update_breaker_bit(true);
             }
             // Ask every registered thread to pass a checkpoint.
             for weak in self.threads.lock().unwrap().iter() {
@@ -198,6 +214,7 @@ mod threading {
             }
             if queue.is_empty() {
                 self.pending.store(false, Ordering::Release);
+                self.update_breaker_bit(false);
             }
         }
 
@@ -213,6 +230,7 @@ mod threading {
                 unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
             }
             self.pending.store(false, Ordering::Release);
+            self.update_breaker_bit(false);
         }
 
         /// Reset after fork: drop all registered thread entries (dead
