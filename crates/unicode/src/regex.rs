@@ -63,8 +63,9 @@ pub fn upper_locate(ch: u32) -> u32 {
 
 #[must_use]
 pub fn is_uni_digit(ch: u32) -> bool {
-    // TODO: check with cpython
-    char::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
+    // SRE_UNI_IS_DIGIT matches Unicode decimal digits (Py_UNICODE_ISDECIMAL),
+    // not just ASCII 0-9.
+    char::try_from(ch).is_ok_and(classify::is_decimal)
 }
 
 #[must_use]

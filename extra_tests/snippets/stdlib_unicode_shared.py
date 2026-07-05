@@ -80,6 +80,10 @@ assert "\N{GREEK SMALL LETTER ALPHA}" == "α"
 assert re.fullmatch(r"\w+", "abc_123") is not None
 assert re.fullmatch(r"\w+", "유니코드") is not None  # \w is Unicode-aware
 assert re.fullmatch(r"\d+", "123") is not None
+# \d matches Unicode decimal digits (category Nd), not just ASCII
+assert re.fullmatch(r"\d", "٥") is not None  # ARABIC-INDIC DIGIT FIVE
+assert re.fullmatch(r"\d", "५") is not None  # DEVANAGARI DIGIT FIVE
+assert re.fullmatch(r"\d", "²") is None  # SUPERSCRIPT TWO (No), not decimal
 assert re.fullmatch(r"\s+", " \t\n") is not None
 # ASCII flag restricts \w to ASCII
 assert re.fullmatch(r"\w+", "유", re.ASCII) is None

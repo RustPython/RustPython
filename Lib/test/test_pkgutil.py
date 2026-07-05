@@ -231,7 +231,6 @@ class PkgutilTests(unittest.TestCase):
         with self.assertRaises((TypeError, ValueError)):
             list(pkgutil.walk_packages(bytes_input))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_name_resolution(self):
         import logging
         import logging.handlers
