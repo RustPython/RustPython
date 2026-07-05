@@ -1450,4 +1450,157 @@ mod tests {
 
         assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());
     }
+
+    /// Snapshot of the chained `match` implementations that `Opcode::deopt`
+    /// and `Opcode::cache_entries` used before they were rewritten as table
+    /// lookups. Exists only to pin the observable behavior of the table
+    /// lookups against the logic they replaced.
+    mod reference {
+        use super::Opcode;
+
+        pub(super) const fn deopt(op: Opcode) -> Option<Opcode> {
+            Some(match op {
+                Opcode::ResumeCheck => Opcode::Resume,
+                Opcode::LoadConstMortal | Opcode::LoadConstImmortal => Opcode::LoadConst,
+                Opcode::ToBoolAlwaysTrue
+                | Opcode::ToBoolBool
+                | Opcode::ToBoolInt
+                | Opcode::ToBoolList
+                | Opcode::ToBoolNone
+                | Opcode::ToBoolStr => Opcode::ToBool,
+                Opcode::BinaryOpMultiplyInt
+                | Opcode::BinaryOpAddInt
+                | Opcode::BinaryOpSubtractInt
+                | Opcode::BinaryOpMultiplyFloat
+                | Opcode::BinaryOpAddFloat
+                | Opcode::BinaryOpSubtractFloat
+                | Opcode::BinaryOpAddUnicode
+                | Opcode::BinaryOpSubscrListInt
+                | Opcode::BinaryOpSubscrListSlice
+                | Opcode::BinaryOpSubscrTupleInt
+                | Opcode::BinaryOpSubscrStrInt
+                | Opcode::BinaryOpSubscrDict
+                | Opcode::BinaryOpSubscrGetitem
+                | Opcode::BinaryOpExtend
+                | Opcode::BinaryOpInplaceAddUnicode => Opcode::BinaryOp,
+                Opcode::StoreSubscrDict | Opcode::StoreSubscrListInt => Opcode::StoreSubscr,
+                Opcode::SendGen => Opcode::Send,
+                Opcode::UnpackSequenceTwoTuple
+                | Opcode::UnpackSequenceTuple
+                | Opcode::UnpackSequenceList => Opcode::UnpackSequence,
+                Opcode::StoreAttrInstanceValue
+                | Opcode::StoreAttrSlot
+                | Opcode::StoreAttrWithHint => Opcode::StoreAttr,
+                Opcode::LoadGlobalModule | Opcode::LoadGlobalBuiltin => Opcode::LoadGlobal,
+                Opcode::LoadSuperAttrAttr | Opcode::LoadSuperAttrMethod => Opcode::LoadSuperAttr,
+                Opcode::LoadAttrInstanceValue
+                | Opcode::LoadAttrModule
+                | Opcode::LoadAttrWithHint
+                | Opcode::LoadAttrSlot
+                | Opcode::LoadAttrClass
+                | Opcode::LoadAttrClassWithMetaclassCheck
+                | Opcode::LoadAttrProperty
+                | Opcode::LoadAttrGetattributeOverridden
+                | Opcode::LoadAttrMethodWithValues
+                | Opcode::LoadAttrMethodNoDict
+                | Opcode::LoadAttrMethodLazyDict
+                | Opcode::LoadAttrNondescriptorWithValues
+                | Opcode::LoadAttrNondescriptorNoDict => Opcode::LoadAttr,
+                Opcode::CompareOpFloat | Opcode::CompareOpInt | Opcode::CompareOpStr => {
+                    Opcode::CompareOp
+                }
+                Opcode::ContainsOpSet | Opcode::ContainsOpDict => Opcode::ContainsOp,
+                Opcode::JumpBackwardNoJit | Opcode::JumpBackwardJit => Opcode::JumpBackward,
+                Opcode::ForIterList
+                | Opcode::ForIterTuple
+                | Opcode::ForIterRange
+                | Opcode::ForIterGen => Opcode::ForIter,
+                Opcode::CallBoundMethodExactArgs
+                | Opcode::CallPyExactArgs
+                | Opcode::CallType1
+                | Opcode::CallStr1
+                | Opcode::CallTuple1
+                | Opcode::CallBuiltinClass
+                | Opcode::CallBuiltinO
+                | Opcode::CallBuiltinFast
+                | Opcode::CallBuiltinFastWithKeywords
+                | Opcode::CallLen
+                | Opcode::CallIsinstance
+                | Opcode::CallListAppend
+                | Opcode::CallMethodDescriptorO
+                | Opcode::CallMethodDescriptorFastWithKeywords
+                | Opcode::CallMethodDescriptorNoargs
+                | Opcode::CallMethodDescriptorFast
+                | Opcode::CallAllocAndEnterInit
+                | Opcode::CallPyGeneral
+                | Opcode::CallBoundMethodGeneral
+                | Opcode::CallNonPyGeneral => Opcode::Call,
+                Opcode::CallKwBoundMethod | Opcode::CallKwPy | Opcode::CallKwNonPy => {
+                    Opcode::CallKw
+                }
+                _ => return None,
+            })
+        }
+
+        pub(super) const fn deoptimize(op: Opcode) -> Opcode {
+            match deopt(op) {
+                Some(v) => v,
+                None => match op.to_base() {
+                    Some(v) => v,
+                    None => op,
+                },
+            }
+        }
+
+        pub(super) const fn cache_entries(op: Opcode) -> usize {
+            match deoptimize(op) {
+                Opcode::StoreSubscr => 1,
+                Opcode::ToBool => 3,
+                Opcode::BinaryOp => 5,
+                Opcode::Call => 3,
+                Opcode::CallKw => 3,
+                Opcode::CompareOp => 1,
+                Opcode::ContainsOp => 1,
+                Opcode::ForIter => 1,
+                Opcode::JumpBackward => 1,
+                Opcode::LoadAttr => 9,
+                Opcode::LoadGlobal => 4,
+                Opcode::LoadSuperAttr => 1,
+                Opcode::PopJumpIfFalse => 1,
+                Opcode::PopJumpIfNone => 1,
+                Opcode::PopJumpIfNotNone => 1,
+                Opcode::PopJumpIfTrue => 1,
+                Opcode::Send => 1,
+                Opcode::StoreAttr => 4,
+                Opcode::UnpackSequence => 1,
+                _ => 0,
+            }
+        }
+    }
+
+    #[test]
+    fn cache_entries_and_deopt_tables_match_reference_impl() {
+        let mut checked = 0;
+        for byte in 0u8..=255 {
+            let Ok(op) = Opcode::try_from_u8(byte) else {
+                continue;
+            };
+
+            assert_eq!(
+                op.deopt(),
+                reference::deopt(op),
+                "deopt() mismatch for {op:?}"
+            );
+            assert_eq!(
+                op.cache_entries(),
+                reference::cache_entries(op),
+                "cache_entries() mismatch for {op:?}"
+            );
+            checked += 1;
+        }
+
+        // Sanity check that the loop actually exercised opcodes rather than
+        // silently skipping all of them.
+        assert!(checked > 200);
+    }
 }
