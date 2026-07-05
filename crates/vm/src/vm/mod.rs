@@ -2042,7 +2042,7 @@ impl VirtualMachine {
         }
 
         #[cfg(feature = "threading")]
-        if thread::qsbr_break_requested() {
+        if crate::object::qsbr::QSBR.break_pending() && thread::qsbr_break_requested() {
             return true;
         }
 
@@ -2071,7 +2071,7 @@ impl VirtualMachine {
 
         // Pass a QSBR checkpoint if requested (deferred memory reclamation).
         #[cfg(feature = "threading")]
-        if thread::qsbr_break_requested() {
+        if crate::object::qsbr::QSBR.break_pending() && thread::qsbr_break_requested() {
             thread::qsbr_checkpoint();
         }
 

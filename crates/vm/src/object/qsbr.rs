@@ -58,6 +58,10 @@ mod threading {
         rd_seq: AtomicU64,
         threads: Mutex<Vec<Weak<QsbrSlot>>>,
         queue: Mutex<Vec<Retired>>,
+        /// Set while the retire queue is non-empty; gates the per-instruction
+        /// eval-breaker check so the hot path pays only one relaxed static
+        /// load when nothing is pending.
+        pending: AtomicBool,
     }
 
     pub(crate) static QSBR: Qsbr = Qsbr::new();
@@ -69,7 +73,15 @@ mod threading {
                 rd_seq: AtomicU64::new(QSBR_INITIAL),
                 threads: Mutex::new(Vec::new()),
                 queue: Mutex::new(Vec::new()),
+                pending: AtomicBool::new(false),
             }
+        }
+
+        /// Whether retired allocations are pending. Cheap gate for the
+        /// per-instruction eval-breaker check.
+        #[inline]
+        pub(crate) fn break_pending(&self) -> bool {
+            self.pending.load(Ordering::Relaxed)
         }
 
         /// Register the calling thread. The returned slot is stored in the
@@ -145,7 +157,14 @@ mod threading {
         /// racing try-incref reads this mechanism protects against.
         pub(crate) unsafe fn free_delayed(&self, ptr: *mut u8, layout: Layout) {
             let goal = self.advance();
-            self.queue.lock().unwrap().push(Retired { ptr, layout, goal });
+            {
+                let mut queue = self.queue.lock().unwrap();
+                queue.push(Retired { ptr, layout, goal });
+                // Set while still holding the queue lock, so this pairs with
+                // `process` clearing the flag under the same lock and no
+                // push can be left behind with the flag cleared.
+                self.pending.store(true, Ordering::Release);
+            }
             // Ask every registered thread to pass a checkpoint.
             for weak in self.threads.lock().unwrap().iter() {
                 if let Some(slot) = weak.upgrade() {
@@ -177,6 +196,9 @@ mod threading {
                 // SAFETY: grace period passed; no reader can hold `ptr`.
                 unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
             }
+            if queue.is_empty() {
+                self.pending.store(false, Ordering::Release);
+            }
         }
 
         /// Free all retired allocations immediately.
@@ -190,6 +212,7 @@ mod threading {
                 // SAFETY: guaranteed single-threaded by the caller.
                 unsafe { alloc::alloc::dealloc(item.ptr, item.layout) };
             }
+            self.pending.store(false, Ordering::Release);
         }
 
         /// Reset after fork: drop all registered thread entries (dead
@@ -259,11 +282,14 @@ mod threading {
             let ptr = unsafe { alloc::alloc::alloc(layout) };
             unsafe { q.free_delayed(ptr, layout) };
             assert!(a.requested.load(Ordering::Acquire));
+            assert!(q.break_pending());
             q.process();
             assert_eq!(q.pending(), 1); // grace period not passed yet
+            assert!(q.break_pending());
             q.quiescent_state(&a);
             q.process();
             assert_eq!(q.pending(), 0);
+            assert!(!q.break_pending());
         }
     }
 }
