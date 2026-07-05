@@ -6,11 +6,13 @@ use crate::{bytecode::instruction::StackEffect, marshal::MarshalError};
 impl super::Opcode {
     /// Returns [`Self`] as [`u8`].
     #[must_use]
+    #[inline]
     pub const fn as_u8(self) -> u8 {
         self.as_numeric()
     }
 
     #[must_use]
+    #[inline]
     pub const fn cache_entries(self) -> usize {
         const CACHE_ENTRIES: [u8; 256] = [
             0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -28,6 +30,7 @@ impl super::Opcode {
     }
 
     #[must_use]
+    #[inline]
     pub const fn deopt(self) -> Option<Self> {
         const DEOPT: [Option<super::Opcode>; 256] = [
             None,
@@ -839,6 +842,7 @@ impl super::Opcode {
     }
 
     #[must_use]
+    #[inline]
     pub const fn to_base(self) -> Option<Self> {
         Some(match self {
             Self::InstrumentedCall => Self::Call,
@@ -898,16 +902,19 @@ impl super::Opcode {
 impl super::PseudoOpcode {
     /// Returns [`Self`] as [`u16`].
     #[must_use]
+    #[inline]
     pub const fn as_u16(self) -> u16 {
         self.as_numeric()
     }
 
     #[must_use]
+    #[inline]
     pub const fn cache_entries(self) -> usize {
         0
     }
 
     #[must_use]
+    #[inline]
     pub const fn deopt(self) -> Option<Self> {
         None
     }
@@ -993,6 +1000,7 @@ impl super::PseudoOpcode {
     }
 
     #[must_use]
+    #[inline]
     pub const fn to_base(self) -> Option<Self> {
         None
     }

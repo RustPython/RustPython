@@ -28,6 +28,7 @@ class OpcodeGen:
         return f"""
         /// Returns [`Self`] as [`{self.size}`].
         #[must_use]
+        #[inline]
         pub const fn as_{self.size}(self) -> {self.size} {{
             self.as_numeric()
         }}
@@ -113,6 +114,7 @@ class OpcodeGen:
 
         return f"""
         #[must_use]
+        #[inline]
         pub const fn to_base(self) -> Option<Self> {{
             {inner}
         }}
@@ -169,6 +171,7 @@ class OpcodeGen:
 
         return f"""
         #[must_use]
+        #[inline]
         pub const fn deopt(self) -> Option<Self> {{
             {inner}
         }}
@@ -208,6 +211,7 @@ class OpcodeGen:
 
         return f"""
         #[must_use]
+        #[inline]
         pub const fn cache_entries(self) -> usize {{
             {inner}
         }}
