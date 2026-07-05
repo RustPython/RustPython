@@ -310,7 +310,7 @@ impl PyInt {
     #[must_use]
     pub fn to_str_radix_10(&self) -> String {
         match self.value.to_i64() {
-            Some(i) => i.to_string(),
+            Some(i) => itoa::Buffer::new().format(i).to_owned(),
             None => self.value.to_string(),
         }
     }

@@ -229,6 +229,7 @@ hmac = "0.13"
 indexmap = { version = "2.14.0", features = ["std"] }
 insta = "1.47"
 itertools = { version = "0.15.0", default-features = false, features = ["use_alloc"] }
+itoa = "1"
 is-macro = "0.3.7"
 js-sys = "0.3"
 junction = "2.0.0"

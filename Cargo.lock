@@ -3754,6 +3754,7 @@ dependencies = [
  "indexmap",
  "is-macro",
  "itertools 0.15.0",
+ "itoa",
  "libc",
  "log",
  "malachite-bigint",
