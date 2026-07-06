@@ -1491,12 +1491,12 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
             vm.datastack_pop(base);
         }
     }
-    // Invariant guarding the K5 race: a tracked frame must always have
-    // heap-backed localsplus (proven here for escaped datastack frames and by
-    // construction for generator frames, which are born heap-backed). The
+    // Invariant: a tracked frame must always have heap-backed localsplus
+    // (proven here for escaped datastack frames and by construction for
+    // generator frames, which are born heap-backed). A stop-the-world
     // collector reads a frame's localsplus only when the frame is a tracked
     // candidate, so this keeps it from ever reading data-stack-resident,
-    // still-mutating storage.
+    // still-mutating storage of an executing frame.
     debug_assert!(
         !frame.localsplus_is_datastack_backed(),
         "escaped frame tracked before its localsplus was materialized"

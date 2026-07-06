@@ -436,7 +436,7 @@ impl PyBaseObject {
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
                     super::type_::compatible_for_assignment(
-                        &current_cls,
+                        current_cls,
                         &cls,
                         "__class__",
                         vm,

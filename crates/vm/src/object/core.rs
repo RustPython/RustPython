@@ -174,10 +174,13 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         return; // resurrected by __del__
     }
 
-    // Only GC-tracked objects own child references that can recurse during
-    // deallocation, so only they need the trashcan recursion guard. Non-GC
-    // objects (int, float, str, ...) have no reachable children and skip both
-    // the trashcan and the untrack path. Read once and reuse for both.
+    // Only tracked objects take the trashcan recursion guard and untrack path.
+    // Untracked objects either own no children (int, float, str, ...) or, like
+    // non-escaped frames, are released at interpreter depth with at most one
+    // unguarded link before their tracked children (dicts, functions, code)
+    // re-enter guarded deallocation, so recursion stays bounded. A frame stored
+    // in an object graph is forced to escape, becoming tracked and guarded here.
+    // Read once and reuse for both gates below.
     let tracked = obj_ref.is_gc_tracked();
 
     // Trashcan: limit recursive deallocation depth to prevent stack overflow
