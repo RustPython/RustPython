@@ -1,14 +1,8 @@
-// cspell:ignore pyhash
-
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
-use crate::common::{
-    hash::{PyHash, PyUHash},
-    lock::PyMutex,
-    wtf8::wtf8_concat,
-};
+use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -727,46 +721,5 @@ pub(crate) fn init(context: &'static Context) {
 }
 
 pub(super) fn tuple_hash(elements: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyHash> {
-    const PRIME1: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 11400714785074694791,
-        target_pointer_width = "32" => 2654435761,
-        _ => unreachable!(),
-    };
-
-    const PRIME2: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 14029467366897019727,
-        target_pointer_width = "32" => 2246822519,
-        _ => unreachable!(),
-    };
-
-    const PRIME5: PyUHash = cfg_select! {
-        target_pointer_width = "64" => 2870177450012600261,
-        target_pointer_width = "32" => 374761393,
-        _ => unreachable!(),
-    };
-
-    const ROTATE: u32 = cfg_select! {
-        target_pointer_width = "64" => 31,
-        target_pointer_width = "32" => 13,
-        _ => unreachable!(),
-    };
-
-    let mut acc = PRIME5;
-    let len = elements.len() as PyUHash;
-
-    for val in elements {
-        let lane = val.hash(vm)? as PyUHash;
-        acc = acc.wrapping_add(lane.wrapping_mul(PRIME2));
-        acc = acc.rotate_left(ROTATE);
-        acc = acc.wrapping_mul(PRIME1);
-    }
-
-    acc = acc.wrapping_add(len ^ (PRIME5 ^ 3527539));
-
-    let acc_pyhash = acc as PyHash;
-    if acc_pyhash == -1 {
-        return Ok(1546275796);
-    }
-
-    Ok(acc_pyhash)
+    hash::hash_tuple(elements.iter().map(|val| val.hash(vm)))
 }
