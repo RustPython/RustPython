@@ -2230,7 +2230,7 @@ impl VirtualMachine {
         thread::update_thread_exception(self.topmost_exception());
     }
 
-    /// Restore an exc_info slot value saved by `with_frame_impl`, skipping the
+    /// Restore an exc_info slot value saved by `with_frame`, skipping the
     /// store when the slot is unchanged. `saved` is a strong reference taken
     /// at save time, so the object it points to cannot have been freed and
     /// its address reused while the frame ran; pointer identity therefore

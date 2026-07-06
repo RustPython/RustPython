@@ -3700,6 +3700,7 @@ dependencies = [
  "rustpython-ruff_text_size",
  "rustpython-unicode",
  "rustpython-vm",
+ "scopeguard",
  "sha1 0.11.0",
  "sha2",
  "sha3",
