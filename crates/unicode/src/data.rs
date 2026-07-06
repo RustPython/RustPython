@@ -311,7 +311,8 @@ impl Ucd {
         let expected = [NumericType::Decimal, NumericType::Digit];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
             let value = lookup_numeric_val(ch, true)?;
-            (value.trunc() == value).then_some(value as u64)
+            let int = value as u64;
+            (int as f64 == value).then_some(int)
         })
     }
 
@@ -321,7 +322,8 @@ impl Ucd {
         let expected = [NumericType::Decimal];
         self.numeric_type_matches(c, &expected).and_then(|ch| {
             let value = lookup_numeric_val(ch, self.modern)?;
-            (value.trunc() == value).then_some(value as u64)
+            let int = value as u64;
+            (int as f64 == value).then_some(int)
         })
     }
 
