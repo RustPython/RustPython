@@ -4530,8 +4530,12 @@ impl ExecutingFrame<'_> {
                 }
             }
             Instruction::BinaryOpSubscrGetitem => {
+                let cache_base = self.lasti() as usize;
+                let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
                 let owner = self.nth_value(1);
                 if !self.specialization_eval_frame_active(vm)
+                    && type_version != 0
+                    && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some((func, func_version)) =
                         owner.class().get_cached_getitem_for_specialization()
                     && func.func_version() == func_version
@@ -8303,16 +8307,17 @@ impl ExecutingFrame<'_> {
                         && let Some(func) = _getitem.downcast_ref_if_exact::<PyFunction>(vm)
                         && func.can_specialize_call(2)
                     {
-                        if type_version != 0 {
-                            if cls.cache_getitem_for_specialization(
-                                func.to_owned(),
-                                type_version,
-                                vm,
-                            ) {
-                                Some(Instruction::BinaryOpSubscrGetitem)
-                            } else {
-                                None
+                        if type_version != 0
+                            && cls.cache_getitem_for_specialization(func.to_owned(), type_version, vm)
+                        {
+                            // Record the type version so the specialized handler
+                            // can revalidate before using the cached __getitem__.
+                            unsafe {
+                                self.code
+                                    .instructions
+                                    .write_cache_u32(cache_base + 1, type_version);
                             }
+                            Some(Instruction::BinaryOpSubscrGetitem)
                         } else {
                             None
                         }
