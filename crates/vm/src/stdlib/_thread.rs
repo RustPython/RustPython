@@ -1659,17 +1659,22 @@ pub(crate) mod _thread {
                     started_cvar.notify_all();
                 }
                 // Don't execute the target function until parent marks the
-                // handle as running.
+                // handle as running. Detach while blocked so a concurrent
+                // stop-the-world (e.g. a GC on another thread) can park this
+                // thread instead of stalling waiting for it to reach a
+                // safepoint it will not reach until released.
                 {
                     let (ready_lock, ready_cvar) = &*handle_ready_event_clone;
-                    let mut ready = ready_lock.lock().unwrap();
-                    while !*ready {
-                        // Short timeout so we stay responsive to STW requests.
-                        let (guard, _) = ready_cvar
-                            .wait_timeout(ready, core::time::Duration::from_millis(1))
-                            .unwrap();
-                        ready = guard;
-                    }
+                    vm.allow_threads(|| {
+                        let mut ready = ready_lock.lock().unwrap();
+                        while !*ready {
+                            // Short timeout so we stay responsive to STW requests.
+                            let (guard, _) = ready_cvar
+                                .wait_timeout(ready, core::time::Duration::from_millis(1))
+                                .unwrap();
+                            ready = guard;
+                        }
+                    });
                 }
 
                 // Ensure cleanup happens even if the function panics
@@ -1750,16 +1755,22 @@ pub(crate) mod _thread {
                 vm.new_runtime_error("can't start new thread")
             })?;
 
-        // Wait until the new thread has reported its ident.
+        // Wait until the new thread has reported its ident. Detach while
+        // waiting so a concurrent stop-the-world (e.g. a GC on another thread)
+        // can park this thread instead of stalling on it: the child may park
+        // itself at startup while the world is stopped and cannot report until
+        // released, so the waiter must be parkable too.
         {
             let (started_lock, started_cvar) = &*started_event;
-            let mut started = started_lock.lock().unwrap();
-            while !*started {
-                let (guard, _) = started_cvar
-                    .wait_timeout(started, core::time::Duration::from_millis(1))
-                    .unwrap();
-                started = guard;
-            }
+            vm.allow_threads(|| {
+                let mut started = started_lock.lock().unwrap();
+                while !*started {
+                    let (guard, _) = started_cvar
+                        .wait_timeout(started, core::time::Duration::from_millis(1))
+                        .unwrap();
+                    started = guard;
+                }
+            });
         }
 
         // Mark the handle running in the parent thread (like CPython's

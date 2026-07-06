@@ -772,8 +772,13 @@ impl PyPayload for Frame {
 
 unsafe impl Traverse for Frame {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        // SAFETY: GC traversal does not run concurrently with frame execution.
-        // A cleared frame (iframe == None) has no children to visit.
+        // SAFETY: this traversal reads the frame's live interpreter state
+        // (`localsplus`), which the owning thread mutates without
+        // synchronization while executing bytecode. It is only sound when no
+        // other thread is executing this frame: in threading builds the
+        // collector stops the world around the traversal phases, and in
+        // single-threaded builds there is no other thread. A cleared frame
+        // (iframe == None) has no children to visit.
         let Some(iframe) = (unsafe { &*self.iframe.get() }) else {
             return;
         };
@@ -1846,39 +1851,44 @@ impl ExecutingFrame<'_> {
                 }
             }
 
-            if vm.eval_breaker_tripped()
-                && let Err(exception) = vm.check_signals()
-            {
-                #[cold]
-                fn handle_signal_exception(
-                    frame: &mut ExecutingFrame<'_>,
-                    exception: PyBaseExceptionRef,
-                    idx: usize,
-                    vm: &VirtualMachine,
-                ) -> FrameResult {
-                    if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
-                        let next = exception.__traceback__();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            frame.object.to_owned(),
-                            idx as u32 * 2,
-                            loc.line,
-                        );
-                        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+            if vm.eval_breaker_tripped() {
+                if let Err(exception) = vm.check_signals() {
+                    #[cold]
+                    fn handle_signal_exception(
+                        frame: &mut ExecutingFrame<'_>,
+                        exception: PyBaseExceptionRef,
+                        idx: usize,
+                        vm: &VirtualMachine,
+                    ) -> FrameResult {
+                        if let Some((loc, _end_loc)) = frame.code.locations.get(idx) {
+                            let next = exception.__traceback__();
+                            let new_traceback = PyTraceback::new(
+                                next,
+                                frame.object.to_owned(),
+                                idx as u32 * 2,
+                                loc.line,
+                            );
+                            exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+                        }
+                        vm.contextualize_exception(&exception);
+                        frame.unwind_blocks(vm, UnwindReason::Raising { exception })
                     }
-                    vm.contextualize_exception(&exception);
-                    frame.unwind_blocks(vm, UnwindReason::Raising { exception })
+                    match handle_signal_exception(self, exception, idx, vm) {
+                        Ok(None) => {}
+                        Ok(Some(value)) => {
+                            break Ok(value);
+                        }
+                        Err(exception) => {
+                            break Err(exception);
+                        }
+                    }
+                    continue;
                 }
-                match handle_signal_exception(self, exception, idx, vm) {
-                    Ok(None) => {}
-                    Ok(Some(value)) => {
-                        break Ok(value);
-                    }
-                    Err(exception) => {
-                        break Err(exception);
-                    }
-                }
-                continue;
+                // Run a scheduled automatic collection here — a safepoint with
+                // no interpreter locks held — instead of synchronously inside
+                // the allocation that tripped the threshold.
+                #[cfg(all(unix, feature = "threading"))]
+                vm.run_scheduled_gc();
             }
             let lasti_before = self.lasti();
             let result = self.execute_instruction(op, arg, &mut do_extend_arg, vm);

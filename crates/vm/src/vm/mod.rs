@@ -349,7 +349,12 @@ impl StopTheWorldState {
         self.stats_stop_calls.fetch_add(1, Ordering::Relaxed);
         let initial_countdown = self.init_thread_countdown(vm);
         stw_trace(format_args!("stop begin requester={requester_ident}"));
-        if initial_countdown == 0 {
+        // Park detached threads and set stop bits, then confirm every other
+        // thread is SUSPENDED. The completion condition is level-triggered
+        // (`all_non_requester_suspended`) so an already-suspended thread that
+        // was counted but will not notify again cannot stall the stop.
+        self.park_detached_threads(vm);
+        if initial_countdown == 0 || self.all_non_requester_suspended(vm) {
             self.world_stopped.store(true, Ordering::Release);
             #[cfg(debug_assertions)]
             self.debug_assert_all_non_requester_suspended(vm);
@@ -361,7 +366,8 @@ impl StopTheWorldState {
 
         let mut polls = 0u64;
         loop {
-            if self.park_detached_threads(vm) {
+            self.park_detached_threads(vm);
+            if self.all_non_requester_suspended(vm) {
                 break;
             }
             polls = polls.saturating_add(1);
@@ -369,8 +375,7 @@ impl StopTheWorldState {
             // Re-check under the wait mutex first to avoid a lost-wake race:
             // a thread may have suspended and notified right before we enter wait.
             let guard = self.notify_mutex.lock().unwrap();
-            if self.thread_countdown.load(Ordering::Acquire) == 0 || self.park_detached_threads(vm)
-            {
+            if self.all_non_requester_suspended(vm) {
                 drop(guard);
                 break;
             }
@@ -512,6 +517,33 @@ impl StopTheWorldState {
             self.stats_suspend_wait_yields
                 .fetch_add(n, Ordering::Relaxed);
         }
+    }
+
+    /// Whether every non-requester registered thread is currently SUSPENDED.
+    ///
+    /// Level-triggered stop-the-world completion check. Relying on this rather
+    /// than solely on the edge-triggered `thread_countdown` avoids a
+    /// lost-decrement race under rapid back-to-back stops: a thread that is
+    /// already SUSPENDED when a new stop counts it neither notifies nor is
+    /// force-parked again, so an edge-based countdown could never reach zero.
+    fn all_non_requester_suspended(&self, vm: &VirtualMachine) -> bool {
+        use thread::THREAD_SUSPENDED;
+        let requester = self.requester.load(Ordering::Relaxed);
+        let registry = vm.state.thread_frames.lock();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
+        for (&id, slot) in registry.iter() {
+            if id == requester {
+                continue;
+            }
+            if slot.state.load(Ordering::Acquire) != THREAD_SUSPENDED {
+                return false;
+            }
+        }
+        true
     }
 
     #[cfg(debug_assertions)]
@@ -2076,6 +2108,18 @@ impl VirtualMachine {
         crate::signal::check_signals(self)?;
 
         Ok(())
+    }
+
+    /// Run an automatic collection scheduled by `maybe_collect`, if any.
+    ///
+    /// Called only from the bytecode-loop safepoint, where no interpreter
+    /// locks are held, so the stop-the-world it performs cannot deadlock
+    /// against a thread blocked on a lock this thread would otherwise hold.
+    #[cfg(all(unix, feature = "threading"))]
+    pub(crate) fn run_scheduled_gc(&self) {
+        if crate::signal::take_gc_scheduled() {
+            crate::gc_state::gc_state().collect(0);
+        }
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).

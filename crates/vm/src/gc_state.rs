@@ -136,6 +136,61 @@ impl GcGeneration {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GcPtr(NonNull<PyObject>);
 
+/// RAII barrier that parks every other thread for the pointer-reading phases
+/// of a collection and lets them run again before finalizers execute.
+///
+/// Reference subtraction, the reachability walk and the strong-reference
+/// snapshot dereference the interpreter state of every tracked object,
+/// including the `localsplus` of frames that other threads are actively
+/// executing. Those writes carry no synchronization, so the reads are only
+/// well-defined while all other threads are parked at a safepoint. Restarting
+/// happens explicitly once the snapshot has pinned every object; `Drop` is a
+/// backstop that also restarts on the early-return paths.
+#[cfg(all(unix, feature = "threading"))]
+struct CollectStopTheWorld {
+    vm: *const crate::VirtualMachine,
+    stopped: bool,
+}
+
+#[cfg(all(unix, feature = "threading"))]
+impl CollectStopTheWorld {
+    /// Request stop-the-world when the current thread has an attached VM.
+    /// Falls back to no barrier when no VM is attached (the tracked-object
+    /// reads then run without other threads only if the caller guarantees it).
+    fn new() -> Self {
+        let vm = crate::vm::thread::try_with_current_vm(|vm| {
+            vm.state.stop_the_world.stop_the_world(vm);
+            vm as *const crate::VirtualMachine
+        });
+        match vm {
+            Some(vm) => Self { vm, stopped: true },
+            None => Self {
+                vm: core::ptr::null(),
+                stopped: false,
+            },
+        }
+    }
+
+    /// Restart the world. Idempotent.
+    fn restart(&mut self) {
+        if self.stopped {
+            // SAFETY: the current thread stays attached to this VM for the
+            // whole collection — the VM is never popped from the thread's VM
+            // stack while collecting — so the pointer is valid here.
+            let vm = unsafe { &*self.vm };
+            vm.state.stop_the_world.start_the_world(vm);
+            self.stopped = false;
+        }
+    }
+}
+
+#[cfg(all(unix, feature = "threading"))]
+impl Drop for CollectStopTheWorld {
+    fn drop(&mut self) {
+        self.restart();
+    }
+}
+
 /// Global GC state
 pub struct GcState {
     /// 3 generations (0 = youngest, 2 = oldest)
@@ -366,8 +421,21 @@ impl GcState {
         let count0 = self.generations[0].count.load(Ordering::SeqCst) as u32;
         let threshold0 = self.generations[0].threshold();
         if threshold0 > 0 && count0 >= threshold0 {
-            self.collect(0);
-            return true;
+            #[cfg(all(unix, feature = "threading"))]
+            {
+                // Defer to the next bytecode safepoint. Collecting here would
+                // stop the world while this thread may hold an internal lock
+                // (e.g. a lazily-initialized frame locals cell) that another
+                // thread is blocked on with no way to reach a safepoint —
+                // a deadlock. At a safepoint no such lock is held.
+                crate::signal::schedule_gc();
+                return false;
+            }
+            #[cfg(not(all(unix, feature = "threading")))]
+            {
+                self.collect(0);
+                return true;
+            }
         }
 
         false
@@ -412,6 +480,15 @@ impl GcState {
         // Backstop for QSBR reclamation (threads may have missed requests).
         #[cfg(feature = "threading")]
         crate::object::qsbr::QSBR.process();
+
+        // Stop the world before reading any tracked object's interpreter
+        // state. Requested *before* the generation read locks are taken: a
+        // thread parking at a safepoint may still hold a generation write lock
+        // (track/untrack/promote) and must be able to release it to reach the
+        // safepoint. It could not do so if this thread already held a read
+        // lock it was waiting behind — hence the ordering.
+        #[cfg(all(unix, feature = "threading"))]
+        let mut stw = CollectStopTheWorld::new();
 
         // Step 1: Gather objects from generations 0..=generation
         // Hold read locks for the entire scan to prevent concurrent modifications.
@@ -536,6 +613,35 @@ impl GcState {
         // Step 5: Find unreachable objects
         let unreachable: Vec<GcPtr> = collecting.difference(&reachable).copied().collect();
 
+        // With the world stopped, every frame on any thread's call stack is a
+        // live root that is externally referenced and must have been
+        // classified reachable. A running frame appearing in `unreachable`
+        // would mean the reachability analysis observed its interpreter state
+        // as garbage — the exact hazard the barrier exists to prevent.
+        #[cfg(all(unix, feature = "threading", debug_assertions))]
+        if stw.stopped {
+            let unreachable_set: HashSet<GcPtr> = unreachable.iter().copied().collect();
+            crate::vm::thread::try_with_current_vm(|vm| {
+                let registry = vm.state.thread_frames.lock();
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "assertion over every registered thread slot"
+                )]
+                for slot in registry.values() {
+                    for fp in slot.frames.lock().iter() {
+                        // SAFETY: frames on a thread's active call stack are
+                        // alive, and the world is stopped so none can be popped.
+                        let obj = unsafe { fp.as_ref() }.as_object();
+                        let ptr = GcPtr(NonNull::from(obj));
+                        debug_assert!(
+                            !unreachable_set.contains(&ptr),
+                            "running frame {obj:p} classified unreachable during GC"
+                        );
+                    }
+                }
+            });
+        }
+
         if debug.contains(GcDebugFlags::STATS) {
             eprintln!(
                 "gc: {} reachable, {} unreachable",
@@ -568,6 +674,14 @@ impl GcState {
                 obj.try_to_owned()
             })
             .collect();
+
+        // The pointer-reading phases are done: strong references now pin every
+        // survivor and unreachable object, so the remaining phases can run with
+        // the world restarted. Finalizers and tp_clear must not run under
+        // stop-the-world — they execute arbitrary Python — and they only touch
+        // dead/husk objects, never a running frame.
+        #[cfg(all(unix, feature = "threading"))]
+        stw.restart();
 
         if unreachable.is_empty() {
             drop(gen_locks);

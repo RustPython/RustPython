@@ -23,6 +23,11 @@ const SIGNAL_BIT: u8 = 1 << 0;
 /// QSBR has retired allocations pending reclamation.
 #[cfg(feature = "threading")]
 const QSBR_BIT: u8 = 1 << 1;
+/// An automatic collection was scheduled by `maybe_collect` and must run at
+/// the next bytecode safepoint rather than synchronously inside the
+/// allocation that tripped the threshold.
+#[cfg(all(unix, feature = "threading"))]
+const GC_BIT: u8 = 1 << 2;
 
 #[expect(
     clippy::declare_interior_mutable_const,
@@ -134,6 +139,18 @@ pub(crate) fn clear_qsbr_bit() {
 #[cfg(feature = "threading")]
 pub(crate) fn qsbr_bit_set() -> bool {
     EVAL_BREAKER.load(Ordering::Relaxed) & QSBR_BIT != 0
+}
+
+/// Schedule an automatic collection to run at the next bytecode safepoint.
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) fn schedule_gc() {
+    EVAL_BREAKER.fetch_or(GC_BIT, Ordering::Release);
+}
+
+/// Clear the scheduled-GC bit, returning whether it had been set.
+#[cfg(all(unix, feature = "threading"))]
+pub(crate) fn take_gc_scheduled() -> bool {
+    EVAL_BREAKER.fetch_and(!GC_BIT, Ordering::Acquire) & GC_BIT != 0
 }
 
 /// Reset all signal trigger state after fork in child process.

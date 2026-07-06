@@ -339,6 +339,14 @@ fn attach_thread(vm: &VirtualMachine) {
             }
         }
     });
+    // A stop-the-world may have been requested while this thread was detached.
+    // Honoring it here (rather than only at the next bytecode safepoint) keeps
+    // a thread doing rapid allow_threads calls from re-attaching and running
+    // past the requester forever, which would stall stop-the-world. Done
+    // outside the CURRENT_THREAD_SLOT borrow above because suspend re-borrows
+    // it. Safe against a concurrent start_the_world: suspend_if_needed only
+    // parks while the request is still live and self-recovers otherwise.
+    suspend_if_needed(&vm.state.stop_the_world);
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
