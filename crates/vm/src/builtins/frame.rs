@@ -697,6 +697,7 @@ impl Py<Frame> {
         self.temporary_refs.lock().clear();
         self.f_locals_hidden_overlay.lock().take();
         self.f_extra_locals.lock().take();
+        self.retained_back.lock().take();
 
         Ok(())
     }
@@ -733,6 +734,14 @@ impl Py<Frame> {
         // Look for the caller on the current thread's signal-safe frame chain.
         // Finding it there proves it is still live on this thread.
         if let Some(frame) = crate::frame::find_owned_chain_frame(previous) {
+            frame.mark_escaped();
+            return Some(frame);
+        }
+
+        // The caller already returned and left the live chain, but this frame
+        // escaped and retained a strong reference to it at release time.
+        let retained = self.retained_back.lock().clone();
+        if let Some(frame) = retained {
             frame.mark_escaped();
             return Some(frame);
         }

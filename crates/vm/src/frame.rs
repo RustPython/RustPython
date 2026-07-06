@@ -714,6 +714,10 @@ pub struct InterpreterFrame {
     /// (`f_locals` proxy, `sys._getframe`, `f_back`). A closed generator keeps
     /// its locals alive while this is set, mirroring `frame_obj` ownership.
     pub(crate) escaped: atomic::AtomicBool,
+    /// Strong reference to the caller frame, captured when this frame escapes
+    /// its execution so `f_back` still resolves after the caller returns and
+    /// leaves the live frame chain.
+    pub(crate) retained_back: PyMutex<Option<FrameRef>>,
     /// Number of stack entries to pop after set_f_lineno returns to the
     /// execution loop.  set_f_lineno cannot pop directly because the
     /// execution loop holds the state mutex.
@@ -882,6 +886,7 @@ unsafe impl Traverse for Frame {
         iframe.temporary_refs.traverse(tracer_fn);
         iframe.f_locals_hidden_overlay.traverse(tracer_fn);
         iframe.f_extra_locals.traverse(tracer_fn);
+        iframe.retained_back.traverse(tracer_fn);
     }
 
     fn clear(&mut self, _out: &mut Vec<PyObjectRef>) {
@@ -975,6 +980,7 @@ impl Frame {
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
             escaped: atomic::AtomicBool::new(false),
+            retained_back: PyMutex::new(None),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
         };
@@ -1793,6 +1799,12 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
             vm.datastack_pop(base);
         }
     }
+    // Retain a strong reference to the caller so `f_back` keeps resolving once
+    // the caller returns and leaves the live frame chain. The caller is still
+    // executing here (this frame is unwinding back into it), so its payload
+    // pointer is live.
+    // SAFETY: `previous` points at the live caller on this thread's stack.
+    *frame.retained_back.lock() = unsafe { owned_chain_frame(frame.previous_frame()) };
     // Invariant: a tracked frame must always have heap-backed localsplus
     // (proven here for escaped datastack frames and by construction for
     // generator frames, which are born heap-backed). A stop-the-world
