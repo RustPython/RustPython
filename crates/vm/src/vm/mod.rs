@@ -1624,7 +1624,7 @@ impl VirtualMachine {
             // Ensure cleanup on panic: restore owner, exc_info, frame chain, and frames Vec.
             scopeguard::defer! {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                self.set_exception(saved_exc);
+                self.restore_exception(saved_exc);
                 crate::vm::thread::set_current_frame(old_frame);
                 self.frames.borrow_mut().pop();
                 #[cfg(feature = "threading")]
@@ -2120,6 +2120,25 @@ impl VirtualMachine {
         }
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
+    }
+
+    /// Restore an exc_info slot value saved by `with_frame_impl`, skipping the
+    /// store when the slot is unchanged. `saved` is a strong reference taken
+    /// at save time, so the object it points to cannot have been freed and
+    /// its address reused while the frame ran; pointer identity therefore
+    /// proves the slot still holds the same value and both the store and the
+    /// thread-exception mirror update would be no-ops.
+    pub(crate) fn restore_exception(&self, saved: Option<PyBaseExceptionRef>) {
+        let excs = self.exceptions.borrow();
+        let unchanged = match (excs.stack.last(), &saved) {
+            (Some(Some(current)), Some(saved)) => current.is(saved),
+            (Some(None), None) => true,
+            _ => false,
+        };
+        drop(excs);
+        if !unchanged {
+            self.set_exception(saved);
+        }
     }
 
     pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {
