@@ -2803,6 +2803,10 @@ impl Callable for PyType {
             // function. new_wrapper is excluded because a Python `__new__`
             // can install an `__init__` on the class or return an instance
             // of another class while it runs.
+            // The address comparison is against the single new_wrapper fn item,
+            // so a mismatch is conservative: if it ever compared unequal for the
+            // wrapper it would only take the slower cloning path, never the fast
+            // path incorrectly.
             if zelf.slots.init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
                 && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize

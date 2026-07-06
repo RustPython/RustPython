@@ -760,8 +760,15 @@ impl PyType {
                         }
                         result
                     };
+                    // Reify the wrapper at a single site so the own and inherited
+                    // branches store the same fn item. binary_op1 compares slot
+                    // fn addresses to decide whether a subclass overrides the op;
+                    // duplicating the wrapper closure across branches yields
+                    // distinct addresses in unmerged debug builds and breaks that
+                    // comparison for an inherited slot.
+                    let store_wrapper = || self.slots.$group.$slot.store(Some($wrapper));
                     if has_own {
-                        self.slots.$group.$slot.store(Some($wrapper));
+                        store_wrapper();
                     } else {
                         match self.lookup_slot_in_mro(name, ctx, |sf| {
                             if let SlotFunc::$variant(f) = sf {
@@ -774,7 +781,7 @@ impl PyType {
                                 self.slots.$group.$slot.store(Some(func));
                             }
                             SlotLookupResult::PythonMethod => {
-                                self.slots.$group.$slot.store(Some($wrapper));
+                                store_wrapper();
                             }
                             SlotLookupResult::NotFound => {
                                 accessor.inherit_from_mro(self);
