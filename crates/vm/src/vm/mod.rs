@@ -1680,23 +1680,6 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_impl(frame, true, f)
-    }
-
-    pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
-        &self,
-        frame: FrameRef,
-        f: F,
-    ) -> PyResult<R> {
-        self.with_frame_impl(frame, false, f)
-    }
-
-    fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
-        &self,
-        frame: FrameRef,
-        traced: bool,
-        f: F,
-    ) -> PyResult<R> {
         self.with_recursion("", || {
             // SAFETY: `frame` (FrameRef) stays alive for the entire closure scope,
             // keeping the FramePtr valid. We pass a clone to `f` so that `f`
@@ -1733,11 +1716,7 @@ impl VirtualMachine {
                 crate::vm::thread::pop_thread_frame();
             }
 
-            if traced {
-                self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-            } else {
-                f(frame.to_owned())
-            }
+            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
         })
     }
 

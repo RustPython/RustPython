@@ -14,7 +14,6 @@ use crate::{
         object, pystr,
         type_::PyAttributes,
     },
-    bytecode::{self, CodeFlags, CodeUnit, Instruction, Opcode},
     class::StaticType,
     common::rc::PyRc,
     exceptions,
@@ -31,7 +30,6 @@ use malachite_bigint::BigInt;
 use num_complex::Complex64;
 use num_traits::ToPrimitive;
 use rustpython_common::lock::PyRwLock;
-use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
 #[derive(Debug)]
 pub struct Context {
@@ -52,7 +50,6 @@ pub struct Context {
     pub int_cache_pool: Vec<PyIntRef>,
     pub(crate) latin1_char_cache: Vec<PyRef<PyStr>>,
     pub(crate) ascii_char_cache: Vec<PyRef<PyStr>>,
-    pub(crate) init_cleanup_code: PyRef<PyCode>,
     // there should only be exact objects of str in here, no non-str objects and no subclasses
     pub(crate) string_pool: StringPool,
     pub(crate) slot_new_wrapper: PyMethodDef,
@@ -362,8 +359,6 @@ impl Context {
             PyMethodFlags::METHOD,
             None,
         );
-        let init_cleanup_code = Self::new_init_cleanup_code(&types, &names);
-
         let empty_str = unsafe { string_pool.intern("", types.str_type.to_owned()) };
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
 
@@ -389,7 +384,6 @@ impl Context {
             int_cache_pool,
             latin1_char_cache,
             ascii_char_cache,
-            init_cleanup_code,
             string_pool,
             slot_new_wrapper,
             names,
@@ -397,49 +391,6 @@ impl Context {
             gc_callbacks,
             gc_garbage,
         }
-    }
-
-    fn new_init_cleanup_code(types: &TypeZoo, names: &ConstName) -> PyRef<PyCode> {
-        let loc = SourceLocation {
-            line: OneIndexed::MIN,
-            character_offset: OneIndexed::from_zero_indexed(0),
-        };
-        let instructions = [
-            CodeUnit {
-                op: Instruction::ExitInitCheck,
-                arg: 0.into(),
-            },
-            CodeUnit {
-                op: Instruction::ReturnValue,
-                arg: 0.into(),
-            },
-            CodeUnit {
-                op: Opcode::Resume.into(),
-                arg: 0.into(),
-            },
-        ];
-        let code = bytecode::CodeObject {
-            instructions: instructions.into(),
-            locations: vec![(loc, loc); instructions.len()].into_boxed_slice(),
-            flags: CodeFlags::OPTIMIZED | CodeFlags::NEWLOCALS,
-            posonlyarg_count: 0,
-            arg_count: 0,
-            kwonlyarg_count: 0,
-            source_path: names.__init__,
-            first_line_number: None,
-            max_stackdepth: 2,
-            obj_name: names.__init__,
-            qualname: names.__init__,
-            constants: core::iter::empty().collect(),
-            names: Vec::new().into_boxed_slice(),
-            varnames: Vec::new().into_boxed_slice(),
-            cellvars: Vec::new().into_boxed_slice(),
-            freevars: Vec::new().into_boxed_slice(),
-            localspluskinds: Vec::new().into_boxed_slice(),
-            linetable: Vec::new().into_boxed_slice(),
-            exceptiontable: Vec::new().into_boxed_slice(),
-        };
-        PyRef::new_ref(PyCode::new(code), types.code_type.to_owned(), None)
     }
 
     pub fn intern_str<S: InternableString>(&self, s: S) -> &'static PyStrInterned {

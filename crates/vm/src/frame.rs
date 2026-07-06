@@ -12,10 +12,7 @@ use crate::{
         builtin_func::PyNativeFunction,
         descriptor::{MemberGetter, PyMemberDescriptor, PyMethodDescriptor},
         frame::stack_analysis,
-        function::{
-            PyBoundMethod, PyCell, PyCellRef, PyFunction, datastack_frame_size_bytes_for_code,
-            vectorcall_function,
-        },
+        function::{PyBoundMethod, PyCell, PyCellRef, PyFunction, vectorcall_function},
         list::PyListIterator,
         range::PyRangeIterator,
         tuple::{PyTuple, PyTupleIterator, PyTupleRef},
@@ -1516,7 +1513,7 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
     let frame_obj = frame.as_object();
     // Uniqueness argument: at this point the frame is already out of
     // `vm.frames`, the thread-frames registry and the current-frame chain
-    // (all unlinked inside `with_frame_impl` before it returned), and the
+    // (all unlinked inside `with_frame` before it returned), and the
     // frame type has no weakref support. A datastack frame is created
     // untracked and stays untracked while it runs, so it is in no GC
     // generation list and no collector can observe or incref it. Hence no
@@ -1767,58 +1764,34 @@ impl fmt::Debug for ExecutingFrame<'_> {
 }
 
 impl ExecutingFrame<'_> {
-    #[inline]
-    fn monitoring_disabled_for_code(&self, vm: &VirtualMachine) -> bool {
-        self.code.is(&vm.ctx.init_cleanup_code)
-    }
-
-    fn specialization_new_init_cleanup_frame(&self, vm: &VirtualMachine) -> FrameRef {
-        // The shim code has NEWLOCALS, so passing no locals selects
-        // FrameLocals::lazy() and no locals dict is allocated; the shim
-        // never touches locals.
-        Frame::new(
-            vm.ctx.init_cleanup_code.clone(),
-            Scope::new(None, self.globals.clone()),
-            self.builtins.clone(),
-            &[],
-            None,
-            true,
-            vm,
-        )
-        .into_ref(&vm.ctx)
-    }
-
-    /// `args` holds the `__init__` args with slot 0 left empty; it is filled
-    /// with `new_obj` here.
-    fn specialization_run_init_cleanup_shim(
+    /// Run `__init__` for the tp_new specialization. `args` holds the
+    /// `__init__` args with slot 0 left empty; it is filled with `new_obj`
+    /// here. Enforces the `__init__() should return None` contract and
+    /// returns the constructed object.
+    fn specialization_run_init(
         &self,
         new_obj: PyObjectRef,
         init_func: &Py<PyFunction>,
         args: &mut [Option<PyObjectRef>],
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let shim = self.specialization_new_init_cleanup_frame(vm);
-        let shim_result = vm.with_frame_untraced(shim.clone(), |shim| {
-            shim.with_exec(vm, |mut exec| exec.push_value(new_obj.clone()));
+        args[0] = Some(new_obj.clone());
+        let taken = args
+            .iter_mut()
+            .map(|slot| slot.take().expect("arg slot must be filled"));
 
-            args[0] = Some(new_obj);
-            let taken = args
-                .iter_mut()
-                .map(|slot| slot.take().expect("arg slot must be filled"));
+        let init_frame = init_func.prepare_exact_args_frame(taken, vm);
+        let init_result = vm.run_frame(init_frame.clone());
+        release_datastack_frame(&init_frame, vm);
+        let init_result = init_result?;
 
-            let init_frame = init_func.prepare_exact_args_frame(taken, vm);
-            let init_result = vm.run_frame(init_frame.clone());
-            release_datastack_frame(&init_frame, vm);
-            let init_result = init_result?;
-
-            shim.with_exec(vm, |mut exec| exec.push_value(init_result));
-            match shim.run(vm)? {
-                ExecutionResult::Return(value) => Ok(value),
-                ExecutionResult::Yield(_) => unreachable!("_Py_InitCleanup shim cannot yield"),
-            }
-        });
-        release_datastack_frame(&shim, vm);
-        shim_result
+        if !vm.is_none(&init_result) {
+            return Err(vm.new_type_error(format!(
+                "__init__() should return None, not '{}'",
+                init_result.class().name()
+            )));
+        }
+        Ok(new_obj)
     }
 
     #[inline(always)]
@@ -3748,17 +3721,6 @@ impl ExecutingFrame<'_> {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
                 }
-                if self.monitoring_disabled_for_code(vm) {
-                    let global_ver = vm
-                        .state
-                        .instrumentation_version
-                        .load(atomic::Ordering::Acquire);
-                    monitoring::instrument_code(self.code, 0);
-                    self.code
-                        .instrumentation_version
-                        .store(global_ver, atomic::Ordering::Release);
-                    return Ok(None);
-                }
                 // Check if bytecode needs re-instrumentation
                 let global_ver = vm
                     .state
@@ -5382,23 +5344,14 @@ impl ExecutingFrame<'_> {
                     && init_func.has_exact_argcount(nargs + 1)
                     && let Some(cls_alloc) = cls.slots.alloc.load()
                 {
-                    // Match CPython's `code->co_framesize + _Py_InitCleanup.co_framesize`
-                    // shape, using RustPython's datastack-backed frame size
-                    // equivalent for the extra shim frame.
-                    let init_cleanup_stack_bytes =
-                        datastack_frame_size_bytes_for_code(&vm.ctx.init_cleanup_code)
-                            .expect("_Py_InitCleanup shim is not a generator/coroutine");
-                    if !self.specialization_has_datastack_space_for_func_with_extra(
-                        vm,
-                        &init_func,
-                        init_cleanup_stack_bytes,
-                    ) {
+                    // The specialization runs `__init__` directly with no
+                    // interpreter-visible trampoline frame. Deopt when the
+                    // datastack or recursion budget for the `__init__` frame is
+                    // unavailable.
+                    if !self.specialization_has_datastack_space_for_func(vm, &init_func) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // CPython creates `_Py_InitCleanup` + `__init__` frames here.
-                    // Keep the guard conservative and deopt when the effective
-                    // recursion budget for those two frames is not available.
-                    if self.specialization_call_recursion_guard_with_extra_frames(vm, 1) {
+                    if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
                     // Allocate object directly (tp_new == object.__new__, tp_alloc == generic).
@@ -5406,7 +5359,7 @@ impl ExecutingFrame<'_> {
                     let new_obj = cls_alloc(cls_ref, 0, vm)?;
 
                     // Stage args as [new_obj, arg1, ..., argN]; slot 0 is
-                    // filled by the shim runner.
+                    // filled by the init runner.
                     let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
                     let args = arg_buf.slots();
                     for (slot, arg) in args[1..].iter_mut().zip(self.pop_multiple(nargs as usize)) {
@@ -5414,8 +5367,7 @@ impl ExecutingFrame<'_> {
                     }
                     let _null = self.pop_value_opt(); // self_or_null (None)
                     let _callable = self.pop_value(); // callable (type)
-                    let result =
-                        self.specialization_run_init_cleanup_shim(new_obj, &init_func, args, vm)?;
+                    let result = self.specialization_run_init(new_obj, &init_func, args, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -6202,18 +6154,6 @@ impl ExecutingFrame<'_> {
             instruction.is_instrumented(),
             "execute_instrumented called with non-instrumented opcode {instruction:?}"
         );
-        if self.monitoring_disabled_for_code(vm) {
-            let global_ver = vm
-                .state
-                .instrumentation_version
-                .load(atomic::Ordering::Acquire);
-            monitoring::instrument_code(self.code, 0);
-            self.code
-                .instrumentation_version
-                .store(global_ver, atomic::Ordering::Release);
-            self.update_lasti(|i| *i -= 1);
-            return Ok(None);
-        }
         self.monitoring_mask = vm.state.monitoring_events.load();
         match instruction {
             Instruction::InstrumentedResume => {
