@@ -1142,7 +1142,7 @@ impl PyType {
         let cached_version = ext
             .specialization_cache
             .init_version
-            .load(Ordering::Relaxed);
+            .load(Ordering::Acquire);
         if cached_version == 0 {
             return None;
         }
@@ -1190,7 +1190,7 @@ impl PyType {
         let cached_version = ext
             .specialization_cache
             .getitem_version
-            .load(Ordering::Relaxed);
+            .load(Ordering::Acquire);
         if cached_version == 0 {
             return None;
         }
@@ -2753,8 +2753,8 @@ impl SetAttr for PyType {
             // any attribute changes, preventing use-after-free of cached descriptors.
             zelf.modified_inner();
 
-            if let PySetterValue::Assign(value) = value {
-                Ok(zelf.attributes.write().insert(attr_name, value))
+            let prev_value = if let PySetterValue::Assign(value) = value {
+                zelf.attributes.write().insert(attr_name, value)
             } else {
                 let prev_value = zelf.attributes.write().shift_remove(attr_name); // TODO: swap_remove applicable?
                 if prev_value.is_none() {
@@ -2764,17 +2764,20 @@ impl SetAttr for PyType {
                         attr_name,
                     )));
                 }
-                Ok(prev_value)
-            }
-        })?;
+                prev_value
+            };
 
-        if attr_name.as_wtf8().starts_with("__") && attr_name.as_wtf8().ends_with("__") {
-            if assign {
-                zelf.update_slot::<true>(attr_name, &vm.ctx);
-            } else {
-                zelf.update_slot::<false>(attr_name, &vm.ctx);
+            // Keep the slot-table rewrite inside the same transaction as the
+            // dict mutation and version invalidation.
+            if attr_name.as_wtf8().starts_with("__") && attr_name.as_wtf8().ends_with("__") {
+                if assign {
+                    zelf.update_slot::<true>(attr_name, &vm.ctx);
+                } else {
+                    zelf.update_slot::<false>(attr_name, &vm.ctx);
+                }
             }
-        }
+            Ok(prev_value)
+        })?;
         Ok(())
     }
 }
