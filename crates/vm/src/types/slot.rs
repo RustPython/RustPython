@@ -951,24 +951,37 @@ impl PyType {
             }
             SlotAccessor::TpDescrGet => update_main_slot!(descr_get, descr_get_wrapper, DescrGet),
             SlotAccessor::TpDescrSet => {
-                // __set__ and __delete__ share the same slot
-                if ADD {
-                    match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        SlotLookupResult::NativeSlot(func) => {
-                            self.slots.descr_set.store(Some(func));
-                        }
-                        SlotLookupResult::PythonMethod => {
-                            self.slots.descr_set.store(Some(descr_set_wrapper));
-                        }
-                        SlotLookupResult::NotFound => {
-                            accessor.inherit_from_mro(self);
-                        }
+                // __set__ and __delete__ share the same slot, so both names
+                // must be resolved together: a Python-level definition of
+                // either one forces the dispatching wrapper, and the native
+                // slot is only usable when every resolved name agrees on it.
+                // This resolution reads the current attribute dicts, so it
+                // applies the same whether a name was just added or removed.
+                let extract = |sf: &SlotFunc| match sf {
+                    SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
+                    _ => None,
+                };
+                let set = self.lookup_slot_in_mro(identifier!(ctx, __set__), ctx, extract);
+                let delete = self.lookup_slot_in_mro(identifier!(ctx, __delete__), ctx, extract);
+                use SlotLookupResult::{NativeSlot, NotFound, PythonMethod};
+                match (set, delete) {
+                    (PythonMethod, _) | (_, PythonMethod) => {
+                        self.slots.descr_set.store(Some(descr_set_wrapper));
                     }
-                } else {
-                    accessor.inherit_from_mro(self);
+                    (NativeSlot(set), NativeSlot(delete)) => {
+                        let func = if set as usize == delete as usize {
+                            set
+                        } else {
+                            descr_set_wrapper
+                        };
+                        self.slots.descr_set.store(Some(func));
+                    }
+                    (NativeSlot(func), NotFound) | (NotFound, NativeSlot(func)) => {
+                        self.slots.descr_set.store(Some(func));
+                    }
+                    (NotFound, NotFound) => {
+                        accessor.inherit_from_mro(self);
+                    }
                 }
             }
 
