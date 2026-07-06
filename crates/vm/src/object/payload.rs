@@ -136,6 +136,34 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     where
         Self: core::fmt::Debug,
     {
+        self.into_ref_with_type_and_dict(vm, cls, true)
+    }
+
+    /// Like `into_ref_with_type`, but leaves the instance `__dict__` unallocated
+    /// until the first attribute write or `__dict__` access. Only valid for types
+    /// whose attribute protocol materializes the dict lazily via `get_or_insert`.
+    #[inline]
+    fn into_ref_with_type_lazy_dict(
+        self,
+        vm: &VirtualMachine,
+        cls: PyTypeRef,
+    ) -> PyResult<PyRef<Self>>
+    where
+        Self: core::fmt::Debug,
+    {
+        self.into_ref_with_type_and_dict(vm, cls, false)
+    }
+
+    #[inline]
+    fn into_ref_with_type_and_dict(
+        self,
+        vm: &VirtualMachine,
+        cls: PyTypeRef,
+        eager_dict: bool,
+    ) -> PyResult<PyRef<Self>>
+    where
+        Self: core::fmt::Debug,
+    {
         let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
             if exact_class.slots.basicsize != cls.slots.basicsize {
@@ -154,7 +182,12 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
                 }
                 return Err(_into_ref_size_error(vm, &cls, exact_class));
             }
-            Ok(self._into_ref(cls, &vm.ctx))
+            let dict = if eager_dict && cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+                Some(vm.ctx.new_dict())
+            } else {
+                None
+            };
+            Ok(PyRef::new_ref(self, cls, dict))
         } else {
             #[cold]
             #[inline(never)]
