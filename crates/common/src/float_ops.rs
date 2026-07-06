@@ -5,13 +5,21 @@ use num_traits::{Signed, ToPrimitive};
 #[must_use]
 pub const fn decompose_float(value: f64) -> (f64, i32) {
     if value == 0.0 {
-        (0.0, 0)
-    } else {
-        let bits = value.to_bits();
-        let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
-        let mantissa_bits = bits & (0x000f_ffff_ffff_ffff) | (1022 << 52);
-        (f64::from_bits(mantissa_bits), exponent)
+        return (0.0, 0);
     }
+    let bits = value.to_bits();
+    // Subnormals carry a biased exponent of 0 and no implicit leading mantissa
+    // bit, so the normal decomposition below would misread them. Scale them up
+    // into the normal range first (exact, since it is a power-of-two shift) and
+    // fold the scale back into the returned exponent.
+    let (bits, exponent_adjust) = if (bits >> 52) & 0x7ff == 0 {
+        ((value * (1u64 << 54) as f64).to_bits(), -54)
+    } else {
+        (bits, 0)
+    };
+    let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022 + exponent_adjust;
+    let mantissa_bits = bits & (0x000f_ffff_ffff_ffff) | (1022 << 52);
+    (f64::from_bits(mantissa_bits), exponent)
 }
 
 /// Equate an integer to a float.
@@ -269,4 +277,120 @@ pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
         return None;
     }
     Some(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hash::hash_float;
+
+    /// Exact `2**e` for `e` in `[-1074, 1023]`, built from bits so extreme
+    /// exponents don't overflow through an intermediate `2**|e|`.
+    fn pow2(e: i32) -> f64 {
+        if e >= -1022 {
+            f64::from_bits(((e + 1023) as u64) << 52)
+        } else {
+            f64::from_bits(1u64 << (e + 1074))
+        }
+    }
+
+    /// `decompose_float` is a frexp returning the *magnitude* mantissa: for a
+    /// nonzero `value`, `m` lies in `[0.5, 1)` and `m * 2**e == value.abs()`,
+    /// including for subnormals which have no implicit leading mantissa bit.
+    /// (Its sole caller reintroduces the sign via `value.signum()`.)
+    #[test]
+    fn decompose_float_frexp_contract() {
+        let mut values = alloc::vec![
+            0.0,
+            f64::from_bits(1),                // smallest subnormal
+            f64::from_bits(2),
+            f64::from_bits(0x000f_ffff_ffff_ffff), // largest subnormal
+            f64::MIN_POSITIVE,                // DBL_MIN, smallest normal
+            f64::from_bits(f64::MIN_POSITIVE.to_bits() - 1), // predecessor
+            1.0,
+            1.5,
+            0.1,
+            3.141_592_653_589_793,
+        ];
+        for e in -1074..=1023 {
+            values.push(pow2(e));
+            values.push(-pow2(e));
+        }
+        for &v in &values {
+            let (m, e) = decompose_float(v);
+            if v == 0.0 {
+                assert_eq!((m, e), (0.0, 0));
+                continue;
+            }
+            assert!(
+                (0.5..1.0).contains(&m),
+                "mantissa {m} out of [0.5, 1) for value {v:e}"
+            );
+            // Reconstruct: m * 2**e must round-trip to the magnitude. Fold one
+            // power of two into the mantissa so `e` stays within `pow2`'s range
+            // (frexp yields e up to 1024 for 2**1023).
+            let reconstructed = (m * 2.0) * pow2(e - 1);
+            assert_eq!(
+                reconstructed.to_bits(),
+                v.abs().to_bits(),
+                "reconstruction failed for {v:e}: m={m}, e={e}"
+            );
+        }
+    }
+
+    /// Subnormal frexp regression: hash of the smallest positive subnormal.
+    #[test]
+    fn hash_float_smallest_subnormal() {
+        // hash(5e-324) == 16777216 (CPython 3.14 ground truth). The pre-fix
+        // bit-twiddling frexp returned 8404992 here.
+        assert_eq!(hash_float(f64::from_bits(1)), Some(16777216));
+    }
+
+    /// Differential float-hash table captured from CPython 3.14.5, spanning
+    /// subnormal boundaries, powers of two across the whole exponent range, and
+    /// a spread of normals.
+    #[test]
+    fn hash_float_matches_cpython() {
+        const HASH_CASES: &[(u64, i64)] = &[
+            (0x0000000000000001, 16777216),        // smallest subnormal 5e-324
+            (0x0000000000000002, 33554432),        // subnormal
+            (0x00000000deadbeef, 62678480394911744), // subnormal midrange
+            (0x0008000000000000, 16384),           // subnormal high bit
+            (0x000fffffffffffff, 2305843009196949503), // largest subnormal
+            (0x0010000000000000, 32768),           // DBL_MIN smallest normal
+            (0x8000000000000001, -16777216),       // negative smallest subnormal
+            (0x0020000000000000, 65536),           // 2**-1021
+            (0x0170000000000000, 137438953472),    // 2**-1000
+            (0x39b0000000000000, 4194304),         // 2**-100
+            (0x3f50000000000000, 2251799813685248), // 2**-10
+            (0x3fe0000000000000, 1152921504606846976), // 2**-1
+            (0x3ff0000000000000, 1),               // 2**0
+            (0x4000000000000000, 2),               // 2**1
+            (0x4090000000000000, 1024),            // 2**10
+            (0x4630000000000000, 549755813888),    // 2**100
+            (0x7e70000000000000, 16777216),        // 2**1000
+            (0x7fe0000000000000, 140737488355328), // 2**1023
+            (0xffe0000000000000, -140737488355328), // -2**1023
+            (0x3ff8000000000000, 1152921504606846977), // 1.5
+            (0x400921fb54442d18, 326490430436040707), // 3.141592653589793
+            (0x7e37e43c8800759c, 1224995262755759164), // 1e+300
+            (0x01a56e1fc2f8f359, 482449582752280463), // 1e-300
+            (0x40c81cd6c8b43958, 1563361560246628409), // 12345.678
+            (0x3fb999999999999a, 230584300921369408), // 0.1
+            (0x4005666666666666, 1556444031219243010), // 2.675
+            (0x4132d68700000000, 1234567),         // 1234567.0
+            (0x44dfe154f457ea13, 1428027733287631914), // 6.022e+23
+            (0x3c07a42f549647fb, 851769299698974080), // 1.602e-19
+            (0xbff0000000000000, -2),              // -1.0
+            (0xbfb999999999999a, -230584300921369408), // -0.1
+        ];
+        for &(bits, expected) in HASH_CASES {
+            let v = f64::from_bits(bits);
+            assert_eq!(
+                hash_float(v),
+                Some(expected),
+                "hash mismatch for {v:e} (bits {bits:#018x})"
+            );
+        }
+    }
 }
