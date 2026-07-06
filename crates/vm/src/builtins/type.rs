@@ -2706,27 +2706,35 @@ impl Callable for PyType {
             return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
         };
 
-        // `args` is cloned because both the new and init slots consume it.
-        // Skip the clone when no init call can follow: the class has no init
-        // slot, is not `type` itself, and its new slot is a native function.
-        // new_wrapper is excluded because a Python `__new__` can install an
-        // `__init__` on the class or return an instance of another class
-        // while it runs.
-        if zelf.slots.init.load().is_none()
-            && !zelf.is(vm.ctx.types.type_type)
-            && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize
-        {
-            return slot_new(zelf.to_owned(), args, vm);
-        }
+        // Both the new and init slots consume args, so the init call gets a
+        // separate copy prepared before slot_new runs.
+        let init_args = if args.is_empty() {
+            // Even cloning empty args costs a kwargs map clone; a default
+            // FuncArgs is indistinguishable from such a clone.
+            FuncArgs::default()
+        } else {
+            // Skip the clone when no init call can follow: the class has no
+            // init slot, is not `type` itself, and its new slot is a native
+            // function. new_wrapper is excluded because a Python `__new__`
+            // can install an `__init__` on the class or return an instance
+            // of another class while it runs.
+            if zelf.slots.init.load().is_none()
+                && !zelf.is(vm.ctx.types.type_type)
+                && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize
+            {
+                return slot_new(zelf.to_owned(), args, vm);
+            }
+            args.clone()
+        };
 
-        let obj = slot_new(zelf.to_owned(), args.clone(), vm)?;
+        let obj = slot_new(zelf.to_owned(), args, vm)?;
 
         if !obj.class().fast_issubclass(zelf) {
             return Ok(obj);
         }
 
         if let Some(init_method) = obj.class().slots.init.load() {
-            init_method(obj.clone(), args, vm)?;
+            init_method(obj.clone(), init_args, vm)?;
         }
         Ok(obj)
     }
