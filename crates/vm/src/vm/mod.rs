@@ -1569,7 +1569,7 @@ impl VirtualMachine {
     /// evaluation consumes more native stack in those configurations.
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize =
-        (if cfg!(debug_assertions) { 4096 } else { 2048 }) * core::mem::size_of::<usize>();
+        (if cfg!(debug_assertions) { 16384 } else { 2048 }) * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -1630,11 +1630,16 @@ impl VirtualMachine {
     }
 
     /// Calculate the C stack soft limit based on actual stack boundaries.
-    /// soft_limit = base + 2 * margin (for downward-growing stacks)
+    /// soft_limit = base + 2 * margin (for downward-growing stacks).
+    /// The margin is clamped to half the stack so threads created with a stack
+    /// smaller than 2 * (2 * margin) still get usable headroom instead of a
+    /// soft limit above their stack top (which would trip on entry).
     #[cfg(all(not(miri), not(target_env = "musl")))]
     fn calculate_c_stack_soft_limit() -> usize {
-        let (base, _top) = Self::get_stack_bounds();
-        base + Self::STACK_MARGIN_BYTES * 2
+        let (base, top) = Self::get_stack_bounds();
+        let stack_size = top.saturating_sub(base);
+        let margin = (Self::STACK_MARGIN_BYTES * 2).min(stack_size / 2);
+        base + margin
     }
 
     /// Musl currently reports stack bounds in a way that trips the VM's
@@ -1646,15 +1651,14 @@ impl VirtualMachine {
     }
 
     /// Check if we're near the C stack limit (like _Py_MakeRecCheck).
-    /// Returns true only when stack pointer is in the "danger zone" between
-    /// soft_limit and hard_limit (soft_limit - 2*margin).
+    /// One-sided: any stack pointer below the soft limit is in danger, since a
+    /// single native frame can exceed the margin and step past it.
     #[cfg(all(not(miri), not(target_env = "musl")))]
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         let current_sp = psm::stack_pointer() as usize;
         let soft_limit = self.c_stack_soft_limit.get();
         current_sp < soft_limit
-            && current_sp >= soft_limit.saturating_sub(Self::STACK_MARGIN_BYTES * 2)
     }
 
     /// Miri does not support the native stack probe, and musl currently trips
