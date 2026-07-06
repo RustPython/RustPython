@@ -65,34 +65,24 @@ impl Constructor for PyBaseObject {
         }
 
         // Ensure that all abstract methods are implemented before instantiating instance.
-        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
-            && let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm)
-        {
+        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
             let methods: Vec<PyUtf8StrRef> = abs_methods.try_to_value(vm)?;
-            let methods: String = Itertools::intersperse(
-                methods.iter().map(|name| name.as_str().to_owned()),
-                "', '".to_owned(),
-            )
-            .collect();
-
-            let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
-            let name = cls.name().to_string();
-
-            match unimplemented_abstract_method_count {
-                0 => {}
-                1 => {
-                    return Err(vm.new_type_error(format!(
-                        "class {name} without an implementation for abstract method '{methods}'"
-                    )));
-                }
-                2.. => {
-                    return Err(vm.new_type_error(format!(
-                        "class {name} without an implementation for abstract methods '{methods}'"
-                    )));
-                }
-                // TODO: remove `allow` when redox build doesn't complain about it
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
+            let unimplemented_abstract_method_count = methods.len();
+            if unimplemented_abstract_method_count > 0 {
+                let methods: String = Itertools::intersperse(
+                    methods.iter().map(|name| name.as_str().to_owned()),
+                    "', '".to_owned(),
+                )
+                .collect();
+                let name = cls.name().to_string();
+                let noun = if unimplemented_abstract_method_count == 1 {
+                    "method"
+                } else {
+                    "methods"
+                };
+                return Err(vm.new_type_error(format!(
+                    "class {name} without an implementation for abstract {noun} '{methods}'"
+                )));
             }
         }
 
