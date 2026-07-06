@@ -28,6 +28,7 @@ pub mod object;
 pub mod osmodule;
 pub mod pycapsule;
 pub mod pyerrors;
+pub mod pyframe;
 pub mod pylifecycle;
 pub mod pymem;
 pub mod pystate;

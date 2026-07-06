@@ -191,6 +191,7 @@ pycore
 pyinner
 pydecimal
 pyerrors
+pyframe
 Pyfunc
 pylifecycle
 pymain
