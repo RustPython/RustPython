@@ -243,12 +243,12 @@ pub fn hash_tuple<E>(
 
     acc = acc.wrapping_add(len ^ (PRIME5 ^ 3527539));
 
-    let acc_pyhash = acc as PyHash;
-    if acc_pyhash == -1 {
+    let acc_py_hash = acc as PyHash;
+    if acc_py_hash == -1 {
         return Ok(1546275796);
     }
 
-    Ok(acc_pyhash)
+    Ok(acc_py_hash)
 }
 
 /// frozenset_hash: order-independent XOR-fold of a frozenset's element hashes.
