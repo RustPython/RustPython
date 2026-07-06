@@ -7974,6 +7974,22 @@ impl ExecutingFrame<'_> {
             return;
         }
 
+        // Capture the version before inspecting getattro and the MRO so a
+        // concurrently installed __getattribute__/__getattr__ invalidates the
+        // version this specialization is cached against.
+        let type_version = cls.version_for_specialization(_vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
+            }
+            return;
+        }
+
         // Only specialize if getattro is the default (PyBaseObject::getattro)
         let is_default_getattro = cls
             .slots
@@ -7981,10 +7997,8 @@ impl ExecutingFrame<'_> {
             .load()
             .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
         if !is_default_getattro {
-            let (getattribute, type_version) =
-                cls.lookup_ref_and_version_interned(identifier!(_vm, __getattribute__), _vm);
-            if type_version != 0
-                && !oparg.is_method()
+            let getattribute = cls.get_attr(identifier!(_vm, __getattribute__));
+            if !oparg.is_method()
                 && !self.specialization_eval_frame_active(_vm)
                 && cls.get_attr(identifier!(_vm, __getattr__)).is_none()
                 && let Some(getattribute) = getattribute
@@ -8025,18 +8039,6 @@ impl ExecutingFrame<'_> {
         // current module dict has no __getattr__ override and the attribute is
         // already present.
         if let Some(module) = obj.downcast_ref_if_exact::<PyModule>(_vm) {
-            let type_version = cls.version_for_specialization(_vm);
-            if type_version == 0 {
-                unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
-                return;
-            }
             let module_dict = module.dict();
             match (
                 module_dict.get_item_opt(identifier!(_vm, __getattr__), _vm),
@@ -8063,18 +8065,7 @@ impl ExecutingFrame<'_> {
             return;
         }
 
-        let (cls_attr, type_version) = cls.lookup_ref_and_version_interned(attr_name, _vm);
-        if type_version == 0 {
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
+        let cls_attr = cls.get_attr(attr_name);
         let class_has_dict = cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
 
         if oparg.is_method() {
@@ -8464,15 +8455,17 @@ impl ExecutingFrame<'_> {
                     Some(Instruction::BinaryOpSubscrListSlice)
                 } else {
                     let cls = a.class();
-                    let (getitem, type_version) =
-                        cls.lookup_ref_and_version_interned(identifier!(vm, __getitem__), vm);
+                    // Check the cheap gates before the __getitem__ lookup, which
+                    // takes the global type lock and may allocate a version tag.
                     if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
                         && !self.specialization_eval_frame_active(vm)
-                        && let Some(_getitem) = getitem
-                        && let Some(func) = _getitem.downcast_ref_if_exact::<PyFunction>(vm)
-                        && func.can_specialize_call(2)
                     {
+                        let (getitem, type_version) =
+                            cls.lookup_ref_and_version_interned(identifier!(vm, __getitem__), vm);
                         if type_version != 0
+                            && let Some(getitem) = getitem
+                            && let Some(func) = getitem.downcast_ref_if_exact::<PyFunction>(vm)
+                            && func.can_specialize_call(2)
                             && cls.cache_getitem_for_specialization(func.to_owned(), type_version, vm)
                         {
                             // Record the type version so the specialized handler
@@ -9002,6 +8995,10 @@ impl ExecutingFrame<'_> {
 
             // CallAllocAndEnterInit: heap type with default __new__
             if !self_or_null_is_some && cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+                // Capture the version before inspecting tp_new/tp_alloc so a
+                // concurrently installed __new__ invalidates the version this
+                // specialization is cached against.
+                let type_version = cls.version_for_specialization(vm);
                 let object_new = vm.ctx.types.object_type.slots.new.load();
                 let cls_new = cls.slots.new.load();
                 let object_alloc = vm.ctx.types.object_type.slots.alloc.load();
@@ -9011,9 +9008,7 @@ impl ExecutingFrame<'_> {
                     && cls_new_fn as usize == obj_new_fn as usize
                     && cls_alloc_fn as usize == obj_alloc_fn as usize
                 {
-                    let (init, version) =
-                        cls.lookup_ref_and_version_interned(identifier!(vm, __init__), vm);
-                    if version == 0 {
+                    if type_version == 0 {
                         unsafe {
                             self.code.instructions.write_adaptive_counter(
                                 cache_base,
@@ -9024,16 +9019,17 @@ impl ExecutingFrame<'_> {
                         }
                         return;
                     }
+                    let init = cls.get_attr(identifier!(vm, __init__));
                     if let Some(init) = init
                         && let Some(init_func) = init.downcast_ref_if_exact::<PyFunction>(vm)
                         && init_func.can_specialize_call(nargs + 1)
                         && !init_func.is_generator_like()
-                        && cls.cache_init_for_specialization(init_func.to_owned(), version, vm)
+                        && cls.cache_init_for_specialization(init_func.to_owned(), type_version, vm)
                     {
                         unsafe {
                             self.code
                                 .instructions
-                                .write_cache_u32(cache_base + 1, version);
+                                .write_cache_u32(cache_base + 1, type_version);
                         }
                         self.specialize_at(
                             instr_idx,
@@ -9327,31 +9323,35 @@ impl ExecutingFrame<'_> {
             Some(Instruction::ToBoolList)
         } else if cls.is(PyStr::class(&vm.ctx)) {
             Some(Instruction::ToBoolStr)
-        } else if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE)
-            && cls.slots.as_number.boolean.load().is_none()
-            && cls.slots.as_mapping.length.load().is_none()
-            && cls.slots.as_sequence.length.load().is_none()
-        {
-            // Cache type version for ToBoolAlwaysTrue guard
+        } else if cls.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
+            // Capture the version before inspecting the bool/len slots so a
+            // concurrently installed __bool__/__len__ invalidates the version
+            // the ToBoolAlwaysTrue guard is cached against.
             let type_version = cls.version_for_specialization(vm);
-            if type_version != 0 {
-                unsafe {
-                    self.code
-                        .instructions
-                        .write_cache_u32(cache_base + 1, type_version);
+            let has_bool_or_len = cls.slots.as_number.boolean.load().is_some()
+                || cls.slots.as_mapping.length.load().is_some()
+                || cls.slots.as_sequence.length.load().is_some();
+            if !has_bool_or_len {
+                if type_version != 0 {
+                    unsafe {
+                        self.code
+                            .instructions
+                            .write_cache_u32(cache_base + 1, type_version);
+                    }
+                    self.specialize_at(instr_idx, cache_base, Instruction::ToBoolAlwaysTrue);
+                } else {
+                    unsafe {
+                        self.code.instructions.write_adaptive_counter(
+                            cache_base,
+                            bytecode::adaptive_counter_backoff(
+                                self.code.instructions.read_adaptive_counter(cache_base),
+                            ),
+                        );
+                    }
                 }
-                self.specialize_at(instr_idx, cache_base, Instruction::ToBoolAlwaysTrue);
-            } else {
-                unsafe {
-                    self.code.instructions.write_adaptive_counter(
-                        cache_base,
-                        bytecode::adaptive_counter_backoff(
-                            self.code.instructions.read_adaptive_counter(cache_base),
-                        ),
-                    );
-                }
+                return;
             }
-            return;
+            None
         } else {
             None
         };
@@ -9649,6 +9649,22 @@ impl ExecutingFrame<'_> {
         let owner = self.top_value();
         let cls = owner.class();
 
+        // Capture the version before inspecting the setattro slot so a
+        // concurrently installed __setattr__ invalidates the version this
+        // specialization is cached against.
+        let type_version = cls.version_for_specialization(vm);
+        if type_version == 0 {
+            unsafe {
+                self.code.instructions.write_adaptive_counter(
+                    cache_base,
+                    bytecode::adaptive_counter_backoff(
+                        self.code.instructions.read_adaptive_counter(cache_base),
+                    ),
+                );
+            }
+            return;
+        }
+
         // Only specialize if setattr is the default (generic_setattr)
         let is_default_setattr = cls
             .slots
@@ -9668,18 +9684,7 @@ impl ExecutingFrame<'_> {
         }
 
         let attr_name = self.code.names[attr_idx as usize];
-        let (cls_attr, type_version) = cls.lookup_ref_and_version_interned(attr_name, vm);
-        if type_version == 0 {
-            unsafe {
-                self.code.instructions.write_adaptive_counter(
-                    cache_base,
-                    bytecode::adaptive_counter_backoff(
-                        self.code.instructions.read_adaptive_counter(cache_base),
-                    ),
-                );
-            }
-            return;
-        }
+        let cls_attr = cls.get_attr(attr_name);
         let has_data_descr = cls_attr.as_ref().is_some_and(|descr| {
             let descr_cls = descr.class();
             descr_cls.slots.descr_get.load().is_some() && descr_cls.slots.descr_set.load().is_some()
