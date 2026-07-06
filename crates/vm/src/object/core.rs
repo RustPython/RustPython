@@ -161,8 +161,14 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         return; // resurrected by __del__
     }
 
+    // Only GC-tracked objects own child references that can recurse during
+    // deallocation, so only they need the trashcan recursion guard. Non-GC
+    // objects (int, float, str, ...) have no reachable children and skip both
+    // the trashcan and the untrack path. Read once and reuse for both.
+    let tracked = obj_ref.is_gc_tracked();
+
     // Trashcan: limit recursive deallocation depth to prevent stack overflow
-    if !unsafe { trashcan::begin(obj, default_dealloc::<T>) } {
+    if tracked && !unsafe { trashcan::begin(obj, default_dealloc::<T>) } {
         return; // deferred to queue
     }
 
@@ -171,7 +177,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // Untrack from GC BEFORE deallocation.
     // Must happen before memory is freed because intrusive list removal
     // reads the object's gc_pointers (prev/next).
-    if obj_ref.is_gc_tracked() {
+    if tracked {
         let ptr = unsafe { NonNull::new_unchecked(obj) };
         unsafe {
             crate::gc_state::gc_state().untrack_object(ptr);
@@ -228,7 +234,9 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Trashcan: decrement depth and process deferred objects at outermost level
-    unsafe { trashcan::end() };
+    if tracked {
+        unsafe { trashcan::end() };
+    }
 }
 pub(super) unsafe fn debug_obj<T: PyPayload + core::fmt::Debug>(
     x: &PyObject,
