@@ -954,6 +954,26 @@ impl PyType {
         Self::set_alloc(&self.slots, self.base.deref());
     }
 
+    /// Recompute every slot for this type and all its descendants. update_all_slots
+    ///
+    /// Unlike `init_slots`, which is additive and driven only by the dunder names
+    /// present in the current MRO, this iterates the full `SLOT_DEFS` name table so
+    /// a slot whose method left the MRO is reset instead of left stale. Must be
+    /// called under the type lock after MROs have been recomputed.
+    pub(crate) fn update_all_slots(&self, ctx: &Context) {
+        // Invalidate version tags first; cascades to subclasses.
+        self.modified_inner();
+        // Distinct names only; update_slot fans out to every SLOT_DEFS entry
+        // sharing the name and recurses into subclasses on its own.
+        let mut seen = std::collections::HashSet::new();
+        for def in SLOT_DEFS {
+            if seen.insert(def.name) {
+                let name = ctx.intern_str(def.name);
+                self.update_slot::<true>(name, ctx);
+            }
+        }
+    }
+
     fn set_new(slots: &PyTypeSlots, base: Option<&Py<Self>>) {
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
@@ -1589,11 +1609,9 @@ impl PyType {
                 keep_alive(old_base, &mut retired);
             }
 
-            // Invalidate inline caches
-            zelf.modified_inner();
-
-            // TODO: do any old slots need to be cleaned up first?
-            zelf.init_slots(&vm.ctx);
+            // Invalidate inline caches and rebuild every slot for this type and
+            // all descendants so slots whose methods left the MRO are reset.
+            zelf.update_all_slots(&vm.ctx);
 
             register_subclasses(&zelf.bases.read());
             Ok(())
