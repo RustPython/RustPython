@@ -60,14 +60,14 @@ mod mmap {
 
     #[cfg(unix)]
     #[pyattr]
-    use libc::{
+    use host_mmap::{
         MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MAP_ANON,
         MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_EXEC, PROT_READ, PROT_WRITE,
     };
 
     #[cfg(target_os = "macos")]
     #[pyattr]
-    use libc::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
+    use host_mmap::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
 
     #[cfg(any(
         target_os = "android",
@@ -80,11 +80,11 @@ mod mmap {
         target_vendor = "apple"
     ))]
     #[pyattr]
-    use libc::MADV_FREE;
+    use host_mmap::MADV_FREE;
 
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::{
+    use host_mmap::{
         MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_HUGEPAGE, MADV_HWPOISON,
         MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
     };
@@ -106,21 +106,21 @@ mod mmap {
         )
     ))]
     #[pyattr]
-    use libc::MADV_SOFT_OFFLINE;
+    use host_mmap::MADV_SOFT_OFFLINE;
 
     #[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
     #[pyattr]
-    use libc::{MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE};
+    use host_mmap::{MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE};
 
     // MAP_STACK is available on Linux, OpenBSD, and NetBSD
     #[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
     #[pyattr]
-    use libc::MAP_STACK;
+    use host_mmap::MAP_STACK;
 
     // FreeBSD-specific MADV constants
     #[cfg(target_os = "freebsd")]
     #[pyattr]
-    use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
+    use host_mmap::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
     #[pyattr]
     const ACCESS_DEFAULT: u32 = AccessMode::Default as u32;
@@ -212,10 +212,10 @@ mod mmap {
         fileno: i32,
         #[pyarg(any)]
         length: isize,
-        #[pyarg(any, default = libc::MAP_SHARED)]
-        flags: libc::c_int,
-        #[pyarg(any, default = libc::PROT_WRITE | libc::PROT_READ)]
-        prot: libc::c_int,
+        #[pyarg(any, default = host_mmap::MAP_SHARED)]
+        flags: core::ffi::c_int,
+        #[pyarg(any, default = host_mmap::PROT_WRITE | host_mmap::PROT_READ)]
+        prot: core::ffi::c_int,
         #[pyarg(any, default = AccessMode::Default)]
         access: AccessMode,
         #[pyarg(any, default = 0)]
@@ -294,7 +294,7 @@ mod mmap {
     #[derive(FromArgs)]
     pub(super) struct AdviseOptions {
         #[pyarg(positional)]
-        option: libc::c_int,
+        option: core::ffi::c_int,
         #[pyarg(positional, default)]
         start: Option<PyIntRef>,
         #[pyarg(positional, default)]
@@ -303,7 +303,11 @@ mod mmap {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     impl AdviseOptions {
-        fn values(self, len: usize, vm: &VirtualMachine) -> PyResult<(libc::c_int, usize, usize)> {
+        fn values(
+            self,
+            len: usize,
+            vm: &VirtualMachine,
+        ) -> PyResult<(core::ffi::c_int, usize, usize)> {
             let start = self
                 .start
                 .map(|s| {
@@ -342,7 +346,7 @@ mod mmap {
 
         #[cfg(unix)]
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-            use libc::{MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE};
+            use host_mmap::{MAP_PRIVATE, MAP_SHARED, PROT_READ, PROT_WRITE};
 
             let mut map_size = args.validate_new_args(vm)?;
             let MmapNewArgs {
@@ -552,7 +556,7 @@ mod mmap {
                     map_size,
                 )
                 .map_err(|err| {
-                    if err.raw_os_error() == Some(libc::EOVERFLOW) {
+                    if err.raw_os_error() == Some(host_mmap::EOVERFLOW) {
                         vm.new_overflow_error("mmap offset plus size would overflow")
                     } else {
                         err.to_pyexception(vm)
@@ -1074,7 +1078,7 @@ mod mmap {
         fn seek(
             &self,
             dist: isize,
-            whence: OptionalArg<libc::c_int>,
+            whence: OptionalArg<core::ffi::c_int>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             let how = whence.unwrap_or(0);
