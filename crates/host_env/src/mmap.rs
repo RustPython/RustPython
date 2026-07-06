@@ -59,7 +59,7 @@ pub use libc::MAP_STACK;
 #[cfg(target_os = "freebsd")]
 pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
 
-#[cfg(unix)]
+#[cfg(windows)]
 pub use libc::EOVERFLOW;
 
 #[cfg(windows)]
