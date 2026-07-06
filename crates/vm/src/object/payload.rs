@@ -48,6 +48,13 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
 
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
+    /// Whether `PyRef::new_ref` skips auto-tracking this type in the GC even
+    /// when it would otherwise qualify (has traverse, dict, or heap type).
+    /// Such objects are created untracked and must be tracked explicitly if
+    /// and when they can become part of a reference cycle. Used by `Frame`,
+    /// which is created untracked and tracked lazily only on escape.
+    const NEW_REF_UNTRACKED: bool = false;
+
     /// Whether this type has a freelist. Types with freelists require
     /// immediate (non-deferred) GC untracking during dealloc to prevent
     /// race conditions when the object is reused.

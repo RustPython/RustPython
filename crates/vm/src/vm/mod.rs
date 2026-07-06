@@ -1316,6 +1316,15 @@ impl VirtualMachine {
 
     #[inline(always)]
     pub fn run_frame(&self, frame: FrameRef) -> PyResult {
+        // Only ordinary (datastack) call frames reach `run_frame`; generator
+        // and coroutine frames are resumed through `resume_gen_frame`. A
+        // datastack frame is created untracked and is tracked lazily only when
+        // it escapes, which happens no earlier than `release_datastack_frame`
+        // after this call returns. So it must be untracked on entry.
+        debug_assert!(
+            !frame.as_object().is_gc_tracked(),
+            "datastack frame is GC-tracked before execution"
+        );
         match self.with_frame(frame, |f| f.run(self))? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),

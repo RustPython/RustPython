@@ -2320,7 +2320,11 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
         // - has instance dict (user-defined class instances), OR
         // - heap type (all heap type instances are GC-tracked, like Py_TPFLAGS_HAVE_GC)
-        if <T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype {
+        // unless the payload opts out via NEW_REF_UNTRACKED (e.g. call frames,
+        // which are tracked lazily only on escape).
+        if (<T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype)
+            && !T::NEW_REF_UNTRACKED
+        {
             let gc = crate::gc_state::gc_state();
             unsafe {
                 gc.track_object(ptr.cast());

@@ -733,6 +733,10 @@ thread_local! {
 impl PyPayload for Frame {
     const MAX_FREELIST: usize = 200;
     const HAS_FREELIST: bool = true;
+    // Ordinary call frames are created untracked and only enter the GC when
+    // they escape (see `release_datastack_frame`); generator/coroutine frames
+    // are tracked explicitly at creation in `invoke_with_locals`.
+    const NEW_REF_UNTRACKED: bool = true;
 
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {

@@ -580,26 +580,34 @@ impl Py<PyFunction> {
         .into_ref(&vm.ctx);
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
-        if is_async_gen {
-            let obj = PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
-                .into_pyobject(vm);
-            frame.set_generator(&obj);
-            Ok(obj)
-        } else if is_gen {
-            let obj = PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
-                .into_pyobject(vm);
-            frame.set_generator(&obj);
-            Ok(obj)
-        } else if is_coro {
-            let obj = PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
-                .into_pyobject(vm);
-            frame.set_generator(&obj);
-            Ok(obj)
-        } else {
+        if use_datastack {
             let result = vm.run_frame(frame.clone());
             // Release data stack memory after frame execution completes.
             crate::frame::release_datastack_frame(&frame, vm);
             result
+        } else {
+            let obj = if is_async_gen {
+                PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm)
+            } else if is_gen {
+                PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm)
+            } else {
+                PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
+                    .into_pyobject(vm)
+            };
+            // Generator/coroutine frames outlive this call and can join a
+            // reference cycle through their owning generator, so they must
+            // participate in the GC. They were created untracked
+            // (NEW_REF_UNTRACKED); track them now, before the back-reference
+            // is installed.
+            // SAFETY: the frame is alive (held by `frame`) and untracked.
+            unsafe {
+                crate::gc_state::gc_state()
+                    .track_object(core::ptr::NonNull::from(frame.as_object()));
+            }
+            frame.set_generator(&obj);
+            Ok(obj)
         }
     }
 
