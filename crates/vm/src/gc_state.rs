@@ -773,7 +773,8 @@ impl GcState {
                 let mut worklist: Vec<GcPtr> = Vec::new();
                 for obj_ref in &truly_dead {
                     let ptr = GcPtr(NonNull::from(obj_ref.as_ref()));
-                    if obj_ref.strong_count() > expected_counts[&ptr] && late_resurrected.insert(ptr)
+                    if obj_ref.strong_count() > expected_counts[&ptr]
+                        && late_resurrected.insert(ptr)
                     {
                         worklist.push(ptr);
                     }
