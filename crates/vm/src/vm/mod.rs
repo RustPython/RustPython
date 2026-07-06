@@ -354,11 +354,14 @@ impl StopTheWorldState {
     /// blocking on a plain lock here would keep this thread from ever reaching
     /// that safepoint, so the active requester would wait for this thread while
     /// this thread waits for the lock — a deadlock swap. Instead we poll and
-    /// honor the suspend request between tries. This thread holds no other lock
-    /// while spinning (a requester always enters from a clean call site), so
-    /// suspending here is safe: the active requester force-parks this thread,
-    /// finishes its whole stop→start span, releases the exclusion, and only
-    /// then does this thread resume and acquire it.
+    /// honor the suspend request between tries. Suspending here is safe as long
+    /// as any lock a spinning requester still holds is never acquired
+    /// attached-blocking by another thread. The fork requester holds IMP_LOCK,
+    /// but its acquisition detaches (`allow_threads`), so no attached thread
+    /// blocks on it; the GC requester holds only the `collecting` mutex, which
+    /// is only ever `try_lock`'d. The active requester therefore force-parks
+    /// this thread, finishes its whole stop→start span, releases the exclusion,
+    /// and only then does this thread resume and acquire it.
     fn acquire_exclusion(&self) {
         if self
             .exclusion

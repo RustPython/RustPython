@@ -623,7 +623,7 @@ pub mod module {
         run_at_forkers(before_forkers, true, vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::_imp::acquire_imp_lock_for_fork();
+        crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
         vm.state.stop_the_world.stop_the_world(vm);
