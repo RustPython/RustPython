@@ -95,9 +95,23 @@ mod trashcan {
     type DeallocFn = unsafe fn(*mut super::PyObject);
     type DeallocQueue = Vec<(*mut super::PyObject, DeallocFn)>;
 
+    /// Per-thread trashcan state. Depth and deferral queue live in one
+    /// thread-local so a single access reaches both fields (one `_tlv_get_addr`
+    /// on platforms where thread-local access is a function call). Both fields
+    /// are `Cell`-based so reentrant deallocation (nested `begin`/`end` triggered
+    /// by draining deferred objects) never holds an outstanding borrow.
+    struct Trashcan {
+        depth: Cell<usize>,
+        queue: Cell<DeallocQueue>,
+    }
+
     thread_local! {
-        static DEALLOC_DEPTH: Cell<usize> = const { Cell::new(0) };
-        static DEALLOC_QUEUE: Cell<DeallocQueue> = const { Cell::new(Vec::new()) };
+        static TRASHCAN: Trashcan = const {
+            Trashcan {
+                depth: Cell::new(0),
+                queue: Cell::new(Vec::new()),
+            }
+        };
     }
 
     /// Try to begin deallocation. Returns true if we should proceed,
@@ -107,18 +121,16 @@ mod trashcan {
         obj: *mut super::PyObject,
         dealloc: unsafe fn(*mut super::PyObject),
     ) -> bool {
-        DEALLOC_DEPTH.with(|d| {
-            let depth = d.get();
+        TRASHCAN.with(|t| {
+            let depth = t.depth.get();
             if depth >= TRASHCAN_LIMIT {
                 // Depth exceeded: defer this deallocation
-                DEALLOC_QUEUE.with(|q| {
-                    let mut queue = q.take();
-                    queue.push((obj, dealloc));
-                    q.set(queue);
-                });
+                let mut queue = t.queue.take();
+                queue.push((obj, dealloc));
+                t.queue.set(queue);
                 false
             } else {
-                d.set(depth + 1);
+                t.depth.set(depth + 1);
                 true
             }
         })
@@ -127,29 +139,30 @@ mod trashcan {
     /// End deallocation and process any deferred objects if at outermost level.
     #[inline]
     pub(super) unsafe fn end() {
-        let depth = DEALLOC_DEPTH.with(|d| {
-            let depth = d.get();
+        TRASHCAN.with(|t| {
+            let depth = t.depth.get();
             debug_assert!(depth > 0, "trashcan::end called without matching begin");
             let depth = depth - 1;
-            d.set(depth);
-            depth
-        });
-        if depth == 0 {
-            // Process deferred deallocations iteratively
+            t.depth.set(depth);
+            if depth != 0 {
+                return;
+            }
+            // Process deferred deallocations iteratively. The queue is set back
+            // before each `dealloc` call so a reentrant `begin` can push freely.
             loop {
-                let next = DEALLOC_QUEUE.with(|q| {
-                    let mut queue = q.take();
+                let next = {
+                    let mut queue = t.queue.take();
                     let item = queue.pop();
-                    q.set(queue);
+                    t.queue.set(queue);
                     item
-                });
+                };
                 if let Some((obj, dealloc)) = next {
                     unsafe { dealloc(obj) };
                 } else {
                     break;
                 }
             }
-        }
+        })
     }
 }
 
