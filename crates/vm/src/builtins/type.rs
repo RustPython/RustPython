@@ -223,7 +223,7 @@ pub(crate) fn type_cache_clear() {
 /// If fork happens while a writer holds an entry SeqLock, the child inherits
 /// the odd sequence value with no surviving writer to release it. Clear only
 /// those in-progress entries, matching CPython's `_PyTypes_AfterFork()`.
-pub unsafe fn type_cache_after_fork() {
+pub(crate) unsafe fn type_cache_after_fork() {
     for entry in TYPE_CACHE.iter() {
         let seq = entry.sequence.load(Ordering::Relaxed);
         if (seq & 1) == 0 {
@@ -1243,6 +1243,9 @@ impl PyType {
     /// Check if attribute exists in MRO, using method cache for fast check.
     /// Unlike find_name_in_mro, avoids cloning the value on cache hit.
     fn has_name_in_mro(&self, name: &'static PyStrInterned) -> bool {
+        #[cfg(all(unix, feature = "threading", debug_assertions))]
+        crate::vm::thread::debug_assert_current_thread_attached();
+
         let version = self.tp_version_tag.load(Ordering::Acquire);
         if version != 0 {
             let idx = type_cache_hash(version, name);

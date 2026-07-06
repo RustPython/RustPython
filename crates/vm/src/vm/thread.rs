@@ -545,7 +545,7 @@ pub(crate) fn qsbr_checkpoint() {
 
 /// Debug check: lock-free type-cache reads are only sound on threads that
 /// are registered with QSBR and currently ATTACHED.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(unix, feature = "threading", debug_assertions))]
 pub(crate) fn debug_assert_current_thread_attached() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
