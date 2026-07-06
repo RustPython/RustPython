@@ -4496,13 +4496,13 @@ impl ExecutingFrame<'_> {
             }
             // Specialized BINARY_OP opcodes
             Instruction::BinaryOpAddInt => {
-                self.execute_binary_op_int(vm, |a, b| a + b, bytecode::BinaryOperator::Add)
+                self.execute_binary_op_int(vm, Self::int_add, bytecode::BinaryOperator::Add)
             }
             Instruction::BinaryOpSubtractInt => {
-                self.execute_binary_op_int(vm, |a, b| a - b, bytecode::BinaryOperator::Subtract)
+                self.execute_binary_op_int(vm, Self::int_sub, bytecode::BinaryOperator::Subtract)
             }
             Instruction::BinaryOpMultiplyInt => {
-                self.execute_binary_op_int(vm, |a, b| a * b, bytecode::BinaryOperator::Multiply)
+                self.execute_binary_op_int(vm, Self::int_mul, bytecode::BinaryOperator::Multiply)
             }
             Instruction::BinaryOpAddFloat => {
                 self.execute_binary_op_float(vm, |a, b| a + b, bytecode::BinaryOperator::Add)
@@ -7389,7 +7389,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(self.int_add(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_add(a.as_bigint(), b.as_bigint(), vm))
                 } else if matches!(op, bytecode::BinaryOperator::Add) {
                     vm._add(a_ref, b_ref)
                 } else {
@@ -7401,14 +7401,25 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(self.int_sub(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_sub(a.as_bigint(), b.as_bigint(), vm))
                 } else if matches!(op, bytecode::BinaryOperator::Subtract) {
                     vm._sub(a_ref, b_ref)
                 } else {
                     vm._isub(a_ref, b_ref)
                 }
             }
-            bytecode::BinaryOperator::Multiply => vm._mul(a_ref, b_ref),
+            bytecode::BinaryOperator::Multiply | bytecode::BinaryOperator::InplaceMultiply => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) {
+                    Ok(Self::int_mul(a.as_bigint(), b.as_bigint(), vm))
+                } else if matches!(op, bytecode::BinaryOperator::Multiply) {
+                    vm._mul(a_ref, b_ref)
+                } else {
+                    vm._imul(a_ref, b_ref)
+                }
+            }
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
             bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
@@ -7419,7 +7430,6 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
             bytecode::BinaryOperator::Or => vm._or(a_ref, b_ref),
             bytecode::BinaryOperator::And => vm._and(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceMultiply => vm._imul(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceMatrixMultiply => vm._imatmul(a_ref, b_ref),
             bytecode::BinaryOperator::InplacePower => {
                 vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
@@ -7439,28 +7449,44 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    /// Int addition with i64 fast path to avoid BigInt heap allocation.
+    /// Int binary op with an i64 fast path to avoid BigInt heap allocation.
+    /// `checked` computes the i64 result; on `None` (either operand does not
+    /// fit i64, or the op overflows i64) it falls through to `fallback` on the
+    /// full BigInt values. Result boxing always goes through `new_int` so the
+    /// small-int cache is consulted identically.
     #[inline]
-    fn int_add(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_fast_op(
+        a: &BigInt,
+        b: &BigInt,
+        vm: &VirtualMachine,
+        checked: fn(i64, i64) -> Option<i64>,
+        fallback: impl FnOnce(&BigInt, &BigInt) -> BigInt,
+    ) -> PyObjectRef {
         use num_traits::ToPrimitive;
         if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
-            && let Some(result) = av.checked_add(bv)
+            && let Some(result) = checked(av, bv)
         {
             return vm.ctx.new_int(result).into();
         }
-        vm.ctx.new_int(a + b).into()
+        vm.ctx.new_int(fallback(a, b)).into()
+    }
+
+    /// Int addition with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_add(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        Self::int_fast_op(a, b, vm, i64::checked_add, |a, b| a + b)
     }
 
     /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_sub(&self, a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
-        use num_traits::ToPrimitive;
-        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
-            && let Some(result) = av.checked_sub(bv)
-        {
-            return vm.ctx.new_int(result).into();
-        }
-        vm.ctx.new_int(a - b).into()
+    fn int_sub(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        Self::int_fast_op(a, b, vm, i64::checked_sub, |a, b| a - b)
+    }
+
+    /// Int multiplication with i64 fast path to avoid BigInt heap allocation.
+    #[inline]
+    fn int_mul(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+        Self::int_fast_op(a, b, vm, i64::checked_mul, |a, b| a * b)
     }
 
     #[cold]
@@ -8487,7 +8513,7 @@ impl ExecutingFrame<'_> {
     fn execute_binary_op_int(
         &mut self,
         vm: &VirtualMachine,
-        op: impl FnOnce(&BigInt, &BigInt) -> BigInt,
+        op: impl FnOnce(&BigInt, &BigInt, &VirtualMachine) -> PyObjectRef,
         deopt_op: bytecode::BinaryOperator,
     ) -> FrameResult {
         let b = self.top_value();
@@ -8496,10 +8522,10 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            let result = op(a_int.as_bigint(), b_int.as_bigint());
+            let result = op(a_int.as_bigint(), b_int.as_bigint(), vm);
             self.pop_value();
             self.pop_value();
-            self.push_value(vm.ctx.new_bigint(&result).into());
+            self.push_value(result);
             Ok(None)
         } else {
             self.execute_bin_op(vm, deopt_op)
