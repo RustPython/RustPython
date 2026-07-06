@@ -1709,7 +1709,14 @@ impl VirtualMachine {
             // exc_info pollution from frames with unbalanced
             // PUSH_EXC_INFO/POP_EXCEPT (e.g., exception escaping an except block
             // whose cleanup entry is missing from the exception table).
-            let saved_exc = self.current_exception();
+            // A callee whose bytecode never mutates the slot cannot pollute it,
+            // so the save/restore is skipped for it.
+            let save_exc = frame.code.has_exc_handling;
+            let saved_exc = if save_exc {
+                self.current_exception()
+            } else {
+                None
+            };
             let old_owner = frame.owner.swap(
                 crate::frame::FrameOwner::Thread as i8,
                 core::sync::atomic::Ordering::AcqRel,
@@ -1718,7 +1725,9 @@ impl VirtualMachine {
             // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
             scopeguard::defer! {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                self.restore_exception(saved_exc);
+                if save_exc {
+                    self.restore_exception(saved_exc);
+                }
                 crate::vm::thread::set_current_frame(old_frame);
                 #[cfg(all(not(unix), feature = "threading"))]
                 crate::vm::thread::pop_thread_frame();
