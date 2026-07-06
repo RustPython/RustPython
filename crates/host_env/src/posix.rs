@@ -10,7 +10,7 @@ use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
-use crate::crt_fd;
+pub use super::posix_unix_like::*;
 
 pub struct UnameInfo {
     pub sysname: String,
@@ -174,16 +174,6 @@ pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
     } else {
         Ok(())
     }
-}
-
-#[cfg(any(unix, target_os = "wasi"))]
-pub fn make_dir(
-    dir_fd: Option<crt_fd::Borrowed<'_>>,
-    path: &impl AsRef<Path>,
-    mode: libc::mode_t,
-) -> std::io::Result<()> {
-    let dir_fd = dir_fd.as_ref().map_or(rustix::fs::CWD, AsFd::as_fd);
-    rustix::fs::mkdirat(dir_fd, path.as_ref(), mode.into()).map_err(Into::into)
 }
 
 #[cfg(unix)]

@@ -3,16 +3,9 @@ use core::{ffi::CStr, time::Duration};
 use rustix::fd::AsFd;
 use std::{ffi::OsStr, io, path::Path};
 
-use crate::{crt_fd, os::CheckLibcResult};
+pub use super::posix_unix_like::*;
 
-pub fn make_dir(
-    dir_fd: Option<crt_fd::Borrowed<'_>>,
-    path: &impl AsRef<Path>,
-    mode: libc::mode_t,
-) -> std::io::Result<()> {
-    let dir_fd = dir_fd.as_ref().map_or(rustix::fs::CWD, AsFd::as_fd);
-    rustix::fs::mkdirat(dir_fd, path.as_ref(), mode.into()).map_err(Into::into)
-}
+use crate::{crt_fd, os::CheckLibcResult};
 
 pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> io::Result<()> {
     unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) }.check_libc_neg()?;
