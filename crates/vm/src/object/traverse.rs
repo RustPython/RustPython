@@ -111,12 +111,15 @@ where
 unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        // A failed try_read means another thread holds the write lock. In
-        // threading builds the collector stops the world around traversal, so
-        // any writer thread is parked at a safepoint and cannot be holding
-        // this lock; a failure therefore only reflects the current thread's
-        // own re-entrant read and is safely skipped. In single-threaded builds
-        // there is no other thread to contend.
+        // A failed try_read means a writer holds the lock. Traversal runs with
+        // the world stopped, but a thread force-parked while DETACHED (CAS'd
+        // straight to SUSPENDED from native code) may still hold the write lock
+        // it was in the middle of taking. Skipping such an object is safe: the
+        // collector then does not see its outgoing edges, which only
+        // under-traverses and thus over-approximates liveness (a conservative
+        // keep-alive), never freeing a reachable object. In single-threaded
+        // builds a failure only reflects the current thread's own re-entrant
+        // read, likewise safely skipped.
         if let Some(inner) = self.try_read_recursive() {
             inner.traverse(traverse_fn)
         }

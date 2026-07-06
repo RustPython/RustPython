@@ -487,6 +487,19 @@ impl GcState {
         // (track/untrack/promote) and must be able to release it to reach the
         // safepoint. It could not do so if this thread already held a read
         // lock it was waiting behind — hence the ordering.
+        //
+        // Auto-collection is deferred to a bytecode safepoint (see
+        // `maybe_collect`), where no internal lock is held, so it never stops
+        // the world under a lock. Explicit `gc.collect()` runs synchronously
+        // here; a re-entrant call from a finalizer during an in-progress
+        // collection is turned into a no-op by the `collecting` try_lock above.
+        // The one residual is an explicit `gc.collect()` reached from a
+        // finalizer/`__del__` that runs inline while a non-generation internal
+        // lock is still held (e.g. a container write lock during element
+        // replacement) with another thread blocked on that same lock: stopping
+        // the world then waits for a thread that cannot reach a safepoint.
+        // Closing it fully would require making those locks stop-the-world
+        // aware; the exclusion above only serializes the fork/GC requesters.
         #[cfg(all(unix, feature = "threading"))]
         let mut stw = CollectStopTheWorld::new();
 

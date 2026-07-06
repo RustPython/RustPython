@@ -151,6 +151,11 @@ pub struct StopTheWorldState {
     world_stopped: AtomicBool,
     /// Ident of the thread that requested the stop (like `stw->requester`)
     requester: AtomicU64,
+    /// Single exclusion held for the whole stop→start span. Fork and GC are
+    /// both stop-the-world requesters driving this shared state; only one may
+    /// hold it at a time. Acquired before any stop bookkeeping (see
+    /// `acquire_exclusion`) and released by `start_the_world`/`reset_after_fork`.
+    exclusion: AtomicBool,
     /// Signaled by suspending threads when their state transitions to SUSPENDED
     notify_mutex: std::sync::Mutex<()>,
     notify_cv: std::sync::Condvar,
@@ -209,6 +214,7 @@ impl StopTheWorldState {
             requested: AtomicBool::new(false),
             world_stopped: AtomicBool::new(false),
             requester: AtomicU64::new(0),
+            exclusion: AtomicBool::new(false),
             notify_mutex: std::sync::Mutex::new(()),
             notify_cv: std::sync::Condvar::new(),
             thread_countdown: AtomicI64::new(0),
@@ -336,13 +342,61 @@ impl StopTheWorldState {
         forced_parks != 0 && self.thread_countdown.load(Ordering::Acquire) == 0
     }
 
+    /// Acquire the single stop-the-world exclusion in a park-friendly way.
+    ///
+    /// Fork and GC both request stop-the-world through the same shared state;
+    /// without this exclusion their `requester`/`requested`/countdown words
+    /// could be clobbered by an interleaving requester, so the completion
+    /// check could never converge and a requester would wait on itself forever.
+    ///
+    /// The acquire must be park-friendly. While another requester's stop is in
+    /// progress it sets this thread's stop bit and waits for it to suspend;
+    /// blocking on a plain lock here would keep this thread from ever reaching
+    /// that safepoint, so the active requester would wait for this thread while
+    /// this thread waits for the lock — a deadlock swap. Instead we poll and
+    /// honor the suspend request between tries. This thread holds no other lock
+    /// while spinning (a requester always enters from a clean call site), so
+    /// suspending here is safe: the active requester force-parks this thread,
+    /// finishes its whole stop→start span, releases the exclusion, and only
+    /// then does this thread resume and acquire it.
+    fn acquire_exclusion(&self) {
+        if self
+            .exclusion
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
+            return;
+        }
+        loop {
+            crate::vm::thread::suspend_if_needed(self);
+            std::thread::yield_now();
+            if self
+                .exclusion
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                return;
+            }
+        }
+    }
+
+    /// Release the stop-the-world exclusion taken by `acquire_exclusion`.
+    fn release_exclusion(&self) {
+        self.exclusion.store(false, Ordering::Release);
+    }
+
     /// Stop all non-requester threads (`stop_the_world`).
     ///
     /// 1. Sets `requested`, marking the requester thread.
     /// 2. CAS detached threads to SUSPENDED.
     /// 3. Waits (polling with 1 ms condvar timeout) for attached threads
     ///    to self-suspend in `check_signals`.
+    ///
+    /// Takes the shared exclusion first so at most one requester (fork or GC)
+    /// drives the stop→start span at a time; it is released by
+    /// `start_the_world`/`reset_after_fork`.
     pub fn stop_the_world(&self, vm: &VirtualMachine) {
+        self.acquire_exclusion();
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
@@ -450,6 +504,9 @@ impl StopTheWorldState {
         self.requester.store(0, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(vm);
+        // Release the exclusion last, ending the stop→start span so the next
+        // requester (fork or GC) can proceed.
+        self.release_exclusion();
         stw_trace(format_args!("start end requester={requester}"));
     }
 
@@ -459,6 +516,9 @@ impl StopTheWorldState {
         self.world_stopped.store(false, Ordering::Relaxed);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
+        // The surviving child thread inherited the exclusion taken by the
+        // pre-fork `stop_the_world`; release it (no start_the_world runs here).
+        self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }
 
