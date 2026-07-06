@@ -156,7 +156,7 @@ mod unicodedata {
 
         #[pymethod]
         fn is_normalized(&self, form: NormalizeFormArg, unistr: PyStrRef) -> bool {
-            unicode_core::is_normalized(form.0, unistr.as_bytes())
+            unicode_core::is_normalized(form.0, unistr.as_wtf8())
         }
 
         #[pymethod]

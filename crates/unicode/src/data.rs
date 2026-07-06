@@ -29,8 +29,6 @@ include!(concat!(
 
 #[derive(Clone, Copy)]
 enum DecompositionType {
-    #[allow(unused)]
-    Canonical,
     Compat,
     Circle,
     Final,
@@ -52,7 +50,6 @@ enum DecompositionType {
 impl DecompositionType {
     const fn type_tag(self) -> &'static str {
         match self {
-            Self::Canonical => "canonical",
             Self::Compat => "compat",
             Self::Circle => "circle",
             Self::Final => "final",
