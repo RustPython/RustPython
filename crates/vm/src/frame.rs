@@ -7381,9 +7381,9 @@ impl ExecutingFrame<'_> {
         let b_ref = &self.pop_value();
         let a_ref = &self.pop_value();
         let value = match op {
-            // BINARY_OP_ADD_INT / BINARY_OP_SUBTRACT_INT fast paths:
-            // bypass binary_op1 dispatch for exact int types, use i64 arithmetic
-            // when possible to avoid BigInt heap allocation.
+            // Exact-int fast paths for +, -, *, //, %: bypass binary_op1
+            // dispatch and use i64 arithmetic when possible to avoid BigInt
+            // heap allocation, falling back to the slow path otherwise.
             bytecode::BinaryOperator::Add | bytecode::BinaryOperator::InplaceAdd => {
                 if let (Some(a), Some(b)) = (
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
@@ -7423,8 +7423,33 @@ impl ExecutingFrame<'_> {
             bytecode::BinaryOperator::MatrixMultiply => vm._matmul(a_ref, b_ref),
             bytecode::BinaryOperator::Power => vm._pow(a_ref, b_ref, vm.ctx.none.as_object()),
             bytecode::BinaryOperator::TrueDivide => vm._truediv(a_ref, b_ref),
-            bytecode::BinaryOperator::FloorDivide => vm._floordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::Remainder => vm._mod(a_ref, b_ref),
+            bytecode::BinaryOperator::FloorDivide
+            | bytecode::BinaryOperator::InplaceFloorDivide => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Some(result) = Self::int_floordiv(a.as_bigint(), b.as_bigint(), vm)
+                {
+                    Ok(result)
+                } else if matches!(op, bytecode::BinaryOperator::FloorDivide) {
+                    vm._floordiv(a_ref, b_ref)
+                } else {
+                    vm._ifloordiv(a_ref, b_ref)
+                }
+            }
+            bytecode::BinaryOperator::Remainder | bytecode::BinaryOperator::InplaceRemainder => {
+                if let (Some(a), Some(b)) = (
+                    a_ref.downcast_ref_if_exact::<PyInt>(vm),
+                    b_ref.downcast_ref_if_exact::<PyInt>(vm),
+                ) && let Some(result) = Self::int_mod(a.as_bigint(), b.as_bigint(), vm)
+                {
+                    Ok(result)
+                } else if matches!(op, bytecode::BinaryOperator::Remainder) {
+                    vm._mod(a_ref, b_ref)
+                } else {
+                    vm._imod(a_ref, b_ref)
+                }
+            }
             bytecode::BinaryOperator::Lshift => vm._lshift(a_ref, b_ref),
             bytecode::BinaryOperator::Rshift => vm._rshift(a_ref, b_ref),
             bytecode::BinaryOperator::Xor => vm._xor(a_ref, b_ref),
@@ -7435,8 +7460,6 @@ impl ExecutingFrame<'_> {
                 vm._ipow(a_ref, b_ref, vm.ctx.none.as_object())
             }
             bytecode::BinaryOperator::InplaceTrueDivide => vm._itruediv(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceFloorDivide => vm._ifloordiv(a_ref, b_ref),
-            bytecode::BinaryOperator::InplaceRemainder => vm._imod(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceLshift => vm._ilshift(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceRshift => vm._irshift(a_ref, b_ref),
             bytecode::BinaryOperator::InplaceXor => vm._ixor(a_ref, b_ref),
@@ -7487,6 +7510,69 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn int_mul(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_mul, |a, b| a * b)
+    }
+
+    /// Int divide/remainder i64 fast path. Returns `None` to signal the caller
+    /// to fall through to the slow path when either operand does not fit i64
+    /// or `compute` reports a case it cannot handle (zero divisor or i64
+    /// overflow). Result boxing goes through `new_int` so the small-int cache
+    /// is consulted identically.
+    #[inline]
+    fn int_div_fast_op(
+        a: &BigInt,
+        b: &BigInt,
+        vm: &VirtualMachine,
+        compute: fn(i64, i64) -> Option<i64>,
+    ) -> Option<PyObjectRef> {
+        use num_traits::ToPrimitive;
+        let (av, bv) = (a.to_i64()?, b.to_i64()?);
+        compute(av, bv).map(|r| vm.ctx.new_int(r).into())
+    }
+
+    /// Floor division of two i64 values with floor (toward negative infinity)
+    /// semantics. `None` when `b == 0` or the quotient overflows i64
+    /// (`i64::MIN / -1`).
+    #[inline]
+    fn floordiv_i64(a: i64, b: i64) -> Option<i64> {
+        if b == 0 {
+            return None;
+        }
+        let q = a.checked_div(b)?;
+        let r = a % b;
+        Some(if r != 0 && (r < 0) != (b < 0) {
+            q - 1
+        } else {
+            q
+        })
+    }
+
+    /// Remainder of two i64 values, taking the sign of the divisor. `None`
+    /// when `b == 0` or the operation overflows i64 (`i64::MIN % -1`).
+    #[inline]
+    fn mod_i64(a: i64, b: i64) -> Option<i64> {
+        if b == 0 {
+            return None;
+        }
+        let r = a.checked_rem(b)?;
+        Some(if r != 0 && (r < 0) != (b < 0) {
+            r + b
+        } else {
+            r
+        })
+    }
+
+    /// Int floor division with i64 fast path. `None` falls through to the
+    /// slow path (bigint operands, zero divisor, or i64 overflow).
+    #[inline]
+    fn int_floordiv(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        Self::int_div_fast_op(a, b, vm, Self::floordiv_i64)
+    }
+
+    /// Int remainder with i64 fast path. `None` falls through to the slow
+    /// path (bigint operands, zero divisor, or i64 overflow).
+    #[inline]
+    fn int_mod(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> Option<PyObjectRef> {
+        Self::int_div_fast_op(a, b, vm, Self::mod_i64)
     }
 
     #[cold]
