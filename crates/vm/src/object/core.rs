@@ -188,8 +188,23 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         );
     }
 
-    // Try to store in freelist for reuse BEFORE tp_clear, so that
-    // size-based freelists (e.g. PyTuple) can read the payload directly.
+    // Extract child references to break circular refs (tp_clear), then drop
+    // them. Some payloads (e.g. Frame) drop children in place inside clear_fn
+    // instead of extracting them, so user code (`__del__`) may run here.
+    let mut edges = Vec::new();
+    if let Some(clear_fn) = vtable.clear {
+        unsafe { clear_fn(obj, &mut edges) };
+    }
+    // Drop extracted child references - may trigger recursive destruction.
+    drop(edges);
+
+    // Try to store in freelist for reuse. This must happen AFTER clear_fn and
+    // after the extracted-children drop: both can run user code (`__del__`)
+    // that allocates, and `PyRef::new_ref` pops from the same thread-local
+    // freelist. If the husk were already in the freelist, a reentrant
+    // allocation could pop it and write a fresh payload into it while clear_fn
+    // still holds a `&mut` borrow of that payload (aliasing UB). Pushing only
+    // once no borrows into the payload can be live closes that window.
     // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
     // Published objects (e.g. a tuple stored as a type attribute) must skip the
     // freelist: `PyRef::new_ref` would reuse the slot and overwrite the refcount
@@ -207,20 +222,10 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         false
     };
 
-    // Extract child references to break circular refs (tp_clear).
-    // This runs regardless of freelist push — the object's children must be released.
-    let mut edges = Vec::new();
-    if let Some(clear_fn) = vtable.clear {
-        unsafe { clear_fn(obj, &mut edges) };
-    }
-
     if !pushed {
         // Deallocate the object memory (handles ObjExt prefix if present)
         unsafe { PyInner::dealloc(obj as *mut PyInner<T>) };
     }
-
-    // Drop child references - may trigger recursive destruction.
-    drop(edges);
 
     // Trashcan: decrement depth and process deferred objects at outermost level
     unsafe { trashcan::end() };
@@ -1156,11 +1161,6 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             }))
         }
     }
-}
-
-/// Returns the allocation layout for `PyInner<T>`, for use in freelist Drop impls.
-pub(crate) const fn pyinner_layout<T: PyPayload>() -> core::alloc::Layout {
-    core::alloc::Layout::new::<PyInner<T>>()
 }
 
 /// Thread-local freelist storage for reusing object allocations.
