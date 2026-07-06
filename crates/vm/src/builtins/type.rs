@@ -2702,11 +2702,24 @@ impl Callable for PyType {
             }
         }
 
-        let obj = if let Some(slot_new) = zelf.slots.new.load() {
-            slot_new(zelf.to_owned(), args.clone(), vm)?
-        } else {
+        let Some(slot_new) = zelf.slots.new.load() else {
             return Err(vm.new_type_error(format!("cannot create '{}' instances", zelf.slots.name)));
         };
+
+        // `args` is cloned because both the new and init slots consume it.
+        // Skip the clone when no init call can follow: the class has no init
+        // slot, is not `type` itself, and its new slot is a native function.
+        // new_wrapper is excluded because a Python `__new__` can install an
+        // `__init__` on the class or return an instance of another class
+        // while it runs.
+        if zelf.slots.init.load().is_none()
+            && !zelf.is(vm.ctx.types.type_type)
+            && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize
+        {
+            return slot_new(zelf.to_owned(), args, vm);
+        }
+
+        let obj = slot_new(zelf.to_owned(), args.clone(), vm)?;
 
         if !obj.class().fast_issubclass(zelf) {
             return Ok(obj);
