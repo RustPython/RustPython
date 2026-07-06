@@ -55,6 +55,71 @@ use rustpython_compiler_core::SourceLocation;
 
 pub type FrameRef = PyRef<Frame>;
 
+/// Recover an owned reference to a live chain frame, or `None` for null.
+///
+/// # Safety
+/// A non-null `frame` must reference a frame that is live on the current
+/// thread's execution chain, so the object outlives this call.
+unsafe fn owned_chain_frame(frame: *const Frame) -> Option<FrameRef> {
+    if frame.is_null() {
+        return None;
+    }
+    // SAFETY: caller guarantees the frame is live; from_payload_ptr recovers
+    // the enclosing object from the payload address.
+    let py = unsafe { &*Py::<Frame>::from_payload_ptr(frame) };
+    Some(py.to_owned())
+}
+
+/// The current thread's topmost frame object, if any.
+#[must_use]
+pub fn current_thread_frame() -> Option<FrameRef> {
+    // SAFETY: the chain top executes on this thread, hence is alive.
+    unsafe { owned_chain_frame(crate::vm::thread::get_current_frame()) }
+}
+
+/// The frame `offset` positions below the current thread's top frame (offset 0
+/// is the top), or `None` if the stack is not that deep.
+#[must_use]
+pub fn frame_at_offset(offset: usize) -> Option<FrameRef> {
+    let mut cur = crate::vm::thread::get_current_frame();
+    for _ in 0..offset {
+        if cur.is_null() {
+            return None;
+        }
+        // SAFETY: chain frames are alive on the current thread's stack.
+        cur = unsafe { (*cur).previous_frame() };
+    }
+    // SAFETY: same as above.
+    unsafe { owned_chain_frame(cur) }
+}
+
+/// If `target` is a frame on the current thread's chain, return an owned
+/// reference to it; otherwise `None`. Presence on the chain proves liveness.
+#[must_use]
+pub fn find_owned_chain_frame(target: *const Frame) -> Option<FrameRef> {
+    let mut cur = crate::vm::thread::get_current_frame();
+    while !cur.is_null() {
+        if core::ptr::eq(cur, target) {
+            // SAFETY: a frame on the current thread's chain is alive.
+            return unsafe { owned_chain_frame(cur) };
+        }
+        // SAFETY: chain frames are alive on the current thread's stack.
+        cur = unsafe { (*cur).previous_frame() };
+    }
+    None
+}
+
+/// Invoke `f` for each frame on the current thread's chain, from the topmost
+/// frame down to the bottom.
+pub fn for_each_current_frame(mut f: impl FnMut(&Py<Frame>)) {
+    let mut cur = crate::vm::thread::get_current_frame();
+    while !cur.is_null() {
+        // SAFETY: chain frames are alive on the current thread's stack.
+        f(unsafe { &*Py::<Frame>::from_payload_ptr(cur) });
+        cur = unsafe { (*cur).previous_frame() };
+    }
+}
+
 /// The reason why we might be unwinding a block.
 /// This could be return of function, exception being
 /// raised, a break or continue being hit, etc..

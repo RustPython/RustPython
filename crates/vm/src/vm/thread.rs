@@ -682,14 +682,24 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
 /// Reinitialize thread slot after fork. Called in child process.
 /// Creates a fresh slot and registers it for the current thread,
-/// preserving the current thread's frames from `vm.frames`.
+/// preserving the current thread's frames from the signal-safe frame chain.
 ///
 /// Precondition: `reinit_locks_after_fork()` has already reset all
 /// VmState locks to unlocked.
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::_thread::get_ident();
-    let current_frames: Vec<FramePtr> = vm.frames.borrow().clone();
+    // Rebuild the shared frame stack (bottom-to-top) from the current thread's
+    // frame chain, which walks top-to-bottom via `previous`.
+    let mut current_frames: Vec<FramePtr> = Vec::new();
+    let mut cur = get_current_frame();
+    while !cur.is_null() {
+        // SAFETY: the forking thread's chain frames are alive.
+        let py = unsafe { crate::Py::<Frame>::from_payload_ptr(cur) };
+        current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
+        cur = unsafe { (*cur).previous_frame() };
+    }
+    current_frames.reverse();
     let new_slot = Arc::new(ThreadSlot {
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
@@ -835,7 +845,6 @@ impl VirtualMachine {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
-            frames: RefCell::new(vec![]),
             datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: self.wasm_id.clone(),
             exceptions: RefCell::default(),

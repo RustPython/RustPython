@@ -715,23 +715,16 @@ impl Py<Frame> {
 
     #[pygetset]
     pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
+        #[cfg(not(feature = "threading"))]
+        let _ = vm;
         let previous = self.previous_frame();
         if previous.is_null() {
             return None;
         }
 
-        if let Some(frame) = vm
-            .frames
-            .borrow()
-            .iter()
-            .find(|fp| {
-                // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-                let py: &Self = unsafe { fp.as_ref() };
-                let ptr: *const Frame = &**py;
-                core::ptr::eq(ptr, previous)
-            })
-            .map(|fp| unsafe { fp.as_ref() }.to_owned())
-        {
+        // Look for the caller on the current thread's signal-safe frame chain.
+        // Finding it there proves it is still live on this thread.
+        if let Some(frame) = crate::frame::find_owned_chain_frame(previous) {
             return Some(frame);
         }
 

@@ -278,11 +278,9 @@ mod decl {
                 dump_all_threads(fd, vm);
             } else {
                 puts(fd, "Stack (most recent call first):\n");
-                let frames = vm.frames.borrow();
-                for fp in frames.iter().rev() {
-                    // SAFETY: the frame is alive while it's in the Vec
-                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-                }
+                crate::vm::frame::for_each_current_frame(|frame| {
+                    dump_frame_from_ref(fd, frame);
+                });
             }
         }
 
@@ -318,25 +316,24 @@ mod decl {
                 puts(fd, "\n");
             }
 
-            // Now dump current thread (use vm.frames for most up-to-date data)
+            // Now dump current thread from its live frame chain.
             write_thread_id(fd, current_tid, true);
-            let frames = vm.frames.borrow();
-            if frames.is_empty() {
+            if crate::vm::vm::thread::get_current_frame().is_null() {
                 puts(fd, "  <no Python frame>\n");
             } else {
-                for fp in frames.iter().rev() {
-                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-                }
+                crate::vm::frame::for_each_current_frame(|frame| {
+                    dump_frame_from_ref(fd, frame);
+                });
             }
         }
 
         #[cfg(not(feature = "threading"))]
         {
+            let _ = vm;
             write_thread_id(fd, current_thread_id(), true);
-            let frames = vm.frames.borrow();
-            for fp in frames.iter().rev() {
-                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-            }
+            crate::vm::frame::for_each_current_frame(|frame| {
+                dump_frame_from_ref(fd, frame);
+            });
         }
     }
 

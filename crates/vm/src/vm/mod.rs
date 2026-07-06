@@ -74,7 +74,6 @@ pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
-    pub frames: RefCell<Vec<FramePtr>>,
     /// Thread-local data stack for bump-allocating frame-local data
     /// (localsplus arrays for non-generator frames).
     datastack: core::cell::UnsafeCell<crate::datastack::DataStack>,
@@ -122,8 +121,9 @@ impl FramePtr {
     }
 }
 
-// SAFETY: FramePtr is only stored in the VM's frames Vec while the corresponding
-// FrameRef is alive on the call stack. The Vec is always empty when the VM moves between threads.
+// SAFETY: FramePtr is only stored in a thread's shared frame stack
+// (`ThreadSlot::frames`) while the corresponding FrameRef is alive on that
+// thread's call stack; readers dereference it under the slot mutex.
 unsafe impl Send for FramePtr {}
 
 #[derive(Debug)]
@@ -856,7 +856,6 @@ impl VirtualMachine {
             builtins,
             sys_module,
             ctx,
-            frames: RefCell::new(vec![]),
             datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: None,
             exceptions: RefCell::default(),
@@ -1702,12 +1701,12 @@ impl VirtualMachine {
             // SAFETY: `frame` (FrameRef) stays alive for the entire closure scope,
             // keeping the FramePtr valid. We pass a clone to `f` so that `f`
             // consuming its FrameRef doesn't invalidate our pointer.
-            let fp = FramePtr(NonNull::from(&*frame));
-            self.frames.borrow_mut().push(fp);
-            // Update the shared frame stack for sys._current_frames() and faulthandler
+            // Publish the frame for sys._current_frames() and faulthandler.
             #[cfg(feature = "threading")]
-            crate::vm::thread::push_thread_frame(fp);
-            // Link frame into the signal-safe frame chain (previous pointer)
+            crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
+            // Link frame into the signal-safe frame chain (previous pointer).
+            // This chain is the single source for the current thread's frame
+            // stack (current_frame, sys._getframe, f_back, monitoring).
             let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
             frame.previous.store(
                 old_frame as *mut Frame,
@@ -1730,7 +1729,6 @@ impl VirtualMachine {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
                 self.restore_exception(saved_exc);
                 crate::vm::thread::set_current_frame(old_frame);
-                self.frames.borrow_mut().pop();
                 #[cfg(feature = "threading")]
                 crate::vm::thread::pop_thread_frame();
             }
@@ -1759,10 +1757,8 @@ impl VirtualMachine {
         self.recursion_depth.update(|d| d + 1);
 
         // SAFETY: frame (&FrameRef) stays alive for the duration, so NonNull is valid until pop.
-        let fp = FramePtr(NonNull::from(&**frame));
-        self.frames.borrow_mut().push(fp);
         #[cfg(feature = "threading")]
-        crate::vm::thread::push_thread_frame(fp);
+        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let old_frame = crate::vm::thread::set_current_frame((&***frame) as *const Frame);
         frame.previous.store(
             old_frame as *mut Frame,
@@ -1783,7 +1779,6 @@ impl VirtualMachine {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
             crate::vm::thread::set_current_frame(old_frame);
-            self.frames.borrow_mut().pop();
             #[cfg(feature = "threading")]
             crate::vm::thread::pop_thread_frame();
 
@@ -1874,10 +1869,7 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameRef> {
-        self.frames.borrow().last().map(|fp| {
-            // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-            unsafe { fp.as_ref() }.to_owned()
-        })
+        crate::frame::current_thread_frame()
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {

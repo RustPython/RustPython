@@ -2133,6 +2133,19 @@ impl<T: PyPayload> Py<T> {
     pub fn payload(&self) -> &T {
         &self.0.payload
     }
+
+    /// Recover the object pointer from a pointer to its `payload` field.
+    ///
+    /// # Safety
+    /// `payload` must point to the `payload` of a live `Py<T>` (e.g. a `&T`
+    /// obtained by dereferencing a `Py<T>`), and the object must outlive the
+    /// returned pointer's use.
+    #[inline]
+    pub(crate) unsafe fn from_payload_ptr(payload: *const T) -> *const Self {
+        let offset = core::mem::offset_of!(PyInner<T>, payload);
+        // `Py<T>` is a newtype over `PyInner<T>`, so their addresses coincide.
+        unsafe { (payload as *const u8).sub(offset) as *const Self }
+    }
 }
 
 impl<T> ToOwned for Py<T> {
