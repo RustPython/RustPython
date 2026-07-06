@@ -600,7 +600,13 @@ impl Py<PyFunction> {
             // reference cycle through their owning generator, so they must
             // participate in the GC. They were created untracked
             // (NEW_REF_UNTRACKED); track them now, before the back-reference
-            // is installed.
+            // is installed. Their localsplus is heap-backed by construction
+            // (use_datastack == false), so a collector never reads data-stack
+            // storage when it traverses them.
+            debug_assert!(
+                !frame.localsplus_is_datastack_backed(),
+                "generator frame is data-stack-backed"
+            );
             // SAFETY: the frame is alive (held by `frame`) and untracked.
             unsafe {
                 crate::gc_state::gc_state()

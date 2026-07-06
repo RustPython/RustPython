@@ -282,6 +282,12 @@ impl LocalsPlus {
         }
     }
 
+    /// Whether the backing storage still lives on the thread data stack (a
+    /// running call frame that has not been materialized onto the heap).
+    fn is_datastack_backed(&self) -> bool {
+        matches!(self.data, LocalsPlusData::DataStack { .. })
+    }
+
     /// Stack capacity (max stack depth).
     #[inline(always)]
     fn stack_capacity(&self) -> usize {
@@ -783,6 +789,19 @@ unsafe impl Traverse for Frame {
         // collector stops the world around the traversal phases, and in
         // single-threaded builds there is no other thread. A cleared frame
         // (iframe == None) has no children to visit.
+        //
+        // Invariant (load-bearing for the untracked-frame optimization): every
+        // reference *to* a frame is recorded as a graph edge by
+        // `PyRef<Frame>::traverse` — no other type's `traverse` recurses into a
+        // frame's payload. So the collector reads a frame's `localsplus` only
+        // when the frame is itself a tracked candidate. Tracked datastack
+        // frames are tracked only at `release_datastack_frame`, after they stop
+        // executing and their localsplus is materialized onto the heap; tracked
+        // generator frames are heap-backed by construction and their execution
+        // is stopped-the-world. Hence a running, data-stack-resident frame is
+        // never traversed by a concurrent collector. If a future change makes
+        // some type's `traverse` recurse into a frame payload, this invariant
+        // (and the debug asserts at the track sites) breaks.
         let Some(iframe) = (unsafe { &*self.iframe.get() }) else {
             return;
         };
@@ -937,6 +956,15 @@ impl Frame {
     /// `VirtualMachine::datastack_pop()`.
     pub(crate) unsafe fn release_localsplus(&self) -> Option<*mut u8> {
         unsafe { self.iframe_mut().localsplus.release_datastack() }
+    }
+
+    /// Whether this frame's localsplus is still data-stack-backed. A frame
+    /// must have heap-backed localsplus before it is GC-tracked so that a
+    /// concurrent collector never reads data-stack-resident, still-mutating
+    /// storage. Used only in debug assertions at the track sites.
+    pub(crate) fn localsplus_is_datastack_backed(&self) -> bool {
+        // SAFETY: called at a track site where the frame is not executing.
+        unsafe { self.iframe_ref().localsplus.is_datastack_backed() }
     }
 
     /// Clear evaluation stack and state-owned cell/free references.
@@ -1463,6 +1491,16 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
             vm.datastack_pop(base);
         }
     }
+    // Invariant guarding the K5 race: a tracked frame must always have
+    // heap-backed localsplus (proven here for escaped datastack frames and by
+    // construction for generator frames, which are born heap-backed). The
+    // collector reads a frame's localsplus only when the frame is a tracked
+    // candidate, so this keeps it from ever reading data-stack-resident,
+    // still-mutating storage.
+    debug_assert!(
+        !frame.localsplus_is_datastack_backed(),
+        "escaped frame tracked before its localsplus was materialized"
+    );
     // SAFETY: the frame is alive (held by `frame` and the escaped reference)
     // and untracked.
     unsafe { crate::gc_state::gc_state().track_object(NonNull::from(frame_obj)) };
