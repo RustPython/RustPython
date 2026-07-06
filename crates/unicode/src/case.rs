@@ -55,3 +55,15 @@ impl core::fmt::Write for FmtWriter<'_> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::casefold_str;
+
+    #[test]
+    fn casefold_full_mappings() {
+        // ß case-folds to "ss"
+        assert_eq!(casefold_str("ß"), "ss");
+        assert_eq!(casefold_str("Σ"), "σ");
+    }
+}

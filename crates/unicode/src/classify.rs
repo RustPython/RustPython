@@ -91,3 +91,26 @@ pub fn is_repr_printable(c: char) -> bool {
             | GeneralCategory::Unassigned
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{is_decimal, is_digit, is_numeric};
+
+    #[test]
+    fn numeric_type_chain_holds() {
+        // isdecimal ⊂ isdigit ⊂ isnumeric
+        for c in ('\0'..='\u{2FFFF}').filter_map(|c| char::from_u32(c as u32)) {
+            if is_decimal(c) {
+                assert!(is_digit(c), "{c:?} decimal but not digit");
+            }
+            if is_digit(c) {
+                assert!(is_numeric(c), "{c:?} digit but not numeric");
+            }
+        }
+        assert!(is_decimal('5'));
+        assert!(!is_decimal('²'));
+        assert!(is_digit('²'));
+        assert!(!is_digit('⅓'));
+        assert!(is_numeric('⅓'));
+    }
+}

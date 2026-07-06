@@ -21,7 +21,17 @@ pub fn is_start(c: char) -> bool {
 }
 
 /// Whether `c` may continue a Python identifier: `XID_Continue`.
-#[must_use]
-pub fn is_continue(c: char) -> bool {
-    is_xid_continue(c)
+pub use is_xid_continue as is_continue;
+
+#[cfg(test)]
+mod tests {
+    use super::{is_continue, is_start};
+
+    #[test]
+    fn identifier_predicates() {
+        assert!(is_start('_'));
+        assert!(is_start('가'));
+        assert!(!is_start('1'));
+        assert!(is_continue('1'));
+    }
 }

@@ -71,3 +71,19 @@ pub fn is_normalized(form: NormalizeForm, bytes: &[u8]) -> bool {
         NormalizeForm::Nfkd => DecomposingNormalizerBorrowed::new_nfkd().is_normalized_utf8(bytes),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use rustpython_wtf8::Wtf8Buf;
+
+    use super::{NormalizeForm, is_normalized, normalize};
+
+    #[test]
+    fn normalization_round_trips() {
+        let composed = Wtf8Buf::from("é");
+        let decomposed = normalize(NormalizeForm::Nfd, &composed);
+        assert_eq!(normalize(NormalizeForm::Nfc, &decomposed), composed);
+        assert!(is_normalized(NormalizeForm::Nfc, "é".as_bytes()));
+        assert!(!is_normalized(NormalizeForm::Nfd, "é".as_bytes()));
+    }
+}

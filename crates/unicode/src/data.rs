@@ -28,7 +28,6 @@ include!(concat!(
 ));
 
 #[derive(Clone, Copy)]
-#[repr(u8)]
 enum DecompositionType {
     #[allow(unused)]
     Canonical,
@@ -126,10 +125,7 @@ pub fn unicode_version() -> String {
 }
 
 /// Look up a character by its Unicode name (`unicodedata.lookup`).
-#[must_use]
-pub fn lookup_character(name: &str) -> Option<char> {
-    unicode_names2::character(name)
-}
+pub use unicode_names2::character as lookup_character;
 
 /// The Unicode name of `ch` (`unicodedata.name`), if any.
 #[must_use]
@@ -344,5 +340,35 @@ impl Ucd {
         } else {
             "3.2.0".into()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rustpython_wtf8::CodePoint;
+
+    use super::{Ucd, character_name, lookup_character};
+
+    fn cp(ch: char) -> CodePoint {
+        CodePoint::from(ch)
+    }
+
+    #[test]
+    fn data_queries_match_unicodedata_behavior() {
+        let ucd = Ucd::new(true);
+        assert_eq!(ucd.category(cp('A')), "Lu");
+        assert_eq!(ucd.category(CodePoint::from_u32(0xD800).unwrap()), "Cs");
+        assert_eq!(lookup_character("SNOWMAN"), Some('☃'));
+        assert_eq!(character_name('☃').as_deref(), Some("SNOWMAN"));
+        assert_eq!(ucd.decimal(cp('५')), Some(5));
+        assert_eq!(ucd.digit(cp('²')), Some(2));
+        let third = ucd.numeric(cp('⅓')).unwrap();
+        assert!((third - 1.0 / 3.0).abs() < 1e-6, "got {third}");
+    }
+
+    #[test]
+    fn ucd_3_2_0_view_differs_from_modern() {
+        let legacy = Ucd::new(false);
+        assert_eq!(legacy.unidata_version(), "3.2.0");
     }
 }
