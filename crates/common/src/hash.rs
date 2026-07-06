@@ -50,6 +50,14 @@ impl HashSecret {
         Self { k0, k1 }
     }
 
+    /// Build a secret from explicit SipHash keys, bypassing seed derivation.
+    /// Lets an embedder reproduce a fixed keying (e.g. a deterministic run) that
+    /// [`new`](Self::new) cannot express through its `u32` seed.
+    #[must_use]
+    pub const fn from_keys(k0: u64, k1: u64) -> Self {
+        Self { k0, k1 }
+    }
+
     pub fn hash_value<T: Hash + ?Sized>(&self, data: &T) -> PyHash {
         fix_sentinel(mod_int(self.hash_one(data) as _))
     }
@@ -294,5 +302,35 @@ impl FrozenSetHash {
             hash = 590923713;
         }
         hash as PyHash
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_keys_is_stable_and_seed_independent() {
+        const K0: u64 = 0x0706_0504_0302_0100;
+        const K1: u64 = 0x0f0e_0d0c_0b0a_0908;
+        const LOCKED_DIGEST: PyHash = -1862661396243998188;
+
+        // Two secrets built from the same explicit keys hash identically, and
+        // the digest does not depend on the seed-derivation path.
+        let a = HashSecret::from_keys(K0, K1);
+        let b = HashSecret::from_keys(K0, K1);
+        assert_eq!(a.hash_str("hello"), b.hash_str("hello"));
+        assert_eq!(a.hash_bytes(b"a fixed message"), b.hash_bytes(b"a fixed message"));
+
+        // Explicit keys drive the SipHasher-2-4 directly. `keyed_hash` pins
+        // k1 = 0, so a secret built with the same k0 and k1 = 0 must reproduce
+        // its raw digest.
+        let zero_k1 = HashSecret::from_keys(K0, 0);
+        let mut hasher = zero_k1.build_hasher();
+        b"payload".hash(&mut hasher);
+        assert_eq!(keyed_hash(K0, b"payload"), hasher.finish());
+
+        // Locked digest so an accidental keying change is caught.
+        assert_eq!(a.hash_str("determinism"), LOCKED_DIGEST);
     }
 }
