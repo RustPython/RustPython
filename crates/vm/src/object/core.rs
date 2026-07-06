@@ -2495,7 +2495,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
 
         let type_payload = PyType {
-            base: None,
+            base: None.into(),
             bases: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
@@ -2506,7 +2506,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             abc_tpflags: core::sync::atomic::AtomicU64::new(0),
         };
         let object_payload = PyType {
-            base: None,
+            base: None.into(),
             bases: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
@@ -2591,7 +2591,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             (*object_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
 
             (*type_type_ptr).payload.bases = PyRwLock::new(vec![object_type.clone()]);
-            (*type_type_ptr).payload.base = Some(object_type.clone());
+            (*type_type_ptr).payload.base = Some(object_type.clone()).into();
 
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
             // type's mro is [type, object]
@@ -2603,7 +2603,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     };
 
     let weakref_type = PyType {
-        base: Some(object_type.clone()),
+        base: Some(object_type.clone()).into(),
         bases: PyRwLock::new(vec![object_type.clone()]),
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),

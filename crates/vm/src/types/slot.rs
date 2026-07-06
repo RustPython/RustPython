@@ -866,7 +866,7 @@ impl PyType {
                     self.slots.new.store(Some(new_wrapper));
                     self.slots.vectorcall.store(None);
                 } else {
-                    let inherited = self.base.as_ref().and_then(|base| base.slots.new.load());
+                    let inherited = self.base.deref().and_then(|base| base.slots.new.load());
                     self.slots.new.store(inherited);
                 }
             }

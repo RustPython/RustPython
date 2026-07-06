@@ -44,7 +44,8 @@ use std::collections::HashSet;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
-    pub base: Option<PyTypeRef>,
+    /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
+    pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<Vec<PyTypeRef>>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
@@ -237,7 +238,9 @@ pub unsafe fn type_cache_after_fork() {
 
 unsafe impl crate::object::Traverse for PyType {
     fn traverse(&self, tracer_fn: &mut crate::object::TraverseFn<'_>) {
-        self.base.traverse(tracer_fn);
+        if let Some(base) = self.base.deref() {
+            tracer_fn(base.as_object());
+        }
         self.bases.traverse(tracer_fn);
         self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
@@ -253,7 +256,8 @@ unsafe impl crate::object::Traverse for PyType {
 
     /// type_clear: break reference cycles in type objects
     fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
-        if let Some(base) = self.base.take() {
+        // SAFETY: tp_clear runs with exclusive access to the type object.
+        if let Some(base) = unsafe { self.base.swap(None) } {
             out.push(base.into());
         }
         if let Some(mut guard) = self.bases.try_write() {
@@ -808,7 +812,7 @@ impl PyType {
         let inherited_abc_tpflags = Self::inherited_abc_tpflags(&bases);
         let new_type = PyRef::new_ref(
             Self {
-                base: Some(base),
+                base: Some(base).into(),
                 bases: PyRwLock::new(bases),
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
@@ -872,7 +876,7 @@ impl PyType {
 
         let new_type = PyRef::new_ref(
             Self {
-                base: Some(base),
+                base: Some(base).into(),
                 bases,
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
@@ -899,8 +903,8 @@ impl PyType {
         // Note: inherit_slots is called in PyClassImpl::init_class after
         // slots are fully initialized by make_slots()
 
-        Self::set_new(&new_type.slots, new_type.base.as_ref());
-        Self::set_alloc(&new_type.slots, new_type.base.as_ref());
+        Self::set_new(&new_type.slots, new_type.base.deref());
+        Self::set_alloc(&new_type.slots, new_type.base.deref());
 
         let weakref_type = super::PyWeak::static_type();
         for base in new_type.bases.read().iter() {
@@ -946,11 +950,11 @@ impl PyType {
             self.update_slot::<true>(attr_name, ctx);
         }
 
-        Self::set_new(&self.slots, self.base.as_ref());
-        Self::set_alloc(&self.slots, self.base.as_ref());
+        Self::set_new(&self.slots, self.base.deref());
+        Self::set_alloc(&self.slots, self.base.deref());
     }
 
-    fn set_new(slots: &PyTypeSlots, base: Option<&PyTypeRef>) {
+    fn set_new(slots: &PyTypeSlots, base: Option<&Py<Self>>) {
         if slots.flags.contains(PyTypeFlags::DISALLOW_INSTANTIATION) {
             slots.new.store(None)
         } else if slots.new.load().is_none() {
@@ -958,7 +962,7 @@ impl PyType {
         }
     }
 
-    fn set_alloc(slots: &PyTypeSlots, base: Option<&PyTypeRef>) {
+    fn set_alloc(slots: &PyTypeSlots, base: Option<&Py<Self>>) {
         if slots.alloc.load().is_none() {
             slots
                 .alloc
@@ -1411,7 +1415,7 @@ impl Py<PyType> {
     }
 
     pub fn iter_base_chain(&self) -> impl Iterator<Item = &Self> {
-        core::iter::successors(Some(self), |cls| cls.base.as_deref())
+        core::iter::successors(Some(self), |cls| cls.base.deref())
     }
 
     pub fn extend_methods(&'static self, method_defs: &'static [PyMethodDef], ctx: &Context) {
@@ -1458,36 +1462,114 @@ impl PyType {
         }
         if bases.is_empty() {
             return Err(vm.new_type_error(format!(
-                "can only assign non-empty tuple to %s.__bases__, not {}",
+                "can only assign non-empty tuple to {}.__bases__, not ()",
                 zelf.name()
             )));
         }
 
         // TODO: check for mro cycles
+        // TODO: check layout compatibility between the old and new solid base
 
-        // TODO: Remove this class from all subclass lists
-        // for base in self.bases.read().iter() {
-        //     let subclasses = base.subclasses.write();
-        //     // TODO: how to uniquely identify the subclasses to remove?
-        // }
+        // Compute the new solid base before committing anything. This also
+        // validates the new bases (BASETYPE flag, no instance layout
+        // conflict), the same checks type creation performs.
+        let new_base = best_base(&bases, vm)?.to_owned();
 
-        Self::with_type_lock(vm, || {
-            *zelf.bases.write() = bases;
-            // Recursively update the mros of this class and all subclasses
-            fn update_mro_recursively(cls: &PyType, vm: &VirtualMachine) -> PyResult<()> {
+        // References released inside the critical section are collected here
+        // and dropped after the lock: dropping them inside can run arbitrary
+        // code that re-acquires the non-reentrant type mutex.
+        let mut retired: Vec<PyObjectRef> = Vec::new();
+
+        // A base swapped out of `zelf.base` may still be observed by
+        // concurrent lock-free readers; keep it alive in the frame's
+        // temporary refs so they never see a dangling pointer.
+        let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
+            if let Some(frame) = vm.current_frame() {
+                frame.temporary_refs.lock().push(type_ref.into());
+            } else {
+                retired.push(type_ref.into());
+            }
+        };
+
+        // Register this type as a subclass of the given bases
+        let register_subclasses = |bases: &[PyTypeRef]| {
+            let weakref_type = super::PyWeak::static_type();
+            for base in bases {
+                base.subclasses.write().push(
+                    zelf.as_object()
+                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
+                        .unwrap(),
+                );
+            }
+        };
+
+        let result = Self::with_type_lock(vm, || {
+            // Remove this class from the old bases' subclass lists, pruning
+            // dead entries along the way. Upgraded refs are retired so the
+            // last strong reference is never dropped under the lock.
+            for base in zelf.bases.read().iter() {
+                let mut subclasses = base.subclasses.write();
+                let mut kept = Vec::with_capacity(subclasses.len());
+                for weak in subclasses.drain(..) {
+                    match weak.upgrade() {
+                        Some(obj) if obj.is(zelf.as_object()) => {
+                            retired.push(obj);
+                            retired.push(weak.into());
+                        }
+                        Some(obj) => {
+                            retired.push(obj);
+                            kept.push(weak);
+                        }
+                        None => retired.push(weak.into()),
+                    }
+                }
+                *subclasses = kept;
+            }
+
+            let old_bases = core::mem::replace(&mut *zelf.bases.write(), bases);
+            let old_base = unsafe { zelf.base.swap(Some(new_base)) };
+
+            // Recursively update the mros of this class and all subclasses,
+            // recording the previous mros so a failure can be rolled back.
+            fn update_mro_recursively(
+                cls: &Py<PyType>,
+                undo: &mut Vec<(PyTypeRef, Vec<PyTypeRef>)>,
+                vm: &VirtualMachine,
+            ) -> PyResult<()> {
                 let mut mro =
                     PyType::resolve_mro(&cls.bases.read()).map_err(|msg| vm.new_type_error(msg))?;
                 // Preserve self (mro[0]) when updating MRO
                 mro.insert(0, cls.mro.read()[0].to_owned());
-                *cls.mro.write() = mro;
+                let old_mro = core::mem::replace(&mut *cls.mro.write(), mro);
+                undo.push((cls.to_owned(), old_mro));
                 for subclass in cls.subclasses.read().iter() {
                     let subclass = subclass.upgrade().unwrap();
                     let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
-                    update_mro_recursively(subclass, vm)?;
+                    update_mro_recursively(subclass, undo, vm)?;
                 }
                 Ok(())
             }
-            update_mro_recursively(zelf, vm)?;
+            let mut undo = Vec::new();
+            if let Err(err) = update_mro_recursively(zelf, &mut undo, vm) {
+                // Roll back to the previous state
+                for (cls, old_mro) in undo {
+                    let failed_mro = core::mem::replace(&mut *cls.mro.write(), old_mro);
+                    retired.extend(failed_mro.into_iter().map(Into::into));
+                    retired.push(cls.into());
+                }
+                let failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
+                if let Some(failed_base) = unsafe { zelf.base.swap(old_base) } {
+                    keep_alive(failed_base, &mut retired);
+                }
+                register_subclasses(&zelf.bases.read());
+                retired.extend(failed_bases.into_iter().map(Into::into));
+                zelf.modified_inner();
+                return Err(err);
+            }
+            retired.extend(old_bases.into_iter().map(Into::into));
+            if let Some(old_base) = old_base {
+                keep_alive(old_base, &mut retired);
+            }
 
             // Invalidate inline caches
             zelf.modified_inner();
@@ -1495,24 +1577,16 @@ impl PyType {
             // TODO: do any old slots need to be cleaned up first?
             zelf.init_slots(&vm.ctx);
 
-            // Register this type as a subclass of its new bases
-            let weakref_type = super::PyWeak::static_type();
-            for base in zelf.bases.read().iter() {
-                base.subclasses.write().push(
-                    zelf.as_object()
-                        .downgrade_with_weakref_typ_opt(None, weakref_type.to_owned())
-                        .unwrap(),
-                );
-            }
+            register_subclasses(&zelf.bases.read());
             Ok(())
-        })?;
-
-        Ok(())
+        });
+        drop(retired);
+        result
     }
 
     #[pygetset]
     fn __base__(&self) -> Option<PyTypeRef> {
-        self.base.clone()
+        self.base.to_owned()
     }
 
     #[pygetset]
@@ -2947,8 +3021,8 @@ pub(crate) fn call_slot_new(
     // that's not a heap type is this type.
     let mut staticbase = subtype.clone();
     while staticbase.slots.flags.has_feature(PyTypeFlags::HEAPTYPE) {
-        if let Some(base) = staticbase.base.as_ref() {
-            staticbase = base.clone();
+        if let Some(base) = staticbase.base.to_owned() {
+            staticbase = base;
         } else {
             break;
         }
@@ -3080,7 +3154,7 @@ fn shape_differs(t1: &Py<PyType>, t2: &Py<PyType>) -> bool {
 }
 
 fn solid_base<'a>(typ: &'a Py<PyType>, vm: &VirtualMachine) -> &'a Py<PyType> {
-    let base = if let Some(base) = &typ.base {
+    let base = if let Some(base) = typ.base.deref() {
         solid_base(base, vm)
     } else {
         vm.ctx.types.object_type

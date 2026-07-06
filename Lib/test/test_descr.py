@@ -4199,7 +4199,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         else:
             self.fail("best_base calculation found wanting")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unsubclassable_types(self):
         with self.assertRaises(TypeError):
             class X(type(None)):
