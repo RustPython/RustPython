@@ -1543,7 +1543,10 @@ impl PyType {
                 let old_mro = core::mem::replace(&mut *cls.mro.write(), mro);
                 undo.push((cls.to_owned(), old_mro));
                 for subclass in cls.subclasses.read().iter() {
-                    let subclass = subclass.upgrade().unwrap();
+                    // Dead entries are pruned elsewhere; skip them here.
+                    let Some(subclass) = subclass.upgrade() else {
+                        continue;
+                    };
                     let subclass: &Py<PyType> = subclass.downcast_ref().unwrap();
                     update_mro_recursively(subclass, undo, vm)?;
                 }
@@ -1551,8 +1554,10 @@ impl PyType {
             }
             let mut undo = Vec::new();
             if let Err(err) = update_mro_recursively(zelf, &mut undo, vm) {
-                // Roll back to the previous state
-                for (cls, old_mro) in undo {
+                // Roll back to the previous state. A class reachable through
+                // multiple bases is recorded once per visit, so restore in
+                // reverse to end with the first-recorded (original) mro.
+                for (cls, old_mro) in undo.into_iter().rev() {
                     let failed_mro = core::mem::replace(&mut *cls.mro.write(), old_mro);
                     retired.extend(failed_mro.into_iter().map(Into::into));
                     retired.push(cls.into());
@@ -1565,6 +1570,12 @@ impl PyType {
                 retired.extend(failed_bases.into_iter().map(Into::into));
                 zelf.modified_inner();
                 return Err(err);
+            }
+            // Retire the replaced mros as well; dropping them here would
+            // release them while the lock is held.
+            for (cls, old_mro) in undo {
+                retired.extend(old_mro.into_iter().map(Into::into));
+                retired.push(cls.into());
             }
             retired.extend(old_bases.into_iter().map(Into::into));
             if let Some(old_base) = old_base {
