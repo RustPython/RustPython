@@ -222,7 +222,8 @@ pub(crate) fn type_cache_clear() {
 ///
 /// If fork happens while a writer holds an entry SeqLock, the child inherits
 /// the odd sequence value with no surviving writer to release it. Clear only
-/// those in-progress entries, matching CPython's `_PyTypes_AfterFork()`.
+/// those in-progress entries, matching `_PyTypes_AfterFork()`.
+#[cfg(all(feature = "host_env", unix))]
 pub(crate) unsafe fn type_cache_after_fork() {
     for entry in TYPE_CACHE.iter() {
         let seq = entry.sequence.load(Ordering::Relaxed);
@@ -528,7 +529,7 @@ impl PyType {
         let subclasses = self.subclasses.read();
         for weak_ref in subclasses.iter() {
             if let Some(sub) = weak_ref.upgrade() {
-                sub.downcast_ref::<PyType>().unwrap().modified_inner();
+                sub.downcast_ref::<Self>().unwrap().modified_inner();
             }
         }
         self.tp_version_tag.store(0, Ordering::SeqCst);
