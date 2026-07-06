@@ -81,6 +81,8 @@
     "opargs",
     "pyc",
     "reborrow",
+    "reborrows",
+    "reparenting",
     "reraises",
     "reraising",
     "significand",

@@ -1479,7 +1479,7 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
         }
         return;
     }
-    // Escaped. Stabilise localsplus on the heap FIRST, then join the GC. This
+    // Escaped. Stabilize localsplus on the heap FIRST, then join the GC. This
     // order guarantees a concurrent (stop-the-world) collector only ever sees a
     // tracked frame whose localsplus is heap-resident and no longer mutating:
     // the frame has stopped executing before it becomes a candidate, so its
@@ -8466,7 +8466,11 @@ impl ExecutingFrame<'_> {
                             && let Some(getitem) = getitem
                             && let Some(func) = getitem.downcast_ref_if_exact::<PyFunction>(vm)
                             && func.can_specialize_call(2)
-                            && cls.cache_getitem_for_specialization(func.to_owned(), type_version, vm)
+                            && cls.cache_getitem_for_specialization(
+                                func.to_owned(),
+                                type_version,
+                                vm,
+                            )
                         {
                             // Record the type version so the specialized handler
                             // can revalidate before using the cached __getitem__.

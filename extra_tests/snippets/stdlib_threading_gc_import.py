@@ -13,9 +13,9 @@ regression shows up as a hang (the importer threads never finishing).
 """
 
 import gc
+import importlib
 import sys
 import threading
-import importlib
 
 gc.enable()
 stop = threading.Event()

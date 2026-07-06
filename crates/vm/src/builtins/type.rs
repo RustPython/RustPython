@@ -3278,33 +3278,32 @@ fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>) -> bool {
     }
 }
 
-/// Validates that instances of `oldto` and `newto` share an interchangeable
+/// Validates that instances of `old_to` and `new_to` share an interchangeable
 /// object layout, the check `__class__` and `__bases__` assignment perform.
 ///
 /// `attr` names the attribute being assigned for the error message; the
-/// message reports `newto` first and `oldto` second.
+/// message reports `new_to` first and `old_to` second.
 pub(crate) fn compatible_for_assignment(
-    oldto: &Py<PyType>,
-    newto: &Py<PyType>,
+    old_to: &Py<PyType>,
+    new_to: &Py<PyType>,
     attr: &str,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    let newbase = layout_solid_base(newto);
-    let oldbase = layout_solid_base(oldto);
+    let newbase = layout_solid_base(new_to);
+    let oldbase = layout_solid_base(old_to);
     let bases_equal = match (newbase.base.deref(), oldbase.base.deref()) {
         (Some(x), Some(y)) => x.is(y),
         (None, None) => true,
         _ => false,
     };
-    let compatible =
-        newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase));
+    let compatible = newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase));
     if compatible {
         return Ok(());
     }
     Err(vm.new_type_error(format!(
         "{attr} assignment: '{}' object layout differs from '{}'",
-        newto.name(),
-        oldto.name()
+        new_to.name(),
+        old_to.name()
     )))
 }
 

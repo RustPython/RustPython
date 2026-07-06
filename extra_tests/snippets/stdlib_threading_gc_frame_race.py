@@ -52,6 +52,7 @@ def gen_worker():
 
 def make_frame_cycles(n):
     for _ in range(n):
+
         def inner():
             fr = sys._getframe()
             box = {"fr": fr}
