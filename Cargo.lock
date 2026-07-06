@@ -1791,6 +1791,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8b4baf93f58d4425749ca49a51c50ebab072c5df6994d08fed93541c331481dc"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3276,7 +3285,7 @@ name = "rustpython-capi"
 version = "0.5.0"
 dependencies = [
  "bitflags 2.13.0",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "libc",
  "malachite-bigint",
  "num-complex",
@@ -3292,7 +3301,7 @@ version = "0.5.0"
 dependencies = [
  "bitflags 2.13.0",
  "indexmap",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "log",
  "malachite-bigint",
  "memchr",
@@ -3316,7 +3325,7 @@ dependencies = [
  "ascii",
  "bitflags 2.13.0",
  "getrandom 0.4.3",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "libc",
  "lock_api",
  "malachite-base",
@@ -3351,7 +3360,7 @@ version = "0.5.0"
 dependencies = [
  "bitflags 2.13.0",
  "bitflagset",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "lz4_flex",
  "malachite-bigint",
  "num-complex",
@@ -3381,7 +3390,7 @@ dependencies = [
 name = "rustpython-derive-impl"
 version = "0.5.0"
 dependencies = [
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "proc-macro2",
  "quote",
  "rustpython-compiler-core",
@@ -3566,7 +3575,7 @@ dependencies = [
  "icu_properties",
  "indexmap",
  "insta",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "libc",
  "libsqlite3-sys",
  "libz-rs-sys",
@@ -3648,7 +3657,7 @@ dependencies = [
  "icu_properties",
  "indexmap",
  "is-macro",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "libc",
  "log",
  "malachite-bigint",
@@ -3696,7 +3705,7 @@ version = "0.5.0"
 dependencies = [
  "ascii",
  "bstr",
- "itertools 0.14.0",
+ "itertools 0.15.0",
  "memchr",
 ]
 
