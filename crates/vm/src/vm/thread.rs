@@ -1,4 +1,4 @@
-#[cfg(feature = "threading")]
+#[cfg(all(not(unix), feature = "threading"))]
 use super::FramePtr;
 #[cfg(feature = "threading")]
 use crate::builtins::PyBaseExceptionRef;
@@ -30,8 +30,19 @@ pub const THREAD_SUSPENDED: i32 = 2;
 /// The exception field uses atomic operations for lock-free cross-thread reads.
 #[cfg(feature = "threading")]
 pub struct ThreadSlot {
+    /// Top of the owning thread's Python call stack, published for
+    /// cross-thread readers (`sys._current_frames`, cross-thread `f_back`).
+    /// The rest of the stack is reachable via each frame's `previous` pointer.
+    /// Written lock-free on the hot push/pop path with relaxed ordering; every
+    /// cross-thread read runs under stop-the-world, which parks the owning
+    /// thread at a safepoint and supplies the happens-before edge, so the
+    /// pointer and the frames it reaches are quiescent and alive at read time.
+    #[cfg(unix)]
+    pub top_frame: AtomicPtr<Frame>,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
     /// Readers must hold the Mutex and convert to FrameRef inside the lock.
+    /// Used on non-unix threading builds, which have no stop-the-world.
+    #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
     /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED
@@ -83,6 +94,15 @@ thread_local! {
     /// while the owning thread is writing).
     pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
         const { AtomicPtr::new(core::ptr::null_mut()) };
+
+    /// Cached pointer to this thread's `ThreadSlot::top_frame`, so the hot
+    /// push/pop path can publish the top frame with a single relaxed store and
+    /// no `CURRENT_THREAD_SLOT` RefCell borrow. Null until the slot is
+    /// initialized; the `Arc<ThreadSlot>` in `CURRENT_THREAD_SLOT` keeps the
+    /// pointee alive until `cleanup_current_thread_frames` clears this.
+    #[cfg(all(unix, feature = "threading"))]
+    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<Frame>> =
+        const { Cell::new(core::ptr::null()) };
 
 }
 
@@ -270,6 +290,9 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             let thread_id = crate::stdlib::_thread::get_ident();
             let mut registry = vm.state.thread_frames.lock();
             let new_slot = Arc::new(ThreadSlot {
+                #[cfg(unix)]
+                top_frame: AtomicPtr::new(core::ptr::null_mut()),
+                #[cfg(not(unix))]
                 frames: parking_lot::Mutex::new(Vec::new()),
                 exception: crate::PyAtomicRef::from(None::<PyBaseExceptionRef>),
                 #[cfg(unix)]
@@ -290,6 +313,8 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             });
             registry.insert(thread_id, new_slot.clone());
             drop(registry);
+            #[cfg(all(unix, feature = "threading"))]
+            CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&new_slot.top_frame));
             *slot.borrow_mut() = Some(new_slot);
         }
     });
@@ -568,7 +593,10 @@ pub(crate) fn debug_assert_current_thread_attached() {
 
 /// Push a frame pointer onto the current thread's shared frame stack.
 /// The pointed-to frame must remain alive until the matching pop.
-#[cfg(feature = "threading")]
+///
+/// Only used on non-unix threading builds; unix builds publish the top frame
+/// through `set_current_frame` writing `ThreadSlot::top_frame`.
+#[cfg(all(not(unix), feature = "threading"))]
 pub fn push_thread_frame(fp: FramePtr) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -584,7 +612,7 @@ pub fn push_thread_frame(fp: FramePtr) {
 
 /// Pop a frame from the current thread's shared frame stack.
 /// Called when a frame is exited.
-#[cfg(feature = "threading")]
+#[cfg(all(not(unix), feature = "threading"))]
 pub fn pop_thread_frame() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -601,6 +629,17 @@ pub fn pop_thread_frame() {
 /// Set the current thread's top frame pointer for signal-safe traceback walking.
 /// Returns the previous frame pointer so it can be restored on pop.
 pub fn set_current_frame(frame: *const Frame) -> *const Frame {
+    // Publish the top frame for cross-thread readers. The relaxed store is
+    // ordered by stop-the-world at read time (see `ThreadSlot::top_frame`).
+    #[cfg(all(unix, feature = "threading"))]
+    {
+        let slot_top = CURRENT_TOP_FRAME_SLOT.with(Cell::get);
+        if !slot_top.is_null() {
+            // SAFETY: points to this thread's `ThreadSlot::top_frame`, kept
+            // alive by the Arc in `CURRENT_THREAD_SLOT` for the thread's life.
+            unsafe { (*slot_top).store(frame as *mut Frame, Ordering::Relaxed) };
+        }
+    }
     CURRENT_FRAME.with(|c| c.swap(frame as *mut Frame, Ordering::Relaxed) as *const Frame)
 }
 
@@ -675,6 +714,10 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
         // Unblock requester countdown progress.
         vm.state.stop_the_world.notify_thread_gone();
     }
+    // Clear the cached top-frame pointer before dropping the slot Arc so no
+    // later `set_current_frame` dereferences freed slot memory.
+    #[cfg(all(unix, feature = "threading"))]
+    CURRENT_TOP_FRAME_SLOT.with(|c| c.set(core::ptr::null()));
     CURRENT_THREAD_SLOT.with(|s| {
         *s.borrow_mut() = None;
     });
@@ -689,18 +732,27 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::_thread::get_ident();
-    // Rebuild the shared frame stack (bottom-to-top) from the current thread's
-    // frame chain, which walks top-to-bottom via `previous`.
-    let mut current_frames: Vec<FramePtr> = Vec::new();
-    let mut cur = get_current_frame();
-    while !cur.is_null() {
-        // SAFETY: the forking thread's chain frames are alive.
-        let py = unsafe { crate::Py::<Frame>::from_payload_ptr(cur) };
-        current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
-        cur = unsafe { (*cur).previous_frame() };
-    }
-    current_frames.reverse();
+    // On non-unix, rebuild the shared frame stack (bottom-to-top) from the
+    // current thread's frame chain, which walks top-to-bottom via `previous`.
+    #[cfg(not(unix))]
+    let current_frames: Vec<FramePtr> = {
+        let mut current_frames = Vec::new();
+        let mut cur = get_current_frame();
+        while !cur.is_null() {
+            // SAFETY: the forking thread's chain frames are alive.
+            let py = unsafe { crate::Py::<Frame>::from_payload_ptr(cur) };
+            current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
+            cur = unsafe { (*cur).previous_frame() };
+        }
+        current_frames.reverse();
+        current_frames
+    };
     let new_slot = Arc::new(ThreadSlot {
+        // The surviving child thread keeps executing its current frame chain,
+        // whose top is the signal-safe `get_current_frame()`.
+        #[cfg(unix)]
+        top_frame: AtomicPtr::new(get_current_frame() as *mut Frame),
+        #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
         #[cfg(unix)]
@@ -711,6 +763,8 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         thread: std::thread::current(),
         qsbr: crate::object::qsbr::QSBR.register(),
     });
+    #[cfg(all(unix, feature = "threading"))]
+    CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&new_slot.top_frame));
 
     // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
     let mut registry = vm.state.thread_frames.lock();

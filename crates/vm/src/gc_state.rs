@@ -641,15 +641,21 @@ impl GcState {
                     reason = "assertion over every registered thread slot"
                 )]
                 for slot in registry.values() {
-                    for fp in slot.frames.lock().iter() {
+                    let mut cur = slot
+                        .top_frame
+                        .load(core::sync::atomic::Ordering::Relaxed)
+                        as *const crate::frame::Frame;
+                    while !cur.is_null() {
                         // SAFETY: frames on a thread's active call stack are
                         // alive, and the world is stopped so none can be popped.
-                        let obj = unsafe { fp.as_ref() }.as_object();
+                        let obj = unsafe { &*crate::Py::<crate::frame::Frame>::from_payload_ptr(cur) }
+                            .as_object();
                         let ptr = GcPtr(NonNull::from(obj));
                         debug_assert!(
                             !unreachable_set.contains(&ptr),
                             "running frame {obj:p} classified unreachable during GC"
                         );
+                        cur = unsafe { (*cur).previous_frame() };
                     }
                 }
             });

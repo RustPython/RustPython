@@ -1053,18 +1053,46 @@ pub(crate) mod _thread {
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
     pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
-        let registry = vm.state.thread_frames.lock();
-        registry
-            .iter()
-            .filter_map(|(id, slot)| {
-                let frames = slot.frames.lock();
-                // SAFETY: the owning thread can't pop while we hold the Mutex,
-                // so the FramePtr is valid for the duration of the lock.
-                frames
-                    .last()
-                    .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
-            })
-            .collect()
+        // unix: read each thread's published top frame under stop-the-world so
+        // the owning thread is parked at a safepoint and cannot pop or free the
+        // frame while we take a strong reference. Request stop-the-world before
+        // the registry lock to avoid deadlocking a thread parking mid-registry.
+        #[cfg(unix)]
+        {
+            use core::sync::atomic::Ordering;
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .filter_map(|(id, slot)| {
+                    let top = slot.top_frame.load(Ordering::Relaxed);
+                    core::ptr::NonNull::new(top).map(|p| {
+                        // SAFETY: world stopped -> the owning thread is parked
+                        // and cannot pop or free this frame; it is alive on
+                        // that thread's call stack.
+                        let py =
+                            unsafe { &*Py::<crate::frame::Frame>::from_payload_ptr(p.as_ptr()) };
+                        (*id, py.to_owned())
+                    })
+                })
+                .collect()
+        }
+        #[cfg(not(unix))]
+        {
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .filter_map(|(id, slot)| {
+                    let frames = slot.frames.lock();
+                    // SAFETY: the owning thread can't pop while we hold the Mutex,
+                    // so the FramePtr is valid for the duration of the lock.
+                    frames
+                        .last()
+                        .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                })
+                .collect()
+        }
     }
 
     /// Called after fork() in child process to mark all other threads as done.

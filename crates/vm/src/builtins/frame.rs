@@ -728,7 +728,36 @@ impl Py<Frame> {
             return Some(frame);
         }
 
-        #[cfg(feature = "threading")]
+        // The caller lives on another thread. unix: park every thread under
+        // stop-the-world so their frame chains are quiescent and alive, then
+        // walk each published top frame down its `previous` chain looking for
+        // the caller. Request stop-the-world before the registry lock.
+        #[cfg(all(unix, feature = "threading"))]
+        {
+            use core::sync::atomic::Ordering;
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Iteration order doesn't matter here"
+            )]
+            for slot in registry.values() {
+                let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const Frame;
+                while !cur.is_null() {
+                    if core::ptr::eq(cur, previous) {
+                        // SAFETY: world stopped -> this frame is alive on its
+                        // owning thread's parked call stack.
+                        let f = unsafe { &*Self::from_payload_ptr(cur) };
+                        return Some(f.to_owned());
+                    }
+                    // SAFETY: chain frames on a parked thread are alive.
+                    cur = unsafe { (*cur).previous_frame() };
+                }
+            }
+        }
+
+        #[cfg(all(not(unix), feature = "threading"))]
         {
             let registry = vm.state.thread_frames.lock();
             #[expect(

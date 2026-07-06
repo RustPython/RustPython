@@ -46,9 +46,10 @@ use crate::{
 use alloc::{borrow::Cow, collections::BTreeMap};
 #[cfg(all(unix, feature = "threading"))]
 use core::sync::atomic::AtomicI64;
+#[cfg(all(not(unix), feature = "threading"))]
+use core::ptr::NonNull;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    ptr::NonNull,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -107,11 +108,15 @@ pub struct VirtualMachine {
     pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
 }
 
-/// Non-owning frame pointer for the frames stack.
+/// Non-owning frame pointer for the non-unix threading frames stack.
 /// The pointed-to frame is kept alive by the caller of with_frame/resume_gen_frame.
+/// Unix threading builds publish the top frame through `ThreadSlot::top_frame`
+/// and walk the rest via `Frame::previous`, so they do not use this type.
+#[cfg(all(not(unix), feature = "threading"))]
 #[derive(Copy, Clone)]
 pub struct FramePtr(NonNull<Py<Frame>>);
 
+#[cfg(all(not(unix), feature = "threading"))]
 impl FramePtr {
     /// # Safety
     /// The pointed-to frame must still be alive.
@@ -124,6 +129,7 @@ impl FramePtr {
 // SAFETY: FramePtr is only stored in a thread's shared frame stack
 // (`ThreadSlot::frames`) while the corresponding FrameRef is alive on that
 // thread's call stack; readers dereference it under the slot mutex.
+#[cfg(all(not(unix), feature = "threading"))]
 unsafe impl Send for FramePtr {}
 
 #[derive(Debug)]
@@ -1685,7 +1691,9 @@ impl VirtualMachine {
             // keeping the FramePtr valid. We pass a clone to `f` so that `f`
             // consuming its FrameRef doesn't invalidate our pointer.
             // Publish the frame for sys._current_frames() and faulthandler.
-            #[cfg(feature = "threading")]
+            // On unix, set_current_frame below publishes the top frame into the
+            // thread slot; only non-unix builds maintain the mutex-guarded Vec.
+            #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
             // Link frame into the signal-safe frame chain (previous pointer).
             // This chain is the single source for the current thread's frame
@@ -1707,12 +1715,12 @@ impl VirtualMachine {
                 core::sync::atomic::Ordering::AcqRel,
             );
 
-            // Ensure cleanup on panic: restore owner, exc_info, frame chain, and frames Vec.
+            // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
             scopeguard::defer! {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
                 self.restore_exception(saved_exc);
                 crate::vm::thread::set_current_frame(old_frame);
-                #[cfg(feature = "threading")]
+                #[cfg(all(not(unix), feature = "threading"))]
                 crate::vm::thread::pop_thread_frame();
             }
 
@@ -1736,7 +1744,7 @@ impl VirtualMachine {
         self.recursion_depth.update(|d| d + 1);
 
         // SAFETY: frame (&FrameRef) stays alive for the duration, so NonNull is valid until pop.
-        #[cfg(feature = "threading")]
+        #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let old_frame = crate::vm::thread::set_current_frame((&***frame) as *const Frame);
         frame.previous.store(
@@ -1758,7 +1766,7 @@ impl VirtualMachine {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
             crate::vm::thread::set_current_frame(old_frame);
-            #[cfg(feature = "threading")]
+            #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
 
             self.recursion_depth.update(|d| d - 1);
