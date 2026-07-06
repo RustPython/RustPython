@@ -4,6 +4,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
+pub use sys::{BUILD_INFO, COMPILER, COPYRIGHT, PLATFORM, VERSION};
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
@@ -222,7 +223,7 @@ pub mod sys {
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
-    const COPYRIGHT: &str = "Copyright (c) 2019 RustPython Team";
+    pub const COPYRIGHT: &str = "Copyright (c) 2019 RustPython Team";
     #[pyattr(name = "float_repr_style")]
     const FLOAT_REPR_STYLE: &str = "short";
     #[pyattr(name = "_framework")]
@@ -708,7 +709,11 @@ pub mod sys {
     }
 
     #[pyattr(name = "version")]
-    const VERSION: &str = version::RUSTPYTHON_VERSION;
+    pub const VERSION: &str = version::RUSTPYTHON_VERSION;
+
+    pub const BUILD_INFO: &str = version::RUSTPYTHON_BUILD_INFO;
+
+    pub const COMPILER: &str = "[Rust]";
 
     // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
     #[cfg(windows)]

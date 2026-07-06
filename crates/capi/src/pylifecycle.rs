@@ -4,6 +4,7 @@ use crate::pystate::ensure_thread_has_vm_attached;
 use alloc::ffi::CString;
 use core::ffi::{c_char, c_int, c_ulong};
 use rustpython_vm::common::rc::PyRc;
+use rustpython_vm::stdlib::sys;
 use rustpython_vm::version::{MAJOR, MICRO, MINOR, VERSION_HEX};
 use rustpython_vm::vm::thread::ThreadedVirtualMachine;
 use rustpython_vm::{Context, Interpreter};
@@ -78,6 +79,38 @@ pub extern "C" fn Py_GetVersion() -> *const c_char {
             .expect("version string must not contain interior NULs")
     });
     VERSION.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetBuildInfo() -> *const c_char {
+    static BUILD_INFO: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(sys::BUILD_INFO).expect("build info must not contain interior NULs")
+    });
+    BUILD_INFO.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetCompiler() -> *const c_char {
+    static COMPILER: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(sys::COMPILER).expect("compiler must not contain interior NULs")
+    });
+    COMPILER.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetCopyright() -> *const c_char {
+    static COPYRIGHT: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(sys::COPYRIGHT).expect("copyright must not contain interior NULs")
+    });
+    COPYRIGHT.as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn Py_GetPlatform() -> *const c_char {
+    static PLATFORM: LazyLock<CString> = LazyLock::new(|| {
+        CString::new(sys::PLATFORM).expect("platform must not contain interior NULs")
+    });
+    PLATFORM.as_ptr()
 }
 
 #[cfg(test)]
