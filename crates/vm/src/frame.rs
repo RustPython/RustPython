@@ -1424,40 +1424,38 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
     // Uniqueness argument: at this point the frame is already out of
     // `vm.frames`, the thread-frames registry and the current-frame chain
     // (all unlinked inside `with_frame_impl` before it returned), and the
-    // frame type has no weakref support, so with one exception no thread can
-    // mint a new reference without already holding one. The exception is the
-    // GC generation lists (`gc.get_objects`, `gc.get_referrers`, collection
-    // survivor refs), whose readers incref under the generation-list read
-    // lock. Untracking the frame takes the same list's write lock, so after
-    // `untrack_object` returns, no new list-based reference can appear and
-    // any previously minted one is visible to the count re-check below.
-    // This also keeps `__del__` side effects during `release_localsplus`
-    // (which can run arbitrary code, including `gc.get_objects`) from
-    // reaching the frame.
-    if frame_obj.strong_count() == 1 && frame_obj.is_gc_tracked() {
-        let ptr = NonNull::from(frame_obj);
-        // SAFETY: the frame is alive and currently tracked.
-        unsafe { crate::gc_state::gc_state().untrack_object(ptr) };
-        if frame_obj.strong_count() == 1 {
-            // A reference minted and already released by another thread ends
-            // in a release-decref; the fence orders that thread's reads of
-            // localsplus before our drops below.
-            atomic::fence(Acquire);
-            // SAFETY: unique owner and no way to mint a new reference, so
-            // localsplus can never be observed again. The base pointer came
-            // from this thread's data stack.
-            unsafe {
-                if let Some(base) = frame.release_localsplus() {
-                    vm.datastack_pop(base);
-                }
+    // frame type has no weakref support. A datastack frame is created
+    // untracked and stays untracked while it runs, so it is in no GC
+    // generation list and no collector can observe or incref it. Hence no
+    // thread can mint a new reference without already holding one, and every
+    // escape (traceback, `sys._getframe`, `f_back`, a stored trace-hook arg)
+    // is a heap reference created on this thread while the frame ran.
+    // Therefore `strong_count() == 1` here means nothing escaped, and
+    // `strong_count() > 1` means the frame escaped.
+    debug_assert!(
+        !frame_obj.is_gc_tracked(),
+        "datastack frame is GC-tracked at release"
+    );
+    if frame_obj.strong_count() == 1 {
+        // A reference minted and already released by another thread (through a
+        // heap escape carried across threads) ends in a release-decref; the
+        // fence orders that thread's memory before our drops below.
+        atomic::fence(Acquire);
+        // SAFETY: unique owner and no way to mint a new reference, so
+        // localsplus can never be observed again. The base pointer came
+        // from this thread's data stack.
+        unsafe {
+            if let Some(base) = frame.release_localsplus() {
+                vm.datastack_pop(base);
             }
-            return;
         }
-        // Lost the race: a reference was minted through the GC list before
-        // the untrack. Re-track and fall back to the copy path.
-        // SAFETY: the frame is alive and untracked.
-        unsafe { crate::gc_state::gc_state().track_object(ptr) };
+        return;
     }
+    // Escaped. Stabilise localsplus on the heap FIRST, then join the GC. This
+    // order guarantees a concurrent (stop-the-world) collector only ever sees a
+    // tracked frame whose localsplus is heap-resident and no longer mutating:
+    // the frame has stopped executing before it becomes a candidate, so its
+    // outgoing edges are stable while a collector traverses them.
     // SAFETY: the frame finished executing; the base pointer came from this
     // thread's data stack.
     unsafe {
@@ -1465,6 +1463,9 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
             vm.datastack_pop(base);
         }
     }
+    // SAFETY: the frame is alive (held by `frame` and the escaped reference)
+    // and untracked.
+    unsafe { crate::gc_state::gc_state().track_object(NonNull::from(frame_obj)) };
 }
 
 type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;
