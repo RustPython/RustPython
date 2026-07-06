@@ -4154,7 +4154,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         else:
             self.fail("shouldn't be able to create inheritance cycles")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_builtin_bases(self):
         # Make sure all the builtin types can have their base queried without
         # segfaulting. See issue #5787.

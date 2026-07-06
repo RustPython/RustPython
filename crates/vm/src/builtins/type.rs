@@ -1471,12 +1471,16 @@ impl PyType {
         }
 
         // TODO: check for mro cycles
-        // TODO: check layout compatibility between the old and new solid base
 
         // Compute the new solid base before committing anything. This also
         // validates the new bases (BASETYPE flag, no instance layout
         // conflict), the same checks type creation performs.
         let new_base = best_base(&bases, vm)?.to_owned();
+
+        // Reject reparenting onto a base whose instances have an incompatible
+        // object layout.
+        let old_base = zelf.base.deref().unwrap_or(vm.ctx.types.object_type);
+        compatible_for_assignment(old_base, &new_base, "__bases__", vm)?;
 
         // References released inside the critical section are collected here
         // and dropped after the lock: dropping them inside can run arbitrary
@@ -3214,6 +3218,91 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
 
     debug_assert!(base.is_some());
     Ok(base.unwrap())
+}
+
+fn type_has_dict(typ: &Py<PyType>) -> bool {
+    typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT)
+}
+
+fn type_has_weakref(typ: &Py<PyType>) -> bool {
+    typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF)
+}
+
+/// Returns true if `child` adds no instance layout of its own beyond its base,
+/// so the base can stand in for it when comparing object layouts.
+fn compatible_with_base(child: &Py<PyType>) -> bool {
+    let Some(parent) = child.base.deref() else {
+        return false;
+    };
+    child.slots.basicsize == parent.slots.basicsize
+        && child.slots.itemsize == parent.slots.itemsize
+        && child.slots.member_count == parent.slots.member_count
+        && type_has_dict(child) == type_has_dict(parent)
+        && type_has_weakref(child) == type_has_weakref(parent)
+}
+
+/// Walk up to the most derived base that actually fixes the instance layout.
+fn layout_solid_base(mut typ: &Py<PyType>) -> &Py<PyType> {
+    while compatible_with_base(typ) {
+        typ = typ.base.deref().unwrap();
+    }
+    typ
+}
+
+/// Returns true if `a` and `b`, which share the same base, added the same
+/// instance layout (`__dict__`, `__weakref__`, and `__slots__`).
+fn same_slots_added(a: &Py<PyType>, b: &Py<PyType>) -> bool {
+    if a.slots.basicsize != b.slots.basicsize
+        || a.slots.itemsize != b.slots.itemsize
+        || a.slots.member_count != b.slots.member_count
+        || type_has_dict(a) != type_has_dict(b)
+        || type_has_weakref(a) != type_has_weakref(b)
+    {
+        return false;
+    }
+    match (
+        a.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
+        b.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
+    ) {
+        (Some(x), Some(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .zip(y.iter())
+                    .all(|(p, q)| p.as_wtf8() == q.as_wtf8())
+        }
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+/// Validates that instances of `oldto` and `newto` share an interchangeable
+/// object layout, the check `__class__` and `__bases__` assignment perform.
+///
+/// `attr` names the attribute being assigned for the error message; the
+/// message reports `newto` first and `oldto` second.
+pub(crate) fn compatible_for_assignment(
+    oldto: &Py<PyType>,
+    newto: &Py<PyType>,
+    attr: &str,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let newbase = layout_solid_base(newto);
+    let oldbase = layout_solid_base(oldto);
+    let bases_equal = match (newbase.base.deref(), oldbase.base.deref()) {
+        (Some(x), Some(y)) => x.is(y),
+        (None, None) => true,
+        _ => false,
+    };
+    let compatible =
+        newbase.is(oldbase) || (bases_equal && same_slots_added(newbase, oldbase));
+    if compatible {
+        return Ok(());
+    }
+    Err(vm.new_type_error(format!(
+        "{attr} assignment: '{}' object layout differs from '{}'",
+        newto.name(),
+        oldto.name()
+    )))
 }
 
 /// Apply Python name mangling for private attributes.
