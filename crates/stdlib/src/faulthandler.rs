@@ -327,7 +327,7 @@ mod decl {
         // Get all threads' frame stacks from the shared registry
         // unix: stop-the-world so every other thread is parked at a safepoint
         // and its frame chain is quiescent and alive while we walk it (matches
-        // faulthandler.dump_traceback running with the GIL held in CPython).
+        // faulthandler.dump_traceback running with the GIL held).
         #[cfg(all(unix, feature = "threading"))]
         {
             use core::sync::atomic::Ordering;
@@ -723,7 +723,7 @@ mod decl {
                             // The watchdog is a plain OS thread, not attached to
                             // the VM, so it cannot stop-the-world. Walk each
                             // published top frame lock-free and best-effort, like
-                            // CPython's faulthandler watchdog.
+                            // the faulthandler watchdog thread.
                             for (tid, slot) in &thread_frame_slots {
                                 let top = slot
                                     .top_frame

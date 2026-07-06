@@ -1758,8 +1758,8 @@ fn localsplus_name(code: &PyCode, idx: usize) -> &'static PyStrInterned {
 pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
     let frame_obj = frame.as_object();
     // Uniqueness argument: at this point the frame is already out of
-    // `vm.frames`, the thread-frames registry and the current-frame chain
-    // (all unlinked inside `with_frame` before it returned), and the
+    // the thread-frames registry and the current-frame chain
+    // (both unlinked inside `with_frame` before it returned), and the
     // frame type has no weakref support. A datastack frame is created
     // untracked and stays untracked while it runs, so it is in no GC
     // generation list and no collector can observe or incref it. Hence no
@@ -2039,7 +2039,7 @@ impl ExecutingFrame<'_> {
 
         if !vm.is_none(&init_result) {
             return Err(vm.new_type_error(format!(
-                "__init__() should return None, not '{}'",
+                "__init__() should return None, not '{:.200}'",
                 init_result.class().name()
             )));
         }
@@ -2082,6 +2082,15 @@ impl ExecutingFrame<'_> {
             if stack_analysis::top_of_stack(cur_stack) == stack_analysis::Kind::Except as i64
                 && let Some(exc_obj) = val
             {
+                // An Except-typed stack slot is only produced by bytecode that
+                // also carries one of the opcodes scanned by
+                // `PyCode::has_exc_handling`; otherwise the save/restore that
+                // brackets this frame's exc_info is elided and this write would
+                // corrupt the shared exc_info slot.
+                debug_assert!(
+                    self.code.has_exc_handling,
+                    "unwinding an Except slot in a frame without exc-handling opcodes"
+                );
                 if vm.is_none(&exc_obj) {
                     vm.set_exception(None);
                 } else {
@@ -4309,7 +4318,7 @@ impl ExecutingFrame<'_> {
                 let should_be_none = self.pop_value();
                 if !vm.is_none(&should_be_none) {
                     return Err(vm.new_type_error(format!(
-                        "__init__() should return None, not '{}'",
+                        "__init__() should return None, not '{:.200}'",
                         should_be_none.class().name()
                     )));
                 }
