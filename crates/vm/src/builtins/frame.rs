@@ -4,7 +4,7 @@
 
 use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
-    Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{Frame, FrameOwner, FrameRef},
     function::PySetterValue,
@@ -455,14 +455,6 @@ impl Frame {
     }
 
     #[pygetset]
-    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        let result = self.f_locals_mapping(vm).map(Into::into);
-        self.locals_dirty
-            .store(true, core::sync::atomic::Ordering::Release);
-        result
-    }
-
-    #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
         self.code.clone()
     }
@@ -704,8 +696,24 @@ impl Py<Frame> {
         // Clear temporary refs
         self.temporary_refs.lock().clear();
         self.f_locals_hidden_overlay.lock().take();
+        self.f_extra_locals.lock().take();
 
         Ok(())
+    }
+
+    #[pygetset]
+    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
+        // Optimized (function) frames expose a live write-through
+        // FrameLocalsProxy; class/module/exec frames expose their namespace
+        // mapping directly.
+        if self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+            self.check_locals_access(vm)?;
+            self.mark_escaped();
+            let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
+            Ok(proxy.into_ref(&vm.ctx).into())
+        } else {
+            self.f_locals_mapping(vm).map(Into::into)
+        }
     }
 
     #[pygetset]
@@ -725,6 +733,7 @@ impl Py<Frame> {
         // Look for the caller on the current thread's signal-safe frame chain.
         // Finding it there proves it is still live on this thread.
         if let Some(frame) = crate::frame::find_owned_chain_frame(previous) {
+            frame.mark_escaped();
             return Some(frame);
         }
 
@@ -749,6 +758,7 @@ impl Py<Frame> {
                         // SAFETY: world stopped -> this frame is alive on its
                         // owning thread's parked call stack.
                         let f = unsafe { &*Self::from_payload_ptr(cur) };
+                        f.mark_escaped();
                         return Some(f.to_owned());
                     }
                     // SAFETY: chain frames on a parked thread are alive.
@@ -773,6 +783,7 @@ impl Py<Frame> {
                     let ptr: *const Frame = &**f;
                     core::ptr::eq(ptr, previous).then(|| f.to_owned())
                 }) {
+                    frame.mark_escaped();
                     return Some(frame);
                 }
             }

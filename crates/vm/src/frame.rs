@@ -704,11 +704,16 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
-    /// Set when f_locals is accessed. Cleared after locals_to_fast() sync.
-    pub(crate) locals_dirty: atomic::AtomicBool,
     /// Persistent overlay for `frame.f_locals` when hidden locals need a
     /// snapshot separate from the backing locals mapping.
     pub(crate) f_locals_hidden_overlay: PyMutex<Option<PyDictRef>>,
+    /// Side storage for `f_locals` proxy keys that do not name a fast local.
+    /// Lazily created on first non-fast-key write. Mirrors `f_extra_locals`.
+    pub(crate) f_extra_locals: PyMutex<Option<PyDictRef>>,
+    /// Set once a durable Python-level reference to this frame is handed out
+    /// (`f_locals` proxy, `sys._getframe`, `f_back`). A closed generator keeps
+    /// its locals alive while this is set, mirroring `frame_obj` ownership.
+    pub(crate) escaped: atomic::AtomicBool,
     /// Number of stack entries to pop after set_f_lineno returns to the
     /// execution loop.  set_f_lineno cannot pop directly because the
     /// execution loop holds the state mutex.
@@ -876,6 +881,7 @@ unsafe impl Traverse for Frame {
         iframe.trace.traverse(tracer_fn);
         iframe.temporary_refs.traverse(tracer_fn);
         iframe.f_locals_hidden_overlay.traverse(tracer_fn);
+        iframe.f_extra_locals.traverse(tracer_fn);
     }
 
     fn clear(&mut self, _out: &mut Vec<PyObjectRef>) {
@@ -966,8 +972,9 @@ impl Frame {
             generator: PyAtomicBorrow::new(),
             previous: AtomicPtr::new(core::ptr::null_mut()),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
-            locals_dirty: atomic::AtomicBool::new(false),
             f_locals_hidden_overlay: PyMutex::new(None),
+            f_extra_locals: PyMutex::new(None),
+            escaped: atomic::AtomicBool::new(false),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
         };
@@ -1049,6 +1056,7 @@ impl Frame {
             *slot = None;
         }
         self.f_locals_hidden_overlay.lock().take();
+        self.f_extra_locals.lock().take();
     }
 
     /// Get cell contents by localsplus index.
@@ -1095,6 +1103,16 @@ impl Frame {
         self.previous.load(atomic::Ordering::Relaxed)
     }
 
+    /// Record that a durable Python-level reference to this frame escaped.
+    pub(crate) fn mark_escaped(&self) {
+        self.escaped.store(true, atomic::Ordering::Release);
+    }
+
+    /// Whether a durable reference to this frame has escaped.
+    pub(crate) fn has_escaped(&self) -> bool {
+        self.escaped.load(atomic::Ordering::Acquire)
+    }
+
     pub fn lasti(&self) -> u32 {
         self.lasti.load(Relaxed)
     }
@@ -1117,37 +1135,6 @@ impl Frame {
 
     pub(crate) fn set_pending_unwind_from_stack(&self, val: i64) {
         self.pending_unwind_from_stack.store(val, Relaxed);
-    }
-
-    /// Sync locals dict back to fastlocals. Called before generator/coroutine resume
-    /// to apply any modifications made via f_locals.
-    pub fn locals_to_fast(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if !self.locals_dirty.load(atomic::Ordering::Acquire) {
-            return Ok(());
-        }
-        let code = &**self.code;
-        let overlay_locals = self
-            .has_active_hidden_locals()
-            .then(|| self.f_locals_hidden_overlay.lock().clone())
-            .flatten()
-            .map(ArgMapping::from_dict_exact);
-        let locals_map = overlay_locals
-            .as_ref()
-            .map_or_else(|| self.locals.mapping(vm), ArgMapping::mapping);
-        // SAFETY: Called before generator resume; no concurrent access.
-        let fastlocals = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
-        for (i, &varname) in code.varnames.iter().enumerate() {
-            if i >= fastlocals.len() {
-                break;
-            }
-            match locals_map.subscript(varname, vm) {
-                Ok(value) => fastlocals[i] = Some(value),
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {}
-                Err(e) => return Err(e),
-            }
-        }
-        self.locals_dirty.store(false, atomic::Ordering::Release);
-        Ok(())
     }
 
     fn has_active_hidden_locals(&self) -> bool {
@@ -1287,7 +1274,7 @@ impl Frame {
     /// reader clones them). Access from the executing thread itself (locals()
     /// builtin, trace callbacks) is fine: the frame sits on the current
     /// thread's frame chain and is at a bytecode boundary.
-    fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
+    pub(crate) fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
         let owner = FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire));
         if owner != FrameOwner::Thread {
             return Ok(());
@@ -1311,7 +1298,6 @@ impl Frame {
             return self.locals(vm);
         }
 
-        let needs_refresh = !self.locals_dirty.load(atomic::Ordering::Acquire);
         let overlay_dict = {
             let mut overlay = self.f_locals_hidden_overlay.lock();
             match overlay.as_ref() {
@@ -1323,25 +1309,238 @@ impl Frame {
                 }
             }
         };
-        if needs_refresh {
-            PyDict::clear(&overlay_dict);
-            let overlay = ArgMapping::from_dict_exact(overlay_dict.clone());
-            self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
-        }
+        PyDict::clear(&overlay_dict);
+        let overlay = ArgMapping::from_dict_exact(overlay_dict.clone());
+        self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
         Ok(ArgMapping::from_dict_exact(overlay_dict))
     }
 
     pub fn locals(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
-        if self.has_active_hidden_locals() {
+        let mapping = if self.has_active_hidden_locals() {
             // Match CPython's locals() behavior for frames with PEP 709 hidden
             // locals: return a fresh snapshot instead of the backing mapping.
             let overlay = ArgMapping::from_dict_exact(vm.ctx.new_dict());
             self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
-            Ok(overlay)
+            overlay
         } else {
             self.sync_visible_locals_to_mapping(self.locals.mapping(vm), vm)?;
-            Ok(self.locals.clone_mapping(vm))
+            self.locals.clone_mapping(vm)
+        };
+        self.fold_extra_locals(&mapping, vm)?;
+        Ok(mapping)
+    }
+
+    /// Copy the frame's extra-locals side storage (proxy keys that are not
+    /// fast locals) into `mapping`. No-op when nothing was ever stored.
+    fn fold_extra_locals(&self, mapping: &ArgMapping, vm: &VirtualMachine) -> PyResult<()> {
+        let extra = self.f_extra_locals.lock().clone();
+        if let Some(extra) = extra {
+            for (key, value) in &extra {
+                mapping.mapping().ass_subscript(&key, Some(value), vm)?;
+            }
         }
+        Ok(())
+    }
+
+    /// Read a fast-local slot's visible value, dereferencing cells. `None` if
+    /// the slot is empty or its cell holds no value.
+    fn framelocalsproxy_getval(&self, i: usize) -> Option<PyObjectRef> {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
+        // SAFETY: callers first pass through `check_locals_access`, so the
+        // frame is not executing on another thread.
+        let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
+        let obj = fastlocals.get(i)?.as_ref()?;
+        let kind = self.code.localspluskinds.get(i).copied().unwrap_or(0);
+        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
+            if let Some(cell) = obj.downcast_ref::<PyCell>() {
+                cell.get()
+            } else {
+                Some(obj.clone())
+            }
+        } else {
+            Some(obj.clone())
+        }
+    }
+
+    /// Write `value` into fast-local slot `i`, routing through the cell when
+    /// the slot holds one so closures keep sharing the same cell.
+    fn framelocalsproxy_setval(&self, i: usize, value: PyObjectRef) {
+        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
+        let kind = self.code.localspluskinds.get(i).copied().unwrap_or(0);
+        // SAFETY: callers first pass through `check_locals_access`.
+        let fastlocals = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
+        if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0
+            && let Some(obj) = fastlocals[i].as_ref()
+            && let Some(cell) = obj.downcast_ref::<PyCell>()
+        {
+            cell.set(Some(value));
+            return;
+        }
+        fastlocals[i] = Some(value);
+    }
+
+    /// Resolve `key` to a fast-local slot index, or `None` if it names no fast
+    /// local. `read` selects read semantics (only bound slots match) versus
+    /// write semantics (hidden slots are skipped, unbound slots still match).
+    /// Raises `TypeError` for an unhashable key.
+    fn framelocalsproxy_getkeyindex(
+        &self,
+        key: &PyObject,
+        read: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>> {
+        use rustpython_compiler_core::bytecode::CO_FAST_HIDDEN;
+        // The proxy hashes the key first; an unhashable key raises TypeError.
+        key.hash(vm)?;
+        for (i, &kind) in self.code.localspluskinds.iter().enumerate() {
+            let name = localsplus_name(&self.code, i);
+            if !name
+                .as_object()
+                .rich_compare_bool(key, PyComparisonOp::Eq, vm)?
+            {
+                continue;
+            }
+            if read {
+                if self.framelocalsproxy_getval(i).is_some() {
+                    return Ok(Some(i));
+                }
+            } else if kind & CO_FAST_HIDDEN == 0 {
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Build a fresh ordered snapshot dict of the proxy's visible contents:
+    /// bound fast locals in localsplus order followed by extra locals.
+    pub(crate) fn framelocalsproxy_snapshot(&self, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+        self.check_locals_access(vm)?;
+        let dict = vm.ctx.new_dict();
+        let mapping = ArgMapping::from_dict_exact(dict.clone());
+        self.sync_visible_locals_to_mapping(mapping.mapping(), vm)?;
+        self.fold_extra_locals(&mapping, vm)?;
+        Ok(dict)
+    }
+
+    /// `proxy[key]`: read a fast local live, else fall back to extra locals.
+    pub(crate) fn framelocalsproxy_getitem(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.check_locals_access(vm)?;
+        if let Some(i) = self.framelocalsproxy_getkeyindex(&key, true, vm)?
+            && let Some(value) = self.framelocalsproxy_getval(i)
+        {
+            return Ok(value);
+        }
+        let extra = self.f_extra_locals.lock().clone();
+        if let Some(extra) = extra
+            && let Some(value) = extra.get_item_opt(&*key, vm)?
+        {
+            return Ok(value);
+        }
+        Err(vm.new_key_error(key))
+    }
+
+    /// `key in proxy`.
+    pub(crate) fn framelocalsproxy_contains(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.check_locals_access(vm)?;
+        if self.framelocalsproxy_getkeyindex(&key, true, vm)?.is_some() {
+            return Ok(true);
+        }
+        let extra = self.f_extra_locals.lock().clone();
+        if let Some(extra) = extra {
+            return Ok(extra.get_item_opt(&*key, vm)?.is_some());
+        }
+        Ok(false)
+    }
+
+    /// `proxy[key] = value`: fast-key writes the slot in place, other keys go
+    /// to the extra-locals side dict.
+    pub(crate) fn framelocalsproxy_setitem(
+        &self,
+        key: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.check_locals_access(vm)?;
+        if let Some(i) = self.framelocalsproxy_getkeyindex(&key, false, vm)? {
+            self.framelocalsproxy_setval(i, value);
+            return Ok(());
+        }
+        let extra = self.extra_locals_get_or_create(vm);
+        extra.set_item(&*key, value, vm)
+    }
+
+    /// `del proxy[key]`: deleting a fast local raises ValueError; extra keys are
+    /// removed (KeyError if absent).
+    pub(crate) fn framelocalsproxy_delitem(
+        &self,
+        key: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        self.check_locals_access(vm)?;
+        if self.framelocalsproxy_getkeyindex(&key, false, vm)?.is_some() {
+            return Err(
+                vm.new_value_error("cannot remove local variables from FrameLocalsProxy")
+            );
+        }
+        let extra = self.f_extra_locals.lock().clone();
+        if let Some(extra) = extra
+            && extra.get_item_opt(&*key, vm)?.is_some()
+        {
+            return extra.del_item(&*key, vm);
+        }
+        Err(vm.new_key_error(key))
+    }
+
+    /// `proxy.pop(key[, default])`.
+    pub(crate) fn framelocalsproxy_pop(
+        &self,
+        key: PyObjectRef,
+        default: Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        self.check_locals_access(vm)?;
+        if self.framelocalsproxy_getkeyindex(&key, false, vm)?.is_some() {
+            return Err(
+                vm.new_value_error("cannot remove local variables from FrameLocalsProxy")
+            );
+        }
+        let extra = self.f_extra_locals.lock().clone();
+        if let Some(extra) = extra
+            && let Some(value) = extra.pop_item(&*key, vm)?
+        {
+            return Ok(value);
+        }
+        default.ok_or_else(|| vm.new_key_error(key))
+    }
+
+    /// `proxy.setdefault(key, default)`.
+    pub(crate) fn framelocalsproxy_setdefault(
+        &self,
+        key: PyObjectRef,
+        default: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        match self.framelocalsproxy_getitem(key.clone(), vm) {
+            Ok(value) => Ok(value),
+            Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => {
+                self.framelocalsproxy_setitem(key, default.clone(), vm)?;
+                Ok(default)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn extra_locals_get_or_create(&self, vm: &VirtualMachine) -> PyDictRef {
+        let mut extra = self.f_extra_locals.lock();
+        extra.get_or_insert_with(|| vm.ctx.new_dict()).clone()
     }
 }
 
@@ -1499,6 +1698,47 @@ fn specialization_nonnegative_compact_index(i: &PyInt, vm: &VirtualMachine) -> O
         Some(v as usize)
     } else {
         None
+    }
+}
+
+/// Get the variable name for a localsplus index of `code`.
+fn localsplus_name(code: &PyCode, idx: usize) -> &'static PyStrInterned {
+    use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_LOCAL};
+    let nlocals = code.varnames.len();
+    let kind = code.localspluskinds.get(idx).copied().unwrap_or(0);
+    if kind & CO_FAST_LOCAL != 0 {
+        // Merged cell or regular local: name is in varnames
+        code.varnames[idx]
+    } else if kind & CO_FAST_FREE != 0 {
+        // Free var: slots are at the end of localsplus
+        let nlocalsplus = code.localspluskinds.len();
+        let nfrees = code.freevars.len();
+        let free_start = nlocalsplus - nfrees;
+        code.freevars[idx - free_start]
+    } else if kind & CO_FAST_CELL != 0 {
+        // Non-merged cell: count how many non-merged cell slots are before
+        // this index to find the corresponding cellvars entry.
+        // Non-merged cellvars appear in their original order (skipping merged ones).
+        let nonmerged_pos = code.localspluskinds[nlocals..idx]
+            .iter()
+            .filter(|&&k| k == CO_FAST_CELL)
+            .count();
+        // Skip merged cellvars to find the right one
+        let mut cv_idx = 0;
+        let mut nonmerged_count = 0;
+        for (i, name) in code.cellvars.iter().enumerate() {
+            let is_merged = code.varnames.contains(name);
+            if !is_merged {
+                if nonmerged_count == nonmerged_pos {
+                    cv_idx = i;
+                    break;
+                }
+                nonmerged_count += 1;
+            }
+        }
+        code.cellvars[cv_idx]
+    } else {
+        code.varnames[idx]
     }
 }
 
@@ -2397,43 +2637,7 @@ impl ExecutingFrame<'_> {
 
     /// Get the variable name for a localsplus index.
     fn localsplus_name(&self, idx: usize) -> &'static PyStrInterned {
-        use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_LOCAL};
-        let nlocals = self.code.varnames.len();
-        let kind = self.code.localspluskinds.get(idx).copied().unwrap_or(0);
-        if kind & CO_FAST_LOCAL != 0 {
-            // Merged cell or regular local: name is in varnames
-            self.code.varnames[idx]
-        } else if kind & CO_FAST_FREE != 0 {
-            // Free var: slots are at the end of localsplus
-            let nlocalsplus = self.code.localspluskinds.len();
-            let nfrees = self.code.freevars.len();
-            let free_start = nlocalsplus - nfrees;
-            self.code.freevars[idx - free_start]
-        } else if kind & CO_FAST_CELL != 0 {
-            // Non-merged cell: count how many non-merged cell slots are before
-            // this index to find the corresponding cellvars entry.
-            // Non-merged cellvars appear in their original order (skipping merged ones).
-            let nonmerged_pos = self.code.localspluskinds[nlocals..idx]
-                .iter()
-                .filter(|&&k| k == CO_FAST_CELL)
-                .count();
-            // Skip merged cellvars to find the right one
-            let mut cv_idx = 0;
-            let mut nonmerged_count = 0;
-            for (i, name) in self.code.cellvars.iter().enumerate() {
-                let is_merged = self.code.varnames.contains(name);
-                if !is_merged {
-                    if nonmerged_count == nonmerged_pos {
-                        cv_idx = i;
-                        break;
-                    }
-                    nonmerged_count += 1;
-                }
-            }
-            self.code.cellvars[cv_idx]
-        } else {
-            self.code.varnames[idx]
-        }
+        localsplus_name(self.code, idx)
     }
 
     /// Execute a single instruction.

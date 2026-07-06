@@ -2,7 +2,8 @@ use crate::{
     Py,
     builtins::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
-        coroutine, descriptor, dict, enumerate, filter, float, frame, function, generator,
+        coroutine, descriptor, dict, enumerate, filter, float, frame, frame_locals_proxy, function,
+        generator,
         genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory, module,
         namespace, object, property, pystr, range, set, singletons, slice, staticmethod, super_,
         template, traceback, tuple,
@@ -39,6 +40,7 @@ pub struct TypeZoo {
     pub filter_type: &'static Py<PyType>,
     pub float_type: &'static Py<PyType>,
     pub frame_type: &'static Py<PyType>,
+    pub frame_locals_proxy_type: &'static Py<PyType>,
     pub frozenset_type: &'static Py<PyType>,
     pub generator_type: &'static Py<PyType>,
     pub int_type: &'static Py<PyType>,
@@ -178,6 +180,7 @@ impl TypeZoo {
             dict_reverseitemiterator_type: dict::PyDictReverseItemIterator::init_builtin_type(),
             ellipsis_type: slice::PyEllipsis::init_builtin_type(),
             frame_type: crate::frame::Frame::init_builtin_type(),
+            frame_locals_proxy_type: frame_locals_proxy::FrameLocalsProxy::init_builtin_type(),
             function_type: function::PyFunction::init_builtin_type(),
             generator_type: generator::PyGenerator::init_builtin_type(),
             getset_type: getset::PyGetSet::init_builtin_type(),
@@ -253,6 +256,7 @@ impl TypeZoo {
         bool_::init(context);
         code::init(context);
         frame::init(context);
+        frame_locals_proxy::init(context);
         weakref::init(context);
         weakproxy::init(context);
         singletons::init(context);

@@ -73,6 +73,20 @@ impl Coro {
         }
     }
 
+    /// Free the finished frame's locals and stack, unless a frame object has
+    /// escaped (e.g. through an `f_locals` proxy or `sys._getframe`). An
+    /// escaped frame husk owns its heap-resident locals and must keep them
+    /// readable after the generator closes.
+    fn clear_frame_locals_on_close(&self) {
+        // Keep locals alive if a durable frame reference escaped (e.g. through
+        // an `f_locals` proxy or `sys._getframe`): that reference now owns the
+        // heap-resident locals and must keep them readable after close,
+        // matching `take_ownership`.
+        if !self.frame.has_escaped() {
+            self.frame.clear_locals_and_stack();
+        }
+    }
+
     fn maybe_close(&self, res: &PyResult<ExecutionResult>, entered_frame: bool) {
         if !entered_frame {
             return;
@@ -87,7 +101,7 @@ impl Coro {
                 );
                 // Completed generators/coroutines should not keep their locals
                 // alive while the wrapper object itself remains referenced.
-                self.frame.clear_locals_and_stack();
+                self.clear_frame_locals_on_close();
             }
             Ok(ExecutionResult::Yield(_)) => {}
         }
@@ -170,7 +184,6 @@ impl Coro {
             None
         };
         let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
-            self.frame.locals_to_fast(vm)?;
             f.resume(value, vm)
         });
         self.finalize_send_result(result, entered_frame, jen, vm)
@@ -199,7 +212,6 @@ impl Coro {
             None
         };
         let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
-            self.frame.locals_to_fast(vm)?;
             f.resume(value, vm)
         });
         self.finalize_send_result(result, entered_frame, jen, vm)
@@ -259,7 +271,7 @@ impl Coro {
         self.closed.store(true);
         // Release frame locals and stack to free references held by the
         // closed generator, matching gen_send_ex2 with close_on_completion.
-        self.frame.clear_locals_and_stack();
+        self.clear_frame_locals_on_close();
         match result {
             Ok(ExecutionResult::Yield(_)) => {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
