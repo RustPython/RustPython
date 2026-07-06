@@ -161,8 +161,19 @@ impl FrameLocalsProxy {
     }
 
     #[pymethod]
-    fn update(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.update_from(&other, vm)
+    fn update(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        if !args.kwargs.is_empty() {
+            return Err(
+                vm.new_type_error("FrameLocalsProxy.update() takes no keyword arguments")
+            );
+        }
+        if args.args.len() != 1 {
+            return Err(vm.new_type_error(format!(
+                "FrameLocalsProxy.update() takes exactly one argument ({} given)",
+                args.args.len()
+            )));
+        }
+        self.update_from(&args.args[0], vm)
     }
 
     fn update_from(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
