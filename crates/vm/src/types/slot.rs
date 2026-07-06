@@ -739,6 +739,18 @@ impl PyType {
         // Helper macro for number/sequence/mapping sub-slots
         macro_rules! update_sub_slot {
             ($group:ident, $slot:ident, $wrapper:expr, $variant:ident) => {{
+                // Fall back to the value inherited for this exact field. Left and
+                // right binary ops (e.g. add / right_add) share one accessor but
+                // occupy distinct fields, so the fallback must target this field
+                // rather than the accessor's default field, otherwise resolving
+                // an absent right op would overwrite the left op's dispatcher.
+                let inherit_this_field = || {
+                    let mro = self.mro.read();
+                    let inherited = mro[1..]
+                        .iter()
+                        .find_map(|cls| cls.slots.$group.$slot.load());
+                    self.slots.$group.$slot.store(inherited);
+                };
                 if ADD {
                     // Check if this type defines any method that maps to this slot.
                     // Some slots like SqAssItem/MpAssSubscript are shared by multiple
@@ -784,12 +796,12 @@ impl PyType {
                                 store_wrapper();
                             }
                             SlotLookupResult::NotFound => {
-                                accessor.inherit_from_mro(self);
+                                inherit_this_field();
                             }
                         }
                     }
                 } else {
-                    accessor.inherit_from_mro(self);
+                    inherit_this_field();
                 }
             }};
         }

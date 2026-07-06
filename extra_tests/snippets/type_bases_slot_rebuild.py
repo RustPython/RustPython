@@ -200,3 +200,94 @@ with assert_raises(TypeError):
     d9 + 1
 C9.__bases__ = (OldAdd,)
 assert d9 + 1 == "OLD"
+
+
+# --- left-only __add__ defined on the type itself survives a base swap ---
+# __add__ and __radd__ share one accessor but occupy distinct fields; resolving
+# the absent __radd__ must not overwrite the __add__ dispatcher.
+class Mixin:
+    pass
+
+
+class Other:
+    pass
+
+
+class C10(Mixin):
+    def __add__(self, o):
+        return "C10"
+
+
+c10 = C10()
+assert c10 + 1 == "C10"
+C10.__bases__ = (Other,)
+assert c10 + 1 == "C10"
+
+
+# --- right-only __radd__ survives a base swap ---
+class C11(Mixin):
+    def __radd__(self, o):
+        return "C11"
+
+
+c11 = C11()
+assert 1 + c11 == "C11"
+C11.__bases__ = (Other,)
+assert 1 + c11 == "C11"
+
+
+# --- subclass/grandchild shadowing __add__ keeps it when an ancestor swaps bases ---
+class AddBase:
+    def __add__(self, o):
+        return "AddBase"
+
+
+class Ancestor(AddBase):
+    pass
+
+
+class Shadow(Ancestor):
+    def __add__(self, o):
+        return "Shadow"
+
+
+class GrandShadow(Shadow):
+    pass
+
+
+sh = Shadow()
+gsh = GrandShadow()
+assert sh + 1 == "Shadow"
+assert gsh + 1 == "Shadow"
+Ancestor.__bases__ = (Mixin,)
+assert sh + 1 == "Shadow"
+assert gsh + 1 == "Shadow"
+
+
+# --- another Nb* pair: left-only __sub__ survives a base swap ---
+class C12(Mixin):
+    def __sub__(self, o):
+        return "C12"
+
+
+c12 = C12()
+assert c12 - 1 == "C12"
+C12.__bases__ = (Other,)
+assert c12 - 1 == "C12"
+
+
+# --- setattr/delattr-driven right-op updates keep the left op intact ---
+class C13:
+    def __add__(self, o):
+        return "C13.add"
+
+
+c13 = C13()
+assert c13 + 1 == "C13.add"
+C13.__radd__ = lambda self, o: "C13.radd"
+assert c13 + 1 == "C13.add"
+assert 1 + c13 == "C13.radd"
+del C13.__radd__
+assert c13 + 1 == "C13.add"
+with assert_raises(TypeError):
+    1 + c13
