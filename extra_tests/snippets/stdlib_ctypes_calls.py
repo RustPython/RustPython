@@ -4,9 +4,9 @@
 #
 # Prints "OK" and exits 0; any failed assertion aborts. Output is identical
 # under CPython and RustPython on the same platform.
+import ctypes
 import errno
 import sys
-import ctypes
 from ctypes import (
     CDLL,
     c_char_p,

@@ -3,7 +3,7 @@
 
 use super::{
     _ctypes::CArgObject,
-    PyCArray, PyCData, PyCPointer, PyCStructure, StgInfo,
+    PyCArray, PyCData, PyCPointer, PyCStructure, PyCUnion, StgInfo,
     base::{CArgValue, CDATA_BUFFER_METHODS, ParamFunc, StgInfoFlags},
     simple::PyCSimple,
 };
@@ -25,9 +25,9 @@ use rustpython_common::lock::PyRwLock;
 #[cfg(windows)]
 use rustpython_host_env::ctypes::ComMethodError;
 use rustpython_host_env::ctypes::{
-    CallError, CallOptions, CallRet, CallValue, FfiCif, FfiCodePtr, FfiType, RawMemoryView,
-    RawMemoryViewError, StringAtError, call, ffi_pointer_type, ffi_type_from_code, ffi_void_type,
-    has_pointer_width, offset_address, pointer_bytes, pointer_format, pointer_size,
+    CTypeLayout, CallError, CallOptions, CallRet, CallValue, FfiCif, FfiCodePtr, FfiType,
+    RawMemoryView, RawMemoryViewError, StringAtError, call, ffi_pointer_type, ffi_type_from_code,
+    ffi_void_type, has_pointer_width, offset_address, pointer_bytes, pointer_format, pointer_size,
     simple_type_is_pointer, write_pointer_to_buffer_at, write_prefix_limited,
 };
 
@@ -220,6 +220,7 @@ impl ArgumentType for PyTypeRef {
         let type_code = if self.fast_issubclass(CArgObject::static_type())
             || self.fast_issubclass(PyCPointer::static_type())
             || self.fast_issubclass(PyCStructure::static_type())
+            || self.fast_issubclass(PyCUnion::static_type())
         {
             None
         } else {
@@ -266,8 +267,20 @@ impl ArgumentType for PyTypeRef {
             return Ok((convert_to_pointer(&converted, vm)?, None));
         }
 
-        // For structure types, convert to pointer to structure
-        if self.fast_issubclass(PyCStructure::static_type()) {
+        // For structure/union types, pass the aggregate by value: snapshot the
+        // instance bytes and build its call layout from the argtype. A byref()
+        // result is a CArgObject and was already handled above (stays a pointer).
+        if self.fast_issubclass(PyCStructure::static_type())
+            || self.fast_issubclass(PyCUnion::static_type())
+        {
+            if let Some(cdata) = converted.downcast_ref::<PyCData>() {
+                let bytes = cdata.buffer.read().to_vec();
+                let layout = self.stg_info_opt().map_or_else(
+                    || CTypeLayout::Opaque { size: bytes.len() },
+                    |stg| super::base::type_layout(self, &stg, vm),
+                );
+                return Ok((CArgValue::aggregate(layout, bytes), None));
+            }
             return Ok((convert_to_pointer(&converted, vm)?, None));
         }
 
@@ -910,9 +923,10 @@ enum RetSpec {
     /// Pointer-valued return (a `TYPEFLAG_ISPOINTER` restype, or an oversized
     /// by-value struct approximated as a pointer-sized register).
     Pointer,
-    /// A scalar retrieved as the given ctypes simple-type code. Small struct
-    /// returns are approximated as `'i'` (<=4 bytes) or `'q'` (<=8 bytes).
+    /// A scalar retrieved as the given ctypes simple-type code.
     Code(char),
+    /// A by-value aggregate (struct/union) return with the given call layout.
+    Aggregate(CTypeLayout),
 }
 
 /// Call information extracted from PyCFuncPtr (argtypes, restype, etc.)
@@ -959,15 +973,25 @@ fn compute_ret_spec(
         };
     }
 
-    // Structure/Array (StgInfo, no _type_): size-approximated register return
+    // Structure/Union (StgInfo, no _type_): returned by value as an aggregate.
+    // The layout is built from the held guard to avoid re-locking the type.
     if let Some(stg_info) = restype_type.stg_info_opt() {
-        let size = stg_info.size;
-        return if size <= 4 {
-            RetSpec::Code('i')
-        } else if size <= 8 {
-            RetSpec::Code('q')
-        } else {
-            RetSpec::Pointer
+        return match stg_info.paramfunc {
+            ParamFunc::Structure | ParamFunc::Union => {
+                RetSpec::Aggregate(super::base::type_layout(&restype_type, &stg_info, vm))
+            }
+            // Any other aggregate-ish StgInfo without a code: size-approximated
+            // register return, as before.
+            _ => {
+                let size = stg_info.size;
+                if size <= 4 {
+                    RetSpec::Code('i')
+                } else if size <= 8 {
+                    RetSpec::Code('q')
+                } else {
+                    RetSpec::Pointer
+                }
+            }
         };
     }
 
@@ -1308,6 +1332,7 @@ fn ctypes_callproc(
         RetSpec::Void => CallRet::Void,
         RetSpec::Pointer => CallRet::Pointer,
         RetSpec::Code(code) => CallRet::Code(code.encode_utf8(&mut ret_code_buf)),
+        RetSpec::Aggregate(layout) => CallRet::Aggregate(layout),
     };
 
     call(addr, &call_args, call_ret, options)
@@ -1410,6 +1435,12 @@ fn convert_raw_result(
     }
 
     let info = stg_info.unwrap();
+    // Extract what's needed and release the read guard before constructing any
+    // instance below: instance construction write-locks the type's StgInfo (to
+    // finalize it), which would self-deadlock against a held read guard.
+    let is_pointer_type = info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER);
+    let has_proto = info.proto.is_some();
+    drop(info);
 
     // py_object: interpret return value as PyObject* and materialize it.
     if let Ok(type_attr) = restype_type
@@ -1442,8 +1473,8 @@ fn convert_raw_result(
     // This handles POINTER(T), Structure, Array, etc.
 
     // Special handling for POINTER(T) types - set pointer value directly
-    if info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER)
-        && info.proto.is_some()
+    if is_pointer_type
+        && has_proto
         && let CallValue::Pointer(ptr) = result
         && let Ok(instance) = restype_type.as_object().call((), vm)
     {

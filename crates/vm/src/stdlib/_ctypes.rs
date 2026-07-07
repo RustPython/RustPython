@@ -143,6 +143,8 @@ pub(crate) mod _ctypes {
                 super::CArgValue::Int(v) => FfiValue::I32(*v),
                 super::CArgValue::Double(v) => FfiValue::F64(*v),
                 super::CArgValue::Pointer(v) => FfiValue::Pointer(*v),
+                // 'V' aggregates format via the object-address default arm below.
+                super::CArgValue::Aggregate { .. } => FfiValue::Pointer(0),
             };
 
             // Format value based on tag
@@ -197,7 +199,7 @@ pub(crate) mod _ctypes {
                         Ok(format!("<cparam '{tag_char}' ('\\x{byte:02x}')>"))
                     }
                 }
-                b'z' | b'Z' | b'P' | b'V' => {
+                b'z' | b'Z' | b'P' => {
                     // Pointer types
                     let ptr = match ffi_val {
                         FfiValue::Pointer(v) => v,

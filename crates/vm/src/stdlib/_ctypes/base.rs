@@ -18,8 +18,8 @@ use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 use rustpython_common::wtf8::Wtf8;
 use rustpython_host_env::ctypes::{
-    CTypeParamKind, FfiType, char_array_assignment_bytes, char_array_field_value,
-    ffi_type_for_layout, wchar_array_field_value, write_cow_bytes_at_offset,
+    CTypeLayout, char_array_assignment_bytes, char_array_field_value, wchar_array_field_value,
+    write_cow_bytes_at_offset,
 };
 
 // StgInfo - Storage information for ctypes types
@@ -99,8 +99,9 @@ pub struct StgInfo {
     // Byte order (for _swappedbytes_)
     pub big_endian: bool, // true if big endian, false if little endian
 
-    // FFI field types for structure/union passing (inherited from base class)
-    pub ffi_field_types: Vec<FfiType>,
+    // Call layouts of the struct/union fields, in declaration order (inherited
+    // from base class). Drives by-value aggregate passing.
+    pub field_layouts: Vec<CTypeLayout>,
 
     // Cached pointer type (non-inheritable via descriptor)
     pub pointer_type: Option<PyObjectRef>,
@@ -127,7 +128,7 @@ impl core::fmt::Debug for StgInfo {
             .field("shape", &self.shape)
             .field("paramfunc", &self.paramfunc)
             .field("big_endian", &self.big_endian)
-            .field("ffi_field_types", &self.ffi_field_types.len())
+            .field("field_layouts", &self.field_layouts.len())
             .finish()
     }
 }
@@ -147,7 +148,7 @@ impl Default for StgInfo {
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
-            ffi_field_types: Vec::new(),
+            field_layouts: Vec::new(),
             pointer_type: None,
         }
     }
@@ -168,7 +169,7 @@ impl StgInfo {
             shape: Vec::new(),
             paramfunc: ParamFunc::None,
             big_endian: cfg!(target_endian = "big"), // native endian by default
-            ffi_field_types: Vec::new(),
+            field_layouts: Vec::new(),
             pointer_type: None,
         }
     }
@@ -220,28 +221,9 @@ impl StgInfo {
             shape,
             paramfunc: ParamFunc::Array,
             big_endian: cfg!(target_endian = "big"), // native endian by default
-            ffi_field_types: Vec::new(),
+            field_layouts: Vec::new(),
             pointer_type: None,
         }
-    }
-
-    /// Get libffi type for this StgInfo
-    /// Note: For very large types, returns pointer type to avoid overflow
-    pub fn to_ffi_type(&self) -> FfiType {
-        let kind = match self.paramfunc {
-            ParamFunc::Structure => CTypeParamKind::Structure,
-            ParamFunc::Union => CTypeParamKind::Union,
-            ParamFunc::Array => CTypeParamKind::Array,
-            ParamFunc::Pointer => CTypeParamKind::Pointer,
-            _ => CTypeParamKind::Simple,
-        };
-        ffi_type_for_layout(
-            kind,
-            &self.ffi_field_types,
-            self.size,
-            self.length,
-            self.format.as_deref(),
-        )
     }
 
     /// Check if this type is finalized (cannot set _fields_ again)
@@ -252,6 +234,44 @@ impl StgInfo {
     /// Get proto type reference (for Pointer/Array types)
     pub fn proto(&self) -> &Py<PyType> {
         self.proto.as_deref().expect("type has proto")
+    }
+}
+
+/// Build the host_env call layout for a ctypes type from its already-borrowed
+/// `StgInfo`. Aggregate layouts come straight from the type's `field_layouts`
+/// (built incrementally from the base class, so struct inheritance is
+/// reflected); array elements recurse into the element type; simple types read
+/// their `_type_` code. The caller passes the borrowed `stg` so this never
+/// re-locks `ty`'s own type data.
+pub(super) fn type_layout(ty: &Py<PyType>, stg: &StgInfo, vm: &VirtualMachine) -> CTypeLayout {
+    match stg.paramfunc {
+        ParamFunc::Structure => CTypeLayout::Struct {
+            fields: stg.field_layouts.clone(),
+            size: stg.size,
+        },
+        ParamFunc::Union => CTypeLayout::Union {
+            fields: stg.field_layouts.clone(),
+            size: stg.size,
+        },
+        ParamFunc::Array => {
+            let element = stg
+                .element_type
+                .as_ref()
+                .and_then(|et| et.stg_info_opt().map(|et_stg| type_layout(et, &et_stg, vm)))
+                .unwrap_or(CTypeLayout::Opaque {
+                    size: stg.element_size,
+                });
+            CTypeLayout::Array {
+                element: Box::new(element),
+                length: stg.length,
+                size: stg.size,
+            }
+        }
+        ParamFunc::Pointer => CTypeLayout::Pointer,
+        ParamFunc::Simple | ParamFunc::None => ty
+            .type_code(vm)
+            .and_then(|code| code.chars().next())
+            .map_or(CTypeLayout::Opaque { size: stg.size }, CTypeLayout::Simple),
     }
 }
 
@@ -1884,28 +1904,30 @@ fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject
 
 /// StructUnionType_paramfunc (for both Structure and Union)
 fn struct_union_paramfunc(obj: &PyObject, stg_info: &StgInfo, _vm: &VirtualMachine) -> CArgObject {
-    // Get buffer pointer
-    // For large structs (> sizeof(void*)), we'd need to allocate and copy.
-    // For now, just point to buffer directly and keep obj reference for memory safety.
-    let buffer = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
-        cdata.buffer.read()
+    // Snapshot the instance bytes and pass the aggregate by value. The layout
+    // is built here from the already-borrowed `stg_info` to avoid re-locking.
+    let (bytes, size) = if let Some(cdata) = obj.downcast_ref::<PyCData>() {
+        let buffer = cdata.buffer.read();
+        (buffer.to_vec(), buffer.len())
     } else {
-        return CArgObject {
-            tag: b'V',
-            value: CArgValue::pointer(0),
-            obj: obj.to_owned(),
-            keep: None,
-            size: stg_info.size,
-            offset: 0,
-        };
+        (Vec::new(), stg_info.size)
     };
 
-    let ptr_val = buffer.as_ptr() as usize;
-    let size = buffer.len();
+    let layout = if matches!(stg_info.paramfunc, ParamFunc::Union) {
+        CTypeLayout::Union {
+            fields: stg_info.field_layouts.clone(),
+            size: stg_info.size,
+        }
+    } else {
+        CTypeLayout::Struct {
+            fields: stg_info.field_layouts.clone(),
+            size: stg_info.size,
+        }
+    };
 
     CArgObject {
         tag: b'V',
-        value: CArgValue::pointer(ptr_val),
+        value: CArgValue::aggregate(layout, bytes),
         obj: obj.to_owned(),
         keep: None,
         size,
@@ -1929,6 +1951,8 @@ pub enum CArgValue {
     Double(f64),
     /// Address-valued argument (pointer decay, byref, buffer copies, NULL = 0).
     Pointer(usize),
+    /// By-value aggregate: its call layout plus a snapshot of its bytes.
+    Aggregate { layout: CTypeLayout, bytes: Vec<u8> },
 }
 
 impl CArgValue {
@@ -1942,6 +1966,11 @@ impl CArgValue {
             code,
             bytes: buffer.to_vec(),
         }
+    }
+
+    /// Snapshot an aggregate value from its call layout and buffer bytes.
+    pub(super) fn aggregate(layout: CTypeLayout, bytes: Vec<u8>) -> Self {
+        Self::Aggregate { layout, bytes }
     }
 
     /// Lower to a [`CallArg`], borrowing `code_buf` for the code's `&str`.
@@ -1958,6 +1987,10 @@ impl CArgValue {
             Self::Int(value) => CallArg::Int(*value),
             Self::Double(value) => CallArg::Double(*value),
             Self::Pointer(value) => CallArg::Pointer(*value),
+            Self::Aggregate { layout, bytes } => CallArg::Aggregate {
+                layout,
+                buffer: bytes,
+            },
         }
     }
 }
