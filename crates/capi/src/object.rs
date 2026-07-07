@@ -1,14 +1,15 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int, c_uint, c_ulong, c_void};
+use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyStr, PyType, object_generic_set_dict, object_get_dict};
+pub use pytype::*;
+use rustpython_vm::builtins::{PyStr, object_generic_set_dict, object_get_dict};
 use rustpython_vm::bytecode::ComparisonOperator;
 use rustpython_vm::function::PySetterValue;
 use rustpython_vm::types::{PyComparisonOp, hash_not_implemented};
-use rustpython_vm::{AsObject, Py, PyPayload, PyResult, VirtualMachine};
+use rustpython_vm::{AsObject, PyPayload, PyResult, VirtualMachine};
 
-pub type PyTypeObject = Py<PyType>;
+mod pytype;
 
 macro_rules! define_py_check {
     (fn $name:ident, $($ctx_path:ident).+) => {
@@ -37,69 +38,6 @@ macro_rules! define_py_check {
 }
 
 pub(crate) use define_py_check;
-define_py_check!(fn PyType_Check, types.type_type);
-define_py_check!(exact fn PyType_CheckExact, types.type_type);
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
-    unsafe { (*op).class() }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
-    with_vm(|_vm| {
-        let obj = unsafe { &*op };
-        let ty = unsafe { &*ty };
-        obj.class().is(ty)
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
-    let ty = unsafe { &*ptr };
-    ty.slots.flags.bits() as u32 as c_ulong
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
-    with_vm(move |_vm| {
-        let a = unsafe { &*a };
-        let b = unsafe { &*b };
-        Ok(a.is_subtype(b))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__name__(vm))
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetQualName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__qualname__(vm))
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetModuleName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__module__(vm))
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let ty = unsafe { &*ptr };
-        let qualname = ty.__qualname__(vm).try_downcast::<PyStr>(vm)?;
-        let module = ty.__module__(vm);
-
-        if let Some(module) = module.downcast_ref::<PyStr>()
-            && module.as_wtf8() != "builtins"
-        {
-            Ok(vm.ctx.new_str(format!("{module}.{qualname}")))
-        } else {
-            Ok(qualname)
-        }
-    })
-}
 
 #[inline]
 fn get_constant(vm: &VirtualMachine, constant_id: c_uint) -> PyResult<&PyObject> {
@@ -545,7 +483,7 @@ pub unsafe extern "C" fn PyObject_GenericSetDict(
 mod tests {
     use pyo3::class::basic::CompareOp;
     use pyo3::prelude::*;
-    use pyo3::types::{PyBool, PyDict, PyInt, PyString, PyTypeMethods};
+    use pyo3::types::{PyBool, PyDict, PyInt};
 
     #[test]
     fn is_truthy() {
@@ -566,14 +504,6 @@ mod tests {
         Python::attach(|py| {
             assert!(PyBool::new(py, true).is_truthy().unwrap());
             assert!(!PyBool::new(py, false).is_truthy().unwrap());
-        })
-    }
-
-    #[test]
-    fn type_name() {
-        Python::attach(|py| {
-            let string = PyString::new(py, "Hello, World!");
-            assert_eq!(string.get_type().name().unwrap().to_str().unwrap(), "str");
         })
     }
 
@@ -650,16 +580,6 @@ mod tests {
                     .unwrap()
                     .is_truthy()
                     .unwrap()
-            );
-        })
-    }
-
-    #[test]
-    fn type_get_module_name() {
-        Python::attach(|py| {
-            assert_eq!(
-                py.get_type::<PyInt>().module().unwrap().to_str().unwrap(),
-                "builtins"
             );
         })
     }
