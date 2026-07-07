@@ -2042,9 +2042,9 @@ dependencies = [
 
 [[package]]
 name = "libz-rs-sys"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3deaad727e11899800b9a177af14682bfa5d5d96fa525a6c9bd13e650c019f40"
+checksum = "5c12cd6e7e66c601f22d849241e2257b38b4685a34b41401f4aefdd9c431c1c6"
 dependencies = [
  "zlib-rs",
 ]
@@ -5141,9 +5141,9 @@ dependencies = [
 
 [[package]]
 name = "zlib-rs"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "977347db8caa080403f6b6b7c1cda9479a8e869316f7e13a59b19076a40f94e3"
+checksum = "5431d5661c32445236631278f27946e444ddafe4684cac70b185272d4f9c52d5"
 
 [[package]]
 name = "zmij"
