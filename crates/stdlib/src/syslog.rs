@@ -13,7 +13,7 @@ mod syslog {
     use rustpython_host_env::syslog as host_syslog;
 
     #[pyattr]
-    use libc::{
+    use host_syslog::{
         LOG_ALERT, LOG_AUTH, LOG_CONS, LOG_CRIT, LOG_DAEMON, LOG_DEBUG, LOG_EMERG, LOG_ERR,
         LOG_INFO, LOG_KERN, LOG_LOCAL0, LOG_LOCAL1, LOG_LOCAL2, LOG_LOCAL3, LOG_LOCAL4, LOG_LOCAL5,
         LOG_LOCAL6, LOG_LOCAL7, LOG_LPR, LOG_MAIL, LOG_NDELAY, LOG_NEWS, LOG_NOTICE, LOG_NOWAIT,
@@ -22,7 +22,7 @@ mod syslog {
 
     #[cfg(not(target_os = "redox"))]
     #[pyattr]
-    use libc::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
+    use host_syslog::{LOG_AUTHPRIV, LOG_CRON, LOG_PERROR};
 
     fn get_argv(vm: &VirtualMachine) -> Option<PyStrRef> {
         if let Some(argv) = vm.state.config.settings.argv.first()

@@ -99,6 +99,41 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::{CBAUD, CIBAUD, IUCLC, OLCUC, XCASE};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use host_termios::{CSTART, CSTOP, CSWTCH};
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use host_termios::{FIOASYNC, TIOCGETD, TIOCSETD};
+    #[pyattr]
+    use host_termios::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use host_termios::{
+        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
+        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
+        TIOCMSET, TIOCNXCL, TIOCSCTTY,
+    };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use host_termios::{
+        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
+        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
+    };
     #[cfg(any(
         target_os = "android",
         target_os = "freebsd",
@@ -109,47 +144,6 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::{TAB0, TABDLY};
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use host_termios::{VSWTC, VSWTC as VSWTCH};
-    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
-    #[pyattr]
-    use host_termios::{VSWTCH, VSWTCH as VSWTC};
-    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
-    #[pyattr]
-    use libc::{CSTART, CSTOP, CSWTCH};
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::{FIOASYNC, TIOCGETD, TIOCSETD};
-    #[pyattr]
-    use libc::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
-    #[cfg(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::{
-        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
-        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
-        TIOCMSET, TIOCNXCL, TIOCSCTTY,
-    };
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use libc::{
-        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
-        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
-    };
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -158,13 +152,19 @@ mod termios {
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
+    use host_termios::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
-    use libc::{
+    use host_termios::{
         TIOCNOTTY, TIOCPKT, TIOCPKT_DATA, TIOCPKT_DOSTOP, TIOCPKT_FLUSHREAD, TIOCPKT_FLUSHWRITE,
         TIOCPKT_NOSTOP, TIOCPKT_START, TIOCPKT_STOP,
     };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use host_termios::{VSWTC, VSWTC as VSWTCH};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use host_termios::{VSWTCH, VSWTCH as VSWTC};
 
     #[pyfunction]
     fn tcgetattr(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {

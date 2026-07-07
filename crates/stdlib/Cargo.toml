@@ -32,6 +32,7 @@ rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 rustpython-host_env = { workspace = true }
+rustpython-unicode = { workspace = true }
 
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
@@ -76,12 +77,6 @@ hmac = { workspace = true }
 pbkdf2 = { workspace = true, features = ["hmac"] }
 constant_time_eq = { workspace = true }
 
-## unicode stuff
-unicode_names2 = { workspace = true }
-# update version all at the same time
-icu_properties = { workspace = true }
-icu_normalizer = { workspace = true }
-
 # compression
 adler32 = { workspace = true }
 crc32fast = { workspace = true }
@@ -97,14 +92,10 @@ chrono.workspace = true
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
-mac_address = { workspace = true }
 uuid = { workspace = true, features = ["v1"] }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gethostname = { workspace = true }
-socket2 = { workspace = true, features = ["all"] }
-dns-lookup = { workspace = true }
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { workspace = true, optional = true }
@@ -134,16 +125,9 @@ xz-sys = { workspace = true }
 paste = { workspace = true }
 widestring = { workspace = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = { workspace = true }
-
 [dev-dependencies]
 insta = { workspace = true }
 rustpython-pylib = { workspace = true, features = [ "freeze-stdlib" ] }
-
-[build-dependencies]
-icu_normalizer = { workspace = true }
-icu_properties = { workspace = true }
 
 [lints]
 workspace = true

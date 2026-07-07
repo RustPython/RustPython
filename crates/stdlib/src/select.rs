@@ -170,7 +170,7 @@ mod decl {
 
     #[cfg(unix)]
     #[pyattr]
-    use libc::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI};
+    use host_select::{POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI};
 
     #[cfg(unix)]
     pub(super) mod poll {
@@ -261,7 +261,8 @@ mod decl {
             }
         }
 
-        const DEFAULT_EVENTS: i16 = libc::POLLIN | libc::POLLPRI | libc::POLLOUT;
+        const DEFAULT_EVENTS: i16 =
+            host_select::POLLIN | host_select::POLLPRI | host_select::POLLOUT;
 
         #[pyclass]
         impl PyPoll {
@@ -315,7 +316,7 @@ mod decl {
                 loop {
                     match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
                         Ok(_) => break,
-                        Err(err) if err.raw_os_error() == Some(libc::EINTR) => {
+                        Err(err) if err.raw_os_error() == Some(host_select::EINTR) => {
                             vm.check_signals()?
                         }
                         Err(err) => return Err(err.into_pyexception(vm)),
@@ -346,14 +347,14 @@ mod decl {
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
     #[pyattr]
-    use libc::{
+    use host_select::{
         EPOLL_CLOEXEC, EPOLLERR, EPOLLEXCLUSIVE, EPOLLHUP, EPOLLIN, EPOLLMSG, EPOLLONESHOT,
         EPOLLOUT, EPOLLPRI, EPOLLRDBAND, EPOLLRDHUP, EPOLLRDNORM, EPOLLWAKEUP, EPOLLWRBAND,
         EPOLLWRNORM,
     };
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
     #[pyattr]
-    const EPOLLET: u32 = libc::EPOLLET as u32;
+    const EPOLLET: u32 = host_select::EPOLLET as u32;
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
     pub(super) mod epoll {
@@ -392,7 +393,7 @@ mod decl {
                 if let ..=-2 | 0 = args.sizehint {
                     return Err(vm.new_value_error("negative sizehint"));
                 }
-                if !matches!(args.flags, 0 | libc::EPOLL_CLOEXEC) {
+                if !matches!(args.flags, 0 | host_select::EPOLL_CLOEXEC) {
                     return Err(vm.new_os_error("invalid flags"));
                 }
                 Self::new().map_err(|e| e.into_pyexception(vm))
@@ -497,7 +498,7 @@ mod decl {
                             "maxevents must be greater than 0, got {maxevents}"
                         )));
                     }
-                    -1 => libc::FD_SETSIZE - 1,
+                    -1 => host_select::FD_SETSIZE - 1,
                     _ => maxevents as usize,
                 };
 

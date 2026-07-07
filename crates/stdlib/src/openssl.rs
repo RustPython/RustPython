@@ -154,63 +154,63 @@ mod _ssl {
     // SSL Alert Descriptions (RFC 5246 and extensions)
     // Hybrid approach: use openssl_sys constants where available, hardcode others
     #[pyattr]
-    const ALERT_DESCRIPTION_CLOSE_NOTIFY: libc::c_int = 0;
+    const ALERT_DESCRIPTION_CLOSE_NOTIFY: core::ffi::c_int = 0;
     #[pyattr]
-    const ALERT_DESCRIPTION_UNEXPECTED_MESSAGE: libc::c_int = 10;
+    const ALERT_DESCRIPTION_UNEXPECTED_MESSAGE: core::ffi::c_int = 10;
     #[pyattr]
-    const ALERT_DESCRIPTION_BAD_RECORD_MAC: libc::c_int = 20;
+    const ALERT_DESCRIPTION_BAD_RECORD_MAC: core::ffi::c_int = 20;
     #[pyattr]
-    const ALERT_DESCRIPTION_RECORD_OVERFLOW: libc::c_int = 22;
+    const ALERT_DESCRIPTION_RECORD_OVERFLOW: core::ffi::c_int = 22;
     #[pyattr]
-    const ALERT_DESCRIPTION_DECOMPRESSION_FAILURE: libc::c_int = 30;
+    const ALERT_DESCRIPTION_DECOMPRESSION_FAILURE: core::ffi::c_int = 30;
     #[pyattr]
-    const ALERT_DESCRIPTION_HANDSHAKE_FAILURE: libc::c_int = 40;
+    const ALERT_DESCRIPTION_HANDSHAKE_FAILURE: core::ffi::c_int = 40;
     #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE: libc::c_int = 42;
+    const ALERT_DESCRIPTION_BAD_CERTIFICATE: core::ffi::c_int = 42;
     #[pyattr]
-    const ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE: libc::c_int = 43;
+    const ALERT_DESCRIPTION_UNSUPPORTED_CERTIFICATE: core::ffi::c_int = 43;
     #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_REVOKED: libc::c_int = 44;
+    const ALERT_DESCRIPTION_CERTIFICATE_REVOKED: core::ffi::c_int = 44;
     #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_EXPIRED: libc::c_int = 45;
+    const ALERT_DESCRIPTION_CERTIFICATE_EXPIRED: core::ffi::c_int = 45;
     #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN: libc::c_int = 46;
+    const ALERT_DESCRIPTION_CERTIFICATE_UNKNOWN: core::ffi::c_int = 46;
     #[pyattr]
-    const ALERT_DESCRIPTION_ILLEGAL_PARAMETER: libc::c_int = SSL_AD_ILLEGAL_PARAMETER;
+    const ALERT_DESCRIPTION_ILLEGAL_PARAMETER: core::ffi::c_int = SSL_AD_ILLEGAL_PARAMETER;
     #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_CA: libc::c_int = 48;
+    const ALERT_DESCRIPTION_UNKNOWN_CA: core::ffi::c_int = 48;
     #[pyattr]
-    const ALERT_DESCRIPTION_ACCESS_DENIED: libc::c_int = 49;
+    const ALERT_DESCRIPTION_ACCESS_DENIED: core::ffi::c_int = 49;
     #[pyattr]
-    const ALERT_DESCRIPTION_DECODE_ERROR: libc::c_int = SSL_AD_DECODE_ERROR;
+    const ALERT_DESCRIPTION_DECODE_ERROR: core::ffi::c_int = SSL_AD_DECODE_ERROR;
     #[pyattr]
-    const ALERT_DESCRIPTION_DECRYPT_ERROR: libc::c_int = 51;
+    const ALERT_DESCRIPTION_DECRYPT_ERROR: core::ffi::c_int = 51;
     #[pyattr]
-    const ALERT_DESCRIPTION_PROTOCOL_VERSION: libc::c_int = 70;
+    const ALERT_DESCRIPTION_PROTOCOL_VERSION: core::ffi::c_int = 70;
     #[pyattr]
-    const ALERT_DESCRIPTION_INSUFFICIENT_SECURITY: libc::c_int = 71;
+    const ALERT_DESCRIPTION_INSUFFICIENT_SECURITY: core::ffi::c_int = 71;
     #[pyattr]
-    const ALERT_DESCRIPTION_INTERNAL_ERROR: libc::c_int = 80;
+    const ALERT_DESCRIPTION_INTERNAL_ERROR: core::ffi::c_int = 80;
     #[pyattr]
-    const ALERT_DESCRIPTION_USER_CANCELLED: libc::c_int = 90;
+    const ALERT_DESCRIPTION_USER_CANCELLED: core::ffi::c_int = 90;
     #[pyattr]
-    const ALERT_DESCRIPTION_NO_RENEGOTIATION: libc::c_int = 100;
+    const ALERT_DESCRIPTION_NO_RENEGOTIATION: core::ffi::c_int = 100;
     #[pyattr]
-    const ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION: libc::c_int = 110;
+    const ALERT_DESCRIPTION_UNSUPPORTED_EXTENSION: core::ffi::c_int = 110;
     #[pyattr]
-    const ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE: libc::c_int = 111;
+    const ALERT_DESCRIPTION_CERTIFICATE_UNOBTAINABLE: core::ffi::c_int = 111;
     #[pyattr]
-    const ALERT_DESCRIPTION_UNRECOGNIZED_NAME: libc::c_int = SSL_AD_UNRECOGNIZED_NAME;
+    const ALERT_DESCRIPTION_UNRECOGNIZED_NAME: core::ffi::c_int = SSL_AD_UNRECOGNIZED_NAME;
     #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE: libc::c_int = 113;
+    const ALERT_DESCRIPTION_BAD_CERTIFICATE_STATUS_RESPONSE: core::ffi::c_int = 113;
     #[pyattr]
-    const ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE: libc::c_int = 114;
+    const ALERT_DESCRIPTION_BAD_CERTIFICATE_HASH_VALUE: core::ffi::c_int = 114;
     #[pyattr]
-    const ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY: libc::c_int = 115;
+    const ALERT_DESCRIPTION_UNKNOWN_PSK_IDENTITY: core::ffi::c_int = 115;
 
     // CRL verification constants
     #[pyattr]
-    const VERIFY_CRL_CHECK_CHAIN: libc::c_ulong =
+    const VERIFY_CRL_CHECK_CHAIN: core::ffi::c_ulong =
         sys::X509_V_FLAG_CRL_CHECK | sys::X509_V_FLAG_CRL_CHECK_ALL;
 
     // taken from CPython, should probably be kept up to date with their version if it ever changes
@@ -248,7 +248,8 @@ mod _ssl {
     #[pyattr]
     const PROTO_MAXIMUM_SUPPORTED: i32 = ProtoVersion::MaxSupported as i32;
     #[pyattr]
-    const OP_ALL: libc::c_ulong = (sys::SSL_OP_ALL & !sys::SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) as _;
+    const OP_ALL: core::ffi::c_ulong =
+        (sys::SSL_OP_ALL & !sys::SSL_OP_DONT_INSERT_EMPTY_FRAGMENTS) as _;
     #[pyattr]
     const HAS_TLS_UNIQUE: bool = true;
     #[pyattr]
@@ -298,7 +299,7 @@ mod _ssl {
 
     // SSL_VERIFY constants for post-handshake authentication
     #[cfg(ossl111)]
-    const SSL_VERIFY_POST_HANDSHAKE: libc::c_int = 0x20;
+    const SSL_VERIFY_POST_HANDSHAKE: core::ffi::c_int = 0x20;
 
     // the openssl version from the API headers
 
@@ -393,7 +394,7 @@ mod _ssl {
         unsafe { ptr2obj(sys::OBJ_nid2obj(nid.as_raw())) }
     }
 
-    type PyNid = (libc::c_int, String, String, Option<String>);
+    type PyNid = (core::ffi::c_int, String, String, Option<String>);
     fn obj2py(obj: &Asn1ObjectRef, vm: &VirtualMachine) -> PyResult<PyNid> {
         let nid = obj.nid();
         let short_name = nid
@@ -428,7 +429,7 @@ mod _ssl {
     }
 
     #[pyfunction]
-    fn nid2obj(nid: libc::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
+    fn nid2obj(nid: core::ffi::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
         _nid2obj(Nid::from_raw(nid))
             .as_deref()
             .ok_or_else(|| vm.new_value_error(format!("unknown NID {nid}")))
@@ -508,7 +509,7 @@ mod _ssl {
     #[pyfunction(name = "RAND_add")]
     fn rand_add(string: ArgStrOrBytesLike, entropy: f64) {
         let f = |b: &[u8]| {
-            for buf in b.chunks(libc::c_int::MAX as usize) {
+            for buf in b.chunks(core::ffi::c_int::MAX as usize) {
                 unsafe { sys::RAND_add(buf.as_ptr() as *const _, buf.len() as _, entropy) }
             }
         };
@@ -573,9 +574,9 @@ mod _ssl {
     }
 
     // Get or create an ex_data index for SNI callback data
-    fn get_sni_ex_data_index() -> libc::c_int {
+    fn get_sni_ex_data_index() -> core::ffi::c_int {
         use rustpython_common::lock::LazyLock;
-        static SNI_EX_DATA_IDX: LazyLock<libc::c_int> = LazyLock::new(|| unsafe {
+        static SNI_EX_DATA_IDX: LazyLock<core::ffi::c_int> = LazyLock::new(|| unsafe {
             sys::SSL_get_ex_new_index(
                 0,
                 core::ptr::null_mut(),
@@ -591,12 +592,12 @@ mod _ssl {
     // NOTE: We don't free the data here because it's managed manually in do_handshake
     // to avoid use-after-free when the SSL object is dropped after timeout
     unsafe extern "C" fn sni_callback_data_free(
-        _parent: *mut libc::c_void,
-        _ptr: *mut libc::c_void,
+        _parent: *mut core::ffi::c_void,
+        _ptr: *mut core::ffi::c_void,
         _ad: *mut sys::CRYPTO_EX_DATA,
-        _idx: libc::c_int,
-        _argl: libc::c_long,
-        _argp: *mut libc::c_void,
+        _idx: core::ffi::c_int,
+        _argl: core::ffi::c_long,
+        _argp: *mut core::ffi::c_void,
     ) {
         // Intentionally empty - data is freed in cleanup_sni_ex_data()
     }
@@ -617,9 +618,9 @@ mod _ssl {
     }
 
     // Get or create an ex_data index for msg_callback data
-    fn get_msg_callback_ex_data_index() -> libc::c_int {
+    fn get_msg_callback_ex_data_index() -> core::ffi::c_int {
         use rustpython_common::lock::LazyLock;
-        static MSG_CB_EX_DATA_IDX: LazyLock<libc::c_int> = LazyLock::new(|| unsafe {
+        static MSG_CB_EX_DATA_IDX: LazyLock<core::ffi::c_int> = LazyLock::new(|| unsafe {
             sys::SSL_get_ex_new_index(
                 0,
                 core::ptr::null_mut(),
@@ -633,12 +634,12 @@ mod _ssl {
 
     // Free function for msg_callback data - called by OpenSSL when SSL is freed
     unsafe extern "C" fn msg_callback_data_free(
-        _parent: *mut libc::c_void,
-        ptr: *mut libc::c_void,
+        _parent: *mut core::ffi::c_void,
+        ptr: *mut core::ffi::c_void,
         _ad: *mut sys::CRYPTO_EX_DATA,
-        _idx: libc::c_int,
-        _argl: libc::c_long,
-        _argp: *mut libc::c_void,
+        _idx: core::ffi::c_int,
+        _argl: core::ffi::c_long,
+        _argp: *mut core::ffi::c_void,
     ) {
         if !ptr.is_null() {
             unsafe {
@@ -652,13 +653,13 @@ mod _ssl {
     // SNI callback function called by OpenSSL
     unsafe extern "C" fn _servername_callback(
         ssl_ptr: *mut sys::SSL,
-        al: *mut libc::c_int,
-        arg: *mut libc::c_void,
-    ) -> libc::c_int {
-        const SSL_TLSEXT_ERR_OK: libc::c_int = 0;
-        const SSL_TLSEXT_ERR_ALERT_FATAL: libc::c_int = 2;
-        const SSL_AD_INTERNAL_ERROR: libc::c_int = 80;
-        const TLSEXT_NAMETYPE_host_name: libc::c_int = 0;
+        al: *mut core::ffi::c_int,
+        arg: *mut core::ffi::c_void,
+    ) -> core::ffi::c_int {
+        const SSL_TLSEXT_ERR_OK: core::ffi::c_int = 0;
+        const SSL_TLSEXT_ERR_ALERT_FATAL: core::ffi::c_int = 2;
+        const SSL_AD_INTERNAL_ERROR: core::ffi::c_int = 80;
+        const TLSEXT_NAMETYPE_host_name: core::ffi::c_int = 0;
 
         if arg.is_null() {
             return SSL_TLSEXT_ERR_OK;
@@ -766,13 +767,13 @@ mod _ssl {
     // Called during SSL operations to report protocol messages.
     // debughelpers.c:_PySSL_msg_callback
     unsafe extern "C" fn _msg_callback(
-        write_p: libc::c_int,
-        mut version: libc::c_int,
-        content_type: libc::c_int,
-        buf: *const libc::c_void,
+        write_p: core::ffi::c_int,
+        mut version: core::ffi::c_int,
+        content_type: core::ffi::c_int,
+        buf: *const core::ffi::c_void,
         len: usize,
         ssl_ptr: *mut sys::SSL,
-        _arg: *mut libc::c_void,
+        _arg: *mut core::ffi::c_void,
     ) {
         if ssl_ptr.is_null() {
             return;
@@ -1122,7 +1123,7 @@ mod _ssl {
         }
 
         #[pygetset]
-        fn options(&self) -> libc::c_ulong {
+        fn options(&self) -> core::ffi::c_ulong {
             self.ctx.read().options().bits() as _
         }
         #[pygetset(setter)]
@@ -1130,10 +1131,10 @@ mod _ssl {
             if new_opts < 0 {
                 return Err(vm.new_value_error("invalid options value"));
             }
-            let new_opts = new_opts as libc::c_ulong;
+            let new_opts = new_opts as core::ffi::c_ulong;
             let mut ctx = self.builder();
             // Get current options
-            let current = ctx.options().bits() as libc::c_ulong;
+            let current = ctx.options().bits() as core::ffi::c_ulong;
 
             // Calculate options to clear and set
             let clear = current & !new_opts;
@@ -1190,7 +1191,7 @@ mod _ssl {
             Ok(())
         }
         #[pygetset]
-        fn verify_flags(&self) -> libc::c_ulong {
+        fn verify_flags(&self) -> core::ffi::c_ulong {
             unsafe {
                 let ctx_ptr = self.ctx().as_ptr();
                 let param = sys::SSL_CTX_get0_param(ctx_ptr);
@@ -1198,7 +1199,11 @@ mod _ssl {
             }
         }
         #[pygetset(setter)]
-        fn set_verify_flags(&self, new_flags: libc::c_ulong, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_verify_flags(
+            &self,
+            new_flags: core::ffi::c_ulong,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
             unsafe {
                 let ctx_ptr = self.ctx().as_ptr();
                 let param = sys::SSL_CTX_get0_param(ctx_ptr);
@@ -1359,10 +1364,10 @@ mod _ssl {
             {
                 let mut ctx = self.builder();
                 let server = protos.with_ref(|pbuf| {
-                    if pbuf.len() > libc::c_uint::MAX as usize {
+                    if pbuf.len() > core::ffi::c_uint::MAX as usize {
                         return Err(vm.new_overflow_error(format!(
                             "protocols longer than {} bytes",
-                            libc::c_uint::MAX
+                            core::ffi::c_uint::MAX
                         )));
                     }
                     ctx.set_alpn_protos(pbuf)
@@ -1523,7 +1528,7 @@ mod _ssl {
                     return Err(vm
                         .new_os_subtype_error(
                             vm.ctx.exceptions.file_not_found_error.to_owned(),
-                            Some(libc::ENOENT),
+                            Some(rustpython_host_env::errno::errors::ENOENT),
                             format!("No such file or directory: '{}'", path.display()),
                         )
                         .upcast());
@@ -1534,7 +1539,7 @@ mod _ssl {
                     return Err(vm
                         .new_os_subtype_error(
                             vm.ctx.exceptions.file_not_found_error.to_owned(),
-                            Some(libc::ENOENT),
+                            Some(rustpython_host_env::errno::errors::ENOENT),
                             format!("No such file or directory: '{}'", path.display()),
                         )
                         .upcast());
@@ -1667,7 +1672,7 @@ mod _ssl {
                     std::io::ErrorKind::NotFound => vm
                         .new_os_subtype_error(
                             vm.ctx.exceptions.file_not_found_error.to_owned(),
-                            Some(libc::ENOENT),
+                            Some(rustpython_host_env::errno::errors::ENOENT),
                             e.to_string(),
                         )
                         .upcast(),
@@ -1684,7 +1689,7 @@ mod _ssl {
                 )
             };
             unsafe {
-                libc::fclose(fp);
+                rustpython_host_env::fileutils::fclose(fp);
             }
 
             if dh.is_null() {
@@ -1842,7 +1847,7 @@ mod _ssl {
                 return Err(vm
                     .new_os_subtype_error(
                         vm.ctx.exceptions.file_not_found_error.to_owned(),
-                        Some(libc::ENOENT),
+                        Some(rustpython_host_env::errno::errors::ENOENT),
                         format!("No such file or directory: '{}'", cert_path.display()),
                     )
                     .upcast());
@@ -1853,7 +1858,7 @@ mod _ssl {
                 return Err(vm
                     .new_os_subtype_error(
                         vm.ctx.exceptions.file_not_found_error.to_owned(),
-                        Some(libc::ENOENT),
+                        Some(rustpython_host_env::errno::errors::ENOENT),
                         format!("No such file or directory: '{}'", kp.display()),
                     )
                     .upcast());
@@ -2013,7 +2018,7 @@ mod _ssl {
                     let ret = SSL_set_session_id_context(
                         ssl.as_ptr(),
                         SID_CTX.as_ptr(),
-                        SID_CTX.len() as libc::c_uint,
+                        SID_CTX.len() as core::ffi::c_uint,
                     );
                     if ret == 0 {
                         return Err(convert_openssl_error(vm, ErrorStack::get()));
@@ -2061,7 +2066,7 @@ mod _ssl {
                         // Server socket: add SSL_VERIFY_POST_HANDSHAKE flag
                         // Only in combination with SSL_VERIFY_PEER
                         let mode = sys::SSL_get_verify_mode(ssl.as_ptr());
-                        if (mode & sys::SSL_VERIFY_PEER as libc::c_int) != 0 {
+                        if (mode & sys::SSL_VERIFY_PEER as core::ffi::c_int) != 0 {
                             sys::SSL_set_verify(
                                 ssl.as_ptr(),
                                 mode | SSL_VERIFY_POST_HANDSHAKE,
@@ -2553,7 +2558,7 @@ mod _ssl {
                 unsafe {
                     let ssl_ctx = sys::SSL_get_SSL_CTX(stream.ssl().as_ptr());
                     let verify_mode = sys::SSL_CTX_get_verify_mode(ssl_ctx);
-                    if (verify_mode & sys::SSL_VERIFY_PEER as libc::c_int) == 0 {
+                    if (verify_mode & sys::SSL_VERIFY_PEER as core::ffi::c_int) == 0 {
                         // Return empty dict when SSL_VERIFY_PEER is not set
                         Ok(Some(vm.ctx.new_dict().into()))
                     } else {
@@ -2723,8 +2728,8 @@ mod _ssl {
                 // Use thread-local SSL pointer during handshake to avoid deadlock
                 let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
                 unsafe {
-                    let mut out: *const libc::c_uchar = core::ptr::null();
-                    let mut outlen: libc::c_uint = 0;
+                    let mut out: *const core::ffi::c_uchar = core::ptr::null();
+                    let mut outlen: core::ffi::c_uint = 0;
 
                     sys::SSL_get0_alpn_selected(ssl_ptr, &mut out, &mut outlen);
 
@@ -3308,8 +3313,8 @@ mod _ssl {
                 return Ok(PyComparisonValue::NotImplemented);
             }
             let mut eq = unsafe {
-                let mut self_len: libc::c_uint = 0;
-                let mut other_len: libc::c_uint = 0;
+                let mut self_len: core::ffi::c_uint = 0;
+                let mut other_len: core::ffi::c_uint = 0;
                 let self_id = sys::SSL_SESSION_get_id(zelf.session, &mut self_len);
                 let other_id = sys::SSL_SESSION_get_id(other.session, &mut other_len);
 
@@ -3359,7 +3364,7 @@ mod _ssl {
 
     unsafe extern "C" {
         // X509_check_ca returns 1 for CA certificates, 0 otherwise
-        fn X509_check_ca(x: *const sys::X509) -> libc::c_int;
+        fn X509_check_ca(x: *const sys::X509) -> core::ffi::c_int;
     }
 
     unsafe extern "C" {
@@ -3373,13 +3378,13 @@ mod _ssl {
 
     #[cfg(ossl111)]
     unsafe extern "C" {
-        fn SSL_verify_client_post_handshake(ssl: *const sys::SSL) -> libc::c_int;
-        fn SSL_set_post_handshake_auth(ssl: *mut sys::SSL, val: libc::c_int);
+        fn SSL_verify_client_post_handshake(ssl: *const sys::SSL) -> core::ffi::c_int;
+        fn SSL_set_post_handshake_auth(ssl: *mut sys::SSL, val: core::ffi::c_int);
     }
 
     #[cfg(ossl110)]
     unsafe extern "C" {
-        fn SSL_CTX_get_security_level(ctx: *const sys::SSL_CTX) -> libc::c_int;
+        fn SSL_CTX_get_security_level(ctx: *const sys::SSL_CTX) -> core::ffi::c_int;
     }
 
     unsafe extern "C" {
@@ -3390,13 +3395,13 @@ mod _ssl {
     #[allow(non_camel_case_types)]
     type SSL_CTX_msg_callback = Option<
         unsafe extern "C" fn(
-            write_p: libc::c_int,
-            version: libc::c_int,
-            content_type: libc::c_int,
-            buf: *const libc::c_void,
+            write_p: core::ffi::c_int,
+            version: core::ffi::c_int,
+            content_type: core::ffi::c_int,
+            buf: *const core::ffi::c_void,
             len: usize,
             ssl: *mut sys::SSL,
-            arg: *mut libc::c_void,
+            arg: *mut core::ffi::c_void,
         ),
     >;
 
@@ -3406,40 +3411,42 @@ mod _ssl {
 
     #[cfg(ossl110)]
     unsafe extern "C" {
-        fn SSL_SESSION_has_ticket(session: *const sys::SSL_SESSION) -> libc::c_int;
-        fn SSL_SESSION_get_ticket_lifetime_hint(session: *const sys::SSL_SESSION) -> libc::c_ulong;
+        fn SSL_SESSION_has_ticket(session: *const sys::SSL_SESSION) -> core::ffi::c_int;
+        fn SSL_SESSION_get_ticket_lifetime_hint(
+            session: *const sys::SSL_SESSION,
+        ) -> core::ffi::c_ulong;
     }
 
     // X509 object types
-    const X509_LU_X509: libc::c_int = 1;
-    const X509_LU_CRL: libc::c_int = 2;
+    const X509_LU_X509: core::ffi::c_int = 1;
+    const X509_LU_CRL: core::ffi::c_int = 2;
 
     unsafe extern "C" {
-        fn X509_OBJECT_get_type(obj: *const sys::X509_OBJECT) -> libc::c_int;
+        fn X509_OBJECT_get_type(obj: *const sys::X509_OBJECT) -> core::ffi::c_int;
         fn SSL_set_session_id_context(
             ssl: *mut sys::SSL,
-            sid_ctx: *const libc::c_uchar,
-            sid_ctx_len: libc::c_uint,
-        ) -> libc::c_int;
+            sid_ctx: *const core::ffi::c_uchar,
+            sid_ctx_len: core::ffi::c_uint,
+        ) -> core::ffi::c_int;
         fn SSL_get1_session(ssl: *const sys::SSL) -> *mut sys::SSL_SESSION;
     }
 
     // SSL session statistics constants (used with SSL_CTX_ctrl)
-    const SSL_CTRL_SESS_NUMBER: libc::c_int = 20;
-    const SSL_CTRL_SESS_CONNECT: libc::c_int = 21;
-    const SSL_CTRL_SESS_CONNECT_GOOD: libc::c_int = 22;
-    const SSL_CTRL_SESS_CONNECT_RENEGOTIATE: libc::c_int = 23;
-    const SSL_CTRL_SESS_ACCEPT: libc::c_int = 24;
-    const SSL_CTRL_SESS_ACCEPT_GOOD: libc::c_int = 25;
-    const SSL_CTRL_SESS_ACCEPT_RENEGOTIATE: libc::c_int = 26;
-    const SSL_CTRL_SESS_HIT: libc::c_int = 27;
-    const SSL_CTRL_SESS_MISSES: libc::c_int = 29;
-    const SSL_CTRL_SESS_TIMEOUTS: libc::c_int = 30;
-    const SSL_CTRL_SESS_CACHE_FULL: libc::c_int = 31;
+    const SSL_CTRL_SESS_NUMBER: core::ffi::c_int = 20;
+    const SSL_CTRL_SESS_CONNECT: core::ffi::c_int = 21;
+    const SSL_CTRL_SESS_CONNECT_GOOD: core::ffi::c_int = 22;
+    const SSL_CTRL_SESS_CONNECT_RENEGOTIATE: core::ffi::c_int = 23;
+    const SSL_CTRL_SESS_ACCEPT: core::ffi::c_int = 24;
+    const SSL_CTRL_SESS_ACCEPT_GOOD: core::ffi::c_int = 25;
+    const SSL_CTRL_SESS_ACCEPT_RENEGOTIATE: core::ffi::c_int = 26;
+    const SSL_CTRL_SESS_HIT: core::ffi::c_int = 27;
+    const SSL_CTRL_SESS_MISSES: core::ffi::c_int = 29;
+    const SSL_CTRL_SESS_TIMEOUTS: core::ffi::c_int = 30;
+    const SSL_CTRL_SESS_CACHE_FULL: core::ffi::c_int = 31;
 
     // SSL session statistics functions (implemented as macros in OpenSSL)
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_number(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_number(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3451,7 +3458,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_connect(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_connect(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3463,7 +3470,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_connect_good(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_connect_good(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3475,7 +3482,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_connect_renegotiate(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_connect_renegotiate(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3487,7 +3494,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_accept(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_accept(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3499,7 +3506,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_accept_good(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_accept_good(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3511,7 +3518,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_accept_renegotiate(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_accept_renegotiate(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3523,12 +3530,12 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_hits(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_hits(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe { sys::SSL_CTX_ctrl(ctx as *mut _, SSL_CTRL_SESS_HIT, 0, core::ptr::null_mut()) }
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_misses(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_misses(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3540,7 +3547,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_timeouts(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_timeouts(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3552,7 +3559,7 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn SSL_CTX_sess_cache_full(ctx: *const sys::SSL_CTX) -> libc::c_long {
+    unsafe fn SSL_CTX_sess_cache_full(ctx: *const sys::SSL_CTX) -> core::ffi::c_long {
         unsafe {
             sys::SSL_CTX_ctrl(
                 ctx as *mut _,
@@ -3566,17 +3573,17 @@ mod _ssl {
     // DH parameters functions
     unsafe extern "C" {
         fn PEM_read_DHparams(
-            fp: *mut libc::FILE,
+            fp: *mut rustpython_host_env::fileutils::CFile,
             x: *mut *mut sys::DH,
-            cb: *mut libc::c_void,
-            u: *mut libc::c_void,
+            cb: *mut core::ffi::c_void,
+            u: *mut core::ffi::c_void,
         ) -> *mut sys::DH;
     }
 
     // OpenSSL BIO helper functions
     // These are typically macros in OpenSSL, implemented via BIO_ctrl
-    const BIO_CTRL_PENDING: libc::c_int = 10;
-    const BIO_CTRL_SET_EOF: libc::c_int = 2;
+    const BIO_CTRL_PENDING: core::ffi::c_int = 10;
+    const BIO_CTRL_SET_EOF: core::ffi::c_int = 2;
 
     #[allow(non_snake_case)]
     unsafe fn BIO_ctrl_pending(bio: *mut sys::BIO) -> usize {
@@ -3584,14 +3591,17 @@ mod _ssl {
     }
 
     #[allow(non_snake_case)]
-    unsafe fn BIO_set_mem_eof_return(bio: *mut sys::BIO, eof: libc::c_int) -> libc::c_int {
+    unsafe fn BIO_set_mem_eof_return(
+        bio: *mut sys::BIO,
+        eof: core::ffi::c_int,
+    ) -> core::ffi::c_int {
         unsafe {
             sys::BIO_ctrl(
                 bio,
                 BIO_CTRL_SET_EOF,
-                eof as libc::c_long,
+                eof as core::ffi::c_long,
                 core::ptr::null_mut(),
-            ) as libc::c_int
+            ) as core::ffi::c_int
         }
     }
 
@@ -3721,7 +3731,7 @@ mod _ssl {
         #[pygetset]
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
             unsafe {
-                let mut len: libc::c_uint = 0;
+                let mut len: core::ffi::c_uint = 0;
                 let id_ptr = sys::SSL_SESSION_get_id(self.session, &mut len);
                 let id_slice = core::slice::from_raw_parts(id_ptr, len as usize);
                 vm.ctx.new_bytes(id_slice.to_vec())
@@ -3976,7 +3986,7 @@ mod _ssl {
             let mut buf = vec![0u8; 256];
             let result = sys::SSL_CIPHER_description(
                 cipher,
-                buf.as_mut_ptr() as *mut libc::c_char,
+                buf.as_mut_ptr() as *mut core::ffi::c_char,
                 buf.len() as i32,
             );
             if result.is_null() {
@@ -4142,7 +4152,7 @@ mod windows {
 mod bio {
     //! based off rust-openssl's private `bio` module
 
-    use libc::c_int;
+    use core::ffi::c_int;
     use openssl::error::ErrorStack;
     use openssl_sys as sys;
     use std::marker::PhantomData;

@@ -442,28 +442,14 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        // Work to increase the bit dispersion for closely spaced hash values.
-        // This is important because some use cases have many combinations of a
-        // small number of elements with nearby hashes so that many distinct
-        // combinations collapse to only a handful of distinct hash values.
-        const fn _shuffle_bits(h: u64) -> u64 {
-            ((h ^ 89869747) ^ (h.wrapping_shl(16))).wrapping_mul(3644798167)
-        }
-        // Factor in the number of active entries
-        let mut hash: u64 = (self.len() as u64 + 1).wrapping_mul(1927868237);
-        // Xor-in shuffled bits from every entry's hash field because xor is
-        // commutative and a frozenset hash should be independent of order.
-        hash = self.content.try_fold_keys(hash, |h, element| {
-            Ok(h ^ _shuffle_bits(element.hash(vm)? as u64))
-        })?;
-        // Disperse patterns arising in nested frozen-sets
-        hash ^= (hash >> 11) ^ (hash >> 25);
-        hash = hash.wrapping_mul(69069).wrapping_add(907133923);
-        // -1 is reserved as an error code
-        if hash == u64::MAX {
-            hash = 590923713;
-        }
-        Ok(hash as PyHash)
+        let hasher = self.content.try_fold_keys(
+            hash::FrozenSetHash::new(self.len()),
+            |mut hasher, element| {
+                hasher.add(element.hash(vm)?);
+                Ok(hasher)
+            },
+        )?;
+        Ok(hasher.finish())
     }
 
     // Run operation, on failure, if item is a set/set subclass, convert it
