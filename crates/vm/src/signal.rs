@@ -26,7 +26,7 @@ const QSBR_BIT: u8 = 1 << 1;
 /// An automatic collection was scheduled by `maybe_collect` and must run at
 /// the next bytecode safepoint rather than synchronously inside the
 /// allocation that tripped the threshold.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 const GC_BIT: u8 = 1 << 2;
 
 #[expect(
@@ -142,13 +142,13 @@ pub(crate) fn qsbr_bit_set() -> bool {
 }
 
 /// Schedule an automatic collection to run at the next bytecode safepoint.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub(crate) fn schedule_gc() {
     EVAL_BREAKER.fetch_or(GC_BIT, Ordering::Release);
 }
 
 /// Clear the scheduled-GC bit, returning whether it had been set.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub(crate) fn take_gc_scheduled() -> bool {
     EVAL_BREAKER.fetch_and(!GC_BIT, Ordering::Acquire) & GC_BIT != 0
 }

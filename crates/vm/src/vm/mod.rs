@@ -46,7 +46,7 @@ use crate::{
 use alloc::{borrow::Cow, collections::BTreeMap};
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
@@ -149,7 +149,7 @@ impl Default for ExceptionStack {
 
 /// Stop-the-world state for fork safety. Before `fork()`, the requester
 /// stops all other Python threads so they are not holding internal locks.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub struct StopTheWorldState {
     /// Fast-path flag checked in the bytecode loop (like `_PY_EVAL_PLEASE_STOP_BIT`)
     pub(crate) requested: AtomicBool,
@@ -189,7 +189,7 @@ pub struct StopTheWorldState {
     stats_suspend_wait_yields: AtomicU64,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 #[derive(Debug, Clone, Copy)]
 pub struct StopTheWorldStats {
     pub stop_calls: u64,
@@ -205,14 +205,14 @@ pub struct StopTheWorldStats {
     pub world_stopped: bool,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 impl Default for StopTheWorldState {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 impl StopTheWorldState {
     #[must_use]
     pub const fn new() -> Self {
@@ -662,13 +662,13 @@ impl StopTheWorldState {
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub(super) fn stw_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| crate::host_env::os::var_os("RUSTPYTHON_STW_TRACE").is_some())
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
     if stw_trace_enabled() {
         use core::fmt::Write as _;
@@ -704,7 +704,13 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
             crate::stdlib::_thread::get_ident(),
             msg
         );
+        #[cfg(unix)]
         crate::host_env::io::write_stderr_raw(&out.buf[..out.len]);
+        #[cfg(not(unix))]
+        {
+            use std::io::Write as _;
+            let _ = std::io::stderr().write_all(&out.buf[..out.len]);
+        }
     }
 }
 
@@ -760,7 +766,7 @@ pub struct PyGlobalState {
     /// local version against this to decide whether re-instrumentation is needed.
     pub instrumentation_version: AtomicU64,
     /// Stop-the-world state for pre-fork thread suspension
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "threading")]
     pub stop_the_world: StopTheWorldState,
 }
 
@@ -2132,7 +2138,7 @@ impl VirtualMachine {
             return true;
         }
 
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         if thread::stop_requested_for_current_thread() {
             return true;
         }
@@ -2159,7 +2165,7 @@ impl VirtualMachine {
         }
 
         // Suspend this thread if stop-the-world is in progress
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         thread::suspend_if_needed(&self.state.stop_the_world);
 
         // Pass a QSBR checkpoint if requested (deferred memory reclamation).
@@ -2179,7 +2185,7 @@ impl VirtualMachine {
     /// Called only from the bytecode-loop safepoint, where no interpreter
     /// locks are held, so the stop-the-world it performs cannot deadlock
     /// against a thread blocked on a lock this thread would otherwise hold.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "threading")]
     pub(crate) fn run_scheduled_gc(&self) {
         if crate::signal::take_gc_scheduled() {
             crate::gc_state::gc_state().collect(0);

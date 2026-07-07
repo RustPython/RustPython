@@ -1046,7 +1046,7 @@ impl PyType {
         name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> (Option<PyObjectRef>, u32) {
-        #[cfg(all(unix, feature = "threading", debug_assertions))]
+        #[cfg(all(feature = "threading", debug_assertions))]
         crate::vm::thread::debug_assert_current_thread_attached();
 
         let version = self.tp_version_tag.load(Ordering::Acquire);
@@ -1264,7 +1264,7 @@ impl PyType {
     /// Check if attribute exists in MRO, using method cache for fast check.
     /// Unlike find_name_in_mro, avoids cloning the value on cache hit.
     fn has_name_in_mro(&self, name: &'static PyStrInterned) -> bool {
-        #[cfg(all(unix, feature = "threading", debug_assertions))]
+        #[cfg(all(feature = "threading", debug_assertions))]
         crate::vm::thread::debug_assert_current_thread_attached();
 
         let version = self.tp_version_tag.load(Ordering::Acquire);

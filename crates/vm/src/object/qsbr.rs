@@ -126,13 +126,11 @@ mod threading {
         /// Mark a thread offline (detached); it no longer delays grace
         /// periods (_Py_qsbr_detach). The thread must not perform lock-free
         /// cache reads while offline.
-        #[cfg(any(unix, test))]
         pub(crate) fn offline(&self, slot: &QsbrSlot) {
             slot.seq.store(QSBR_OFFLINE, Ordering::Release);
         }
 
         /// Mark a thread online again (_Py_qsbr_attach).
-        #[cfg(unix)]
         pub(crate) fn online(&self, slot: &QsbrSlot) {
             self.quiescent_state(slot);
         }

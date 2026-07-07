@@ -2231,7 +2231,7 @@ impl ExecutingFrame<'_> {
                 // Run a scheduled automatic collection here — a safepoint with
                 // no interpreter locks held — instead of synchronously inside
                 // the allocation that tripped the threshold.
-                #[cfg(all(unix, feature = "threading"))]
+                #[cfg(feature = "threading")]
                 vm.run_scheduled_gc();
             }
             let lasti_before = self.lasti();

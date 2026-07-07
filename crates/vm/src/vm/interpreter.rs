@@ -1,4 +1,4 @@
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 use super::StopTheWorldState;
 use super::{Context, PyConfig, PyGlobalState, VirtualMachine, setting::Settings, thread};
 use crate::{
@@ -134,7 +134,7 @@ where
         monitoring: PyMutex::default(),
         monitoring_events: AtomicCell::new(0),
         instrumentation_version: AtomicU64::new(0),
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         stop_the_world: StopTheWorldState::new(),
     });
 

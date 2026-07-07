@@ -146,13 +146,13 @@ struct GcPtr(NonNull<PyObject>);
 /// well-defined while all other threads are parked at a safepoint. Restarting
 /// happens explicitly once the snapshot has pinned every object; `Drop` is a
 /// backstop that also restarts on the early-return paths.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 struct CollectStopTheWorld {
     vm: *const crate::VirtualMachine,
     stopped: bool,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 impl CollectStopTheWorld {
     /// Request stop-the-world when the current thread has an attached VM.
     /// Falls back to no barrier when no VM is attached (the tracked-object
@@ -184,7 +184,7 @@ impl CollectStopTheWorld {
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 impl Drop for CollectStopTheWorld {
     fn drop(&mut self) {
         self.restart();
@@ -421,7 +421,7 @@ impl GcState {
         let count0 = self.generations[0].count.load(Ordering::SeqCst) as u32;
         let threshold0 = self.generations[0].threshold();
         if threshold0 > 0 && count0 >= threshold0 {
-            #[cfg(all(unix, feature = "threading"))]
+            #[cfg(feature = "threading")]
             {
                 // Defer to the next bytecode safepoint. Collecting here would
                 // stop the world while this thread may hold an internal lock
@@ -431,7 +431,9 @@ impl GcState {
                 crate::signal::schedule_gc();
                 return false;
             }
-            #[cfg(not(all(unix, feature = "threading")))]
+            // Without threading there is no safepoint to defer to and no other
+            // thread whose frames could be read mid-mutation, so collect inline.
+            #[cfg(not(feature = "threading"))]
             {
                 self.collect(0);
                 return true;
@@ -500,7 +502,7 @@ impl GcState {
         // the world then waits for a thread that cannot reach a safepoint.
         // Closing it fully would require making those locks stop-the-world
         // aware; the exclusion above only serializes the fork/GC requesters.
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         let mut stw = CollectStopTheWorld::new();
 
         // Step 1: Gather objects from generations 0..=generation
@@ -698,7 +700,7 @@ impl GcState {
         // the world restarted. Finalizers and tp_clear must not run under
         // stop-the-world — they execute arbitrary Python — and they only touch
         // dead/husk objects, never a running frame.
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         stw.restart();
 
         if unreachable.is_empty() {
