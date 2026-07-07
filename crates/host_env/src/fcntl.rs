@@ -5,6 +5,32 @@ use std::os::fd::BorrowedFd;
 
 use crate::os::CheckLibcResult;
 
+pub use libc::{F_GETFD, F_GETFL, F_SETFD, F_SETFL, FD_CLOEXEC};
+
+#[cfg(not(target_os = "wasi"))]
+pub use libc::{F_DUPFD, F_DUPFD_CLOEXEC, F_GETLK, F_SETLK, F_SETLKW};
+
+#[cfg(not(any(target_os = "wasi", target_os = "redox")))]
+pub use libc::{F_GETOWN, F_RDLCK, F_SETOWN, F_UNLCK, F_WRLCK, LOCK_EX, LOCK_NB, LOCK_SH, LOCK_UN};
+
+#[cfg(target_vendor = "apple")]
+pub use libc::{F_FULLFSYNC, F_NOCACHE};
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{F_DUP2FD, F_DUP2FD_CLOEXEC};
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{F_OFD_GETLK, F_OFD_SETLK, F_OFD_SETLKW};
+
+#[cfg(any(target_os = "android", target_os = "fuchsia", target_os = "linux"))]
+pub use libc::{
+    F_ADD_SEALS, F_GET_SEALS, F_GETLEASE, F_GETPIPE_SZ, F_NOTIFY, F_SEAL_GROW, F_SEAL_SEAL,
+    F_SEAL_SHRINK, F_SEAL_WRITE, F_SETLEASE, F_SETPIPE_SZ,
+};
+
+#[cfg(any(target_os = "dragonfly", target_os = "netbsd", target_vendor = "apple"))]
+pub use libc::F_GETPATH;
+
 pub fn normalize_ioctl_request(request: i64) -> libc::c_ulong {
     (request as u32) as libc::c_ulong
 }

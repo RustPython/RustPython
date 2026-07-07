@@ -7,6 +7,43 @@ use std::os::fd::AsRawFd;
 #[cfg(unix)]
 use std::{io, os::fd::BorrowedFd};
 
+/// Returns the system's hostname.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn hostname() -> std::ffi::OsString {
+    gethostname::gethostname()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use ::dns_lookup as dns;
+#[cfg(not(target_arch = "wasm32"))]
+pub use ::socket2 as raw;
+
+/// Returns the first non-loopback MAC address as 6 bytes, or `None` when no
+/// MAC address is available or the lookup fails.
+#[cfg(not(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_arch = "wasm32",
+    target_os = "redox"
+)))]
+pub fn mac_address() -> Option<[u8; 6]> {
+    mac_address::get_mac_address()
+        .ok()
+        .flatten()
+        .map(|m| m.bytes())
+}
+
+#[cfg(unix)]
+pub use libc::{AF_UNIX, SOCK_STREAM, sa_family_t, sockaddr_storage, socklen_t};
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub use libc::{AF_ALG, AF_CAN};
+
+// bionic (Android) does not define the CAN/ALG sockaddr structs.
+#[cfg(target_os = "linux")]
+pub use libc::{sockaddr_alg, sockaddr_can};
+
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn sethostname(hostname: &str) -> io::Result<()> {
     nix::unistd::sethostname(hostname).map_err(io::Error::from)

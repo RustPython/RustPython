@@ -43,7 +43,7 @@ mod grp {
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<GroupData> {
         let gr_gid = gid.as_bigint();
-        let gid = libc::gid_t::try_from(gr_gid).ok();
+        let gid = host_grp::gid_t::try_from(gr_gid).ok();
         let group = gid
             .map(host_grp::getgrgid)
             .transpose()
