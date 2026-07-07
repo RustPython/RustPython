@@ -3,6 +3,7 @@ from testutils import assert_raises
 # Reassigning __bases__ must rebuild slot dispatchers for the type and all its
 # descendants: a slot whose method left the new MRO must be reset, not left stale.
 
+
 # --- zelf itself loses __add__ (nb_add) ---
 class OldAdd:
     def __add__(self, other):
