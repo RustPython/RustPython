@@ -18,8 +18,8 @@ use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 use rustpython_common::wtf8::Wtf8;
 use rustpython_host_env::ctypes::{
-    CTypeParamKind, FfiArg, FfiType, FfiValue, char_array_assignment_bytes, char_array_field_value,
-    ffi_arg_from_value, ffi_type_for_layout, wchar_array_field_value, write_cow_bytes_at_offset,
+    CTypeParamKind, FfiType, char_array_assignment_bytes, char_array_field_value,
+    ffi_type_for_layout, wchar_array_field_value, write_cow_bytes_at_offset,
 };
 
 // StgInfo - Storage information for ctypes types
@@ -1828,12 +1828,12 @@ fn simple_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject>
 
     // Read value from buffer: memcpy(&parg->value, self->b_ptr, self->b_size)
     let buffer = simple.0.buffer.read();
-    let ffi_value = buffer_to_ffi_value(&type_code, &buffer);
 
     Ok(CArgObject {
         tag,
-        value: ffi_value,
+        value: CArgValue::typed(tag as char, &buffer),
         obj: obj.to_owned(),
+        keep: None,
         size: 0,
         offset: 0,
     })
@@ -1853,8 +1853,9 @@ fn array_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject> 
 
     Ok(CArgObject {
         tag: b'P',
-        value: FfiArgValue::pointer(ptr_val),
+        value: CArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
+        keep: None,
         size: 0,
         offset: 0,
     })
@@ -1873,8 +1874,9 @@ fn pointer_paramfunc(obj: &PyObject, vm: &VirtualMachine) -> PyResult<CArgObject
 
     Ok(CArgObject {
         tag: b'P',
-        value: FfiArgValue::pointer(ptr_val),
+        value: CArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
+        keep: None,
         size: 0,
         offset: 0,
     })
@@ -1890,8 +1892,9 @@ fn struct_union_paramfunc(obj: &PyObject, stg_info: &StgInfo, _vm: &VirtualMachi
     } else {
         return CArgObject {
             tag: b'V',
-            value: FfiArgValue::pointer(0),
+            value: CArgValue::pointer(0),
             obj: obj.to_owned(),
+            keep: None,
             size: stg_info.size,
             offset: 0,
         };
@@ -1902,44 +1905,61 @@ fn struct_union_paramfunc(obj: &PyObject, stg_info: &StgInfo, _vm: &VirtualMachi
 
     CArgObject {
         tag: b'V',
-        value: FfiArgValue::pointer(ptr_val),
+        value: CArgValue::pointer(ptr_val),
         obj: obj.to_owned(),
+        keep: None,
         size,
         offset: 0,
     }
 }
 
-// FfiArgValue - Owned FFI argument value
+// CArgValue - Owned foreign-call argument value
 
-/// Owned FFI argument value. Keeps the value alive for the duration of the FFI call.
+/// A foreign-call argument in a form the unified `call` entry point accepts: a
+/// simple-typed scalar (its ctypes code plus a native-endian bytes snapshot),
+/// an untyped int/float, or an address. Any object whose memory an address
+/// refers to is kept alive by the enclosing `Argument`/`CArgObject`, not here.
 #[derive(Debug, Clone)]
-pub enum FfiArgValue {
-    Scalar(FfiValue),
-    /// Pointer with owned data. The PyObjectRef keeps the pointed data alive.
-    OwnedPointer(usize, #[allow(dead_code)] PyObjectRef),
+pub enum CArgValue {
+    /// A value typed by its ctypes simple-type code, snapshotted as its bytes.
+    Typed { code: char, bytes: Vec<u8> },
+    /// Untyped Python int (ConvParam default: C int).
+    Int(i32),
+    /// Untyped Python float (ConvParam default: C double).
+    Double(f64),
+    /// Address-valued argument (pointer decay, byref, buffer copies, NULL = 0).
+    Pointer(usize),
 }
 
-impl FfiArgValue {
+impl CArgValue {
     pub fn pointer(value: usize) -> Self {
-        Self::Scalar(FfiValue::Pointer(value))
+        Self::Pointer(value)
     }
 
-    /// Create an Arg reference to this owned value
-    pub fn as_arg(&self) -> FfiArg<'_> {
-        match self {
-            Self::Scalar(value) => ffi_arg_from_value(value),
-            Self::OwnedPointer(v, _) => rustpython_host_env::ctypes::ffi_arg(
-                rustpython_host_env::ctypes::FfiArgRef::Pointer(v),
-            ),
+    /// Snapshot a simple-typed value from its code and buffer bytes.
+    pub(super) fn typed(code: char, buffer: &[u8]) -> Self {
+        Self::Typed {
+            code,
+            bytes: buffer.to_vec(),
         }
     }
-}
 
-/// Convert buffer bytes to FfiArgValue based on type code
-pub(super) fn buffer_to_ffi_value(type_code: &str, buffer: &[u8]) -> FfiArgValue {
-    FfiArgValue::Scalar(rustpython_host_env::ctypes::ffi_value_from_type_code(
-        type_code, buffer,
-    ))
+    /// Lower to a [`CallArg`], borrowing `code_buf` for the code's `&str`.
+    pub(super) fn as_call_arg<'a>(
+        &'a self,
+        code_buf: &'a mut [u8; 4],
+    ) -> rustpython_host_env::ctypes::CallArg<'a> {
+        use rustpython_host_env::ctypes::CallArg;
+        match self {
+            Self::Typed { code, bytes } => CallArg::Typed {
+                code: code.encode_utf8(code_buf),
+                buffer: bytes,
+            },
+            Self::Int(value) => CallArg::Int(*value),
+            Self::Double(value) => CallArg::Double(*value),
+            Self::Pointer(value) => CallArg::Pointer(*value),
+        }
+    }
 }
 
 /// Convert bytes to appropriate Python object based on ctypes type

@@ -16,7 +16,7 @@ use crate::{
 };
 
 pub(super) use array::PyCArray;
-pub(super) use base::{FfiArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
+pub(super) use base::{CArgValue, PyCData, PyCField, StgInfo, StgInfoFlags};
 pub(super) use pointer::PyCPointer;
 pub(super) use simple::{PyCSimple, PyCSimpleType};
 pub(super) use structure::PyCStructure;
@@ -107,10 +107,13 @@ pub(crate) mod _ctypes {
     pub(crate) struct CArgObject {
         /// Type tag ('P', 'V', 'i', 'd', etc.)
         pub tag: u8,
-        /// The actual FFI value (mirrors union value)
-        pub value: super::FfiArgValue,
+        /// The actual foreign-call value (mirrors union value)
+        pub value: super::CArgValue,
         /// Reference to original object (for memory safety)
         pub obj: PyObjectRef,
+        /// Owner keeping a `Pointer` value's target memory alive (e.g. a
+        /// null-terminated buffer copy created by `from_param`), if any.
+        pub keep: Option<PyObjectRef>,
         /// Size for struct/union ('V' tag)
         #[allow(dead_code)]
         pub size: usize,
@@ -126,72 +129,66 @@ pub(crate) mod _ctypes {
     impl Representable for CArgObject {
         // PyCArg_repr - use tag and value fields directly
         fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
-            use super::base::FfiArgValue;
+            use rustpython_host_env::ctypes::{FfiValue, ffi_value_from_type_code};
 
             let tag_char = zelf.tag as char;
+
+            // Reconstruct the scalar the value lowers to, so the formatting
+            // matches the value passed to the foreign call exactly.
+            let ffi_val = match &zelf.value {
+                super::CArgValue::Typed { code, bytes } => {
+                    let mut buf = [0u8; 4];
+                    ffi_value_from_type_code(code.encode_utf8(&mut buf), bytes)
+                }
+                super::CArgValue::Int(v) => FfiValue::I32(*v),
+                super::CArgValue::Double(v) => FfiValue::F64(*v),
+                super::CArgValue::Pointer(v) => FfiValue::Pointer(*v),
+            };
 
             // Format value based on tag
             match zelf.tag {
                 b'b' | b'h' | b'i' | b'l' | b'q' => {
                     // Signed integers
-                    let n = match zelf.value {
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I8(v)) => {
-                            v as i64
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I16(v)) => {
-                            v as i64
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I32(v)) => {
-                            v as i64
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I64(v)) => v,
+                    let n = match ffi_val {
+                        FfiValue::I8(v) => v as i64,
+                        FfiValue::I16(v) => v as i64,
+                        FfiValue::I32(v) => v as i64,
+                        FfiValue::I64(v) => v,
                         _ => 0,
                     };
                     Ok(format!("<cparam '{tag_char}' ({n})>"))
                 }
                 b'B' | b'H' | b'I' | b'L' | b'Q' => {
                     // Unsigned integers
-                    let n = match zelf.value {
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U8(v)) => {
-                            v as u64
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U16(v)) => {
-                            v as u64
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U32(v)) => {
-                            v as u64
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U64(v)) => v,
+                    let n = match ffi_val {
+                        FfiValue::U8(v) => v as u64,
+                        FfiValue::U16(v) => v as u64,
+                        FfiValue::U32(v) => v as u64,
+                        FfiValue::U64(v) => v,
                         _ => 0,
                     };
                     Ok(format!("<cparam '{tag_char}' ({n})>"))
                 }
                 b'f' => {
-                    let v = match zelf.value {
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::F32(v)) => {
-                            v as f64
-                        }
+                    let v = match ffi_val {
+                        FfiValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
                     Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
                 b'd' | b'g' => {
-                    let v = match zelf.value {
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::F64(v)) => v,
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::F32(v)) => {
-                            v as f64
-                        }
+                    let v = match ffi_val {
+                        FfiValue::F64(v) => v,
+                        FfiValue::F32(v) => v as f64,
                         _ => 0.0,
                     };
                     Ok(format!("<cparam '{tag_char}' ({v})>"))
                 }
                 b'c' => {
                     // c_char - single byte
-                    let byte = match zelf.value {
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::I8(v)) => {
-                            v as u8
-                        }
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::U8(v)) => v,
+                    let byte = match ffi_val {
+                        FfiValue::I8(v) => v as u8,
+                        FfiValue::U8(v) => v,
                         _ => 0,
                     };
                     if is_literal_char(byte) {
@@ -202,9 +199,8 @@ pub(crate) mod _ctypes {
                 }
                 b'z' | b'Z' | b'P' | b'V' => {
                     // Pointer types
-                    let ptr = match zelf.value {
-                        FfiArgValue::Scalar(rustpython_host_env::ctypes::FfiValue::Pointer(v)) => v,
-                        FfiArgValue::OwnedPointer(v, _) => v,
+                    let ptr = match ffi_val {
+                        FfiValue::Pointer(v) => v,
                         _ => 0,
                     };
                     if ptr == 0 {
@@ -600,7 +596,7 @@ pub(crate) mod _ctypes {
         offset: OptionalArg<isize>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        use super::FfiArgValue;
+        use super::CArgValue;
 
         // Check if obj is a ctypes instance
         if !obj.fast_isinstance(PyCData::static_type())
@@ -628,8 +624,9 @@ pub(crate) mod _ctypes {
         // Create CArgObject to hold the reference
         Ok(CArgObject {
             tag: b'P',
-            value: FfiArgValue::pointer(ptr_val),
+            value: CArgValue::pointer(ptr_val),
             obj,
+            keep: None,
             size: 0,
             offset: offset_val,
         }
