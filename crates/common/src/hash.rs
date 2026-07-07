@@ -320,15 +320,16 @@ mod tests {
         let a = HashSecret::from_keys(K0, K1);
         let b = HashSecret::from_keys(K0, K1);
         assert_eq!(a.hash_str("hello"), b.hash_str("hello"));
-        assert_eq!(a.hash_bytes(b"a fixed message"), b.hash_bytes(b"a fixed message"));
+        assert_eq!(
+            a.hash_bytes(b"a fixed message"),
+            b.hash_bytes(b"a fixed message")
+        );
 
         // Explicit keys drive the SipHasher-2-4 directly. `keyed_hash` pins
         // k1 = 0, so a secret built with the same k0 and k1 = 0 must reproduce
         // its raw digest.
         let zero_k1 = HashSecret::from_keys(K0, 0);
-        let mut hasher = zero_k1.build_hasher();
-        b"payload".hash(&mut hasher);
-        assert_eq!(keyed_hash(K0, b"payload"), hasher.finish());
+        assert_eq!(keyed_hash(K0, b"payload"), zero_k1.hash_one(b"payload"));
 
         // Locked digest so an accidental keying change is caught.
         assert_eq!(a.hash_str("determinism"), LOCKED_DIGEST);

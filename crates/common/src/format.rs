@@ -1708,7 +1708,10 @@ mod tests {
     }
 
     fn fmt_float(spec: &str, value: f64) -> String {
-        FormatSpec::parse(spec).unwrap().format_float(value).unwrap()
+        FormatSpec::parse(spec)
+            .unwrap()
+            .format_float(value)
+            .unwrap()
     }
 
     #[test]
@@ -1783,16 +1786,22 @@ mod tests {
     fn format_int_character_rejects_precision() {
         // 'c' rejects precision, and precision is checked before sign/alt form.
         assert_eq!(
-            FormatSpec::parse(".2c").unwrap().format_int(&BigInt::from(65)),
+            FormatSpec::parse(".2c")
+                .unwrap()
+                .format_int(&BigInt::from(65)),
             Err(FormatSpecError::PrecisionNotAllowed)
         );
         assert_eq!(
-            FormatSpec::parse("+.2c").unwrap().format_int(&BigInt::from(65)),
+            FormatSpec::parse("+.2c")
+                .unwrap()
+                .format_int(&BigInt::from(65)),
             Err(FormatSpecError::PrecisionNotAllowed)
         );
         // Without precision, 'c' still renders the code point.
         assert_eq!(
-            FormatSpec::parse("c").unwrap().format_int(&BigInt::from(65)),
+            FormatSpec::parse("c")
+                .unwrap()
+                .format_int(&BigInt::from(65)),
             Ok("A".to_owned())
         );
     }
