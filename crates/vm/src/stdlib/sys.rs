@@ -4,7 +4,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
-pub use sys::{BUILD_INFO, COMPILER, COPYRIGHT, PLATFORM, VERSION};
+pub use sys::{COPYRIGHT, PLATFORM};
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
@@ -710,11 +710,7 @@ pub mod sys {
     }
 
     #[pyattr(name = "version")]
-    pub const VERSION: &str = version::RUSTPYTHON_VERSION;
-
-    pub const BUILD_INFO: &str = version::RUSTPYTHON_BUILD_INFO;
-
-    pub const COMPILER: &CStr = c"[Rust]";
+    const VERSION: &str = version::RUSTPYTHON_VERSION;
 
     // Note: This is Python DLL version in CPython, but we arbitrary fill it for compatibility
     #[cfg(windows)]
