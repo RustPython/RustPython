@@ -3313,9 +3313,9 @@ dependencies = [
  "rustpython-ruff_python_ast",
  "rustpython-ruff_python_parser",
  "rustpython-ruff_text_size",
+ "rustpython-unicode",
  "rustpython-wtf8",
  "thiserror",
- "unicode_names2 3.1.0",
 ]
 
 [[package]]
@@ -3336,9 +3336,9 @@ dependencies = [
  "parking_lot",
  "radium",
  "rustpython-literal",
+ "rustpython-unicode",
  "rustpython-wtf8",
  "siphasher",
- "unicode_names2 3.1.0",
 ]
 
 [[package]]
@@ -3452,11 +3452,11 @@ name = "rustpython-literal"
 version = "0.5.0"
 dependencies = [
  "hexf-parse",
- "icu_properties",
  "is-macro",
  "lexical-parse-float",
  "num-traits",
  "rand 0.10.1",
+ "rustpython-unicode",
  "rustpython-wtf8",
 ]
 
@@ -3541,9 +3541,9 @@ version = "0.5.0"
 dependencies = [
  "bitflags 2.13.0",
  "criterion",
- "icu_properties",
  "num_enum",
  "optional",
+ "rustpython-unicode",
  "rustpython-wtf8",
 ]
 
@@ -3571,8 +3571,6 @@ dependencies = [
  "gethostname",
  "hex",
  "hmac",
- "icu_normalizer",
- "icu_properties",
  "indexmap",
  "insta",
  "itertools 0.15.0",
@@ -3612,6 +3610,7 @@ dependencies = [
  "rustpython-ruff_python_parser",
  "rustpython-ruff_source_file",
  "rustpython-ruff_text_size",
+ "rustpython-unicode",
  "rustpython-vm",
  "sha1 0.11.0",
  "sha2",
@@ -3621,7 +3620,6 @@ dependencies = [
  "system-configuration",
  "tcl-sys",
  "tk-sys",
- "unicode_names2 3.1.0",
  "uuid",
  "webpki-roots",
  "widestring",
@@ -3630,6 +3628,18 @@ dependencies = [
  "xml",
  "xz",
  "xz-sys",
+]
+
+[[package]]
+name = "rustpython-unicode"
+version = "0.5.0"
+dependencies = [
+ "icu_casemap",
+ "icu_normalizer",
+ "icu_properties",
+ "rustpython-wtf8",
+ "unicode_names2 3.1.0",
+ "writeable",
 ]
 
 [[package]]
@@ -3684,6 +3694,7 @@ dependencies = [
  "rustpython-ruff_python_parser",
  "rustpython-ruff_text_size",
  "rustpython-sre_engine",
+ "rustpython-unicode",
  "rustyline",
  "scopeguard",
  "serde_core",
