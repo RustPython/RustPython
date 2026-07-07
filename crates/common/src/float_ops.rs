@@ -441,7 +441,7 @@ pub fn from_hex(s: &str) -> Result<f64, HexFloatError> {
     let mut x;
 
     // leading whitespace
-    while byte_at(bytes, idx).is_some_and(crate::str::is_py_ascii_whitespace) {
+    while byte_at(bytes, idx).is_some_and(rustpython_wtf8::is_py_ascii_whitespace) {
         idx += 1;
     }
 
@@ -629,7 +629,7 @@ fn finish_hex(
     negate: bool,
     x: f64,
 ) -> Result<f64, HexFloatError> {
-    while byte_at(bytes, idx).is_some_and(crate::str::is_py_ascii_whitespace) {
+    while byte_at(bytes, idx).is_some_and(rustpython_wtf8::is_py_ascii_whitespace) {
         idx += 1;
     }
     if idx != s_end {
