@@ -1,4 +1,3 @@
-use icu_properties::props::{EnumeratedProperty, GeneralCategory, GeneralCategoryGroup};
 use rustpython_wtf8::Wtf8;
 
 #[derive(Debug, Clone, Copy)]
@@ -333,55 +332,75 @@ const fn utf8_is_cont_byte(byte: u8) -> bool {
 /// Mask of the value bits of a continuation byte.
 const CONT_MASK: u8 = 0b0011_1111;
 
+// Character-class and case predicates for the SRE engine.
+//
+// Every predicate takes a raw `u32` code point (SRE decodes strings into `u32`s,
+// including lone surrogates) and returns whether it belongs to the class.
+// ASCII-mode predicates only ever consider byte values; Unicode-mode predicates
+// consult the shared property tables in `rustpython_unicode::classify`.
+
+const UNDERSCORE: u32 = '_' as u32;
+
 const fn is_py_ascii_whitespace(b: u8) -> bool {
     matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
 #[inline]
 pub(crate) fn is_word(ch: u32) -> bool {
-    ch == '_' as u32 || u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
+    ch == UNDERSCORE || u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
 }
+
 #[inline]
 pub(crate) fn is_space(ch: u32) -> bool {
     u8::try_from(ch).is_ok_and(is_py_ascii_whitespace)
 }
+
 #[inline]
 pub(crate) fn is_digit(ch: u32) -> bool {
     u8::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
 }
+
 #[inline]
 pub(crate) fn is_loc_alnum(ch: u32) -> bool {
     // FIXME: Ignore the locales
     u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
 }
+
 #[inline]
 pub(crate) fn is_loc_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_loc_alnum(ch)
+    ch == UNDERSCORE || is_loc_alnum(ch)
 }
+
 #[inline]
 pub(crate) const fn is_linebreak(ch: u32) -> bool {
     ch == '\n' as u32
 }
+
 #[inline]
 #[must_use]
 pub fn lower_ascii(ch: u32) -> u32 {
     u8::try_from(ch).map_or(ch, |x| x.to_ascii_lowercase() as u32)
 }
+
 #[inline]
 pub(crate) fn lower_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
     lower_ascii(ch)
 }
+
 #[inline]
 pub(crate) fn upper_locate(ch: u32) -> u32 {
     // FIXME: Ignore the locales
     u8::try_from(ch).map_or(ch, |x| x.to_ascii_uppercase() as u32)
 }
+
 #[inline]
 pub(crate) fn is_uni_digit(ch: u32) -> bool {
-    // TODO: check with cpython
-    char::try_from(ch).is_ok_and(|x| x.is_ascii_digit())
+    // SRE_UNI_IS_DIGIT matches Unicode decimal digits (Py_UNICODE_ISDECIMAL),
+    // not just ASCII 0-9.
+    char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_decimal)
 }
+
 #[inline]
 pub(crate) fn is_uni_space(ch: u32) -> bool {
     // TODO: check with cpython
@@ -419,6 +438,7 @@ pub(crate) fn is_uni_space(ch: u32) -> bool {
                 | 0x3000
         )
 }
+
 #[inline]
 pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
     matches!(
@@ -426,25 +446,25 @@ pub(crate) const fn is_uni_linebreak(ch: u32) -> bool {
         0x000A | 0x000B | 0x000C | 0x000D | 0x001C | 0x001D | 0x001E | 0x0085 | 0x2028 | 0x2029
     )
 }
+
 #[inline]
 pub(crate) fn is_uni_alnum(ch: u32) -> bool {
     // TODO: check with cpython
-    char::try_from(ch).is_ok_and(|c| {
-        GeneralCategoryGroup::Letter
-            .union(GeneralCategoryGroup::Number)
-            .contains(GeneralCategory::for_char(c))
-    })
+    char::try_from(ch).is_ok_and(rustpython_unicode::classify::is_alnum)
 }
+
 #[inline]
 pub(crate) fn is_uni_word(ch: u32) -> bool {
-    ch == '_' as u32 || is_uni_alnum(ch)
+    ch == UNDERSCORE || is_uni_alnum(ch)
 }
+
 #[inline]
 #[must_use]
 pub fn lower_unicode(ch: u32) -> u32 {
     // TODO: check with cpython
     char::try_from(ch).map_or(ch, |x| x.to_lowercase().next().unwrap() as u32)
 }
+
 #[inline]
 #[must_use]
 pub fn upper_unicode(ch: u32) -> u32 {

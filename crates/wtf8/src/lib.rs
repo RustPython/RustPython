@@ -31,7 +31,7 @@
 //! to match CPython's behavior.
 //!
 //! [WTF-8]: https://simonsapin.github.io/wtf-8
-//! [`OsStr`]: std::ffi::OsStr
+//! [`OsStr`]: https://doc.rust-lang.org/std/ffi/struct.OsStr.html
 
 #![no_std]
 #![allow(clippy::precedence, clippy::match_overlapping_arm)]

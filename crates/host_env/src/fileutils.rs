@@ -442,10 +442,22 @@ pub mod windows {
     }
 }
 
+/// C `FILE *` handle as returned by [`fopen`] and consumed by [`fclose`].
+pub type CFile = libc::FILE;
+
+/// Close a file opened with [`fopen`].
+///
+/// # Safety
+/// `fp` must be a non-null pointer returned by [`fopen`] and must not have been
+/// closed already.
+pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
+    unsafe { libc::fclose(fp) }
+}
+
 // _Py_fopen_obj in cpython (Python/fileutils.c:1757-1835)
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
-pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::FILE> {
+pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
     use alloc::ffi::CString;
     use std::fs::File;
 

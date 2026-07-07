@@ -12,6 +12,8 @@ use std::path::Path;
 
 use crate::crt_fd;
 
+pub use libc::{c_char, pid_t};
+
 pub struct UnameInfo {
     pub sysname: String,
     pub nodename: String,

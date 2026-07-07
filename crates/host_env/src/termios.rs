@@ -1,5 +1,55 @@
 pub type Termios = ::termios::Termios;
 
+#[cfg(any(target_os = "illumos", target_os = "solaris"))]
+pub use libc::{CSTART, CSTOP, CSWTCH};
+
+#[cfg(any(
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+pub use libc::{FIOASYNC, TIOCGETD, TIOCSETD};
+
+pub use libc::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "netbsd",
+    target_os = "openbsd"
+))]
+pub use libc::{
+    FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR, TIOCM_LE,
+    TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET, TIOCMSET,
+    TIOCNXCL, TIOCSCTTY,
+};
+
+#[cfg(any(target_os = "android", target_os = "linux"))]
+pub use libc::{
+    IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF, TCSETSW,
+    TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
+};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "macos"
+))]
+pub use libc::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
+
+#[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "macos"))]
+pub use libc::{
+    TIOCNOTTY, TIOCPKT, TIOCPKT_DATA, TIOCPKT_DOSTOP, TIOCPKT_FLUSHREAD, TIOCPKT_FLUSHWRITE,
+    TIOCPKT_NOSTOP, TIOCPKT_START, TIOCPKT_STOP,
+};
+
 #[cfg(any(
     target_os = "android",
     target_os = "freebsd",

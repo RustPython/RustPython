@@ -179,6 +179,7 @@ rustpython-vm = { path = "crates/vm", default-features = false, version = "0.5.0
 rustpython-pylib = { path = "crates/pylib", version = "0.5.0" }
 rustpython-stdlib = { path = "crates/stdlib", default-features = false, version = "0.5.0" }
 rustpython-sre_engine = { path = "crates/sre_engine", version = "0.5.0" }
+rustpython-unicode = { path = "crates/unicode", version = "0.5.0" }
 rustpython-wtf8 = { path = "crates/wtf8", version = "0.5.0" }
 rustpython-doc = { path = "crates/doc", version = "0.5.0" }
 
@@ -192,12 +193,12 @@ der = { version = "0.8", features = ["alloc", "oid", "pem", "zeroize"] }
 phf = { version = "0.14.0", default-features = false, features = ["macros"]}
 adler32 = "1.2.0"
 approx = "0.5.1"
-ascii = "1.1"
+ascii = { version = "1.1", default-features = false }
 base64 = "0.22"
 blake2 = "0.11.0-rc.6"
 bitflags = "2.11.0"
 bitflagset = "0.0.3"
-bstr = "1"
+bstr = { version = "1", default-features = false, features = ["unicode"] }
 bzip2 = "0.6"
 chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 console_error_panic_hook = "0.1"
@@ -227,7 +228,7 @@ hexf-parse = "0.2.1"
 hmac = "0.13"
 indexmap = { version = "2.14.0", features = ["std"] }
 insta = "1.47"
-itertools = "0.14.0"
+itertools = { version = "0.15.0", default-features = false, features = ["use_alloc"] }
 is-macro = "0.3.7"
 js-sys = "0.3"
 junction = "2.0.0"
@@ -248,7 +249,7 @@ malachite-bigint = "0.9.1"
 malachite-q = "0.9.1"
 malachite-base = "0.9.1"
 md-5 = "0.11"
-memchr = "2.8.1"
+memchr = { version = "2.8.1", default-features = false, features = ["alloc"] }
 memmap2 = "0.9.10"
 mt19937 = "3.3"
 num-complex = "0.4.6"
@@ -310,7 +311,7 @@ icu_locale = "2"
 icu_properties = "2"
 icu_normalizer = "2"
 uuid = "1.23.2"
-unicode_names2 = "3"
+unicode_names2 = { version = "3", default-features = false, features = ["no_std"] }
 widestring = "1.2.0"
 windows-sys = "0.61.2"
 wasm-bindgen = "0.2.106"
