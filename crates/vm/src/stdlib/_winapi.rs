@@ -382,8 +382,10 @@ mod _winapi {
             return Err(vm.new_value_error("WaitForMultipleObjects supports at most 64 handles"));
         }
 
-        vm.allow_threads(|| host_winapi::wait_for_multiple_objects(&handles, wait_all, milliseconds))
-            .map_err(|e| e.to_pyexception(vm))
+        vm.allow_threads(|| {
+            host_winapi::wait_for_multiple_objects(&handles, wait_all, milliseconds)
+        })
+        .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
