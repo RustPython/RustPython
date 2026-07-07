@@ -126,11 +126,13 @@ mod threading {
         /// Mark a thread offline (detached); it no longer delays grace
         /// periods (_Py_qsbr_detach). The thread must not perform lock-free
         /// cache reads while offline.
+        #[cfg(any(unix, test))]
         pub(crate) fn offline(&self, slot: &QsbrSlot) {
             slot.seq.store(QSBR_OFFLINE, Ordering::Release);
         }
 
         /// Mark a thread online again (_Py_qsbr_attach).
+        #[cfg(unix)]
         pub(crate) fn online(&self, slot: &QsbrSlot) {
             self.quiescent_state(slot);
         }
@@ -223,6 +225,7 @@ mod threading {
         /// # Safety
         /// Only sound when no other thread can be mid-read: the post-fork
         /// child, or teardown after all threads exited.
+        #[cfg(unix)]
         pub(crate) unsafe fn drain_all(&self) {
             let mut queue = self.queue.lock().unwrap();
             for item in queue.drain(..) {
@@ -241,6 +244,7 @@ mod threading {
         /// # Safety
         /// Only sound in the single-threaded post-fork child, before the
         /// surviving thread re-registers.
+        #[cfg(unix)]
         pub(crate) unsafe fn reset_after_fork(&self) {
             self.threads.lock().unwrap().clear();
             // SAFETY: single-threaded child, no concurrent reader exists.
