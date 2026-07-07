@@ -38,7 +38,11 @@ pub fn mac_address() -> Option<[u8; 6]> {
 pub use libc::{AF_UNIX, SOCK_STREAM, sa_family_t, sockaddr_storage, socklen_t};
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub use libc::{AF_ALG, AF_CAN, sockaddr_alg, sockaddr_can};
+pub use libc::{AF_ALG, AF_CAN};
+
+// bionic (Android) does not define the CAN/ALG sockaddr structs.
+#[cfg(target_os = "linux")]
+pub use libc::{sockaddr_alg, sockaddr_can};
 
 #[cfg(all(unix, not(target_os = "redox")))]
 pub fn sethostname(hostname: &str) -> io::Result<()> {
