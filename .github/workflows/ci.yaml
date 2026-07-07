@@ -581,7 +581,7 @@ jobs:
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
@@ -744,7 +744,7 @@ jobs:
       - name: Save npm cache
         # Save only on main or release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
