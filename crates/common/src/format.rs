@@ -1,4 +1,4 @@
-// spell-checker:ignore ddfe
+// spell-checker:ignore ddfe DTSF
 use core::ops::Deref;
 use core::{cmp, str::FromStr};
 use itertools::{Itertools, PeekingNext};
@@ -380,15 +380,31 @@ impl FormatSpec {
         sep: char,
         disp_digit_cnt: i32,
     ) -> String {
-        // Don't add separators to the floating decimal point of numbers
-        let mut parts = magnitude_str.splitn(2, '.');
-        let magnitude_int_str = parts.next().unwrap().to_string();
+        // Group only the leading integer digits; the trailing remainder must
+        // never receive separators. For decimal and float output (interval 3)
+        // that remainder is the decimal point and fraction, an exponent
+        // (`e+NN`), or a trailing percent sign. Hex/octal/binary output
+        // (interval 4) has no such tail and its `a`-`f`/`e`/`E` are digits, so
+        // the whole magnitude is groupable.
+        let int_len = if inter == 4 {
+            magnitude_str.len()
+        } else {
+            magnitude_str
+                .bytes()
+                .position(|b| !b.is_ascii_digit())
+                .unwrap_or(magnitude_str.len())
+        };
+        // No leading integer digits (e.g. "inf"/"nan") means nothing to group;
+        // leave any width padding to the fill/align step.
+        if int_len == 0 {
+            return magnitude_str;
+        }
+        let magnitude_int_str = magnitude_str[..int_len].to_string();
+        let remainder = &magnitude_str[int_len..];
         let dec_digit_cnt = magnitude_str.len() as i32 - magnitude_int_str.len() as i32;
         let int_digit_cnt = disp_digit_cnt - dec_digit_cnt;
         let mut result = Self::separate_integer(magnitude_int_str, inter, sep, int_digit_cnt);
-        if let Some(part) = parts.next() {
-            result.push_str(&format!(".{part}"))
-        }
+        result.push_str(remainder);
         result
     }
 
@@ -786,14 +802,40 @@ impl FormatSpec {
                 magnitude if magnitude.is_nan() => Ok("nan".to_owned()),
                 magnitude if magnitude.is_infinite() => Ok("inf".to_owned()),
                 _ => match self.precision {
-                    Some(precision) => Ok(float::format_general(
-                        precision,
-                        magnitude,
-                        Case::Lower,
-                        self.alternate_form,
-                        true,
-                    )),
-                    None => Ok(float::to_string(magnitude)),
+                    Some(precision) => {
+                        // Empty presentation type with a precision behaves like
+                        // `g` but repr-like: precision is clamped to at least 1,
+                        // and an integer-looking result keeps a trailing `.0`
+                        // (Py_DTSF_ADD_DOT_0).
+                        let precision = if precision == 0 { 1 } else { precision };
+                        let s = float::format_general(
+                            precision,
+                            magnitude,
+                            Case::Lower,
+                            self.alternate_form,
+                            true,
+                        );
+                        Ok(if s.bytes().any(|b| matches!(b, b'.' | b'e' | b'E')) {
+                            s
+                        } else {
+                            format!("{s}.0")
+                        })
+                    }
+                    None => {
+                        let s = float::to_string(magnitude);
+                        // Alternate form forces a decimal point into the
+                        // repr-like output. Only exponent-form values lack one
+                        // (`1e+16` -> `1.e+16`); fixed-form repr already carries
+                        // a `.`.
+                        Ok(if self.alternate_form && !s.contains('.') {
+                            match s.find(['e', 'E']) {
+                                Some(pos) => format!("{}.{}", &s[..pos], &s[pos..]),
+                                None => format!("{s}."),
+                            }
+                        } else {
+                            s
+                        })
+                    }
                 },
             },
         };
@@ -857,10 +899,11 @@ impl FormatSpec {
                 Err(FormatSpecError::UnknownFormatCode('N', "int"))
             }
             Some(FormatType::String) => Err(FormatSpecError::UnknownFormatCode('s', "int")),
-            Some(FormatType::Character) => match (self.sign, self.alternate_form) {
-                (Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
-                (_, true) => Err(FormatSpecError::NotAllowed("Alternate form (#)")),
-                (_, _) => match num.to_u32() {
+            Some(FormatType::Character) => match (self.precision, self.sign, self.alternate_form) {
+                (Some(_), _, _) => Err(FormatSpecError::PrecisionNotAllowed),
+                (_, Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
+                (_, _, true) => Err(FormatSpecError::NotAllowed("Alternate form (#)")),
+                (_, _, _) => match num.to_u32() {
                     Some(n) if n <= 0x10ffff => Ok(core::char::from_u32(n).unwrap().to_string()),
                     Some(_) | None => Err(FormatSpecError::CodeNotInRange),
                 },
@@ -1662,6 +1705,105 @@ mod tests {
         let spec = FormatSpec::parse("0>10,").unwrap();
         let result = spec.format_int(&BigInt::from(1234)).unwrap();
         assert_eq!(result, "000001,234");
+    }
+
+    fn fmt_float(spec: &str, value: f64) -> String {
+        FormatSpec::parse(spec)
+            .unwrap()
+            .format_float(value)
+            .unwrap()
+    }
+
+    #[test]
+    fn format_float_grouping_never_touches_exponent() {
+        // Grouping must group only the mantissa's integer digits, never the
+        // exponent digits (was "1e,+20") or a trailing percent sign.
+        assert_eq!(fmt_float(",g", 1e20), "1e+20");
+        assert_eq!(fmt_float("_g", 1e-10), "1e-10");
+        assert_eq!(fmt_float(",e", 1e20), "1.000000e+20");
+        assert_eq!(fmt_float(",", 1e16), "1e+16");
+        assert_eq!(fmt_float(",.0%", 1.0), "100%");
+        assert_eq!(fmt_float(",.2%", 12345.0), "1,234,500.00%");
+        // Fixed-form grouping still groups the integer part.
+        assert_eq!(fmt_float(",", 1234567.0), "1,234,567.0");
+    }
+
+    #[test]
+    fn format_float_grouping_inf_nan() {
+        // No integer digits to group; width padding is left to fill/align, so
+        // separators never land inside "inf"/"nan".
+        assert_eq!(fmt_float(",", f64::INFINITY), "inf");
+        assert_eq!(fmt_float("06,", f64::INFINITY), "000inf");
+        assert_eq!(fmt_float("06,", f64::NAN), "000nan");
+        assert_eq!(fmt_float("06,%", f64::INFINITY), "00inf%");
+    }
+
+    #[test]
+    fn format_float_empty_type_with_precision() {
+        // Empty presentation type with a precision is repr-like: precision is
+        // clamped to at least 1 and integer-looking output keeps a `.0`.
+        assert_eq!(fmt_float(".2", 1.0), "1.0");
+        assert_eq!(fmt_float(".6", 100.0), "100.0");
+        assert_eq!(fmt_float(".17", 1234567.0), "1234567.0");
+        assert_eq!(fmt_float(".0", 0.5), "0.5");
+        assert_eq!(fmt_float(".0", 0.0001), "0.0001");
+        assert_eq!(fmt_float(".2", 0.0), "0.0");
+        assert_eq!(fmt_float(".0", 0.0), "0e+00");
+        assert_eq!(fmt_float(".2", 100.0), "1e+02");
+    }
+
+    #[test]
+    fn format_float_alternate_form_forces_point() {
+        // Alternate form injects a decimal point into exponent-form repr.
+        assert_eq!(fmt_float("#", 1e16), "1.e+16");
+        assert_eq!(fmt_float("#", 1e-5), "1.e-05");
+        // Fixed-form repr already has a point, so it is unchanged.
+        assert_eq!(fmt_float("#", 100.0), "100.0");
+        assert_eq!(fmt_float("#", 1.5), "1.5");
+    }
+
+    #[test]
+    fn format_int_hex_grouping_preserved() {
+        // Underscore grouping of hex/octal groups every 4 digits, including the
+        // `a`-`f` letters.
+        assert_eq!(
+            FormatSpec::parse("_x")
+                .unwrap()
+                .format_int(&BigInt::from(1000000))
+                .unwrap(),
+            "f_4240"
+        );
+        assert_eq!(
+            FormatSpec::parse("_X")
+                .unwrap()
+                .format_int(&BigInt::from(0xABCDEFu32))
+                .unwrap(),
+            "AB_CDEF"
+        );
+    }
+
+    #[test]
+    fn format_int_character_rejects_precision() {
+        // 'c' rejects precision, and precision is checked before sign/alt form.
+        assert_eq!(
+            FormatSpec::parse(".2c")
+                .unwrap()
+                .format_int(&BigInt::from(65)),
+            Err(FormatSpecError::PrecisionNotAllowed)
+        );
+        assert_eq!(
+            FormatSpec::parse("+.2c")
+                .unwrap()
+                .format_int(&BigInt::from(65)),
+            Err(FormatSpecError::PrecisionNotAllowed)
+        );
+        // Without precision, 'c' still renders the code point.
+        assert_eq!(
+            FormatSpec::parse("c")
+                .unwrap()
+                .format_int(&BigInt::from(65)),
+            Ok("A".to_owned())
+        );
     }
 
     #[test]
