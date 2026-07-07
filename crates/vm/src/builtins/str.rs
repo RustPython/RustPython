@@ -35,6 +35,7 @@ use crate::{
 use alloc::{borrow::Cow, fmt};
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use bstr::ByteSlice;
+use core::ffi::CStr;
 use core::{char, mem, ops::Range};
 use itertools::Itertools;
 use num_traits::ToPrimitive;
@@ -1865,6 +1866,12 @@ impl ToPyObject for &str {
 impl ToPyObject for &String {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_str(self.clone()).into()
+    }
+}
+
+impl ToPyObject for &CStr {
+    fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+        vm.ctx.new_str(self.to_string_lossy()).into()
     }
 }
 

@@ -91,26 +91,17 @@ pub extern "C" fn Py_GetBuildInfo() -> *const c_char {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_GetCompiler() -> *const c_char {
-    static COMPILER: LazyLock<CString> = LazyLock::new(|| {
-        CString::new(sys::COMPILER).expect("compiler must not contain interior NULs")
-    });
-    COMPILER.as_ptr()
+    sys::COMPILER.as_ptr()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_GetCopyright() -> *const c_char {
-    static COPYRIGHT: LazyLock<CString> = LazyLock::new(|| {
-        CString::new(sys::COPYRIGHT).expect("copyright must not contain interior NULs")
-    });
-    COPYRIGHT.as_ptr()
+    sys::COPYRIGHT.as_ptr()
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_GetPlatform() -> *const c_char {
-    static PLATFORM: LazyLock<CString> = LazyLock::new(|| {
-        CString::new(sys::PLATFORM).expect("platform must not contain interior NULs")
-    });
-    PLATFORM.as_ptr()
+    sys::PLATFORM.as_ptr()
 }
 
 #[cfg(test)]
