@@ -86,7 +86,7 @@ pub mod py_io;
 pub mod py_serde;
 
 pub mod gc_state;
-pub mod readline;
+pub use rustpython_host_env::readline;
 pub mod recursion;
 pub mod scope;
 pub mod sequence;

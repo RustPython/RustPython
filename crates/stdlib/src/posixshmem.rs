@@ -16,15 +16,15 @@ mod _posixshmem {
         #[pyarg(any)]
         name: PyUtf8StrRef,
         #[pyarg(any)]
-        flags: libc::c_int,
+        flags: core::ffi::c_int,
         #[pyarg(any, default = 0o600)]
-        mode: libc::mode_t,
+        mode: shm::mode_t,
     }
 
     #[pyfunction]
-    fn shm_open(args: ShmOpenArgs, vm: &VirtualMachine) -> PyResult<libc::c_int> {
+    fn shm_open(args: ShmOpenArgs, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
         let name = CString::new(args.name.as_str()).map_err(|e| e.into_pyexception(vm))?;
-        let mode: libc::c_uint = args.mode as _;
+        let mode: core::ffi::c_uint = args.mode as _;
         shm::shm_open(name.as_c_str(), args.flags, mode).map_err(|e| e.into_pyexception(vm))
     }
 

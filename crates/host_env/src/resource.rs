@@ -2,6 +2,40 @@ use std::io;
 
 use crate::os::CheckLibcResult;
 
+pub use libc::{
+    RLIM_INFINITY, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE, RLIMIT_MEMLOCK,
+    RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK, c_long, rlim_t, rlimit, timeval,
+};
+
+#[cfg(target_os = "android")]
+pub use libc::RLIM_NLIMITS;
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
+pub use libc::{RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_RTPRIO, RLIMIT_SIGPENDING};
+
+#[cfg(target_os = "linux")]
+pub use libc::RLIMIT_RTTIME;
+
+#[cfg(any(
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "solaris",
+    target_os = "illumos"
+))]
+pub use libc::RLIMIT_SBSIZE;
+
+#[cfg(any(target_os = "freebsd", target_os = "solaris", target_os = "illumos"))]
+pub use libc::{RLIMIT_NPTS, RLIMIT_SWAP};
+
+#[cfg(any(target_os = "solaris", target_os = "illumos"))]
+pub use libc::RLIMIT_VMEM;
+
+#[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebsd"))]
+pub use libc::RUSAGE_THREAD;
+
+#[cfg(not(any(target_os = "windows", target_os = "redox")))]
+pub use libc::{RUSAGE_CHILDREN, RUSAGE_SELF};
+
 #[derive(Debug, Clone, Copy)]
 pub struct RUsage {
     pub ru_utime: libc::timeval,

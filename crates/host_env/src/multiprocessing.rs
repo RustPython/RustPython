@@ -13,7 +13,7 @@ use alloc::ffi::CString;
 use std::io;
 
 #[cfg(unix)]
-use libc::sem_t;
+pub use libc::{sem_t, timespec};
 #[cfg(unix)]
 use nix::errno::Errno;
 

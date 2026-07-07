@@ -92,14 +92,10 @@ chrono.workspace = true
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
-mac_address = { workspace = true }
 uuid = { workspace = true, features = ["v1"] }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gethostname = { workspace = true }
-socket2 = { workspace = true, features = ["all"] }
-dns-lookup = { workspace = true }
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { workspace = true, optional = true }
@@ -128,9 +124,6 @@ xz-sys = { workspace = true }
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
 widestring = { workspace = true }
-
-[target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
