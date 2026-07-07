@@ -95,7 +95,12 @@ unsafe impl Traverse for PyFunction {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         self.globals.traverse(tracer_fn);
         if let Some(closure) = self.closure.as_ref() {
-            closure.as_untyped().traverse(tracer_fn);
+            // Visit the closure tuple itself as an edge, not its cells: the
+            // tuple is a tracked object that can join a reference cycle, and
+            // `clear` releases the whole tuple. Visiting only the cells would
+            // leave the tuple's reference unaccounted, stranding it as a false
+            // GC root.
+            tracer_fn(closure.as_untyped().as_object());
         }
         self.defaults_and_kwdefaults.traverse(tracer_fn);
         // Traverse additional fields that may contain references
