@@ -294,80 +294,81 @@ const DBL_MANT_DIG: i64 = 53;
 const DBL_MIN_EXP: i64 = -1021;
 const DBL_MAX_EXP: i64 = 1024;
 
-/// Read byte at `i`, returning a NUL terminator past the end so that
-/// digit/sign/space scans stop at the string boundary.
+/// Read byte at `i`, returning `None` past the end so that digit/sign/space
+/// scans stop at the string boundary.
 #[inline]
-fn hex_byte_at(bytes: &[u8], i: usize) -> u8 {
-    if i < bytes.len() { bytes[i] } else { 0 }
+fn byte_at(bytes: &[u8], i: usize) -> Option<u8> {
+    bytes.get(i).copied()
 }
 
+/// '0'-'9' -> 0..9, 'a'-'f'/'A'-'F' -> 10..15, else `None`.
 #[inline]
-fn is_py_space(c: u8) -> bool {
-    matches!(c, 0x09 | 0x0a | 0x0b | 0x0c | 0x0d | 0x20)
-}
-
-/// '0'-'9' -> 0..9, 'a'-'f'/'A'-'F' -> 10..15, else -1.
-#[inline]
-fn hex_from_char(c: u8) -> i32 {
+const fn hex_from_char(c: u8) -> Option<u8> {
     match c {
-        b'0'..=b'9' => (c - b'0') as i32,
-        b'a'..=b'f' => (c - b'a') as i32 + 10,
-        b'A'..=b'F' => (c - b'A') as i32 + 10,
-        _ => -1,
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
     }
 }
 
-/// `t` must be an ASCII-lowercase literal. Returns true iff every byte of `t`
+/// Peek at byte `i` and decode it as a hex digit, or `None` if it is out of
+/// range or not a hex digit.
+#[inline]
+fn hex_digit_at(bytes: &[u8], i: usize) -> Option<u8> {
+    byte_at(bytes, i).and_then(hex_from_char)
+}
+
+/// `t` must be an ASCII-lowercase literal. Returns true if every byte of `t`
 /// matched case-insensitively starting at `s`.
 fn case_insensitive_match(bytes: &[u8], s: usize, t: &[u8]) -> bool {
     let mut si = s;
     let mut ti = 0;
-    while ti < t.len() && hex_byte_at(bytes, si).to_ascii_lowercase() == t[ti] {
+    while ti < t.len() && byte_at(bytes, si).is_some_and(|b| b.to_ascii_lowercase() == t[ti]) {
         si += 1;
         ti += 1;
     }
     ti == t.len()
 }
 
-/// Returns `(retval, endptr)`. When the text at `p` is not inf/nan, `retval` is
-/// `-1.0` and `endptr == p`.
-fn parse_inf_or_nan(bytes: &[u8], p: usize) -> (f64, usize) {
+/// Returns `Some((value, endptr))` when the text at `p` parses as inf/nan,
+/// otherwise `None`.
+fn parse_inf_or_nan(bytes: &[u8], p: usize) -> Option<(f64, usize)> {
     let mut s = p;
     let mut negate = false;
-    if hex_byte_at(bytes, s) == b'-' {
+    if byte_at(bytes, s) == Some(b'-') {
         negate = true;
         s += 1;
-    } else if hex_byte_at(bytes, s) == b'+' {
+    } else if byte_at(bytes, s) == Some(b'+') {
         s += 1;
     }
-    let retval;
     if case_insensitive_match(bytes, s, b"inf") {
         s += 3;
         if case_insensitive_match(bytes, s, b"inity") {
             s += 5;
         }
-        retval = if negate {
+        let value = if negate {
             f64::NEG_INFINITY
         } else {
             f64::INFINITY
         };
+        Some((value, s))
     } else if case_insensitive_match(bytes, s, b"nan") {
         s += 3;
-        retval = if negate {
+        let value = if negate {
             f64::from_bits(0xfff8_0000_0000_0000)
         } else {
             f64::from_bits(0x7ff8_0000_0000_0000)
         };
+        Some((value, s))
     } else {
-        s = p;
-        retval = -1.0;
+        None
     }
-    (retval, s)
 }
 
 /// Correctly-rounded scalbn. Every call site scales an already-representable
 /// value, so the result is exact.
-fn ldexp(x: f64, mut n: i32) -> f64 {
+const fn ldexp(x: f64, mut n: i32) -> f64 {
     let x1p1023 = f64::from_bits(0x7fe0000000000000);
     let x1p53 = f64::from_bits(0x4340000000000000);
     let x1p_1022 = f64::from_bits(0x0010000000000000);
@@ -437,32 +438,32 @@ pub fn from_hex(s: &str) -> Result<f64, HexFloatError> {
 
     let mut negate = false;
     let mut idx = 0usize;
+    let mut x;
 
     // leading whitespace
-    while is_py_space(hex_byte_at(bytes, idx)) {
+    while byte_at(bytes, idx).is_some_and(crate::str::is_py_ascii_whitespace) {
         idx += 1;
     }
 
     // infinities and nans
-    let (mut x, coeff_end_inf) = parse_inf_or_nan(bytes, idx);
-    if coeff_end_inf != idx {
-        idx = coeff_end_inf;
-        return finish_hex(bytes, s_end, idx, negate, x);
+    if let Some((value, end)) = parse_inf_or_nan(bytes, idx) {
+        idx = end;
+        return finish_hex(bytes, s_end, idx, negate, value);
     }
 
     // optional sign
-    if hex_byte_at(bytes, idx) == b'-' {
+    if byte_at(bytes, idx) == Some(b'-') {
         idx += 1;
         negate = true;
-    } else if hex_byte_at(bytes, idx) == b'+' {
+    } else if byte_at(bytes, idx) == Some(b'+') {
         idx += 1;
     }
 
     // [0x]
     let s_store = idx;
-    if hex_byte_at(bytes, idx) == b'0' {
+    if byte_at(bytes, idx) == Some(b'0') {
         idx += 1;
-        if hex_byte_at(bytes, idx) == b'x' || hex_byte_at(bytes, idx) == b'X' {
+        if matches!(byte_at(bytes, idx), Some(b'x' | b'X')) {
             idx += 1;
         } else {
             idx = s_store;
@@ -471,13 +472,13 @@ pub fn from_hex(s: &str) -> Result<f64, HexFloatError> {
 
     // coefficient: <integer> [. <fraction>]
     let coeff_start = idx;
-    while hex_from_char(hex_byte_at(bytes, idx)) >= 0 {
+    while hex_digit_at(bytes, idx).is_some() {
         idx += 1;
     }
     let s_store = idx;
-    let coeff_end = if hex_byte_at(bytes, idx) == b'.' {
+    let coeff_end = if byte_at(bytes, idx) == Some(b'.') {
         idx += 1;
-        while hex_from_char(hex_byte_at(bytes, idx)) >= 0 {
+        while hex_digit_at(bytes, idx).is_some() {
             idx += 1;
         }
         idx - 1
@@ -500,17 +501,17 @@ pub fn from_hex(s: &str) -> Result<f64, HexFloatError> {
     }
 
     // [p <exponent>]
-    let exp = if hex_byte_at(bytes, idx) == b'p' || hex_byte_at(bytes, idx) == b'P' {
+    let exp = if matches!(byte_at(bytes, idx), Some(b'p' | b'P')) {
         idx += 1;
         let exp_start = idx;
-        if hex_byte_at(bytes, idx) == b'-' || hex_byte_at(bytes, idx) == b'+' {
+        if matches!(byte_at(bytes, idx), Some(b'-' | b'+')) {
             idx += 1;
         }
-        if !(b'0' <= hex_byte_at(bytes, idx) && hex_byte_at(bytes, idx) <= b'9') {
+        if !matches!(byte_at(bytes, idx), Some(b'0'..=b'9')) {
             return Err(HexFloatError::Invalid);
         }
         idx += 1;
-        while b'0' <= hex_byte_at(bytes, idx) && hex_byte_at(bytes, idx) <= b'9' {
+        while matches!(byte_at(bytes, idx), Some(b'0'..=b'9')) {
             idx += 1;
         }
         strtol_saturating(bytes, exp_start, idx)
@@ -525,7 +526,7 @@ pub fn from_hex(s: &str) -> Result<f64, HexFloatError> {
         } else {
             coeff_end as i64 - 1 - j
         };
-        hex_from_char(hex_byte_at(bytes, byte_idx as usize))
+        hex_digit_at(bytes, byte_idx as usize).expect("hex digit within coefficient") as i32
     };
 
     // Discard leading zeros, and catch extreme overflow and underflow.
@@ -628,7 +629,7 @@ fn finish_hex(
     negate: bool,
     x: f64,
 ) -> Result<f64, HexFloatError> {
-    while is_py_space(hex_byte_at(bytes, idx)) {
+    while byte_at(bytes, idx).is_some_and(crate::str::is_py_ascii_whitespace) {
         idx += 1;
     }
     if idx != s_end {
@@ -646,7 +647,7 @@ mod from_hex_tests {
     }
 
     #[test]
-    fn test_from_hex_exact_bits() {
+    fn from_hex_exact_bits() {
         assert_eq!(bits("0x1p-1074"), 0x0000000000000001);
         assert_eq!(bits("0x1.fffffffffffffp+1023"), 0x7fefffffffffffff);
         // round-half-even ties
@@ -658,7 +659,7 @@ mod from_hex_tests {
     }
 
     #[test]
-    fn test_from_hex_inf_nan() {
+    fn from_hex_inf_nan() {
         assert_eq!(bits("inf"), 0x7ff0000000000000);
         assert_eq!(bits("-inf"), 0xfff0000000000000);
         assert_eq!(bits("Infinity"), 0x7ff0000000000000);
@@ -672,13 +673,13 @@ mod from_hex_tests {
     }
 
     #[test]
-    fn test_from_hex_whitespace() {
+    fn from_hex_whitespace() {
         assert_eq!(bits("  0x1p0  "), 0x3ff0000000000000);
         assert_eq!(bits("\t0x1p0\n"), 0x3ff0000000000000);
     }
 
     #[test]
-    fn test_from_hex_errors() {
+    fn from_hex_errors() {
         assert_eq!(from_hex("0x1p1024"), Err(HexFloatError::Overflow));
         assert_eq!(from_hex("0x1z"), Err(HexFloatError::Invalid));
         assert_eq!(from_hex(""), Err(HexFloatError::Invalid));

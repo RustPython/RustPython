@@ -658,6 +658,13 @@ pub fn char_to_decimal(ch: char) -> Option<u8> {
         .map(|i| (i % 10) as u8)
 }
 
+/// True for the ASCII bytes Python treats as whitespace in numeric parsing
+/// (`\t \n \x0b \x0c \r` and space).
+#[must_use]
+pub const fn is_py_ascii_whitespace(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r' | b' ')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
