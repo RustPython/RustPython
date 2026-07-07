@@ -2044,8 +2044,8 @@ pub struct CallOptions {
 pub enum CallValue {
     /// Void return.
     Void,
-    /// Raw return-register image, native endian (`low::ffi_arg`-sized). Decode
-    /// with [`decode_type_code`].
+    /// Raw return-register image, native endian (register-sized: 8 bytes on
+    /// 64-bit). Decode with [`decode_type_code`].
     Scalar(Vec<u8>),
     /// Pointer-valued return.
     Pointer(usize),
@@ -2168,7 +2168,7 @@ pub fn call(
     enum RawResult {
         Void,
         Pointer(usize),
-        Scalar(low::ffi_arg),
+        Scalar(u64),
         Aggregate,
     }
 
@@ -2182,7 +2182,12 @@ pub fn call(
                 RawResult::Pointer(unsafe { cif.call::<usize>(code_ptr, &ffi_args) })
             }
             CallRet::Code(_) => {
-                RawResult::Scalar(unsafe { cif.call::<low::ffi_arg>(code_ptr, &ffi_args) })
+                // Capture a full register (`u64`), not `low::ffi_arg`: the
+                // `libffi_sys` binding types `ffi_arg` as `c_ulong`, which is
+                // 4 bytes under LLP64 (Windows x64) and would truncate 8-byte
+                // returns (`q`/`Q`/`d`). `decode_type_code` reads the leading
+                // bytes the type code needs.
+                RawResult::Scalar(unsafe { cif.call::<u64>(code_ptr, &ffi_args) })
             }
             CallRet::Pointer => {
                 RawResult::Pointer(unsafe { cif.call::<usize>(code_ptr, &ffi_args) })
@@ -3081,6 +3086,33 @@ mod tests {
                     code: "i",
                     buffer: &buffer,
                 }],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(5)
+            ));
+        }
+
+        #[test]
+        fn typed_two_scalar_args() {
+            let addr = add_i32 as *const () as usize;
+            let a = 2i32.to_ne_bytes();
+            let b = 3i32.to_ne_bytes();
+            let result = call(
+                addr,
+                &[
+                    CallArg::Typed {
+                        code: "i",
+                        buffer: &a,
+                    },
+                    CallArg::Typed {
+                        code: "i",
+                        buffer: &b,
+                    },
+                ],
                 CallRet::Code("i"),
                 CallOptions::default(),
             )
