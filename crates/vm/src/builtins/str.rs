@@ -1871,7 +1871,8 @@ impl ToPyObject for &String {
 
 impl ToPyObject for &CStr {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
-        vm.ctx.new_str(self.to_string_lossy()).into()
+        let s = self.to_str().expect("ToPyObject expects utf-8 CStr");
+        vm.ctx.new_str(s).into()
     }
 }
 
