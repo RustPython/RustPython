@@ -42,6 +42,7 @@ ruff_text_size = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-sre_engine = { workspace = true }
+rustpython-unicode = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }

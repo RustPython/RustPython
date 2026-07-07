@@ -32,6 +32,7 @@ rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 rustpython-host_env = { workspace = true }
+rustpython-unicode = { workspace = true }
 
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
@@ -75,12 +76,6 @@ blake2 = { workspace = true }
 hmac = { workspace = true }
 pbkdf2 = { workspace = true, features = ["hmac"] }
 constant_time_eq = { workspace = true }
-
-## unicode stuff
-unicode_names2 = { workspace = true }
-# update version all at the same time
-icu_properties = { workspace = true }
-icu_normalizer = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
@@ -140,10 +135,6 @@ system-configuration = { workspace = true }
 [dev-dependencies]
 insta = { workspace = true }
 rustpython-pylib = { workspace = true, features = [ "freeze-stdlib" ] }
-
-[build-dependencies]
-icu_normalizer = { workspace = true }
-icu_properties = { workspace = true }
 
 [lints]
 workspace = true
