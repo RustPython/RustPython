@@ -661,21 +661,6 @@ pub enum FfiValue {
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-pub enum CallResult {
-    Void,
-    Pointer(usize),
-    Value(low::ffi_arg),
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
 pub enum CdeclArgValue {
     Pointer(isize),
     Int(isize),
@@ -1546,78 +1531,6 @@ pub fn ffi_type_from_code(ty: &str) -> Option<Type> {
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-pub fn ffi_type_from_tag(tag: u8) -> Type {
-    match tag {
-        b'c' | b'b' => Type::i8(),
-        b'B' | b'?' => Type::u8(),
-        b'h' | b'v' => Type::i16(),
-        b'H' => Type::u16(),
-        b'i' => Type::i32(),
-        b'I' => Type::u32(),
-        b'l' => {
-            if core::mem::size_of::<c_long>() == 8 {
-                Type::i64()
-            } else {
-                Type::i32()
-            }
-        }
-        b'L' => {
-            if core::mem::size_of::<c_ulong>() == 8 {
-                Type::u64()
-            } else {
-                Type::u32()
-            }
-        }
-        b'q' => Type::i64(),
-        b'Q' => Type::u64(),
-        b'f' => Type::f32(),
-        b'd' | b'g' => Type::f64(),
-        b'u' => {
-            if core::mem::size_of::<WChar>() == 2 {
-                Type::u16()
-            } else {
-                Type::u32()
-            }
-        }
-        _ => Type::pointer(),
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn ffi_type_from_format(fmt: &str) -> Type {
-    match fmt.trim_start_matches(['<', '>', '!', '@', '=']) {
-        "b" => Type::i8(),
-        "B" => Type::u8(),
-        "h" => Type::i16(),
-        "H" => Type::u16(),
-        "i" | "l" => Type::i32(),
-        "I" | "L" => Type::u32(),
-        "q" => Type::i64(),
-        "Q" => Type::u64(),
-        "f" => Type::f32(),
-        "d" => Type::f64(),
-        "P" | "z" | "Z" | "O" => Type::pointer(),
-        _ => Type::u8(),
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
 pub fn ffi_repeat_type(elem_type: Type, len: usize) -> Type {
     Type::structure(core::iter::repeat_n(elem_type, len))
 }
@@ -1685,119 +1598,6 @@ pub fn ffi_f64_type() -> Type {
 ))]
 pub fn ffi_void_type() -> Type {
     Type::void()
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn ffi_type_for_return_size(size: usize) -> Type {
-    if size <= 4 {
-        Type::i32()
-    } else if size <= 8 {
-        Type::i64()
-    } else {
-        Type::pointer()
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CTypeParamKind {
-    Structure,
-    Union,
-    Array,
-    Pointer,
-    Simple,
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn ffi_type_for_layout(
-    kind: CTypeParamKind,
-    ffi_field_types: &[Type],
-    size: usize,
-    length: usize,
-    format: Option<&str>,
-) -> Type {
-    const MAX_FFI_STRUCT_SIZE: usize = 1024 * 1024;
-
-    match kind {
-        CTypeParamKind::Structure | CTypeParamKind::Union => {
-            if !ffi_field_types.is_empty() {
-                Type::structure(ffi_field_types.iter().cloned())
-            } else if size <= MAX_FFI_STRUCT_SIZE {
-                ffi_byte_struct(size)
-            } else {
-                ffi_pointer_type()
-            }
-        }
-        CTypeParamKind::Array => {
-            if size > MAX_FFI_STRUCT_SIZE || length > MAX_FFI_STRUCT_SIZE {
-                ffi_pointer_type()
-            } else if let Some(fmt) = format {
-                ffi_repeat_type(ffi_type_from_format(fmt), length)
-            } else {
-                ffi_byte_struct(size)
-            }
-        }
-        CTypeParamKind::Pointer => ffi_pointer_type(),
-        CTypeParamKind::Simple => {
-            if let Some(fmt) = format {
-                ffi_type_from_format(fmt)
-            } else {
-                Type::u8()
-            }
-        }
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn callproc(
-    code_ptr: CodePtr,
-    ffi_arg_types: Vec<Type>,
-    ffi_return_type: Type,
-    ffi_args: &[Arg<'_>],
-    restype_is_none: bool,
-    is_pointer_return: bool,
-) -> CallResult {
-    let cif = Cif::new(ffi_arg_types, ffi_return_type);
-    if restype_is_none {
-        unsafe { cif.call::<()>(code_ptr, ffi_args) };
-        CallResult::Void
-    } else if is_pointer_return {
-        CallResult::Pointer(unsafe { cif.call::<usize>(code_ptr, ffi_args) })
-    } else {
-        CallResult::Value(unsafe { cif.call::<low::ffi_arg>(code_ptr, ffi_args) })
-    }
 }
 
 #[cfg(all(
@@ -2052,29 +1852,6 @@ impl<U: 'static> Drop for CallbackThunk<U> {
     }
 }
 
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn call_result_bytes(raw_result: &CallResult) -> Option<(Vec<u8>, usize)> {
-    match raw_result {
-        CallResult::Void => None,
-        CallResult::Pointer(ptr) => {
-            let bytes = ptr.to_ne_bytes();
-            Some((bytes.to_vec(), core::mem::size_of::<usize>()))
-        }
-        CallResult::Value(val) => {
-            let bytes = val.to_ne_bytes();
-            Some((bytes.to_vec(), core::mem::size_of_val(val)))
-        }
-    }
-}
-
 /// Type codes whose value is a pointer (drives pointer-return decoding and
 /// TYPEFLAG_ISPOINTER).
 pub fn simple_type_is_pointer(code: &str) -> bool {
@@ -2095,153 +1872,6 @@ pub fn simple_type_chars() -> &'static str {
     {
         // spell-checker: disable-next-line
         "cbBhHiIlLdfuzZqQPOv?g"
-    }
-}
-
-/// One argument of a scalar (simple-type) foreign call.
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-#[derive(Debug, Clone, Copy)]
-pub enum SimpleArg<'a> {
-    /// A value typed by a ctypes simple type code, as its raw buffer
-    /// (native endian, exactly `simple_type_size(code)` bytes relevant).
-    Typed { code: &'a str, buffer: &'a [u8] },
-    /// Untyped Python int (ConvParam default: C int).
-    Int(i32),
-    /// Untyped Python float (ConvParam default: C double).
-    Double(f64),
-    /// A raw pointer/address argument (bytes/str buffers, byref, None=0).
-    Pointer(usize),
-}
-
-/// Return-type selector for [`callproc_simple`].
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-#[derive(Debug, Clone, Copy)]
-pub enum SimpleRestype<'a> {
-    /// restype is None: call returns void.
-    Void,
-    /// A ctypes simple type code ("i", "d", "P", "z", ...).
-    Code(&'a str),
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum SimpleCallError {
-    NullFunctionPointer,
-    UnknownTypeCode(String),
-}
-
-/// Perform a foreign call with scalar args and a scalar (or void) return.
-///
-/// `use_errno` wraps the call in [`with_swapped_errno`] (unix; no-op
-/// elsewhere). Returns [`DecodedValue::None`] for [`SimpleRestype::Void`].
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn callproc_simple(
-    addr: usize,
-    args: &[SimpleArg<'_>],
-    restype: SimpleRestype<'_>,
-    use_errno: bool,
-) -> Result<DecodedValue, SimpleCallError> {
-    let code_ptr = code_ptr_from_addr(addr).ok_or(SimpleCallError::NullFunctionPointer)?;
-
-    let mut ffi_arg_types: Vec<Type> = Vec::with_capacity(args.len());
-    let mut ffi_values: Vec<FfiValue> = Vec::with_capacity(args.len());
-    for arg in args {
-        let (ty, value) = match arg {
-            SimpleArg::Typed { code, buffer } => {
-                let ty = ffi_type_from_code(code)
-                    .ok_or_else(|| SimpleCallError::UnknownTypeCode((*code).to_string()))?;
-                (ty, ffi_value_from_type_code(code, buffer))
-            }
-            SimpleArg::Int(value) => (ffi_i32_type(), FfiValue::I32(*value)),
-            SimpleArg::Double(value) => (ffi_f64_type(), FfiValue::F64(*value)),
-            SimpleArg::Pointer(value) => (ffi_pointer_type(), FfiValue::Pointer(*value)),
-        };
-        ffi_arg_types.push(ty);
-        ffi_values.push(value);
-    }
-
-    let (ffi_return_type, restype_is_none, is_pointer_return, return_code) = match restype {
-        SimpleRestype::Void => (ffi_void_type(), true, false, None),
-        SimpleRestype::Code(code) => {
-            let ty = ffi_type_from_code(code)
-                .ok_or_else(|| SimpleCallError::UnknownTypeCode(code.to_string()))?;
-            (ty, false, simple_type_is_pointer(code), Some(code))
-        }
-    };
-
-    // The owned `ffi_values` outlive the `Arg`s that borrow them and the call.
-    let ffi_args: Vec<Arg<'_>> = ffi_values.iter().map(ffi_arg_from_value).collect();
-
-    #[cfg(not(windows))]
-    let raw_result = {
-        let do_call = || {
-            callproc(
-                code_ptr,
-                ffi_arg_types,
-                ffi_return_type,
-                &ffi_args,
-                restype_is_none,
-                is_pointer_return,
-            )
-        };
-        if use_errno {
-            with_swapped_errno(do_call)
-        } else {
-            do_call()
-        }
-    };
-
-    #[cfg(windows)]
-    let raw_result = {
-        let _ = use_errno;
-        callproc(
-            code_ptr,
-            ffi_arg_types,
-            ffi_return_type,
-            &ffi_args,
-            restype_is_none,
-            is_pointer_return,
-        )
-    };
-
-    match return_code {
-        None => Ok(DecodedValue::None),
-        Some(code) => match call_result_bytes(&raw_result) {
-            Some((bytes, _size)) => Ok(decode_type_code(code, &bytes)),
-            None => Ok(DecodedValue::None),
-        },
     }
 }
 
@@ -2444,9 +2074,8 @@ pub enum CallError {
     },
 }
 
-/// Perform a foreign call. A strict superset of [`callproc_simple`]: handles
-/// scalar, pointer, and by-value aggregate arguments, and void / scalar /
-/// pointer / aggregate returns.
+/// Perform a foreign call: handles scalar, pointer, and by-value aggregate
+/// arguments, and void / scalar / pointer / aggregate returns.
 #[cfg(all(
     any(
         target_os = "linux",
@@ -2599,16 +2228,6 @@ pub fn call(
     };
 
     Ok(result)
-}
-
-/// Convenience wrapper around [`lookup_function_symbol_addr`] that appends the
-/// trailing NUL to `name`.
-#[cfg(any(unix, windows))]
-pub fn lookup_function_symbol_addr_str(
-    handle: usize,
-    name: &str,
-) -> Result<usize, LookupSymbolError> {
-    lookup_function_symbol_addr(handle, &null_terminated_bytes(name.as_bytes()))
 }
 
 /// # Safety
@@ -3291,115 +2910,6 @@ mod tests {
         ),
         not(any(target_env = "musl", target_env = "sgx"))
     ))]
-    mod callproc_simple_tests {
-        use super::*;
-
-        extern "C" fn abs_i32(x: i32) -> i32 {
-            x.abs()
-        }
-
-        extern "C" fn add_i32(a: i32, b: i32) -> i32 {
-            a + b
-        }
-
-        extern "C" fn sqrt_f64(x: f64) -> f64 {
-            x.sqrt()
-        }
-
-        extern "C" fn noop() {}
-
-        #[test]
-        fn calls_i32_function() {
-            let addr = abs_i32 as *const () as usize;
-            let result =
-                callproc_simple(addr, &[SimpleArg::Int(-5)], SimpleRestype::Code("i"), false)
-                    .expect("call should succeed");
-            assert!(matches!(result, DecodedValue::Signed(5)));
-        }
-
-        #[test]
-        fn calls_i32_function_with_multiple_args() {
-            let addr = add_i32 as *const () as usize;
-            let result = callproc_simple(
-                addr,
-                &[SimpleArg::Int(3), SimpleArg::Int(4)],
-                SimpleRestype::Code("i"),
-                false,
-            )
-            .expect("call should succeed");
-            assert!(matches!(result, DecodedValue::Signed(7)));
-        }
-
-        #[test]
-        fn calls_f64_function() {
-            let addr = sqrt_f64 as *const () as usize;
-            let result = callproc_simple(
-                addr,
-                &[SimpleArg::Double(2.0)],
-                SimpleRestype::Code("d"),
-                false,
-            )
-            .expect("call should succeed");
-            match result {
-                DecodedValue::Float(value) => {
-                    assert!((value - core::f64::consts::SQRT_2).abs() < 1e-12);
-                }
-                _ => panic!("expected Float return"),
-            }
-        }
-
-        #[test]
-        fn void_return_is_none() {
-            let addr = noop as *const () as usize;
-            let result = callproc_simple(addr, &[], SimpleRestype::Void, false)
-                .expect("call should succeed");
-            assert!(matches!(result, DecodedValue::None));
-        }
-
-        #[test]
-        fn null_addr_is_error() {
-            let result = callproc_simple(0, &[], SimpleRestype::Void, false);
-            assert_eq!(result.err(), Some(SimpleCallError::NullFunctionPointer));
-        }
-
-        #[test]
-        fn unknown_restype_code_is_error() {
-            let addr = noop as *const () as usize;
-            let result = callproc_simple(addr, &[], SimpleRestype::Code("@"), false);
-            assert_eq!(
-                result.err(),
-                Some(SimpleCallError::UnknownTypeCode("@".to_string()))
-            );
-        }
-
-        #[test]
-        fn unknown_arg_type_code_is_error() {
-            let addr = noop as *const () as usize;
-            let result = callproc_simple(
-                addr,
-                &[SimpleArg::Typed {
-                    code: "@",
-                    buffer: &[],
-                }],
-                SimpleRestype::Void,
-                false,
-            );
-            assert_eq!(
-                result.err(),
-                Some(SimpleCallError::UnknownTypeCode("@".to_string()))
-            );
-        }
-    }
-
-    #[cfg(all(
-        any(
-            target_os = "linux",
-            target_os = "macos",
-            target_os = "windows",
-            target_os = "android"
-        ),
-        not(any(target_env = "musl", target_env = "sgx"))
-    ))]
     mod call_tests {
         use super::*;
 
@@ -3542,32 +3052,6 @@ mod tests {
         }
 
         // --- scalar parity -----------------------------------------------------
-
-        #[test]
-        fn scalar_call_matches_callproc_simple() {
-            // `call` and `callproc_simple` share the same scalar lowering, so they
-            // must agree bit-for-bit.
-            let addr = add_i32 as *const () as usize;
-            let via_call = call(
-                addr,
-                &[CallArg::Int(3), CallArg::Int(4)],
-                CallRet::Code("i"),
-                CallOptions::default(),
-            )
-            .unwrap();
-            let via_simple = callproc_simple(
-                addr,
-                &[SimpleArg::Int(3), SimpleArg::Int(4)],
-                SimpleRestype::Code("i"),
-                false,
-            )
-            .unwrap();
-            assert!(matches!(via_simple, DecodedValue::Signed(7)));
-            assert!(matches!(
-                decode_type_code("i", scalar_bytes(&via_call)),
-                DecodedValue::Signed(7)
-            ));
-        }
 
         #[test]
         fn calls_f64_scalar() {

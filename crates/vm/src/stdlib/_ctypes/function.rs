@@ -1380,8 +1380,8 @@ fn convert_raw_result(
     call_info: &CallInfo,
     vm: &VirtualMachine,
 ) -> Option<PyObjectRef> {
-    // Result register image as bytes + size (None for void). Mirrors the prior
-    // call_result_bytes: pointer/scalar returns are pointer/register sized.
+    // Result register image as bytes + size (None for void): pointer/scalar
+    // returns are pointer/register sized.
     let (result_bytes, result_size) = match result {
         CallValue::Void => return None,
         CallValue::Pointer(ptr) => (ptr.to_ne_bytes().to_vec(), size_of::<usize>()),
