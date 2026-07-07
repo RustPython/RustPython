@@ -9,6 +9,7 @@ use crate::{
     byte::bytes_from_object,
     cformat::cformat_bytes,
     common::hash,
+    common::wtf8::is_py_ascii_whitespace,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     literal::escape::Escape,
     protocol::PyBuffer,
@@ -1205,10 +1206,6 @@ pub(crate) fn bytes_to_hex(
     } else {
         Ok(hex_impl_no_sep(bytes))
     }
-}
-
-pub(crate) const fn is_py_ascii_whitespace(b: u8) -> bool {
-    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
 }
 
 /// ASCII-only title casing.
