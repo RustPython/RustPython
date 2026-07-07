@@ -1,4 +1,4 @@
-// spell-checker:ignore ddfe
+// spell-checker:ignore ddfe DTSF
 use core::ops::Deref;
 use core::{cmp, str::FromStr};
 use itertools::{Itertools, PeekingNext};
