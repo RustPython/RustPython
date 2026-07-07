@@ -90,7 +90,12 @@ impl FrameLocalsProxy {
         self.frame.framelocalsproxy_getitem(key, vm)
     }
 
-    fn __setitem__(&self, key: PyObjectRef, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn __setitem__(
+        &self,
+        key: PyObjectRef,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         self.frame.framelocalsproxy_setitem(key, value, vm)
     }
 
@@ -145,12 +150,7 @@ impl FrameLocalsProxy {
     }
 
     #[pymethod]
-    fn setdefault(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn setdefault(&self, key: PyObjectRef, default: OptionalArg, vm: &VirtualMachine) -> PyResult {
         self.frame
             .framelocalsproxy_setdefault(key, default.unwrap_or_none(vm), vm)
     }
@@ -163,9 +163,7 @@ impl FrameLocalsProxy {
     #[pymethod]
     fn update(&self, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         if !args.kwargs.is_empty() {
-            return Err(
-                vm.new_type_error("FrameLocalsProxy.update() takes no keyword arguments")
-            );
+            return Err(vm.new_type_error("FrameLocalsProxy.update() takes no keyword arguments"));
         }
         if args.args.len() != 1 {
             return Err(vm.new_type_error(format!(
@@ -183,9 +181,9 @@ impl FrameLocalsProxy {
             } else if let Some(proxy) = other.downcast_ref::<Self>() {
                 proxy.snapshot(vm)?.into_iter().collect()
             } else {
-                return Err(vm.new_type_error(
-                    "update() argument must be dict or another FrameLocalsProxy",
-                ));
+                return Err(
+                    vm.new_type_error("update() argument must be dict or another FrameLocalsProxy")
+                );
             };
         for (key, value) in items {
             self.frame.framelocalsproxy_setitem(key, value, vm)?;
@@ -229,7 +227,9 @@ impl FrameLocalsProxy {
 impl AsMapping for FrameLocalsProxy {
     fn as_mapping() -> &'static PyMappingMethods {
         static AS_MAPPING: LazyLock<PyMappingMethods> = LazyLock::new(|| PyMappingMethods {
-            length: atomic_func!(|mapping, vm| FrameLocalsProxy::mapping_downcast(mapping).__len__(vm)),
+            length: atomic_func!(
+                |mapping, vm| FrameLocalsProxy::mapping_downcast(mapping).__len__(vm)
+            ),
             subscript: atomic_func!(|mapping, needle, vm| {
                 FrameLocalsProxy::mapping_downcast(mapping).__getitem__(needle.to_owned(), vm)
             }),

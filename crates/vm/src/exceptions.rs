@@ -2011,7 +2011,9 @@ pub(super) mod types {
                 }
             }
             let payload = Self::py_new(&cls, args, vm)?;
-            payload.into_ref_with_type_lazy_dict(vm, cls).map(Into::into)
+            payload
+                .into_ref_with_type_lazy_dict(vm, cls)
+                .map(Into::into)
         }
     }
 

@@ -183,9 +183,7 @@ impl Coro {
         } else {
             None
         };
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
-            f.resume(value, vm)
-        });
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| f.resume(value, vm));
         self.finalize_send_result(result, entered_frame, jen, vm)
     }
 
@@ -211,9 +209,7 @@ impl Coro {
         } else {
             None
         };
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
-            f.resume(value, vm)
-        });
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| f.resume(value, vm));
         self.finalize_send_result(result, entered_frame, jen, vm)
     }
 

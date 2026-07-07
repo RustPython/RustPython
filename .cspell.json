@@ -79,6 +79,7 @@
     "mcache",
     "oparg",
     "opargs",
+    "pointee",
     "pyc",
     "reborrow",
     "reborrows",

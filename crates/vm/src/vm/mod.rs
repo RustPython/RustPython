@@ -44,10 +44,10 @@ use crate::{
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
-#[cfg(all(unix, feature = "threading"))]
-use core::sync::atomic::AtomicI64;
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
+#[cfg(all(unix, feature = "threading"))]
+use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
     sync::atomic::{AtomicBool, AtomicU64, Ordering},

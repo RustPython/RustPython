@@ -1491,10 +1491,11 @@ impl Frame {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         self.check_locals_access(vm)?;
-        if self.framelocalsproxy_getkeyindex(&key, false, vm)?.is_some() {
-            return Err(
-                vm.new_value_error("cannot remove local variables from FrameLocalsProxy")
-            );
+        if self
+            .framelocalsproxy_getkeyindex(&key, false, vm)?
+            .is_some()
+        {
+            return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
         }
         let extra = self.f_extra_locals.lock().clone();
         if let Some(extra) = extra
@@ -1513,10 +1514,11 @@ impl Frame {
         vm: &VirtualMachine,
     ) -> PyResult {
         self.check_locals_access(vm)?;
-        if self.framelocalsproxy_getkeyindex(&key, false, vm)?.is_some() {
-            return Err(
-                vm.new_value_error("cannot remove local variables from FrameLocalsProxy")
-            );
+        if self
+            .framelocalsproxy_getkeyindex(&key, false, vm)?
+            .is_some()
+        {
+            return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
         }
         let extra = self.f_extra_locals.lock().clone();
         if let Some(extra) = extra

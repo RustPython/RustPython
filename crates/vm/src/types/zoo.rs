@@ -3,10 +3,9 @@ use crate::{
     builtins::{
         asyncgenerator, bool_, builtin_func, bytearray, bytes, capsule, classmethod, code, complex,
         coroutine, descriptor, dict, enumerate, filter, float, frame, frame_locals_proxy, function,
-        generator,
-        genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory, module,
-        namespace, object, property, pystr, range, set, singletons, slice, staticmethod, super_,
-        template, traceback, tuple,
+        generator, genericalias, getset, int, interpolation, iter, list, map, mappingproxy, memory,
+        module, namespace, object, property, pystr, range, set, singletons, slice, staticmethod,
+        super_, template, traceback, tuple,
         type_::{self, PyType},
         union_, weakproxy, weakref, zip,
     },
