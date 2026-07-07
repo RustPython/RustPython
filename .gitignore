@@ -28,3 +28,4 @@ Lib/test/data/*
 !Lib/test/data/README
 cpython/
 .claude/scheduled_tasks.lock
+docs/superpowers/
