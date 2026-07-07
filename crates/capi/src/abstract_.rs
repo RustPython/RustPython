@@ -16,11 +16,11 @@ mod sequence;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
-fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
+pub(crate) fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
     tuple.iter().cloned().collect::<Vec<_>>().into()
 }
 
-fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
+pub(crate) fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
     dict.items_vec()
         .into_iter()
         .map(|(key, value)| {

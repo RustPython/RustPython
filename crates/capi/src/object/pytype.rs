@@ -1,19 +1,24 @@
+use crate::abstract_::{dict_to_kwargs, tuple_to_args};
+use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use core::ffi::{c_int, c_ulong};
-use rustpython_vm::builtins::{PyStr, PyType};
+use crate::slots::{PySlot, PySlotKind};
+use core::ffi::{CStr, c_char, c_int, c_ulong, c_void};
+use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
+use rustpython_vm::function::{FuncArgs, PyMethodFlags};
+use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
 use rustpython_vm::{AsObject, Py, PyObject};
-use std::ffi::c_void;
 
 pub type PyTypeObject = Py<PyType>;
 
-pub struct PyTypeSlot {
+define_py_check!(fn PyType_Check, types.type_type);
+define_py_check!(exact fn PyType_CheckExact, types.type_type);
+
+#[repr(C)]
+pub struct PyType_Slot {
     pub slot: c_int,
     pub pfunc: *mut c_void,
 }
-
-define_py_check!(fn PyType_Check, types.type_type);
-define_py_check!(exact fn PyType_CheckExact, types.type_type);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
@@ -77,8 +82,7 @@ pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) 
 }
 
 #[unsafe(no_mangle)]
-#[cfg(false)]
-pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
+pub unsafe extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c_void {
     with_vm(|_vm| {
         let ty = unsafe { &*ty };
         let slot: u8 = slot
@@ -97,24 +101,17 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
                 ) -> *mut PyObject {
                     with_vm(|vm| {
                         let subtype = unsafe { &*subtype };
-                        let mut func_args = FuncArgs::default();
 
-                        if let Some(args_obj) = unsafe { args.as_ref() } {
-                            let tuple = args_obj.try_downcast_ref::<PyTuple>(vm)?;
-                            func_args
-                                .args
-                                .extend(tuple.iter().map(|arg| arg.to_owned()));
-                        }
+                        let args = if let Some(args_obj) = unsafe { args.as_ref() } {
+                            tuple_to_args(args_obj.try_downcast_ref::<PyTuple>(vm)?)
+                        } else {
+                            ().into()
+                        };
 
-                        if let Some(kwargs_obj) = unsafe { kwargs.as_ref() } {
-                            let kwargs = kwargs_obj.try_downcast_ref::<PyDict>(vm)?;
-                            for (key, value) in kwargs.items_vec() {
-                                let key = key.try_downcast::<PyStr>(vm)?;
-                                func_args
-                                    .kwargs
-                                    .insert(key.to_string_lossy().into_owned(), value);
-                            }
-                        }
+                        let kwargs = unsafe { kwargs.as_ref() }
+                            .map(|obj| dict_to_kwargs(vm, obj.try_downcast_ref::<PyDict>(vm)?))
+                            .transpose()?
+                            .unwrap_or_default();
 
                         subtype
                             .slots
@@ -122,17 +119,13 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
                             .load()
                             .expect("tp_new slot function pointer is null")(
                             subtype.to_owned(),
-                            func_args,
+                            FuncArgs::new(args, kwargs),
                             vm,
                         )
                     })
                 }
 
-                if let Some(vtable) = ty.get_type_data::<TypeVTable>() {
-                    vtable.new_func.map(|newfunc| newfunc as *mut c_void)
-                } else {
-                    ty.slots.new.load().map(|_| newfunc_wrapper as *mut c_void)
-                }
+                ty.slots.new.load().map(|_| newfunc_wrapper as *mut c_void)
             }
             _ => {
                 todo!("Slot {slot_accessor:?} for {ty:?} is not yet implemented in PyType_GetSlot")
@@ -143,15 +136,141 @@ pub extern "C" fn PyType_GetSlot(ty: *const PyTypeObject, slot: c_int) -> *mut c
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
+    with_vm(|vm| {
+        let mut name = None;
+        let mut base = None;
+        let mut methods = Vec::new();
+        let mut type_slots: PyTypeSlots = Default::default();
+        let attrs = Default::default();
+
+        for slot in PySlot::iter(slots) {
+            match (slot, vm).try_into()? {
+                PySlotKind::TypeName { value, .. } => {
+                    name = unsafe { Some(CStr::from_ptr(value).to_str().unwrap()) }
+                }
+                PySlotKind::TypeFlags { value } => {
+                    type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
+                        vm.new_value_error(format!(
+                            "Invalid type flags: {value:#x} for PyType_FromSlots"
+                        ))
+                    })?;
+                }
+                PySlotKind::TypeSlots { mut value, .. } => {
+                    while let slot = unsafe { &*value }
+                        && slot.slot != 0
+                    {
+                        let slot_id: u8 = slot.slot.try_into().unwrap();
+                        match slot_id.try_into().unwrap() {
+                            SlotAccessor::TpDoc => {
+                                let doc = unsafe {
+                                    CStr::from_ptr(slot.pfunc.cast::<c_char>())
+                                        .to_str()
+                                        .expect("tp_doc must be a valid UTF-8 string")
+                                };
+                                type_slots.doc = Some(doc);
+                            }
+                            SlotAccessor::TpNew => {
+                                type_slots.new.store(Some(|ty, _args, vm| {
+                                    Err(vm.new_not_implemented_error(format!("tp_new is not yet implemented in PyType_FromSlots for {ty:?}")))
+                                }));
+                            }
+                            SlotAccessor::TpBase => {
+                                base = unsafe { Some(&*slot.pfunc.cast::<PyTypeObject>()) }
+                            }
+                            SlotAccessor::TpDealloc => {
+                                type_slots.del.store(Some(|_ty, _vm| {
+                                    // TODO
+                                    Ok(())
+                                }));
+                            }
+                            SlotAccessor::TpMethods => {
+                                let mut def_ptr = slot.pfunc.cast::<PyMethodDef>();
+                                while let def = unsafe { &*def_ptr }
+                                    && !def.ml_name.is_null()
+                                {
+                                    let name = unsafe {
+                                        CStr::from_ptr(def.ml_name)
+                                            .to_str()
+                                            .expect("method name must be valid UTF-8")
+                                    };
+                                    let is_static =
+                                        PyMethodFlags::from_bits_retain(def.ml_flags as _)
+                                            .contains(PyMethodFlags::STATIC);
+                                    let method = build_method_def(vm, def, !is_static)?;
+                                    methods.push((name, method));
+                                    def_ptr = unsafe { def_ptr.add(1) }
+                                }
+                            }
+                            slot => {
+                                return Err(vm.new_not_implemented_error(format!(
+                                    "PyType_FromSlots with PyType_Slot {slot:?} not implemented yet"
+                                )));
+                            }
+                        }
+                        value = unsafe { value.add(1) };
+                    }
+                }
+                PySlotKind::TypeExtraBasicSize(size) => {
+                    if size != 0 {
+                        return Err(vm.new_not_implemented_error(
+                            "PyType_FromSlots with non-zero Py_tp_extra_basicsize is not supported",
+                        ));
+                    }
+                }
+                kind => {
+                    return Err(vm.new_not_implemented_error(format!(
+                        "PyType_FromSlots with slot {kind:?} not implemented yet"
+                    )));
+                }
+            }
+        }
+
+        let bases = if let Some(base) = base {
+            vec![base.to_owned()]
+        } else {
+            vec![vm.ctx.types.object_type.to_owned()]
+        };
+
+        let metaclass = vm.ctx.types.type_type.to_owned();
+        let class = PyType::new_heap(name.unwrap(), bases, attrs, type_slots, metaclass, &vm.ctx)
+            .map_err(|msg| {
+            vm.new_system_error(format!("Failed to create type from slots: {msg}"))
+        })?;
+
+        for (name, method) in methods {
+            let class_static = unsafe { &*((&*class) as *const _) };
+            class.attributes.write().insert(
+                vm.ctx.intern_str(name),
+                method.build_method(class_static, vm).into(),
+            );
+        }
+
+        Ok(class)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetTypeData(
+    obj: *mut PyObject,
+    cls: *mut PyTypeObject,
+) -> *mut c_void {
+    if unsafe { &*cls }.slots.basicsize == 0 {
+        obj.cast()
+    } else {
+        todo!("PyObject_GetTypeData for non-zero sized types is not yet implemented")
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
-    // TODO: Implement immutable type freezing semantics.
     0
 }
 
 #[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
-    use pyo3::types::{PyDict, PyInt, PyString, PyTypeMethods};
+    use pyo3::types::{PyInt, PyString, PyType, PyTypeMethods};
 
     #[test]
     fn type_name() {
@@ -194,22 +313,6 @@ mod tests {
             fn method2(&self, a: i32) -> PyResult<i32> {
                 Ok(self.num + a)
             }
-
-            #[staticmethod]
-            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
-                Ok(a + b)
-            }
-
-            #[staticmethod]
-            fn static_method2() -> PyResult<i32> {
-                Ok(0)
-            }
-
-            #[classmethod]
-            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
-                assert!(cls.is_subclass_of::<MyClass>()?);
-                Ok(10)
-            }
         }
 
         Python::attach(|py| {
@@ -235,6 +338,40 @@ mod tests {
                     .unwrap(),
                 8
             );
+        });
+    }
+
+    #[test]
+    fn test_zero_sized_class() {
+        #[pyclass(frozen)]
+        struct MyEmptyClass {}
+
+        #[pymethods]
+        impl MyEmptyClass {
+            #[new]
+            fn new() -> Self {
+                MyEmptyClass {}
+            }
+
+            #[staticmethod]
+            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
+                Ok(a + b)
+            }
+
+            #[staticmethod]
+            fn static_method2() -> PyResult<i32> {
+                Ok(0)
+            }
+
+            #[classmethod]
+            fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
+                assert!(cls.is_subclass_of::<MyEmptyClass>()?);
+                Ok(10)
+            }
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(py, MyEmptyClass {}).unwrap();
 
             assert_eq!(
                 obj.call_method1("static_method1", (5, 8))

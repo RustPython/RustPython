@@ -42,6 +42,8 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
                 | PySlotKind::TypeSlots { .. }
                 | PySlotKind::TypeName { .. }
                 | PySlotKind::TypeMetaclass { .. }
+                | PySlotKind::TypeFlags { .. }
+                | PySlotKind::TypeExtraBasicSize(_)
                 | PySlotKind::TypeModule { .. }) => {
                     return Err(vm.new_system_error(format!(
                         "Got type slot while module slots are expected: {kind:?}"

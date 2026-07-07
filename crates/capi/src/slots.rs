@@ -1,6 +1,6 @@
 use crate::PyObject;
 use crate::methodobject::PyMethodDef;
-use crate::object::PyTypeSlot;
+use crate::object::PyType_Slot;
 use core::ffi::{c_char, c_int, c_void};
 use rustpython_vm::builtins::PyBaseExceptionRef;
 use rustpython_vm::{PyResult, VirtualMachine};
@@ -123,13 +123,17 @@ pub(crate) enum PySlotKind {
         is_static: bool,
     },
     TypeSlots {
-        value: *mut PyTypeSlot,
+        value: *mut PyType_Slot,
         is_static: bool,
     },
     TypeName {
         value: *const c_char,
         is_static: bool,
     },
+    TypeFlags {
+        value: u64,
+    },
+    TypeExtraBasicSize(isize),
     TypeMetaclass {
         value: *mut PyObject,
         is_static: bool,
@@ -150,7 +154,11 @@ impl PySlotKind {
     #[must_use]
     pub(crate) fn is_static(&self) -> bool {
         match self {
-            Self::ModuleCreate(_) | Self::ModuleExec(_) | Self::ModuleMethods(_) => true,
+            Self::ModuleCreate(_)
+            | Self::ModuleExec(_)
+            | Self::ModuleMethods(_)
+            | Self::TypeFlags { .. }
+            | Self::TypeExtraBasicSize(_) => true,
             Self::ModuleName { is_static, .. }
             | Self::ModuleDoc { is_static, .. }
             | Self::ModuleAbi { is_static, .. }
@@ -224,6 +232,10 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
             95 => Self::TypeName {
                 value: value_ptr.cast(),
                 is_static,
+            },
+            97 => Self::TypeExtraBasicSize(unsafe { slot.value.sl_size }),
+            99 => Self::TypeFlags {
+                value: unsafe { slot.value.sl_uint64 },
             },
             107 => Self::TypeMetaclass {
                 value: value_ptr.cast(),
