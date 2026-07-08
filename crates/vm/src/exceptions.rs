@@ -1583,7 +1583,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
-    use crate::object::{MaybeTraverse, Traverse, TraverseFn};
+    use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -1900,7 +1900,7 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyUnboundLocalError(PyNameError);
 
-    #[pyexception(name, base = PyException, ctx = "os_error")]
+    #[pyexception(name, base = PyException, ctx = "os_error", traverse = "manual")]
     #[repr(C)]
     pub struct PyOSError {
         base: PyException,
@@ -1930,7 +1930,10 @@ pub(super) mod types {
 
     unsafe impl Traverse for PyOSError {
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-            self.base.try_traverse(tracer_fn);
+            // `self.base` is a `PyException` newtype whose `MaybeTraverse` is a
+            // no-op; reach the underlying `PyBaseException` so its traceback,
+            // cause, context and args are visited by the collector.
+            self.base.0.traverse(tracer_fn);
             if let Some(obj) = self.errno.deref() {
                 tracer_fn(obj);
             }
