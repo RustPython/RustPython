@@ -19,6 +19,7 @@ use alloc::{
     vec::Vec,
 };
 
+use icu_casemap::options::{LeadingAdjustment, TitlecaseOptions};
 use icu_casemap::{CaseMapper, TitlecaseMapper};
 use icu_locale::LanguageIdentifier;
 use icu_properties::props::{
@@ -236,8 +237,16 @@ fn titlecase_string(s: &str, out: &mut FmtWriter<'_>) {
 }
 
 fn titlecase_segment(s: &str, out: &mut FmtWriter<'_>) {
+    // Callers pass a single first-of-word code point, which Python titlecases
+    // unconditionally (applying its titlecase mapping). The default `Auto`
+    // leading adjustment looks for a head in Letter/Number/Symbol/Private_Use
+    // and skips anything else, dropping the titlecase mapping of cased marks
+    // such as U+0345 (`ͅ`, general category Mn) -> U+0399 (`Ι`). `None`
+    // titlecases the code point as given.
+    let mut options = TitlecaseOptions::default();
+    options.leading_adjustment = Some(LeadingAdjustment::None);
     TitlecaseMapper::new()
-        .titlecase_segment(s, &LanguageIdentifier::UNKNOWN, Default::default())
+        .titlecase_segment(s, &LanguageIdentifier::UNKNOWN, options)
         .write_to(out)
         .expect("writing to an in-memory buffer cannot fail");
 }
@@ -351,6 +360,23 @@ mod tests {
         assert_eq!(capitalize_str("ΟΔΟΣ"), "Οδος");
         assert_eq!(title_str("hello world"), "Hello World");
         assert_eq!(swapcase_str("Hello"), "hELLO");
+    }
+
+    #[test]
+    fn titlecase_first_of_word_takes_titlecase_mapping() {
+        // A leading cased combining mark still takes its titlecase mapping:
+        // U+0345 (ͅ, general category Mn) titlecases to U+0399 (Ι), even though
+        // it is not a Letter/Number/Symbol head.
+        assert_eq!(title_str("\u{0345}"), "\u{0399}");
+        assert_eq!(capitalize_str("\u{0345}"), "\u{0399}");
+        assert_eq!(title_str("\u{0345}a"), "\u{0399}a");
+        // Full (one-to-many) titlecase mappings still apply to the first
+        // character of each word.
+        // cspell:ignore ﬁnnish NNISH ǳungla ǲungla ßhello Sshello
+        assert_eq!(capitalize_str("ﬁnnish"), "Finnish");
+        assert_eq!(title_str("ﬁNNISH"), "Finnish");
+        assert_eq!(capitalize_str("ǳungla"), "ǲungla");
+        assert_eq!(capitalize_str("ßhello"), "Sshello");
     }
 
     #[test]
