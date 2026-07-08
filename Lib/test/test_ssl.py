@@ -1526,7 +1526,6 @@ class ContextTests(unittest.TestCase):
         self.assertIn(libssl_error_reason, str(cm.exception))
         self.assertEqual(cm.exception.errno, ssl.SSL_ERROR_SSL)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <SSLContext(protocol=17)> is not None
     def test_sni_callback_refcycle(self):
         # Reference cycles through the servername callback are detected
         # and cleared.

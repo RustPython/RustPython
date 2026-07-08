@@ -690,10 +690,8 @@ impl PyRef<PyBaseException> {
 
     #[pymethod]
     fn add_note(self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let dict = self
-            .as_object()
-            .dict()
-            .ok_or_else(|| vm.new_attribute_error("Exception object has no __dict__"))?;
+        let dict = crate::builtins::object::object_get_dict(self.as_object().to_owned(), vm)
+            .map_err(|_| vm.new_attribute_error("Exception object has no __dict__"))?;
 
         let notes = if let Ok(notes) = dict.get_item("__notes__", vm) {
             notes
@@ -747,7 +745,7 @@ impl Constructor for PyBaseException {
             return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
         }
         Self::new(args.args, vm)
-            .into_ref_with_type(vm, cls)
+            .into_ref_with_type_lazy_dict(vm, cls)
             .map(Into::into)
     }
 
@@ -1364,7 +1362,7 @@ impl OSErrorBuilder {
         let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
             .expect("new_os_error usage error");
         let os_error = payload
-            .into_ref_with_type(vm, exc_type)
+            .into_ref_with_type_lazy_dict(vm, exc_type)
             .expect("new_os_error usage error");
         PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
             .expect("new_os_error usage error");
@@ -1585,7 +1583,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
-    use crate::object::{MaybeTraverse, Traverse, TraverseFn};
+    use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -1805,7 +1803,7 @@ pub(super) mod types {
                 )));
             }
 
-            let dict = zelf.dict().unwrap();
+            let dict = crate::builtins::object::object_get_dict(zelf.clone(), vm)?;
             dict.set_item("name", vm.unwrap_or_none(name), vm)?;
             dict.set_item("path", vm.unwrap_or_none(path), vm)?;
             dict.set_item("name_from", vm.unwrap_or_none(name_from), vm)?;
@@ -1902,7 +1900,7 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyUnboundLocalError(PyNameError);
 
-    #[pyexception(name, base = PyException, ctx = "os_error")]
+    #[pyexception(name, base = PyException, ctx = "os_error", traverse = "manual")]
     #[repr(C)]
     pub struct PyOSError {
         base: PyException,
@@ -1932,7 +1930,10 @@ pub(super) mod types {
 
     unsafe impl Traverse for PyOSError {
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-            self.base.try_traverse(tracer_fn);
+            // `self.base` is a `PyException` newtype whose `MaybeTraverse` is a
+            // no-op; reach the underlying `PyBaseException` so its traceback,
+            // cause, context and args are visited by the collector.
+            self.base.0.traverse(tracer_fn);
             if let Some(obj) = self.errno.deref() {
                 tracer_fn(obj);
             }
@@ -2013,7 +2014,9 @@ pub(super) mod types {
                 }
             }
             let payload = Self::py_new(&cls, args, vm)?;
-            payload.into_ref_with_type(vm, cls).map(Into::into)
+            payload
+                .into_ref_with_type_lazy_dict(vm, cls)
+                .map(Into::into)
         }
     }
 

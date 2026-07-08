@@ -365,6 +365,35 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
         self.deref_ordering(ordering).map(|x| x.to_owned())
     }
 
+    /// Try-incref read of the current value.
+    ///
+    /// Unlike [`Self::to_owned`], this never increfs a destructed object:
+    /// it uses a conditional incref and revalidates that the slot still
+    /// holds the same pointer. Returns `None` when the slot is empty.
+    ///
+    /// Soundness relies on published-object memory being reclaimed only
+    /// after a QSBR grace period (see `object::qsbr`), so the refcount
+    /// word of a concurrently swapped-out value stays readable.
+    pub fn try_to_owned(&self, ordering: Ordering) -> Option<PyRef<T>> {
+        loop {
+            let ptr = self.inner.load(ordering);
+            if ptr.is_null() {
+                return None;
+            }
+            if let Some(obj) = unsafe { PyObject::try_to_owned_from_ptr(ptr.cast::<PyObject>()) } {
+                if core::ptr::eq(self.inner.load(Ordering::Acquire), ptr) {
+                    // SAFETY: the slot only ever stores `PyRef<T>` values.
+                    return Some(unsafe { obj.downcast_unchecked::<T>() });
+                }
+                drop(obj);
+            }
+            // Slot changed or the value was torn down mid-read; a failed
+            // incref with an unchanged slot is impossible (the slot's own
+            // strong ref keeps the value alive), so this loop progresses.
+            core::hint::spin_loop();
+        }
+    }
+
     /// # Safety
     /// The caller is responsible to keep the returned PyRef alive
     /// until no more reference can be used via PyAtomicRef::deref()

@@ -6,114 +6,292 @@ use crate::{bytecode::instruction::StackEffect, marshal::MarshalError};
 impl super::Opcode {
     /// Returns [`Self`] as [`u8`].
     #[must_use]
+    #[inline]
     pub const fn as_u8(self) -> u8 {
         self.as_numeric()
     }
 
     #[must_use]
+    #[inline]
     pub const fn cache_entries(self) -> usize {
-        match self.deoptimize() {
-            Self::StoreSubscr => 1,
-            Self::ToBool => 3,
-            Self::BinaryOp => 5,
-            Self::Call => 3,
-            Self::CallKw => 3,
-            Self::CompareOp => 1,
-            Self::ContainsOp => 1,
-            Self::ForIter => 1,
-            Self::JumpBackward => 1,
-            Self::LoadAttr => 9,
-            Self::LoadGlobal => 4,
-            Self::LoadSuperAttr => 1,
-            Self::PopJumpIfFalse => 1,
-            Self::PopJumpIfNone => 1,
-            Self::PopJumpIfNotNone => 1,
-            Self::PopJumpIfTrue => 1,
-            Self::Send => 1,
-            Self::StoreAttr => 4,
-            Self::UnpackSequence => 1,
-            _ => 0,
-        }
+        const CACHE_ENTRIES: [u8; 256] = [
+            0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0, 0, 0, 0, 5, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 3, 1, 1,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 4, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0,
+            0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 3, 3,
+            3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 1, 1, 1, 1,
+            1, 1, 1, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 0, 0, 4, 4, 1, 1, 0, 1, 4, 4, 4, 1, 1,
+            3, 3, 3, 3, 3, 3, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 3, 3, 0, 1, 0, 0,
+        ];
+
+        CACHE_ENTRIES[self.as_numeric() as usize] as usize
     }
 
     #[must_use]
+    #[inline]
     pub const fn deopt(self) -> Option<Self> {
-        Some(match self {
-            Self::ResumeCheck => Self::Resume,
-            Self::LoadConstMortal | Self::LoadConstImmortal => Self::LoadConst,
-            Self::ToBoolAlwaysTrue
-            | Self::ToBoolBool
-            | Self::ToBoolInt
-            | Self::ToBoolList
-            | Self::ToBoolNone
-            | Self::ToBoolStr => Self::ToBool,
-            Self::BinaryOpMultiplyInt
-            | Self::BinaryOpAddInt
-            | Self::BinaryOpSubtractInt
-            | Self::BinaryOpMultiplyFloat
-            | Self::BinaryOpAddFloat
-            | Self::BinaryOpSubtractFloat
-            | Self::BinaryOpAddUnicode
-            | Self::BinaryOpSubscrListInt
-            | Self::BinaryOpSubscrListSlice
-            | Self::BinaryOpSubscrTupleInt
-            | Self::BinaryOpSubscrStrInt
-            | Self::BinaryOpSubscrDict
-            | Self::BinaryOpSubscrGetitem
-            | Self::BinaryOpExtend
-            | Self::BinaryOpInplaceAddUnicode => Self::BinaryOp,
-            Self::StoreSubscrDict | Self::StoreSubscrListInt => Self::StoreSubscr,
-            Self::SendGen => Self::Send,
-            Self::UnpackSequenceTwoTuple | Self::UnpackSequenceTuple | Self::UnpackSequenceList => {
-                Self::UnpackSequence
-            }
-            Self::StoreAttrInstanceValue | Self::StoreAttrSlot | Self::StoreAttrWithHint => {
-                Self::StoreAttr
-            }
-            Self::LoadGlobalModule | Self::LoadGlobalBuiltin => Self::LoadGlobal,
-            Self::LoadSuperAttrAttr | Self::LoadSuperAttrMethod => Self::LoadSuperAttr,
-            Self::LoadAttrInstanceValue
-            | Self::LoadAttrModule
-            | Self::LoadAttrWithHint
-            | Self::LoadAttrSlot
-            | Self::LoadAttrClass
-            | Self::LoadAttrClassWithMetaclassCheck
-            | Self::LoadAttrProperty
-            | Self::LoadAttrGetattributeOverridden
-            | Self::LoadAttrMethodWithValues
-            | Self::LoadAttrMethodNoDict
-            | Self::LoadAttrMethodLazyDict
-            | Self::LoadAttrNondescriptorWithValues
-            | Self::LoadAttrNondescriptorNoDict => Self::LoadAttr,
-            Self::CompareOpFloat | Self::CompareOpInt | Self::CompareOpStr => Self::CompareOp,
-            Self::ContainsOpSet | Self::ContainsOpDict => Self::ContainsOp,
-            Self::JumpBackwardNoJit | Self::JumpBackwardJit => Self::JumpBackward,
-            Self::ForIterList | Self::ForIterTuple | Self::ForIterRange | Self::ForIterGen => {
-                Self::ForIter
-            }
-            Self::CallBoundMethodExactArgs
-            | Self::CallPyExactArgs
-            | Self::CallType1
-            | Self::CallStr1
-            | Self::CallTuple1
-            | Self::CallBuiltinClass
-            | Self::CallBuiltinO
-            | Self::CallBuiltinFast
-            | Self::CallBuiltinFastWithKeywords
-            | Self::CallLen
-            | Self::CallIsinstance
-            | Self::CallListAppend
-            | Self::CallMethodDescriptorO
-            | Self::CallMethodDescriptorFastWithKeywords
-            | Self::CallMethodDescriptorNoargs
-            | Self::CallMethodDescriptorFast
-            | Self::CallAllocAndEnterInit
-            | Self::CallPyGeneral
-            | Self::CallBoundMethodGeneral
-            | Self::CallNonPyGeneral => Self::Call,
-            Self::CallKwBoundMethod | Self::CallKwPy | Self::CallKwNonPy => Self::CallKw,
-            _ => return None,
-        })
+        const DEOPT: [Option<super::Opcode>; 256] = [
+            None,
+            None,
+            None,
+            Some(super::Opcode::BinaryOp),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::BinaryOp),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::CallKw),
+            Some(super::Opcode::CallKw),
+            Some(super::Opcode::CallKw),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::Call),
+            Some(super::Opcode::CompareOp),
+            Some(super::Opcode::CompareOp),
+            Some(super::Opcode::CompareOp),
+            Some(super::Opcode::ContainsOp),
+            Some(super::Opcode::ContainsOp),
+            Some(super::Opcode::ForIter),
+            Some(super::Opcode::ForIter),
+            Some(super::Opcode::ForIter),
+            Some(super::Opcode::ForIter),
+            Some(super::Opcode::JumpBackward),
+            Some(super::Opcode::JumpBackward),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadAttr),
+            Some(super::Opcode::LoadConst),
+            Some(super::Opcode::LoadConst),
+            Some(super::Opcode::LoadGlobal),
+            Some(super::Opcode::LoadGlobal),
+            Some(super::Opcode::LoadSuperAttr),
+            Some(super::Opcode::LoadSuperAttr),
+            Some(super::Opcode::Resume),
+            Some(super::Opcode::Send),
+            Some(super::Opcode::StoreAttr),
+            Some(super::Opcode::StoreAttr),
+            Some(super::Opcode::StoreAttr),
+            Some(super::Opcode::StoreSubscr),
+            Some(super::Opcode::StoreSubscr),
+            Some(super::Opcode::ToBool),
+            Some(super::Opcode::ToBool),
+            Some(super::Opcode::ToBool),
+            Some(super::Opcode::ToBool),
+            Some(super::Opcode::ToBool),
+            Some(super::Opcode::ToBool),
+            Some(super::Opcode::UnpackSequence),
+            Some(super::Opcode::UnpackSequence),
+            Some(super::Opcode::UnpackSequence),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ];
+
+        DEOPT[self.as_numeric() as usize]
     }
 
     /// Does this opcode have 'HAS_ARG_FLAG' set.
@@ -664,6 +842,7 @@ impl super::Opcode {
     }
 
     #[must_use]
+    #[inline]
     pub const fn to_base(self) -> Option<Self> {
         Some(match self {
             Self::InstrumentedCall => Self::Call,
@@ -723,16 +902,19 @@ impl super::Opcode {
 impl super::PseudoOpcode {
     /// Returns [`Self`] as [`u16`].
     #[must_use]
+    #[inline]
     pub const fn as_u16(self) -> u16 {
         self.as_numeric()
     }
 
     #[must_use]
+    #[inline]
     pub const fn cache_entries(self) -> usize {
         0
     }
 
     #[must_use]
+    #[inline]
     pub const fn deopt(self) -> Option<Self> {
         None
     }
@@ -818,6 +1000,7 @@ impl super::PseudoOpcode {
     }
 
     #[must_use]
+    #[inline]
     pub const fn to_base(self) -> Option<Self> {
         None
     }

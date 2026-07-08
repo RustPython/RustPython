@@ -608,7 +608,7 @@ impl SlotAccessor {
                 if typ.slots.init.load().is_none()
                     && let Some(base_val) = base.slots.init.load()
                 {
-                    let slot_defined = base.base.as_ref().is_none_or(|bb| {
+                    let slot_defined = base.base.deref().is_none_or(|bb| {
                         bb.slots.init.load().map(|v| v as usize) != Some(base_val as usize)
                     });
                     if slot_defined {

@@ -588,7 +588,6 @@ class TestInterpreterStack(IsTestBase):
         self.assertEqual(inspect.formatargvalues(args, varargs, varkw, locals),
                          '(x=11, y=14)')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'NoneType' object has no attribute 'f_code'
     def test_previous_frame(self):
         args, varargs, varkw, locals = inspect.getargvalues(mod.fr.f_back)
         self.assertEqual(args, ['a', 'b', 'c', 'd', 'e', 'f'])

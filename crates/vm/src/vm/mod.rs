@@ -44,11 +44,12 @@ use crate::{
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(all(not(unix), feature = "threading"))]
+use core::ptr::NonNull;
+#[cfg(feature = "threading")]
 use core::sync::atomic::AtomicI64;
 use core::{
     cell::{Cell, OnceCell, RefCell},
-    ptr::NonNull,
     sync::atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use crossbeam_utils::atomic::AtomicCell;
@@ -74,7 +75,6 @@ pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
     pub ctx: PyRc<Context>,
-    pub frames: RefCell<Vec<FramePtr>>,
     /// Thread-local data stack for bump-allocating frame-local data
     /// (localsplus arrays for non-generator frames).
     datastack: core::cell::UnsafeCell<crate::datastack::DataStack>,
@@ -108,11 +108,15 @@ pub struct VirtualMachine {
     pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
 }
 
-/// Non-owning frame pointer for the frames stack.
+/// Non-owning frame pointer for the non-unix threading frames stack.
 /// The pointed-to frame is kept alive by the caller of with_frame/resume_gen_frame.
+/// Unix threading builds publish the top frame through `ThreadSlot::top_frame`
+/// and walk the rest via `Frame::previous`, so they do not use this type.
+#[cfg(all(not(unix), feature = "threading"))]
 #[derive(Copy, Clone)]
 pub struct FramePtr(NonNull<Py<Frame>>);
 
+#[cfg(all(not(unix), feature = "threading"))]
 impl FramePtr {
     /// # Safety
     /// The pointed-to frame must still be alive.
@@ -122,8 +126,10 @@ impl FramePtr {
     }
 }
 
-// SAFETY: FramePtr is only stored in the VM's frames Vec while the corresponding
-// FrameRef is alive on the call stack. The Vec is always empty when the VM moves between threads.
+// SAFETY: FramePtr is only stored in a thread's shared frame stack
+// (`ThreadSlot::frames`) while the corresponding FrameRef is alive on that
+// thread's call stack; readers dereference it under the slot mutex.
+#[cfg(all(not(unix), feature = "threading"))]
 unsafe impl Send for FramePtr {}
 
 #[derive(Debug)]
@@ -143,7 +149,7 @@ impl Default for ExceptionStack {
 
 /// Stop-the-world state for fork safety. Before `fork()`, the requester
 /// stops all other Python threads so they are not holding internal locks.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub struct StopTheWorldState {
     /// Fast-path flag checked in the bytecode loop (like `_PY_EVAL_PLEASE_STOP_BIT`)
     pub(crate) requested: AtomicBool,
@@ -151,6 +157,11 @@ pub struct StopTheWorldState {
     world_stopped: AtomicBool,
     /// Ident of the thread that requested the stop (like `stw->requester`)
     requester: AtomicU64,
+    /// Single exclusion held for the whole stop→start span. Fork and GC are
+    /// both stop-the-world requesters driving this shared state; only one may
+    /// hold it at a time. Acquired before any stop bookkeeping (see
+    /// `acquire_exclusion`) and released by `start_the_world`/`reset_after_fork`.
+    exclusion: AtomicBool,
     /// Signaled by suspending threads when their state transitions to SUSPENDED
     notify_mutex: std::sync::Mutex<()>,
     notify_cv: std::sync::Condvar,
@@ -178,7 +189,7 @@ pub struct StopTheWorldState {
     stats_suspend_wait_yields: AtomicU64,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 #[derive(Debug, Clone, Copy)]
 pub struct StopTheWorldStats {
     pub stop_calls: u64,
@@ -194,14 +205,14 @@ pub struct StopTheWorldStats {
     pub world_stopped: bool,
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 impl Default for StopTheWorldState {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 impl StopTheWorldState {
     #[must_use]
     pub const fn new() -> Self {
@@ -209,6 +220,7 @@ impl StopTheWorldState {
             requested: AtomicBool::new(false),
             world_stopped: AtomicBool::new(false),
             requester: AtomicU64::new(0),
+            exclusion: AtomicBool::new(false),
             notify_mutex: std::sync::Mutex::new(()),
             notify_cv: std::sync::Condvar::new(),
             thread_countdown: AtomicI64::new(0),
@@ -336,20 +348,76 @@ impl StopTheWorldState {
         forced_parks != 0 && self.thread_countdown.load(Ordering::Acquire) == 0
     }
 
+    /// Acquire the single stop-the-world exclusion in a park-friendly way.
+    ///
+    /// Fork and GC both request stop-the-world through the same shared state;
+    /// without this exclusion their `requester`/`requested`/countdown words
+    /// could be clobbered by an interleaving requester, so the completion
+    /// check could never converge and a requester would wait on itself forever.
+    ///
+    /// The acquire must be park-friendly. While another requester's stop is in
+    /// progress it sets this thread's stop bit and waits for it to suspend;
+    /// blocking on a plain lock here would keep this thread from ever reaching
+    /// that safepoint, so the active requester would wait for this thread while
+    /// this thread waits for the lock — a deadlock swap. Instead we poll and
+    /// honor the suspend request between tries. Suspending here is safe as long
+    /// as any lock a spinning requester still holds is never acquired
+    /// attached-blocking by another thread. The fork requester holds IMP_LOCK,
+    /// but its acquisition detaches (`allow_threads`), so no attached thread
+    /// blocks on it; the GC requester holds only the `collecting` mutex, which
+    /// is only ever `try_lock`'d. The active requester therefore force-parks
+    /// this thread, finishes its whole stop→start span, releases the exclusion,
+    /// and only then does this thread resume and acquire it.
+    fn acquire_exclusion(&self) {
+        if self
+            .exclusion
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+            .is_ok()
+        {
+            return;
+        }
+        loop {
+            crate::vm::thread::suspend_if_needed(self);
+            std::thread::yield_now();
+            if self
+                .exclusion
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+                .is_ok()
+            {
+                return;
+            }
+        }
+    }
+
+    /// Release the stop-the-world exclusion taken by `acquire_exclusion`.
+    fn release_exclusion(&self) {
+        self.exclusion.store(false, Ordering::Release);
+    }
+
     /// Stop all non-requester threads (`stop_the_world`).
     ///
     /// 1. Sets `requested`, marking the requester thread.
     /// 2. CAS detached threads to SUSPENDED.
     /// 3. Waits (polling with 1 ms condvar timeout) for attached threads
     ///    to self-suspend in `check_signals`.
+    ///
+    /// Takes the shared exclusion first so at most one requester (fork or GC)
+    /// drives the stop→start span at a time; it is released by
+    /// `start_the_world`/`reset_after_fork`.
     pub fn stop_the_world(&self, vm: &VirtualMachine) {
+        self.acquire_exclusion();
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
         self.stats_stop_calls.fetch_add(1, Ordering::Relaxed);
         let initial_countdown = self.init_thread_countdown(vm);
         stw_trace(format_args!("stop begin requester={requester_ident}"));
-        if initial_countdown == 0 {
+        // Park detached threads and set stop bits, then confirm every other
+        // thread is SUSPENDED. The completion condition is level-triggered
+        // (`all_non_requester_suspended`) so an already-suspended thread that
+        // was counted but will not notify again cannot stall the stop.
+        self.park_detached_threads(vm);
+        if initial_countdown == 0 || self.all_non_requester_suspended(vm) {
             self.world_stopped.store(true, Ordering::Release);
             #[cfg(debug_assertions)]
             self.debug_assert_all_non_requester_suspended(vm);
@@ -361,7 +429,8 @@ impl StopTheWorldState {
 
         let mut polls = 0u64;
         loop {
-            if self.park_detached_threads(vm) {
+            self.park_detached_threads(vm);
+            if self.all_non_requester_suspended(vm) {
                 break;
             }
             polls = polls.saturating_add(1);
@@ -369,8 +438,7 @@ impl StopTheWorldState {
             // Re-check under the wait mutex first to avoid a lost-wake race:
             // a thread may have suspended and notified right before we enter wait.
             let guard = self.notify_mutex.lock().unwrap();
-            if self.thread_countdown.load(Ordering::Acquire) == 0 || self.park_detached_threads(vm)
-            {
+            if self.all_non_requester_suspended(vm) {
                 drop(guard);
                 break;
             }
@@ -445,6 +513,9 @@ impl StopTheWorldState {
         self.requester.store(0, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_detached(vm);
+        // Release the exclusion last, ending the stop→start span so the next
+        // requester (fork or GC) can proceed.
+        self.release_exclusion();
         stw_trace(format_args!("start end requester={requester}"));
     }
 
@@ -454,6 +525,9 @@ impl StopTheWorldState {
         self.world_stopped.store(false, Ordering::Relaxed);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
+        // The surviving child thread inherited the exclusion taken by the
+        // pre-fork `stop_the_world`; release it (no start_the_world runs here).
+        self.release_exclusion();
         stw_trace(format_args!("reset-after-fork"));
     }
 
@@ -514,6 +588,33 @@ impl StopTheWorldState {
         }
     }
 
+    /// Whether every non-requester registered thread is currently SUSPENDED.
+    ///
+    /// Level-triggered stop-the-world completion check. Relying on this rather
+    /// than solely on the edge-triggered `thread_countdown` avoids a
+    /// lost-decrement race under rapid back-to-back stops: a thread that is
+    /// already SUSPENDED when a new stop counts it neither notifies nor is
+    /// force-parked again, so an edge-based countdown could never reach zero.
+    fn all_non_requester_suspended(&self, vm: &VirtualMachine) -> bool {
+        use thread::THREAD_SUSPENDED;
+        let requester = self.requester.load(Ordering::Relaxed);
+        let registry = vm.state.thread_frames.lock();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
+        for (&id, slot) in registry.iter() {
+            if id == requester {
+                continue;
+            }
+            if slot.state.load(Ordering::Acquire) != THREAD_SUSPENDED {
+                return false;
+            }
+        }
+        true
+    }
+
     #[cfg(debug_assertions)]
     fn debug_assert_all_non_requester_suspended(&self, vm: &VirtualMachine) {
         use thread::THREAD_SUSPENDED;
@@ -561,13 +662,13 @@ impl StopTheWorldState {
     }
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub(super) fn stw_trace_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| crate::host_env::os::var_os("RUSTPYTHON_STW_TRACE").is_some())
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
     if stw_trace_enabled() {
         use core::fmt::Write as _;
@@ -603,7 +704,13 @@ pub(super) fn stw_trace(msg: core::fmt::Arguments<'_>) {
             crate::stdlib::_thread::get_ident(),
             msg
         );
+        #[cfg(unix)]
         crate::host_env::io::write_stderr_raw(&out.buf[..out.len]);
+        #[cfg(not(unix))]
+        {
+            use std::io::Write as _;
+            let _ = std::io::stderr().write_all(&out.buf[..out.len]);
+        }
     }
 }
 
@@ -637,6 +744,8 @@ pub struct PyGlobalState {
     pub global_trace_func: PyMutex<Option<PyObjectRef>>,
     /// Global profile function for all threads (set by sys._setprofileallthreads)
     pub global_profile_func: PyMutex<Option<PyObjectRef>>,
+    /// Global type mutation/versioning mutex for CPython-style FT type operations.
+    pub type_mutex: PyMutex<()>,
     /// Main thread identifier (pthread_self on Unix)
     #[cfg(feature = "threading")]
     pub main_thread_ident: AtomicCell<u64>,
@@ -657,7 +766,7 @@ pub struct PyGlobalState {
     /// local version against this to decide whether re-instrumentation is needed.
     pub instrumentation_version: AtomicU64,
     /// Stop-the-world state for pre-fork thread suspension
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "threading")]
     pub stop_the_world: StopTheWorldState,
 }
 
@@ -759,7 +868,6 @@ impl VirtualMachine {
             builtins,
             sys_module,
             ctx,
-            frames: RefCell::new(vec![]),
             datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: None,
             exceptions: RefCell::default(),
@@ -1219,6 +1327,15 @@ impl VirtualMachine {
 
     #[inline(always)]
     pub fn run_frame(&self, frame: FrameRef) -> PyResult {
+        // Only ordinary (datastack) call frames reach `run_frame`; generator
+        // and coroutine frames are resumed through `resume_gen_frame`. A
+        // datastack frame is created untracked and is tracked lazily only when
+        // it escapes, which happens no earlier than `release_datastack_frame`
+        // after this call returns. So it must be untracked on entry.
+        debug_assert!(
+            !frame.as_object().is_gc_tracked(),
+            "datastack frame is GC-tracked before execution"
+        );
         match self.with_frame(frame, |f| f.run(self))? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
@@ -1458,7 +1575,7 @@ impl VirtualMachine {
     /// evaluation consumes more native stack in those configurations.
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize =
-        (if cfg!(debug_assertions) { 4096 } else { 2048 }) * core::mem::size_of::<usize>();
+        (if cfg!(debug_assertions) { 16384 } else { 2048 }) * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -1519,11 +1636,16 @@ impl VirtualMachine {
     }
 
     /// Calculate the C stack soft limit based on actual stack boundaries.
-    /// soft_limit = base + 2 * margin (for downward-growing stacks)
+    /// soft_limit = base + 2 * margin (for downward-growing stacks).
+    /// The margin is clamped to half the stack so threads created with a stack
+    /// smaller than 2 * (2 * margin) still get usable headroom instead of a
+    /// soft limit above their stack top (which would trip on entry).
     #[cfg(all(not(miri), not(target_env = "musl")))]
     fn calculate_c_stack_soft_limit() -> usize {
-        let (base, _top) = Self::get_stack_bounds();
-        base + Self::STACK_MARGIN_BYTES * 2
+        let (base, top) = Self::get_stack_bounds();
+        let stack_size = top.saturating_sub(base);
+        let margin = (Self::STACK_MARGIN_BYTES * 2).min(stack_size / 2);
+        base + margin
     }
 
     /// Musl currently reports stack bounds in a way that trips the VM's
@@ -1535,15 +1657,14 @@ impl VirtualMachine {
     }
 
     /// Check if we're near the C stack limit (like _Py_MakeRecCheck).
-    /// Returns true only when stack pointer is in the "danger zone" between
-    /// soft_limit and hard_limit (soft_limit - 2*margin).
+    /// One-sided: any stack pointer below the soft limit is in danger, since a
+    /// single native frame can exceed the margin and step past it.
     #[cfg(all(not(miri), not(target_env = "musl")))]
     #[inline(always)]
     fn check_c_stack_overflow(&self) -> bool {
         let current_sp = psm::stack_pointer() as usize;
         let soft_limit = self.c_stack_soft_limit.get();
         current_sp < soft_limit
-            && current_sp >= soft_limit.saturating_sub(Self::STACK_MARGIN_BYTES * 2)
     }
 
     /// Miri does not support the native stack probe, and musl currently trips
@@ -1575,33 +1696,18 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_frame_impl(frame, true, f)
-    }
-
-    pub(crate) fn with_frame_untraced<R, F: FnOnce(FrameRef) -> PyResult<R>>(
-        &self,
-        frame: FrameRef,
-        f: F,
-    ) -> PyResult<R> {
-        self.with_frame_impl(frame, false, f)
-    }
-
-    fn with_frame_impl<R, F: FnOnce(FrameRef) -> PyResult<R>>(
-        &self,
-        frame: FrameRef,
-        traced: bool,
-        f: F,
-    ) -> PyResult<R> {
         self.with_recursion("", || {
             // SAFETY: `frame` (FrameRef) stays alive for the entire closure scope,
             // keeping the FramePtr valid. We pass a clone to `f` so that `f`
             // consuming its FrameRef doesn't invalidate our pointer.
-            let fp = FramePtr(NonNull::from(&*frame));
-            self.frames.borrow_mut().push(fp);
-            // Update the shared frame stack for sys._current_frames() and faulthandler
-            #[cfg(feature = "threading")]
-            crate::vm::thread::push_thread_frame(fp);
-            // Link frame into the signal-safe frame chain (previous pointer)
+            // Publish the frame for sys._current_frames() and faulthandler.
+            // On unix, set_current_frame below publishes the top frame into the
+            // thread slot; only non-unix builds maintain the mutex-guarded Vec.
+            #[cfg(all(not(unix), feature = "threading"))]
+            crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
+            // Link frame into the signal-safe frame chain (previous pointer).
+            // This chain is the single source for the current thread's frame
+            // stack (current_frame, sys._getframe, f_back, monitoring).
             let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
             frame.previous.store(
                 old_frame as *mut Frame,
@@ -1613,27 +1719,31 @@ impl VirtualMachine {
             // exc_info pollution from frames with unbalanced
             // PUSH_EXC_INFO/POP_EXCEPT (e.g., exception escaping an except block
             // whose cleanup entry is missing from the exception table).
-            let saved_exc = self.current_exception();
+            // A callee whose bytecode never mutates the slot cannot pollute it,
+            // so the save/restore is skipped for it.
+            let save_exc = frame.code.has_exc_handling;
+            let saved_exc = if save_exc {
+                self.current_exception()
+            } else {
+                None
+            };
             let old_owner = frame.owner.swap(
                 crate::frame::FrameOwner::Thread as i8,
                 core::sync::atomic::Ordering::AcqRel,
             );
 
-            // Ensure cleanup on panic: restore owner, exc_info, frame chain, and frames Vec.
+            // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
             scopeguard::defer! {
                 frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                self.set_exception(saved_exc);
+                if save_exc {
+                    self.restore_exception(saved_exc);
+                }
                 crate::vm::thread::set_current_frame(old_frame);
-                self.frames.borrow_mut().pop();
-                #[cfg(feature = "threading")]
+                #[cfg(all(not(unix), feature = "threading"))]
                 crate::vm::thread::pop_thread_frame();
             }
 
-            if traced {
-                self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-            } else {
-                f(frame.to_owned())
-            }
+            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
         })
     }
 
@@ -1653,10 +1763,8 @@ impl VirtualMachine {
         self.recursion_depth.update(|d| d + 1);
 
         // SAFETY: frame (&FrameRef) stays alive for the duration, so NonNull is valid until pop.
-        let fp = FramePtr(NonNull::from(&**frame));
-        self.frames.borrow_mut().push(fp);
-        #[cfg(feature = "threading")]
-        crate::vm::thread::push_thread_frame(fp);
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let old_frame = crate::vm::thread::set_current_frame((&***frame) as *const Frame);
         frame.previous.store(
             old_frame as *mut Frame,
@@ -1677,8 +1785,7 @@ impl VirtualMachine {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
             crate::vm::thread::set_current_frame(old_frame);
-            self.frames.borrow_mut().pop();
-            #[cfg(feature = "threading")]
+            #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
 
             self.recursion_depth.update(|d| d - 1);
@@ -1768,10 +1875,7 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameRef> {
-        self.frames.borrow().last().map(|fp| {
-            // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-            unsafe { fp.as_ref() }.to_owned()
-        })
+        crate::frame::current_thread_frame()
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
@@ -2034,13 +2138,15 @@ impl VirtualMachine {
             return true;
         }
 
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         if thread::stop_requested_for_current_thread() {
             return true;
         }
 
+        // Signal and QSBR bits share one word: a single relaxed load per
+        // instruction covers both.
         #[cfg(not(target_arch = "wasm32"))]
-        if crate::signal::is_triggered() {
+        if crate::signal::eval_breaker_pending() {
             return true;
         }
 
@@ -2059,13 +2165,31 @@ impl VirtualMachine {
         }
 
         // Suspend this thread if stop-the-world is in progress
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         thread::suspend_if_needed(&self.state.stop_the_world);
+
+        // Pass a QSBR checkpoint if requested (deferred memory reclamation).
+        #[cfg(feature = "threading")]
+        if crate::signal::qsbr_bit_set() && thread::qsbr_break_requested() {
+            thread::qsbr_checkpoint();
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         crate::signal::check_signals(self)?;
 
         Ok(())
+    }
+
+    /// Run an automatic collection scheduled by `maybe_collect`, if any.
+    ///
+    /// Called only from the bytecode-loop safepoint, where no interpreter
+    /// locks are held, so the stop-the-world it performs cannot deadlock
+    /// against a thread blocked on a lock this thread would otherwise hold.
+    #[cfg(feature = "threading")]
+    pub(crate) fn run_scheduled_gc(&self) {
+        if crate::signal::take_gc_scheduled() {
+            crate::gc_state::gc_state().collect(0);
+        }
     }
 
     /// Push a new exc_info slot (for generator/coroutine resume).
@@ -2110,6 +2234,25 @@ impl VirtualMachine {
         }
         #[cfg(feature = "threading")]
         thread::update_thread_exception(self.topmost_exception());
+    }
+
+    /// Restore an exc_info slot value saved by `with_frame`, skipping the
+    /// store when the slot is unchanged. `saved` is a strong reference taken
+    /// at save time, so the object it points to cannot have been freed and
+    /// its address reused while the frame ran; pointer identity therefore
+    /// proves the slot still holds the same value and both the store and the
+    /// thread-exception mirror update would be no-ops.
+    pub(crate) fn restore_exception(&self, saved: Option<PyBaseExceptionRef>) {
+        let excs = self.exceptions.borrow();
+        let unchanged = match (excs.stack.last(), &saved) {
+            (Some(Some(current)), Some(saved)) => current.is(saved),
+            (Some(None), None) => true,
+            _ => false,
+        };
+        drop(excs);
+        if !unchanged {
+            self.set_exception(saved);
+        }
     }
 
     pub fn take_raised_exception(&self) -> Option<PyBaseExceptionRef> {

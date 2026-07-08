@@ -1053,18 +1053,46 @@ pub(crate) mod _thread {
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
     pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
-        let registry = vm.state.thread_frames.lock();
-        registry
-            .iter()
-            .filter_map(|(id, slot)| {
-                let frames = slot.frames.lock();
-                // SAFETY: the owning thread can't pop while we hold the Mutex,
-                // so the FramePtr is valid for the duration of the lock.
-                frames
-                    .last()
-                    .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
-            })
-            .collect()
+        // unix: read each thread's published top frame under stop-the-world so
+        // the owning thread is parked at a safepoint and cannot pop or free the
+        // frame while we take a strong reference. Request stop-the-world before
+        // the registry lock to avoid deadlocking a thread parking mid-registry.
+        #[cfg(unix)]
+        {
+            use core::sync::atomic::Ordering;
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .filter_map(|(id, slot)| {
+                    let top = slot.top_frame.load(Ordering::Relaxed);
+                    core::ptr::NonNull::new(top).map(|p| {
+                        // SAFETY: world stopped -> the owning thread is parked
+                        // and cannot pop or free this frame; it is alive on
+                        // that thread's call stack.
+                        let py =
+                            unsafe { &*Py::<crate::frame::Frame>::from_payload_ptr(p.as_ptr()) };
+                        (*id, py.to_owned())
+                    })
+                })
+                .collect()
+        }
+        #[cfg(not(unix))]
+        {
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .filter_map(|(id, slot)| {
+                    let frames = slot.frames.lock();
+                    // SAFETY: the owning thread can't pop while we hold the Mutex,
+                    // so the FramePtr is valid for the duration of the lock.
+                    frames
+                        .last()
+                        .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                })
+                .collect()
+        }
     }
 
     /// Called after fork() in child process to mark all other threads as done.
@@ -1659,17 +1687,22 @@ pub(crate) mod _thread {
                     started_cvar.notify_all();
                 }
                 // Don't execute the target function until parent marks the
-                // handle as running.
+                // handle as running. Detach while blocked so a concurrent
+                // stop-the-world (e.g. a GC on another thread) can park this
+                // thread instead of stalling waiting for it to reach a
+                // safepoint it will not reach until released.
                 {
                     let (ready_lock, ready_cvar) = &*handle_ready_event_clone;
-                    let mut ready = ready_lock.lock().unwrap();
-                    while !*ready {
-                        // Short timeout so we stay responsive to STW requests.
-                        let (guard, _) = ready_cvar
-                            .wait_timeout(ready, core::time::Duration::from_millis(1))
-                            .unwrap();
-                        ready = guard;
-                    }
+                    vm.allow_threads(|| {
+                        let mut ready = ready_lock.lock().unwrap();
+                        while !*ready {
+                            // Short timeout so we stay responsive to STW requests.
+                            let (guard, _) = ready_cvar
+                                .wait_timeout(ready, core::time::Duration::from_millis(1))
+                                .unwrap();
+                            ready = guard;
+                        }
+                    });
                 }
 
                 // Ensure cleanup happens even if the function panics
@@ -1750,16 +1783,22 @@ pub(crate) mod _thread {
                 vm.new_runtime_error("can't start new thread")
             })?;
 
-        // Wait until the new thread has reported its ident.
+        // Wait until the new thread has reported its ident. Detach while
+        // waiting so a concurrent stop-the-world (e.g. a GC on another thread)
+        // can park this thread instead of stalling on it: the child may park
+        // itself at startup while the world is stopped and cannot report until
+        // released, so the waiter must be parkable too.
         {
             let (started_lock, started_cvar) = &*started_event;
-            let mut started = started_lock.lock().unwrap();
-            while !*started {
-                let (guard, _) = started_cvar
-                    .wait_timeout(started, core::time::Duration::from_millis(1))
-                    .unwrap();
-                started = guard;
-            }
+            vm.allow_threads(|| {
+                let mut started = started_lock.lock().unwrap();
+                while !*started {
+                    let (guard, _) = started_cvar
+                        .wait_timeout(started, core::time::Duration::from_millis(1))
+                        .unwrap();
+                    started = guard;
+                }
+            });
         }
 
         // Mark the handle running in the parent thread (like CPython's

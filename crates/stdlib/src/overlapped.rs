@@ -309,8 +309,9 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation failed to start"));
             }
 
-            let result =
-                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait);
+            let result = vm.allow_threads(|| {
+                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait)
+            });
             let transferred = result.transferred;
             let err = result.error;
             inner.error = err;

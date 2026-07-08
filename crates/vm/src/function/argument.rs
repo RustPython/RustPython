@@ -12,7 +12,11 @@ pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
     fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
         let mut args = self.into_args(vm);
-        args.prepend_arg(obj);
+        // Build the final vec once instead of prepending (realloc + memmove).
+        let mut with_obj = Vec::with_capacity(args.args.len() + 1);
+        with_obj.push(obj);
+        with_obj.append(&mut args.args);
+        args.args = with_obj;
         args
     }
 }
@@ -202,7 +206,9 @@ impl FuncArgs {
     }
 
     pub fn prepend_arg(&mut self, item: PyObjectRef) {
-        self.args.reserve_exact(1);
+        // reserve (not reserve_exact): incoming vectors are usually built with
+        // exact capacity, so exact growth would realloc on every prepend.
+        self.args.reserve(1);
         self.args.insert(0, item)
     }
 

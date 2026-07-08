@@ -3141,7 +3141,6 @@ class LimitTests(unittest.TestCase):
     def last_returns_frame5(self):
         return self.last_returns_frame4()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 not greater than 5
     def test_extract_stack(self):
         frame = self.last_returns_frame5()
         def extract(**kwargs):

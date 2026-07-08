@@ -15,8 +15,14 @@ mod lock {
     static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
     #[pyfunction]
-    fn acquire_lock(_vm: &VirtualMachine) {
-        acquire_lock_for_fork()
+    fn acquire_lock(vm: &VirtualMachine) {
+        // Detach while blocking on IMP_LOCK. The import lock is held across
+        // bytecode by the importlib bootstrap, so its holder can be parked at a
+        // safepoint mid-hold. Blocking here while attached would keep this
+        // thread from honoring a stop-the-world request, so a requester could
+        // wait for this thread while this thread waits for the parked holder.
+        // Detaching makes the wait park-friendly.
+        vm.allow_threads(acquire_lock_for_fork);
     }
 
     #[pyfunction]
@@ -76,9 +82,14 @@ mod lock {
 }
 
 /// Re-export for fork safety code in posix.rs
+///
+/// Runs pre-fork on a normal attached VM thread. Detach while blocking so the
+/// wait honors a concurrent stop-the-world request instead of pinning this
+/// thread attached on IMP_LOCK; re-attach completes before `stop_the_world`, so
+/// the fork requester protocol is unaffected.
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
-pub(crate) fn acquire_imp_lock_for_fork() {
-    lock::acquire_lock_for_fork();
+pub(crate) fn acquire_imp_lock_for_fork(vm: &VirtualMachine) {
+    vm.allow_threads(lock::acquire_lock_for_fork);
 }
 
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]

@@ -48,6 +48,13 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
 
     fn class(ctx: &Context) -> &'static Py<PyType>;
 
+    /// Whether `PyRef::new_ref` skips auto-tracking this type in the GC even
+    /// when it would otherwise qualify (has traverse, dict, or heap type).
+    /// Such objects are created untracked and must be tracked explicitly if
+    /// and when they can become part of a reference cycle. Used by `Frame`,
+    /// which is created untracked and tracked lazily only on escape.
+    const NEW_REF_UNTRACKED: bool = false;
+
     /// Whether this type has a freelist. Types with freelists require
     /// immediate (non-deferred) GC untracking during dealloc to prevent
     /// race conditions when the object is reused.
@@ -58,11 +65,13 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
 
     /// Try to push a dead object onto this type's freelist for reuse.
     /// Returns true if the object was stored (caller must NOT free the memory).
-    /// Called before tp_clear, so the payload is still intact.
+    /// Called after tp_clear, so the payload is a cleared husk; implementations
+    /// must not rely on its pre-clear contents.
     ///
     /// # Safety
-    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0.
-    /// The payload is still initialized and can be read for bucket selection.
+    /// `obj` must be a valid pointer to a `PyInner<Self>` with refcount 0
+    /// whose tp_clear has already run, with no outstanding borrows into the
+    /// payload (`PyRef::new_ref` may pop and reuse the husk immediately).
     #[inline]
     unsafe fn freelist_push(_obj: *mut PyObject) -> bool {
         false
@@ -127,6 +136,34 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     where
         Self: core::fmt::Debug,
     {
+        self.into_ref_with_type_and_dict(vm, cls, true)
+    }
+
+    /// Like `into_ref_with_type`, but leaves the instance `__dict__` unallocated
+    /// until the first attribute write or `__dict__` access. Only valid for types
+    /// whose attribute protocol materializes the dict lazily via `get_or_insert`.
+    #[inline]
+    fn into_ref_with_type_lazy_dict(
+        self,
+        vm: &VirtualMachine,
+        cls: PyTypeRef,
+    ) -> PyResult<PyRef<Self>>
+    where
+        Self: core::fmt::Debug,
+    {
+        self.into_ref_with_type_and_dict(vm, cls, false)
+    }
+
+    #[inline]
+    fn into_ref_with_type_and_dict(
+        self,
+        vm: &VirtualMachine,
+        cls: PyTypeRef,
+        eager_dict: bool,
+    ) -> PyResult<PyRef<Self>>
+    where
+        Self: core::fmt::Debug,
+    {
         let exact_class = Self::class(&vm.ctx);
         if cls.fast_issubclass(exact_class) {
             if exact_class.slots.basicsize != cls.slots.basicsize {
@@ -145,7 +182,12 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
                 }
                 return Err(_into_ref_size_error(vm, &cls, exact_class));
             }
-            Ok(self._into_ref(cls, &vm.ctx))
+            let dict = if eager_dict && cls.slots.flags.has_feature(PyTypeFlags::HAS_DICT) {
+                Some(vm.ctx.new_dict())
+            } else {
+                None
+            };
+            Ok(PyRef::new_ref(self, cls, dict))
         } else {
             #[cold]
             #[inline(never)]

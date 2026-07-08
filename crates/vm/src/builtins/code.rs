@@ -471,6 +471,11 @@ pub struct PyCode {
     pub monitoring_data: PyMutex<Option<CoMonitoringData>>,
     /// Whether adaptive counters have been initialized (lazy quickening).
     pub quickened: core::sync::atomic::AtomicBool,
+    /// Whether the bytecode contains any instruction that mutates the current
+    /// exc_info slot (`vm.set_exception`). When false, a normal frame call for
+    /// this code cannot leave the slot unbalanced, so `with_frame` skips the
+    /// exc_info save/restore. Computed once by scanning the instruction stream.
+    pub has_exc_handling: bool,
 }
 
 impl Deref for PyCode {
@@ -483,12 +488,26 @@ impl Deref for PyCode {
 impl PyCode {
     pub fn new(code: CodeObject) -> Self {
         let sp = code.source_path as *const PyStrInterned as *mut PyStrInterned;
+        // The only opcodes that call `vm.set_exception` (mutating the shared
+        // exc_info slot); instrumented variants only replace these base opcodes
+        // in place, so scanning the freshly-built stream is a sound predicate.
+        let has_exc_handling = code.instructions.iter().any(|u| {
+            matches!(
+                u.op,
+                Instruction::PushExcInfo
+                    | Instruction::PopExcept
+                    | Instruction::CheckEgMatch
+                    | Instruction::EndAsyncFor
+                    | Instruction::InstrumentedEndAsyncFor
+            )
+        });
         Self {
             code,
             source_path: AtomicPtr::new(sp),
             instrumentation_version: AtomicU64::new(0),
             monitoring_data: PyMutex::new(None),
             quickened: core::sync::atomic::AtomicBool::new(false),
+            has_exc_handling,
         }
     }
 

@@ -4,7 +4,7 @@
 
 use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
-    Context, Py, PyObjectRef, PyRef, PyResult, VirtualMachine,
+    Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     frame::{Frame, FrameOwner, FrameRef},
     function::PySetterValue,
@@ -455,14 +455,6 @@ impl Frame {
     }
 
     #[pygetset]
-    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
-        let result = self.f_locals_mapping(vm).map(Into::into);
-        self.locals_dirty
-            .store(true, core::sync::atomic::Ordering::Release);
-        result
-    }
-
-    #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
         self.code.clone()
     }
@@ -704,8 +696,25 @@ impl Py<Frame> {
         // Clear temporary refs
         self.temporary_refs.lock().clear();
         self.f_locals_hidden_overlay.lock().take();
+        self.f_extra_locals.lock().take();
+        self.retained_back.lock().take();
 
         Ok(())
+    }
+
+    #[pygetset]
+    fn f_locals(&self, vm: &VirtualMachine) -> PyResult {
+        // Optimized (function) frames expose a live write-through
+        // FrameLocalsProxy; class/module/exec frames expose their namespace
+        // mapping directly.
+        if self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+            self.check_locals_access(vm)?;
+            self.mark_escaped();
+            let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
+            Ok(proxy.into_ref(&vm.ctx).into())
+        } else {
+            self.f_locals_mapping(vm).map(Into::into)
+        }
     }
 
     #[pygetset]
@@ -715,27 +724,59 @@ impl Py<Frame> {
 
     #[pygetset]
     pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
+        #[cfg(not(feature = "threading"))]
+        let _ = vm;
         let previous = self.previous_frame();
         if previous.is_null() {
             return None;
         }
 
-        if let Some(frame) = vm
-            .frames
-            .borrow()
-            .iter()
-            .find(|fp| {
-                // SAFETY: the caller keeps the FrameRef alive while it's in the Vec
-                let py: &Self = unsafe { fp.as_ref() };
-                let ptr: *const Frame = &**py;
-                core::ptr::eq(ptr, previous)
-            })
-            .map(|fp| unsafe { fp.as_ref() }.to_owned())
-        {
+        // Look for the caller on the current thread's signal-safe frame chain.
+        // Finding it there proves it is still live on this thread.
+        if let Some(frame) = crate::frame::find_owned_chain_frame(previous) {
+            frame.mark_escaped();
             return Some(frame);
         }
 
-        #[cfg(feature = "threading")]
+        // The caller already returned and left the live chain, but this frame
+        // escaped and retained a strong reference to it at release time.
+        let retained = self.retained_back.lock().clone();
+        if let Some(frame) = retained {
+            frame.mark_escaped();
+            return Some(frame);
+        }
+
+        // The caller lives on another thread. unix: park every thread under
+        // stop-the-world so their frame chains are quiescent and alive, then
+        // walk each published top frame down its `previous` chain looking for
+        // the caller. Request stop-the-world before the registry lock.
+        #[cfg(all(unix, feature = "threading"))]
+        {
+            use core::sync::atomic::Ordering;
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            let registry = vm.state.thread_frames.lock();
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Iteration order doesn't matter here"
+            )]
+            for slot in registry.values() {
+                let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const Frame;
+                while !cur.is_null() {
+                    if core::ptr::eq(cur, previous) {
+                        // SAFETY: world stopped -> this frame is alive on its
+                        // owning thread's parked call stack.
+                        let f = unsafe { &*Self::from_payload_ptr(cur) };
+                        f.mark_escaped();
+                        return Some(f.to_owned());
+                    }
+                    // SAFETY: chain frames on a parked thread are alive.
+                    cur = unsafe { (*cur).previous_frame() };
+                }
+            }
+        }
+
+        #[cfg(all(not(unix), feature = "threading"))]
         {
             let registry = vm.state.thread_frames.lock();
             #[expect(
@@ -751,6 +792,7 @@ impl Py<Frame> {
                     let ptr: *const Frame = &**f;
                     core::ptr::eq(ptr, previous).then(|| f.to_owned())
                 }) {
+                    frame.mark_escaped();
                     return Some(frame);
                 }
             }
