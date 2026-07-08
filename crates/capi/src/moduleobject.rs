@@ -1,7 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use crate::slots::{PySlot, PySlotKind, PySlotModule, PySlotType};
+use crate::slots::{PySlot, PySlotKind, PySlotModule};
 use core::ffi::c_int;
 use rustpython_vm::builtins::{PyModule, PyModuleDef, PyStr};
 
@@ -23,7 +23,7 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
         let mut create = None;
 
         for slot in PySlot::iter(slots) {
-            match (slot, vm).try_into()? {
+            match slot.as_kind(vm)? {
                 PySlotKind::Module(module) => match module {
                     PySlotModule::Create(mod_create) => create = Some(mod_create),
                     PySlotModule::Exec(mod_exec) => {

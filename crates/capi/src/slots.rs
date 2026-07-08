@@ -2,7 +2,6 @@ use crate::PyObject;
 use crate::methodobject::PyMethodDef;
 use crate::object::PyType_Slot;
 use core::ffi::{c_char, c_int, c_void};
-use rustpython_vm::builtins::PyBaseExceptionRef;
 use rustpython_vm::{PyResult, VirtualMachine};
 
 #[repr(C)]
@@ -44,6 +43,91 @@ impl PySlot {
     pub fn is_intptr(&self) -> bool {
         self.sl_flags & Self::SLOT_INTPTR != 0
     }
+
+    pub(crate) fn as_kind(&self, vm: &VirtualMachine) -> PyResult<PySlotKind> {
+        let value_ptr = unsafe { self.value.sl_ptr };
+        let is_static = self.is_static();
+        let kind = match self.sl_id {
+            48 => PySlotKind::Type(PySlotType::Base {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            49 => PySlotKind::Type(PySlotType::Bases {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            83 => PySlotKind::Type(PySlotType::Token {
+                value: value_ptr,
+                is_static,
+            }),
+            84 => {
+                let create = unsafe {
+                    core::mem::transmute::<
+                        unsafe extern "C" fn(),
+                        unsafe extern "C" fn(
+                            spec: *mut PyObject,
+                            def: *mut c_void,
+                        ) -> *mut PyObject,
+                    >(self.value.sl_func)
+                };
+                PySlotKind::Module(PySlotModule::Create(create))
+            }
+            85 => {
+                let exec = unsafe {
+                    core::mem::transmute::<
+                        unsafe extern "C" fn(),
+                        unsafe extern "C" fn(*mut PyObject) -> i32,
+                    >(self.value.sl_func)
+                };
+                PySlotKind::Module(PySlotModule::Exec(exec))
+            }
+            86 => PySlotKind::Module(PySlotModule::MultipleInterpreters(value_ptr)),
+            87 => PySlotKind::Module(PySlotModule::Gil {
+                gil_used: !value_ptr.is_null(),
+            }),
+            93 => PySlotKind::Type(PySlotType::Slots {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            95 => PySlotKind::Type(PySlotType::Name {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            96 => PySlotKind::Type(PySlotType::BasicSize(unsafe { self.value.sl_size })),
+            97 => PySlotKind::Type(PySlotType::ExtraBasicSize(unsafe { self.value.sl_size })),
+            99 => PySlotKind::Type(PySlotType::Flags(unsafe { self.value.sl_uint64 })),
+            107 => PySlotKind::Type(PySlotType::Metaclass {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            108 => PySlotKind::Type(PySlotType::Module {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            109 => PySlotKind::Module(PySlotModule::Abi(unsafe { *value_ptr.cast() })),
+            100 => PySlotKind::Module(PySlotModule::Name {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            101 => PySlotKind::Module(PySlotModule::Doc {
+                value: value_ptr.cast(),
+                is_static,
+            }),
+            103 => PySlotKind::Module(PySlotModule::Methods(value_ptr.cast())),
+            id => {
+                if self.is_optional() {
+                    PySlotKind::Unknown {
+                        id,
+                        value: value_ptr,
+                        is_static,
+                    }
+                } else {
+                    return Err(vm.new_system_error(format!("unsupported required slot: {id}")));
+                }
+            }
+        };
+        Ok(kind)
+    }
 }
 
 #[repr(C)]
@@ -56,6 +140,7 @@ pub union PySlotValue {
 }
 
 #[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct PyABIInfo {
     pub abiinfo_major_version: u8,
     pub abiinfo_minor_version: u8,
@@ -84,6 +169,7 @@ impl PyABIInfo {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum PySlotModule {
     Create(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
@@ -97,20 +183,14 @@ pub(crate) enum PySlotModule {
         is_static: bool,
     },
     Methods(*mut PyMethodDef),
-    Abi {
-        value: *const PyABIInfo,
-        is_static: bool,
-    },
-    MultipleInterpreters {
-        value: *mut c_void,
-        is_static: bool,
-    },
+    Abi(PyABIInfo),
+    MultipleInterpreters(*mut c_void),
     Gil {
         gil_used: bool,
-        is_static: bool,
     },
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
 pub(crate) enum PySlotType {
     Base {
@@ -133,9 +213,8 @@ pub(crate) enum PySlotType {
         value: *const c_char,
         is_static: bool,
     },
-    Flags {
-        value: u64,
-    },
+    Flags(u64),
+    BasicSize(isize),
     ExtraBasicSize(isize),
     Metaclass {
         value: *mut PyObject,
@@ -157,130 +236,4 @@ pub(crate) enum PySlotKind {
         value: *mut c_void,
         is_static: bool,
     },
-}
-
-impl PySlotKind {
-    #[allow(dead_code)]
-    #[must_use]
-    pub(crate) fn is_static(&self) -> bool {
-        match self {
-            Self::Module(module) => match module {
-                PySlotModule::Create(_) | PySlotModule::Exec(_) | PySlotModule::Methods(_) => true,
-                PySlotModule::Name { is_static, .. }
-                | PySlotModule::Doc { is_static, .. }
-                | PySlotModule::Abi { is_static, .. }
-                | PySlotModule::MultipleInterpreters { is_static, .. }
-                | PySlotModule::Gil { is_static, .. } => *is_static,
-            },
-            Self::Type(ty) => match ty {
-                PySlotType::Flags { .. } | PySlotType::ExtraBasicSize(_) => true,
-                PySlotType::Base { is_static, .. }
-                | PySlotType::Bases { is_static, .. }
-                | PySlotType::Token { is_static, .. }
-                | PySlotType::Slots { is_static, .. }
-                | PySlotType::Name { is_static, .. }
-                | PySlotType::Metaclass { is_static, .. }
-                | PySlotType::Module { is_static, .. } => *is_static,
-            },
-            Self::Unknown { is_static, .. } => *is_static,
-        }
-    }
-}
-
-impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
-    type Error = PyBaseExceptionRef;
-
-    fn try_from((slot, vm): (&PySlot, &VirtualMachine)) -> PyResult<Self> {
-        let value_ptr = unsafe { slot.value.sl_ptr };
-        let is_static = slot.is_static();
-        let kind = match slot.sl_id {
-            // Type slots
-            48 => Self::Type(PySlotType::Base {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            49 => Self::Type(PySlotType::Bases {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            83 => Self::Type(PySlotType::Token {
-                value: value_ptr,
-                is_static,
-            }),
-            84 => {
-                let create = unsafe {
-                    core::mem::transmute::<
-                        unsafe extern "C" fn(),
-                        unsafe extern "C" fn(
-                            spec: *mut PyObject,
-                            def: *mut c_void,
-                        ) -> *mut PyObject,
-                    >(slot.value.sl_func)
-                };
-                Self::Module(PySlotModule::Create(create))
-            }
-            85 => {
-                let exec = unsafe {
-                    core::mem::transmute::<
-                        unsafe extern "C" fn(),
-                        unsafe extern "C" fn(*mut rustpython_vm::PyObject) -> i32,
-                    >(slot.value.sl_func)
-                };
-                Self::Module(PySlotModule::Exec(exec))
-            }
-            86 => Self::Module(PySlotModule::MultipleInterpreters {
-                value: value_ptr,
-                is_static,
-            }),
-            87 => Self::Module(PySlotModule::Gil {
-                gil_used: !value_ptr.is_null(),
-                is_static,
-            }),
-            93 => Self::Type(PySlotType::Slots {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            95 => Self::Type(PySlotType::Name {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            97 => Self::Type(PySlotType::ExtraBasicSize(unsafe { slot.value.sl_size })),
-            99 => Self::Type(PySlotType::Flags {
-                value: unsafe { slot.value.sl_uint64 },
-            }),
-            107 => Self::Type(PySlotType::Metaclass {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            108 => Self::Type(PySlotType::Module {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            109 => Self::Module(PySlotModule::Abi {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            100 => Self::Module(PySlotModule::Name {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            101 => Self::Module(PySlotModule::Doc {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            103 => Self::Module(PySlotModule::Methods(value_ptr.cast())),
-            id => {
-                if slot.is_optional() {
-                    Self::Unknown {
-                        id,
-                        value: value_ptr,
-                        is_static,
-                    }
-                } else {
-                    return Err(vm.new_system_error(format!("unsupported required slot id: {id}")));
-                }
-            }
-        };
-        Ok(kind)
-    }
 }

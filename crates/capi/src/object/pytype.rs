@@ -159,18 +159,25 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
         let attrs = Default::default();
 
         for slot in PySlot::iter(slots) {
-            match (slot, vm).try_into()? {
+            match slot.as_kind(vm)? {
                 kind @ PySlotKind::Type(type_slot) => {
                     match type_slot {
                         PySlotType::Name { value, .. } => {
                             name = unsafe { Some(CStr::from_ptr(value).to_str().unwrap()) }
                         }
-                        PySlotType::Flags { value } => {
+                        PySlotType::Flags(value) => {
                             type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
                                 vm.new_value_error(format!(
                                     "Invalid type flags: {value:#x} for PyType_FromSlots"
                                 ))
                             })?;
+                        }
+                        PySlotType::BasicSize(size) | PySlotType::ExtraBasicSize(size) => {
+                            if size != 0 {
+                                return Err(vm.new_not_implemented_error(
+                                    "PyType_FromSlots with non-zero size is not yet supported",
+                                ));
+                            }
                         }
                         PySlotType::Slots { value, .. } => {
                             for slot in PyType_Slot::iter(value) {
@@ -220,13 +227,6 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                 }
                             }
                         }
-                        PySlotType::ExtraBasicSize(size) => {
-                            if size != 0 {
-                                return Err(vm.new_not_implemented_error(
-                                    "PyType_FromSlots with non-zero Py_tp_extra_basicsize is not supported",
-                                ));
-                            }
-                        }
                         _ => {
                             return Err(vm.new_not_implemented_error(format!(
                                 "PyType_FromSlots with slot {kind:?} not implemented yet"
@@ -255,13 +255,15 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
             vm.new_system_error(format!("Failed to create type from slots: {msg}"))
         })?;
 
+        let mut attrs = class.attributes.write();
         for (name, method) in methods {
             let class_static = unsafe { &*((&*class) as *const _) };
-            class.attributes.write().insert(
+            attrs.insert(
                 vm.ctx.intern_str(name),
                 method.build_method(class_static, vm).into(),
             );
         }
+        drop(attrs);
 
         Ok(class)
     })
@@ -359,7 +361,7 @@ mod tests {
     }
 
     #[test]
-    fn test_zero_sized_class() {
+    fn zero_sized_class() {
         #[pyclass(frozen)]
         struct MyEmptyClass {}
 
