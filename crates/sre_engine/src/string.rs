@@ -425,13 +425,13 @@ pub(crate) fn is_uni_word(ch: u32) -> bool {
 #[inline]
 #[must_use]
 pub fn lower_unicode(ch: u32) -> u32 {
-    // TODO: check with cpython
-    char::try_from(ch).map_or(ch, |x| x.to_lowercase().next().unwrap() as u32)
+    // SRE_UNI_LOWER is Py_UNICODE_TOLOWER, the simple one-to-one mapping.
+    char::try_from(ch).map_or(ch, |x| rustpython_unicode::case::simple_lowercase(x) as u32)
 }
 
 #[inline]
 #[must_use]
 pub fn upper_unicode(ch: u32) -> u32 {
-    // TODO: check with cpython
-    char::try_from(ch).map_or(ch, |x| x.to_uppercase().next().unwrap() as u32)
+    // SRE_UNI_UPPER is Py_UNICODE_TOUPPER, the simple one-to-one mapping.
+    char::try_from(ch).map_or(ch, |x| rustpython_unicode::case::simple_uppercase(x) as u32)
 }
