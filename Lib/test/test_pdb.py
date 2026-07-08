@@ -3122,7 +3122,7 @@ def test_pdb_issue_gh_101673():
     ...    a = 1
     ...    import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     '!a = 2',
     ...     'll',
     ...     'p a',

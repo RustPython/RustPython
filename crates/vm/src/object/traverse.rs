@@ -111,19 +111,25 @@ where
 unsafe impl<T: Traverse> Traverse for PyRwLock<T> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        // if can't get a lock, this means something else is holding the lock,
-        // but since gc stopped the world, during gc the lock is always held
-        // so it is safe to ignore those in gc
+        // A failed try_read means a writer holds the lock. Traversal runs with
+        // the world stopped, but a thread force-parked while DETACHED (CAS'd
+        // straight to SUSPENDED from native code) may still hold the write lock
+        // it was in the middle of taking. Skipping such an object is safe: the
+        // collector then does not see its outgoing edges, which only
+        // under-traverses and thus over-approximates liveness (a conservative
+        // keep-alive), never freeing a reachable object. In single-threaded
+        // builds a failure only reflects the current thread's own re-entrant
+        // read, likewise safely skipped.
         if let Some(inner) = self.try_read_recursive() {
             inner.traverse(traverse_fn)
         }
     }
 }
 
-/// Safety: We can't hold lock during traverse it's child because it may cause deadlock.
-/// TODO(discord9): check if this is thread-safe to do
-/// (Outside of gc phase, only incref/decref will call trace,
-/// and refcnt is atomic, so it should be fine?)
+/// Safety: the lock is not held across visiting children to avoid a re-entrant
+/// deadlock. In threading builds traversal runs under stop-the-world so no
+/// other thread mutates the guarded value while we read it; in single-threaded
+/// builds there is no other writer.
 unsafe impl<T: Traverse> Traverse for PyMutex<T> {
     #[inline]
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
@@ -135,7 +141,9 @@ unsafe impl<T: Traverse> Traverse for PyMutex<T> {
         }
         chs.iter()
             .map(|ch| {
-                // Safety: during gc, this should be fine, because nothing should write during gc's tracing?
+                // Safety: the world is stopped (threading builds) or the
+                // interpreter is single-threaded, so `ch` is not concurrently
+                // freed while we hand it to the tracer.
                 let ch = unsafe { ch.as_ref() };
                 traverse_fn(ch);
             })

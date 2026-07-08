@@ -18,23 +18,29 @@ macro_rules! define_opcodes {
         }
     ) => {
         #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[repr($typ)]
         $opcode_vis enum $opcode_name {
-            $($op_name),*
+            $($op_name = $op_id),*
         }
 
         impl $opcode_name {
             #[doc = concat!("Converts this opcode to [`", stringify!($instr_name), "`].")]
             #[must_use]
+            #[inline]
             $opcode_vis const fn as_instruction(&self) -> $instr_name {
-                match self {
-                    $(
-                        Self::$op_name => $instr_name::$op_name $({ $arg_name: Arg::marker() })?,
-                    )*
-                }
+                // SAFETY: `$opcode_name` and `$instr_name` are both `#[repr($typ)]`
+                // enums sharing identical explicit discriminants, and every
+                // `$instr_name` payload field is the zero-sized `Arg<T>` marker
+                // (see the `size_of` assertion near its definition), so both
+                // enums have the same one-`$typ`-wide representation: just the
+                // discriminant. Converting a live `$opcode_name` value therefore
+                // yields the `$instr_name` variant with the matching discriminant.
+                unsafe { core::mem::transmute(*self) }
             }
 
             /// Map a specialized or instrumented opcode back to its adaptive (base) variant.
             #[must_use]
+            #[inline]
             $opcode_vis const fn deoptimize(self) -> Self {
                 match self.deopt() {
                     Some(v) => v,
@@ -49,6 +55,9 @@ macro_rules! define_opcodes {
             }
 
             // NOTE: Keep private. Will be exposed under `try_from_u8/try_from_u16`.
+            // Kept as a match rather than a range check + transmute: `$op_id`
+            // values are not contiguous (specialized/instrumented opcodes leave
+            // gaps), so validity can't be expressed as a simple bound.
             pub(super) const fn try_from_numeric(value: $typ) -> Result<Self, $crate::marshal::MarshalError> {
                 match value {
                     $($op_id => Ok(Self::$op_name),)*
@@ -58,10 +67,11 @@ macro_rules! define_opcodes {
 
             // NOTE: Keep private. Will be exposed under `as_u8/as_u16`.
             #[must_use]
+            #[inline]
             pub(super) const fn as_numeric(self) -> $typ {
-                match self {
-                    $(Self::$op_name => $op_id,)*
-                }
+                // `$opcode_name` is `#[repr($typ)]` with an explicit `$op_id`
+                // discriminant on every variant, so this is a plain identity cast.
+                self as $typ
             }
         }
 
@@ -95,15 +105,24 @@ macro_rules! define_opcodes {
             ),*
         }
 
+        // Every `$instr_name` payload field is the zero-sized `Arg<T>` marker, so
+        // (combined with the `#[repr($typ)]` above) each variant's representation
+        // is exactly its `$typ` discriminant with no padding. `as_opcode` and
+        // `$opcode_name::as_instruction` rely on this to convert via
+        // `mem::transmute` instead of a per-variant match.
+        const _: () = assert!(core::mem::size_of::<$instr_name>() == core::mem::size_of::<$typ>());
+
         impl $instr_name {
             #[doc = concat!("Get the corresponding [`", stringify!($opcode_name), "`].")]
             #[must_use]
+            #[inline]
             $instr_vis const fn as_opcode(&self) -> $opcode_name {
-                match self {
-                    $(
-                        Self::$op_name $({ $arg_name: _ })? => $opcode_name::$op_name,
-                    )*
-                }
+                // SAFETY: symmetric to `$opcode_name::as_instruction` above:
+                // `*self`'s representation is exactly its `$typ` discriminant
+                // (checked by the `size_of` assertion above this impl), and that
+                // discriminant is always a valid `$opcode_name` discriminant
+                // because both enums share the same explicit `$op_id` list.
+                unsafe { core::mem::transmute(*self) }
             }
 
             #[must_use]
@@ -1449,5 +1468,229 @@ mod tests {
         assert!(!PseudoOpcode::SetupWith.is_no_fallthrough());
 
         assert!(AnyInstruction::from(PseudoOpcode::Jump).is_no_fallthrough());
+    }
+
+    /// Snapshot of the chained `match` implementations that `Opcode::deopt`
+    /// and `Opcode::cache_entries` used before they were rewritten as table
+    /// lookups. Exists only to pin the observable behavior of the table
+    /// lookups against the logic they replaced.
+    mod reference {
+        use super::Opcode;
+
+        pub(super) const fn deopt(op: Opcode) -> Option<Opcode> {
+            Some(match op {
+                Opcode::ResumeCheck => Opcode::Resume,
+                Opcode::LoadConstMortal | Opcode::LoadConstImmortal => Opcode::LoadConst,
+                Opcode::ToBoolAlwaysTrue
+                | Opcode::ToBoolBool
+                | Opcode::ToBoolInt
+                | Opcode::ToBoolList
+                | Opcode::ToBoolNone
+                | Opcode::ToBoolStr => Opcode::ToBool,
+                Opcode::BinaryOpMultiplyInt
+                | Opcode::BinaryOpAddInt
+                | Opcode::BinaryOpSubtractInt
+                | Opcode::BinaryOpMultiplyFloat
+                | Opcode::BinaryOpAddFloat
+                | Opcode::BinaryOpSubtractFloat
+                | Opcode::BinaryOpAddUnicode
+                | Opcode::BinaryOpSubscrListInt
+                | Opcode::BinaryOpSubscrListSlice
+                | Opcode::BinaryOpSubscrTupleInt
+                | Opcode::BinaryOpSubscrStrInt
+                | Opcode::BinaryOpSubscrDict
+                | Opcode::BinaryOpSubscrGetitem
+                | Opcode::BinaryOpExtend
+                | Opcode::BinaryOpInplaceAddUnicode => Opcode::BinaryOp,
+                Opcode::StoreSubscrDict | Opcode::StoreSubscrListInt => Opcode::StoreSubscr,
+                Opcode::SendGen => Opcode::Send,
+                Opcode::UnpackSequenceTwoTuple
+                | Opcode::UnpackSequenceTuple
+                | Opcode::UnpackSequenceList => Opcode::UnpackSequence,
+                Opcode::StoreAttrInstanceValue
+                | Opcode::StoreAttrSlot
+                | Opcode::StoreAttrWithHint => Opcode::StoreAttr,
+                Opcode::LoadGlobalModule | Opcode::LoadGlobalBuiltin => Opcode::LoadGlobal,
+                Opcode::LoadSuperAttrAttr | Opcode::LoadSuperAttrMethod => Opcode::LoadSuperAttr,
+                Opcode::LoadAttrInstanceValue
+                | Opcode::LoadAttrModule
+                | Opcode::LoadAttrWithHint
+                | Opcode::LoadAttrSlot
+                | Opcode::LoadAttrClass
+                | Opcode::LoadAttrClassWithMetaclassCheck
+                | Opcode::LoadAttrProperty
+                | Opcode::LoadAttrGetattributeOverridden
+                | Opcode::LoadAttrMethodWithValues
+                | Opcode::LoadAttrMethodNoDict
+                | Opcode::LoadAttrMethodLazyDict
+                | Opcode::LoadAttrNondescriptorWithValues
+                | Opcode::LoadAttrNondescriptorNoDict => Opcode::LoadAttr,
+                Opcode::CompareOpFloat | Opcode::CompareOpInt | Opcode::CompareOpStr => {
+                    Opcode::CompareOp
+                }
+                Opcode::ContainsOpSet | Opcode::ContainsOpDict => Opcode::ContainsOp,
+                Opcode::JumpBackwardNoJit | Opcode::JumpBackwardJit => Opcode::JumpBackward,
+                Opcode::ForIterList
+                | Opcode::ForIterTuple
+                | Opcode::ForIterRange
+                | Opcode::ForIterGen => Opcode::ForIter,
+                Opcode::CallBoundMethodExactArgs
+                | Opcode::CallPyExactArgs
+                | Opcode::CallType1
+                | Opcode::CallStr1
+                | Opcode::CallTuple1
+                | Opcode::CallBuiltinClass
+                | Opcode::CallBuiltinO
+                | Opcode::CallBuiltinFast
+                | Opcode::CallBuiltinFastWithKeywords
+                | Opcode::CallLen
+                | Opcode::CallIsinstance
+                | Opcode::CallListAppend
+                | Opcode::CallMethodDescriptorO
+                | Opcode::CallMethodDescriptorFastWithKeywords
+                | Opcode::CallMethodDescriptorNoargs
+                | Opcode::CallMethodDescriptorFast
+                | Opcode::CallAllocAndEnterInit
+                | Opcode::CallPyGeneral
+                | Opcode::CallBoundMethodGeneral
+                | Opcode::CallNonPyGeneral => Opcode::Call,
+                Opcode::CallKwBoundMethod | Opcode::CallKwPy | Opcode::CallKwNonPy => {
+                    Opcode::CallKw
+                }
+                _ => return None,
+            })
+        }
+
+        pub(super) const fn deoptimize(op: Opcode) -> Opcode {
+            match deopt(op) {
+                Some(v) => v,
+                None => match op.to_base() {
+                    Some(v) => v,
+                    None => op,
+                },
+            }
+        }
+
+        pub(super) const fn cache_entries(op: Opcode) -> usize {
+            match deoptimize(op) {
+                Opcode::StoreSubscr => 1,
+                Opcode::ToBool => 3,
+                Opcode::BinaryOp => 5,
+                Opcode::Call => 3,
+                Opcode::CallKw => 3,
+                Opcode::CompareOp => 1,
+                Opcode::ContainsOp => 1,
+                Opcode::ForIter => 1,
+                Opcode::JumpBackward => 1,
+                Opcode::LoadAttr => 9,
+                Opcode::LoadGlobal => 4,
+                Opcode::LoadSuperAttr => 1,
+                Opcode::PopJumpIfFalse => 1,
+                Opcode::PopJumpIfNone => 1,
+                Opcode::PopJumpIfNotNone => 1,
+                Opcode::PopJumpIfTrue => 1,
+                Opcode::Send => 1,
+                Opcode::StoreAttr => 4,
+                Opcode::UnpackSequence => 1,
+                _ => 0,
+            }
+        }
+    }
+
+    #[test]
+    fn cache_entries_and_deopt_tables_match_reference_impl() {
+        let mut checked = 0;
+        for byte in 0u8..=255 {
+            let Ok(op) = Opcode::try_from_u8(byte) else {
+                continue;
+            };
+
+            assert_eq!(
+                op.deopt(),
+                reference::deopt(op),
+                "deopt() mismatch for {op:?}"
+            );
+            assert_eq!(
+                op.cache_entries(),
+                reference::cache_entries(op),
+                "cache_entries() mismatch for {op:?}"
+            );
+            checked += 1;
+        }
+
+        // Sanity check that the loop actually exercised opcodes rather than
+        // silently skipping all of them.
+        assert!(checked > 200);
+    }
+
+    /// `Opcode::as_numeric`, `Opcode::as_instruction` and
+    /// `Instruction::as_opcode` used to be per-variant matches; they are now
+    /// an identity cast and two `mem::transmute`s respectively. `byte` (an
+    /// input independent of any of those three functions) together with the
+    /// untouched `try_from_u8`/`TryFrom<u8>` conversions serve as the
+    /// reference: every opcode reachable from a byte must convert back to
+    /// that exact byte and round-trip through `Instruction`.
+    #[test]
+    fn opcode_instruction_numeric_conversions_match_try_from_numeric() {
+        let mut checked = 0;
+        for byte in 0u8..=255 {
+            let Ok(op) = Opcode::try_from_u8(byte) else {
+                continue;
+            };
+
+            assert_eq!(op.as_numeric(), byte, "as_numeric() mismatch for {op:?}");
+
+            let instr = op.as_instruction();
+            assert_eq!(
+                instr.as_opcode(),
+                op,
+                "as_instruction()/as_opcode() round trip mismatch for {op:?}"
+            );
+
+            let instr_via_try_from = Instruction::try_from(byte).unwrap();
+            assert_eq!(
+                instr_via_try_from.as_opcode(),
+                op,
+                "Instruction::try_from({byte}) mismatch"
+            );
+
+            checked += 1;
+        }
+
+        assert!(checked > 200);
+    }
+
+    /// Same as [`opcode_instruction_numeric_conversions_match_try_from_numeric`]
+    /// but for the `u16`-discriminant pseudo-opcode instantiation of
+    /// `define_opcodes!`.
+    #[test]
+    fn pseudo_opcode_instruction_numeric_conversions_match_try_from_numeric() {
+        let mut checked = 0;
+        for value in 0u16..=u16::MAX {
+            let Ok(op) = PseudoOpcode::try_from_u16(value) else {
+                continue;
+            };
+
+            assert_eq!(op.as_numeric(), value, "as_numeric() mismatch for {op:?}");
+
+            let instr = op.as_instruction();
+            assert_eq!(
+                instr.as_opcode(),
+                op,
+                "as_instruction()/as_opcode() round trip mismatch for {op:?}"
+            );
+
+            let instr_via_try_from = PseudoInstruction::try_from(value).unwrap();
+            assert_eq!(
+                instr_via_try_from.as_opcode(),
+                op,
+                "PseudoInstruction::try_from({value}) mismatch"
+            );
+
+            checked += 1;
+        }
+
+        // All 11 `PseudoInstruction` variants should have been exercised.
+        assert_eq!(checked, 11);
     }
 }

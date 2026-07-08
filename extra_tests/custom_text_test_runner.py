@@ -389,11 +389,9 @@ class CustomTextTestResult(result.TestResult):
         }
         self.start_time = time.time()
         if self.test_types:
-            if "test_type" in getattr(
-                test, test._testMethodName
-            ).__func__.__dict__ and set([s.lower() for s in self.test_types]) == set(
-                [s.lower() for s in _get_method_dict(test)["test_type"]]
-            ):
+            if "test_type" in _get_method_dict(test) and set(
+                [s.lower() for s in self.test_types]
+            ) == set([s.lower() for s in _get_method_dict(test)["test_type"]]):
                 pass
             else:
                 _get_method_dict(test)["__unittest_skip_why__"] = (

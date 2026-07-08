@@ -65,34 +65,24 @@ impl Constructor for PyBaseObject {
         }
 
         // Ensure that all abstract methods are implemented before instantiating instance.
-        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__))
-            && let Some(unimplemented_abstract_method_count) = abs_methods.length_opt(vm)
-        {
+        if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
             let methods: Vec<PyUtf8StrRef> = abs_methods.try_to_value(vm)?;
-            let methods: String = Itertools::intersperse(
-                methods.iter().map(|name| name.as_str().to_owned()),
-                "', '".to_owned(),
-            )
-            .collect();
-
-            let unimplemented_abstract_method_count = unimplemented_abstract_method_count?;
-            let name = cls.name().to_string();
-
-            match unimplemented_abstract_method_count {
-                0 => {}
-                1 => {
-                    return Err(vm.new_type_error(format!(
-                        "class {name} without an implementation for abstract method '{methods}'"
-                    )));
-                }
-                2.. => {
-                    return Err(vm.new_type_error(format!(
-                        "class {name} without an implementation for abstract methods '{methods}'"
-                    )));
-                }
-                // TODO: remove `allow` when redox build doesn't complain about it
-                #[allow(unreachable_patterns)]
-                _ => unreachable!(),
+            let unimplemented_abstract_method_count = methods.len();
+            if unimplemented_abstract_method_count > 0 {
+                let methods: String = Itertools::intersperse(
+                    methods.iter().map(|name| name.as_str().to_owned()),
+                    "', '".to_owned(),
+                )
+                .collect();
+                let name = cls.name().to_string();
+                let noun = if unimplemented_abstract_method_count == 1 {
+                    "method"
+                } else {
+                    "methods"
+                };
+                return Err(vm.new_type_error(format!(
+                    "class {name} without an implementation for abstract {noun} '{methods}'"
+                )));
             }
         }
 
@@ -346,23 +336,7 @@ impl PyBaseObject {
         Ok(res)
     }
 
-    /// Implement setattr(self, name, value).
-    #[pymethod]
-    fn __setattr__(
-        obj: PyObjectRef,
-        name: PyStrRef,
-        value: PyObjectRef,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        obj.generic_setattr(&name, PySetterValue::Assign(value), vm)
-    }
-
-    /// Implement delattr(self, name).
-    #[pymethod]
-    fn __delattr__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        obj.generic_setattr(&name, PySetterValue::Delete, vm)
-    }
-
+    // __setattr__ and __delattr__ are added as slot wrappers by add_operators.
     #[pyslot]
     pub(crate) fn slot_setattro(
         obj: &PyObject,
@@ -461,39 +435,7 @@ impl PyBaseObject {
                     && !cls.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE);
                 // FIXME(#1979) cls instances might have a payload
                 if both_mutable || both_module {
-                    let has_dict =
-                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_DICT);
-                    let has_weakref =
-                        |typ: &Py<PyType>| typ.slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF);
-                    // Compare slots tuples
-                    let slots_equal = match (
-                        current_cls
-                            .heaptype_ext
-                            .as_ref()
-                            .and_then(|e| e.slots.as_ref()),
-                        cls.heaptype_ext.as_ref().and_then(|e| e.slots.as_ref()),
-                    ) {
-                        (Some(a), Some(b)) => {
-                            a.len() == b.len()
-                                && a.iter()
-                                    .zip(b.iter())
-                                    .all(|(x, y)| x.as_wtf8() == y.as_wtf8())
-                        }
-                        (None, None) => true,
-                        _ => false,
-                    };
-                    if current_cls.slots.basicsize != cls.slots.basicsize
-                        || !slots_equal
-                        || has_dict(current_cls) != has_dict(&cls)
-                        || has_weakref(current_cls) != has_weakref(&cls)
-                        || current_cls.slots.member_count != cls.slots.member_count
-                    {
-                        return Err(vm.new_type_error(format!(
-                            "__class__ assignment: '{}' object layout differs from '{}'",
-                            cls.name(),
-                            current_cls.name()
-                        )));
-                    }
+                    super::type_::compatible_for_assignment(current_cls, &cls, "__class__", vm)?;
                     instance.set_class(cls, vm);
                     Ok(())
                 } else {
@@ -513,15 +455,12 @@ impl PyBaseObject {
     }
 
     /// Return getattr(self, name).
+    ///
+    /// __getattribute__ is added as a slot wrapper by add_operators.
     #[pyslot]
     pub(crate) fn getattro(obj: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
         vm_trace!("object.__getattribute__({:?}, {:?})", obj, name);
         obj.as_object().generic_getattr(name, vm)
-    }
-
-    #[pymethod]
-    fn __getattribute__(obj: PyObjectRef, name: PyStrRef, vm: &VirtualMachine) -> PyResult {
-        Self::getattro(&obj, &name, vm)
     }
 
     #[pymethod]

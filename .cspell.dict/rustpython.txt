@@ -27,6 +27,7 @@ pystr
 pystruct
 pystructseq
 pytype
+qsbr
 rustix
 struc
 zelf
