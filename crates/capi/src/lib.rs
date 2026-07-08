@@ -25,6 +25,7 @@ pub mod longobject;
 pub mod methodobject;
 pub mod moduleobject;
 pub mod object;
+pub mod objimpl;
 pub mod osmodule;
 pub mod pycapsule;
 pub mod pyerrors;
