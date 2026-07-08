@@ -1,7 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use crate::slots::{PySlot, PySlotKind};
+use crate::slots::{PySlot, PySlotKind, PySlotModule, PySlotType};
 use core::ffi::c_int;
 use rustpython_vm::builtins::{PyModule, PyModuleDef, PyStr};
 
@@ -24,27 +24,21 @@ pub unsafe extern "C" fn PyModule_FromSlotsAndSpec(
 
         for slot in PySlot::iter(slots) {
             match (slot, vm).try_into()? {
-                PySlotKind::ModuleCreate(mod_create) => create = Some(mod_create),
-                PySlotKind::ModuleExec(mod_exec) => {
-                    if exec.replace(mod_exec).is_some() {
-                        return Err(vm.new_system_error("Multiple module exec slots found"));
+                PySlotKind::Module(module) => match module {
+                    PySlotModule::Create(mod_create) => create = Some(mod_create),
+                    PySlotModule::Exec(mod_exec) => {
+                        if exec.replace(mod_exec).is_some() {
+                            return Err(vm.new_system_error("Multiple module exec slots found"));
+                        }
                     }
-                }
-                PySlotKind::ModuleName { .. } => {}
-                PySlotKind::ModuleDoc { .. } => {}
-                PySlotKind::ModuleMethods(_) => {}
-                PySlotKind::ModuleAbi { .. } => {}
-                PySlotKind::ModuleMultipleInterpreters { .. } => {}
-                PySlotKind::ModuleGil { .. } => {}
-                kind @ (PySlotKind::TypeBase { .. }
-                | PySlotKind::TypeBases { .. }
-                | PySlotKind::TypeToken { .. }
-                | PySlotKind::TypeSlots { .. }
-                | PySlotKind::TypeName { .. }
-                | PySlotKind::TypeMetaclass { .. }
-                | PySlotKind::TypeFlags { .. }
-                | PySlotKind::TypeExtraBasicSize(_)
-                | PySlotKind::TypeModule { .. }) => {
+                    PySlotModule::Name { .. }
+                    | PySlotModule::Doc { .. }
+                    | PySlotModule::Methods(_)
+                    | PySlotModule::Abi { .. }
+                    | PySlotModule::MultipleInterpreters { .. }
+                    | PySlotModule::Gil { .. } => {}
+                },
+                kind @ PySlotKind::Type(_) => {
                     return Err(vm.new_system_error(format!(
                         "Got type slot while module slots are expected: {kind:?}"
                     )));
