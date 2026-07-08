@@ -279,7 +279,10 @@ impl ArgumentType for PyTypeRef {
                     || CTypeLayout::Opaque { size: bytes.len() },
                     |stg| super::base::type_layout(self, &stg, vm),
                 );
-                return Ok((CArgValue::aggregate(layout, bytes), None));
+                // Keep the converted instance alive through the call: the
+                // snapshot may embed pointers into buffers its keep-alive set
+                // owns, which must outlive the foreign call.
+                return Ok((CArgValue::aggregate(layout, bytes), Some(converted.clone())));
             }
             return Ok((convert_to_pointer(&converted, vm)?, None));
         }
