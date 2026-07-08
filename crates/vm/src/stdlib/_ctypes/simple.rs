@@ -1,8 +1,7 @@
 use super::_ctypes::CArgObject;
 use super::array::PyCArray;
 use super::base::{
-    CDATA_BUFFER_METHODS, FfiArgValue, PyCData, StgInfo, StgInfoFlags, buffer_to_ffi_value,
-    bytes_to_pyobject,
+    CArgValue, CDATA_BUFFER_METHODS, PyCData, StgInfo, StgInfoFlags, bytes_to_pyobject,
 };
 use super::function::PyCFuncPtr;
 use super::pointer::PyCPointer;
@@ -263,11 +262,11 @@ impl PyCSimpleType {
             let simple_obj: PyObjectRef = simple.into_ref_with_type(vm, cls.clone())?.into();
             // from_param returns CArgObject, not the simple type itself
             let tag = type_str.as_bytes().first().copied().unwrap_or(b'?');
-            let ffi_value = buffer_to_ffi_value(type_str, &buffer_bytes);
             Ok(CArgObject {
                 tag,
-                value: ffi_value,
+                value: CArgValue::typed(tag as char, &buffer_bytes),
                 obj: simple_obj,
+                keep: None,
                 size: 0,
                 offset: 0,
             }
@@ -319,8 +318,9 @@ impl PyCSimpleType {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
-                        value: FfiArgValue::OwnedPointer(ptr, kept_alive),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(kept_alive),
                         size: 0,
                         offset: 0,
                     }
@@ -344,8 +344,9 @@ impl PyCSimpleType {
                     let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     return Ok(CArgObject {
                         tag: b'Z',
-                        value: FfiArgValue::OwnedPointer(ptr, holder),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(holder),
                         size: 0,
                         offset: 0,
                     }
@@ -373,8 +374,9 @@ impl PyCSimpleType {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     return Ok(CArgObject {
                         tag: b'z',
-                        value: FfiArgValue::OwnedPointer(ptr, kept_alive),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(kept_alive),
                         size: 0,
                         offset: 0,
                     }
@@ -385,8 +387,9 @@ impl PyCSimpleType {
                     let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     return Ok(CArgObject {
                         tag: b'Z',
-                        value: FfiArgValue::OwnedPointer(ptr, holder),
+                        value: CArgValue::pointer(ptr),
                         obj: value.clone(),
+                        keep: Some(holder),
                         size: 0,
                         offset: 0,
                     }
@@ -412,8 +415,9 @@ impl PyCSimpleType {
                     };
                     return Ok(CArgObject {
                         tag: b'P',
-                        value: FfiArgValue::pointer(ptr_val),
+                        value: CArgValue::pointer(ptr_val),
                         obj: value.clone(),
+                        keep: None,
                         size: 0,
                         offset: 0,
                     }
@@ -429,8 +433,9 @@ impl PyCSimpleType {
                         };
                         return Ok(CArgObject {
                             tag: b'Z',
-                            value: FfiArgValue::pointer(ptr_val),
+                            value: CArgValue::pointer(ptr_val),
                             obj: value.clone(),
+                            keep: None,
                             size: 0,
                             offset: 0,
                         }
@@ -442,8 +447,9 @@ impl PyCSimpleType {
             Some("O") => {
                 return Ok(CArgObject {
                     tag: b'O',
-                    value: FfiArgValue::pointer(value.get_id()),
+                    value: CArgValue::pointer(value.get_id()),
                     obj: value,
+                    keep: None,
                     size: 0,
                     offset: 0,
                 }
@@ -1255,17 +1261,10 @@ impl PyCSimple {
 }
 
 impl PyCSimple {
-    /// Extract the value from this ctypes object as an owned FfiArgValue.
-    /// The value must be kept alive until after the FFI call completes.
-    pub(crate) fn to_ffi_value(
-        &self,
-        ty: rustpython_host_env::ctypes::FfiType,
-        _vm: &VirtualMachine,
-    ) -> Option<FfiArgValue> {
+    /// Snapshot this object's buffer as a simple-typed foreign-call value.
+    pub(crate) fn to_carg_value(&self, code: char) -> CArgValue {
         let buffer = self.0.buffer.read();
-        Some(FfiArgValue::Scalar(
-            rustpython_host_env::ctypes::ffi_value_from_type(&buffer, ty)?,
-        ))
+        CArgValue::typed(code, &buffer)
     }
 }
 
