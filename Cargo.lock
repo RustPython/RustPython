@@ -3722,6 +3722,7 @@ name = "rustpython-unicode"
 version = "0.5.0"
 dependencies = [
  "icu_casemap",
+ "icu_locale",
  "icu_normalizer",
  "icu_properties",
  "rustpython-wtf8",
@@ -3749,9 +3750,6 @@ dependencies = [
  "glob",
  "half",
  "hex",
- "icu_casemap",
- "icu_locale",
- "icu_properties",
  "indexmap",
  "is-macro",
  "itertools 0.15.0",
@@ -3793,7 +3791,6 @@ dependencies = [
  "timsort",
  "wasm-bindgen",
  "widestring",
- "writeable",
 ]
 
 [[package]]

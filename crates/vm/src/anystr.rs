@@ -1,9 +1,7 @@
 use core::ops::Range;
 
-use icu_properties::props::{
-    BinaryProperty, EnumeratedProperty, GeneralCategory, GeneralCategoryGroup,
-};
 use num_traits::{cast::ToPrimitive, sign::Signed};
+use rustpython_unicode::case;
 
 use crate::{
     Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
@@ -448,24 +446,18 @@ pub(crate) trait AnyStr {
     // Unified form of CPython functions:
     //  unicode_isupper_impl
     //  unicode_islower_impl
-    fn is_cased<VALID, INVALID>(&self) -> bool
-    where
-        VALID: BinaryProperty,
-        INVALID: BinaryProperty,
-    {
+    fn is_cased(&self, valid: fn(char) -> bool, invalid: fn(char) -> bool) -> bool {
         let mut all_cased = false;
         for c in self
             .as_bytes()
             .utf8_chunks()
             .flat_map(|c| c.valid().chars())
         {
-            if INVALID::for_char(c)
-                || GeneralCategoryGroup::TitlecaseLetter.contains(GeneralCategory::for_char(c))
-            {
+            if invalid(c) || case::is_titlecase(c) {
                 return false;
             }
 
-            if !all_cased && VALID::for_char(c) {
+            if !all_cased && valid(c) {
                 all_cased = true;
             }
         }
