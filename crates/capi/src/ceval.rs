@@ -3,7 +3,7 @@ use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
-use rustpython_vm::builtins::{PyCode, PyDict, PyStr};
+use rustpython_vm::builtins::{PyCode, PyDict};
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
 use rustpython_vm::{AsObject, PyObject, TryFromObject};
@@ -120,32 +120,6 @@ pub extern "C" fn PyEval_GetLocals() -> *mut PyObject {
         };
         let _ = frame.locals(vm)?;
         Ok(frame.locals.as_object(vm).as_raw().cast_mut())
-    })
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyEval_GetFuncName(func: *mut PyObject) -> *const c_char {
-    with_vm(|vm| {
-        let func = unsafe { &*func };
-        let cls = func.class();
-
-        if cls.is(vm.ctx.types.bound_method_type) {
-            let function = func.get_attr("__func__", vm)?;
-            return Ok(unsafe { PyEval_GetFuncName(function.as_object().as_raw().cast_mut()) });
-        }
-
-        let name = if cls.is(vm.ctx.types.function_type)
-            || cls.is(vm.ctx.types.builtin_function_or_method_type)
-        {
-            func.get_attr(rustpython_vm::identifier!(vm, __name__), vm)?
-                .downcast_ref::<PyStr>()
-                .and_then(|s| s.to_str())
-                .map_or_else(|| cls.name().as_ptr(), |s| s.as_ptr())
-        } else {
-            cls.name().as_ptr()
-        };
-
-        Ok(name.cast())
     })
 }
 
