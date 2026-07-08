@@ -84,64 +84,74 @@ impl PyABIInfo {
     }
 }
 
-#[allow(dead_code)]
-#[derive(Debug)]
-pub(crate) enum PySlotKind {
-    ModuleCreate(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
-    ModuleExec(unsafe extern "C" fn(*mut PyObject) -> c_int),
-    ModuleName {
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum PySlotModule {
+    Create(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
+    Exec(unsafe extern "C" fn(*mut PyObject) -> c_int),
+    Name {
         value: *const c_char,
         is_static: bool,
     },
-    ModuleDoc {
+    Doc {
         value: *const c_char,
         is_static: bool,
     },
-    ModuleMethods(*mut PyMethodDef),
-    ModuleAbi {
+    Methods(*mut PyMethodDef),
+    Abi {
         value: *const PyABIInfo,
         is_static: bool,
     },
-    ModuleMultipleInterpreters {
+    MultipleInterpreters {
         value: *mut c_void,
         is_static: bool,
     },
-    ModuleGil {
+    Gil {
         gil_used: bool,
         is_static: bool,
     },
-    TypeBase {
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum PySlotType {
+    Base {
         value: *mut PyObject,
         is_static: bool,
     },
-    TypeBases {
+    Bases {
         value: *mut PyObject,
         is_static: bool,
     },
-    TypeToken {
+    Token {
         value: *mut c_void,
         is_static: bool,
     },
-    TypeSlots {
+    Slots {
         value: *mut PyType_Slot,
         is_static: bool,
     },
-    TypeName {
+    Name {
         value: *const c_char,
         is_static: bool,
     },
-    TypeFlags {
+    Flags {
         value: u64,
     },
-    TypeExtraBasicSize(isize),
-    TypeMetaclass {
+    ExtraBasicSize(isize),
+    Metaclass {
         value: *mut PyObject,
         is_static: bool,
     },
-    TypeModule {
+    Module {
         value: *mut PyObject,
         is_static: bool,
     },
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum PySlotKind {
+    Module(PySlotModule),
+    Type(PySlotType),
     Unknown {
         id: u16,
         value: *mut c_void,
@@ -154,24 +164,25 @@ impl PySlotKind {
     #[must_use]
     pub(crate) fn is_static(&self) -> bool {
         match self {
-            Self::ModuleCreate(_)
-            | Self::ModuleExec(_)
-            | Self::ModuleMethods(_)
-            | Self::TypeFlags { .. }
-            | Self::TypeExtraBasicSize(_) => true,
-            Self::ModuleName { is_static, .. }
-            | Self::ModuleDoc { is_static, .. }
-            | Self::ModuleAbi { is_static, .. }
-            | Self::ModuleMultipleInterpreters { is_static, .. }
-            | Self::ModuleGil { is_static, .. }
-            | Self::TypeBase { is_static, .. }
-            | Self::TypeBases { is_static, .. }
-            | Self::TypeToken { is_static, .. }
-            | Self::TypeSlots { is_static, .. }
-            | Self::TypeName { is_static, .. }
-            | Self::TypeMetaclass { is_static, .. }
-            | Self::TypeModule { is_static, .. }
-            | Self::Unknown { is_static, .. } => *is_static,
+            Self::Module(module) => match module {
+                PySlotModule::Create(_) | PySlotModule::Exec(_) | PySlotModule::Methods(_) => true,
+                PySlotModule::Name { is_static, .. }
+                | PySlotModule::Doc { is_static, .. }
+                | PySlotModule::Abi { is_static, .. }
+                | PySlotModule::MultipleInterpreters { is_static, .. }
+                | PySlotModule::Gil { is_static, .. } => *is_static,
+            },
+            Self::Type(ty) => match ty {
+                PySlotType::Flags { .. } | PySlotType::ExtraBasicSize(_) => true,
+                PySlotType::Base { is_static, .. }
+                | PySlotType::Bases { is_static, .. }
+                | PySlotType::Token { is_static, .. }
+                | PySlotType::Slots { is_static, .. }
+                | PySlotType::Name { is_static, .. }
+                | PySlotType::Metaclass { is_static, .. }
+                | PySlotType::Module { is_static, .. } => *is_static,
+            },
+            Self::Unknown { is_static, .. } => *is_static,
         }
     }
 }
@@ -184,18 +195,18 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
         let is_static = slot.is_static();
         let kind = match slot.sl_id {
             // Type slots
-            48 => Self::TypeBase {
+            48 => Self::Type(PySlotType::Base {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            49 => Self::TypeBases {
+            }),
+            49 => Self::Type(PySlotType::Bases {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            83 => Self::TypeToken {
+            }),
+            83 => Self::Type(PySlotType::Token {
                 value: value_ptr,
                 is_static,
-            },
+            }),
             84 => {
                 let create = unsafe {
                     core::mem::transmute::<
@@ -206,7 +217,7 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
                         ) -> *mut PyObject,
                     >(slot.value.sl_func)
                 };
-                Self::ModuleCreate(create)
+                Self::Module(PySlotModule::Create(create))
             }
             85 => {
                 let exec = unsafe {
@@ -215,49 +226,49 @@ impl TryFrom<(&PySlot, &VirtualMachine)> for PySlotKind {
                         unsafe extern "C" fn(*mut rustpython_vm::PyObject) -> i32,
                     >(slot.value.sl_func)
                 };
-                Self::ModuleExec(exec)
+                Self::Module(PySlotModule::Exec(exec))
             }
-            86 => Self::ModuleMultipleInterpreters {
+            86 => Self::Module(PySlotModule::MultipleInterpreters {
                 value: value_ptr,
                 is_static,
-            },
-            87 => Self::ModuleGil {
+            }),
+            87 => Self::Module(PySlotModule::Gil {
                 gil_used: !value_ptr.is_null(),
                 is_static,
-            },
-            93 => Self::TypeSlots {
+            }),
+            93 => Self::Type(PySlotType::Slots {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            95 => Self::TypeName {
+            }),
+            95 => Self::Type(PySlotType::Name {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            97 => Self::TypeExtraBasicSize(unsafe { slot.value.sl_size }),
-            99 => Self::TypeFlags {
+            }),
+            97 => Self::Type(PySlotType::ExtraBasicSize(unsafe { slot.value.sl_size })),
+            99 => Self::Type(PySlotType::Flags {
                 value: unsafe { slot.value.sl_uint64 },
-            },
-            107 => Self::TypeMetaclass {
+            }),
+            107 => Self::Type(PySlotType::Metaclass {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            108 => Self::TypeModule {
+            }),
+            108 => Self::Type(PySlotType::Module {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            109 => Self::ModuleAbi {
+            }),
+            109 => Self::Module(PySlotModule::Abi {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            100 => Self::ModuleName {
+            }),
+            100 => Self::Module(PySlotModule::Name {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            101 => Self::ModuleDoc {
+            }),
+            101 => Self::Module(PySlotModule::Doc {
                 value: value_ptr.cast(),
                 is_static,
-            },
-            103 => Self::ModuleMethods(value_ptr.cast()),
+            }),
+            103 => Self::Module(PySlotModule::Methods(value_ptr.cast())),
             id => {
                 if slot.is_optional() {
                     Self::Unknown {

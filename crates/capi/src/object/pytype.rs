@@ -2,7 +2,7 @@ use crate::abstract_::{dict_to_kwargs, tuple_to_args};
 use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use crate::slots::{PySlot, PySlotKind};
+use crate::slots::{PySlot, PySlotKind, PySlotType};
 use core::ffi::{CStr, c_char, c_int, c_ulong, c_void};
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
 use rustpython_vm::function::{FuncArgs, PyMethodFlags};
@@ -160,76 +160,86 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
 
         for slot in PySlot::iter(slots) {
             match (slot, vm).try_into()? {
-                PySlotKind::TypeName { value, .. } => {
-                    name = unsafe { Some(CStr::from_ptr(value).to_str().unwrap()) }
-                }
-                PySlotKind::TypeFlags { value } => {
-                    type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
-                        vm.new_value_error(format!(
-                            "Invalid type flags: {value:#x} for PyType_FromSlots"
-                        ))
-                    })?;
-                }
-                PySlotKind::TypeSlots { value, .. } => {
-                    for slot in PyType_Slot::iter(value) {
-                        let slot_id: u8 = slot.slot.try_into().unwrap();
-                        match slot_id.try_into().unwrap() {
-                            SlotAccessor::TpDoc => {
-                                let doc = unsafe {
-                                    CStr::from_ptr(slot.pfunc.cast::<c_char>())
-                                        .to_str()
-                                        .expect("tp_doc must be a valid UTF-8 string")
-                                };
-                                type_slots.doc = Some(doc);
-                            }
-                            SlotAccessor::TpNew => {
-                                type_slots.new.store(Some(|ty, _args, vm| {
-                                    Err(vm.new_not_implemented_error(format!("tp_new is not yet implemented in PyType_FromSlots for {ty:?}")))
-                                }));
-                            }
-                            SlotAccessor::TpBase => {
-                                base = unsafe { Some(&*slot.pfunc.cast::<PyTypeObject>()) }
-                            }
-                            SlotAccessor::TpDealloc => {
-                                type_slots.del.store(Some(|_ty, _vm| {
-                                    // TODO
-                                    Ok(())
-                                }));
-                            }
-                            SlotAccessor::TpMethods => {
-                                for def in PyMethodDef::iter(slot.pfunc.cast()) {
-                                    let name = unsafe {
-                                        CStr::from_ptr(def.ml_name)
-                                            .to_str()
-                                            .expect("method name must be valid UTF-8")
-                                    };
-                                    let is_static =
-                                        PyMethodFlags::from_bits_retain(def.ml_flags as _)
-                                            .contains(PyMethodFlags::STATIC);
-                                    let method = build_method_def(vm, def, !is_static)?;
-                                    methods.push((name, method));
+                kind @ PySlotKind::Type(type_slot) => {
+                    match type_slot {
+                        PySlotType::Name { value, .. } => {
+                            name = unsafe { Some(CStr::from_ptr(value).to_str().unwrap()) }
+                        }
+                        PySlotType::Flags { value } => {
+                            type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
+                                vm.new_value_error(format!(
+                                    "Invalid type flags: {value:#x} for PyType_FromSlots"
+                                ))
+                            })?;
+                        }
+                        PySlotType::Slots { value, .. } => {
+                            for slot in PyType_Slot::iter(value) {
+                                let slot_id: u8 = slot.slot.try_into().unwrap();
+                                match slot_id.try_into().unwrap() {
+                                    SlotAccessor::TpDoc => {
+                                        let doc = unsafe {
+                                            CStr::from_ptr(slot.pfunc.cast::<c_char>())
+                                                .to_str()
+                                                .expect("tp_doc must be a valid UTF-8 string")
+                                        };
+                                        type_slots.doc = Some(doc);
+                                    }
+                                    SlotAccessor::TpNew => {
+                                        type_slots.new.store(Some(|ty, _args, vm| {
+                                            Err(vm.new_not_implemented_error(format!("tp_new is not yet implemented in PyType_FromSlots for {ty:?}")))
+                                        }));
+                                    }
+                                    SlotAccessor::TpBase => {
+                                        base = unsafe { Some(&*slot.pfunc.cast::<PyTypeObject>()) }
+                                    }
+                                    SlotAccessor::TpDealloc => {
+                                        type_slots.del.store(Some(|_ty, _vm| {
+                                            // TODO
+                                            Ok(())
+                                        }));
+                                    }
+                                    SlotAccessor::TpMethods => {
+                                        for def in PyMethodDef::iter(slot.pfunc.cast()) {
+                                            let name = unsafe {
+                                                CStr::from_ptr(def.ml_name)
+                                                    .to_str()
+                                                    .expect("method name must be valid UTF-8")
+                                            };
+                                            let is_static =
+                                                PyMethodFlags::from_bits_retain(def.ml_flags as _)
+                                                    .contains(PyMethodFlags::STATIC);
+                                            let method = build_method_def(vm, def, !is_static)?;
+                                            methods.push((name, method));
+                                        }
+                                    }
+                                    slot => {
+                                        return Err(vm.new_not_implemented_error(format!(
+                                            "PyType_FromSlots with PyType_Slot {slot:?} not implemented yet"
+                                        )));
+                                    }
                                 }
                             }
-                            slot => {
-                                return Err(vm.new_not_implemented_error(format!(
-                                    "PyType_FromSlots with PyType_Slot {slot:?} not implemented yet"
-                                )));
+                        }
+                        PySlotType::ExtraBasicSize(size) => {
+                            if size != 0 {
+                                return Err(vm.new_not_implemented_error(
+                                    "PyType_FromSlots with non-zero Py_tp_extra_basicsize is not supported",
+                                ));
                             }
+                        }
+                        _ => {
+                            return Err(vm.new_not_implemented_error(format!(
+                                "PyType_FromSlots with slot {kind:?} not implemented yet"
+                            )));
                         }
                     }
                 }
-                PySlotKind::TypeExtraBasicSize(size) => {
-                    if size != 0 {
-                        return Err(vm.new_not_implemented_error(
-                            "PyType_FromSlots with non-zero Py_tp_extra_basicsize is not supported",
-                        ));
-                    }
+                PySlotKind::Module(_) => {
+                    return Err(
+                        vm.new_system_error("Got module slot while type slots are expected")
+                    );
                 }
-                kind => {
-                    return Err(vm.new_not_implemented_error(format!(
-                        "PyType_FromSlots with slot {kind:?} not implemented yet"
-                    )));
-                }
+                PySlotKind::Unknown { .. } => {}
             }
         }
 
