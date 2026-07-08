@@ -1,6 +1,6 @@
 use crate::PyObject;
 use core::convert::Infallible;
-use core::ffi::{c_char, c_double, c_int, c_long, c_ulong, c_void};
+use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
 use rustpython_vm::{PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 pub(crate) trait FfiResult<Output = Self> {
@@ -89,6 +89,14 @@ impl FfiResult for *const c_char {
 
     fn into_output(self, _vm: &VirtualMachine) -> *const c_char {
         self
+    }
+}
+
+impl FfiResult<*const c_char> for &CStr {
+    const ERR_VALUE: *const c_char = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *const c_char {
+        self.as_ptr()
     }
 }
 
