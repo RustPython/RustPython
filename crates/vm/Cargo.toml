@@ -82,12 +82,6 @@ optional = { workspace = true }
 result-like = { workspace = true }
 timsort = { workspace = true }
 
-## unicode stuff
-icu_casemap = { workspace = true }
-icu_locale = { workspace = true }
-icu_properties = { workspace = true }
-writeable = { workspace = true }
-
 [target.'cfg(unix)'.dependencies]
 exitcode = { workspace = true }
 
