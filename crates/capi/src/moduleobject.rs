@@ -107,13 +107,13 @@ mod tests {
     use pyo3::prelude::*;
 
     #[test]
-    fn test_create_module() {
+    fn create_module() {
         #[pymodule]
         mod my_extension {
             use pyo3::prelude::*;
 
             #[pymodule_export]
-            const PI: f64 = std::f64::consts::PI;
+            const PI: f64 = core::f64::consts::PI;
 
             #[pyfunction] // Inline definition of a pyfunction, also made available to Python
             fn triple(x: usize) -> usize {
