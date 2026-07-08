@@ -168,6 +168,15 @@ assert complex("-2j") == -2j
 assert_raises(TypeError, lambda: complex("5+2j", 1))
 assert_raises(ValueError, lambda: complex("abc"))
 
+# whitespace is allowed around the string and the optional parentheses,
+# but not inside the numeric token
+assert complex("  1+2j  ") == 1 + 2j
+assert complex("(1+2j)") == 1 + 2j
+assert complex(" ( 1+2j ) ") == 1 + 2j
+assert_raises(ValueError, lambda: complex("1 +2j"))
+assert_raises(ValueError, lambda: complex("1+ 2j"))
+assert_raises(ValueError, lambda: complex("1 + 2j"))
+
 assert complex("1+10j") == 1 + 10j
 assert complex(10) == 10 + 0j
 assert complex(10.0) == 10 + 0j
