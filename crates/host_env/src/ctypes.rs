@@ -2150,7 +2150,9 @@ pub fn call(
         .iter()
         .map(|arg| match arg {
             Lowered::Scalar(value) => ffi_arg_from_value(value),
-            Lowered::Aggregate(buffer) => Arg::new(&buffer[0]),
+            // `.first()` avoids indexing an empty buffer (a zero-sized by-value
+            // aggregate); libffi reads nothing for a zero-size type.
+            Lowered::Aggregate(buffer) => Arg::new(buffer.first().unwrap_or(&0u8)),
         })
         .collect();
 
