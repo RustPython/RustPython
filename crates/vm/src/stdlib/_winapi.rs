@@ -357,7 +357,8 @@ mod _winapi {
         } else {
             ms as u32
         };
-        host_winapi::wait_for_single_object(h.0, ms).map_err(|e| e.to_pyexception(vm))
+        vm.allow_threads(|| host_winapi::wait_for_single_object(h.0, ms))
+            .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -381,8 +382,10 @@ mod _winapi {
             return Err(vm.new_value_error("WaitForMultipleObjects supports at most 64 handles"));
         }
 
-        host_winapi::wait_for_multiple_objects(&handles, wait_all, milliseconds)
-            .map_err(|e| e.to_pyexception(vm))
+        vm.allow_threads(|| {
+            host_winapi::wait_for_multiple_objects(&handles, wait_all, milliseconds)
+        })
+        .map_err(|e| e.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -566,8 +569,7 @@ mod _winapi {
         #[pymethod]
         fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
             let mut inner = self.inner.lock();
-            inner
-                .get_result(wait)
+            vm.allow_threads(|| inner.get_result(wait))
                 .map(|result| (result.transferred, result.error))
                 .map_err(|e| e.to_pyexception(vm))
         }
@@ -634,7 +636,8 @@ mod _winapi {
             }
             Ok(ov.into_pyobject(vm))
         } else {
-            host_winapi::connect_named_pipe(handle.0).map_err(|e| e.to_pyexception(vm))?;
+            vm.allow_threads(|| host_winapi::connect_named_pipe(handle.0))
+                .map_err(|e| e.to_pyexception(vm))?;
             Ok(vm.ctx.none())
         }
     }
@@ -802,7 +805,9 @@ mod _winapi {
             return Ok(result.into());
         }
 
-        let result = host_winapi::read_file(handle.0, size).map_err(|e| e.to_pyexception(vm))?;
+        let result = vm
+            .allow_threads(|| host_winapi::read_file(handle.0, size))
+            .map_err(|e| e.to_pyexception(vm))?;
         Ok(vm
             .ctx
             .new_tuple(vec![
@@ -926,12 +931,15 @@ mod _winapi {
         #[cfg(not(feature = "threading"))]
         let sigint_event: Option<host_winapi::Handle> = None;
 
-        match host_winapi::batched_wait_for_multiple_objects(
-            &handles,
-            wait_all,
-            milliseconds,
-            sigint_event,
-        ) {
+        let batched_result = vm.allow_threads(|| {
+            host_winapi::batched_wait_for_multiple_objects(
+                &handles,
+                wait_all,
+                milliseconds,
+                sigint_event,
+            )
+        });
+        match batched_result {
             Ok(host_winapi::BatchedWaitResult::All) => Ok(vm.ctx.none()),
             Ok(host_winapi::BatchedWaitResult::Indices(indices)) => Ok(vm
                 .ctx

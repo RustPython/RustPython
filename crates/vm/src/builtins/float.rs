@@ -399,8 +399,16 @@ impl PyFloat {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        let result = crate::literal::float::from_hex(string.as_str().trim())
-            .ok_or_else(|| vm.new_value_error("invalid hexadecimal floating-point string"))?;
+        use float_ops::HexFloatError;
+        let result = float_ops::from_hex(string.as_str()).map_err(|e| match e {
+            HexFloatError::Overflow => {
+                vm.new_overflow_error("hexadecimal value too large to represent as a float")
+            }
+            HexFloatError::TooLong => vm.new_value_error("hexadecimal string too long to convert"),
+            HexFloatError::Invalid => {
+                vm.new_value_error("invalid hexadecimal floating-point string")
+            }
+        })?;
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 

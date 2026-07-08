@@ -199,15 +199,11 @@ mod gc {
         // PyObjects, so they never appear in get_referrers results. Since
         // RustPython materializes every frame as a PyObject, we must exclude
         // them manually to match the expected behavior.
-        let stack_frames: HashSet<usize> = vm
-            .frames
-            .borrow()
-            .iter()
-            .map(|fp| {
-                let frame: &crate::PyObject = unsafe { fp.as_ref() }.as_ref();
-                frame as *const crate::PyObject as usize
-            })
-            .collect();
+        let mut stack_frames: HashSet<usize> = HashSet::new();
+        crate::frame::for_each_current_frame(|frame| {
+            let obj: &crate::PyObject = frame.as_ref();
+            stack_frames.insert(obj as *const crate::PyObject as usize);
+        });
 
         let mut result = Vec::new();
 

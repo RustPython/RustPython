@@ -1262,7 +1262,6 @@ class HexFloatTestCase(FloatsAreIdenticalMixin, unittest.TestCase):
                     self.identical(got, expected)
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: invalid hexadecimal floating-point string
     def test_from_hex(self):
         MIN = self.MIN
         MAX = self.MAX

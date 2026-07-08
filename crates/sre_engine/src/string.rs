@@ -341,10 +341,6 @@ const CONT_MASK: u8 = 0b0011_1111;
 
 const UNDERSCORE: u32 = '_' as u32;
 
-const fn is_py_ascii_whitespace(b: u8) -> bool {
-    matches!(b, b'\t' | b'\n' | b'\x0C' | b'\r' | b' ' | b'\x0B')
-}
-
 #[inline]
 pub(crate) fn is_word(ch: u32) -> bool {
     ch == UNDERSCORE || u8::try_from(ch).is_ok_and(|x| x.is_ascii_alphanumeric())
@@ -352,7 +348,7 @@ pub(crate) fn is_word(ch: u32) -> bool {
 
 #[inline]
 pub(crate) fn is_space(ch: u32) -> bool {
-    u8::try_from(ch).is_ok_and(is_py_ascii_whitespace)
+    u8::try_from(ch).is_ok_and(rustpython_wtf8::is_py_ascii_whitespace)
 }
 
 #[inline]

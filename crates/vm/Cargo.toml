@@ -54,6 +54,7 @@ flame = { workspace = true, optional = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
+itoa = { workspace = true }
 is-macro = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }

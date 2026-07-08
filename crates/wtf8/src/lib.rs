@@ -1347,6 +1347,13 @@ pub fn slice_error_fail(s: &Wtf8, begin: usize, end: usize) -> ! {
     panic!("index {begin} and/or {end} in `{s:?}` do not lie on character boundary");
 }
 
+/// True for the ASCII bytes Python treats as whitespace in numeric parsing
+/// (`\t \n \x0b \x0c \r` and space).
+#[must_use]
+pub const fn is_py_ascii_whitespace(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r' | b' ')
+}
+
 /// Iterator for the code points of a WTF-8 string.
 ///
 /// Created with the method `.code_points()`.
