@@ -18,6 +18,20 @@ pub struct PyMethodDef {
     pub ml_doc: *const c_char,
 }
 
+impl PyMethodDef {
+    pub(crate) fn iter<'a>(mut methods: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let def = unsafe { &*methods };
+            if def.ml_name.is_null() {
+                None
+            } else {
+                methods = unsafe { methods.add(1) };
+                Some(def)
+            }
+        })
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(non_snake_case)]

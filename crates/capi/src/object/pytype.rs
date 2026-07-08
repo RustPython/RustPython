@@ -20,6 +20,20 @@ pub struct PyType_Slot {
     pub pfunc: *mut c_void,
 }
 
+impl PyType_Slot {
+    pub(crate) fn iter<'a>(mut slots: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let slot = unsafe { &*slots };
+            if slot.slot == 0 {
+                None
+            } else {
+                slots = unsafe { slots.add(1) };
+                Some(slot)
+            }
+        })
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
     unsafe { (*op).class() }
@@ -156,10 +170,8 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                         ))
                     })?;
                 }
-                PySlotKind::TypeSlots { mut value, .. } => {
-                    while let slot = unsafe { &*value }
-                        && slot.slot != 0
-                    {
+                PySlotKind::TypeSlots { value, .. } => {
+                    for slot in PyType_Slot::iter(value) {
                         let slot_id: u8 = slot.slot.try_into().unwrap();
                         match slot_id.try_into().unwrap() {
                             SlotAccessor::TpDoc => {
@@ -185,10 +197,7 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                 }));
                             }
                             SlotAccessor::TpMethods => {
-                                let mut def_ptr = slot.pfunc.cast::<PyMethodDef>();
-                                while let def = unsafe { &*def_ptr }
-                                    && !def.ml_name.is_null()
-                                {
+                                for def in PyMethodDef::iter(slot.pfunc.cast()) {
                                     let name = unsafe {
                                         CStr::from_ptr(def.ml_name)
                                             .to_str()
@@ -199,7 +208,6 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                             .contains(PyMethodFlags::STATIC);
                                     let method = build_method_def(vm, def, !is_static)?;
                                     methods.push((name, method));
-                                    def_ptr = unsafe { def_ptr.add(1) }
                                 }
                             }
                             slot => {
@@ -208,7 +216,6 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                 )));
                             }
                         }
-                        value = unsafe { value.add(1) };
                     }
                 }
                 PySlotKind::TypeExtraBasicSize(size) => {
