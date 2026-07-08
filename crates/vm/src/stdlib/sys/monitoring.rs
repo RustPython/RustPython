@@ -528,9 +528,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // Each code object gets only the events that apply to it (global + its
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
-    for fp in vm.frames.borrow().iter() {
-        // SAFETY: frames in the Vec are alive while their FrameRef is on the call stack.
-        let frame = unsafe { fp.as_ref() };
+    crate::frame::for_each_current_frame(|frame| {
         let code = &frame.code;
         let code_ver = code.instrumentation_version.load(Ordering::Acquire);
         if code_ver != new_ver {
@@ -539,7 +537,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
             code.instrumentation_version
                 .store(new_ver, Ordering::Release);
         }
-    }
+    });
 }
 
 fn use_tool_id(tool_id: i32, name: &str, vm: &VirtualMachine) -> PyResult<()> {

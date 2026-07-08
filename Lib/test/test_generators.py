@@ -762,7 +762,6 @@ class GeneratorDeallocTest(unittest.TestCase):
                 self.assertIn('a', frame_locals)
                 self.assertEqual(frame_locals['a'], 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame locals don't survive generator deallocation
     def test_frame_locals_outlive_generator(self):
         frame_locals1 = None
 

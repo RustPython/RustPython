@@ -24,7 +24,7 @@ use libffi::middle::Type;
 ))]
 use libffi::{
     low,
-    middle::{Arg, Cif, Closure, CodePtr},
+    middle::{Arg, Cif, Closure, CodePtr, Ret},
 };
 #[cfg(any(unix, windows))]
 use libloading::Library;
@@ -650,21 +650,6 @@ pub enum FfiValue {
     F32(f32),
     F64(f64),
     Pointer(usize),
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub enum CallResult {
-    Void,
-    Pointer(usize),
-    Value(low::ffi_arg),
 }
 
 #[cfg(all(
@@ -1546,78 +1531,6 @@ pub fn ffi_type_from_code(ty: &str) -> Option<Type> {
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-pub fn ffi_type_from_tag(tag: u8) -> Type {
-    match tag {
-        b'c' | b'b' => Type::i8(),
-        b'B' | b'?' => Type::u8(),
-        b'h' | b'v' => Type::i16(),
-        b'H' => Type::u16(),
-        b'i' => Type::i32(),
-        b'I' => Type::u32(),
-        b'l' => {
-            if core::mem::size_of::<c_long>() == 8 {
-                Type::i64()
-            } else {
-                Type::i32()
-            }
-        }
-        b'L' => {
-            if core::mem::size_of::<c_ulong>() == 8 {
-                Type::u64()
-            } else {
-                Type::u32()
-            }
-        }
-        b'q' => Type::i64(),
-        b'Q' => Type::u64(),
-        b'f' => Type::f32(),
-        b'd' | b'g' => Type::f64(),
-        b'u' => {
-            if core::mem::size_of::<WChar>() == 2 {
-                Type::u16()
-            } else {
-                Type::u32()
-            }
-        }
-        _ => Type::pointer(),
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn ffi_type_from_format(fmt: &str) -> Type {
-    match fmt.trim_start_matches(['<', '>', '!', '@', '=']) {
-        "b" => Type::i8(),
-        "B" => Type::u8(),
-        "h" => Type::i16(),
-        "H" => Type::u16(),
-        "i" | "l" => Type::i32(),
-        "I" | "L" => Type::u32(),
-        "q" => Type::i64(),
-        "Q" => Type::u64(),
-        "f" => Type::f32(),
-        "d" => Type::f64(),
-        "P" | "z" | "Z" | "O" => Type::pointer(),
-        _ => Type::u8(),
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
 pub fn ffi_repeat_type(elem_type: Type, len: usize) -> Type {
     Type::structure(core::iter::repeat_n(elem_type, len))
 }
@@ -1685,119 +1598,6 @@ pub fn ffi_f64_type() -> Type {
 ))]
 pub fn ffi_void_type() -> Type {
     Type::void()
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn ffi_type_for_return_size(size: usize) -> Type {
-    if size <= 4 {
-        Type::i32()
-    } else if size <= 8 {
-        Type::i64()
-    } else {
-        Type::pointer()
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CTypeParamKind {
-    Structure,
-    Union,
-    Array,
-    Pointer,
-    Simple,
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn ffi_type_for_layout(
-    kind: CTypeParamKind,
-    ffi_field_types: &[Type],
-    size: usize,
-    length: usize,
-    format: Option<&str>,
-) -> Type {
-    const MAX_FFI_STRUCT_SIZE: usize = 1024 * 1024;
-
-    match kind {
-        CTypeParamKind::Structure | CTypeParamKind::Union => {
-            if !ffi_field_types.is_empty() {
-                Type::structure(ffi_field_types.iter().cloned())
-            } else if size <= MAX_FFI_STRUCT_SIZE {
-                ffi_byte_struct(size)
-            } else {
-                ffi_pointer_type()
-            }
-        }
-        CTypeParamKind::Array => {
-            if size > MAX_FFI_STRUCT_SIZE || length > MAX_FFI_STRUCT_SIZE {
-                ffi_pointer_type()
-            } else if let Some(fmt) = format {
-                ffi_repeat_type(ffi_type_from_format(fmt), length)
-            } else {
-                ffi_byte_struct(size)
-            }
-        }
-        CTypeParamKind::Pointer => ffi_pointer_type(),
-        CTypeParamKind::Simple => {
-            if let Some(fmt) = format {
-                ffi_type_from_format(fmt)
-            } else {
-                Type::u8()
-            }
-        }
-    }
-}
-
-#[cfg(all(
-    any(
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "windows",
-        target_os = "android"
-    ),
-    not(any(target_env = "musl", target_env = "sgx"))
-))]
-pub fn callproc(
-    code_ptr: CodePtr,
-    ffi_arg_types: Vec<Type>,
-    ffi_return_type: Type,
-    ffi_args: &[Arg<'_>],
-    restype_is_none: bool,
-    is_pointer_return: bool,
-) -> CallResult {
-    let cif = Cif::new(ffi_arg_types, ffi_return_type);
-    if restype_is_none {
-        unsafe { cif.call::<()>(code_ptr, ffi_args) };
-        CallResult::Void
-    } else if is_pointer_return {
-        CallResult::Pointer(unsafe { cif.call::<usize>(code_ptr, ffi_args) })
-    } else {
-        CallResult::Value(unsafe { cif.call::<low::ffi_arg>(code_ptr, ffi_args) })
-    }
 }
 
 #[cfg(all(
@@ -2052,6 +1852,32 @@ impl<U: 'static> Drop for CallbackThunk<U> {
     }
 }
 
+/// Type codes whose value is a pointer (drives pointer-return decoding and
+/// TYPEFLAG_ISPOINTER).
+pub fn simple_type_is_pointer(code: &str) -> bool {
+    matches!(code, "z" | "Z" | "P" | "s" | "X" | "O")
+}
+
+/// All valid ctypes simple type codes on this platform.
+//
+// TODO: the vm's `SIMPLE_TYPE_CHARS` const (crates/vm/src/stdlib/_ctypes/simple.rs)
+// should adopt this as the single source of truth.
+pub fn simple_type_chars() -> &'static str {
+    #[cfg(windows)]
+    {
+        // spell-checker: disable-next-line
+        "cbBhHiIlLdfuzZqQPXOv?g"
+    }
+    #[cfg(not(windows))]
+    {
+        // spell-checker: disable-next-line
+        "cbBhHiIlLdfuzZqQPOv?g"
+    }
+}
+
+/// Recursive layout of a ctypes type: memory shape independent of any object
+/// model, used to lower by-value aggregate arguments and aggregate returns for
+/// [`call`].
 #[cfg(all(
     any(
         target_os = "linux",
@@ -2061,18 +1887,354 @@ impl<U: 'static> Drop for CallbackThunk<U> {
     ),
     not(any(target_env = "musl", target_env = "sgx"))
 ))]
-pub fn call_result_bytes(raw_result: &CallResult) -> Option<(Vec<u8>, usize)> {
-    match raw_result {
-        CallResult::Void => None,
-        CallResult::Pointer(ptr) => {
-            let bytes = ptr.to_ne_bytes();
-            Some((bytes.to_vec(), core::mem::size_of::<usize>()))
-        }
-        CallResult::Value(val) => {
-            let bytes = val.to_ne_bytes();
-            Some((bytes.to_vec(), core::mem::size_of_val(val)))
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CTypeLayout {
+    /// Simple type identified by its ctypes code ('i', 'd', 'P', 'u', ...).
+    Simple(char),
+    /// Any pointer-kind field (`POINTER(T)`, `c_void_p`/`z`/`Z`, function pointer).
+    Pointer,
+    /// Struct with per-field layouts in declaration order; `size` is the total
+    /// size including trailing padding.
+    Struct { fields: Vec<Self>, size: usize },
+    /// Union, lowered to a size-matched byte struct (libffi has no union kind, so
+    /// register classification of float-only unions is approximate).
+    Union { fields: Vec<Self>, size: usize },
+    /// Fixed-length array; only meaningful nested inside an aggregate.
+    Array {
+        element: Box<Self>,
+        length: usize,
+        size: usize,
+    },
+    /// No field information available: a size-matched byte struct fallback.
+    Opaque { size: usize },
+}
+
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+impl CTypeLayout {
+    /// Total size in bytes.
+    pub fn size(&self) -> usize {
+        match self {
+            Self::Simple(code) => {
+                let mut buf = [0u8; 4];
+                simple_type_size(code.encode_utf8(&mut buf)).unwrap_or(0)
+            }
+            Self::Pointer => POINTER_SIZE,
+            Self::Struct { size, .. }
+            | Self::Union { size, .. }
+            | Self::Array { size, .. }
+            | Self::Opaque { size } => *size,
         }
     }
+
+    /// Lower to a libffi type. `Err` if a simple code is unrecognized.
+    fn to_ffi_type(&self) -> Result<Type, CallError> {
+        match self {
+            Self::Simple(code) => {
+                let mut buf = [0u8; 4];
+                let code = code.encode_utf8(&mut buf);
+                ffi_type_from_code(code).ok_or_else(|| CallError::UnknownTypeCode(code.to_string()))
+            }
+            Self::Pointer => Ok(ffi_pointer_type()),
+            Self::Struct { fields, .. } => {
+                let mut ffi_fields = Vec::with_capacity(fields.len());
+                for field in fields {
+                    ffi_fields.push(field.to_ffi_type()?);
+                }
+                Ok(Type::structure(ffi_fields))
+            }
+            Self::Array {
+                element, length, ..
+            } => Ok(ffi_repeat_type(element.to_ffi_type()?, *length)),
+            Self::Union { size, .. } | Self::Opaque { size } => Ok(ffi_byte_struct(*size)),
+        }
+    }
+}
+
+/// One argument of a foreign call. Buffers are borrowed and must outlive the
+/// call; keeping their owners alive is the caller's responsibility.
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+#[derive(Debug, Clone, Copy)]
+pub enum CallArg<'a> {
+    /// A value typed by a ctypes simple type code, as its raw native-endian
+    /// buffer (at least `simple_type_size(code)` bytes relevant).
+    Typed { code: &'a str, buffer: &'a [u8] },
+    /// Untyped Python int (ConvParam default: C int).
+    Int(i32),
+    /// Untyped Python float (ConvParam default: C double).
+    Double(f64),
+    /// Address-valued argument (pointer decay, byref, bytes/str copies, NULL = 0).
+    Pointer(usize),
+    /// By-value aggregate: layout plus its raw bytes (`buffer.len() >= layout.size()`).
+    Aggregate {
+        layout: &'a CTypeLayout,
+        buffer: &'a [u8],
+    },
+}
+
+/// Return-type selector for [`call`].
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+#[derive(Debug, Clone, Copy)]
+pub enum CallRet<'a> {
+    /// restype is None: the call returns void.
+    Void,
+    /// A ctypes simple type code. Pointer-kind codes (`simple_type_is_pointer`)
+    /// yield [`CallValue::Pointer`]; everything else [`CallValue::Scalar`].
+    Code(&'a str),
+    /// A pointer-typed return without a driving code (`POINTER(T)`, function
+    /// pointer).
+    Pointer,
+    /// A by-value aggregate return.
+    Aggregate(&'a CTypeLayout),
+}
+
+/// Per-call error-swapping options.
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CallOptions {
+    /// Swap the ctypes-local errno around the raw call (unix; ignored on windows).
+    pub use_errno: bool,
+    /// Swap the ctypes-local last error around the raw call (windows; ignored
+    /// elsewhere).
+    pub use_last_error: bool,
+}
+
+/// Result of a foreign call.
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+#[derive(Debug)]
+pub enum CallValue {
+    /// Void return.
+    Void,
+    /// Raw return-register image, native endian (register-sized: 8 bytes on
+    /// 64-bit). Decode with [`decode_type_code`].
+    Scalar(Vec<u8>),
+    /// Pointer-valued return.
+    Pointer(usize),
+    /// Exactly `layout.size()` bytes of a returned aggregate.
+    Aggregate(Vec<u8>),
+}
+
+/// Errors from [`call`].
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallError {
+    NullFunctionPointer,
+    UnknownTypeCode(String),
+    /// An aggregate argument's buffer was shorter than its layout size.
+    BufferTooSmall {
+        expected: usize,
+        got: usize,
+    },
+}
+
+/// Perform a foreign call: handles scalar, pointer, and by-value aggregate
+/// arguments, and void / scalar / pointer / aggregate returns.
+#[cfg(all(
+    any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows",
+        target_os = "android"
+    ),
+    not(any(target_env = "musl", target_env = "sgx"))
+))]
+pub fn call(
+    addr: usize,
+    args: &[CallArg<'_>],
+    ret: CallRet<'_>,
+    options: CallOptions,
+) -> Result<CallValue, CallError> {
+    enum Lowered<'a> {
+        Scalar(FfiValue),
+        Aggregate(&'a [u8]),
+    }
+
+    let code_ptr = code_ptr_from_addr(addr).ok_or(CallError::NullFunctionPointer)?;
+
+    // Pass 1: argument types + owned scalar values / borrowed aggregate buffers.
+    let mut ffi_arg_types: Vec<Type> = Vec::with_capacity(args.len());
+    let mut lowered: Vec<Lowered<'_>> = Vec::with_capacity(args.len());
+    for arg in args {
+        match arg {
+            CallArg::Typed { code, buffer } => {
+                let ty = ffi_type_from_code(code)
+                    .ok_or_else(|| CallError::UnknownTypeCode((*code).to_string()))?;
+                ffi_arg_types.push(ty);
+                lowered.push(Lowered::Scalar(ffi_value_from_type_code(code, buffer)));
+            }
+            CallArg::Int(value) => {
+                ffi_arg_types.push(ffi_i32_type());
+                lowered.push(Lowered::Scalar(FfiValue::I32(*value)));
+            }
+            CallArg::Double(value) => {
+                ffi_arg_types.push(ffi_f64_type());
+                lowered.push(Lowered::Scalar(FfiValue::F64(*value)));
+            }
+            CallArg::Pointer(value) => {
+                ffi_arg_types.push(ffi_pointer_type());
+                lowered.push(Lowered::Scalar(FfiValue::Pointer(*value)));
+            }
+            CallArg::Aggregate { layout, buffer } => {
+                let expected = layout.size();
+                if buffer.len() < expected {
+                    return Err(CallError::BufferTooSmall {
+                        expected,
+                        got: buffer.len(),
+                    });
+                }
+                ffi_arg_types.push(layout.to_ffi_type()?);
+                lowered.push(Lowered::Aggregate(buffer));
+            }
+        }
+    }
+
+    let ffi_return_type = match ret {
+        CallRet::Void => ffi_void_type(),
+        CallRet::Code(code) => {
+            ffi_type_from_code(code).ok_or_else(|| CallError::UnknownTypeCode(code.to_string()))?
+        }
+        CallRet::Pointer => ffi_pointer_type(),
+        CallRet::Aggregate(layout) => layout.to_ffi_type()?,
+    };
+
+    // Pass 2: borrow the completed `lowered` as libffi Args. No reallocation can
+    // now invalidate the scalar borrows; aggregate Args point at caller buffers.
+    let ffi_args: Vec<Arg<'_>> = lowered
+        .iter()
+        .map(|arg| match arg {
+            Lowered::Scalar(value) => ffi_arg_from_value(value),
+            // `.first()` avoids indexing an empty buffer (a zero-sized by-value
+            // aggregate); libffi reads nothing for a zero-size type.
+            Lowered::Aggregate(buffer) => Arg::new(buffer.first().unwrap_or(&0u8)),
+        })
+        .collect();
+
+    let cif = Cif::new(ffi_arg_types, ffi_return_type);
+
+    // Allocate the aggregate return buffer outside the error-swap window so no
+    // allocation runs between the raw call and the errno/last-error capture.
+    // libffi requires this buffer be at least `ffi_arg`-sized and suitably
+    // aligned; a `u64` slice guarantees both.
+    let mut aggregate_buffer: Vec<u64> = match ret {
+        CallRet::Aggregate(layout) => vec![0u64; core::cmp::max(layout.size(), 8).div_ceil(8)],
+        _ => Vec::new(),
+    };
+
+    enum RawResult {
+        Void,
+        Pointer(usize),
+        Scalar(u64),
+        Aggregate,
+    }
+
+    let mut invoke = || -> RawResult {
+        match ret {
+            CallRet::Void => {
+                unsafe { cif.call::<()>(code_ptr, &ffi_args) };
+                RawResult::Void
+            }
+            CallRet::Code(code) if simple_type_is_pointer(code) => {
+                RawResult::Pointer(unsafe { cif.call::<usize>(code_ptr, &ffi_args) })
+            }
+            CallRet::Code(_) => {
+                // Capture a full register (`u64`), not `low::ffi_arg`: the
+                // `libffi_sys` binding types `ffi_arg` as `c_ulong`, which is
+                // 4 bytes under LLP64 (Windows x64) and would truncate 8-byte
+                // returns (`q`/`Q`/`d`). `decode_type_code` reads the leading
+                // bytes the type code needs.
+                RawResult::Scalar(unsafe { cif.call::<u64>(code_ptr, &ffi_args) })
+            }
+            CallRet::Pointer => {
+                RawResult::Pointer(unsafe { cif.call::<usize>(code_ptr, &ffi_args) })
+            }
+            CallRet::Aggregate(_) => {
+                unsafe {
+                    cif.call_return_into(code_ptr, &ffi_args, Ret::new(&mut aggregate_buffer[..]));
+                }
+                RawResult::Aggregate
+            }
+        }
+    };
+
+    #[cfg(not(windows))]
+    let raw = if options.use_errno {
+        with_swapped_errno(invoke)
+    } else {
+        invoke()
+    };
+
+    #[cfg(windows)]
+    let raw = if options.use_last_error {
+        with_swapped_last_error(invoke)
+    } else {
+        invoke()
+    };
+
+    let result = match raw {
+        RawResult::Void => CallValue::Void,
+        RawResult::Pointer(ptr) => CallValue::Pointer(ptr),
+        RawResult::Scalar(value) => CallValue::Scalar(value.to_ne_bytes().to_vec()),
+        RawResult::Aggregate => {
+            let size = match ret {
+                CallRet::Aggregate(layout) => layout.size(),
+                _ => 0,
+            };
+            let bytes: Vec<u8> = aggregate_buffer
+                .iter()
+                .flat_map(|word| word.to_ne_bytes())
+                .collect();
+            CallValue::Aggregate(bytes[..size].to_vec())
+        }
+    };
+
+    Ok(result)
 }
 
 /// # Safety
@@ -2717,4 +2879,691 @@ pub fn dlsym_checked(_handle: usize, symbol_name: &CStr) -> Result<*mut c_void, 
         "symbol '{}' not found",
         symbol_name.to_string_lossy()
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn simple_type_is_pointer_classifies_codes() {
+        assert!(simple_type_is_pointer("z"));
+        assert!(simple_type_is_pointer("Z"));
+        assert!(simple_type_is_pointer("P"));
+        assert!(simple_type_is_pointer("O"));
+        assert!(!simple_type_is_pointer("i"));
+        assert!(!simple_type_is_pointer("d"));
+        assert!(!simple_type_is_pointer(""));
+    }
+
+    #[test]
+    fn simple_type_chars_contains_expected_codes() {
+        let chars = simple_type_chars();
+        assert!(chars.contains('i'));
+        assert!(chars.contains('d'));
+        assert!(chars.contains('P'));
+        // junk / non-code characters are excluded
+        assert!(!chars.contains('@'));
+        assert!(!chars.contains(' '));
+        assert!(!chars.contains('1'));
+    }
+
+    #[cfg(all(
+        any(
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "windows",
+            target_os = "android"
+        ),
+        not(any(target_env = "musl", target_env = "sgx"))
+    ))]
+    mod call_tests {
+        use super::*;
+
+        extern "C" fn abs_i32(x: i32) -> i32 {
+            x.abs()
+        }
+
+        extern "C" fn add_i32(a: i32, b: i32) -> i32 {
+            a + b
+        }
+
+        extern "C" fn sqrt_f64(x: f64) -> f64 {
+            x.sqrt()
+        }
+
+        extern "C" fn noop() {}
+
+        #[repr(C)]
+        struct PairI32 {
+            a: i32,
+            b: i32,
+        }
+        extern "C" fn sum_pair(p: PairI32) -> i32 {
+            p.a + p.b
+        }
+        extern "C" fn ret_pair() -> PairI32 {
+            PairI32 { a: 10, b: 20 }
+        }
+
+        #[repr(C)]
+        struct PairF32 {
+            x: f32,
+            y: f32,
+        }
+        extern "C" fn sum_pair_f32(p: PairF32) -> f32 {
+            p.x + p.y
+        }
+
+        #[repr(C)]
+        struct Inner {
+            a: i32,
+            b: i32,
+        }
+        #[repr(C)]
+        struct Outer {
+            inner: Inner,
+            c: i32,
+        }
+        extern "C" fn sum_outer(o: Outer) -> i32 {
+            o.inner.a + o.inner.b + o.c
+        }
+
+        #[repr(C)]
+        struct ArrStruct {
+            arr: [i32; 3],
+            tag: i32,
+        }
+        extern "C" fn sum_arr_struct(s: ArrStruct) -> i32 {
+            s.arr[0] + s.arr[1] + s.arr[2] + s.tag
+        }
+
+        #[repr(C)]
+        struct Big {
+            a: i64,
+            b: i64,
+            c: i64,
+        }
+        extern "C" fn sum_big(v: Big) -> i64 {
+            v.a + v.b + v.c
+        }
+        extern "C" fn ret_big() -> Big {
+            Big { a: 1, b: 2, c: 3 }
+        }
+
+        #[allow(dead_code)]
+        #[repr(C)]
+        struct S3 {
+            a: u8,
+            b: u8,
+            c: u8,
+        }
+        extern "C" fn ret_s3() -> S3 {
+            S3 { a: 1, b: 2, c: 3 }
+        }
+
+        #[allow(dead_code)]
+        #[repr(C)]
+        struct S5 {
+            a: u8,
+            b: u8,
+            c: u8,
+            d: u8,
+            e: u8,
+        }
+        extern "C" fn ret_s5() -> S5 {
+            S5 {
+                a: 1,
+                b: 2,
+                c: 3,
+                d: 4,
+                e: 5,
+            }
+        }
+
+        #[allow(dead_code)]
+        #[repr(C)]
+        struct S12 {
+            a: i32,
+            b: i32,
+            c: i32,
+        }
+        extern "C" fn ret_s12() -> S12 {
+            S12 {
+                a: 100,
+                b: 200,
+                c: 300,
+            }
+        }
+
+        fn addr_of(f: extern "C" fn() -> ()) -> usize {
+            f as *const () as usize
+        }
+
+        fn scalar_bytes(value: &CallValue) -> &[u8] {
+            match value {
+                CallValue::Scalar(bytes) => bytes,
+                other => panic!("expected Scalar, got {other:?}"),
+            }
+        }
+
+        fn aggregate_bytes(value: &CallValue) -> &[u8] {
+            match value {
+                CallValue::Aggregate(bytes) => bytes,
+                other => panic!("expected Aggregate, got {other:?}"),
+            }
+        }
+
+        fn i32_bytes(values: &[i32]) -> Vec<u8> {
+            values.iter().flat_map(|v| v.to_ne_bytes()).collect()
+        }
+
+        // --- scalar parity -----------------------------------------------------
+
+        #[test]
+        fn calls_f64_scalar() {
+            let addr = sqrt_f64 as *const () as usize;
+            let result = call(
+                addr,
+                &[CallArg::Double(2.0)],
+                CallRet::Code("d"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            match decode_type_code("d", scalar_bytes(&result)) {
+                DecodedValue::Float(v) => {
+                    assert!((v - core::f64::consts::SQRT_2).abs() < 1e-12)
+                }
+                _ => panic!("expected Float return"),
+            }
+        }
+
+        #[test]
+        fn typed_scalar_arg_from_buffer() {
+            let addr = abs_i32 as *const () as usize;
+            let buffer = (-5i32).to_ne_bytes();
+            let result = call(
+                addr,
+                &[CallArg::Typed {
+                    code: "i",
+                    buffer: &buffer,
+                }],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(5)
+            ));
+        }
+
+        #[test]
+        fn typed_two_scalar_args() {
+            let addr = add_i32 as *const () as usize;
+            let a = 2i32.to_ne_bytes();
+            let b = 3i32.to_ne_bytes();
+            let result = call(
+                addr,
+                &[
+                    CallArg::Typed {
+                        code: "i",
+                        buffer: &a,
+                    },
+                    CallArg::Typed {
+                        code: "i",
+                        buffer: &b,
+                    },
+                ],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(5)
+            ));
+        }
+
+        #[test]
+        fn void_return_is_void() {
+            let result = call(addr_of(noop), &[], CallRet::Void, CallOptions::default()).unwrap();
+            assert!(matches!(result, CallValue::Void));
+        }
+
+        #[test]
+        fn every_simple_code_is_accepted() {
+            for code in simple_type_chars().chars() {
+                let code = code.to_string();
+                assert!(
+                    ffi_type_from_code(&code).is_some(),
+                    "code {code:?} not accepted by call's arg/return lowering"
+                );
+            }
+        }
+
+        #[test]
+        fn scalar_lowering_helpers_agree_where_carrier_matches() {
+            // For codes whose ffi carrier type matches their ctypes signedness the
+            // two lowering helpers agree.
+            let buffer = 0x1122_3344_5566_7788u64.to_ne_bytes();
+            for code in ["b", "B", "h", "H", "i", "I", "q", "Q", "d", "f"] {
+                let by_code = ffi_value_from_type_code(code, &buffer);
+                let by_type =
+                    ffi_value_from_type(&buffer, ffi_type_from_code(code).unwrap()).unwrap();
+                assert_eq!(
+                    format!("{by_code:?}"),
+                    format!("{by_type:?}"),
+                    "code {code}"
+                );
+            }
+        }
+
+        #[test]
+        fn scalar_lowering_helpers_diverge_for_signed_char() {
+            // `ffi_value_from_type` classifies purely by libffi Type identity, while
+            // `ffi_value_from_type_code` carries ctypes signedness: for 'c' (u8
+            // carrier, signed value) the two intentionally differ. `call` uses only
+            // the code-based helper.
+            let buffer = [200u8];
+            assert!(matches!(
+                ffi_value_from_type_code("c", &buffer),
+                FfiValue::I8(-56)
+            ));
+            assert!(matches!(
+                ffi_value_from_type(&buffer, ffi_type_from_code("c").unwrap()),
+                Some(FfiValue::U8(200))
+            ));
+        }
+
+        // --- by-value aggregate arguments -------------------------------------
+
+        #[test]
+        fn passes_struct_by_value() {
+            let addr = sum_pair as *const () as usize;
+            let layout = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('i'), CTypeLayout::Simple('i')],
+                size: core::mem::size_of::<PairI32>(),
+            };
+            let buffer = i32_bytes(&[3, 4]);
+            let result = call(
+                addr,
+                &[CallArg::Aggregate {
+                    layout: &layout,
+                    buffer: &buffer,
+                }],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(7)
+            ));
+        }
+
+        #[test]
+        fn passes_nested_struct_by_value() {
+            let addr = sum_outer as *const () as usize;
+            let inner = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('i'), CTypeLayout::Simple('i')],
+                size: core::mem::size_of::<Inner>(),
+            };
+            let layout = CTypeLayout::Struct {
+                fields: vec![inner, CTypeLayout::Simple('i')],
+                size: core::mem::size_of::<Outer>(),
+            };
+            let buffer = i32_bytes(&[5, 6, 7]);
+            let result = call(
+                addr,
+                &[CallArg::Aggregate {
+                    layout: &layout,
+                    buffer: &buffer,
+                }],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(18)
+            ));
+        }
+
+        #[test]
+        fn passes_array_in_struct_by_value() {
+            let addr = sum_arr_struct as *const () as usize;
+            let layout = CTypeLayout::Struct {
+                fields: vec![
+                    CTypeLayout::Array {
+                        element: Box::new(CTypeLayout::Simple('i')),
+                        length: 3,
+                        size: 12,
+                    },
+                    CTypeLayout::Simple('i'),
+                ],
+                size: core::mem::size_of::<ArrStruct>(),
+            };
+            let buffer = i32_bytes(&[1, 2, 3, 4]);
+            let result = call(
+                addr,
+                &[CallArg::Aggregate {
+                    layout: &layout,
+                    buffer: &buffer,
+                }],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(10)
+            ));
+        }
+
+        #[test]
+        fn passes_float_pair_struct_by_value() {
+            let addr = sum_pair_f32 as *const () as usize;
+            let layout = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('f'), CTypeLayout::Simple('f')],
+                size: core::mem::size_of::<PairF32>(),
+            };
+            let mut buffer = Vec::new();
+            buffer.extend_from_slice(&1.5f32.to_ne_bytes());
+            buffer.extend_from_slice(&2.25f32.to_ne_bytes());
+            let result = call(
+                addr,
+                &[CallArg::Aggregate {
+                    layout: &layout,
+                    buffer: &buffer,
+                }],
+                CallRet::Code("f"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            match decode_type_code("f", scalar_bytes(&result)) {
+                DecodedValue::Float(v) => assert!((v - 3.75).abs() < 1e-6),
+                _ => panic!("expected Float return"),
+            }
+        }
+
+        #[test]
+        fn passes_large_struct_by_value() {
+            let addr = sum_big as *const () as usize;
+            let layout = CTypeLayout::Struct {
+                fields: vec![
+                    CTypeLayout::Simple('q'),
+                    CTypeLayout::Simple('q'),
+                    CTypeLayout::Simple('q'),
+                ],
+                size: core::mem::size_of::<Big>(),
+            };
+            let mut buffer = Vec::new();
+            for v in [11i64, 22, 33] {
+                buffer.extend_from_slice(&v.to_ne_bytes());
+            }
+            let result = call(
+                addr,
+                &[CallArg::Aggregate {
+                    layout: &layout,
+                    buffer: &buffer,
+                }],
+                CallRet::Code("q"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("q", scalar_bytes(&result)),
+                DecodedValue::Signed(66)
+            ));
+        }
+
+        // --- by-value aggregate returns ---------------------------------------
+
+        #[test]
+        fn returns_small_struct_by_value() {
+            let layout = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('i'), CTypeLayout::Simple('i')],
+                size: core::mem::size_of::<PairI32>(),
+            };
+            let result = call(
+                ret_pair as *const () as usize,
+                &[],
+                CallRet::Aggregate(&layout),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert_eq!(aggregate_bytes(&result), i32_bytes(&[10, 20]).as_slice());
+        }
+
+        #[test]
+        fn returns_odd_size_structs_by_value() {
+            let s3 = CTypeLayout::Struct {
+                fields: vec![
+                    CTypeLayout::Simple('B'),
+                    CTypeLayout::Simple('B'),
+                    CTypeLayout::Simple('B'),
+                ],
+                size: 3,
+            };
+            let result = call(
+                ret_s3 as *const () as usize,
+                &[],
+                CallRet::Aggregate(&s3),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert_eq!(aggregate_bytes(&result), &[1u8, 2, 3]);
+
+            let s5 = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('B'); 5],
+                size: 5,
+            };
+            let result = call(
+                ret_s5 as *const () as usize,
+                &[],
+                CallRet::Aggregate(&s5),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert_eq!(aggregate_bytes(&result), &[1u8, 2, 3, 4, 5]);
+
+            let s12 = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('i'); 3],
+                size: 12,
+            };
+            let result = call(
+                ret_s12 as *const () as usize,
+                &[],
+                CallRet::Aggregate(&s12),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert_eq!(
+                aggregate_bytes(&result),
+                i32_bytes(&[100, 200, 300]).as_slice()
+            );
+        }
+
+        #[test]
+        fn returns_large_struct_by_value() {
+            let layout = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('q'); 3],
+                size: core::mem::size_of::<Big>(),
+            };
+            let result = call(
+                ret_big as *const () as usize,
+                &[],
+                CallRet::Aggregate(&layout),
+                CallOptions::default(),
+            )
+            .unwrap();
+            let mut expected = Vec::new();
+            for v in [1i64, 2, 3] {
+                expected.extend_from_slice(&v.to_ne_bytes());
+            }
+            assert_eq!(aggregate_bytes(&result), expected.as_slice());
+        }
+
+        // --- pointers, layout, unions, errors ---------------------------------
+
+        #[test]
+        fn pointer_return_round_trips_address() {
+            extern "C" fn echo_ptr(p: usize) -> usize {
+                p
+            }
+            let addr = echo_ptr as *const () as usize;
+            let sentinel = 0xDEAD_BEEFusize;
+            let result = call(
+                addr,
+                &[CallArg::Pointer(sentinel)],
+                CallRet::Code("P"),
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(result, CallValue::Pointer(p) if p == sentinel));
+            let result = call(
+                addr,
+                &[CallArg::Pointer(sentinel)],
+                CallRet::Pointer,
+                CallOptions::default(),
+            )
+            .unwrap();
+            assert!(matches!(result, CallValue::Pointer(p) if p == sentinel));
+        }
+
+        #[test]
+        fn layout_size_matches_repr_c() {
+            assert_eq!(CTypeLayout::Simple('i').size(), core::mem::size_of::<i32>());
+            assert_eq!(CTypeLayout::Pointer.size(), core::mem::size_of::<usize>());
+            assert_eq!(
+                CTypeLayout::Struct {
+                    fields: vec![CTypeLayout::Simple('i'), CTypeLayout::Simple('i')],
+                    size: 8,
+                }
+                .size(),
+                8
+            );
+            assert_eq!(CTypeLayout::Opaque { size: 5 }.size(), 5);
+            assert_eq!(
+                CTypeLayout::Array {
+                    element: Box::new(CTypeLayout::Simple('i')),
+                    length: 3,
+                    size: 12,
+                }
+                .size(),
+                12
+            );
+        }
+
+        #[test]
+        fn union_layout_reports_size_and_lowers() {
+            let layout = CTypeLayout::Union {
+                fields: vec![CTypeLayout::Simple('i'), CTypeLayout::Simple('d')],
+                size: 8,
+            };
+            assert_eq!(layout.size(), 8);
+            assert!(layout.to_ffi_type().is_ok());
+        }
+
+        #[test]
+        fn null_addr_is_error() {
+            let result = call(0, &[], CallRet::Void, CallOptions::default());
+            assert_eq!(result.err(), Some(CallError::NullFunctionPointer));
+        }
+
+        #[test]
+        fn unknown_arg_code_is_error() {
+            let addr = noop as *const () as usize;
+            let result = call(
+                addr,
+                &[CallArg::Typed {
+                    code: "@",
+                    buffer: &[],
+                }],
+                CallRet::Void,
+                CallOptions::default(),
+            );
+            assert_eq!(
+                result.err(),
+                Some(CallError::UnknownTypeCode("@".to_string()))
+            );
+        }
+
+        #[test]
+        fn unknown_return_code_is_error() {
+            let addr = noop as *const () as usize;
+            let result = call(addr, &[], CallRet::Code("@"), CallOptions::default());
+            assert_eq!(
+                result.err(),
+                Some(CallError::UnknownTypeCode("@".to_string()))
+            );
+        }
+
+        #[test]
+        fn short_aggregate_buffer_is_error() {
+            let addr = sum_pair as *const () as usize;
+            let layout = CTypeLayout::Struct {
+                fields: vec![CTypeLayout::Simple('i'), CTypeLayout::Simple('i')],
+                size: 8,
+            };
+            let buffer = [0u8; 4];
+            let result = call(
+                addr,
+                &[CallArg::Aggregate {
+                    layout: &layout,
+                    buffer: &buffer,
+                }],
+                CallRet::Code("i"),
+                CallOptions::default(),
+            );
+            assert_eq!(
+                result.err(),
+                Some(CallError::BufferTooSmall {
+                    expected: 8,
+                    got: 4,
+                })
+            );
+        }
+
+        // EINVAL: a valid errno value on all unix targets, so it round-trips
+        // through crate::os::set_errno/get_errno.
+        #[cfg(not(windows))]
+        const ERRNO_MARKER: i32 = 22;
+
+        #[cfg(not(windows))]
+        extern "C" fn write_errno_marker() -> i32 {
+            crate::os::set_errno(ERRNO_MARKER);
+            7
+        }
+
+        #[cfg(not(windows))]
+        #[test]
+        fn errno_swap_window_captures_and_restores() {
+            // Distinguish the real platform errno from the ctypes-local one.
+            crate::os::set_errno(11);
+            super::super::CTYPES_LOCAL_ERRNO.with(|e| e.set(99));
+            let result = call(
+                write_errno_marker as *const () as usize,
+                &[],
+                CallRet::Code("i"),
+                CallOptions {
+                    use_errno: true,
+                    use_last_error: false,
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                decode_type_code("i", scalar_bytes(&result)),
+                DecodedValue::Signed(7)
+            ));
+            // The function's errno write landed in the ctypes-local slot...
+            assert_eq!(
+                super::super::CTYPES_LOCAL_ERRNO.with(|e| e.get()),
+                ERRNO_MARKER
+            );
+            // ...and the real errno was restored to its pre-call value.
+            assert_eq!(crate::os::get_errno(), 11);
+        }
+    }
 }

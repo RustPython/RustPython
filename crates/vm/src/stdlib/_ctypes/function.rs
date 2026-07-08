@@ -3,13 +3,13 @@
 
 use super::{
     _ctypes::CArgObject,
-    PyCArray, PyCData, PyCPointer, PyCStructure, StgInfo,
-    base::{CDATA_BUFFER_METHODS, FfiArgValue, ParamFunc, StgInfoFlags},
+    PyCArray, PyCData, PyCPointer, PyCStructure, PyCUnion, StgInfo,
+    base::{CArgValue, CDATA_BUFFER_METHODS, ParamFunc, StgInfoFlags},
     simple::PyCSimple,
 };
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBytes, PyDict, PyNone, PyStr, PyTuple, PyType, PyTypeRef},
+    builtins::{PyBytes, PyDict, PyStr, PyTuple, PyType, PyTypeRef},
     class::StaticType,
     function::FuncArgs,
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods},
@@ -25,11 +25,10 @@ use rustpython_common::lock::PyRwLock;
 #[cfg(windows)]
 use rustpython_host_env::ctypes::ComMethodError;
 use rustpython_host_env::ctypes::{
-    CallResult as RawResult, FfiCif, FfiCodePtr, FfiType, FfiValue, RawMemoryView,
-    RawMemoryViewError, StringAtError, ffi_f64_type, ffi_i32_type, ffi_pointer_type,
-    ffi_type_for_return_size, ffi_type_from_code, ffi_type_from_tag, ffi_void_type,
-    has_pointer_width, null_code_ptr, offset_address, pointer_bytes, pointer_format, pointer_size,
-    write_pointer_to_buffer_at, write_prefix_limited,
+    CTypeLayout, CallError, CallOptions, CallRet, CallValue, FfiCif, FfiCodePtr, FfiType,
+    RawMemoryView, RawMemoryViewError, StringAtError, call, ffi_pointer_type, ffi_type_from_code,
+    ffi_void_type, has_pointer_width, offset_address, pointer_bytes, pointer_format, pointer_size,
+    simple_type_is_pointer, write_pointer_to_buffer_at, write_prefix_limited,
 };
 
 // Internal function addresses for special ctypes functions
@@ -42,7 +41,7 @@ pub(super) const INTERNAL_MEMORYVIEW_AT_ADDR: usize = 4;
 
 /// Convert any object to a pointer value for c_void_p arguments
 /// Follows ConvParam logic for pointer types
-fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgValue> {
+fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<CArgValue> {
     // 0. CArgObject (from byref()) -> buffer address + offset
     if let Some(carg) = value.downcast_ref::<CArgObject>() {
         // Get buffer address from the underlying object
@@ -55,29 +54,29 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
             )));
         };
         let addr = (base_addr as isize + carg.offset) as usize;
-        return Ok(FfiArgValue::pointer(addr));
+        return Ok(CArgValue::pointer(addr));
     }
 
     // 1. None -> NULL
     if value.is(&vm.ctx.none) {
-        return Ok(FfiArgValue::pointer(0));
+        return Ok(CArgValue::pointer(0));
     }
 
     // 2. PyCArray -> buffer address (PyCArrayType_paramfunc)
     if let Some(array) = value.downcast_ref::<PyCArray>() {
         let addr = array.0.buffer.read().as_ptr() as usize;
-        return Ok(FfiArgValue::pointer(addr));
+        return Ok(CArgValue::pointer(addr));
     }
 
     // 3. PyCPointer -> stored pointer value
     if let Some(ptr) = value.downcast_ref::<PyCPointer>() {
-        return Ok(FfiArgValue::pointer(ptr.get_ptr_value()));
+        return Ok(CArgValue::pointer(ptr.get_ptr_value()));
     }
 
     // 4. PyCStructure -> buffer address
     if let Some(struct_obj) = value.downcast_ref::<PyCStructure>() {
         let addr = struct_obj.0.buffer.read().as_ptr() as usize;
-        return Ok(FfiArgValue::pointer(addr));
+        return Ok(CArgValue::pointer(addr));
     }
 
     // 5. PyCSimple (c_void_p, c_char_p, etc.) -> value from buffer
@@ -85,14 +84,14 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
         let buffer = simple.0.buffer.read();
         if has_pointer_width(&buffer) {
             let addr = rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer);
-            return Ok(FfiArgValue::pointer(addr));
+            return Ok(CArgValue::pointer(addr));
         }
     }
 
     // 6. bytes -> buffer address (PyBytes_AsString)
     if let Some(bytes) = value.downcast_ref::<crate::builtins::PyBytes>() {
         let addr = bytes.as_bytes().as_ptr() as usize;
-        return Ok(FfiArgValue::pointer(addr));
+        return Ok(CArgValue::pointer(addr));
     }
 
     // 7. Integer -> direct value (PyLong_AsVoidPtr behavior)
@@ -101,10 +100,10 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
         // Negative values: use signed conversion (allows -1 as 0xFFFF...)
         if bigint.is_negative() {
             if let Some(signed_val) = bigint.to_isize() {
-                return Ok(FfiArgValue::pointer(signed_val as usize));
+                return Ok(CArgValue::pointer(signed_val as usize));
             }
         } else if let Some(unsigned_val) = bigint.to_usize() {
-            return Ok(FfiArgValue::pointer(unsigned_val));
+            return Ok(CArgValue::pointer(unsigned_val));
         }
         // Value out of range - raise OverflowError
         return Err(vm.new_overflow_error("int too large to convert to pointer"));
@@ -122,14 +121,12 @@ fn convert_to_pointer(value: &PyObject, vm: &VirtualMachine) -> PyResult<FfiArgV
 }
 
 /// ConvParam-like conversion for when argtypes is None
-/// Returns an Argument with FFI type, value, and optional keep object
+/// Returns an Argument with value and optional keep object
 fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
-    // 1. CArgObject (from byref() or paramfunc) -> use stored type and value
+    // 1. CArgObject (from byref() or paramfunc) -> use stored value
     if let Some(carg) = value.downcast_ref::<CArgObject>() {
-        let ffi_type = ffi_type_from_tag(carg.tag);
         return Ok(Argument {
-            ffi_type,
-            keep: None,
+            keep: carg.keep.clone(),
             value: carg.value.clone(),
         });
     }
@@ -137,18 +134,15 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
     // 2. None -> NULL pointer
     if value.is(&vm.ctx.none) {
         return Ok(Argument {
-            ffi_type: ffi_pointer_type(),
             keep: None,
-            value: FfiArgValue::pointer(0),
+            value: CArgValue::pointer(0),
         });
     }
 
     // 3. ctypes objects -> use paramfunc
     if let Ok(carg) = super::base::call_paramfunc(value, vm) {
-        let ffi_type = ffi_type_from_tag(carg.tag);
         return Ok(Argument {
-            ffi_type,
-            keep: None,
+            keep: carg.keep,
             value: carg.value,
         });
     }
@@ -159,9 +153,8 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
         let keep = vm.ctx.new_bytes(wide_bytes);
         let addr = keep.as_bytes().as_ptr() as usize;
         return Ok(Argument {
-            ffi_type: ffi_pointer_type(),
             keep: Some(keep.into()),
-            value: FfiArgValue::pointer(addr),
+            value: CArgValue::pointer(addr),
         });
     }
 
@@ -172,9 +165,8 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
         let keep = vm.ctx.new_bytes(buffer);
         let addr = keep.as_bytes().as_ptr() as usize;
         return Ok(Argument {
-            ffi_type: ffi_pointer_type(),
             keep: Some(keep.into()),
-            value: FfiArgValue::pointer(addr),
+            value: CArgValue::pointer(addr),
         });
     }
 
@@ -182,18 +174,16 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
     if let Ok(int_val) = value.try_int(vm) {
         let val = int_val.as_bigint().to_i32().unwrap_or(0);
         return Ok(Argument {
-            ffi_type: ffi_i32_type(),
             keep: None,
-            value: FfiArgValue::Scalar(FfiValue::I32(val)),
+            value: CArgValue::Int(val),
         });
     }
 
     // 11. Python float -> f64
     if let Ok(float_val) = value.try_float(vm) {
         return Ok(Argument {
-            ffi_type: ffi_f64_type(),
             keep: None,
-            value: FfiArgValue::Scalar(FfiValue::F64(float_val.to_f64())),
+            value: CArgValue::Double(float_val.to_f64()),
         });
     }
 
@@ -209,47 +199,47 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
 }
 
 trait ArgumentType {
-    fn to_ffi_type(&self, vm: &VirtualMachine) -> PyResult<FfiType>;
-    fn convert_object(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<FfiArgValue>;
+    /// Convert an argument for this type into a foreign-call value plus an
+    /// optional owner keeping any referenced memory alive.
+    fn convert_object(
+        &self,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<(CArgValue, Option<PyObjectRef>)>;
 }
 
 impl ArgumentType for PyTypeRef {
-    fn to_ffi_type(&self, vm: &VirtualMachine) -> PyResult<FfiType> {
-        use super::pointer::PyCPointer;
-        use super::structure::PyCStructure;
+    fn convert_object(
+        &self,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<(CArgValue, Option<PyObjectRef>)> {
+        // Validate the argument type up front (mirrors the pre-conversion
+        // check): pointer-like ctypes types are always acceptable; a simple
+        // type must carry a known _type_ code; anything else is unsupported.
+        let type_code = if self.fast_issubclass(CArgObject::static_type())
+            || self.fast_issubclass(PyCPointer::static_type())
+            || self.fast_issubclass(PyCStructure::static_type())
+            || self.fast_issubclass(PyCUnion::static_type())
+        {
+            None
+        } else {
+            // Use get_attr to traverse MRO (for subclasses like MyInt(c_int))
+            let typ = self
+                .as_object()
+                .get_attr(vm.ctx.intern_str("_type_"), vm)
+                .ok()
+                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
+            let typ = typ
+                .downcast_ref::<PyStr>()
+                .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?
+                .to_string();
+            if ffi_type_from_code(&typ).is_none() {
+                return Err(vm.new_type_error(format!("Unsupported argument type: {typ}")));
+            }
+            Some(typ)
+        };
 
-        // CArgObject (from byref()) should be treated as pointer
-        if self.fast_issubclass(CArgObject::static_type()) {
-            return Ok(ffi_pointer_type());
-        }
-
-        // Pointer types (POINTER(T)) are always pointer FFI type
-        // Check if type is a subclass of _Pointer (PyCPointer)
-        if self.fast_issubclass(PyCPointer::static_type()) {
-            return Ok(ffi_pointer_type());
-        }
-
-        // Structure types are passed as pointers
-        if self.fast_issubclass(PyCStructure::static_type()) {
-            return Ok(ffi_pointer_type());
-        }
-
-        // Use get_attr to traverse MRO (for subclasses like MyInt(c_int))
-        let typ = self
-            .as_object()
-            .get_attr(vm.ctx.intern_str("_type_"), vm)
-            .ok()
-            .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-        let typ = typ
-            .downcast_ref::<PyStr>()
-            .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-        let typ = typ.to_string();
-        let typ = typ.as_str();
-        ffi_type_from_code(typ)
-            .ok_or_else(|| vm.new_type_error(format!("Unsupported argument type: {typ}")))
-    }
-
-    fn convert_object(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<FfiArgValue> {
         // Call from_param first to convert the value
         // converter = PyTuple_GET_ITEM(argtypes, i);
         // v = PyObject_CallOneArg(converter, arg);
@@ -259,85 +249,59 @@ impl ArgumentType for PyTypeRef {
         let converted = from_param.call((value,), vm)?;
 
         // Then pass the converted value to ConvParam logic
-        // CArgObject (from from_param) -> use stored value directly
+        // CArgObject (from from_param) -> use stored value and keepalive directly
         if let Some(carg) = converted.downcast_ref::<CArgObject>() {
-            return Ok(carg.value.clone());
+            return Ok((carg.value.clone(), carg.keep.clone()));
         }
 
         // None -> NULL pointer
         if vm.is_none(&converted) {
-            return Ok(FfiArgValue::pointer(0));
+            return Ok((CArgValue::pointer(0), None));
         }
 
         // For pointer types (POINTER(T)), we need to pass the pointer VALUE stored in buffer
         if self.fast_issubclass(PyCPointer::static_type()) {
             if let Some(pointer) = converted.downcast_ref::<PyCPointer>() {
-                return Ok(FfiArgValue::pointer(pointer.get_ptr_value()));
+                return Ok((CArgValue::pointer(pointer.get_ptr_value()), None));
             }
-            return convert_to_pointer(&converted, vm);
+            return Ok((convert_to_pointer(&converted, vm)?, None));
         }
 
-        // For structure types, convert to pointer to structure
-        if self.fast_issubclass(PyCStructure::static_type()) {
-            return convert_to_pointer(&converted, vm);
+        // For structure/union types, pass the aggregate by value: snapshot the
+        // instance bytes and build its call layout from the argtype. A byref()
+        // result is a CArgObject and was already handled above (stays a pointer).
+        if self.fast_issubclass(PyCStructure::static_type())
+            || self.fast_issubclass(PyCUnion::static_type())
+        {
+            if let Some(cdata) = converted.downcast_ref::<PyCData>() {
+                let bytes = cdata.buffer.read().to_vec();
+                let layout = self.stg_info_opt().map_or_else(
+                    || CTypeLayout::Opaque { size: bytes.len() },
+                    |stg| super::base::type_layout(self, &stg, vm),
+                );
+                // Keep the converted instance alive through the call: the
+                // snapshot may embed pointers into buffers its keep-alive set
+                // owns, which must outlive the foreign call.
+                return Ok((CArgValue::aggregate(layout, bytes), Some(converted.clone())));
+            }
+            return Ok((convert_to_pointer(&converted, vm)?, None));
         }
-
-        // Get the type code for this argument type
-        let type_code = self
-            .as_object()
-            .get_attr(vm.ctx.intern_str("_type_"), vm)
-            .ok()
-            .and_then(|t| t.downcast_ref::<PyStr>().map(|s| s.to_string()));
 
         // For pointer types (c_void_p, c_char_p, c_wchar_p), handle as pointer
         if matches!(type_code.as_deref(), Some("P" | "z" | "Z")) {
-            return convert_to_pointer(&converted, vm);
+            return Ok((convert_to_pointer(&converted, vm)?, None));
         }
 
         // PyCSimple (already a ctypes instance from from_param)
         if let Ok(simple) = converted.downcast::<PyCSimple>() {
-            let typ = ArgumentType::to_ffi_type(self, vm)?;
-            let ffi_value = simple
-                .to_ffi_value(typ, vm)
+            let code = type_code
+                .as_deref()
+                .and_then(|s| s.chars().next())
                 .ok_or_else(|| vm.new_type_error("Unsupported argument type"))?;
-            return Ok(ffi_value);
+            return Ok((simple.to_carg_value(code), None));
         }
 
         Err(vm.new_type_error("Unsupported argument type"))
-    }
-}
-
-trait ReturnType {
-    fn to_ffi_type(&self, vm: &VirtualMachine) -> Option<FfiType>;
-}
-
-impl ReturnType for PyTypeRef {
-    fn to_ffi_type(&self, vm: &VirtualMachine) -> Option<FfiType> {
-        // Try to get _type_ attribute first (for ctypes types like c_void_p)
-        if let Ok(type_attr) = self.as_object().get_attr(vm.ctx.intern_str("_type_"), vm)
-            && let Some(s) = type_attr.downcast_ref::<PyStr>()
-            && let Some(ffi_type) = s.to_str().and_then(ffi_type_from_code)
-        {
-            return Some(ffi_type);
-        }
-
-        // Check for Structure/Array types (have StgInfo but no _type_)
-        // _ctypes_get_ffi_type: returns appropriately sized type for struct returns
-        if let Some(stg_info) = self.stg_info_opt() {
-            let size = stg_info.size;
-            // Small structs can be returned in registers
-            // Match can_return_struct_as_int/can_return_struct_as_sint64
-            return Some(ffi_type_for_return_size(size));
-        }
-
-        // Fallback to class name
-        ffi_type_from_code(self.name().to_string().as_str())
-    }
-}
-
-impl ReturnType for PyNone {
-    fn to_ffi_type(&self, _vm: &VirtualMachine) -> Option<FfiType> {
-        ffi_type_from_code("void")
     }
 }
 
@@ -676,12 +640,6 @@ impl PyCFuncPtr {
         rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer)
     }
 
-    /// Get CodePtr from buffer for FFI calls
-    fn get_code_ptr(&self) -> Option<FfiCodePtr> {
-        let addr = self.get_func_ptr();
-        rustpython_host_env::ctypes::code_ptr_from_addr(addr)
-    }
-
     /// Create buffer with function pointer address
     fn make_ptr_buffer(addr: usize) -> Vec<u8> {
         pointer_bytes(addr)
@@ -961,13 +919,86 @@ fn handle_internal_func(addr: usize, args: &FuncArgs, vm: &VirtualMachine) -> Op
     None
 }
 
+/// How the foreign call's return value is retrieved (mirrors `CallRet`).
+enum RetSpec {
+    /// restype is None: void return.
+    Void,
+    /// Pointer-valued return (a `TYPEFLAG_ISPOINTER` restype, or an oversized
+    /// by-value struct approximated as a pointer-sized register).
+    Pointer,
+    /// A scalar retrieved as the given ctypes simple-type code.
+    Code(char),
+    /// A by-value aggregate (struct/union) return with the given call layout.
+    Aggregate(CTypeLayout),
+}
+
 /// Call information extracted from PyCFuncPtr (argtypes, restype, etc.)
 struct CallInfo {
     explicit_arg_types: Option<Vec<PyTypeRef>>,
     restype_obj: Option<PyObjectRef>,
+    ret: RetSpec,
+}
+
+/// Determine how to retrieve the return value from restype, reproducing the
+/// prior `ffi_return_type` + `is_pointer_return` dispatch.
+fn compute_ret_spec(
     restype_is_none: bool,
-    ffi_return_type: FfiType,
-    is_pointer_return: bool,
+    restype_obj: Option<&PyObjectRef>,
+    vm: &VirtualMachine,
+) -> RetSpec {
+    if restype_is_none {
+        return RetSpec::Void;
+    }
+    let Some(restype_type) = restype_obj.and_then(|t| t.clone().downcast::<PyType>().ok()) else {
+        return RetSpec::Code('i');
+    };
+
+    // Pointer return via TYPEFLAG_ISPOINTER (c_void_p, c_char_p, c_wchar_p, POINTER(T))
+    if restype_type
+        .stg_info_opt()
+        .is_some_and(|info| info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER))
+    {
+        return RetSpec::Pointer;
+    }
+
+    // Simple type via its _type_ code (traversing MRO)
+    if let Ok(type_attr) = restype_type
+        .as_object()
+        .get_attr(vm.ctx.intern_str("_type_"), vm)
+        && let Some(s) = type_attr.downcast_ref::<PyStr>()
+        && let Some(code) = s.to_str()
+        && ffi_type_from_code(code).is_some()
+    {
+        return if simple_type_is_pointer(code) {
+            RetSpec::Pointer
+        } else {
+            RetSpec::Code(code.chars().next().unwrap_or('i'))
+        };
+    }
+
+    // Structure/Union (StgInfo, no _type_): returned by value as an aggregate.
+    // The layout is built from the held guard to avoid re-locking the type.
+    if let Some(stg_info) = restype_type.stg_info_opt() {
+        return match stg_info.paramfunc {
+            ParamFunc::Structure | ParamFunc::Union => {
+                RetSpec::Aggregate(super::base::type_layout(&restype_type, &stg_info, vm))
+            }
+            // Any other aggregate-ish StgInfo without a code: size-approximated
+            // register return, as before.
+            _ => {
+                let size = stg_info.size;
+                if size <= 4 {
+                    RetSpec::Code('i')
+                } else if size <= 8 {
+                    RetSpec::Code('q')
+                } else {
+                    RetSpec::Pointer
+                }
+            }
+        };
+    }
+
+    RetSpec::Code('i')
 }
 
 /// Extract call information (argtypes, restype) from PyCFuncPtr
@@ -1012,33 +1043,12 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
 
     // Check if restype is explicitly None (return void)
     let restype_is_none = restype_obj.as_ref().is_some_and(|t| vm.is_none(t));
-    let ffi_return_type = if restype_is_none {
-        ffi_void_type()
-    } else {
-        restype_obj
-            .as_ref()
-            .and_then(|t| t.clone().downcast::<PyType>().ok())
-            .and_then(|t| ReturnType::to_ffi_type(&t, vm))
-            .unwrap_or_else(ffi_i32_type)
-    };
-
-    // Check if return type is a pointer type via TYPEFLAG_ISPOINTER
-    // This handles c_void_p, c_char_p, c_wchar_p, and POINTER(T) types
-    let is_pointer_return = restype_obj
-        .as_ref()
-        .and_then(|t| t.clone().downcast::<PyType>().ok())
-        .and_then(|t| {
-            t.stg_info_opt()
-                .map(|info| info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER))
-        })
-        .unwrap_or(false);
+    let ret = compute_ret_spec(restype_is_none, restype_obj.as_ref(), vm);
 
     Ok(CallInfo {
         explicit_arg_types,
         restype_obj,
-        restype_is_none,
-        ffi_return_type,
-        is_pointer_return,
+        ret,
     })
 }
 
@@ -1135,8 +1145,7 @@ fn resolve_com_method(
 /// Single argument for FFI call
 // struct argument
 struct Argument {
-    ffi_type: FfiType,
-    value: FfiArgValue,
+    value: CArgValue,
     #[allow(dead_code)]
     keep: Option<PyObjectRef>, // Object to keep alive during call
 }
@@ -1198,13 +1207,8 @@ fn build_callargs_simple(
             let arg_type = arg_types
                 .get(n)
                 .ok_or_else(|| vm.new_type_error("argument amount mismatch"))?;
-            let ffi_type = ArgumentType::to_ffi_type(arg_type, vm)?;
-            let value = arg_type.convert_object(arg.clone(), vm)?;
-            Ok(Argument {
-                ffi_type,
-                keep: None,
-                value,
-            })
+            let (value, keep) = arg_type.convert_object(arg.clone(), vm)?;
+            Ok(Argument { value, keep })
         })
         .collect::<PyResult<Vec<_>>>()?;
     Ok((arguments, Vec::new()))
@@ -1241,17 +1245,14 @@ fn build_callargs_with_paramflags(
         let is_out = (*direction & 2) != 0; // OUT flag
         let is_in = (*direction & 1) != 0 || *direction == 0; // IN flag or default
 
-        let ffi_type = ArgumentType::to_ffi_type(arg_type, vm)?;
-
         if is_out && !is_in {
             // Pure OUT parameter: create buffer, don't consume caller arg
             let buffer = create_out_buffer(arg_type, vm)?;
             let addr = get_buffer_addr(&buffer)
                 .ok_or_else(|| vm.new_type_error("Cannot create OUT buffer for this type"))?;
             arguments.push(Argument {
-                ffi_type,
                 keep: None,
-                value: FfiArgValue::pointer(addr),
+                value: CArgValue::pointer(addr),
             });
             out_buffers.push((param_idx, buffer));
         } else {
@@ -1269,12 +1270,8 @@ fn build_callargs_with_paramflags(
                 // IN|OUT: track for return
                 out_buffers.push((param_idx, arg.clone()));
             }
-            let value = arg_type.convert_object(arg, vm)?;
-            arguments.push(Argument {
-                ffi_type,
-                keep: None,
-                value,
-            });
+            let (value, keep) = arg_type.convert_object(arg, vm)?;
+            arguments.push(Argument { value, keep });
         }
     }
 
@@ -1307,13 +1304,8 @@ fn build_callargs(
             let arg_type = arg_types
                 .get(n)
                 .ok_or_else(|| vm.new_type_error("argument amount mismatch"))?;
-            let ffi_type = ArgumentType::to_ffi_type(arg_type, vm)?;
-            let value = arg_type.convert_object(arg.clone(), vm)?;
-            arguments.push(Argument {
-                ffi_type,
-                keep: None,
-                value,
-            });
+            let (value, keep) = arg_type.convert_object(arg.clone(), vm)?;
+            arguments.push(Argument { value, keep });
         }
         Ok((arguments, Vec::new()))
     } else {
@@ -1322,22 +1314,31 @@ fn build_callargs(
     }
 }
 
-/// Execute FFI call
+/// Execute the foreign call through the unified `call` entry point.
 fn ctypes_callproc(
-    code_ptr: FfiCodePtr,
+    addr: usize,
     arguments: &[Argument],
-    call_info: &CallInfo,
-) -> RawResult {
-    let ffi_arg_types: Vec<FfiType> = arguments.iter().map(|a| a.ffi_type.clone()).collect();
-    let ffi_args: Vec<_> = arguments.iter().map(|a| a.value.as_arg()).collect();
-    rustpython_host_env::ctypes::callproc(
-        code_ptr,
-        ffi_arg_types,
-        call_info.ffi_return_type.clone(),
-        &ffi_args,
-        call_info.restype_is_none,
-        call_info.is_pointer_return,
-    )
+    ret: &RetSpec,
+    options: CallOptions,
+) -> Result<CallValue, CallError> {
+    // Encode each simple-type code into its own buffer so the `&str` borrowed
+    // by `CallArg::Typed` outlives the call.
+    let mut code_bufs = vec![[0u8; 4]; arguments.len()];
+    let call_args: Vec<_> = arguments
+        .iter()
+        .zip(code_bufs.iter_mut())
+        .map(|(arg, code_buf)| arg.value.as_call_arg(code_buf))
+        .collect();
+
+    let mut ret_code_buf = [0u8; 4];
+    let call_ret = match ret {
+        RetSpec::Void => CallRet::Void,
+        RetSpec::Pointer => CallRet::Pointer,
+        RetSpec::Code(code) => CallRet::Code(code.encode_utf8(&mut ret_code_buf)),
+        RetSpec::Aggregate(layout) => CallRet::Aggregate(layout),
+    };
+
+    call(addr, &call_args, call_ret, options)
 }
 
 /// Check and handle HRESULT errors (Windows)
@@ -1375,26 +1376,38 @@ fn check_hresult(hresult: i32, zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> Py
     }
 }
 
-/// Convert raw FFI result to Python object
+/// Convert the foreign-call result to a Python object
 // = GetResult
 fn convert_raw_result(
-    raw_result: &mut RawResult,
+    result: &CallValue,
     call_info: &CallInfo,
     vm: &VirtualMachine,
 ) -> Option<PyObjectRef> {
-    // Get result as bytes for type conversion
-    let (result_bytes, result_size) = rustpython_host_env::ctypes::call_result_bytes(raw_result)?;
+    // Result register image as bytes + size (None for void): pointer/scalar
+    // returns are pointer/register sized.
+    let (result_bytes, result_size) = match result {
+        CallValue::Void => return None,
+        CallValue::Pointer(ptr) => (ptr.to_ne_bytes().to_vec(), size_of::<usize>()),
+        CallValue::Scalar(bytes) | CallValue::Aggregate(bytes) => (bytes.clone(), bytes.len()),
+    };
+
+    // Integer view of the return register, for the fallback branches below.
+    let result_word: usize = match result {
+        CallValue::Pointer(ptr) => *ptr,
+        CallValue::Scalar(bytes) | CallValue::Aggregate(bytes) => {
+            let mut word = [0u8; size_of::<usize>()];
+            let n = bytes.len().min(word.len());
+            word[..n].copy_from_slice(&bytes[..n]);
+            usize::from_ne_bytes(word)
+        }
+        CallValue::Void => 0,
+    };
 
     // 1. No restype → return as int
     let restype = match &call_info.restype_obj {
         None => {
             // Default: return as int
-            let val = match raw_result {
-                RawResult::Pointer(p) => *p as isize,
-                RawResult::Value(v) => *v as isize,
-                RawResult::Void => return None,
-            };
-            return Some(vm.ctx.new_int(val).into());
+            return Some(vm.ctx.new_int(result_word as isize).into());
         }
         Some(r) => r,
     };
@@ -1409,12 +1422,7 @@ fn convert_raw_result(
         Ok(t) => t,
         Err(_) => {
             // Not a type, call it with int result
-            let val = match raw_result {
-                RawResult::Pointer(p) => *p as isize,
-                RawResult::Value(v) => *v as isize,
-                RawResult::Void => return None,
-            };
-            return restype.call((val,), vm).ok();
+            return restype.call((result_word as isize,), vm).ok();
         }
     };
 
@@ -1423,15 +1431,19 @@ fn convert_raw_result(
 
     // No StgInfo → call restype with int
     if stg_info.is_none() {
-        let val = match raw_result {
-            RawResult::Pointer(p) => *p as isize,
-            RawResult::Value(v) => *v as isize,
-            RawResult::Void => return None,
-        };
-        return restype_type.as_object().call((val,), vm).ok();
+        return restype_type
+            .as_object()
+            .call((result_word as isize,), vm)
+            .ok();
     }
 
     let info = stg_info.unwrap();
+    // Extract what's needed and release the read guard before constructing any
+    // instance below: instance construction write-locks the type's StgInfo (to
+    // finalize it), which would self-deadlock against a held read guard.
+    let is_pointer_type = info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER);
+    let has_proto = info.proto.is_some();
+    drop(info);
 
     // py_object: interpret return value as PyObject* and materialize it.
     if let Ok(type_attr) = restype_type
@@ -1440,12 +1452,7 @@ fn convert_raw_result(
         && let Some(type_str) = type_attr.downcast_ref::<PyStr>()
         && type_str.to_str() == Some("O")
     {
-        let ptr = match raw_result {
-            RawResult::Pointer(p) => *p,
-            RawResult::Value(v) => *v as usize,
-            RawResult::Void => 0,
-        };
-        let ptr = NonNull::new(ptr as *mut PyObject).or_else(|| {
+        let ptr = NonNull::new(result_word as *mut PyObject).or_else(|| {
             vm.set_exception(Some(vm.new_value_error("PyObject is NULL")));
             None
         })?;
@@ -1469,9 +1476,9 @@ fn convert_raw_result(
     // This handles POINTER(T), Structure, Array, etc.
 
     // Special handling for POINTER(T) types - set pointer value directly
-    if info.flags.contains(StgInfoFlags::TYPEFLAG_ISPOINTER)
-        && info.proto.is_some()
-        && let RawResult::Pointer(ptr) = raw_result
+    if is_pointer_type
+        && has_proto
+        && let CallValue::Pointer(ptr) = result
         && let Ok(instance) = restype_type.as_object().call((), vm)
     {
         if let Some(pointer) = instance.downcast_ref::<PyCPointer>() {
@@ -1516,7 +1523,7 @@ fn extract_out_values(
 
 /// Build final result (main function)
 fn build_result(
-    mut raw_result: RawResult,
+    call_result: CallValue,
     call_info: &CallInfo,
     out_buffers: OutBuffers,
     zelf: &Py<PyCFuncPtr>,
@@ -1525,19 +1532,22 @@ fn build_result(
 ) -> PyResult {
     // Check HRESULT on Windows
     #[cfg(windows)]
-    if let RawResult::Value(val) = raw_result {
+    if let CallValue::Scalar(bytes) = &call_result {
         let is_hresult = call_info
             .restype_obj
             .as_ref()
             .and_then(|t| t.clone().downcast::<PyType>().ok())
             .is_some_and(|t| t.name().to_string() == "HRESULT");
         if is_hresult {
-            check_hresult(val as i32, zelf, vm)?;
+            let mut word = [0u8; size_of::<usize>()];
+            let n = bytes.len().min(word.len());
+            word[..n].copy_from_slice(&bytes[..n]);
+            check_hresult(usize::from_ne_bytes(word) as i32, zelf, vm)?;
         }
     }
 
-    // Convert raw result to Python object
-    let mut result = convert_raw_result(&mut raw_result, call_info, vm);
+    // Convert the foreign-call result to a Python object
+    let mut result = convert_raw_result(&call_result, call_info, vm);
 
     // Apply errcheck if set
     if let Some(errcheck) = zelf.errcheck.read().as_ref() {
@@ -1583,44 +1593,34 @@ impl Callable for PyCFuncPtr {
         let (arguments, out_buffers) =
             build_callargs(&args, &call_info, paramflags.as_ref(), is_com_method, vm)?;
 
-        // 6. Get code pointer
-        let code_ptr = match func_ptr.or_else(|| zelf.get_code_ptr()) {
-            Some(cp) => cp,
-            None => {
-                debug_assert!(false, "NULL function pointer");
-                // In release mode, this will crash
-                null_code_ptr()
-            }
+        // 6. Function address (usize); the unified `call` rejects a NULL address.
+        let addr = match func_ptr {
+            Some(cp) => cp.0 as usize,
+            None => zelf.get_func_ptr(),
         };
 
-        // 7. Get flags to check for use_last_error/use_errno
+        // 7. Errno / last-error swap options from flags
         let flags = Self::_flags_(zelf, vm);
-
-        // 8. Call the function (with use_last_error/use_errno handling)
-        #[cfg(not(windows))]
-        let raw_result = {
-            if flags & super::base::StgInfoFlags::FUNCFLAG_USE_ERRNO.bits() != 0 {
-                rustpython_host_env::ctypes::with_swapped_errno(|| {
-                    ctypes_callproc(code_ptr, &arguments, &call_info)
-                })
-            } else {
-                ctypes_callproc(code_ptr, &arguments, &call_info)
-            }
+        let options = CallOptions {
+            use_errno: flags & super::base::StgInfoFlags::FUNCFLAG_USE_ERRNO.bits() != 0,
+            use_last_error: flags & super::base::StgInfoFlags::FUNCFLAG_USE_LASTERROR.bits() != 0,
         };
 
-        #[cfg(windows)]
-        let raw_result = {
-            if flags & super::base::StgInfoFlags::FUNCFLAG_USE_LASTERROR.bits() != 0 {
-                rustpython_host_env::ctypes::with_swapped_last_error(|| {
-                    ctypes_callproc(code_ptr, &arguments, &call_info)
-                })
-            } else {
-                ctypes_callproc(code_ptr, &arguments, &call_info)
-            }
-        };
+        // 8. Call the function through the unified entry point.
+        let call_result = ctypes_callproc(addr, &arguments, &call_info.ret, options).map_err(
+            |err| match err {
+                CallError::NullFunctionPointer => vm.new_value_error("NULL function pointer"),
+                CallError::UnknownTypeCode(code) => {
+                    vm.new_type_error(format!("Unsupported argument type: {code}"))
+                }
+                CallError::BufferTooSmall { expected, got } => vm.new_value_error(format!(
+                    "argument buffer too small: expected {expected}, got {got}"
+                )),
+            },
+        )?;
 
         // 9. Build result
-        build_result(raw_result, &call_info, out_buffers, zelf, &args, vm)
+        build_result(call_result, &call_info, out_buffers, zelf, &args, vm)
     }
 }
 

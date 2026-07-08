@@ -2709,13 +2709,13 @@ mod _ssl {
             sni_name: Option<&str>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let callback = self
-                .context
-                .read()
-                .sni_callback
-                .read()
-                .clone()
-                .ok_or_else(|| vm.new_value_error("SNI callback not set"))?;
+            // The callback may have been cleared (sni_callback = None) between the
+            // handshake deciding to invoke it and this point. A concurrent removal
+            // is not an error: there is simply nothing to run.
+            let callback = self.context.read().sni_callback.read().clone();
+            let Some(callback) = callback else {
+                return Ok(());
+            };
 
             let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
             let server_name_py: PyObjectRef = match sni_name {

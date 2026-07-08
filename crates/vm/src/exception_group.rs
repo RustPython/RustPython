@@ -334,7 +334,7 @@ pub(super) mod types {
             let exceptions_tuple = vm.ctx.new_tuple(exceptions);
             let init_args = vec![message, exceptions_tuple.into()];
             PyBaseException::new(init_args, vm)
-                .into_ref_with_type(vm, actual_cls)
+                .into_ref_with_type_lazy_dict(vm, actual_cls)
                 .map(Into::into)
         }
 

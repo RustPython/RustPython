@@ -739,6 +739,18 @@ impl PyType {
         // Helper macro for number/sequence/mapping sub-slots
         macro_rules! update_sub_slot {
             ($group:ident, $slot:ident, $wrapper:expr, $variant:ident) => {{
+                // Fall back to the value inherited for this exact field. Left and
+                // right binary ops (e.g. add / right_add) share one accessor but
+                // occupy distinct fields, so the fallback must target this field
+                // rather than the accessor's default field, otherwise resolving
+                // an absent right op would overwrite the left op's dispatcher.
+                let inherit_this_field = || {
+                    let mro = self.mro.read();
+                    let inherited = mro[1..]
+                        .iter()
+                        .find_map(|cls| cls.slots.$group.$slot.load());
+                    self.slots.$group.$slot.store(inherited);
+                };
                 if ADD {
                     // Check if this type defines any method that maps to this slot.
                     // Some slots like SqAssItem/MpAssSubscript are shared by multiple
@@ -760,8 +772,15 @@ impl PyType {
                         }
                         result
                     };
+                    // Reify the wrapper at a single site so the own and inherited
+                    // branches store the same fn item. binary_op1 compares slot
+                    // fn addresses to decide whether a subclass overrides the op;
+                    // duplicating the wrapper closure across branches yields
+                    // distinct addresses in unmerged debug builds and breaks that
+                    // comparison for an inherited slot.
+                    let store_wrapper = || self.slots.$group.$slot.store(Some($wrapper));
                     if has_own {
-                        self.slots.$group.$slot.store(Some($wrapper));
+                        store_wrapper();
                     } else {
                         match self.lookup_slot_in_mro(name, ctx, |sf| {
                             if let SlotFunc::$variant(f) = sf {
@@ -774,15 +793,15 @@ impl PyType {
                                 self.slots.$group.$slot.store(Some(func));
                             }
                             SlotLookupResult::PythonMethod => {
-                                self.slots.$group.$slot.store(Some($wrapper));
+                                store_wrapper();
                             }
                             SlotLookupResult::NotFound => {
-                                accessor.inherit_from_mro(self);
+                                inherit_this_field();
                             }
                         }
                     }
                 } else {
-                    accessor.inherit_from_mro(self);
+                    inherit_this_field();
                 }
             }};
         }
@@ -843,12 +862,31 @@ impl PyType {
                 }
             }
             SlotAccessor::TpNew => {
-                // __new__ is not wrapped via PyWrapper
-                if ADD {
+                // __new__ is a staticmethod, not a PyWrapper descriptor, so
+                // lookup_slot_in_mro cannot classify it. Resolve __new__
+                // through the MRO dicts instead: a Python-level definition
+                // needs the dynamic new_wrapper, while a native type's
+                // builtin __new__ entry (or no entry at all) means the slot
+                // is inherited from the solid base, matching update_one_slot's
+                // tp_new special case over the tp_base-inherited value.
+                let needs_wrapper = if ADD && self.attributes.read().contains_key(name) {
+                    true
+                } else {
+                    // mro[0] is self, so skip it
+                    self.mro.read()[1..]
+                        .iter()
+                        .find(|cls| cls.attributes.read().contains_key(name))
+                        .is_some_and(|cls| {
+                            cls.slots.new.load().map(|f| f as usize)
+                                == Some(new_wrapper as NewFunc as usize)
+                        })
+                };
+                if needs_wrapper {
                     self.slots.new.store(Some(new_wrapper));
                     self.slots.vectorcall.store(None);
                 } else {
-                    accessor.inherit_from_mro(self);
+                    let inherited = self.base.deref().and_then(|base| base.slots.new.load());
+                    self.slots.new.store(inherited);
                 }
             }
             SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),
@@ -897,46 +935,72 @@ impl PyType {
                 }
             }
             SlotAccessor::TpSetattro => {
-                // __setattr__ and __delattr__ share the same slot
-                if ADD {
-                    match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        SlotLookupResult::NativeSlot(func) => {
-                            self.slots.setattro.store(Some(func));
-                        }
-                        SlotLookupResult::PythonMethod => {
-                            self.slots.setattro.store(Some(setattro_wrapper));
-                        }
-                        SlotLookupResult::NotFound => {
-                            accessor.inherit_from_mro(self);
-                        }
+                // __setattr__ and __delattr__ share the same slot, so both
+                // names must be resolved together: a Python-level override of
+                // either one forces the dispatching wrapper, and the native
+                // slot is only usable when every resolved name agrees on it.
+                // This resolution reads the current attribute dicts, so it
+                // applies the same whether a name was just added or removed.
+                let extract = |sf: &SlotFunc| match sf {
+                    SlotFunc::SetAttro(f) | SlotFunc::DelAttro(f) => Some(*f),
+                    _ => None,
+                };
+                let setattr = self.lookup_slot_in_mro(identifier!(ctx, __setattr__), ctx, extract);
+                let delattr = self.lookup_slot_in_mro(identifier!(ctx, __delattr__), ctx, extract);
+                use SlotLookupResult::{NativeSlot, NotFound, PythonMethod};
+                match (setattr, delattr) {
+                    (PythonMethod, _) | (_, PythonMethod) => {
+                        self.slots.setattro.store(Some(setattro_wrapper));
                     }
-                } else {
-                    accessor.inherit_from_mro(self);
+                    (NativeSlot(set), NativeSlot(del)) => {
+                        let func = if set as usize == del as usize {
+                            set
+                        } else {
+                            setattro_wrapper
+                        };
+                        self.slots.setattro.store(Some(func));
+                    }
+                    (NativeSlot(func), NotFound) | (NotFound, NativeSlot(func)) => {
+                        self.slots.setattro.store(Some(func));
+                    }
+                    (NotFound, NotFound) => {
+                        accessor.inherit_from_mro(self);
+                    }
                 }
             }
             SlotAccessor::TpDescrGet => update_main_slot!(descr_get, descr_get_wrapper, DescrGet),
             SlotAccessor::TpDescrSet => {
-                // __set__ and __delete__ share the same slot
-                if ADD {
-                    match self.lookup_slot_in_mro(name, ctx, |sf| match sf {
-                        SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
-                        _ => None,
-                    }) {
-                        SlotLookupResult::NativeSlot(func) => {
-                            self.slots.descr_set.store(Some(func));
-                        }
-                        SlotLookupResult::PythonMethod => {
-                            self.slots.descr_set.store(Some(descr_set_wrapper));
-                        }
-                        SlotLookupResult::NotFound => {
-                            accessor.inherit_from_mro(self);
-                        }
+                // __set__ and __delete__ share the same slot, so both names
+                // must be resolved together: a Python-level definition of
+                // either one forces the dispatching wrapper, and the native
+                // slot is only usable when every resolved name agrees on it.
+                // This resolution reads the current attribute dicts, so it
+                // applies the same whether a name was just added or removed.
+                let extract = |sf: &SlotFunc| match sf {
+                    SlotFunc::DescrSet(f) | SlotFunc::DescrDel(f) => Some(*f),
+                    _ => None,
+                };
+                let set = self.lookup_slot_in_mro(identifier!(ctx, __set__), ctx, extract);
+                let delete = self.lookup_slot_in_mro(identifier!(ctx, __delete__), ctx, extract);
+                use SlotLookupResult::{NativeSlot, NotFound, PythonMethod};
+                match (set, delete) {
+                    (PythonMethod, _) | (_, PythonMethod) => {
+                        self.slots.descr_set.store(Some(descr_set_wrapper));
                     }
-                } else {
-                    accessor.inherit_from_mro(self);
+                    (NativeSlot(set), NativeSlot(delete)) => {
+                        let func = if set as usize == delete as usize {
+                            set
+                        } else {
+                            descr_set_wrapper
+                        };
+                        self.slots.descr_set.store(Some(func));
+                    }
+                    (NativeSlot(func), NotFound) | (NotFound, NativeSlot(func)) => {
+                        self.slots.descr_set.store(Some(func));
+                    }
+                    (NotFound, NotFound) => {
+                        accessor.inherit_from_mro(self);
+                    }
                 }
             }
 

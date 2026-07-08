@@ -28,6 +28,7 @@ class OpcodeGen:
         return f"""
         /// Returns [`Self`] as [`{self.size}`].
         #[must_use]
+        #[inline]
         pub const fn as_{self.size}(self) -> {self.size} {{
             self.as_numeric()
         }}
@@ -113,6 +114,7 @@ class OpcodeGen:
 
         return f"""
         #[must_use]
+        #[inline]
         pub const fn to_base(self) -> Option<Self> {{
             {inner}
         }}
@@ -146,25 +148,30 @@ class OpcodeGen:
 
     @property
     def fn_deopt(self) -> str:
-        arms = ""
-        for target, specialized in self.info.deopts.items():
-            ops = "|".join(f"Self::{op}" for op in specialized)
-            arms += f"{ops} => Self::{target},\n"
+        specialized_to_base = self.specialized_to_base
 
-        arms = arms.strip()
-
-        if not arms:
+        if not specialized_to_base:
             inner = "None"
         else:
+            table_type = f"super::{self.info.enum_name}"
+            entries = ",\n".join(
+                f"Some({table_type}::{specialized_to_base[name]})"
+                if name in specialized_to_base
+                else "None"
+                for name in self.rust_names_by_id
+            )
+
             inner = f"""
-            Some(match self {{
-                {arms}
-                _ => return None,
-            }})
+            const DEOPT: [Option<{table_type}>; {self.table_size}] = [
+                {entries}
+            ];
+
+            DEOPT[self.as_numeric() as usize]
             """
 
         return f"""
         #[must_use]
+        #[inline]
         pub const fn deopt(self) -> Option<Self> {{
             {inner}
         }}
@@ -172,7 +179,7 @@ class OpcodeGen:
 
     @property
     def fn_cache_entries(self) -> str:
-        arms = ""
+        entries_by_base: dict[str, int] = {}
         for opcode in self:
             name = opcode.rust_name
             if opcode.is_instrumented:
@@ -186,21 +193,25 @@ class OpcodeGen:
                 continue
 
             if size > 1:
-                arms += f"Self::{name} => {size - 1},\n"
+                entries_by_base[name] = size - 1
 
-        arms = arms.strip()
-        if not arms:
+        if not entries_by_base:
             inner = "0"
         else:
+            entries = ", ".join(
+                str(entries_by_base.get(self.resolve_deoptimized(name), 0))
+                for name in self.rust_names_by_id
+            )
+
             inner = f"""
-            match self.deoptimize() {{
-                {arms}
-                _ => 0,
-            }}
+            const CACHE_ENTRIES: [u8; {self.table_size}] = [{entries}];
+
+            CACHE_ENTRIES[self.as_numeric() as usize] as usize
             """
 
         return f"""
         #[must_use]
+        #[inline]
         pub const fn cache_entries(self) -> usize {{
             {inner}
         }}
@@ -322,6 +333,42 @@ class OpcodeGen:
             res[name] = iname
 
         return res
+
+    @property
+    def specialized_to_base(self) -> dict[str, str]:
+        """Maps a specialized opcode's name to its family's base opcode name."""
+        res = {}
+        for target, specialized in self.info.deopts.items():
+            for name in specialized:
+                res[name] = target
+
+        return res
+
+    @property
+    def instrumented_to_base(self) -> dict[str, str]:
+        """Maps an instrumented opcode's name to its base opcode name."""
+        return {iname: name for name, iname in self.instrumented_mapping.items()}
+
+    def resolve_deoptimized(self, name: str) -> str:
+        """
+        Mirrors `deoptimize`: resolves a specialized opcode to its family's
+        base, an instrumented opcode to its base, or returns the name
+        unchanged.
+        """
+        if name in self.specialized_to_base:
+            return self.specialized_to_base[name]
+
+        return self.instrumented_to_base.get(name, name)
+
+    @property
+    def table_size(self) -> int:
+        return {"u8": 256, "u16": 65536}[self.size]
+
+    @property
+    def rust_names_by_id(self) -> list[str | None]:
+        """The opcode name at each numeric id, `None` where no opcode is assigned."""
+        names_by_id = {opcode.id: opcode.rust_name for opcode in self}
+        return [names_by_id.get(i) for i in range(self.table_size)]
 
     @property
     def size(self) -> str:

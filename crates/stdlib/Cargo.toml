@@ -53,6 +53,7 @@ num_enum = { workspace = true }
 parking_lot = { workspace = true }
 phf = { workspace = true, default-features = true, features = ["macros"] }
 rapidhash = { workspace = true }
+scopeguard = { workspace = true }
 
 memchr = { workspace = true }
 base64 = { workspace = true }

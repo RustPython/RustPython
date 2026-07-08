@@ -28,6 +28,8 @@ pub use filter::PyFilter;
 pub(crate) mod float;
 pub use float::PyFloat;
 pub(crate) mod frame;
+pub(crate) mod frame_locals_proxy;
+pub use frame_locals_proxy::FrameLocalsProxy;
 pub(crate) mod function;
 pub use function::{PyBoundMethod, PyFunction};
 pub(crate) mod generator;

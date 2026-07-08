@@ -51,46 +51,14 @@ unsafe impl Traverse for PyTuple {
     }
 }
 
-// spell-checker:ignore MAXSAVESIZE
-/// Per-size freelist storage for tuples, matching tuples[PyTuple_MAXSAVESIZE].
-/// Each bucket caches tuples of a specific element count (index = len - 1).
-struct TupleFreeList {
-    buckets: [Vec<NonNull<PyObject>>; Self::MAX_SAVE_SIZE],
-}
-
-impl TupleFreeList {
-    /// Largest tuple size to cache on the freelist (sizes 1..=20).
-    const MAX_SAVE_SIZE: usize = 20;
-    const fn new() -> Self {
-        Self {
-            buckets: [const { Vec::new() }; Self::MAX_SAVE_SIZE],
-        }
-    }
-}
-
-impl Default for TupleFreeList {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Drop for TupleFreeList {
-    fn drop(&mut self) {
-        // Same safety pattern as FreeList<T>::drop — free raw allocation
-        // without running payload destructors to avoid TLS-after-destruction panics.
-        let layout = crate::object::pyinner_layout::<PyTuple>();
-        for bucket in &mut self.buckets {
-            for ptr in bucket.drain(..) {
-                unsafe {
-                    alloc::alloc::dealloc(ptr.as_ptr() as *mut u8, layout);
-                }
-            }
-        }
-    }
-}
-
 thread_local! {
-    static TUPLE_FREELIST: Cell<TupleFreeList> = const { Cell::new(TupleFreeList::new()) };
+    // A single freelist for all tuple sizes: `PyInner<PyTuple>` is a
+    // fixed-size allocation (elements are a separate boxed slice that is
+    // dropped and replaced on reuse), so husks are interchangeable.
+    // freelist_push must not read the payload — it runs after tp_clear,
+    // which has already emptied `elements`.
+    static TUPLE_FREELIST: Cell<crate::object::FreeList<PyTuple>> =
+        const { Cell::new(crate::object::FreeList::new()) };
 }
 
 impl PyPayload for PyTuple {
@@ -104,16 +72,11 @@ impl PyPayload for PyTuple {
 
     #[inline]
     unsafe fn freelist_push(obj: *mut PyObject) -> bool {
-        let len = unsafe { &*(obj as *const crate::Py<Self>) }.elements.len();
-        if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
-            return false;
-        }
         TUPLE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
-                let bucket = &mut list.buckets[len - 1];
-                let stored = if bucket.len() < Self::MAX_FREELIST {
-                    bucket.push(unsafe { NonNull::new_unchecked(obj) });
+                let stored = if list.len() < Self::MAX_FREELIST {
+                    list.push(obj);
                     true
                 } else {
                     false
@@ -125,15 +88,11 @@ impl PyPayload for PyTuple {
     }
 
     #[inline]
-    unsafe fn freelist_pop(payload: &Self) -> Option<NonNull<PyObject>> {
-        let len = payload.elements.len();
-        if len == 0 || len > TupleFreeList::MAX_SAVE_SIZE {
-            return None;
-        }
+    unsafe fn freelist_pop(_payload: &Self) -> Option<NonNull<PyObject>> {
         TUPLE_FREELIST
             .try_with(|fl| {
                 let mut list = fl.take();
-                let result = list.buckets[len - 1].pop();
+                let result = list.pop().map(|p| unsafe { NonNull::new_unchecked(p) });
                 fl.set(list);
                 result
             })
