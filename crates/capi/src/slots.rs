@@ -85,6 +85,7 @@ impl PySlot {
             87 => PySlotKind::Module(PySlotModule::Gil {
                 gil_used: !value_ptr.is_null(),
             }),
+            // 92 => Py_slot_subslots
             93 => PySlotKind::Type(PySlotType::Slots {
                 value: value_ptr.cast(),
                 is_static,
@@ -96,15 +97,6 @@ impl PySlot {
             96 => PySlotKind::Type(PySlotType::BasicSize(unsafe { self.value.sl_size })),
             97 => PySlotKind::Type(PySlotType::ExtraBasicSize(unsafe { self.value.sl_size })),
             99 => PySlotKind::Type(PySlotType::Flags(unsafe { self.value.sl_uint64 })),
-            107 => PySlotKind::Type(PySlotType::Metaclass {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            108 => PySlotKind::Type(PySlotType::Module {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            109 => PySlotKind::Module(PySlotModule::Abi(unsafe { *value_ptr.cast() })),
             100 => PySlotKind::Module(PySlotModule::Name {
                 value: value_ptr.cast(),
                 is_static,
@@ -113,7 +105,15 @@ impl PySlot {
                 value: value_ptr.cast(),
                 is_static,
             }),
+            // 102 => Py_mod_state_size
             103 => PySlotKind::Module(PySlotModule::Methods(value_ptr.cast())),
+            // 104 => Py_mod_state_traverse
+            // 105 => Py_mod_state_clear
+            // 106 => Py_mod_state_free
+            107 => PySlotKind::Type(PySlotType::Metaclass(value_ptr.cast())),
+            108 => PySlotKind::Type(PySlotType::Module(value_ptr.cast())),
+            109 => PySlotKind::Module(PySlotModule::Abi(unsafe { *value_ptr.cast() })),
+            // 110 => Py_mod_token
             id => {
                 if self.is_optional() {
                     PySlotKind::Unknown {
@@ -216,14 +216,8 @@ pub(crate) enum PySlotType {
     Flags(u64),
     BasicSize(isize),
     ExtraBasicSize(isize),
-    Metaclass {
-        value: *mut PyObject,
-        is_static: bool,
-    },
-    Module {
-        value: *mut PyObject,
-        is_static: bool,
-    },
+    Metaclass(*mut PyObject),
+    Module(*mut PyObject),
 }
 
 #[allow(dead_code)]
