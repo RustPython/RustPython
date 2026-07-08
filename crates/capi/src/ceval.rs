@@ -64,12 +64,13 @@ pub extern "C" fn PyEval_GetBuiltins() -> *mut PyObject {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyEval_GetFrame() -> *mut PyObject {
-    with_vm(|vm| {
+pub extern "C" fn PyEval_GetFrame() -> *mut PyFrameObject {
+    with_vm(|vm| -> *mut PyObject {
         vm.current_frame()
-            .map(|frame| frame.as_object().as_raw())
+            .map(|frame| frame.as_object().as_raw().cast_mut())
             .unwrap_or_default()
     })
+    .cast()
 }
 
 #[unsafe(no_mangle)]
@@ -114,9 +115,11 @@ pub extern "C" fn PyEval_GetGlobals() -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_GetLocals() -> *mut PyObject {
     with_vm(|vm| {
-        vm.current_frame()
-            .map(|frame| frame.locals.as_object(vm).as_raw())
-            .unwrap_or_default()
+        let Some(frame) = vm.current_frame() else {
+            return Ok(core::ptr::null_mut());
+        };
+        let _ = frame.locals(vm)?;
+        Ok(frame.locals.as_object(vm).as_raw().cast_mut())
     })
 }
 

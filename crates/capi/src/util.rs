@@ -1,7 +1,7 @@
 use crate::PyObject;
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
-use rustpython_vm::{PyObjectRef, PyRef, PyResult, VirtualMachine};
+use rustpython_vm::{Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 pub(crate) trait FfiResult<Output = Self> {
     const ERR_VALUE: Output;
@@ -33,6 +33,17 @@ where
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.into().into_raw().as_ptr()
+    }
+}
+
+impl<T> FfiResult<*mut Py<T>> for PyRef<T>
+where
+    Self: Into<PyObjectRef>,
+{
+    const ERR_VALUE: *mut Py<T> = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *mut Py<T> {
+        self.into().into_raw().as_ptr().cast()
     }
 }
 
