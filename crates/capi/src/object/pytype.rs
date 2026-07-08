@@ -369,22 +369,22 @@ mod tests {
         impl MyEmptyClass {
             #[new]
             fn new() -> Self {
-                MyEmptyClass {}
+                Self {}
             }
 
             #[staticmethod]
-            fn static_method1(a: i32, b: i32) -> PyResult<i32> {
-                Ok(a + b)
+            fn static_method1(a: i32, b: i32) -> i32 {
+                a + b
             }
 
             #[staticmethod]
-            fn static_method2() -> PyResult<i32> {
-                Ok(0)
+            fn static_method2() -> i32 {
+                0
             }
 
             #[classmethod]
             fn cls_method(cls: &Bound<'_, PyType>) -> PyResult<i32> {
-                assert!(cls.is_subclass_of::<MyEmptyClass>()?);
+                assert!(cls.is_subclass_of::<Self>()?);
                 Ok(10)
             }
         }
