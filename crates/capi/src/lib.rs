@@ -22,6 +22,7 @@ pub mod genericaliasobject;
 pub mod import;
 pub mod listobject;
 pub mod longobject;
+pub mod memoryobject;
 pub mod methodobject;
 pub mod moduleobject;
 pub mod object;
