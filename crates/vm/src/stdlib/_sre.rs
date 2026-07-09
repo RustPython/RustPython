@@ -23,7 +23,7 @@ mod _sre {
     use num_traits::ToPrimitive;
     use rustpython_sre_engine::{
         Request, SearchIter, SreFlag, State, StrDrive,
-        string::{lower_ascii, lower_unicode, upper_unicode},
+        string::{lower_ascii, lower_unicode},
     };
 
     #[pyattr]
@@ -41,8 +41,7 @@ mod _sre {
 
     #[pyfunction]
     fn unicode_iscased(ch: i32) -> bool {
-        let ch = ch as u32;
-        ch != lower_unicode(ch) || ch != upper_unicode(ch)
+        char::from_u32(ch as u32).is_some_and(rustpython_unicode::case::is_cased)
     }
 
     #[pyfunction]

@@ -11,17 +11,21 @@
 //! Both data files use the same run-length format: one `predicate` line per
 //! str method, followed by comma-separated hex `start:end` inclusive ranges.
 
+// spell-checker:ignore recategorized recategorizations
+
 #[cfg(test)]
 mod tests {
     extern crate alloc;
 
     use alloc::collections::{BTreeMap, BTreeSet};
 
-    use rustpython_unicode::classify;
+    use rustpython_unicode::{case, classify};
 
     const MAX: u32 = 0x110000;
     const REFERENCE: &str = include_str!("data/cpython3.14_predicates.txt");
     const VERSION_SKEW: &str = include_str!("data/version_skew_cpython3.14.txt");
+    const MAPPINGS: &str = include_str!("data/cpython3.14_mappings.txt");
+    const MAPPING_SKEW: &str = include_str!("data/version_skew_mappings_cpython3.14.txt");
 
     fn crate_predicate(name: &str, cp: u32) -> bool {
         let Some(c) = char::from_u32(cp) else {
@@ -41,7 +45,22 @@ mod tests {
                 // is "may start an identifier".
                 classify_is_identifier_char(c)
             }
+            "is_lowercase" => case::is_lowercase(c),
+            "is_uppercase" => case::is_uppercase(c),
+            "is_titlecase" => case::is_titlecase(c),
+            "is_cased" => case::is_cased(c),
             other => panic!("unknown predicate {other}"),
+        }
+    }
+
+    /// The crate's simple case mapping for `name` at `cp`, as a code point.
+    fn crate_mapping(name: &str, cp: u32) -> u32 {
+        let Some(c) = char::from_u32(cp) else {
+            return cp;
+        };
+        match name {
+            "tolower" => case::simple_lowercase(c) as u32,
+            other => panic!("unknown mapping {other}"),
         }
     }
 
@@ -76,6 +95,36 @@ mod tests {
                 }
             }
             map.insert(name.to_string(), set);
+        }
+        map
+    }
+
+    /// Parse a `name -> {code point -> mapped code point}` table.
+    ///
+    /// Each non-comment line is `name cp:mapped,cp:mapped,...` listing only the
+    /// code points whose mapping differs from identity.
+    fn parse_mappings(text: &str) -> BTreeMap<String, BTreeMap<u32, u32>> {
+        let mut map = BTreeMap::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (name, packed) = match line.split_once(' ') {
+                Some((name, packed)) => (name, packed.trim()),
+                None => (line, ""),
+            };
+            let mut table = BTreeMap::new();
+            if !packed.is_empty() {
+                for pair in packed.split(',') {
+                    let (cp, mapped) = pair.split_once(':').expect("pair is cp:mapped");
+                    table.insert(
+                        u32::from_str_radix(cp, 16).unwrap(),
+                        u32::from_str_radix(mapped, 16).unwrap(),
+                    );
+                }
+            }
+            map.insert(name.to_string(), table);
         }
         map
     }
@@ -119,14 +168,23 @@ mod tests {
         out
     }
 
+    /// Documented `cpython=true/crate=false` divergences: a code point that had a
+    /// property in Unicode 16.0.0 but lost it in the release icu4x ships, because
+    /// the code point was recategorized (not a regression in this crate).
+    ///
+    /// * U+0295 LATIN LETTER PHARYNGEAL VOICED FRICATIVE was general category `Ll`
+    ///   in Unicode 16.0.0 and `Lo` from 17.0.0, so it is no longer `Lowercase`.
+    const KNOWN_RECATEGORIZATIONS: &[(&str, u32)] = &[("is_lowercase", 0x0295)];
+
     /// Regenerate `data/version_skew_cpython3.14.txt` from the current toolchain.
     ///
     /// Run with `RUSTPYTHON_UNICODE_REGEN_SKEW=1 cargo test -p rustpython-unicode
-    /// --test differential` after bumping the Rust/icu toolchain. All divergences
-    /// must be one-directional (crate=true, cpython=false) — newly-assigned code
+    /// --test differential` after bumping the Rust/icu toolchain. Divergences are
+    /// normally one-directional (crate=true, cpython=false) — newly-assigned code
     /// points from a later Unicode release. A `cpython=true, crate=false` entry
-    /// means a code point lost a property, which is a real regression, so this
-    /// refuses to record it.
+    /// means a code point lost a property; that is a real regression unless it is
+    /// an explicit entry in `KNOWN_RECATEGORIZATIONS`, so this refuses to record
+    /// any other reverse-direction divergence.
     #[test]
     fn regen_version_skew() {
         if std::env::var_os("RUSTPYTHON_UNICODE_REGEN_SKEW").is_none() {
@@ -137,7 +195,9 @@ mod tests {
 
         let regressions: Vec<_> = divergences
             .iter()
-            .filter(|(_, _, expected)| *expected)
+            .filter(|(name, cp, expected)| {
+                *expected && !KNOWN_RECATEGORIZATIONS.contains(&(name.as_str(), *cp))
+            })
             .collect();
         assert!(
             regressions.is_empty(),
@@ -223,6 +283,135 @@ mod tests {
             if !stale.is_empty() {
                 msg.push_str(&format!(
                     "{} stale version_skew_cpython3.14.txt entries that now agree:\n",
+                    stale.len()
+                ));
+                for (name, cp) in stale.iter().take(50) {
+                    msg.push_str(&format!("  {name} U+{cp:04X}\n"));
+                }
+            }
+            panic!("{msg}");
+        }
+    }
+
+    /// All `(mapping, code point)` where the crate and CPython map differently.
+    fn all_mapping_divergences(
+        reference: &BTreeMap<String, BTreeMap<u32, u32>>,
+    ) -> Vec<(String, u32)> {
+        let mut out = Vec::new();
+        for (name, table) in reference {
+            for cp in 0..MAX {
+                let expected = table.get(&cp).copied().unwrap_or(cp);
+                if crate_mapping(name, cp) != expected {
+                    out.push((name.clone(), cp));
+                }
+            }
+        }
+        out
+    }
+
+    /// Regenerate `data/version_skew_mappings_cpython3.14.txt` from the current
+    /// toolchain (`RUSTPYTHON_UNICODE_REGEN_SKEW=1`).
+    ///
+    /// Divergences are normally the crate gaining a mapping a later Unicode
+    /// release assigns. A code point that CPython maps but the crate leaves
+    /// unmapped is a regression, not version skew, so this refuses to record it.
+    #[test]
+    fn regen_mapping_version_skew() {
+        if std::env::var_os("RUSTPYTHON_UNICODE_REGEN_SKEW").is_none() {
+            return;
+        }
+        let reference = parse_mappings(MAPPINGS);
+        let divergences = all_mapping_divergences(&reference);
+
+        let regressions: Vec<_> = divergences
+            .iter()
+            .filter(|(name, cp)| {
+                let expected = reference.get(name).and_then(|t| t.get(cp)).copied();
+                expected.is_some_and(|e| e != *cp) && crate_mapping(name, *cp) == *cp
+            })
+            .collect();
+        assert!(
+            regressions.is_empty(),
+            "refusing to record {} cpython-maps/crate-unmapped divergence(s) — these are \
+             regressions, not version skew: {:?}",
+            regressions.len(),
+            &regressions[..regressions.len().min(20)]
+        );
+
+        let mut by_mapping: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
+        for (name, cp) in &divergences {
+            by_mapping.entry(name.clone()).or_default().insert(*cp);
+        }
+
+        let mut body = String::from(
+            "# Code points whose simple case mapping differs between CPython 3.14\n\
+             # (Unicode 16.0.0) and the icu4x build used here (a later Unicode release\n\
+             # assigns the pair). Regenerate with RUSTPYTHON_UNICODE_REGEN_SKEW=1.\n\
+             # Format: `mapping start:end,...` with inclusive hex ranges.\n",
+        );
+        for (name, set) in &by_mapping {
+            body.push_str(&format!("{name} {}\n", encode_ranges(set)));
+        }
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/data/version_skew_mappings_cpython3.14.txt"
+        );
+        std::fs::write(path, body).unwrap();
+        eprintln!(
+            "wrote {} skew code points across {} mappings to {path}",
+            divergences.len(),
+            by_mapping.len()
+        );
+    }
+
+    #[test]
+    fn simple_mappings_match_cpython_except_documented_version_skew() {
+        let reference = parse_mappings(MAPPINGS);
+        let skew = parse_ranges(MAPPING_SKEW);
+
+        let allowed = |name: &str, cp: u32| skew.get(name).is_some_and(|set| set.contains(&cp));
+
+        let mut unexpected: Vec<(String, u32, u32, u32)> = Vec::new();
+        for (name, table) in &reference {
+            for cp in 0..MAX {
+                let expected = table.get(&cp).copied().unwrap_or(cp);
+                let actual = crate_mapping(name, cp);
+                if expected != actual && !allowed(name, cp) {
+                    unexpected.push((name.clone(), cp, expected, actual));
+                }
+            }
+        }
+
+        let mut stale: Vec<(String, u32)> = Vec::new();
+        for (name, set) in &skew {
+            for &cp in set {
+                let expected = reference
+                    .get(name)
+                    .and_then(|t| t.get(&cp))
+                    .copied()
+                    .unwrap_or(cp);
+                if crate_mapping(name, cp) == expected {
+                    stale.push((name.clone(), cp));
+                }
+            }
+        }
+
+        if !unexpected.is_empty() || !stale.is_empty() {
+            let mut msg = String::new();
+            if !unexpected.is_empty() {
+                msg.push_str(&format!(
+                    "{} undocumented mapping divergence(s) from CPython:\n",
+                    unexpected.len()
+                ));
+                for (name, cp, expected, actual) in unexpected.iter().take(50) {
+                    msg.push_str(&format!(
+                        "  {name} U+{cp:04X}: cpython=U+{expected:04X} crate=U+{actual:04X}\n"
+                    ));
+                }
+            }
+            if !stale.is_empty() {
+                msg.push_str(&format!(
+                    "{} stale version_skew_mappings_cpython3.14.txt entries that now agree:\n",
                     stale.len()
                 ));
                 for (name, cp) in stale.iter().take(50) {
