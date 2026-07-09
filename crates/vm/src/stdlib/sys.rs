@@ -4,6 +4,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
+pub use sys::{COPYRIGHT, PLATFORM};
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
@@ -50,6 +51,7 @@ pub mod sys {
         version,
         vm::{Settings, VirtualMachine},
     };
+    use core::ffi::CStr;
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
@@ -222,7 +224,7 @@ pub mod sys {
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
-    const COPYRIGHT: &str = "Copyright (c) 2019 RustPython Team";
+    pub const COPYRIGHT: &CStr = c"Copyright (c) 2019 RustPython Team";
     #[pyattr(name = "float_repr_style")]
     const FLOAT_REPR_STYLE: &str = "short";
     #[pyattr(name = "_framework")]
@@ -235,14 +237,14 @@ pub mod sys {
     const MAXUNICODE: u32 = core::char::MAX as u32;
 
     #[pyattr(name = "platform")]
-    pub const PLATFORM: &str = cfg_select! {
-        target_os = "linux" => "linux",
-        target_os = "android" => "android",
-        target_os = "macos" => "darwin",
-        target_os = "ios" => "ios",
-        windows => "win32",
-        target_os = "wasi" => "wasi",
-        _ => "unknown"
+    pub const PLATFORM: &CStr = cfg_select! {
+        target_os = "linux" => c"linux",
+        target_os = "android" => c"android",
+        target_os = "macos" => c"darwin",
+        target_os = "ios" => c"ios",
+        windows => c"win32",
+        target_os = "wasi" => c"wasi",
+        _ => c"unknown"
     };
 
     #[pyattr(name = "ps1")]
@@ -1897,7 +1899,7 @@ pub(crate) fn sysconfigdata_name() -> String {
     format!(
         "_sysconfigdata_{}_{}_{}",
         sys::ABIFLAGS,
-        sys::PLATFORM,
+        sys::PLATFORM.to_string_lossy(),
         sys::multiarch()
     )
 }
