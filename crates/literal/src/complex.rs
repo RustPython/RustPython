@@ -70,6 +70,14 @@ pub fn parse_str(s: &str) -> Option<(f64, f64)> {
         Some(s) => s.strip_suffix(')')?.trim(),
     };
 
+    // Whitespace is only allowed around the whole string and the optional
+    // parentheses, never inside the numeric token. Reject it here so that
+    // `float::parse_str` (which tolerates surrounding whitespace on a part)
+    // does not let e.g. "1 +2j" through.
+    if s.contains(char::is_whitespace) {
+        return None;
+    }
+
     let value = match s.strip_suffix(|c| c == 'j' || c == 'J') {
         None => (float::parse_str(s)?, 0.0),
         Some(mut s) => {
@@ -95,4 +103,40 @@ pub fn parse_str(s: &str) -> Option<(f64, f64)> {
         }
     };
     Some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_rejects_internal_whitespace() {
+        // Whitespace inside the numeric token is invalid, even where a bare
+        // `float::parse_str` on a fragment would tolerate it.
+        for s in [
+            "1 +2j", "1 2j", "1 +2 j", "+ 1j", "1.5 j", "(1 +2j)", "2 -3j",
+        ] {
+            assert_eq!(parse_str(s), None, "{s:?} must not parse");
+        }
+    }
+
+    #[test]
+    fn parse_allows_surrounding_and_paren_whitespace() {
+        for s in ["  1+2j  ", " (1+2j) ", "( 1+2j )"] {
+            assert_eq!(parse_str(s), Some((1.0, 2.0)), "{s:?}");
+        }
+    }
+
+    #[test]
+    fn parse_basic() {
+        assert_eq!(parse_str("1"), Some((1.0, 0.0)));
+        assert_eq!(parse_str("1j"), Some((0.0, 1.0)));
+        assert_eq!(parse_str("j"), Some((0.0, 1.0)));
+        assert_eq!(parse_str("-j"), Some((0.0, -1.0)));
+        assert_eq!(parse_str("1+2j"), Some((1.0, 2.0)));
+        assert_eq!(parse_str("1e5j"), Some((0.0, 1e5)));
+        assert_eq!(parse_str("1_000"), Some((1000.0, 0.0)));
+        assert_eq!(parse_str(""), None);
+        assert_eq!(parse_str("abc"), None);
+    }
 }
