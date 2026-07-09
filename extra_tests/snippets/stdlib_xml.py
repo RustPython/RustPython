@@ -3,7 +3,6 @@ from xml.parsers import expat
 
 from testutils import assert_raises
 
-
 assert expat.XML_PARAM_ENTITY_PARSING_NEVER == 0
 assert expat.XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE == 1
 assert expat.XML_PARAM_ENTITY_PARSING_ALWAYS == 2
