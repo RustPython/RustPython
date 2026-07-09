@@ -33,8 +33,7 @@ use libloading::Library;
 use libloading::os::unix::Library as UnixLibrary;
 #[cfg(any(unix, windows))]
 use parking_lot::{Mutex, RwLock};
-use rustpython_wtf8::Wtf8;
-use rustpython_wtf8::Wtf8Buf;
+use rustpython_wtf8::{Wtf8, Wtf8Buf};
 #[cfg(any(unix, windows))]
 use std::{collections::HashMap, ffi::OsStr, sync::OnceLock};
 use widestring::WideCStr;
@@ -1091,10 +1090,15 @@ pub fn utf16z_bytes(s: &Wtf8) -> Vec<u8> {
         .collect()
 }
 
+/// Return a NUL terminated copy of `bytes`.
+///
+/// The input may contain interior NULs.
 pub fn null_terminated_bytes(bytes: &[u8]) -> Vec<u8> {
-    let mut buffer = bytes.to_vec();
-    buffer.push(0);
-    buffer
+    if bytes.last() == Some(&0) {
+        bytes.to_vec()
+    } else {
+        bytes.iter().copied().chain(Some(0)).collect()
+    }
 }
 
 pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {

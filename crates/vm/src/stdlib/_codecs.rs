@@ -381,6 +381,7 @@ mod _codecs_windows {
     use crate::{PyResult, VirtualMachine};
     use crate::{builtins::PyStrRef, builtins::PyUtf8StrRef, function::ArgBytesLike};
     use rustpython_host_env::windows as host_windows;
+    use std::{ffi::OsStr, os::windows::ffi::OsStrExt};
 
     #[derive(FromArgs)]
     struct MbcsEncodeArgs {
@@ -392,8 +393,6 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn mbcs_encode(args: MbcsEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use crate::host_env::windows::ToWideString;
-
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let s = match args.s.to_str() {
             Some(s) => s,
@@ -411,7 +410,7 @@ mod _codecs_windows {
         }
 
         // Convert UTF-8 string to UTF-16
-        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
+        let wide: Vec<_> = OsStr::new(s).encode_wide().collect();
 
         // Get the required buffer size
         let (size, _) = host_windows::wide_char_to_multi_byte_len(
@@ -516,8 +515,6 @@ mod _codecs_windows {
 
     #[pyfunction]
     fn oem_encode(args: OemEncodeArgs, vm: &VirtualMachine) -> PyResult<(Vec<u8>, usize)> {
-        use crate::host_env::windows::ToWideString;
-
         let errors = args.errors.as_ref().map_or("strict", |s| s.as_str());
         let s = match args.s.to_str() {
             Some(s) => s,
@@ -535,7 +532,7 @@ mod _codecs_windows {
         }
 
         // Convert UTF-8 string to UTF-16
-        let wide: Vec<u16> = std::ffi::OsStr::new(s).to_wide();
+        let wide: Vec<_> = OsStr::new(s).encode_wide().collect();
 
         // Get the required buffer size
         let (size, _) = host_windows::wide_char_to_multi_byte_len(
@@ -879,8 +876,6 @@ mod _codecs_windows {
         args: CodePageEncodeArgs,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, usize)> {
-        use crate::host_env::windows::ToWideString;
-
         if args.code_page < 0 {
             return Err(vm.new_value_error("invalid code page number"));
         }
@@ -897,7 +892,7 @@ mod _codecs_windows {
 
         // Fast path: try encoding the whole string at once (only if no surrogates)
         if let Some(str_data) = args.s.to_str() {
-            let wide: Vec<u16> = std::ffi::OsStr::new(str_data).to_wide();
+            let wide: Vec<_> = OsStr::new(str_data).encode_wide().collect();
             if let Some(result) = try_encode_code_page_strict(code_page, &wide, vm)? {
                 return Ok((result, char_len));
             }

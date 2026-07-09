@@ -1140,6 +1140,12 @@ pub fn lc_map_string_ex(
     src: &[u16],
 ) -> io::Result<Vec<u16>> {
     let src_len = src.len() as i32;
+    // SAFETY:
+    // * locale does not have interior NULs and ends with a NUL. This is guaranteed by
+    // WideCStr.
+    // * src CAN have interior NULs and DOES NOT need to end with a NUL. However, the length must be
+    // passed into LCMapStringEx. If the length is NOT passed in, Windows calculates the length
+    // and interior NULs are not allowed.
     let dest_size = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
             locale.as_ptr(),
