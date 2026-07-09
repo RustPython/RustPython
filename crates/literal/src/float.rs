@@ -209,11 +209,13 @@ pub fn format_general(
     }
 }
 
-fn prefer_cpython_tie_repr(s: String, value: f64) -> String {
-    let Some(exponent_pos) = s.find('e') else {
-        return s;
-    };
-    let Some(digit_pos) = s[..exponent_pos].bytes().rposition(|b| b.is_ascii_digit()) else {
+pub(crate) fn prefer_cpython_tie_repr(s: String, value: f64) -> String {
+    // Rust's shortest float formatter can land on the odd-digit neighbour of a
+    // rounding tie where round-half-to-even (what `repr` uses) picks the even
+    // one. When the last significant digit is odd and its even neighbour still
+    // round-trips and is no further from the value, prefer the even neighbour.
+    let boundary = s.find('e').unwrap_or(s.len());
+    let Some(digit_pos) = s[..boundary].bytes().rposition(|b| b.is_ascii_digit()) else {
         return s;
     };
 
@@ -258,11 +260,11 @@ fn checked_pow_u128(base: u128, exp: u32) -> Option<u128> {
 }
 
 fn parse_decimal_rational(s: &str) -> Option<(u128, u32)> {
-    let exponent_pos = s.find('e')?;
-    let exponent = s[exponent_pos + 1..].parse::<i32>().ok()?;
-    let significand = s[..exponent_pos]
-        .strip_prefix('-')
-        .unwrap_or(&s[..exponent_pos]);
+    let (mantissa, exponent) = match s.find('e') {
+        Some(pos) => (&s[..pos], s[pos + 1..].parse::<i32>().ok()?),
+        None => (s, 0),
+    };
+    let significand = mantissa.strip_prefix('-').unwrap_or(mantissa);
     let dot_pos = significand.find('.');
     let frac_digits = dot_pos
         .map(|pos| significand.len().saturating_sub(pos + 1))
@@ -325,7 +327,7 @@ pub fn to_string(value: f64) -> String {
             if is_integer(value) {
                 format!("{value:.1?}")
             } else {
-                value.to_string()
+                prefer_cpython_tie_repr(value.to_string(), value)
             }
         } else {
             prefer_cpython_tie_repr(format!("{significand}e{exponent:+#03}"), value)
@@ -350,6 +352,21 @@ mod tests {
             to_string(2.0f64.powi(-14) - 2.0f64.powi(-25)),
             "6.1005353927612305e-05"
         );
+    }
+
+    #[test]
+    fn repr_normal_range_uses_cpython_tie_digit() {
+        // Rust's shortest formatter yields "161852602146008.13" for this
+        // value; round-half-to-even (what `repr` uses) picks "…08.12".
+        assert_eq!(
+            to_string(f64::from_bits(0x42e26687db6b9b04)),
+            "161852602146008.12"
+        );
+        // Non-tie values are left untouched.
+        assert_eq!(to_string(1.5), "1.5");
+        assert_eq!(to_string(0.1), "0.1");
+        assert_eq!(to_string(12.34), "12.34");
+        assert_eq!(to_string(100.0), "100.0");
     }
 }
 

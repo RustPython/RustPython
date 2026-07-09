@@ -19,9 +19,9 @@ fn component_to_string(value: f64) -> String {
         if exponent < 16 && exponent > -5 {
             // Normal magnitude — Rust's default Display emits "1" for 1.0,
             // "1.5" for 1.5, "1000000000000000" for 1e15, etc.
-            value.to_string()
+            float::prefer_cpython_tie_repr(value.to_string(), value)
         } else {
-            alloc::format!("{significand}e{exponent:+#03}")
+            float::prefer_cpython_tie_repr(alloc::format!("{significand}e{exponent:+#03}"), value)
         }
     } else {
         // nan / inf / -inf — `format!("{x:e}")` produces e.g. "NaN" with no
