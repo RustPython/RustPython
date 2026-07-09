@@ -218,12 +218,14 @@ pub enum ReadConsoleError {
 }
 
 pub fn access(path: &Path, mode: u8) -> bool {
-    let wide = path.as_os_str().to_wide_with_nul();
+    let Ok(wide) = path.as_os_str().to_wide_with_nul() else {
+        return false;
+    };
     let attr = unsafe { GetFileAttributesW(wide.as_ptr()) };
-    attr != INVALID_FILE_ATTRIBUTES
+    Ok(attr != INVALID_FILE_ATTRIBUTES
         && (mode & 2 == 0
             || attr & FILE_ATTRIBUTE_READONLY == 0
-            || attr & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0)
+            || attr & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY != 0))
 }
 
 pub fn remove(path: &Path) -> io::Result<()> {
@@ -234,7 +236,10 @@ pub fn remove(path: &Path) -> io::Result<()> {
         IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
     };
 
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let wide_path = path
+        .as_os_str()
+        .to_wide_with_nul()
+        .map_err(io::Error::other)?;
     let attrs = unsafe { GetFileAttributesW(wide_path.as_ptr()) };
 
     let mut is_directory = false;
@@ -381,7 +386,7 @@ pub fn fchmod(fd: i32, mode: u32, write_bit: u32) -> io::Result<()> {
 }
 
 pub fn win32_lchmod(path: &OsStr, mode: u32, write_bit: u32) -> io::Result<()> {
-    let wide = path.to_wide_with_nul();
+    let wide = path.to_wide_with_nul()?;
     let attr = unsafe { GetFileAttributesW(wide.as_ptr()) }.check_ne(INVALID_FILE_ATTRIBUTES)?;
     let new_attr = if mode & write_bit != 0 {
         attr & !FILE_ATTRIBUTE_READONLY
@@ -414,7 +419,7 @@ pub fn chmod_follow(path: &widestring::WideCStr, mode: u32, write_bit: u32) -> i
 }
 
 pub fn find_first_file_name(path: &Path) -> io::Result<OsString> {
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let wide_path = path.as_os_str().to_wide_with_nul()?;
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
     let handle = unsafe { FindFirstFileW(wide_path.as_ptr(), &mut find_data) }.check_valid()?;
@@ -446,7 +451,7 @@ pub fn path_isdevdrive(path: &Path) -> io::Result<bool> {
         reserved: u32,
     }
 
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let wide_path = path.as_os_str().to_wide_with_nul()?;
     let mut volume = [0u16; MAX_PATH as usize];
     unsafe { GetVolumePathNameW(wide_path.as_ptr(), volume.as_mut_ptr(), volume.len() as _) }
         .check_win32_bool()?;
@@ -613,7 +618,7 @@ fn win32_xstat_attributes_from_dir(
         BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT,
     };
 
-    let wide: Vec<u16> = path.to_wide_with_nul();
+    let wide: Vec<u16> = path.to_wide_with_nul()?;
     let mut find_data: WIN32_FIND_DATAW = unsafe { core::mem::zeroed() };
 
     let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut find_data) }.check_valid()?;
@@ -651,7 +656,7 @@ fn win32_xstat_slow_impl(path: &OsStr, traverse: bool) -> io::Result<StatStruct>
         },
     };
 
-    let wide: Vec<u16> = path.to_wide_with_nul();
+    let wide: Vec<u16> = path.to_wide_with_nul()?;
     let access = FILE_READ_ATTRIBUTES;
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
     if !traverse {
@@ -922,7 +927,9 @@ pub fn test_file_type_by_name(path: &Path, tested_type: TestType) -> bool {
     if !matches!(tested_type, TestType::RegularFile | TestType::Directory) {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
     }
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let Ok(wide_path) = path.as_os_str().to_wide_with_nul() else {
+        return false;
+    };
     let handle = unsafe {
         CreateFileW(
             wide_path.as_ptr(),
@@ -988,7 +995,9 @@ pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
         }
     }
 
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let Ok(wide_path) = path.as_os_str().to_wide_with_nul() else {
+        return false;
+    };
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
     if !follow_links {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
@@ -1046,7 +1055,9 @@ pub fn test_file_exists_by_name(path: &Path, follow_links: bool) -> bool {
 }
 
 pub fn path_exists_via_open(path: &Path, follow_links: bool) -> bool {
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let Ok(wide_path) = path.as_os_str().to_wide_with_nul() else {
+        return false;
+    };
     let mut flags = FILE_FLAG_BACKUP_SEMANTICS;
     if !follow_links {
         flags |= FILE_FLAG_OPEN_REPARSE_POINT;
@@ -1270,7 +1281,10 @@ pub fn readlink(path: &Path) -> Result<OsString, ReadlinkError> {
         IO_REPARSE_TAG_MOUNT_POINT, IO_REPARSE_TAG_SYMLINK,
     };
 
-    let wide_path = path.as_os_str().to_wide_with_nul();
+    let wide_path = path
+        .as_os_str()
+        .to_wide_with_nul()
+        .map_err(ReadlinkError::Io)?;
     let handle = unsafe {
         CreateFileW(
             wide_path.as_ptr(),
@@ -1369,7 +1383,7 @@ pub fn kill(pid: u32, sig: u32) -> io::Result<()> {
 pub fn getfinalpathname(path: &Path) -> io::Result<OsString> {
     use windows_sys::Win32::Storage::FileSystem::{GetFinalPathNameByHandleW, VOLUME_NAME_DOS};
 
-    let wide = path.as_os_str().to_wide_with_nul();
+    let wide = path.as_os_str().to_wide_with_nul()?;
     let handle = unsafe {
         CreateFileW(
             wide.as_ptr(),
@@ -1407,7 +1421,7 @@ pub fn getfinalpathname(path: &Path) -> io::Result<OsString> {
 }
 
 pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
-    let wide = path.as_os_str().to_wide_with_nul();
+    let wide = path.as_os_str().to_wide_with_nul()?;
     let mut buffer = vec![0u16; MAX_PATH as usize];
     let mut ret = unsafe {
         windows_sys::Win32::Storage::FileSystem::GetFullPathNameW(
@@ -1435,7 +1449,7 @@ pub fn getfullpathname(path: &Path) -> io::Result<OsString> {
 }
 
 pub fn getvolumepathname(path: &Path) -> io::Result<OsString> {
-    let wide = path.as_os_str().to_wide_with_nul();
+    let wide = path.as_os_str().to_wide_with_nul()?;
     let buflen = core::cmp::max(wide.len(), MAX_PATH as usize);
     let mut buffer = vec![0u16; buflen];
     unsafe {
@@ -1452,7 +1466,7 @@ pub fn getvolumepathname(path: &Path) -> io::Result<OsString> {
 pub fn getdiskusage(path: &Path) -> io::Result<(u64, u64)> {
     use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 
-    let wide = path.as_os_str().to_wide_with_nul();
+    let wide = path.as_os_str().to_wide_with_nul()?;
     let mut free_to_me = 0u64;
     let mut total = 0u64;
     let mut free = 0u64;
@@ -1584,7 +1598,7 @@ pub fn listvolumes() -> io::Result<Vec<OsString>> {
 }
 
 pub fn listmounts(volume: &Path) -> io::Result<Vec<OsString>> {
-    let wide = volume.as_os_str().to_wide_with_nul();
+    let wide = volume.as_os_str().to_wide_with_nul()?;
     let mut buflen: u32 = MAX_PATH + 1;
     let mut buffer = vec![0u16; buflen as usize];
 
@@ -1676,6 +1690,7 @@ pub fn getppid() -> u32 {
 
 pub fn path_skip_root(path: &widestring::WideCStr) -> Option<usize> {
     let mut end: *const u16 = core::ptr::null();
+    // SAFETY: `path` is a valid pointer to a nul terminated wide string without interior nuls.
     let hr = unsafe { windows_sys::Win32::UI::Shell::PathCchSkipRoot(path.as_ptr(), &mut end) };
     if hr >= 0 {
         assert!(!end.is_null());

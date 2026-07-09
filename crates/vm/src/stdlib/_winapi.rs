@@ -495,7 +495,9 @@ mod _winapi {
 
         // Use ToWideString which properly handles WTF-8 (including surrogates)
         let locale_wide = locale.as_wtf8().to_wide_cstring();
-        let src_wide = src.as_wtf8().to_wide();
+        // SAFETY: Interior NULs and non-NUL capped strings are fine here because the API takes
+        // in a length.
+        let src_wide: Vec<_> = src.as_wtf8().encode_wide().collect();
 
         if src_wide.len() > i32::MAX as usize {
             return Err(vm.new_overflow_error("input string is too long"));

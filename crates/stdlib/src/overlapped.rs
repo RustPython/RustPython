@@ -210,7 +210,8 @@ mod _overlapped {
                 // IPv4: (host, port)
                 let host: PyStrRef = addr_obj[0].clone().try_into_value(vm)?;
                 let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
-                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
+                let host_wide: Vec<u16> =
+                    host.as_wtf8().encode_wide_ffi().collect::<Result<_, _>>()?;
                 host_overlapped::parse_address_v4_wide(&host_wide, port)
                     .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
             }
@@ -220,7 +221,8 @@ mod _overlapped {
                 let port: u16 = addr_obj[1].clone().try_to_value(vm)?;
                 let flowinfo: u32 = addr_obj[2].clone().try_to_value(vm)?;
                 let scope_id: u32 = addr_obj[3].clone().try_to_value(vm)?;
-                let host_wide: Vec<u16> = host.as_wtf8().encode_wide().chain([0]).collect();
+                let host_wide: Vec<u16> =
+                    host.as_wtf8().encode_wide_ffi().collect::<Result<_, _>>()?;
                 host_overlapped::parse_address_v6_wide(&host_wide, port, flowinfo, scope_id)
                     .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))
             }
