@@ -43,7 +43,7 @@ mod _pyexpat {
         Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg},
         types::Constructor,
     };
     use rustpython_common::lock::PyRwLock;
@@ -71,12 +71,21 @@ mod _pyexpat {
     pub(super) const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
     #[pyattr]
+    const XML_PARAM_ENTITY_PARSING_NEVER: i32 = 0;
+    #[pyattr]
+    const XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE: i32 = 1;
+    #[pyattr]
+    const XML_PARAM_ENTITY_PARSING_ALWAYS: i32 = 2;
+
+    #[pyattr]
     #[pyattr(name = "XMLParserType")]
     #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
         namespace_separator: Option<String>,
+        #[pytraverse(skip)]
+        base: PyRwLock<Option<String>>,
         start_element: MutableObject,
         end_element: MutableObject,
         character_data: MutableObject,
@@ -128,6 +137,7 @@ mod _pyexpat {
             let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
             Self {
                 namespace_separator,
+                base: PyRwLock::new(None),
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
@@ -295,6 +305,29 @@ mod _pyexpat {
                 .cdata_to_characters(true)
                 .coalesce_characters(false)
                 .whitespace_to_characters(true)
+        }
+
+        #[pymethod(name = "SetParamEntityParsing")]
+        fn set_param_entity_parsing(&self, _flag: ArgPrimitiveIndex<i32>) -> i32 {
+            // Compatibility shim: xml.sax requires this setup API, but xml-rs
+            // does not expose Expat parameter entity parsing configuration.
+            1
+        }
+
+        #[pymethod(name = "SetBase")]
+        fn set_base(&self, base: PyStrRef) {
+            // Store-only compatibility state for xml.sax locator APIs. The
+            // xml-rs backend still does not perform Expat-style base URI
+            // resolution for external entities.
+            *self.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
+        }
+
+        #[pymethod(name = "GetBase")]
+        fn get_base(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.base.read().as_ref().map_or_else(
+                || vm.ctx.none(),
+                |base| vm.ctx.new_str(base.as_str()).into(),
+            )
         }
 
         /// Construct element name with namespace if separator is set
