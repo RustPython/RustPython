@@ -107,8 +107,11 @@ mod decl {
         let (xlist, mut x) = seq2set(&xlist)?;
 
         if rlist.is_empty() && wlist.is_empty() && xlist.is_empty() {
-            let empty = vm.ctx.new_list(vec![]);
-            return Ok((empty.clone(), empty.clone(), empty));
+            return Ok((
+                vm.ctx.new_list(vec![]),
+                vm.ctx.new_list(vec![]),
+                vm.ctx.new_list(vec![]),
+            ));
         }
 
         let nfds = cfg_select! {

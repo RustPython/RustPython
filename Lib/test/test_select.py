@@ -40,7 +40,6 @@ class SelectTestCase(unittest.TestCase):
             else:
                 self.fail("exception not raised")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: unexpectedly identical: []
     def test_returned_list_identity(self):
         # See issue #8329
         r, w, x = select.select([], [], [], 1)
