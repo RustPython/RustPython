@@ -56,6 +56,8 @@ pub mod posix;
 #[cfg(windows)]
 #[path = "posix_windows.rs"]
 pub mod posix;
+#[cfg(any(unix, target_os = "wasi"))]
+pub mod posix_unix_like;
 #[cfg(unix)]
 pub mod pwd;
 #[cfg(unix)]
