@@ -30,6 +30,9 @@ mod _queue {
     }
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
+    #[cfg(feature = "threading")]
+    // Keep signal handlers responsive without excessively waking blocked threads.
+    const SIGNAL_CHECK_INTERVAL: Duration = Duration::from_millis(100);
 
     #[pyattr]
     #[pyclass(module = "_queue", name = "Empty", base = PyException)]
@@ -74,29 +77,37 @@ mod _queue {
 
         /// Returns `true` if the semaphore was acquired, `false` on timeout.
         #[must_use]
-        fn acquire(&self, block: bool, deadline: Option<Instant>, vm: &VirtualMachine) -> bool {
+        fn acquire(
+            &self,
+            block: bool,
+            deadline: Option<Instant>,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
             let mut count = self.mutex.lock();
             loop {
                 if *count > 0 {
                     *count -= 1;
-                    return true;
+                    return Ok(true);
                 }
 
                 if !block {
-                    return false;
+                    return Ok(false);
                 }
 
-                match deadline {
-                    Some(dl) => {
-                        let result = vm.allow_threads(|| self.cond.wait_until(&mut count, dl));
-                        if result.timed_out() && *count == 0 {
-                            return false;
-                        }
-                    }
-                    None => {
-                        vm.allow_threads(|| self.cond.wait(&mut count));
-                    }
+                let now = Instant::now();
+                if deadline.is_some_and(|deadline| now >= deadline) {
+                    return Ok(false);
                 }
+
+                let wait_deadline = deadline.map_or_else(
+                    || now + SIGNAL_CHECK_INTERVAL,
+                    |deadline| deadline.min(now + SIGNAL_CHECK_INTERVAL),
+                );
+                vm.allow_threads(|| self.cond.wait_until(&mut count, wait_deadline));
+                // Signal handlers can access this queue, so they must run without its mutex.
+                drop(count);
+                vm.check_signals()?;
+                count = self.mutex.lock();
             }
         }
     }
@@ -227,7 +238,7 @@ mod _queue {
 
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(block, deadline, vm) {
+                if !self.sem.acquire(block, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
@@ -239,7 +250,7 @@ mod _queue {
         fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(false, None, vm) {
+                if !self.sem.acquire(false, None, vm)? {
                     return Err(empty_error(vm));
                 }
             }

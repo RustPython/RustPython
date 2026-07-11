@@ -1,5 +1,7 @@
+import queue
 import signal
 import sys
+import threading
 import time
 
 from testutils import assert_raises
@@ -41,3 +43,28 @@ if "win" not in sys.platform:
     time.sleep(2.0)
 
     assert signals == [signal.SIGALRM, signal.SIGALRM]
+
+    q = queue.SimpleQueue()
+    handled_at = []
+
+    def queue_handler(signum, frame):
+        handled_at.append(time.monotonic() - start)
+
+    signal.signal(signal.SIGALRM, queue_handler)
+    start = time.monotonic()
+    signal.setitimer(signal.ITIMER_REAL, 0.1)
+
+    def unblock():
+        time.sleep(1)
+        q.put("unblock")
+
+    thread = threading.Thread(target=unblock)
+    thread.start()
+    try:
+        assert q.get() == "unblock"
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        thread.join()
+
+    # This leaves a 0.3-second margin before the thread unblocks at one second.
+    assert handled_at and handled_at[0] < 0.7
