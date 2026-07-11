@@ -726,7 +726,6 @@ class ReTests(unittest.TestCase):
                                   'first second').groupdict(),
                          {'first':'first', 'second':'second'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
