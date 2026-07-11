@@ -862,7 +862,6 @@ class TestEscapedExcel(TestCsvBase):
 class TestDialectUnix(TestCsvBase):
     dialect = 'unix'
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_writer(self):
         self.writerAssertEqual([[1, 'abc def', 'abc']], '"1","abc def","abc"\n')
 
