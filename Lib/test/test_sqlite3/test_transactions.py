@@ -395,7 +395,6 @@ class AutocommitAttribute(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, msg):
                     sqlite.connect(":memory:", autocommit=mode)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled(self):
         expected = [
             "SELECT 1",

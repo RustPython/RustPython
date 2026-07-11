@@ -1136,10 +1136,20 @@ mod _sqlite3 {
         #[pymethod]
         fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
-            if !db.is_autocommit() {
-                db._exec(b"ROLLBACK\0", vm)
-            } else {
-                Ok(())
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => {
+                    if db.is_autocommit() {
+                        Ok(())
+                    } else {
+                        db._exec(b"ROLLBACK\0", vm)
+                    }
+                }
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"ROLLBACK\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
             }
         }
 
