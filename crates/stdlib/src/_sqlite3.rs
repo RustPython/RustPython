@@ -963,7 +963,7 @@ mod _sqlite3 {
             zelf.reset_factories(vm);
 
             if was_initialized {
-                zelf.drop_db();
+                zelf.drop_db(vm)?;
             }
 
             // Attempt to open the new database before mutating other state so failures leave
@@ -994,8 +994,20 @@ mod _sqlite3 {
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
-        fn drop_db(&self) {
-            self.db.lock().take();
+        fn drop_db(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = self.db.lock();
+            let rollback_result = if let Some(db) = guard.as_ref()
+                && *self.autocommit.lock() == AutocommitMode::Disabled
+                && !db.is_autocommit()
+            {
+                db._exec(b"ROLLBACK\0", vm)
+            } else {
+                Ok(())
+            };
+            let db = guard.take();
+            drop(guard);
+            drop(db);
+            rollback_result
         }
 
         fn reset_factories(&self, vm: &VirtualMachine) {
@@ -1111,8 +1123,7 @@ mod _sqlite3 {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.check_thread(vm)?;
-            self.drop_db();
-            Ok(())
+            self.drop_db(vm)
         }
 
         fn is_closed(&self) -> bool {

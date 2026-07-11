@@ -410,7 +410,6 @@ class AutocommitAttribute(unittest.TestCase):
                 cx.commit()
                 cx.rollback()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_implicit_rollback(self):
         expected = ["ROLLBACK"]
         with memory_database(autocommit=False) as cx:
