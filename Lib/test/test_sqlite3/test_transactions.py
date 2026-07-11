@@ -438,7 +438,6 @@ class AutocommitAttribute(unittest.TestCase):
                         meth()  # expect this to pass silently
                         self.assertFalse(cx.in_transaction)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_then_enabled(self):
         expected = ["COMMIT"]
         with memory_database(autocommit=False) as cx:

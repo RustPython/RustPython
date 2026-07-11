@@ -1012,6 +1012,9 @@ mod _sqlite3 {
             if let Some(isolation_level) = &args.isolation_level.0 {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
+            if args.autocommit == AutocommitMode::Disabled {
+                db._exec(b"BEGIN\0", vm)?;
+            }
             Ok(db)
         }
 
@@ -1549,6 +1552,7 @@ mod _sqlite3 {
         fn set_autocommit(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
             let db = self.db_lock(vm)?;
+            *self.autocommit.lock() = mode;
 
             // Handle transaction state based on mode change
             match mode {
@@ -1568,9 +1572,6 @@ mod _sqlite3 {
                     // Legacy mode doesn't change transaction state
                 }
             }
-
-            drop(db);
-            *self.autocommit.lock() = mode;
             Ok(())
         }
 
