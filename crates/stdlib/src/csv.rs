@@ -462,7 +462,7 @@ mod _csv {
     impl From<QuoteStyle> for csv_core::QuoteStyle {
         fn from(val: QuoteStyle) -> Self {
             match val {
-                QuoteStyle::Minimal => Self::Always,
+                QuoteStyle::Minimal => Self::Necessary,
                 QuoteStyle::All => Self::Always,
                 QuoteStyle::Nonnumeric => Self::NonNumeric,
                 QuoteStyle::None => Self::Never,
