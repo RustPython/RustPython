@@ -2230,7 +2230,7 @@ mod _socket {
             let addr = Self::from_tuple(tuple, vm)?;
             let flowinfo = tuple
                 .get(2)
-                .map(|obj| u32::try_from_borrowed_object(vm, obj))
+                .map(|obj| obj.clone().try_index(vm)?.try_to_primitive_raw(vm))
                 .transpose()?
                 .unwrap_or(0);
             let scopeid = tuple
@@ -3141,14 +3141,16 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_LEN")]
-    fn cmsg_len(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
+    fn cmsg_len(length: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let length = length.try_index(vm)?.try_to_primitive_raw(vm)?;
         host_socket::checked_cmsg_len(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_LEN() argument out of range"))
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_SPACE")]
-    fn cmsg_space(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
+    fn cmsg_space(length: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let length = length.try_index(vm)?.try_to_primitive_raw(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
     }
