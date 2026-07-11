@@ -1121,7 +1121,16 @@ mod _sqlite3 {
 
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.db_lock(vm)?.implicit_commit(vm)
+            let db = self.db_lock(vm)?;
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => db.implicit_commit(vm),
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"COMMIT\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
+            }
         }
 
         #[pymethod]
@@ -1524,11 +1533,7 @@ mod _sqlite3 {
 
                     // If setting isolation_level to None (auto-commit mode), commit any pending transaction
                     if value.is_none() {
-                        let db = self.db_lock(vm)?;
-                        if !db.is_autocommit() {
-                            // Keep the lock and call implicit_commit directly to avoid race conditions
-                            db.implicit_commit(vm)?;
-                        }
+                        self.commit(vm)?;
                     }
                     let _ = unsafe { self.isolation_level.swap(value) };
                     Ok(())

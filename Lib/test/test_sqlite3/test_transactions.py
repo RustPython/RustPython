@@ -471,7 +471,6 @@ class AutocommitAttribute(unittest.TestCase):
                     self.assertFalse(cx.in_transaction)
                 self.assertFalse(cx.in_transaction)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_ctx_mgr(self):
         expected = ["COMMIT", "BEGIN"]
         with memory_database(autocommit=False) as cx:
