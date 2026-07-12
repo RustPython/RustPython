@@ -335,6 +335,10 @@ pub(crate) mod _signal {
         }
 
         #[cfg(windows)]
+        #[expect(
+            clippy::std_instead_of_core,
+            reason = "false positive: core::io::ErrorKind is unstable (core_io)"
+        )]
         let is_socket = if fd != INVALID_WAKEUP {
             host_signal::wakeup_fd_is_socket(fd).map_err(|err| {
                 if err.kind() == std::io::ErrorKind::InvalidInput {

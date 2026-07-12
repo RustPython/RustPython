@@ -1623,7 +1623,6 @@ impl SymbolTableBuilder {
                     decorator_list,
                     type_params,
                     range,
-                    node_index: _,
                     ..
                 }) => {
                     let prev_class = self.class_name.clone();
@@ -1819,7 +1818,6 @@ impl SymbolTableBuilder {
                     value,
                     simple,
                     range,
-                    node_index: _,
                     ..
                 }) => {
                     self.tables.last_mut().unwrap().annotations_used = true;
@@ -2141,35 +2139,20 @@ impl SymbolTableBuilder {
             }
 
             match expression {
-                Expr::BinOp(ExprBinOp {
-                    left,
-                    right,
-                    range: _,
-                    ..
-                }) => {
+                Expr::BinOp(ExprBinOp { left, right, .. }) => {
                     self.scan_expression(left, context)?;
                     self.scan_expression(right, context)?;
                 }
-                Expr::BoolOp(ExprBoolOp {
-                    values, range: _, ..
-                }) => {
+                Expr::BoolOp(ExprBoolOp { values, .. }) => {
                     self.scan_expressions(values, context)?;
                 }
                 Expr::Compare(ExprCompare {
-                    left,
-                    comparators,
-                    range: _,
-                    ..
+                    left, comparators, ..
                 }) => {
                     self.scan_expression(left, context)?;
                     self.scan_expressions(comparators, context)?;
                 }
-                Expr::Subscript(ExprSubscript {
-                    value,
-                    slice,
-                    range: _,
-                    ..
-                }) => {
+                Expr::Subscript(ExprSubscript { value, slice, .. }) => {
                     self.scan_expression(value, ExpressionContext::Load)?;
                     self.scan_expression(slice, ExpressionContext::Load)?;
                 }
@@ -2179,12 +2162,7 @@ impl SymbolTableBuilder {
                     self.check_name(attr.as_str(), context, *range)?;
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
-                Expr::Dict(ExprDict {
-                    items,
-                    node_index: _,
-                    range: _,
-                    ..
-                }) => {
+                Expr::Dict(ExprDict { items, .. }) => {
                     for item in items {
                         if let Some(key) = &item.key {
                             self.scan_expression(key, context)?;
@@ -2194,12 +2172,7 @@ impl SymbolTableBuilder {
                         self.scan_expression(&item.value, context)?;
                     }
                 }
-                Expr::Await(ExprAwait {
-                    value,
-                    node_index: _,
-                    range: _,
-                    ..
-                }) => {
+                Expr::Await(ExprAwait { value, .. }) => {
                     let current_scope = self.tables.last().unwrap().typ;
                     if !self.allows_top_level_await()
                         && !Self::is_function_like_scope(current_scope)
@@ -2227,12 +2200,7 @@ impl SymbolTableBuilder {
                     self.scan_expression(value, context)?;
                     self.tables.last_mut().unwrap().is_coroutine = true;
                 }
-                Expr::Yield(ExprYield {
-                    value,
-                    node_index: _,
-                    range: _,
-                    ..
-                }) => {
+                Expr::Yield(ExprYield { value, .. }) => {
                     if let Some(expression) = value {
                         self.scan_expression(expression, context)?;
                     }
@@ -2252,12 +2220,7 @@ impl SymbolTableBuilder {
                         });
                     }
                 }
-                Expr::YieldFrom(ExprYieldFrom {
-                    value,
-                    node_index: _,
-                    range: _,
-                    ..
-                }) => {
+                Expr::YieldFrom(ExprYieldFrom { value, .. }) => {
                     self.scan_expression(value, context)?;
                     self.tables.last_mut().unwrap().is_generator = true;
                     if let Some(context_name) = self.comprehension_yield_context
@@ -2275,28 +2238,19 @@ impl SymbolTableBuilder {
                         });
                     }
                 }
-                Expr::UnaryOp(ExprUnaryOp {
-                    operand, range: _, ..
-                }) => {
+                Expr::UnaryOp(ExprUnaryOp { operand, .. }) => {
                     self.scan_expression(operand, context)?;
                 }
-                Expr::Starred(ExprStarred {
-                    value, range: _, ..
-                }) => {
+                Expr::Starred(ExprStarred { value, .. }) => {
                     self.scan_expression(value, context)?;
                 }
-                Expr::Tuple(ExprTuple { elts, range: _, .. })
-                | Expr::Set(ExprSet { elts, range: _, .. })
-                | Expr::List(ExprList { elts, range: _, .. }) => {
+                Expr::Tuple(ExprTuple { elts, .. })
+                | Expr::Set(ExprSet { elts, .. })
+                | Expr::List(ExprList { elts, .. }) => {
                     self.scan_expressions(elts, context)?;
                 }
                 Expr::Slice(ExprSlice {
-                    lower,
-                    upper,
-                    step,
-                    node_index: _,
-                    range: _,
-                    ..
+                    lower, upper, step, ..
                 }) => {
                     if let Some(lower) = lower {
                         self.scan_expression(lower, context)?;
@@ -2326,7 +2280,6 @@ impl SymbolTableBuilder {
                     elt,
                     generators,
                     range,
-                    node_index: _,
                     ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
@@ -2341,7 +2294,6 @@ impl SymbolTableBuilder {
                     elt,
                     generators,
                     range,
-                    node_index: _,
                     ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
@@ -2357,7 +2309,6 @@ impl SymbolTableBuilder {
                     value,
                     generators,
                     range,
-                    node_index: _,
                     ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
@@ -2377,11 +2328,7 @@ impl SymbolTableBuilder {
                     self.in_iter_def_exp = was_in_iter_def_exp;
                 }
                 Expr::Call(ExprCall {
-                    func,
-                    arguments,
-                    node_index: _,
-                    range: _,
-                    ..
+                    func, arguments, ..
                 }) => {
                     match context {
                         ExpressionContext::IterDefinitionExp => {
@@ -2438,11 +2385,7 @@ impl SymbolTableBuilder {
                     }
                 }
                 Expr::Lambda(ExprLambda {
-                    body,
-                    parameters,
-                    node_index: _,
-                    range: _,
-                    ..
+                    body, parameters, ..
                 }) => {
                     let was_in_iter_def_exp = self.in_iter_def_exp;
                     if let Some(parameters) = parameters {
@@ -2535,12 +2478,7 @@ impl SymbolTableBuilder {
                     });
                 }
                 Expr::If(ExprIf {
-                    test,
-                    body,
-                    orelse,
-                    node_index: _,
-                    range: _,
-                    ..
+                    test, body, orelse, ..
                 }) => {
                     self.scan_expression(test, ExpressionContext::Load)?;
                     self.scan_expression(body, ExpressionContext::Load)?;
@@ -2551,7 +2489,6 @@ impl SymbolTableBuilder {
                     target,
                     value,
                     range,
-                    node_index: _,
                     ..
                 }) => {
                     // named expressions are not allowed in the definition of
@@ -2777,7 +2714,6 @@ impl SymbolTableBuilder {
                         bound,
                         range: type_var_range,
                         default,
-                        node_index: _,
                         ..
                     }) => {
                         self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
@@ -2821,7 +2757,6 @@ impl SymbolTableBuilder {
                         name,
                         range: param_spec_range,
                         default,
-                        node_index: _,
                         ..
                     }) => {
                         self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
@@ -2850,7 +2785,6 @@ impl SymbolTableBuilder {
                         name,
                         range: type_var_tuple_range,
                         default,
-                        node_index: _,
                         ..
                     }) => {
                         self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;

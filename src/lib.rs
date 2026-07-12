@@ -303,7 +303,7 @@ fn run_rustpython(vm: &VirtualMachine, run_mode: RunMode) -> PyResult<()> {
         RunMode::InstallPip(installer) => install_pip(installer, scope.clone(), vm),
         RunMode::Script(script_path) => {
             // pymain_run_file_obj
-            debug!("Running script {}", &script_path);
+            debug!("Running script {}", script_path);
             run_file(vm, scope.clone(), &script_path)
         }
         RunMode::Repl => Ok(()),

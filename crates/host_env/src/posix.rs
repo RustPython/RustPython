@@ -305,6 +305,10 @@ pub fn fchown(fd: BorrowedFd<'_>, uid: Option<u32>, gid: Option<u32>) -> std::io
 }
 
 #[cfg(not(windows))]
+#[expect(
+    clippy::std_instead_of_core,
+    reason = "false positive: core::io::ErrorKind is unstable (core_io)"
+)]
 pub fn stat_path(
     path: &OsStr,
     dir_fd: Option<i32>,
@@ -1431,6 +1435,10 @@ fn build_posix_spawn_attrs(
             target_os = "illumos",
             target_os = "hurd",
         )))]
+        #[expect(
+            clippy::std_instead_of_core,
+            reason = "false positive: core::io::ErrorKind is unstable (core_io); expect is co-gated with the usage so it is not left unfulfilled on platforms where this block is compiled out"
+        )]
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,

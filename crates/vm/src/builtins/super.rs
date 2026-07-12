@@ -237,7 +237,7 @@ impl Representable for PySuper {
         let obj = zelf.inner.read().obj.clone();
         let repr = match obj {
             Some((_, ref ty)) => {
-                format!("<super: <class '{}'>, <{} object>>", &type_name, ty.name())
+                format!("<super: <class '{}'>, <{} object>>", type_name, ty.name())
             }
             None => format!("<super: <class '{type_name}'>, NULL>"),
         };
