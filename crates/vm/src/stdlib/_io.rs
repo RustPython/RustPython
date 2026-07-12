@@ -112,7 +112,10 @@ impl std::os::fd::AsRawFd for Fildes {
 }
 
 #[pymodule]
-#[expect(clippy::std_instead_of_core)] // false positive: core::io items (Cursor, etc.) are unstable (core_io)
+#[expect(
+    clippy::std_instead_of_core,
+    reason = "false positive: core::io items (Cursor, etc.) are unstable (core_io)"
+)]
 mod _io {
     use super::*;
     use crate::{
