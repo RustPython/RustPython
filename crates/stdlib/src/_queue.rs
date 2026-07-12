@@ -31,8 +31,8 @@ mod _queue {
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
 
-    /// Wait chunk size so blocking waits stay responsive to signals, mirroring
-    /// CPython's `PyThread_acquire_lock_timed`.
+    /// `parking_lot`'s `Condvar` doesn't expose a mid-wait signal to us (unlike
+    /// CPython's raw `sem_timedwait`, which reports `EINTR`), so we poll instead.
     #[cfg(feature = "threading")]
     const SIGNAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
 
