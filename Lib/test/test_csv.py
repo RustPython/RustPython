@@ -857,7 +857,6 @@ class TestEscapedExcel(TestCsvBase):
     def test_escape_fieldsep(self):
         self.writerAssertEqual([['abc,def']], 'abc\\,def\r\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape_fieldsep(self):
         self.readerAssertEqual('abc\\,def\r\n', [['abc,def']])
 

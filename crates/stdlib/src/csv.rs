@@ -975,6 +975,61 @@ mod _csv {
 
     impl SelfIter for Reader {}
 
+    fn read_quote_none_record(
+        input: &[u8],
+        dialect: PyDialect,
+        field_limit: isize,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        let mut fields = vec![Vec::new()];
+        let mut escaped = false;
+
+        for (index, &byte) in input.iter().enumerate() {
+            if escaped {
+                fields.last_mut().unwrap().push(byte);
+                escaped = false;
+            } else if dialect.escapechar == Some(byte) {
+                escaped = true;
+            } else if byte == dialect.delimiter {
+                fields.push(Vec::new());
+            } else if matches!(byte, b'\r' | b'\n') {
+                if !input[index..]
+                    .iter()
+                    .all(|&byte| matches!(byte, b'\r' | b'\n'))
+                {
+                    return Err(new_csv_error(
+                        vm,
+                        concat!(
+                            "new-line character seen in unquoted field",
+                            " - do you need to open the file in universal-newline mode?"
+                        ),
+                    ));
+                }
+                break;
+            } else {
+                fields.last_mut().unwrap().push(byte);
+            }
+        }
+
+        // CPython treats an escape character at the end of an iterator item
+        // as escaping the implicit newline at the end of that item.
+        if escaped {
+            fields.last_mut().unwrap().push(b'\n');
+        }
+
+        fields
+            .into_iter()
+            .map(|field| {
+                if field.len() > field_limit as usize {
+                    return Err(new_csv_error(vm, "filed too long to read"));
+                }
+                let field = core::str::from_utf8(&field)
+                    .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+                Ok(vm.ctx.new_str(field).into())
+            })
+            .collect()
+    }
+
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let string = raise_if_stop!(zelf.iter.next(vm)?);
@@ -1005,6 +1060,12 @@ mod _csv {
             let mut output_offset = 0;
             let mut output_ends_offset = 0;
             let field_limit = GLOBAL_FIELD_LIMIT.lock().to_owned();
+
+            if zelf.dialect.quoting == QuoteStyle::None && zelf.dialect.escapechar.is_some() {
+                let out = read_quote_none_record(input, zelf.dialect, field_limit, vm)?;
+                *line_num += 1;
+                return Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()));
+            }
 
             #[inline]
             fn trim_spaces(input: &[u8]) -> &[u8] {
