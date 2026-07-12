@@ -797,48 +797,27 @@ mod _csv {
         }
 
         fn to_reader(&self) -> csv_core::Reader {
+            let dialect = match &self.dialect {
+                DialectItem::Str(name) => GLOBAL_HASHMAP.lock().get(name).copied(),
+                DialectItem::Obj(obj) => Some(*obj),
+                DialectItem::None => {
+                    let g = GLOBAL_HASHMAP.lock();
+                    Some(*g.get("excel").unwrap())
+                }
+            };
+
             let mut builder = csv_core::ReaderBuilder::new();
-            let mut reader = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        let mut builder = builder
-                            .delimiter(dialect.delimiter)
-                            .double_quote(dialect.doublequote)
-                            .escape(dialect.escapechar);
-                        if let Some(t) = dialect.quotechar {
-                            builder = builder.quote(t);
-                        }
-                        builder
-                        // RustPython todo
-                        // todo! Perfecting the remaining attributes.
-                    } else {
-                        &mut builder
-                    }
+            let mut reader = if let Some(dialect) = dialect {
+                let mut builder = builder
+                    .delimiter(dialect.delimiter)
+                    .double_quote(dialect.doublequote)
+                    .escape(dialect.escapechar);
+                if let Some(quotechar) = dialect.quotechar {
+                    builder = builder.quote(quotechar);
                 }
-                DialectItem::Obj(obj) => {
-                    let mut builder = builder
-                        .delimiter(obj.delimiter)
-                        .double_quote(obj.doublequote)
-                        .escape(obj.escapechar);
-                    if let Some(t) = obj.quotechar {
-                        builder = builder.quote(t);
-                    }
-                    builder
-                }
-                _ => {
-                    let name = "excel";
-                    let g = GLOBAL_HASHMAP.lock();
-                    let dialect = g.get(name).unwrap();
-                    let mut builder = builder
-                        .delimiter(dialect.delimiter)
-                        .double_quote(dialect.doublequote)
-                        .escape(dialect.escapechar);
-                    if let Some(quotechar) = dialect.quotechar {
-                        builder = builder.quote(quotechar);
-                    }
-                    builder
-                }
+                builder
+            } else {
+                &mut builder
             };
 
             if let Some(t) = self.delimiter {
