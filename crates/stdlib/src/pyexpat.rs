@@ -305,8 +305,9 @@ mod _pyexpat {
 
         fn create_config(&self) -> xml::ParserConfig {
             xml::ParserConfig::new()
-                .cdata_to_characters(true)
+                .cdata_to_characters(false)
                 .coalesce_characters(false)
+                .ignore_comments(false)
                 .whitespace_to_characters(true)
         }
 
@@ -375,6 +376,21 @@ mod _pyexpat {
                     Ok(XmlEvent::Characters(chars)) => {
                         let str = PyStr::from(chars).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.character_data, (str,));
+                    }
+                    Ok(XmlEvent::ProcessingInstruction { name, data }) => {
+                        let name = PyStr::from(name).into_ref(&vm.ctx);
+                        let data = PyStr::from(data.unwrap_or_default()).into_ref(&vm.ctx);
+                        invoke_handler(vm, &self.processing_instruction, (name, data));
+                    }
+                    Ok(XmlEvent::Comment(comment)) => {
+                        let comment = PyStr::from(comment).into_ref(&vm.ctx);
+                        invoke_handler(vm, &self.comment, (comment,));
+                    }
+                    Ok(XmlEvent::CData(chars)) => {
+                        invoke_handler(vm, &self.start_cdata_section, ());
+                        let str = PyStr::from(chars).into_ref(&vm.ctx);
+                        invoke_handler(vm, &self.character_data, (str,));
+                        invoke_handler(vm, &self.end_cdata_section, ());
                     }
                     Err(e) => return Err(e),
                     _ => {}
