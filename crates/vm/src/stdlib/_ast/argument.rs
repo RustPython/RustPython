@@ -151,7 +151,6 @@ pub(super) fn split_function_call_arguments(
         args,
         keywords,
         runtime_args,
-        runtime_bases: _,
         ..
     } = args;
 

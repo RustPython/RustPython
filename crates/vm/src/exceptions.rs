@@ -2652,7 +2652,7 @@ pub(super) mod types {
             Ok(vm.ctx.new_str(if start < object.len() && end <= object.len() && end == start + 1 {
                 let b = object.borrow_buf()[start];
                 format!(
-                    "'{encoding}' codec can't decode byte {b:#02x} in position {start}: {reason}"
+                    "'{encoding}' codec can't decode byte {b:#04x} in position {start}: {reason}"
                 )
             } else {
                 format!(

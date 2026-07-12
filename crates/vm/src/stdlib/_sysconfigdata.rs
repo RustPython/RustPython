@@ -19,7 +19,7 @@ mod _sysconfigdata {
         let paths = &vm.state.config.paths;
         build_time_vars.set_item("prefix", paths.prefix.clone().to_pyobject(vm), vm)?;
         build_time_vars.set_item("exec_prefix", paths.exec_prefix.clone().to_pyobject(vm), vm)?;
-        let bindir = format!("{}/bin", &paths.exec_prefix);
+        let bindir = format!("{}/bin", paths.exec_prefix);
         build_time_vars.set_item("BINDIR", bindir.to_pyobject(vm), vm)?;
 
         module.set_attr("build_time_vars", build_time_vars, vm)?;

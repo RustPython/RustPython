@@ -771,7 +771,7 @@ impl Constructor for PyCFuncPtr {
                     .as_bigint()
                     .clone(),
             };
-            let terminated = format!("{}\0", &name);
+            let terminated = format!("{name}\0");
             let ptr_val = match rustpython_host_env::ctypes::lookup_function_symbol_addr(
                 handle
                     .to_usize()

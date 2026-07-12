@@ -3801,16 +3801,15 @@ impl ExecutingFrame<'_> {
                             }
                             seen_keys.add(key.as_object().to_owned(), vm)?;
                             // value = map.get(key, dummy)
-                            match get_method.call((key.as_object(), dummy.clone()), vm) {
-                                Ok(value) => {
-                                    // if value == dummy: key not in map!
-                                    if value.is(&dummy) {
-                                        all_match = false;
-                                        break;
-                                    }
-                                    values.push(value);
+                            {
+                                let value =
+                                    get_method.call((key.as_object(), dummy.clone()), vm)?;
+                                // if value == dummy: key not in map!
+                                if value.is(&dummy) {
+                                    all_match = false;
+                                    break;
                                 }
-                                Err(e) => return Err(e),
+                                values.push(value);
                             }
                         }
                     } else {

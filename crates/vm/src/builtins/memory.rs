@@ -198,7 +198,7 @@ impl PyMemoryView {
         let data = self.format_spec.pack(vec![value], vm).map_err(|_| {
             vm.new_type_error(format!(
                 "memoryview: invalid type for format '{}'",
-                &self.desc.format
+                self.desc.format
             ))
         })?;
         bytes[pos..pos + self.desc.itemsize].copy_from_slice(&data);
