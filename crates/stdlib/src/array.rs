@@ -60,7 +60,7 @@ pub mod array {
                     match c {
                         $($c => Ok(ArrayContentType::$n(Vec::new())),)*
                         _ => Err(
-                            "bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)".into()
+                            "bad typecode (must be b, B, u, w, h, H, i, I, l, L, q, Q, f or d)".into()
                         ),
                     }
                 }
@@ -473,6 +473,7 @@ pub mod array {
         (SignedByte, i8, 'b', "b"),
         (UnsignedByte, u8, 'B', "B"),
         (PyUnicode, WideChar, 'u', "u"),
+        (PyUcs4, Ucs4Char, 'w', "w"),
         (SignedShort, raw::c_short, 'h', "h"),
         (UnsignedShort, raw::c_ushort, 'H', "H"),
         (SignedInt, raw::c_int, 'i', "i"),
@@ -487,6 +488,11 @@ pub mod array {
 
     #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
     pub struct WideChar(wchar_t);
+
+    /// Element type for the 'w' typecode: always a 4-byte unicode code point
+    /// (Py_UCS4), unlike 'u' which is platform-dependent `wchar_t`.
+    #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Debug)]
+    pub struct Ucs4Char(u32);
 
     trait ArrayElement: Sized {
         fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self>;
@@ -571,6 +577,47 @@ pub mod array {
         }
         fn to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
             unreachable!()
+        }
+    }
+
+    impl ArrayElement for Ucs4Char {
+        fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            let s = obj.downcast::<PyStr>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "array item must be a unicode character, not {}",
+                    obj.class().name()
+                ))
+            })?;
+            s.as_wtf8()
+                .code_points()
+                .exactly_one()
+                .map(|ch| Self(ch.to_u32()))
+                .map_err(|e| {
+                    vm.new_type_error(format!(
+                        "array item must be a unicode character, not a string of length {}",
+                        e.count()
+                    ))
+                })
+        }
+        fn byteswap(self) -> Self {
+            Self(self.0.swap_bytes())
+        }
+        fn to_object(self, _vm: &VirtualMachine) -> PyObjectRef {
+            unreachable!()
+        }
+    }
+
+    impl ToPyResult for Ucs4Char {
+        fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
+            Ok(u32_to_char(self.0)
+                .map_err(|msg| vm.new_value_error(msg))?
+                .to_pyobject(vm))
+        }
+    }
+
+    impl fmt::Display for Ucs4Char {
+        fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            unreachable!("`repr(array('w'))` calls `PyStr::repr`")
         }
     }
 
@@ -663,7 +710,7 @@ pub mod array {
                     let value = init.read().typecode();
                     match (spec, value) {
                         (spec, ch) if spec == ch => array.frombytes(&init.get_bytes()),
-                        (spec, 'u') => {
+                        (spec, 'u' | 'w') if !matches!(spec, 'u' | 'w') => {
                             return Err(vm.new_type_error(format!(
                             "cannot use a unicode array to initialize an array with typecode '{spec}'"
                         )))
@@ -675,7 +722,7 @@ pub mod array {
                         }
                     }
                 } else if let Some(wtf8) = init.downcast_ref::<PyStr>() {
-                    if spec == 'u' {
+                    if matches!(spec, 'u' | 'w') {
                         let bytes = Self::_unicode_to_wchar_bytes(wtf8.as_wtf8(), array.itemsize());
                         array.frombytes_move(bytes);
                     } else {
@@ -824,10 +871,10 @@ pub mod array {
                     obj.class().name()
                 ))
             })?;
-            if zelf.read().typecode() != 'u' {
-                return Err(
-                    vm.new_value_error("fromunicode() may only be called on unicode type arrays")
-                );
+            if !matches!(zelf.read().typecode(), 'u' | 'w') {
+                return Err(vm.new_value_error(
+                    "fromunicode() may only be called on unicode type arrays ('u' or 'w')",
+                ));
             }
             let mut w = zelf.try_resizable(vm)?;
             let bytes = Self::_unicode_to_wchar_bytes(wtf8, w.itemsize());
@@ -838,10 +885,10 @@ pub mod array {
         #[pymethod]
         fn tounicode(&self, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let array = self.array.read();
-            if array.typecode() != 'u' {
-                return Err(
-                    vm.new_value_error("tounicode() may only be called on unicode type arrays")
-                );
+            if !matches!(array.typecode(), 'u' | 'w') {
+                return Err(vm.new_value_error(
+                    "tounicode() may only be called on unicode type arrays ('u' or 'w')",
+                ));
             }
             let bytes = array.get_bytes();
             Self::_wchar_bytes_to_string(bytes, self.itemsize(), vm)
@@ -1152,7 +1199,7 @@ pub mod array {
             let array = zelf.read();
             let cls = zelf.class().to_owned();
             let typecode = vm.ctx.new_str(array.typecode_str());
-            let values = if array.typecode() == 'u' {
+            let values = if matches!(array.typecode(), 'u' | 'w') {
                 let s = Self::_wchar_bytes_to_string(array.get_bytes(), array.itemsize(), vm)?;
                 s.code_points().map(|x| x.to_pyobject(vm)).collect()
             } else {
@@ -1266,13 +1313,14 @@ pub mod array {
         fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
             let class = zelf.class();
             let class_name = class.name();
-            if zelf.read().typecode() == 'u' {
+            let typecode = zelf.read().typecode();
+            if matches!(typecode, 'u' | 'w') {
                 if zelf.__len__() == 0 {
-                    return Ok(format!("{class_name}('u')"));
+                    return Ok(format!("{class_name}('{typecode}')"));
                 }
                 let to_unicode = zelf.tounicode(vm)?;
                 let escape = crate::vm::literal::escape::UnicodeEscape::new_repr(&to_unicode);
-                return Ok(format!("{}('u', {})", class_name, escape.str_repr()));
+                return Ok(format!("{class_name}('{typecode}', {})", escape.str_repr()));
             }
             zelf.read().repr(&class_name, vm)
         }
@@ -1524,6 +1572,7 @@ pub mod array {
                         _ => None,
                     };
                 }
+                'w' => return Some(Self::Utf32 { big_endian }),
                 'f' => {
                     // Copied from CPython
                     const Y: f32 = 16711938.0;
