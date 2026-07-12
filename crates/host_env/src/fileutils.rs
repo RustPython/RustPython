@@ -457,6 +457,7 @@ pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
 // _Py_fopen_obj in cpython (Python/fileutils.c:1757-1835)
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
+#[expect(clippy::std_instead_of_core)] // false positive: core::io::ErrorKind is unstable (core_io)
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
     use alloc::ffi::CString;
     use std::fs::File;

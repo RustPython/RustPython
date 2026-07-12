@@ -392,7 +392,7 @@ mod decl {
         // there are a few uuencodes out there that use
         // '`' as zero instead of space.
         if !(b' '..=(b' ' + 64)).contains(&c) {
-            if [b'\r', b'\n'].contains(&c) {
+            if b"\r\n".contains(&c) {
                 return Ok(0);
             }
             return Err(super::new_binascii_error("Illegal char", vm));

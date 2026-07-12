@@ -1,5 +1,8 @@
 //! Pyexpat builtin module
 
+// false positive: core::io::Cursor is unstable (core_io), unusable on stable
+#![expect(clippy::std_instead_of_core)]
+
 // spell-checker: ignore libexpat
 
 pub(crate) use _pyexpat::module_def;
