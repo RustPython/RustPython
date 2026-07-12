@@ -538,7 +538,6 @@ class TestBasicOps(unittest.TestCase):
         #check proper internal error handling for large "step' sizes
         count(1, maxsize+5); sys.exc_info()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; 'count(10.5)' != 'count(10.5, 1.0)'
     def test_count_with_step(self):
         self.assertEqual(lzip('abc',count(2,3)), [('a', 2), ('b', 5), ('c', 8)])
         self.assertEqual(lzip('abc',count(start=2,step=3)),
