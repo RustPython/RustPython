@@ -804,7 +804,8 @@ mod _csv {
                     if let Some(dialect) = g.get(name) {
                         let mut builder = builder
                             .delimiter(dialect.delimiter)
-                            .double_quote(dialect.doublequote);
+                            .double_quote(dialect.doublequote)
+                            .escape(dialect.escapechar);
                         if let Some(t) = dialect.quotechar {
                             builder = builder.quote(t);
                         }
@@ -818,7 +819,8 @@ mod _csv {
                 DialectItem::Obj(obj) => {
                     let mut builder = builder
                         .delimiter(obj.delimiter)
-                        .double_quote(obj.doublequote);
+                        .double_quote(obj.doublequote)
+                        .escape(obj.escapechar);
                     if let Some(t) = obj.quotechar {
                         builder = builder.quote(t);
                     }
@@ -830,7 +832,8 @@ mod _csv {
                     let dialect = g.get(name).unwrap();
                     let mut builder = builder
                         .delimiter(dialect.delimiter)
-                        .double_quote(dialect.doublequote);
+                        .double_quote(dialect.doublequote)
+                        .escape(dialect.escapechar);
                     if let Some(quotechar) = dialect.quotechar {
                         builder = builder.quote(quotechar);
                     }
