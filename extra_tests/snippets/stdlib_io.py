@@ -84,3 +84,30 @@ textio = TextIOWrapper(raw, encoding="utf-8", write_through=True)
 raw.textio = textio
 with assert_raises(AttributeError):
     textio.writelines(["x"])
+
+textio = TextIOWrapper(BytesIO())
+
+for invalid_chunk_size in (0, -1, 2**100):
+    try:
+        textio._CHUNK_SIZE = invalid_chunk_size
+    except ValueError:
+        pass
+    else:
+        assert False, f"expected ValueError for {invalid_chunk_size!r}"
+
+for invalid_chunk_size in (1.5, "4"):
+    try:
+        textio._CHUNK_SIZE = invalid_chunk_size
+    except TypeError:
+        pass
+    else:
+        assert False, f"expected TypeError for {invalid_chunk_size!r}"
+
+
+class ChunkSize:
+    def __index__(self):
+        return 16
+
+
+textio._CHUNK_SIZE = ChunkSize()
+assert textio._CHUNK_SIZE == 16
