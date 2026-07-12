@@ -983,15 +983,20 @@ mod _csv {
     ) -> PyResult<Vec<PyObjectRef>> {
         let mut fields = vec![Vec::new()];
         let mut escaped = false;
+        let mut after_delimiter = false;
 
         for (index, &byte) in input.iter().enumerate() {
             if escaped {
                 fields.last_mut().unwrap().push(byte);
                 escaped = false;
+                after_delimiter = false;
+            } else if dialect.skipinitialspace && after_delimiter && byte == b' ' {
+                continue;
             } else if dialect.escapechar == Some(byte) {
                 escaped = true;
             } else if byte == dialect.delimiter {
                 fields.push(Vec::new());
+                after_delimiter = true;
             } else if matches!(byte, b'\r' | b'\n') {
                 if !input[index..]
                     .iter()
@@ -1008,6 +1013,7 @@ mod _csv {
                 break;
             } else {
                 fields.last_mut().unwrap().push(byte);
+                after_delimiter = false;
             }
         }
 
