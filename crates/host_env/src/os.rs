@@ -340,9 +340,51 @@ impl ErrorExt for io::Error {
     }
     #[cfg(windows)]
     fn posix_errno(&self) -> i32 {
+        // A C runtime error carries its exact errno as the payload; report it
+        // directly instead of round-tripping through a Win32 error code.
+        if let Some(crt) = self.get_ref().and_then(|e| e.downcast_ref::<CrtErrno>()) {
+            return crt.0;
+        }
         let winerror = self.raw_os_error().unwrap_or(0);
         winerror_to_errno(winerror)
     }
+}
+
+/// Wraps a raw C runtime `errno` inside an [`io::Error`].
+///
+/// CRT functions (`open`, `read`, `dup`, ...) report failures through `errno`,
+/// not `GetLastError`. Translating that `errno` into a Win32 error code is
+/// lossy — any value missing from [`errno_to_winerror`] collapses to `EINVAL` —
+/// and also attaches a spurious `winerror` to the resulting `OSError`. Carrying
+/// the `errno` as the error payload lets [`ErrorExt::posix_errno`] recover it
+/// exactly while leaving `raw_os_error()` empty, so no `winerror` is reported.
+#[cfg(windows)]
+#[derive(Debug)]
+struct CrtErrno(i32);
+
+#[cfg(windows)]
+impl core::fmt::Display for CrtErrno {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match crate::errno::strerror_string(self.0) {
+            Some(msg) => f.write_str(&msg),
+            None => write!(f, "os error {}", self.0),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl core::error::Error for CrtErrno {}
+
+/// Build an [`io::Error`] that preserves a raw C runtime `errno`.
+///
+/// The [`io::ErrorKind`] is derived from the closest Win32 mapping so callers
+/// matching on `kind()` keep working, while the exact `errno` is preserved for
+/// [`ErrorExt::posix_errno`].
+#[cfg(windows)]
+#[must_use]
+pub fn io_error_from_errno(errno: i32) -> io::Error {
+    let kind = io::Error::from_raw_os_error(errno_to_winerror(errno)).kind();
+    io::Error::new(kind, CrtErrno(errno))
 }
 
 #[cfg(all(not(windows), not(target_arch = "wasm32")))]
@@ -357,9 +399,7 @@ impl ErrorExt for rustix::io::Errno {
 #[cfg(windows)]
 #[must_use]
 pub fn errno_io_error() -> io::Error {
-    let errno: i32 = get_errno();
-    let winerror = errno_to_winerror(errno);
-    io::Error::from_raw_os_error(winerror)
+    io_error_from_errno(get_errno())
 }
 
 #[cfg(not(windows))]
