@@ -560,7 +560,6 @@ class BufferTextTest(unittest.TestCase):
             ["<a>", "1", "<b>", "</b>", "2", "<c>", "</c>", "345", "</a>"],
             "buffered text not properly split")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test7(self):
         self.setHandlers(["CommentHandler", "EndElementHandler",
                     "StartElementHandler"])

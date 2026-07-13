@@ -659,7 +659,6 @@ class MinidomTest(unittest.TestCase):
         self.assertIsNone(pi.localName)
         self.assertEqual(pi.namespaceURI, xml.dom.EMPTY_NAMESPACE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testProcessingInstructionRepr(self):
         dom = parseString('<e><?mypi \t\n data \t\n ?></e>')
         pi = dom.documentElement.firstChild
@@ -957,11 +956,9 @@ class MinidomTest(unittest.TestCase):
         self.confirm(clone.target == pi.target
                 and clone.data == pi.data)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testClonePIShallow(self):
         self.check_clone_pi(0, "testClonePIShallow")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testClonePIDeep(self):
         self.check_clone_pi(1, "testClonePIDeep")
 
@@ -1219,7 +1216,6 @@ class MinidomTest(unittest.TestCase):
         self.assertIsNone(node.childNodes[-1].nextSibling,
                      "Final child's .nextSibling should be None")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSiblings(self):
         doc = parseString("<doc><?pi?>text?<elm/></doc>")
         root = doc.documentElement
@@ -1792,7 +1788,6 @@ class MinidomTest(unittest.TestCase):
                          '<?xml version="1.0" ?>\n'
                          '<curriculum status="public" company="example"/>\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_toprettyxml_with_cdata(self):
         xml_str = '<?xml version="1.0" ?><root><node><![CDATA[</data>]]></node></root>'
         doc = parseString(xml_str)
