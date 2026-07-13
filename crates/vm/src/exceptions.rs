@@ -960,7 +960,7 @@ impl ExceptionZoo {
         });
 
         extend_exception!(PySystemExit, ctx, excs.system_exit, {
-            "code" => ctx.new_readonly_getset("code", excs.system_exit, system_exit_code),
+            "code" => ctx.none(),
         });
         extend_exception!(PyKeyboardInterrupt, ctx, excs.keyboard_interrupt);
         extend_exception!(PyGeneratorExit, ctx, excs.generator_exit);
@@ -1098,19 +1098,6 @@ fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &Virt
         PySetterValue::Delete => new_args[0] = vm.ctx.none(),
     }
     *args = PyTuple::new_ref(new_args, &vm.ctx);
-}
-
-fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
-    // SystemExit.code based on args length:
-    // - size == 0: code is None
-    // - size == 1: code is args[0]
-    // - size > 1: code is args (the whole tuple)
-    let args = exc.args.read();
-    Some(match args.len() {
-        0 => return None,
-        1 => args.first().unwrap().clone(),
-        _ => args.as_object().to_owned(),
-    })
 }
 
 #[cfg(feature = "serde")]
@@ -1637,9 +1624,14 @@ pub(super) mod types {
         type Args = FuncArgs;
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Call BaseException_init first (handles args)
-            PyBaseException::slot_init(zelf, args, vm)
-            // Note: code is computed dynamically via system_exit_code getter
-            // so we don't need to set it here explicitly
+            let code = match args.args.len() {
+                0 => vm.ctx.none(),
+                1 => args.args[0].clone(),
+                _ => vm.ctx.new_tuple(args.args.clone()).into(),
+            };
+            PyBaseException::slot_init(zelf.clone(), args, vm)?;
+            zelf.set_attr("code", code, vm)?;
+            Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
