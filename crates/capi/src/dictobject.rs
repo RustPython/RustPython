@@ -94,16 +94,13 @@ pub unsafe extern "C" fn PyDict_GetItemString(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = match unsafe { CStr::from_ptr(key) }.to_str() {
-            Ok(key) => key,
-            Err(_) => {
-                return Ok(core::ptr::null_mut());
-            }
-        };
+        let key = unsafe { CStr::from_ptr(key) }
+            .to_str()
+            .map_err(|_| vm.new_unicode_decode_error("dictionary key must be valid UTF-8"))?;
 
-        match dict.inner_getitem_opt(key, vm) {
-            Ok(Some(value)) => Ok(value.as_object().as_raw().cast_mut()),
-            Ok(None) | Err(_) => Ok(core::ptr::null_mut()),
+        match dict.inner_getitem_opt(key, vm)? {
+            Some(value) => Ok(value.as_object().as_raw().cast_mut()),
+            None => Ok(core::ptr::null_mut()),
         }
     })
 }
