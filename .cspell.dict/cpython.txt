@@ -198,6 +198,7 @@ pymain
 pymem
 pyrepl
 pystate
+pystrcmp
 PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw
