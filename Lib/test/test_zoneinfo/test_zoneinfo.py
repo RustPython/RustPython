@@ -1970,7 +1970,6 @@ class TestModule(ZoneInfoTestBase):
         with self.assertRaises(AttributeError):
             self.module.NOATTRIBUTE
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; dir(self.module) should at least contain everything in __all__.
     def test_dir_contains_all(self):
         """dir(self.module) should at least contain everything in __all__."""
         module_all_set = set(self.module.__all__)
