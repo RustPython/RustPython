@@ -45,3 +45,24 @@ assert handler.events == [
     ("end", "child"),
     ("end", "main"),
 ]
+
+events = []
+parser = expat.ParserCreate()
+parser.ProcessingInstructionHandler = lambda target, data: events.append(
+    ("processing-instruction", target, data)
+)
+parser.CommentHandler = lambda data: events.append(("comment", data))
+parser.StartCdataSectionHandler = lambda: events.append(("start-cdata",))
+parser.CharacterDataHandler = lambda data: events.append(("characters", data))
+parser.EndCdataSectionHandler = lambda: events.append(("end-cdata",))
+parser.Parse(
+    "<?target data?><?empty?><root><!--comment--><![CDATA[text]]></root>", True
+)
+assert events == [
+    ("processing-instruction", "target", "data"),
+    ("processing-instruction", "empty", ""),
+    ("comment", "comment"),
+    ("start-cdata",),
+    ("characters", "text"),
+    ("end-cdata",),
+]
