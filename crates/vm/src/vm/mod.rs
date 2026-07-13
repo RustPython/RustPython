@@ -2303,29 +2303,28 @@ impl VirtualMachine {
 
     pub fn handle_exit_exception(&self, exc: PyBaseExceptionRef) -> u32 {
         if exc.fast_isinstance(self.ctx.exceptions.system_exit) {
-            let args = exc.args();
-            let msg = match args.as_slice() {
-                [] => return 0,
-                [arg] => match_class!(match arg {
-                    ref i @ PyInt => {
-                        use num_traits::cast::ToPrimitive;
-                        // Try u32 first, then i32 (for negative values), else -1 for overflow
-                        let code = i
-                            .as_bigint()
-                            .to_u32()
-                            .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
-                            .unwrap_or(-1i32 as u32);
-                        return code;
+            let code = exc
+                .as_object()
+                .get_attr("code", self)
+                .unwrap_or_else(|_| exc.as_object().to_owned());
+            let msg = match_class!(match code {
+                ref i @ PyInt => {
+                    use num_traits::cast::ToPrimitive;
+                    // Try u32 first, then i32 (for negative values), else -1 for overflow
+                    let code = i
+                        .as_bigint()
+                        .to_u32()
+                        .or_else(|| i.as_bigint().to_i32().map(|v| v as u32))
+                        .unwrap_or(-1i32 as u32);
+                    return code;
+                }
+                code => {
+                    if self.is_none(&code) {
+                        return 0;
                     }
-                    arg => {
-                        if self.is_none(arg) {
-                            return 0;
-                        }
-                        arg.str(self).ok()
-                    }
-                }),
-                _ => args.as_object().repr(self).ok(),
-            };
+                    code.str(self).ok()
+                }
+            });
             if let Some(msg) = msg {
                 // Write using Python's write() to use stderr's error handler (backslashreplace)
                 if let Ok(stderr) = stdlib::sys::get_stderr(self) {
