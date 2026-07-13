@@ -140,6 +140,8 @@ metavars
 miscompiles
 mult
 multibytecodec
+mystricmp
+mystrnicmp
 nameobj
 nameop
 nargsf
