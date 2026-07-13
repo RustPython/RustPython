@@ -346,9 +346,10 @@ impl FormatCode {
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {
-                    FormatType::SSizeT | FormatType::SizeT | FormatType::VoidP => {
-                        endianness == Endianness::Native
-                    }
+                    FormatType::SSizeT
+                    | FormatType::SizeT
+                    | FormatType::VoidP
+                    | FormatType::Ucs4Char => endianness == Endianness::Native,
                     _ => true,
                 })
                 .ok_or_else(|| "bad char in struct format".to_owned())?;
