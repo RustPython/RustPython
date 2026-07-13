@@ -180,17 +180,30 @@ pub fn init_path_config(settings: &Settings) -> Paths {
     paths
 }
 
-/// Get default prefix value
-fn default_prefix() -> String {
-    std::option_env!("RUSTPYTHON_PREFIX")
-        .map(String::from)
-        .unwrap_or_else(|| {
-            if cfg!(windows) {
-                "C:".to_owned()
-            } else {
-                "/usr/local".to_owned()
-            }
-        })
+/// Get default prefix value used when landmark search fails.
+///
+/// A compile-time `RUSTPYTHON_PREFIX` always wins. Otherwise POSIX uses the
+/// conventional install prefix, while Windows has no meaningful compile-time
+/// prefix and falls back to the executable's directory (ref: getpath.py).
+///
+/// A bare drive root must never be returned on Windows: pip walks up from
+/// `<prefix>/Lib/site-packages` and would otherwise probe the drive root for
+/// writability, which fails for standard users (see issue #8246).
+fn default_prefix(exe_dir: Option<&PathBuf>) -> String {
+    if let Some(prefix) = std::option_env!("RUSTPYTHON_PREFIX") {
+        return prefix.to_owned();
+    }
+
+    if cfg!(windows) {
+        if let Some(dir) = exe_dir {
+            return dir.to_string_lossy().into_owned();
+        }
+        // Executable directory is unknown; use a valid absolute root as a last
+        // resort rather than a drive-relative bare "C:".
+        "C:\\".to_owned()
+    } else {
+        "/usr/local".to_owned()
+    }
 }
 
 /// Detect virtual environment by looking for pyvenv.cfg
@@ -262,7 +275,7 @@ fn calculate_prefix(exe_dir: Option<&PathBuf>, build_prefix: Option<&PathBuf>) -
     }
 
     // 4. Fallback to default
-    default_prefix()
+    default_prefix(exe_dir)
 }
 
 /// Calculate exec_prefix
@@ -410,7 +423,7 @@ mod tests {
 
     #[test]
     fn default_prefix_basic() {
-        let prefix = default_prefix();
+        let prefix = default_prefix(None);
         assert!(!prefix.is_empty());
     }
 }
