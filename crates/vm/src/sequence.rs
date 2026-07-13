@@ -122,6 +122,11 @@ where
 
     fn imul(&mut self, vm: &VirtualMachine, n: isize) -> PyResult<()> {
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
+
+        if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
+            return Err(vm.new_memory_error(""));
+        }
+
         if n == 0 {
             self.as_vec_mut().clear();
         } else if n != 1 {
