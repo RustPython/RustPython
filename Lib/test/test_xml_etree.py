@@ -1800,7 +1800,6 @@ class XMLPullParserTest(unittest.TestCase):
         self._feed(parser, "<!-- text here -->\n")
         self.assert_events(parser, [('comment', (ET.Comment, ' text here '))])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_events_pi(self):
         parser = ET.XMLPullParser(events=('start', 'pi', 'end'))
         self._feed(parser, "<?pitarget?>\n")
@@ -3821,7 +3820,6 @@ class TreeBuilderTest(unittest.TestCase):
         a = parser.close()
         self.assertEqual(a.text, "texttail")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_late_tail_mix_pi_comments(self):
         # Issue #37399: The tail of an ignored comment could overwrite the text before it.
         # Test appending tails to comments/pis.

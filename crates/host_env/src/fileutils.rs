@@ -94,11 +94,15 @@ pub mod windows {
 
     // _Py_fstat_noraise in cpython
     pub fn fstat(fd: crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-        let h = crt_fd::as_handle(fd);
-        if h.is_err() {
-            unsafe { SetLastError(ERROR_INVALID_HANDLE) };
-        }
-        let h = h?;
+        let h = match crt_fd::as_handle(fd) {
+            Ok(h) => h,
+            Err(_) => {
+                // An invalid fd is reported as a Win32 handle error so the
+                // OSError carries winerror = ERROR_INVALID_HANDLE.
+                unsafe { SetLastError(ERROR_INVALID_HANDLE) };
+                return Err(std::io::Error::last_os_error());
+            }
+        };
         let h = h.as_raw_handle();
         // reset stat?
 
