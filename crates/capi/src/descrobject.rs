@@ -92,9 +92,11 @@ pub unsafe extern "C" fn PyDescr_NewGetSet(
                             let closure = closure as *mut c_void;
                             let ret_ptr = get(obj.as_raw().cast_mut(), closure);
                             let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-                                vm.take_raised_exception().expect(
-                                    "Native function returned NULL, but there was no exception set",
-                                )
+                                vm.take_raised_exception().unwrap_or_else(|| {
+                                    vm.new_system_error(
+                                        "Native function returned NULL, but there was no exception set",
+                                    )
+                                })
                             })?;
                             Ok(PyObjectRef::from_raw(ret_ptr))
                         }
@@ -130,9 +132,11 @@ pub unsafe extern "C" fn PyDescr_NewGetSet(
                             let closure = closure as *mut c_void;
                             let ret_ptr = get(obj.as_raw().cast_mut(), closure);
                             let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-                                vm.take_raised_exception().expect(
-                                    "Native function returned NULL, but there was no exception set",
-                                )
+                                vm.take_raised_exception().unwrap_or_else(|| {
+                                    vm.new_system_error(
+                                        "Native function returned NULL, but there was no exception set",
+                                    )
+                                })
                             })?;
                             Ok(PyObjectRef::from_raw(ret_ptr))
                         }
