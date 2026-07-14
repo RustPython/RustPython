@@ -5,12 +5,12 @@ use crate::pystate::with_vm;
 use core::ffi::{CStr, c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{
-    DescriptorMemberDef, MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMappingProxy,
-    PyMemberDescriptor,
+    DescriptorMemberDef, MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyGetSet,
+    PyMappingProxy, PyMemberDescriptor, PyType,
 };
 use rustpython_vm::common::lock::PyRwLock;
 use rustpython_vm::function::PySetterValue;
-use rustpython_vm::{PyObjectRef, PyPayload, PyResult};
+use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 #[repr(C)]
 pub struct PyGetSetDef {
@@ -26,6 +26,102 @@ pub struct PyGetSetDef {
     >,
     pub doc: *const c_char,
     pub closure: *mut c_void,
+}
+
+impl PyGetSetDef {
+    pub(crate) fn build(
+        &self,
+        ty: &'static Py<PyType>,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<PyGetSet>> {
+        let name = unsafe { CStr::from_ptr(self.name) }
+            .to_str()
+            .map_err(|_| vm.new_system_error("PyGetSetDef name was not valid UTF-8"))?;
+        let closure = self.closure as usize;
+
+        let descriptor = match (self.get, self.set) {
+            (Some(get), Some(set)) => vm.ctx.new_static_getset(
+                name,
+                ty,
+                move |obj: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyObjectRef> {
+                    unsafe {
+                        let closure = closure as *mut c_void;
+                        let ret_ptr = get(obj.as_raw().cast_mut(), closure);
+                        let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
+                            vm.take_raised_exception().unwrap_or_else(|| {
+                                vm.new_system_error(
+                                    "Native function returned NULL, but there was no exception set",
+                                )
+                            })
+                        })?;
+                        Ok(PyObjectRef::from_raw(ret_ptr))
+                    }
+                },
+                move |obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine| unsafe {
+                    let closure = closure as *mut c_void;
+                    let value = value.unwrap_or_none(vm);
+                    let result = set(obj.as_raw().cast_mut(), value.as_raw().cast_mut(), closure);
+                    if result == 0 {
+                        Ok(())
+                    } else {
+                        Err(vm.take_raised_exception().unwrap_or_else(|| {
+                            vm.new_system_error(
+                                "C setter returned error but did not set an exception",
+                            )
+                        }))
+                    }
+                },
+            ),
+            (Some(get), None) => vm.ctx.new_readonly_getset(
+                name,
+                ty,
+                move |obj: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyObjectRef> {
+                    unsafe {
+                        let closure = closure as *mut c_void;
+                        let ret_ptr = get(obj.as_raw().cast_mut(), closure);
+                        let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
+                            vm.take_raised_exception().unwrap_or_else(|| {
+                                vm.new_system_error(
+                                    "Native function returned NULL, but there was no exception set",
+                                )
+                            })
+                        })?;
+                        Ok(PyObjectRef::from_raw(ret_ptr))
+                    }
+                },
+            ),
+            (None, Some(set)) => vm.ctx.new_static_getset(
+                name,
+                ty,
+                move |_obj: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyObjectRef> {
+                    Err(vm.new_attribute_error("unreadable attribute"))
+                },
+                move |obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine| unsafe {
+                    let closure = closure as *mut c_void;
+                    let value = value.unwrap_or_none(vm);
+                    let result = set(obj.as_raw().cast_mut(), value.as_raw().cast_mut(), closure);
+                    if result == 0 {
+                        Ok(())
+                    } else {
+                        Err(vm.take_raised_exception().unwrap_or_else(|| {
+                            vm.new_system_error(
+                                "C setter returned error but did not set an exception",
+                            )
+                        }))
+                    }
+                },
+            ),
+            (None, None) => vm.ctx.new_readonly_getset(
+                name,
+                ty,
+                move |_obj: PyObjectRef, vm: &VirtualMachine| -> PyResult<PyObjectRef> {
+                    Err(vm.new_attribute_error("unreadable attribute"))
+                },
+            ),
+        };
+
+        Ok(descriptor)
+    }
 }
 
 #[repr(C)]
@@ -50,9 +146,9 @@ pub unsafe extern "C" fn PyDescr_NewMethod(
     typ: *mut PyTypeObject,
     method: *mut PyMethodDef,
 ) -> *mut PyObject {
-    with_vm(|vm| -> PyResult<PyObjectRef> {
+    with_vm(|vm| {
         let method = build_method_def(vm, unsafe { &*method }, true)?;
-        Ok(method.build_method(unsafe { &*typ }, vm).into())
+        Ok(method.build_method(unsafe { &*typ }, vm))
     })
 }
 
@@ -61,9 +157,9 @@ pub unsafe extern "C" fn PyDescr_NewClassMethod(
     typ: *mut PyTypeObject,
     method: *mut PyMethodDef,
 ) -> *mut PyObject {
-    with_vm(|vm| -> PyResult<PyObjectRef> {
+    with_vm(|vm| {
         let method = build_method_def(vm, unsafe { &*method }, true)?;
-        Ok(method.build_method(unsafe { &*typ }, vm).into())
+        Ok(method.build_method(unsafe { &*typ }, vm))
     })
 }
 
@@ -72,119 +168,7 @@ pub unsafe extern "C" fn PyDescr_NewGetSet(
     typ: *mut PyTypeObject,
     getset: *mut PyGetSetDef,
 ) -> *mut PyObject {
-    with_vm(|vm| -> PyResult<PyObjectRef> {
-        let typ = unsafe { &*typ };
-        let getset = unsafe { &*getset };
-        let name = unsafe { CStr::from_ptr(getset.name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("PyGetSetDef name was not valid UTF-8"))?;
-
-        let descriptor = match (getset.get, getset.set) {
-            (Some(get), Some(set)) => {
-                let closure = getset.closure as usize;
-                vm.ctx.new_static_getset(
-                    name,
-                    typ,
-                    move |obj: PyObjectRef,
-                          vm: &rustpython_vm::VirtualMachine|
-                          -> PyResult<PyObjectRef> {
-                        unsafe {
-                            let closure = closure as *mut c_void;
-                            let ret_ptr = get(obj.as_raw().cast_mut(), closure);
-                            let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-                                vm.take_raised_exception().unwrap_or_else(|| {
-                                    vm.new_system_error(
-                                        "Native function returned NULL, but there was no exception set",
-                                    )
-                                })
-                            })?;
-                            Ok(PyObjectRef::from_raw(ret_ptr))
-                        }
-                    },
-                    move |obj: PyObjectRef,
-                          value: PySetterValue,
-                          vm: &rustpython_vm::VirtualMachine| unsafe {
-                        let closure = closure as *mut c_void;
-                        let value = value.unwrap_or_none(vm);
-                        let result =
-                            set(obj.as_raw().cast_mut(), value.as_raw().cast_mut(), closure);
-                        if result == 0 {
-                            Ok(())
-                        } else {
-                            Err(vm.take_raised_exception().unwrap_or_else(|| {
-                                vm.new_system_error(
-                                    "C setter returned error but did not set an exception",
-                                )
-                            }))
-                        }
-                    },
-                )
-            }
-            (Some(get), None) => {
-                let closure = getset.closure as usize;
-                vm.ctx.new_readonly_getset(
-                    name,
-                    typ,
-                    move |obj: PyObjectRef,
-                          vm: &rustpython_vm::VirtualMachine|
-                          -> PyResult<PyObjectRef> {
-                        unsafe {
-                            let closure = closure as *mut c_void;
-                            let ret_ptr = get(obj.as_raw().cast_mut(), closure);
-                            let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-                                vm.take_raised_exception().unwrap_or_else(|| {
-                                    vm.new_system_error(
-                                        "Native function returned NULL, but there was no exception set",
-                                    )
-                                })
-                            })?;
-                            Ok(PyObjectRef::from_raw(ret_ptr))
-                        }
-                    },
-                )
-            }
-            (None, Some(set)) => {
-                let closure = getset.closure as usize;
-                vm.ctx.new_static_getset(
-                    name,
-                    typ,
-                    move |_obj: PyObjectRef,
-                          vm: &rustpython_vm::VirtualMachine|
-                          -> PyResult<PyObjectRef> {
-                        Err(vm.new_attribute_error("unreadable attribute"))
-                    },
-                    move |obj: PyObjectRef,
-                          value: PySetterValue,
-                          vm: &rustpython_vm::VirtualMachine| unsafe {
-                        let closure = closure as *mut c_void;
-                        let value = value.unwrap_or_none(vm);
-                        let result =
-                            set(obj.as_raw().cast_mut(), value.as_raw().cast_mut(), closure);
-                        if result == 0 {
-                            Ok(())
-                        } else {
-                            Err(vm.take_raised_exception().unwrap_or_else(|| {
-                                vm.new_system_error(
-                                    "C setter returned error but did not set an exception",
-                                )
-                            }))
-                        }
-                    },
-                )
-            }
-            (None, None) => vm.ctx.new_readonly_getset(
-                name,
-                typ,
-                move |_obj: PyObjectRef,
-                      vm: &rustpython_vm::VirtualMachine|
-                      -> PyResult<PyObjectRef> {
-                    Err(vm.new_attribute_error("unreadable attribute"))
-                },
-            ),
-        };
-
-        Ok(descriptor.into())
-    })
+    with_vm(|vm| unsafe { &*getset }.build(unsafe { &*typ }, vm))
 }
 
 #[unsafe(no_mangle)]
@@ -195,7 +179,7 @@ pub unsafe extern "C" fn PyDescr_NewMember(
     const PY_READONLY: c_int = 1;
     const PY_RELATIVE_OFFSET: c_int = 8;
 
-    with_vm(|vm| -> PyResult<PyObjectRef> {
+    with_vm(|vm| {
         let typ = unsafe { &*typ };
         let member = unsafe { &*member };
         let name = unsafe { CStr::from_ptr(member.name) }
@@ -249,7 +233,7 @@ pub unsafe extern "C" fn PyDescr_NewMember(
             },
         };
 
-        Ok(descriptor.into_ref(&vm.ctx).into())
+        Ok(descriptor.into_ref(&vm.ctx))
     })
 }
 
