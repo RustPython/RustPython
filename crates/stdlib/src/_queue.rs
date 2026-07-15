@@ -37,7 +37,7 @@ mod _queue {
     // (SA_RESTART cleared via `siginterrupt`), but `parking_lot::Condvar` swallows
     // it and re-parks, forcing this poll. Replace with a shared interruptible
     // timed-wait that surfaces EINTR (`poll`/wakeup-fd, portable incl. macOS; or
-   // `sem_timedwait` where available) -- `_thread` lock and `Thread.join` share
+    // `sem_timedwait` where available) -- `_thread` lock and `Thread.join` share
     // this defect. Then this constant and the chunking loop go away.
     #[cfg(feature = "threading")]
     const SIGNAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
