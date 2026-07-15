@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::util::CStrExt;
 use core::ffi::{CStr, c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::PyCapsule;
@@ -93,9 +94,7 @@ pub unsafe extern "C" fn PyCapsule_IsValid(capsule: *mut PyObject, name: *const 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCapsule_Import(name: *const c_char, _no_block: c_int) -> *mut c_void {
     with_vm(|vm| {
-        let capsule_name = unsafe { CStr::from_ptr(name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("capsule name is not valid UTF-8"))?;
+        let capsule_name = unsafe { name.try_as_str(vm) }?;
         let (module_name, attrs_path) = capsule_name.split_once('.').ok_or_else(|| {
             vm.new_import_error(
                 "capsule name is missing attribute path",
