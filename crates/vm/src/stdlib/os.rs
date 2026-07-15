@@ -1870,7 +1870,8 @@ pub(super) mod _os {
 
     #[cfg(windows)]
     #[pyfunction]
-    fn waitstatus_to_exitcode(status: u64, vm: &VirtualMachine) -> PyResult<u32> {
+    fn waitstatus_to_exitcode(status: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let status = status.try_index(vm)?.try_to_primitive_raw::<u64>(vm)?;
         let exitcode = status >> 8;
         // ExitProcess() accepts an UINT type:
         // reject exit code which doesn't fit in an UINT
