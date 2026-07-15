@@ -1106,9 +1106,9 @@ dependencies = [
 
 [[package]]
 name = "der"
-version = "0.8.0"
+version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71fd89660b2dc699704064e59e9dba0147b903e85319429e131620d022be411b"
+checksum = "a69dedd701da44b0536442edf09c81a64b0ab97a7a4a5e3d1971f00027cbc63d"
 dependencies = [
  "const-oid 0.10.2",
  "pem-rfc7468 1.0.0",
@@ -2707,7 +2707,7 @@ dependencies = [
  "aes",
  "aes-gcm",
  "cbc",
- "der 0.8.0",
+ "der 0.8.1",
  "pbkdf2",
  "rand_core 0.10.1",
  "scrypt",
@@ -2721,7 +2721,7 @@ version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "451913da69c775a56034ea8d9003d27ee8948e12443eae7c038ba100a4f21cb7"
 dependencies = [
- "der 0.8.0",
+ "der 0.8.1",
  "pkcs5",
  "rand_core 0.10.1",
  "spki 0.8.0",
@@ -3652,7 +3652,7 @@ dependencies = [
  "crc32fast",
  "crossbeam-utils",
  "csv-core",
- "der 0.8.0",
+ "der 0.8.1",
  "digest 0.11.3",
  "dyn-clone",
  "flame",
@@ -4158,7 +4158,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d9efca8738c78ee9484207732f728b1ef517bbb1833d6fc0879ca898a522f6f"
 dependencies = [
  "base64ct",
- "der 0.8.0",
+ "der 0.8.1",
 ]
 
 [[package]]
