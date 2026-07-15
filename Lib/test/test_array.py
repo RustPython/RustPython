@@ -189,7 +189,6 @@ class ArrayReconstructorTest(unittest.TestCase):
                 self.assertEqual(a, b,
                     msg="{0!r} != {1!r}; testcase={2!r}".format(a, b, testcase))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
     def test_unicode(self):
         teststr = "Bonne Journ\xe9e \U0002030a\U00020347"
         testcases = (
@@ -1180,7 +1179,6 @@ class BaseTest:
         basesize = support.calcvobjsize('Pn2Pi')
         support.check_sizeof(self, a, basesize)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
     def test_initialize_with_unicode(self):
         if self.typecode not in ('u', 'w'):
             with self.assertRaises(TypeError) as cm:
@@ -1267,206 +1265,10 @@ class UnicodeTest(StringTest, unittest.TestCase):
                 self.assertEqual(len(a), 0)
                 self.assertEqual(a.typecode, 'u')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_add(self):
-        return super().test_add()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_extend(self):
-        return super().test_extend()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_iadd(self):
-        return super().test_iadd()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_setiadd(self):
-        return super().test_setiadd()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_setslice(self):
-        return super().test_setslice()
-
 
 class UCS4Test(UnicodeTest):
     typecode = 'w'
     minitemsize = 4
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_buffer(self):
-        return super().test_buffer()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_buffer_info(self):
-        return super().test_buffer_info()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_byteswap(self):
-        return super().test_byteswap()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_clear(self):
-        return super().test_clear()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_cmp(self):
-        return super().test_cmp()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_constructor(self):
-        return super().test_constructor()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_constructor_with_iterable_argument(self):
-        return super().test_constructor_with_iterable_argument()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_copy(self):
-        return super().test_copy()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_count(self):
-        return super().test_count()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_coveritertraverse(self):
-        return super().test_coveritertraverse()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_deepcopy(self):
-        return super().test_deepcopy()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_delitem(self):
-        return super().test_delitem()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_exhausted_iterator(self):
-        return super().test_exhausted_iterator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_exhausted_reverse_iterator(self):
-        return super().test_exhausted_reverse_iterator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_extended_getslice(self):
-        return super().test_extended_getslice()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_extended_set_del_slice(self):
-        return super().test_extended_set_del_slice()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_filewrite(self):
-        return super().test_filewrite()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_fromarray(self):
-        return super().test_fromarray()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_fromfile_ioerror(self):
-        return super().test_fromfile_ioerror()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_getitem(self):
-        return super().test_getitem()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_getslice(self):
-        return super().test_getslice()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_imul(self):
-        return super().test_imul()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_index(self):
-        return super().test_index()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_insert(self):
-        return super().test_insert()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_issue17223(self):
-        return super().test_issue17223()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_iterator_pickle(self):
-        return super().test_iterator_pickle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_len(self):
-        return super().test_len()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_mul(self):
-        return super().test_mul()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_pickle(self):
-        return super().test_pickle()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_pickle_for_empty_array(self):
-        return super().test_pickle_for_empty_array()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_pop(self):
-        return super().test_pop()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reduce_ex(self):
-        return super().test_reduce_ex()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_remove(self):
-        return super().test_remove()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_repr(self):
-        return super().test_repr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reverse(self):
-        return super().test_reverse()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reverse_iterator(self):
-        return super().test_reverse_iterator()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_reverse_iterator_picking(self):
-        return super().test_reverse_iterator_picking()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_setitem(self):
-        return super().test_setitem()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_str(self):
-        return super().test_str()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_tofrombytes(self):
-        return super().test_tofrombytes()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_tofromfile(self):
-        return super().test_tofromfile()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_tofromlist(self):
-        return super().test_tofromlist()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_unicode(self):
-        return super().test_unicode()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Add support for 'w'
-    def test_weakref(self):
-        return super().test_weakref()
 
 
 class NumberTest(BaseTest):
