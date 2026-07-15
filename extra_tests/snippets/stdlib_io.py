@@ -123,6 +123,6 @@ try:
 except ValueError as error:
     expected = "cannot fit 'OversizedChunkSize' into an index-sized integer"
     if str(error) != expected:
-        raise AssertionError(f"unexpected error message: {error}")
+        raise AssertionError(f"unexpected error message: {error}") from error
 else:
     raise AssertionError("expected ValueError for oversized indexable object")
