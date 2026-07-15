@@ -959,9 +959,7 @@ impl ExceptionZoo {
             "exceptions" => ctx.new_readonly_getset("exceptions", excs.base_exception_group, make_arg_getter(1)),
         });
 
-        extend_exception!(PySystemExit, ctx, excs.system_exit, {
-            "code" => ctx.new_readonly_getset("code", excs.system_exit, system_exit_code),
-        });
+        extend_exception!(PySystemExit, ctx, excs.system_exit);
         extend_exception!(PyKeyboardInterrupt, ctx, excs.keyboard_interrupt);
         extend_exception!(PyGeneratorExit, ctx, excs.generator_exit);
 
@@ -1098,19 +1096,6 @@ fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &Virt
         PySetterValue::Delete => new_args[0] = vm.ctx.none(),
     }
     *args = PyTuple::new_ref(new_args, &vm.ctx);
-}
-
-fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
-    // SystemExit.code based on args length:
-    // - size == 0: code is None
-    // - size == 1: code is args[0]
-    // - size > 1: code is args (the whole tuple)
-    let args = exc.args.read();
-    Some(match args.len() {
-        0 => return None,
-        1 => args.first().unwrap().clone(),
-        _ => args.as_object().to_owned(),
-    })
 }
 
 #[cfg(feature = "serde")]
@@ -1593,7 +1578,7 @@ pub(super) mod types {
             tuple::IntoPyTuple,
         },
         convert::ToPyResult,
-        function::{ArgBytesLike, FuncArgs, KwArgs},
+        function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
         set_attrs,
         types::{Constructor, Initializer},
     };
@@ -1624,26 +1609,81 @@ pub(super) mod types {
         pub(super) args: PyRwLock<PyTupleRef>,
     }
 
-    #[pyexception(name, base = PyBaseException, ctx = "system_exit")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySystemExit(PyBaseException);
+    #[pyexception(name, base = PyBaseException, ctx = "system_exit", traverse = "manual")]
+    #[repr(C)]
+    pub struct PySystemExit {
+        base: PyBaseException,
+        code: PyAtomicRef<Option<PyObject>>,
+    }
 
-    // SystemExit_init: has its own __init__ that sets the code attribute
-    #[pyexception(with(Initializer))]
-    impl PySystemExit {}
+    impl crate::class::PySubclass for PySystemExit {
+        type Base = PyBaseException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    unsafe impl Traverse for PySystemExit {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.traverse(tracer_fn);
+            if let Some(obj) = self.code.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
+
+    impl core::fmt::Debug for PySystemExit {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PySystemExit").finish_non_exhaustive()
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
+    impl PySystemExit {
+        #[pygetset]
+        fn code(&self) -> Option<PyObjectRef> {
+            self.code.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_code(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let code = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.code.swap_to_temporary_refs(code, vm);
+        }
+    }
 
     impl Initializer for PySystemExit {
         type Args = FuncArgs;
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Call BaseException_init first (handles args)
-            PyBaseException::slot_init(zelf, args, vm)
-            // Note: code is computed dynamically via system_exit_code getter
-            // so we don't need to set it here explicitly
+            let code = match args.args.len() {
+                0 => vm.ctx.none(),
+                1 => args.args[0].clone(),
+                _ => vm.ctx.new_tuple(args.args.clone()).into(),
+            };
+            PyBaseException::slot_init(zelf.clone(), args, vm)?;
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
+            exc.code.swap_to_temporary_refs(Some(code), vm);
+            Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is defined")
+        }
+    }
+
+    impl Constructor for PySystemExit {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let base_exception = PyBaseException::new(args.args, vm);
+            Ok(Self {
+                base: base_exception,
+                code: None.into(),
+            })
         }
     }
 
