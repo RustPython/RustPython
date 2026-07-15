@@ -828,7 +828,6 @@ class TestFrozenSetSubclass(TestFrozenSet):
     thetype = FrozenSetSubclass
     basetype = frozenset
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_keywords_in_subclass(self):
         class subclass(frozenset):
             pass
