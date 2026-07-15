@@ -657,7 +657,6 @@ class TestSet(TestJointOps, unittest.TestCase):
         self.assertRaises(KeyError, myset.remove, set(range(1)))
         self.assertRaises(KeyError, myset.remove, set(range(3)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unhashable_element(self):
         myset = {'a'}
         elem = [1, 2, 3]
