@@ -93,7 +93,7 @@ for invalid_chunk_size in (0, -1, 2**100):
     except ValueError:
         pass
     else:
-        assert False, f"expected ValueError for {invalid_chunk_size!r}"
+        raise AssertionError(f"expected ValueError for {invalid_chunk_size!r}")
 
 for invalid_chunk_size in (1.5, "4"):
     try:
@@ -101,7 +101,7 @@ for invalid_chunk_size in (1.5, "4"):
     except TypeError:
         pass
     else:
-        assert False, f"expected TypeError for {invalid_chunk_size!r}"
+        raise AssertionError(f"expected TypeError for {invalid_chunk_size!r}")
 
 
 class ChunkSize:
