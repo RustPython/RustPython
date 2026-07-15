@@ -3207,18 +3207,27 @@ mod _io {
 
         #[pygetset(setter, name = "_CHUNK_SIZE")]
         fn set_chunksize(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+            {
+                let textio = self.lock(vm)?;
+                if vm.is_none(&textio.buffer) {
+                    return Err(vm.new_value_error("underlying buffer has been detached"));
+                }
+            }
+
             let chunk_size: isize = match value {
                 PySetterValue::Assign(object_value) => {
-                    let type_name = object_value.class().name().to_owned();
                     let integer = object_value.try_index(vm)?;
 
                     integer.try_to_primitive::<isize>(vm).map_err(|_| {
                         vm.new_value_error(format!(
-                            "cannot fit '{type_name}' into an index-sized integer"
+                            "cannot fit '{:.200}' into an index-sized integer",
+                            object_value.class().name()
                         ))
                     })?
                 }
-                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute"))?,
+                PySetterValue::Delete => {
+                    return Err(vm.new_attribute_error("cannot delete attribute"));
+                }
             };
 
             if chunk_size <= 0 {
