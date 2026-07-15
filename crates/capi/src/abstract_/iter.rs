@@ -10,11 +10,25 @@ pub unsafe extern "C" fn PyIter_Check(obj: *mut PyObject) -> c_int {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyAIter_Check(obj: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        Ok(unsafe { &*obj }
+            .class()
+            .has_attr(rustpython_vm::identifier!(vm, __anext__)))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetIter(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         obj.get_iter(vm).map(PyObjectRef::from)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_GetAIter(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { &*obj }.get_aiter(vm))
 }
 
 #[unsafe(no_mangle)]
