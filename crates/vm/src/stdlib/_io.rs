@@ -3209,10 +3209,13 @@ mod _io {
         fn set_chunksize(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
             let chunk_size: isize = match value {
                 PySetterValue::Assign(object_value) => {
+                    let type_name = object_value.class().name().to_owned();
                     let integer = object_value.try_index(vm)?;
 
                     integer.try_to_primitive::<isize>(vm).map_err(|_| {
-                        vm.new_value_error("cannot fit 'int' into an index-sized integer")
+                        vm.new_value_error(format!(
+                            "cannot fit '{type_name}' into an index-sized integer"
+                        ))
                     })?
                 }
                 PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute"))?,

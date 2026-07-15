@@ -111,3 +111,18 @@ class ChunkSize:
 
 textio._CHUNK_SIZE = ChunkSize()
 assert textio._CHUNK_SIZE == 16
+
+
+class OversizedChunkSize:
+    def __index__(self):
+        return 2**100
+
+
+try:
+    textio._CHUNK_SIZE = OversizedChunkSize()
+except ValueError as error:
+    expected = "cannot fit 'OversizedChunkSize' into an index-sized integer"
+    if str(error) != expected:
+        raise AssertionError(f"unexpected error message: {error}")
+else:
+    raise AssertionError("expected ValueError for oversized indexable object")
