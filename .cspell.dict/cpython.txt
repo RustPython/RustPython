@@ -140,6 +140,8 @@ metavars
 miscompiles
 mult
 multibytecodec
+mystricmp
+mystrnicmp
 nameobj
 nameop
 nargsf
@@ -198,6 +200,7 @@ pymain
 pymem
 pyrepl
 pystate
+pystrcmp
 PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw
