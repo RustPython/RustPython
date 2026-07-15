@@ -34,6 +34,7 @@ pub mod pyframe;
 pub mod pylifecycle;
 pub mod pymem;
 pub mod pystate;
+pub mod pystrcmp;
 pub mod refcount;
 pub mod setobject;
 pub mod sliceobject;
