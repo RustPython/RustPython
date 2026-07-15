@@ -223,7 +223,9 @@ impl PySetInner {
     }
 
     fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
+        let result = self
+            .retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle));
+        Self::wrap_unhashable_error(result, needle, vm)
     }
 
     fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
@@ -327,15 +329,20 @@ impl PySetInner {
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.insert(vm, &*item, ())
+        let result = self.content.insert(vm, &*item, ());
+        Self::wrap_unhashable_error(result, &item, vm)
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item))
+        let result =
+            self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item));
+        Self::wrap_unhashable_error(result, &item, vm)
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item))
+        let result = self
+            .retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item));
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
     fn clear(&self) {
@@ -487,6 +494,25 @@ impl PySetInner {
                     })
                 })
         })
+    }
+
+    fn wrap_unhashable_error<T>(
+        result: PyResult<T>,
+        item: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<T> {
+        match result {
+            Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                let message = cause.as_object().str(vm)?;
+                let err = vm.new_type_error(format!(
+                    "cannot use '{}' as a set element ({message})",
+                    item.class().name()
+                ));
+                err.set___cause__(Some(cause));
+                Err(err)
+            }
+            result => result,
+        }
     }
 }
 
