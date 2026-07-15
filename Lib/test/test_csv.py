@@ -1137,7 +1137,6 @@ class TestArrayWrites(unittest.TestCase):
             fileobj.seek(0)
             self.assertEqual(fileobj.read(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_char_write(self):
         import array, string
         a = array.array('w', string.ascii_letters)

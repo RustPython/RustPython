@@ -85,6 +85,7 @@ pub(crate) enum FormatType {
     UByte = b'B',
     Char = b'c',
     WideChar = b'u',
+    Ucs4Char = b'w',
     Str = b's',
     Pascal = b'p',
     Short = b'h',
@@ -189,6 +190,7 @@ impl FormatType {
                     unpack: Some(unpack_char),
                 },
                 Self::WideChar => native_info!(wchar_t),
+                Self::Ucs4Char => native_info!(u32),
                 Self::Short => native_info!(raw::c_short),
                 Self::UShort => native_info!(raw::c_ushort),
                 Self::Int => native_info!(raw::c_int),
@@ -344,9 +346,10 @@ impl FormatCode {
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {
-                    FormatType::SSizeT | FormatType::SizeT | FormatType::VoidP => {
-                        endianness == Endianness::Native
-                    }
+                    FormatType::SSizeT
+                    | FormatType::SizeT
+                    | FormatType::VoidP
+                    | FormatType::Ucs4Char => endianness == Endianness::Native,
                     _ => true,
                 })
                 .ok_or_else(|| "bad char in struct format".to_owned())?;
