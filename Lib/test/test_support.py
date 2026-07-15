@@ -458,7 +458,6 @@ class TestSupport(unittest.TestCase):
                 self.OtherClass, self.RefClass, ignore=ignore)
         self.assertEqual(set(), missing_items)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_check__all__(self):
         extra = {'tempdir'}
         not_exported = {'template'}
