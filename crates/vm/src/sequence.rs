@@ -124,7 +124,7 @@ where
         let n = vm.check_repeat_or_overflow_error(self.as_ref().len(), n)?;
 
         if n > 1 && core::mem::size_of_val(self.as_ref()) >= MAX_MEMORY_SIZE / n {
-            // TODO: make a global static NoMemory shared exc object and return its reference. 
+            // TODO: make a global static NoMemory shared exc object and return its reference.
             return Err(vm.new_memory_error(""));
         }
 
