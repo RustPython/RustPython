@@ -2,7 +2,7 @@ use crate::PyObject;
 use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
-use crate::util::CStrExt;
+use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{
@@ -53,7 +53,7 @@ impl PyGetSetDef {
                                 )
                             })
                         })?;
-                        Ok(PyObjectRef::from_raw(ret_ptr))
+                        Ok(ret_ptr.as_ptr().assume_owned())
                     }
                 },
                 move |obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine| unsafe {
@@ -85,7 +85,7 @@ impl PyGetSetDef {
                                 )
                             })
                         })?;
-                        Ok(PyObjectRef::from_raw(ret_ptr))
+                        Ok(ret_ptr.as_ptr().assume_owned())
                     }
                 },
             ),
@@ -190,7 +190,7 @@ impl PyMemberDef {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDictProxy_New(mapping: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let mapping = unsafe { &*mapping }.to_owned();
+        let mapping = unsafe { mapping.assume_borrowed() }.to_owned();
         Ok(PyMappingProxy::from_object(mapping, vm)?.into_ref(&vm.ctx))
     })
 }
@@ -202,7 +202,7 @@ pub unsafe extern "C" fn PyDescr_NewMethod(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let method = build_method_def(vm, unsafe { &*method }, true)?;
-        Ok(method.build_method(unsafe { &*typ }, vm))
+        Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }
 
@@ -213,7 +213,7 @@ pub unsafe extern "C" fn PyDescr_NewClassMethod(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let method = build_method_def(vm, unsafe { &*method }, true)?;
-        Ok(method.build_method(unsafe { &*typ }, vm))
+        Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }
 
@@ -230,14 +230,14 @@ pub unsafe extern "C" fn PyDescr_NewMember(
     typ: *mut PyTypeObject,
     member: *mut PyMemberDef,
 ) -> *mut PyObject {
-    with_vm(|vm| Ok(unsafe { &*member }.build(unsafe { &*typ }, vm)))
+    with_vm(|vm| Ok(unsafe { &*member }.build(unsafe { typ.assume_borrowed() }, vm)))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyWrapper_New(descr: *mut PyObject, obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let descr = unsafe { &*descr };
-        let obj = unsafe { &*obj };
+        let descr = unsafe { descr.assume_borrowed() };
+        let obj = unsafe { obj.assume_borrowed() };
         vm.call_special_method(
             descr,
             vm.ctx.names.__get__,

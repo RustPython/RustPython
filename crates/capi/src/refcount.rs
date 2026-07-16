@@ -1,27 +1,26 @@
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
-use core::ptr::NonNull;
-use rustpython_vm::PyObjectRef;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Py_DecRef(op: *mut PyObject) {
     // By dropping PyObjectRef, we will decrement the reference count.
-    unsafe { drop(PyObjectRef::from_raw(NonNull::new_unchecked(op))) };
+    unsafe { drop(op.assume_owned()) };
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn _Py_IncRef(op: *mut PyObject) {
     // Don't drop the owned value, as we just want to increment the refcount.
-    core::mem::forget(unsafe { (*op).to_owned() });
+    core::mem::forget(unsafe { op.assume_borrowed() }.to_owned());
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_NewRef(op: *mut PyObject) -> *mut PyObject {
-    with_vm(|_vm| unsafe { (*op).to_owned() })
+    with_vm(|_vm| unsafe { op.assume_borrowed() }.to_owned())
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_REFCNT(op: *mut PyObject) -> isize {
-    with_vm(|_vm| unsafe { &*op }.strong_count())
+    with_vm(|_vm| unsafe { op.assume_borrowed() }.strong_count())
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
 use itertools::process_results;
 use rustpython_vm::AsObject;
@@ -19,7 +20,8 @@ pub unsafe extern "C" fn PySet_New(iterable: *mut PyObject) -> *mut PyObject {
             return Ok(PySet::default().into_ref(&vm.ctx));
         }
 
-        let iterable = ArgIterable::try_from_object(vm, unsafe { &*iterable }.to_owned())?;
+        let iterable =
+            ArgIterable::try_from_object(vm, unsafe { iterable.assume_borrowed() }.to_owned())?;
         let set = PySet::default().into_ref(&vm.ctx);
         for item in iterable.iter(vm)? {
             set.add(item?, vm)?;
@@ -35,7 +37,8 @@ pub unsafe extern "C" fn PyFrozenSet_New(iterable: *mut PyObject) -> *mut PyObje
             return Ok(vm.ctx.empty_frozenset.to_owned());
         }
 
-        let iterable = ArgIterable::try_from_object(vm, unsafe { &*iterable }.to_owned())?;
+        let iterable =
+            ArgIterable::try_from_object(vm, unsafe { iterable.assume_borrowed() }.to_owned())?;
         let set = process_results(iterable.iter(vm)?, |it| PyFrozenSet::from_iter(vm, it))??;
         Ok(set.into_ref(&vm.ctx))
     })
@@ -44,8 +47,8 @@ pub unsafe extern "C" fn PyFrozenSet_New(iterable: *mut PyObject) -> *mut PyObje
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySet_Add(set: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
-        let key = unsafe { &*key }.to_owned();
+        let set = unsafe { set.assume_borrowed_and_cast::<PySet>(vm) }?;
+        let key = unsafe { key.assume_borrowed() }.to_owned();
         set.add(key, vm)
     })
 }
@@ -53,7 +56,7 @@ pub unsafe extern "C" fn PySet_Add(set: *mut PyObject, key: *mut PyObject) -> c_
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySet_Clear(set: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
+        let set = unsafe { set.assume_borrowed_and_cast::<PySet>(vm) }?;
         set.clear();
         Ok(())
     })
@@ -62,8 +65,8 @@ pub unsafe extern "C" fn PySet_Clear(set: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySet_Contains(anyset: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let anyset = unsafe { &*anyset };
-        let key = unsafe { &*key };
+        let anyset = unsafe { anyset.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
 
         if let Some(set) = anyset.downcast_ref::<PySet>() {
             set.__contains__(key, vm)
@@ -81,8 +84,8 @@ pub unsafe extern "C" fn PySet_Contains(anyset: *mut PyObject, key: *mut PyObjec
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySet_Discard(set: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
-        let key = unsafe { &*key };
+        let set = unsafe { set.assume_borrowed_and_cast::<PySet>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
         let had_item = set.__contains__(key, vm)?;
         if had_item {
             set.discard(key.to_owned(), vm)?;
@@ -94,7 +97,7 @@ pub unsafe extern "C" fn PySet_Discard(set: *mut PyObject, key: *mut PyObject) -
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySet_Pop(set: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
+        let set = unsafe { set.assume_borrowed_and_cast::<PySet>(vm) }?;
         set.pop(vm)
     })
 }
@@ -102,7 +105,7 @@ pub unsafe extern "C" fn PySet_Pop(set: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PySet_Size(anyset: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let anyset = unsafe { &*anyset };
+        let anyset = unsafe { anyset.assume_borrowed() };
         if let Some(set) = anyset.downcast_ref::<PySet>() {
             set.as_object().length(vm)
         } else if let Some(frozenset) = anyset.downcast_ref::<PyFrozenSet>() {

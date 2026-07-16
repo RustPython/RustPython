@@ -1,4 +1,4 @@
-use crate::util::CStrExt;
+use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_char;
 use rustpython_vm::builtins::{PyCode, PyDict, PyModule, PyStr};
@@ -7,7 +7,7 @@ use rustpython_vm::import::import_code_obj;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         vm.import(name, 0)
     })
 }
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn PyImport_ExecCodeModuleEx(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let name = unsafe { name.try_as_str(vm) }?;
-        let code = unsafe { &*co }.try_downcast_ref::<PyCode>(vm)?;
+        let code = unsafe { co.assume_borrowed_and_cast::<PyCode>(vm) }?;
         let module = import_code_obj(vm, name, code.to_owned(), false)?;
 
         if let Some(pathname) = unsafe { pathname.try_as_str_opt(vm) }? {

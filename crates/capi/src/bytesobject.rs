@@ -1,4 +1,5 @@
 use crate::object::define_py_check;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyBytes;
@@ -32,7 +33,7 @@ pub unsafe extern "C" fn PyBytes_FromStringAndSize(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyBytes_Size(bytes: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let bytes = unsafe { &*bytes }.try_downcast_ref::<PyBytes>(vm)?;
+        let bytes = unsafe { bytes.assume_borrowed_and_cast::<PyBytes>(vm) }?;
         Ok(bytes.as_bytes().len())
     })
 }
@@ -40,7 +41,7 @@ pub unsafe extern "C" fn PyBytes_Size(bytes: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyBytes_AsString(bytes: *mut PyObject) -> *mut c_char {
     with_vm(|vm| {
-        let bytes = unsafe { &*bytes }.try_downcast_ref::<PyBytes>(vm)?;
+        let bytes = unsafe { bytes.assume_borrowed_and_cast::<PyBytes>(vm) }?;
         Ok(bytes.as_bytes().as_ptr())
     })
 }

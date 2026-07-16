@@ -1,8 +1,7 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use crate::util::CStrExt;
+use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int, c_uint, c_void};
-use core::ptr::NonNull;
 pub use pytype::*;
 use rustpython_vm::builtins::{PyStr, object_generic_set_dict, object_get_dict};
 use rustpython_vm::bytecode::ComparisonOperator;
@@ -17,10 +16,9 @@ macro_rules! define_py_check {
         #[unsafe(no_mangle)]
         pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
             crate::pystate::with_vm(|vm| unsafe {
-                obj
-                .as_ref()
-                .map(|obj| obj.class().is_subtype(vm.ctx.$($ctx_path).+))
-                .unwrap_or_default()
+                crate::util::FfiPtrExt::assume_borrowed_or_opt(obj)
+                    .map(|obj| obj.class().is_subtype(vm.ctx.$($ctx_path).+))
+                    .unwrap_or_default()
             })
         }
     };
@@ -29,10 +27,9 @@ macro_rules! define_py_check {
         pub unsafe extern "C" fn $name(obj: *mut crate::PyObject) -> core::ffi::c_int {
             use rustpython_vm::AsObject;
             crate::pystate::with_vm(|vm| unsafe {
-                obj
-                .as_ref()
-                .map(|obj| obj.class().is(vm.ctx.$($ctx_path).+))
-                .unwrap_or_default()
+                crate::util::FfiPtrExt::assume_borrowed_or_opt(obj)
+                    .map(|obj| obj.class().is(vm.ctx.$($ctx_path).+))
+                    .unwrap_or_default()
             })
         }
     };
@@ -69,8 +66,8 @@ pub unsafe extern "C" fn PyObject_GetAttr(
     name: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         obj.get_attr(name, vm)
     })
 }
@@ -81,7 +78,7 @@ pub unsafe extern "C" fn PyObject_GetAttrString(
     attr_name: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let name = unsafe { attr_name.try_as_str(vm) }?;
         obj.get_attr(name, vm)
     })
@@ -89,12 +86,12 @@ pub unsafe extern "C" fn PyObject_GetAttrString(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_ASCII(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*obj }.ascii(vm))
+    with_vm(|vm| unsafe { obj.assume_borrowed() }.ascii(vm))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Bytes(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*obj }.to_owned().bytes(vm))
+    with_vm(|vm| unsafe { obj.assume_borrowed() }.to_owned().bytes(vm))
 }
 
 #[unsafe(no_mangle)]
@@ -107,8 +104,8 @@ pub unsafe extern "C" fn PyObject_GetOptionalAttr(
         unsafe {
             *result = core::ptr::null_mut();
         }
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
             unsafe {
                 *result = attr.into_raw().as_ptr();
@@ -130,7 +127,7 @@ pub unsafe extern "C" fn PyObject_GetOptionalAttrString(
         unsafe {
             *result = core::ptr::null_mut();
         }
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let name = unsafe { attr_name.try_as_str(vm) }?;
         if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
             unsafe {
@@ -150,9 +147,9 @@ pub unsafe extern "C" fn PyObject_SetAttrString(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let name = unsafe { attr_name.try_as_str(vm) }?;
-        let value = unsafe { &*value }.to_owned();
+        let value = unsafe { value.assume_borrowed() }.to_owned();
         obj.set_attr(name, value, vm)
     })
 }
@@ -164,9 +161,9 @@ pub unsafe extern "C" fn PyObject_SetAttr(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
-        let value = unsafe { &*value }.to_owned();
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let value = unsafe { value.assume_borrowed() }.to_owned();
         obj.set_attr(name, value, vm)
     })
 }
@@ -174,8 +171,8 @@ pub unsafe extern "C" fn PyObject_SetAttr(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_DelAttr(obj: *mut PyObject, name: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         obj.del_attr(name, vm)
     })
 }
@@ -186,7 +183,7 @@ pub unsafe extern "C" fn PyObject_DelAttrString(
     attr_name: *const c_char,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let name = unsafe { attr_name.try_as_str(vm) }?;
         obj.del_attr(name, vm)
     })
@@ -199,10 +196,10 @@ pub unsafe extern "C" fn PyObject_GenericSetAttr(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
-        let value = match NonNull::new(value) {
-            Some(value) => PySetterValue::Assign(unsafe { value.as_ref() }.to_owned()),
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
+        let value = match unsafe { value.assume_borrowed_or_opt() } {
+            Some(value) => PySetterValue::Assign(value.to_owned()),
             None => PySetterValue::Delete,
         };
         obj.generic_setattr(name, value, vm)
@@ -215,8 +212,8 @@ pub unsafe extern "C" fn PyObject_HasAttrWithError(
     attr_name: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { attr_name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         obj.has_attr(name, vm)
     })
 }
@@ -224,8 +221,8 @@ pub unsafe extern "C" fn PyObject_HasAttrWithError(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_HasAttr(obj: *mut PyObject, attr_name: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = match unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm) {
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = match unsafe { attr_name.assume_borrowed_and_cast::<PyStr>(vm) } {
             Ok(name) => name,
             Err(err) => {
                 vm.run_unraisable(err, None, obj.to_owned());
@@ -249,7 +246,7 @@ pub unsafe extern "C" fn PyObject_HasAttrString(
     attr_name: *const c_char,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let Ok(name) = (unsafe { attr_name.try_as_str(vm) }) else {
             return false;
         };
@@ -270,7 +267,7 @@ pub unsafe extern "C" fn PyObject_HasAttrStringWithError(
     attr_name: *const c_char,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let name = unsafe { attr_name.try_as_str(vm) }?;
         obj.has_attr(name, vm)
     })
@@ -282,31 +279,25 @@ pub unsafe extern "C" fn PyObject_GenericGetAttr(
     name: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let obj = unsafe { obj.assume_borrowed() };
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         obj.generic_getattr(name, vm)
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyObject_Repr(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let Some(obj) = NonNull::new(obj) else {
-            return Ok(vm.ctx.new_str("<NULL>"));
-        };
-
-        unsafe { obj.as_ref() }.repr(vm)
+        unsafe { obj.assume_borrowed_or_opt() }
+            .map_or_else(|| Ok(vm.ctx.new_str("<NULL>")), |obj| obj.repr(vm))
     })
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyObject_Str(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let Some(obj) = NonNull::new(obj) else {
-            return Ok(vm.ctx.new_str("<NULL>"));
-        };
-
-        unsafe { obj.as_ref() }.str(vm)
+        unsafe { obj.assume_borrowed_or_opt() }
+            .map_or_else(|| Ok(vm.ctx.new_str("<NULL>")), |obj| obj.str(vm))
     })
 }
 
@@ -331,8 +322,8 @@ pub unsafe extern "C" fn PyObject_RichCompare(
     op: c_int,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let left = unsafe { &*left };
-        let right = unsafe { &*right };
+        let left = unsafe { left.assume_borrowed() };
+        let right = unsafe { right.assume_borrowed() };
         left.to_owned()
             .rich_compare(right.to_owned(), parse_richcompare_op(vm, op)?, vm)
     })
@@ -345,26 +336,26 @@ pub unsafe extern "C" fn PyObject_RichCompareBool(
     op: c_int,
 ) -> c_int {
     with_vm(|vm| {
-        let left = unsafe { &*left };
-        let right = unsafe { &*right };
+        let left = unsafe { left.assume_borrowed() };
+        let right = unsafe { right.assume_borrowed() };
         left.rich_compare_bool(right, parse_richcompare_op(vm, op)?, vm)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCallable_Check(obj: *mut PyObject) -> c_int {
-    with_vm(|_vm| unsafe { obj.as_ref().is_some_and(PyObject::is_callable) })
+    with_vm(|_vm| unsafe { obj.assume_borrowed_or_opt() }.is_some_and(PyObject::is_callable))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_ClearWeakRefs(obj: *mut PyObject) {
-    with_vm(|_vm| unsafe { &*obj }.clear_weak_refs())
+    with_vm(|_vm| unsafe { obj.assume_borrowed() }.clear_weak_refs())
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Dir(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        unsafe { obj.as_ref() }
+        unsafe { obj.assume_borrowed_or_opt() }
             .map_or_else(|| vm.dir(None), |obj| obj.to_owned().dir(vm))
             .map(|list| list.into_ref(&vm.ctx))
     })
@@ -373,7 +364,7 @@ pub unsafe extern "C" fn PyObject_Dir(obj: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.to_owned().is_true(vm)
     })
 }
@@ -381,7 +372,7 @@ pub unsafe extern "C" fn PyObject_IsTrue(obj: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Not(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.to_owned().not(vm)
     })
 }
@@ -389,7 +380,7 @@ pub unsafe extern "C" fn PyObject_Not(obj: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Hash(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.hash(vm).map(|hash| hash as isize)
     })
 }
@@ -397,14 +388,14 @@ pub unsafe extern "C" fn PyObject_Hash(obj: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_HashNotImplemented(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         hash_not_implemented(obj, vm).map(|hash| hash as isize)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_SelfIter(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|_vm| unsafe { (&*obj).to_owned() })
+    with_vm(|_vm| unsafe { obj.assume_borrowed() }.to_owned())
 }
 
 #[unsafe(no_mangle)]
@@ -414,13 +405,13 @@ pub unsafe extern "C" fn Py_Is(x: *mut PyObject, y: *mut PyObject) -> c_int {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_IsNone(x: *mut PyObject) -> c_int {
-    with_vm(|vm| vm.is_none(unsafe { &*x }))
+    with_vm(|vm| vm.is_none(unsafe { x.assume_borrowed() }))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_ReprEnter(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let id = obj.get_id();
         let mut guards = vm.repr_guards.borrow_mut();
         if guards.contains(&id) {
@@ -437,7 +428,7 @@ pub unsafe extern "C" fn Py_ReprLeave(obj: *mut PyObject) {
     with_vm(|vm| {
         vm.repr_guards
             .borrow_mut()
-            .remove(&unsafe { &*obj }.get_id());
+            .remove(&unsafe { obj.assume_borrowed() }.get_id());
     })
 }
 
@@ -447,7 +438,7 @@ pub unsafe extern "C" fn PyObject_GenericGetDict(
     _context: *mut c_void,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         object_get_dict(obj.to_owned(), vm)
     })
 }
@@ -459,9 +450,9 @@ pub unsafe extern "C" fn PyObject_GenericSetDict(
     _context: *mut c_void,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let value = match NonNull::new(value) {
-            Some(value) => PySetterValue::Assign(unsafe { value.as_ref() }.to_owned()),
+        let obj = unsafe { obj.assume_borrowed() };
+        let value = match unsafe { value.assume_borrowed_or_opt() } {
+            Some(value) => PySetterValue::Assign(value.to_owned()),
             None => PySetterValue::Delete,
         };
         object_generic_set_dict(obj.to_owned(), value, vm)
