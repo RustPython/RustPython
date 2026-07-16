@@ -462,7 +462,7 @@ mod _csv {
     impl From<QuoteStyle> for csv_core::QuoteStyle {
         fn from(val: QuoteStyle) -> Self {
             match val {
-                QuoteStyle::Minimal => Self::Always,
+                QuoteStyle::Minimal => Self::Necessary,
                 QuoteStyle::All => Self::Always,
                 QuoteStyle::Nonnumeric => Self::NonNumeric,
                 QuoteStyle::None => Self::Never,
@@ -796,6 +796,48 @@ mod _csv {
             delimiter
         }
 
+        fn get_lineterminator(&self) -> csv_core::Terminator {
+            let mut lineterminator = match &self.dialect {
+                DialectItem::Str(name) => {
+                    let g = GLOBAL_HASHMAP.lock();
+                    if let Some(dialect) = g.get(name) {
+                        dialect.lineterminator
+                    } else {
+                        Terminator::CRLF
+                    }
+                }
+                DialectItem::Obj(obj) => obj.lineterminator,
+                _ => Terminator::CRLF,
+            };
+
+            if let Some(attr) = self.lineterminator {
+                lineterminator = attr
+            }
+
+            lineterminator
+        }
+
+        fn get_quoting(&self) -> QuoteStyle {
+            let mut quoting = match &self.dialect {
+                DialectItem::Str(name) => {
+                    let g = GLOBAL_HASHMAP.lock();
+                    if let Some(dialect) = g.get(name) {
+                        dialect.quoting
+                    } else {
+                        QuoteStyle::Minimal
+                    }
+                }
+                DialectItem::Obj(obj) => obj.quoting,
+                _ => QuoteStyle::Minimal,
+            };
+
+            if let Some(attr) = self.quoting {
+                quoting = attr
+            }
+
+            quoting
+        }
+
         fn to_reader(&self) -> csv_core::Reader {
             let dialect = match &self.dialect {
                 DialectItem::Str(name) => GLOBAL_HASHMAP.lock().get(name).copied(),
@@ -900,15 +942,13 @@ mod _csv {
                 writer = writer.double_quote(t);
             }
 
-            writer = writer.terminator(self.lineterminator.unwrap_or(Terminator::CRLF));
+            writer = writer.terminator(self.get_lineterminator());
 
             if let Some(e) = self.escapechar {
                 writer = writer.escape(e);
             }
 
-            if let Some(e) = self.quoting {
-                writer = writer.quote_style(e.into());
-            }
+            writer = writer.quote_style(self.get_quoting().into());
 
             writer.build()
         }
