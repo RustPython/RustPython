@@ -3,6 +3,7 @@ use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
+use std::any::type_name;
 
 pub(crate) trait FfiResult<Output = Self> {
     const ERR_VALUE: Output;
@@ -260,7 +261,13 @@ impl FfiPtrExt for *mut PyObject {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn assume_owned(self) -> PyObjectRef {
+        debug_assert!(
+            !self.is_null(),
+            "Attempted to dereference NULL {}",
+            type_name::<Self>()
+        );
         unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(self)) }
     }
 
@@ -270,12 +277,18 @@ impl FfiPtrExt for *mut PyObject {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn assume_borrowed<'a>(self) -> &'a PyObject {
-        debug_assert!(!self.is_null());
+        debug_assert!(
+            !self.is_null(),
+            "Attempted to dereference NULL {}",
+            type_name::<Self>()
+        );
         unsafe { self.as_ref_unchecked() }
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn assume_borrowed_and_cast<'a, T: PyPayload>(
         self,
         vm: &VirtualMachine,
@@ -294,7 +307,13 @@ impl<T: PyPayload> FfiPtrExt for *mut Py<T> {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn assume_owned(self) -> PyRef<T> {
+        debug_assert!(
+            !self.is_null(),
+            "Attempted to dereference NULL {}",
+            type_name::<Self>()
+        );
         unsafe { PyRef::from_raw(self.cast_const()) }
     }
 
@@ -304,12 +323,18 @@ impl<T: PyPayload> FfiPtrExt for *mut Py<T> {
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn assume_borrowed<'a>(self) -> &'a Py<T> {
-        debug_assert!(!self.is_null());
+        debug_assert!(
+            !self.is_null(),
+            "Attempted to dereference NULL {}",
+            type_name::<Self>()
+        );
         unsafe { self.as_ref_unchecked() }
     }
 
     #[inline]
+    #[track_caller]
     unsafe fn assume_borrowed_and_cast<'a, U: PyPayload>(
         self,
         vm: &VirtualMachine,
@@ -375,5 +400,19 @@ mod tests {
 
         assert_error_value::<PyResult<c_int>, _>(-1);
         assert_error_value::<PyResult<usize>, _>(usize::MAX);
+    }
+
+    #[test]
+    #[should_panic = "Attempted to dereference NULL"]
+    fn break_ptr_api_contract_owned() {
+        let ptr: *mut PyObject = core::ptr::null_mut();
+        let _ = unsafe { ptr.assume_owned() };
+    }
+
+    #[test]
+    #[should_panic = "Attempted to dereference NULL"]
+    fn break_ptr_api_contract_borrowed() {
+        let ptr: *mut PyObject = core::ptr::null_mut();
+        let _ = unsafe { ptr.assume_borrowed() };
     }
 }
