@@ -1,7 +1,8 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int};
+use crate::util::CStrExt;
+use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::AsObject;
 use rustpython_vm::PyPayload;
@@ -49,9 +50,7 @@ pub unsafe extern "C" fn PyDict_SetItemString(
 ) -> c_int {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("dictionary key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
         let value = unsafe { &*val }.to_owned();
         dict.inner_setitem(key, value, vm)
     })
@@ -94,9 +93,7 @@ pub unsafe extern "C" fn PyDict_GetItemString(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_unicode_decode_error("dictionary key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
 
         match dict.inner_getitem_opt(key, vm)? {
             Some(value) => Ok(value.as_object().as_raw().cast_mut()),
@@ -116,9 +113,7 @@ pub unsafe extern "C" fn PyDict_GetItemStringRef(
             *result = core::ptr::null_mut();
         }
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("dictionary key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
 
         if let Some(value) = dict.inner_getitem_opt(key, vm)? {
             unsafe {
@@ -231,9 +226,7 @@ pub unsafe extern "C" fn PyDict_DelItem(dict: *mut PyObject, key: *mut PyObject)
 pub unsafe extern "C" fn PyDict_DelItemString(dict: *mut PyObject, key: *const c_char) -> c_int {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("dictionary key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
         dict.del_item(key, vm)
     })
 }
