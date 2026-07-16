@@ -1,4 +1,5 @@
 use crate::object::define_py_check;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use rustpython_vm::PyPayload;
 use rustpython_vm::builtins::PyMemoryView;
@@ -8,7 +9,7 @@ define_py_check!(fn PyMemoryView_Check, types.memoryview_type);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyMemoryView_FromObject(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         Ok(PyMemoryView::from_object(obj, vm)?.into_ref(&vm.ctx))
     })
 }

@@ -1,4 +1,5 @@
 use crate::util::CStrExt;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::{c_char, c_int};
 use rustpython_vm::{AsObject, VirtualMachine};
@@ -11,7 +12,7 @@ fn call_codec_error_handler(
     vm.state
         .codec_registry
         .lookup_error(handler_name, vm)?
-        .call((unsafe { &*exc }.to_owned(),), vm)
+        .call((unsafe { exc.assume_borrowed() }.to_owned(),), vm)
 }
 
 fn codec_stream(
@@ -23,7 +24,7 @@ fn codec_stream(
 ) -> rustpython_vm::PyResult {
     let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
     let errors = unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_str(errors));
-    let stream = unsafe { &*stream }.to_owned();
+    let stream = unsafe { stream.assume_borrowed() }.to_owned();
     let codec = vm.state.codec_registry.lookup(encoding, vm)?;
     let args = match errors {
         Some(errors) => vec![stream, errors.into()],
@@ -35,7 +36,7 @@ fn codec_stream(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCodec_Register(search_function: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let search_function = unsafe { &*search_function }.to_owned();
+        let search_function = unsafe { search_function.assume_borrowed() }.to_owned();
         vm.state.codec_registry.register(search_function, vm)
     })
 }
@@ -43,7 +44,7 @@ pub unsafe extern "C" fn PyCodec_Register(search_function: *mut PyObject) -> c_i
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCodec_Unregister(search_function: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let search_function = unsafe { &*search_function }.to_owned();
+        let search_function = unsafe { search_function.assume_borrowed() }.to_owned();
         vm.state.codec_registry.unregister(search_function);
     })
 }
@@ -67,7 +68,7 @@ pub unsafe extern "C" fn PyCodec_Encode(
     errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let object = unsafe { &*object }.to_owned();
+        let object = unsafe { object.assume_borrowed() }.to_owned();
         let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
         let errors =
             unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
@@ -82,7 +83,7 @@ pub unsafe extern "C" fn PyCodec_Decode(
     errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let object = unsafe { &*object }.to_owned();
+        let object = unsafe { object.assume_borrowed() }.to_owned();
         let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
         let errors =
             unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
@@ -160,7 +161,7 @@ pub unsafe extern "C" fn PyCodec_StreamWriter(
 pub unsafe extern "C" fn PyCodec_RegisterError(name: *const c_char, error: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let name = unsafe { name.try_as_str(vm) }?;
-        let error = unsafe { &*error }.to_owned();
+        let error = unsafe { error.assume_borrowed() }.to_owned();
         if !error.is_callable() {
             return Err(vm.new_type_error("handler must be callable"));
         }

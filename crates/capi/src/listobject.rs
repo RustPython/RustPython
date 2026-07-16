@@ -1,8 +1,8 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
-use core::ptr::NonNull;
 use rustpython_vm::AsObject;
 use rustpython_vm::PyObjectRef;
 use rustpython_vm::builtins::PyList;
@@ -24,7 +24,7 @@ pub extern "C" fn PyList_New(size: isize) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
         Ok(list.__len__())
     })
 }
@@ -32,7 +32,7 @@ pub unsafe extern "C" fn PyList_Size(obj: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_GetItemRef(obj: *mut PyObject, index: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let list = unsafe { &*obj }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { obj.assume_borrowed_and_cast::<PyList>(vm) }?;
         index
             .try_into()
             .ok()
@@ -48,8 +48,8 @@ pub unsafe extern "C" fn PyList_SetItem(
     item: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
-        let item = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(item)) };
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
+        let item = unsafe { item.assume_owned() };
         let index_error =
             || vm.new_index_error(format!("list assignment index out of range: {index}"));
         if index < 0 {
@@ -75,8 +75,8 @@ pub unsafe extern "C" fn PyList_SetItem(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_Append(list: *mut PyObject, item: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
-        let item = unsafe { &*item }.to_owned();
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
+        let item = unsafe { item.assume_borrowed() }.to_owned();
         list.borrow_vec_mut().push(item);
         Ok(())
     })
@@ -89,8 +89,8 @@ pub unsafe extern "C" fn PyList_Insert(
     item: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
-        let item = unsafe { &*item }.to_owned();
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
+        let item = unsafe { item.assume_borrowed() }.to_owned();
         let mut vec = list.borrow_vec_mut();
         let index = if index < 0 {
             index + vec.len() as isize
@@ -106,7 +106,7 @@ pub unsafe extern "C" fn PyList_Insert(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         list.borrow_vec_mut().reverse();
         Ok(())
     })
@@ -115,7 +115,7 @@ pub unsafe extern "C" fn PyList_Reverse(list: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_AsTuple(list: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         Ok(vm.ctx.new_tuple(list.borrow_vec().to_vec()))
     })
 }
@@ -127,7 +127,7 @@ pub unsafe extern "C" fn PyList_GetSlice(
     high: isize,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         let vec = list.borrow_vec();
         let sliced = vec.getitem_by_slice(vm, SaturatedSlice::from_parts(low, high, 1))?;
         Ok(vm.ctx.new_list(sliced))
@@ -142,16 +142,16 @@ pub unsafe extern "C" fn PyList_SetSlice(
     itemlist: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         let slice = SaturatedSlice::from_parts(low, high, 1);
         let mut vec = list.borrow_vec_mut();
 
-        if itemlist.is_null() {
+        let Some(itemlist) = (unsafe { itemlist.assume_borrowed_or_opt() }) else {
             vec.delitem_by_slice(vm, slice)?;
             return Ok(());
-        }
+        };
 
-        let items: Vec<PyObjectRef> = unsafe { &*itemlist }.try_to_value(vm)?;
+        let items: Vec<PyObjectRef> = itemlist.try_to_value(vm)?;
         vec.setitem_by_slice(vm, slice, &items)
     })
 }
@@ -159,7 +159,7 @@ pub unsafe extern "C" fn PyList_SetSlice(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyList_Sort(list: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let list = unsafe { &*list }.try_downcast_ref::<PyList>(vm)?;
+        let list = unsafe { list.assume_borrowed_and_cast::<PyList>(vm) }?;
         vm.call_method(list.as_object(), "sort", ())?;
         Ok(())
     })

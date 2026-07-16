@@ -2,9 +2,8 @@ use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use crate::util::CStrExt;
+use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int};
-use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
@@ -72,15 +71,13 @@ pub(crate) fn build_method_def(
             if has_self {
                 let callable = move |zelf: PyObjectRef, vm: &VirtualMachine| unsafe {
                     let f = method.PyCFunction;
-                    let ret_ptr = f(zelf.as_raw().cast_mut(), core::ptr::null_mut());
-                    ret_ptr_to_pyresult(vm, ret_ptr)
+                    f(zelf.as_raw().cast_mut(), core::ptr::null_mut()).assume_owned_or_err(vm)
                 };
                 Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |vm: &VirtualMachine| unsafe {
                     let f = method.PyCFunction;
-                    let ret_ptr = f(core::ptr::null_mut(), core::ptr::null_mut());
-                    ret_ptr_to_pyresult(vm, ret_ptr)
+                    f(core::ptr::null_mut(), core::ptr::null_mut()).assume_owned_or_err(vm)
                 };
                 Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
@@ -113,14 +110,12 @@ pub(crate) fn build_method_def(
             let f = unsafe { method.PyCFunction };
             if has_self {
                 let callable = move |zelf: PyObjectRef, arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                    let ret_ptr = unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()) };
-                    ret_ptr_to_pyresult(vm, ret_ptr)
+                    unsafe { f(zelf.as_raw().cast_mut(), arg.as_raw().cast_mut()).assume_owned_or_err(vm) }
                 };
                 Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             } else {
                 let callable = move |arg: PyObjectRef, vm: &VirtualMachine| -> PyResult {
-                    let ret_ptr = unsafe { f(core::ptr::null_mut(), arg.as_raw().cast_mut()) };
-                    ret_ptr_to_pyresult(vm, ret_ptr)
+                    unsafe { f(core::ptr::null_mut(), arg.as_raw().cast_mut()).assume_owned_or_err(vm) }
                 };
                 Ok(vm.ctx.new_method_def(name, callable, flags, doc))
             }
@@ -158,8 +153,7 @@ unsafe fn call_function<A: Into<FuncArgs>>(
         .map(|tuple| tuple.as_object().as_raw().cast_mut())
         .unwrap_or_default();
 
-    let ret_ptr = unsafe { f(slf_ptr, arg_ptr) };
-    ret_ptr_to_pyresult(vm, ret_ptr)
+    unsafe { f(slf_ptr, arg_ptr).assume_owned_or_err(vm) }
 }
 
 unsafe fn call_function_with_keywords(
@@ -179,14 +173,14 @@ unsafe fn call_function_with_keywords(
     for (k, v) in args.kwargs {
         kwargs.set_item(&*k, v, vm)?;
     }
-    let ret_ptr = unsafe {
+    unsafe {
         f(
             slf_ptr,
             arg_tuple.as_object().as_raw().cast_mut(),
             kwargs.as_object().as_raw().cast_mut(),
         )
-    };
-    ret_ptr_to_pyresult(vm, ret_ptr)
+        .assume_owned_or_err(vm)
+    }
 }
 
 unsafe fn call_fast_function_with_keywords(
@@ -221,8 +215,7 @@ unsafe fn call_fast_function_with_keywords(
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
     let fastcall_arg_ptrs = fastcall_args.as_ptr().cast::<*mut PyObject>();
-    let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, nargs as isize, kwnames_ptr) };
-    ret_ptr_to_pyresult(vm, ret_ptr)
+    unsafe { f(slf_ptr, fastcall_arg_ptrs, nargs as isize, kwnames_ptr).assume_owned_or_err(vm) }
 }
 
 unsafe fn call_fast_function(
@@ -242,16 +235,7 @@ unsafe fn call_fast_function(
     // Vec<PyObjectRef> has a layout-compatible contiguous backing buffer. The
     // vector is kept alive for the duration of the call.
     let fastcall_arg_ptrs = args.args.as_mut_ptr().cast::<*mut PyObject>();
-    let ret_ptr = unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize) };
-    ret_ptr_to_pyresult(vm, ret_ptr)
-}
-
-fn ret_ptr_to_pyresult(vm: &VirtualMachine, ret_ptr: *mut PyObject) -> PyResult {
-    let ret_ptr = NonNull::new(ret_ptr).ok_or_else(|| {
-        vm.take_raised_exception()
-            .expect("Native function returned NULL, but there was no exception set")
-    })?;
-    Ok(unsafe { PyObjectRef::from_raw(ret_ptr) })
+    unsafe { f(slf_ptr, fastcall_arg_ptrs, args.args.len() as isize).assume_owned_or_err(vm) }
 }
 
 fn take_self_arg(args: &mut FuncArgs, flags: PyMethodFlags) -> Option<PyObjectRef> {
@@ -275,7 +259,7 @@ pub unsafe extern "C" fn PyCMethod_New(
             "PyCMethod_New does not support METH_METHOD on abi3"
         );
         let ml = unsafe { &*ml };
-        let zelf = unsafe { slf.as_ref().map(|obj| obj.to_owned()) };
+        let zelf = unsafe { slf.assume_borrowed_or_opt() }.map(ToOwned::to_owned);
         Ok(build_method_def(vm, ml, zelf.is_some())?
             .build_function(vm, zelf)
             .into())

@@ -1,4 +1,5 @@
 use crate::object::define_py_check;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_double;
 use num_complex::{Complex, Complex64};
@@ -28,12 +29,12 @@ fn try_to_complex(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Complex64> {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyComplex_RealAsDouble(obj: *mut PyObject) -> c_double {
-    with_vm(|vm| try_to_complex(vm, unsafe { &*obj }).map(|complex| complex.re))
+    with_vm(|vm| try_to_complex(vm, unsafe { obj.assume_borrowed() }).map(|complex| complex.re))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyComplex_ImagAsDouble(obj: *mut PyObject) -> c_double {
-    with_vm(|vm| try_to_complex(vm, unsafe { &*obj }).map(|complex| complex.im))
+    with_vm(|vm| try_to_complex(vm, unsafe { obj.assume_borrowed() }).map(|complex| complex.im))
 }
 
 #[cfg(test)]

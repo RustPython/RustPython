@@ -1,4 +1,5 @@
 use crate::util::CStrExt;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
 use core::ffi::{c_char, c_int};
@@ -42,10 +43,10 @@ pub unsafe extern "C" fn PyObject_Call(
     kwargs: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let callable = unsafe { &*callable };
-        let args = tuple_to_args(unsafe { &*args }.try_downcast_ref::<PyTuple>(vm)?);
+        let callable = unsafe { callable.assume_borrowed() };
+        let args = tuple_to_args(unsafe { args.assume_borrowed_and_cast::<PyTuple>(vm) }?);
 
-        let kwargs: Option<KwArgs> = unsafe { kwargs.as_ref() }
+        let kwargs: Option<KwArgs> = unsafe { kwargs.assume_borrowed_or_opt() }
             .map(|kwargs| dict_to_kwargs(vm, kwargs.try_downcast_ref::<PyDict>(vm)?))
             .transpose()?;
 
@@ -55,7 +56,7 @@ pub unsafe extern "C" fn PyObject_Call(
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*callable }.call((), vm))
+    with_vm(|vm| unsafe { callable.assume_borrowed() }.call((), vm))
 }
 
 #[unsafe(no_mangle)]
@@ -64,8 +65,8 @@ pub unsafe extern "C" fn PyObject_CallObject(
     args: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let callable = unsafe { &*callable };
-        if let Some(args) = unsafe { args.as_ref() } {
+        let callable = unsafe { callable.assume_borrowed() };
+        if let Some(args) = unsafe { args.assume_borrowed_or_opt() } {
             callable.call(tuple_to_args(args.try_downcast_ref::<PyTuple>(vm)?), vm)
         } else {
             callable.call((), vm)
@@ -85,7 +86,7 @@ pub unsafe extern "C" fn PyObject_Vectorcall(
 
         let kwnames: Option<&[PyObjectRef]> = unsafe {
             kwnames
-                .as_ref()
+                .assume_borrowed_or_opt()
                 .map(|tuple| Ok(&***tuple.try_downcast_ref::<PyTuple>(vm)?))
                 .transpose()?
         };
@@ -100,7 +101,7 @@ pub unsafe extern "C" fn PyObject_Vectorcall(
                 .collect::<Vec<_>>()
         };
 
-        let callable = unsafe { &*callable };
+        let callable = unsafe { callable.assume_borrowed() };
         callable.vectorcall(args, num_positional_args, kwnames, vm)
     })
 }
@@ -123,8 +124,8 @@ pub unsafe extern "C" fn PyObject_VectorcallMethod(
             .split_first()
             .expect("args_len > 0 should guarantee a receiver");
 
-        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
-        let callable = unsafe { (&**receiver).get_attr(method_name, vm)? };
+        let method_name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm)? };
+        let callable = unsafe { receiver.assume_borrowed().get_attr(method_name, vm)? };
 
         Ok(unsafe {
             PyObject_Vectorcall(
@@ -144,14 +145,14 @@ pub unsafe extern "C" fn PyVectorcall_Call(
     kwargs: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let callable = unsafe { &*callable };
-        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let callable = unsafe { callable.assume_borrowed() };
+        let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
 
         let mut args = tuple.iter().cloned().collect::<Vec<_>>();
         let num_positional_args = args.len();
 
         let mut kwnames = Vec::new();
-        if let Some(kwargs) = unsafe { kwargs.as_ref() } {
+        if let Some(kwargs) = unsafe { kwargs.assume_borrowed_or_opt() } {
             let kwargs = kwargs.try_downcast_ref::<PyDict>(vm)?;
             for (key, value) in kwargs.items_vec() {
                 let key = key
@@ -176,8 +177,8 @@ pub unsafe extern "C" fn PyVectorcall_Call(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetItem(obj: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let key = unsafe { &*key };
+        let obj = unsafe { obj.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
         obj.get_item(key, vm)
     })
 }
@@ -189,9 +190,9 @@ pub unsafe extern "C" fn PyObject_SetItem(
     value: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let key = unsafe { &*key };
-        let value = unsafe { &*value }.to_owned();
+        let obj = unsafe { obj.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
+        let value = unsafe { value.assume_borrowed() }.to_owned();
         obj.set_item(key, value, vm)
     })
 }
@@ -199,8 +200,8 @@ pub unsafe extern "C" fn PyObject_SetItem(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let key = unsafe { &*key };
+        let obj = unsafe { obj.assume_borrowed() };
+        let key = unsafe { key.assume_borrowed() };
         obj.del_item(key, vm)
     })
 }
@@ -208,7 +209,7 @@ pub unsafe extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_DelItemString(obj: *mut PyObject, key: *const c_char) -> c_int {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let key = unsafe { key.try_as_str(vm) }?;
         obj.del_item(key, vm)
     })
@@ -220,8 +221,8 @@ pub unsafe extern "C" fn PyObject_Format(
     format_spec: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
-        let spec = unsafe { format_spec.as_ref() }
+        let obj = unsafe { obj.assume_borrowed() };
+        let spec = unsafe { format_spec.assume_borrowed_or_opt() }
             .map(|spec| spec.try_downcast_ref::<PyStr>(vm))
             .transpose()?
             .unwrap_or_else(|| vm.ctx.empty_str);
@@ -232,8 +233,8 @@ pub unsafe extern "C" fn PyObject_Format(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let derived = unsafe { &*derived };
-        let cls = unsafe { &*cls };
+        let derived = unsafe { derived.assume_borrowed() };
+        let cls = unsafe { cls.assume_borrowed() };
         derived.is_subclass(cls, vm)
     })
 }
@@ -241,8 +242,8 @@ pub unsafe extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut P
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let inst = unsafe { &*inst };
-        let cls = unsafe { &*cls };
+        let inst = unsafe { inst.assume_borrowed() };
+        let cls = unsafe { cls.assume_borrowed() };
         inst.is_instance(cls, vm)
     })
 }
@@ -250,7 +251,7 @@ pub unsafe extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyOb
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Size(obj: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.length(vm)
     })
 }
@@ -262,7 +263,7 @@ pub unsafe extern "C" fn PyObject_Length(obj: *mut PyObject) -> isize {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_Type(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|_vm| unsafe { &*obj }.obj_type())
+    with_vm(|_vm| unsafe { obj.assume_borrowed() }.obj_type())
 }
 
 #[cfg(test)]

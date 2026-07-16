@@ -1,5 +1,6 @@
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::{c_int, c_ulong};
 use rustpython_vm::builtins::{PyStr, PyType};
 use rustpython_vm::{AsObject, Py, PyObject};
@@ -11,52 +12,52 @@ define_py_check!(exact fn PyType_CheckExact, types.type_type);
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_TYPE(op: *mut PyObject) -> *const PyTypeObject {
-    unsafe { (*op).class() }
+    unsafe { op.assume_borrowed() }.class()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Py_IS_TYPE(op: *mut PyObject, ty: *mut PyTypeObject) -> c_int {
     with_vm(|_vm| {
-        let obj = unsafe { &*op };
-        let ty = unsafe { &*ty };
+        let obj = unsafe { op.assume_borrowed() };
+        let ty = unsafe { ty.assume_borrowed() };
         obj.class().is(ty)
     })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetFlags(ptr: *const PyTypeObject) -> c_ulong {
-    let ty = unsafe { &*ptr };
+pub unsafe extern "C" fn PyType_GetFlags(ptr: *mut PyTypeObject) -> c_ulong {
+    let ty = unsafe { ptr.assume_borrowed() };
     ty.slots.flags.bits() as u32 as c_ulong
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_IsSubtype(a: *const PyTypeObject, b: *const PyTypeObject) -> c_int {
+pub unsafe extern "C" fn PyType_IsSubtype(a: *mut PyTypeObject, b: *mut PyTypeObject) -> c_int {
     with_vm(move |_vm| {
-        let a = unsafe { &*a };
-        let b = unsafe { &*b };
+        let a = unsafe { a.assume_borrowed() };
+        let b = unsafe { b.assume_borrowed() };
         Ok(a.is_subtype(b))
     })
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__name__(vm))
+pub unsafe extern "C" fn PyType_GetName(ptr: *mut PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { ptr.assume_borrowed() }.__name__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetQualName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__qualname__(vm))
+pub unsafe extern "C" fn PyType_GetQualName(ptr: *mut PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { ptr.assume_borrowed() }.__qualname__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetModuleName(ptr: *const PyTypeObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*ptr }.__module__(vm))
+pub unsafe extern "C" fn PyType_GetModuleName(ptr: *mut PyTypeObject) -> *mut PyObject {
+    with_vm(|vm| unsafe { ptr.assume_borrowed() }.__module__(vm))
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *const PyTypeObject) -> *mut PyObject {
+pub unsafe extern "C" fn PyType_GetFullyQualifiedName(ptr: *mut PyTypeObject) -> *mut PyObject {
     with_vm(|vm| {
-        let ty = unsafe { &*ptr };
+        let ty = unsafe { ptr.assume_borrowed() };
         let qualname = ty.__qualname__(vm).try_downcast::<PyStr>(vm)?;
         let module = ty.__module__(vm);
 

@@ -1,8 +1,8 @@
 use crate::pyframe::PyFrameObject;
 use crate::pystate::with_vm;
 use crate::unicodeobject::decode_fsdefault_and_size;
+use crate::util::FfiPtrExt;
 use core::ffi::{CStr, c_char, c_int};
-use core::ptr::NonNull;
 use rustpython_vm::builtins::{PyCode, PyDict};
 use rustpython_vm::function::ArgMapping;
 use rustpython_vm::scope::Scope;
@@ -31,10 +31,10 @@ pub unsafe extern "C" fn PyEval_EvalCode(
     locals: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let code = unsafe { &*co }.try_downcast_ref::<PyCode>(vm)?;
-        let globals = unsafe { &*globals }.try_downcast_ref::<PyDict>(vm)?;
-        let locals = NonNull::new(locals)
-            .map(|ptr| ArgMapping::try_from_object(vm, unsafe { ptr.as_ref() }.to_owned()))
+        let code = unsafe { co.assume_borrowed_and_cast::<PyCode>(vm) }?;
+        let globals = unsafe { globals.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let locals = unsafe { locals.assume_borrowed_or_opt() }
+            .map(|obj| ArgMapping::try_from_object(vm, obj.to_owned()))
             .transpose()?;
 
         let scope = Scope::with_builtins(locals, globals.to_owned(), vm);
@@ -50,7 +50,7 @@ pub unsafe extern "C" fn PyEval_EvalFrame(f: *mut PyFrameObject) -> *mut PyObjec
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyEval_EvalFrameEx(f: *mut PyFrameObject, _exc: c_int) -> *mut PyObject {
-    with_vm(|vm| vm.run_frame(unsafe { &*f }.to_owned()))
+    with_vm(|vm| vm.run_frame(unsafe { f.assume_borrowed() }.to_owned()))
 }
 
 #[unsafe(no_mangle)]
@@ -126,7 +126,7 @@ pub extern "C" fn PyEval_GetLocals() -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyEval_GetFuncDesc(func: *mut PyObject) -> *const c_char {
     with_vm(|vm| {
-        let func = unsafe { &*func };
+        let func = unsafe { func.assume_borrowed() };
         let cls = func.class();
         if cls.is(vm.ctx.types.bound_method_type)
             || cls.is(vm.ctx.types.function_type)

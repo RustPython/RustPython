@@ -2266,15 +2266,18 @@ impl<T: PyPayload> PyRef<T> {
     //     ptr
     // }
 
+    /// # Safety
+    /// The raw pointer must point to a valid `Py<T>` object
+    #[must_use]
     #[inline(always)]
-    pub(crate) const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
+    pub const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
         Self { ptr }
     }
 
     /// # Safety
     /// The raw pointer must point to a valid `Py<T>` object
     #[inline(always)]
-    pub(crate) const unsafe fn from_raw(raw: *const Py<T>) -> Self {
+    pub const unsafe fn from_raw(raw: *const Py<T>) -> Self {
         unsafe { Self::from_non_null(NonNull::new_unchecked(raw as *mut _)) }
     }
 

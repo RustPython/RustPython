@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use rustpython_vm::builtins::{PyModule, PyStr};
 
 define_py_check!(fn PyModule_Check, types.module_type);
@@ -9,7 +10,7 @@ define_py_check!(exact fn PyModule_CheckExact, types.module_type);
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyModule_GetNameObject(module: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let module = unsafe { &*module }.try_downcast_ref::<PyModule>(vm)?;
+        let module = unsafe { module.assume_borrowed_and_cast::<PyModule>(vm) }?;
         let dict = module.dict();
         let name = dict
             .get_item_opt(rustpython_vm::identifier!(vm, __name__), vm)?
@@ -21,7 +22,7 @@ pub unsafe extern "C" fn PyModule_GetNameObject(module: *mut PyObject) -> *mut P
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyModule_GetFilenameObject(module: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let module = unsafe { &*module }.try_downcast_ref::<PyModule>(vm)?;
+        let module = unsafe { module.assume_borrowed_and_cast::<PyModule>(vm) }?;
         let dict = module.dict();
         let filename = dict
             .get_item_opt(rustpython_vm::identifier!(vm, __file__), vm)?
@@ -33,7 +34,7 @@ pub unsafe extern "C" fn PyModule_GetFilenameObject(module: *mut PyObject) -> *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyModule_NewObject(name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| -> rustpython_vm::PyResult<_> {
-        let name = unsafe { &*name }.try_downcast_ref::<PyStr>(vm)?;
+        let name = unsafe { name.assume_borrowed_and_cast::<PyStr>(vm) }?;
         let name = name
             .to_str()
             .ok_or_else(|| vm.new_system_error("module name must be valid UTF-8"))?;

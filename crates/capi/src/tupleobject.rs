@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
 use core::slice;
 use rustpython_vm::PyResult;
@@ -55,7 +56,7 @@ pub extern "C" fn PyTuple_SetItem(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyTuple_Size(tuple: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
         Ok(tuple.__len__())
     })
 }
@@ -63,7 +64,7 @@ pub unsafe extern "C" fn PyTuple_Size(tuple: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyTuple_GetItem(tuple: *mut PyObject, pos: isize) -> *mut PyObject {
     with_vm(|vm| {
-        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
         let result: &PyObject = pos
             .try_into()
             .ok()
@@ -81,7 +82,7 @@ pub unsafe extern "C" fn PyTuple_GetSlice(
     high: isize,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+        let tuple = unsafe { tuple.assume_borrowed_and_cast::<PyTuple>(vm) }?;
         let len = tuple.__len__() as isize;
         let low = low.clamp(0, len);
         let high = high.clamp(low, len);

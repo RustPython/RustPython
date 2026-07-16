@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_char;
 use rustpython_vm::builtins::PyByteArray;
 use rustpython_vm::byte::bytes_from_object;
@@ -40,7 +41,7 @@ pub unsafe extern "C" fn PyByteArray_FromStringAndSize(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyByteArray_FromObject(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         let data = bytes_from_object(vm, obj)?;
         Ok(vm.ctx.new_bytearray(data))
     })
@@ -49,7 +50,7 @@ pub unsafe extern "C" fn PyByteArray_FromObject(obj: *mut PyObject) -> *mut PyOb
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyByteArray_Size(bytearray: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let bytearray = unsafe { &*bytearray }.try_downcast_ref::<PyByteArray>(vm)?;
+        let bytearray = unsafe { bytearray.assume_borrowed_and_cast::<PyByteArray>(vm) }?;
         Ok(bytearray.borrow_buf().len())
     })
 }
@@ -57,7 +58,7 @@ pub unsafe extern "C" fn PyByteArray_Size(bytearray: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyByteArray_AsString(bytearray: *mut PyObject) -> *mut c_char {
     with_vm(|vm| {
-        let bytearray = unsafe { &*bytearray }.try_downcast_ref::<PyByteArray>(vm)?;
+        let bytearray = unsafe { bytearray.assume_borrowed_and_cast::<PyByteArray>(vm) }?;
         Ok(bytearray.borrow_buf_mut().as_mut_ptr())
     })
 }
@@ -65,7 +66,7 @@ pub unsafe extern "C" fn PyByteArray_AsString(bytearray: *mut PyObject) -> *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyByteArray_Resize(bytearray: *mut PyObject, len: isize) -> i32 {
     with_vm(|vm| {
-        let bytearray = unsafe { &*bytearray }.try_downcast_ref::<PyByteArray>(vm)?;
+        let bytearray = unsafe { bytearray.assume_borrowed_and_cast::<PyByteArray>(vm) }?;
         bytearray.resize(len, vm)?;
         Ok(())
     })

@@ -1,3 +1,4 @@
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_int;
 use rustpython_vm::PyObjectRef;
@@ -6,13 +7,13 @@ use rustpython_vm::protocol::{PyIter, PyIterReturn};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyIter_Check(obj: *mut PyObject) -> c_int {
-    with_vm(|_vm| Ok(PyIter::check(unsafe { &*obj })))
+    with_vm(|_vm| Ok(PyIter::check(unsafe { obj.assume_borrowed() })))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyAIter_Check(obj: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        Ok(unsafe { &*obj }
+        Ok(unsafe { obj.assume_borrowed() }
             .class()
             .has_attr(rustpython_vm::identifier!(vm, __anext__)))
     })
@@ -21,14 +22,14 @@ pub unsafe extern "C" fn PyAIter_Check(obj: *mut PyObject) -> c_int {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetIter(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
         obj.get_iter(vm).map(PyObjectRef::from)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_GetAIter(obj: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| unsafe { &*obj }.get_aiter(vm))
+    with_vm(|vm| unsafe { obj.assume_borrowed() }.get_aiter(vm))
 }
 
 #[unsafe(no_mangle)]
@@ -38,7 +39,7 @@ pub unsafe extern "C" fn PyIter_NextItem(iter: *mut PyObject, item: *mut *mut Py
             *item = core::ptr::null_mut();
         }
 
-        let iter = PyIter::new(unsafe { &*iter });
+        let iter = PyIter::new(unsafe { iter.assume_borrowed() });
         match iter.next(vm)? {
             PyIterReturn::Return(next_item) => {
                 unsafe {
@@ -54,7 +55,7 @@ pub unsafe extern "C" fn PyIter_NextItem(iter: *mut PyObject, item: *mut *mut Py
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyIter_Next(iter: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let iter = PyIter::new(unsafe { &*iter });
+        let iter = PyIter::new(unsafe { iter.assume_borrowed() });
         match iter.next(vm)? {
             PyIterReturn::Return(next_item) => Ok(next_item.into_raw().as_ptr()),
             PyIterReturn::StopIteration(_) => Ok(core::ptr::null_mut()),
@@ -73,14 +74,13 @@ pub unsafe extern "C" fn PyIter_Send(
             *presult = core::ptr::null_mut();
         }
 
-        let iter_obj = unsafe { &*iter };
-        let arg_obj = unsafe { &*arg };
+        let iter_obj = unsafe { iter.assume_borrowed() };
+        let arg_obj = unsafe { arg.assume_borrowed() };
 
         let ret = if vm.is_none(arg_obj) {
             PyIter::new(iter_obj).next(vm)?
         } else {
-            iter_obj
-                .try_downcast_ref::<PyGenerator>(vm)?
+            unsafe { iter.assume_borrowed_and_cast::<PyGenerator>(vm) }?
                 .as_coro()
                 .send(iter_obj, arg_obj.to_owned(), vm)?
         };
