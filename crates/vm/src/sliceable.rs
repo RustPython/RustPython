@@ -1,7 +1,7 @@
 // export through sliceable module, not slice.
 use crate::{
     PyObject, PyResult, VirtualMachine,
-    builtins::{int::PyInt, slice::PySlice},
+    builtins::{PyBaseExceptionRef, int::PyInt, slice::PySlice},
 };
 use core::ops::Range;
 use malachite_bigint::BigInt;
@@ -263,6 +263,24 @@ impl SequenceIndex {
         obj: &PyObject,
         type_name: &str,
     ) -> PyResult<Self> {
+        Self::try_from_borrowed_object_with_err(vm, obj, || {
+            vm.new_type_error(format!(
+                "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
+                type_name,
+                obj.class()
+            ))
+        })
+    }
+
+    /// Like [`Self::try_from_borrowed_object`], but lets the caller supply the
+    /// `TypeError` raised for a non-index object. Used by types whose CPython
+    /// message differs from the shared sequence wording (e.g. `str`, whose
+    /// `unicode_subscript` says "string indices must be integers, not ...").
+    pub fn try_from_borrowed_object_with_err(
+        vm: &VirtualMachine,
+        obj: &PyObject,
+        err: impl FnOnce() -> PyBaseExceptionRef,
+    ) -> PyResult<Self> {
         if let Some(i) = obj.downcast_ref::<PyInt>() {
             // TODO: number protocol
             i.try_to_primitive(vm)
@@ -276,11 +294,7 @@ impl SequenceIndex {
                 .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
                 .map(Self::Int)
         } else {
-            Err(vm.new_type_error(format!(
-                "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
-                type_name,
-                obj.class()
-            )))
+            Err(err())
         }
     }
 }
