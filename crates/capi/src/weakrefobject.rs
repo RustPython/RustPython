@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
 use rustpython_vm::builtins::{PyWeak, PyWeakProxy};
 
@@ -17,7 +18,7 @@ pub unsafe extern "C" fn PyWeakref_GetRef(
             *result = core::ptr::null_mut();
         }
 
-        let reference = unsafe { &*reference };
+        let reference = unsafe { reference.assume_borrowed() };
         let upgraded = if let Some(weak) = reference.downcast_ref::<PyWeak>() {
             weak.upgrade()
         } else if let Some(proxy) = reference.downcast_ref::<PyWeakProxy>() {
@@ -43,8 +44,8 @@ pub unsafe extern "C" fn PyWeakref_NewProxy(
     callback: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let ob = unsafe { &*ob };
-        let callback = unsafe { callback.as_ref() }
+        let ob = unsafe { ob.assume_borrowed() };
+        let callback = unsafe { callback.assume_borrowed_or_opt() }
             .filter(|callback| !vm.is_none(callback))
             .map(ToOwned::to_owned);
         PyWeakProxy::new_weakproxy(ob, callback, vm)
@@ -57,8 +58,8 @@ pub unsafe extern "C" fn PyWeakref_NewRef(
     callback: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let ob = unsafe { &*ob };
-        let callback = unsafe { callback.as_ref() }
+        let ob = unsafe { ob.assume_borrowed() };
+        let callback = unsafe { callback.assume_borrowed_or_opt() }
             .filter(|callback| !vm.is_none(callback))
             .map(ToOwned::to_owned);
         ob.downgrade(callback, vm)

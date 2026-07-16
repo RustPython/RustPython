@@ -1,7 +1,7 @@
 use crate::object::define_py_check;
+use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::{CStr, c_char, c_int};
-use core::ptr::NonNull;
 use core::slice;
 use core::str;
 use rustpython_vm::builtins::{PyStr, PyStrRef};
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn PyUnicode_AsUTF8AndSize(
     size: *mut isize,
 ) -> *const c_char {
     with_vm(|vm| {
-        let unicode = unsafe { &*obj }.try_downcast_ref::<PyStr>(vm)?;
+        let unicode = unsafe { obj.assume_borrowed_and_cast::<PyStr>(vm) }?;
 
         let str = unicode.to_str().ok_or_else(|| {
             vm.new_system_error("PyUnicode_AsUTF8AndSize only supports UTF-8 or ASCII strings")
@@ -67,24 +67,10 @@ pub unsafe extern "C" fn PyUnicode_AsEncodedString(
     errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        let encoding = if encoding.is_null() {
-            "utf-8"
-        } else {
-            unsafe { CStr::from_ptr(encoding) }
-                .to_str()
-                .expect("encoding must be valid UTF-8")
-        };
-        let errors = if errors.is_null() {
-            None
-        } else {
-            let errors = unsafe { CStr::from_ptr(errors) }
-                .to_str()
-                .expect("errors must be valid UTF-8");
-            Some(vm.ctx.new_utf8_str(errors))
-        };
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm) }?.to_owned();
+        let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
+        let errors =
+            unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
         vm.state
             .codec_registry
             .encode_text(unicode, encoding, errors, vm)
@@ -94,9 +80,7 @@ pub unsafe extern "C" fn PyUnicode_AsEncodedString(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUTF8String(unicode: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm) }?.to_owned();
         vm.state
             .codec_registry
             .encode_text(unicode, "utf-8", None, vm)
@@ -152,9 +136,7 @@ pub(crate) fn decode_fsdefault_and_size(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_EncodeFSDefault(unicode: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm) }?.to_owned();
         vm.state.codec_registry.encode_text(
             unicode,
             vm.fs_encoding().as_str(),
@@ -171,27 +153,15 @@ pub unsafe extern "C" fn PyUnicode_FromEncodedObject(
     errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = unsafe { &*obj };
+        let obj = unsafe { obj.assume_borrowed() };
 
         if obj.downcast_ref::<PyStr>().is_some() {
             return Err(vm.new_type_error("decoding str is not supported"));
         }
 
-        let encoding = if encoding.is_null() {
-            "utf-8"
-        } else {
-            unsafe { CStr::from_ptr(encoding) }
-                .to_str()
-                .map_err(|_| vm.new_system_error("encoding must be valid UTF-8"))?
-        };
-        let errors = if errors.is_null() {
-            None
-        } else {
-            let errors = unsafe { CStr::from_ptr(errors) }
-                .to_str()
-                .map_err(|_| vm.new_system_error("errors must be valid UTF-8"))?;
-            Some(vm.ctx.new_utf8_str(errors))
-        };
+        let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
+        let errors =
+            unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
 
         obj.try_bytes_like(vm, |b| {
             vm.state.codec_registry.decode_text(
@@ -207,7 +177,7 @@ pub unsafe extern "C" fn PyUnicode_FromEncodedObject(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_InternInPlace(string: *mut *mut PyObject) {
     with_vm(|vm| {
-        let old_str = unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(*string)) }
+        let old_str = unsafe { (*string).assume_owned() }
             .downcast_exact::<PyStr>(vm)
             .expect("PyUnicode_InternInPlace called with non-string object");
 
@@ -228,7 +198,7 @@ pub unsafe extern "C" fn PyUnicode_EqualToUTF8AndSize(
             vm.new_system_error("Negative size passed to PyUnicode_EqualToUTF8AndSize")
         })?;
 
-        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let unicode = unsafe { unicode.assume_borrowed_and_cast::<PyStr>(vm) }?;
         let result = unsafe {
             let slice = slice::from_raw_parts(string as _, size);
             str::from_utf8(slice)

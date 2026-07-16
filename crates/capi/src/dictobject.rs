@@ -1,7 +1,8 @@
 use crate::PyObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int};
+use crate::util::{CStrExt, FfiPtrExt};
+use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::AsObject;
 use rustpython_vm::PyPayload;
@@ -21,7 +22,7 @@ pub extern "C" fn PyDict_New() -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Clear(dict: *mut PyObject) {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         dict.clear();
         Ok(())
     })
@@ -34,9 +35,9 @@ pub unsafe extern "C" fn PyDict_SetItem(
     val: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
-        let value = unsafe { &*val }.to_owned();
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
+        let value = unsafe { val.assume_borrowed() }.to_owned();
         dict.inner_setitem(key, value, vm)
     })
 }
@@ -48,11 +49,9 @@ pub unsafe extern "C" fn PyDict_SetItemString(
     val: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("dictionary key must be valid UTF-8"))?;
-        let value = unsafe { &*val }.to_owned();
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.try_as_str(vm) }?;
+        let value = unsafe { val.assume_borrowed() }.to_owned();
         dict.inner_setitem(key, value, vm)
     })
 }
@@ -60,8 +59,8 @@ pub unsafe extern "C" fn PyDict_SetItemString(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_GetItem(dict: *mut PyObject, key: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
 
         match dict.inner_getitem_opt(key, vm) {
             Ok(Some(value)) => Ok(value.as_object().as_raw().cast_mut()),
@@ -76,8 +75,8 @@ pub unsafe extern "C" fn PyDict_GetItemWithError(
     key: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
 
         if let Some(value) = dict.inner_getitem_opt(key, vm)? {
             Ok(value.as_object().as_raw().cast_mut())
@@ -93,10 +92,8 @@ pub unsafe extern "C" fn PyDict_GetItemString(
     key: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_unicode_decode_error("dictionary key must be valid UTF-8"))?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.try_as_str(vm) }?;
 
         match dict.inner_getitem_opt(key, vm)? {
             Some(value) => Ok(value.as_object().as_raw().cast_mut()),
@@ -115,10 +112,8 @@ pub unsafe extern "C" fn PyDict_GetItemStringRef(
         unsafe {
             *result = core::ptr::null_mut();
         }
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("dictionary key must be valid UTF-8"))?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.try_as_str(vm) }?;
 
         if let Some(value) = dict.inner_getitem_opt(key, vm)? {
             unsafe {
@@ -139,8 +134,8 @@ pub unsafe extern "C" fn PyDict_GetItemRef(
 ) -> c_int {
     with_vm(|vm| {
         unsafe { *result = core::ptr::null_mut() };
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
 
         if let Some(value) = dict.inner_getitem_opt(key, vm)? {
             unsafe {
@@ -170,8 +165,8 @@ pub unsafe extern "C" fn PyDict_SetDefaultRef(
                 result.write(core::ptr::null_mut());
             }
         }
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
 
         if let Some(value) = dict.inner_getitem_opt(key, vm)? {
             if let Some(result) = result {
@@ -181,7 +176,7 @@ pub unsafe extern "C" fn PyDict_SetDefaultRef(
             }
             Ok(true)
         } else {
-            let value = unsafe { &*default_value }.to_owned();
+            let value = unsafe { default_value.assume_borrowed() }.to_owned();
             dict.inner_setitem(key, value.clone(), vm)?;
             if let Some(result) = result {
                 unsafe {
@@ -196,7 +191,7 @@ pub unsafe extern "C" fn PyDict_SetDefaultRef(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         Ok(dict.__len__())
     })
 }
@@ -204,8 +199,8 @@ pub unsafe extern "C" fn PyDict_Size(dict: *mut PyObject) -> isize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Contains(dict: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
         Ok(dict.inner_getitem_opt(key, vm)?.is_some())
     })
 }
@@ -213,7 +208,7 @@ pub unsafe extern "C" fn PyDict_Contains(dict: *mut PyObject, key: *mut PyObject
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Copy(dict: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         Ok(dict.copy().into_ref(&vm.ctx))
     })
 }
@@ -221,8 +216,8 @@ pub unsafe extern "C" fn PyDict_Copy(dict: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_DelItem(dict: *mut PyObject, key: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { &*key };
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.assume_borrowed() };
         dict.del_item(key, vm)
     })
 }
@@ -230,10 +225,8 @@ pub unsafe extern "C" fn PyDict_DelItem(dict: *mut PyObject, key: *mut PyObject)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_DelItemString(dict: *mut PyObject, key: *const c_char) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("dictionary key must be valid UTF-8"))?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let key = unsafe { key.try_as_str(vm) }?;
         dict.del_item(key, vm)
     })
 }
@@ -241,7 +234,7 @@ pub unsafe extern "C" fn PyDict_DelItemString(dict: *mut PyObject, key: *const c
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Items(dict: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         let items = dict
             .items_vec()
             .into_iter()
@@ -254,7 +247,7 @@ pub unsafe extern "C" fn PyDict_Items(dict: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Keys(dict: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         Ok(vm.ctx.new_list(dict.keys_vec()))
     })
 }
@@ -262,7 +255,7 @@ pub unsafe extern "C" fn PyDict_Keys(dict: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Values(dict: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         Ok(vm.ctx.new_list(dict.values_vec()))
     })
 }
@@ -274,8 +267,8 @@ pub unsafe extern "C" fn PyDict_Merge(
     override_: c_int,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let other = unsafe { &*other }.to_owned();
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let other = unsafe { other.assume_borrowed() }.to_owned();
         if override_ != 0 {
             dict.merge_object(other, vm)
         } else {
@@ -287,8 +280,8 @@ pub unsafe extern "C" fn PyDict_Merge(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDict_Update(dict: *mut PyObject, other: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let other = unsafe { &*other }.to_owned();
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let other = unsafe { other.assume_borrowed() }.to_owned();
         dict.merge_object(other, vm)
     })
 }
@@ -300,8 +293,8 @@ pub unsafe extern "C" fn PyDict_MergeFromSeq2(
     override_: c_int,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        let seq2 = unsafe { &*seq2 }.to_owned();
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
+        let seq2 = unsafe { seq2.assume_borrowed() }.to_owned();
         dict.merge_from_seq2(seq2, override_ != 0, vm)
     })
 }
@@ -314,7 +307,7 @@ pub unsafe extern "C" fn PyDict_Next(
     value: *mut *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
+        let dict = unsafe { dict.assume_borrowed_and_cast::<PyDict>(vm) }?;
         let index = unsafe { *pos } as usize;
 
         if let Some((next_pos, k, v)) = dict.next_entry(index) {

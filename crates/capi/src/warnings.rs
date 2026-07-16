@@ -1,5 +1,6 @@
+use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
-use core::ffi::{CStr, c_char, c_int};
+use core::ffi::{c_char, c_int};
 use rustpython_vm::builtins::{PyType, PyTypeRef};
 use rustpython_vm::warn::{warn, warn_explicit};
 use rustpython_vm::{AsObject, PyResult};
@@ -12,9 +13,7 @@ fn resolve_warning_category(
         return Ok(vm.ctx.exceptions.runtime_warning.to_owned());
     };
 
-    let category = unsafe { &*category }
-        .try_downcast_ref::<PyType>(vm)?
-        .to_owned();
+    let category = unsafe { category.assume_borrowed_and_cast::<PyType>(vm) }?.to_owned();
     if !category.fast_issubclass(vm.ctx.exceptions.warning) {
         return Err(vm.new_type_error(format!(
             "category must be a Warning subclass, not '{}'",
@@ -32,9 +31,7 @@ pub unsafe extern "C" fn PyErr_WarnEx(
     stack_level: isize,
 ) -> c_int {
     with_vm(|vm| {
-        let message = unsafe { CStr::from_ptr(message) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("warning message is not valid UTF-8"))?;
+        let message = unsafe { message.try_as_str(vm) }?;
 
         let category = resolve_warning_category(vm, category)?;
 
@@ -58,21 +55,15 @@ pub unsafe extern "C" fn PyErr_WarnExplicit(
     registry: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let message = unsafe { CStr::from_ptr(message) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("warning message is not valid UTF-8"))?;
-        let filename = unsafe { CStr::from_ptr(filename) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("filename is not valid UTF-8"))?;
+        let message = unsafe { message.try_as_str(vm) }?;
+        let filename = unsafe { filename.try_as_str(vm) }?;
 
-        let module = unsafe { module.as_ref().map(|ptr| CStr::from_ptr(ptr).to_str()) }
-            .transpose()
-            .map_err(|_| vm.new_system_error("module is not valid UTF-8"))?
-            .map(|module| vm.ctx.new_str(module).into());
+        let module =
+            unsafe { module.try_as_str_opt(vm) }?.map(|module| vm.ctx.new_str(module).into());
 
         let category = resolve_warning_category(vm, category)?;
 
-        let registry = unsafe { registry.as_ref() }
+        let registry = unsafe { registry.assume_borrowed_or_opt() }
             .map_or_else(|| vm.ctx.none(), |registry| registry.to_owned());
 
         let lineno = usize::try_from(lineno)

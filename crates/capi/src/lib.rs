@@ -13,6 +13,7 @@ pub mod boolobject;
 pub mod bytearrayobject;
 pub mod bytesobject;
 pub mod ceval;
+pub mod codecs;
 pub mod complexobject;
 pub mod critical_section;
 pub mod descrobject;

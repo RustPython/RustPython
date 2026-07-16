@@ -1,4 +1,5 @@
 use crate::pystate::with_vm;
+use crate::util::FfiPtrExt;
 use core::ffi::c_int;
 use rustpython_vm::Py;
 use rustpython_vm::builtins::PyCode;
@@ -9,13 +10,13 @@ pub type PyCodeObject = Py<PyCode>;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetCode(frame: *mut PyFrameObject) -> *mut PyCodeObject {
-    with_vm(|_vm| Ok(unsafe { &*frame }.f_code()))
+    with_vm(|_vm| Ok(unsafe { frame.assume_borrowed() }.f_code()))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFrame_GetLineNumber(frame: *mut PyFrameObject) -> c_int {
     with_vm(|_vm| {
-        let lineno = unsafe { &*frame }.f_lineno();
+        let lineno = unsafe { frame.assume_borrowed() }.f_lineno();
         Ok(lineno.try_into().unwrap_or(c_int::MAX))
     })
 }

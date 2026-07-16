@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{CStr, c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::PyCapsule;
@@ -28,13 +29,13 @@ pub unsafe extern "C" fn PyCapsule_GetPointer(
     capsule: *mut PyObject,
     name: *const c_char,
 ) -> *mut c_void {
-    with_vm(|vm| Ok(checked_capsule(vm, unsafe { &*capsule }, name)?.pointer()))
+    with_vm(|vm| Ok(checked_capsule(vm, unsafe { capsule.assume_borrowed() }, name)?.pointer()))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCapsule_GetName(capsule: *mut PyObject) -> *const c_char {
     with_vm(|vm| {
-        let capsule = unsafe { &*capsule }
+        let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
         Ok(capsule.name().map(CStr::as_ptr).unwrap_or_default())
@@ -44,7 +45,7 @@ pub unsafe extern "C" fn PyCapsule_GetName(capsule: *mut PyObject) -> *const c_c
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCapsule_GetContext(capsule: *mut PyObject) -> *mut c_void {
     with_vm(|vm| {
-        let capsule = unsafe { &*capsule }
+        let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
         Ok(capsule.context())
@@ -57,7 +58,7 @@ pub unsafe extern "C" fn PyCapsule_SetContext(
     context: *mut c_void,
 ) -> c_int {
     with_vm(|vm| {
-        let capsule = unsafe { &*capsule }
+        let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
         let _: () = capsule.set_context(context);
@@ -71,7 +72,7 @@ pub unsafe extern "C" fn PyCapsule_SetPointer(
     pointer: *mut c_void,
 ) -> c_int {
     with_vm(|vm| {
-        let capsule = unsafe { &*capsule }
+        let capsule = unsafe { capsule.assume_borrowed() }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
         let _: () = capsule.set_pointer(pointer);
@@ -86,16 +87,14 @@ pub unsafe extern "C" fn PyCapsule_IsValid(capsule: *mut PyObject, name: *const 
             return false;
         }
 
-        checked_capsule(vm, unsafe { &*capsule }, name).is_ok()
+        checked_capsule(vm, unsafe { capsule.assume_borrowed() }, name).is_ok()
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCapsule_Import(name: *const c_char, _no_block: c_int) -> *mut c_void {
     with_vm(|vm| {
-        let capsule_name = unsafe { CStr::from_ptr(name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("capsule name is not valid UTF-8"))?;
+        let capsule_name = unsafe { name.try_as_str(vm) }?;
         let (module_name, attrs_path) = capsule_name.split_once('.').ok_or_else(|| {
             vm.new_import_error(
                 "capsule name is missing attribute path",

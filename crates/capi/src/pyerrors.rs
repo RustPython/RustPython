@@ -1,13 +1,13 @@
 use crate::object::define_py_check;
+use crate::util::{CStrExt, FfiPtrExt};
 use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
-use core::ffi::{CStr, c_char, c_int};
-use core::ptr::NonNull;
+use core::ffi::{c_char, c_int};
 use core::slice;
 use rustpython_vm::builtins::{PyBaseException, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
-use rustpython_vm::{AsObject, PyObjectRef, PyResult};
+use rustpython_vm::{AsObject, PyResult};
 
 macro_rules! define_exception_statics {
     ($( $(#[$meta:meta])* $export:ident => $exc:ident ),* $(,)?) => {
@@ -120,20 +120,17 @@ pub extern "C" fn PyErr_GetRaisedException() -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_SetRaisedException(exc: *mut PyObject) {
     with_vm(|vm| {
-        if let Some(exc) = NonNull::new(exc) {
-            let exception = unsafe { PyObjectRef::from_raw(exc).downcast_unchecked() };
-            vm.set_exception(Some(exception));
-        } else {
-            vm.set_exception(None);
-        }
+        let exception =
+            unsafe { exc.assume_owned_or_opt() }.map(|exc| unsafe { exc.downcast_unchecked() });
+        vm.set_exception(exception);
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut PyObject) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
-        let exc_type = unsafe { (&*exception).to_owned() };
-        let exc_val = unsafe { (&*value).to_owned() };
+        let exc_type = unsafe { exception.assume_borrowed() }.to_owned();
+        let exc_val = unsafe { value.assume_borrowed() }.to_owned();
 
         let normalized = vm.normalize_exception(exc_type, exc_val, vm.ctx.none())?;
         Err(normalized)
@@ -143,11 +140,8 @@ pub unsafe extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut P
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
-        let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
-
-        let Ok(message) = unsafe { CStr::from_ptr(message) }.to_str() else {
-            return Err(vm.new_type_error("Exception message is not valid UTF-8"));
-        };
+        let exc_type = unsafe { exception.assume_borrowed_and_cast::<PyType>(vm) }?;
+        let message = unsafe { message.try_as_str(vm) }?;
 
         let exc = vm.invoke_exception(
             exc_type.to_owned(),
@@ -172,7 +166,7 @@ pub extern "C" fn PyErr_PrintEx(_set_sys_last_vars: c_int) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_DisplayException(exc: *mut PyObject) {
     with_vm(|vm| {
-        let exception = unsafe { &*exc }
+        let exception = unsafe { exc.assume_borrowed() }
             .downcast_ref::<PyBaseException>()
             .expect("PyErr_DisplayException exc must be an exception instance")
             .to_owned();
@@ -188,7 +182,8 @@ pub unsafe extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
             .take_raised_exception()
             .expect("No exception set in PyErr_WriteUnraisable");
 
-        let object = unsafe { vm.unwrap_or_none(obj.as_ref().map(|obj| obj.to_owned())) };
+        let object =
+            unsafe { vm.unwrap_or_none(obj.assume_borrowed_or_opt().map(ToOwned::to_owned)) };
 
         vm.run_unraisable(exception, None, object)
     })
@@ -197,7 +192,7 @@ pub unsafe extern "C" fn PyErr_WriteUnraisable(obj: *mut PyObject) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyExceptionClass_Check(obj: *mut PyObject) -> c_int {
     with_vm(|vm| unsafe {
-        obj.as_ref()
+        obj.assume_borrowed_or_opt()
             .and_then(|obj| obj.downcast_ref::<PyType>())
             .is_some_and(|ty| ty.is_subtype(vm.ctx.exceptions.base_exception_type))
     })
@@ -210,15 +205,12 @@ pub unsafe extern "C" fn PyErr_NewException(
     dict: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let (module, name) = unsafe {
-            CStr::from_ptr(name)
-                .to_str()
-                .expect("Exception name is not valid UTF-8")
-                .rsplit_once('.')
-                .expect("Exception name must be of the form 'module.ExceptionName'")
-        };
+        let (module, name) = unsafe { name.try_as_str(vm) }
+            .expect("Exception name is not valid UTF-8")
+            .rsplit_once('.')
+            .expect("Exception name must be of the form 'module.ExceptionName'");
 
-        let bases = unsafe { base.as_ref() }.map(|bases| {
+        let bases = unsafe { base.assume_borrowed_or_opt() }.map(|bases| {
             if let Some(ty) = bases.downcast_ref::<PyType>() {
                 vec![ty.to_owned()]
             } else if let Some(tuple) = bases.downcast_ref::<PyTuple>() {
@@ -257,8 +249,8 @@ pub unsafe extern "C" fn PyErr_GivenExceptionMatches(
     exc: *mut PyObject,
 ) -> c_int {
     with_vm(|vm| {
-        let given = unsafe { &*given };
-        let exc = unsafe { &*exc };
+        let given = unsafe { given.assume_borrowed() };
+        let exc = unsafe { exc.assume_borrowed() };
 
         given.is_subclass(exc, vm)
     })
@@ -267,7 +259,7 @@ pub unsafe extern "C" fn PyErr_GivenExceptionMatches(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
         let tb = exc
             .__traceback__()
             .map(|tb| tb.into_object().into_raw().as_ptr())
@@ -279,7 +271,7 @@ pub unsafe extern "C" fn PyException_GetTraceback(exc: *mut PyObject) -> *mut Py
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
         let cause = exc
             .__cause__()
             .map(|cause| cause.into_object().into_raw().as_ptr())
@@ -291,7 +283,7 @@ pub unsafe extern "C" fn PyException_GetCause(exc: *mut PyObject) -> *mut PyObje
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
         let context = exc
             .__context__()
             .map(|context| context.into_object().into_raw().as_ptr())
@@ -303,9 +295,9 @@ pub unsafe extern "C" fn PyException_GetContext(exc: *mut PyObject) -> *mut PyOb
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut PyObject) {
     with_vm(|vm| {
-        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
-        let cause = NonNull::new(cause)
-            .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
+        let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
+        let cause =
+            unsafe { cause.assume_owned_or_opt() }.map(|obj| unsafe { obj.downcast_unchecked() });
         exc.set___cause__(cause);
         Ok(())
     })
@@ -314,9 +306,9 @@ pub unsafe extern "C" fn PyException_SetCause(exc: *mut PyObject, cause: *mut Py
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_SetContext(exc: *mut PyObject, context: *mut PyObject) {
     with_vm(|vm| {
-        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
-        let context = NonNull::new(context)
-            .map(|obj| unsafe { PyObjectRef::from_raw(obj).downcast_unchecked() });
+        let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
+        let context =
+            unsafe { context.assume_owned_or_opt() }.map(|obj| unsafe { obj.downcast_unchecked() });
         exc.set___context__(context);
         Ok(())
     })
@@ -332,12 +324,8 @@ pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
     reason: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let encoding = unsafe { CStr::from_ptr(encoding) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("encoding must be valid UTF-8"))?;
-        let reason = unsafe { CStr::from_ptr(reason) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("reason must be valid UTF-8"))?;
+        let encoding = unsafe { encoding.try_as_str(vm) }?;
+        let reason = unsafe { reason.try_as_str(vm) }?;
         let length: usize = length
             .try_into()
             .map_err(|_| vm.new_system_error("length must be non-negative"))?;
@@ -373,8 +361,8 @@ pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
     with_vm(|vm| {
-        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
-        let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
+        let exc = unsafe { exc.assume_borrowed_and_cast::<PyBaseException>(vm) }?;
+        let traceback = unsafe { tb.assume_borrowed_or_opt() }.map(ToOwned::to_owned);
         exc.set___traceback__(vm.unwrap_or_none(traceback), vm)
     })
 }

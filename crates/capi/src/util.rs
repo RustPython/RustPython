@@ -1,7 +1,8 @@
 use crate::PyObject;
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
-use rustpython_vm::{Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
+use core::ptr::NonNull;
+use rustpython_vm::{Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine};
 
 pub(crate) trait FfiResult<Output = Self> {
     const ERR_VALUE: Output;
@@ -219,6 +220,125 @@ where
             },
             |obj| obj.into_output(vm),
         )
+    }
+}
+
+pub(crate) trait CStrExt<'a> {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str>;
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>>;
+}
+
+pub(crate) trait FfiPtrExt: Sized {
+    type Owned;
+    type Borrowed;
+
+    unsafe fn assume_owned_or_opt(self) -> Option<Self::Owned>;
+    unsafe fn assume_owned_or_err(self, vm: &VirtualMachine) -> PyResult<Self::Owned> {
+        unsafe { self.assume_owned_or_opt() }.ok_or_else(|| {
+            vm.take_raised_exception().unwrap_or_else(|| {
+                vm.new_system_error("Native function returned NULL, but there was no exception set")
+            })
+        })
+    }
+    unsafe fn assume_owned(self) -> Self::Owned;
+    unsafe fn assume_borrowed_or_opt<'a>(self) -> Option<&'a Self::Borrowed>;
+    unsafe fn assume_borrowed<'a>(self) -> &'a Self::Borrowed;
+
+    unsafe fn assume_borrowed_and_cast<'a, T: PyPayload>(
+        self,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a Py<T>>;
+}
+
+impl FfiPtrExt for *mut PyObject {
+    type Owned = PyObjectRef;
+    type Borrowed = PyObject;
+
+    #[inline]
+    unsafe fn assume_owned_or_opt(self) -> Option<PyObjectRef> {
+        NonNull::new(self).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) })
+    }
+
+    #[inline]
+    unsafe fn assume_owned(self) -> PyObjectRef {
+        unsafe { PyObjectRef::from_raw(NonNull::new_unchecked(self)) }
+    }
+
+    #[inline]
+    unsafe fn assume_borrowed_or_opt<'a>(self) -> Option<&'a PyObject> {
+        unsafe { self.as_ref() }
+    }
+
+    #[inline]
+    unsafe fn assume_borrowed<'a>(self) -> &'a PyObject {
+        debug_assert!(!self.is_null());
+        unsafe { self.as_ref_unchecked() }
+    }
+
+    #[inline]
+    unsafe fn assume_borrowed_and_cast<'a, T: PyPayload>(
+        self,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a Py<T>> {
+        unsafe { self.assume_borrowed() }.try_downcast_ref(vm)
+    }
+}
+
+impl<T: PyPayload> FfiPtrExt for *mut Py<T> {
+    type Owned = PyRef<T>;
+    type Borrowed = Py<T>;
+
+    #[inline]
+    unsafe fn assume_owned_or_opt(self) -> Option<PyRef<T>> {
+        NonNull::new(self).map(|ptr| unsafe { PyRef::from_non_null(ptr) })
+    }
+
+    #[inline]
+    unsafe fn assume_owned(self) -> PyRef<T> {
+        unsafe { PyRef::from_raw(self.cast_const()) }
+    }
+
+    #[inline]
+    unsafe fn assume_borrowed_or_opt<'a>(self) -> Option<&'a Py<T>> {
+        unsafe { self.as_ref() }
+    }
+
+    #[inline]
+    unsafe fn assume_borrowed<'a>(self) -> &'a Py<T> {
+        debug_assert!(!self.is_null());
+        unsafe { self.as_ref_unchecked() }
+    }
+
+    #[inline]
+    unsafe fn assume_borrowed_and_cast<'a, U: PyPayload>(
+        self,
+        vm: &VirtualMachine,
+    ) -> PyResult<&'a Py<U>> {
+        unsafe { self.cast::<PyObject>().assume_borrowed_and_cast(vm) }
+    }
+}
+
+impl<'a> CStrExt<'a> for *mut c_char {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { self.try_as_str_opt(vm) }?
+            .ok_or_else(|| vm.new_system_error("argument must not be null"))
+    }
+
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        NonNull::new(self)
+            .map(|ptr| unsafe { CStr::from_ptr(ptr.as_ptr()) }.to_str())
+            .transpose()
+            .map_err(|_| vm.new_system_error("argument must be valid UTF-8"))
+    }
+}
+
+impl<'a> CStrExt<'a> for *const c_char {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { self.cast_mut().try_as_str(vm) }
+    }
+
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        unsafe { self.cast_mut().try_as_str_opt(vm) }
     }
 }
 

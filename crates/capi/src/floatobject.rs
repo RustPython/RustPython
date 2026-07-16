@@ -1,7 +1,7 @@
 use crate::object::define_py_check;
+use crate::util::FfiPtrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_double;
-use core::ptr::NonNull;
 use rustpython_vm::AsObject;
 use rustpython_vm::builtins::PyFloat;
 
@@ -16,7 +16,7 @@ pub extern "C" fn PyFloat_FromDouble(value: c_double) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFloat_AsDouble(obj: *mut PyObject) -> c_double {
     with_vm(|vm| {
-        let obj_ref = unsafe { &*obj };
+        let obj_ref = unsafe { obj.assume_borrowed() };
         let float_obj = obj_ref
             .to_owned()
             .try_downcast::<PyFloat>(vm)
@@ -49,9 +49,9 @@ pub extern "C" fn PyFloat_GetInfo() -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyFloat_FromString(obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let obj = NonNull::new(obj)
-            .ok_or_else(|| vm.new_type_error("float() argument must be a string or a number"))?;
-        let obj = unsafe { obj.as_ref() }.to_owned();
+        let obj = unsafe { obj.assume_borrowed_or_opt() }
+            .ok_or_else(|| vm.new_type_error("float() argument must be a string or a number"))?
+            .to_owned();
         let float = rustpython_vm::builtins::parse_float_from_string(obj, vm)?;
         Ok(vm.ctx.new_float(float))
     })

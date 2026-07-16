@@ -2,7 +2,8 @@ use crate::PyObject;
 use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::PyTypeObject;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int, c_void};
+use crate::util::{CStrExt, FfiPtrExt};
+use core::ffi::{c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::{
     DescriptorMemberDef, MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyGetSet,
@@ -34,9 +35,7 @@ impl PyGetSetDef {
         ty: &'static Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyGetSet>> {
-        let name = unsafe { CStr::from_ptr(self.name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("PyGetSetDef name was not valid UTF-8"))?;
+        let name = unsafe { self.name.try_as_str(vm) }?;
         let closure = self.closure as usize;
 
         let descriptor = match (self.get, self.set) {
@@ -54,7 +53,7 @@ impl PyGetSetDef {
                                 )
                             })
                         })?;
-                        Ok(PyObjectRef::from_raw(ret_ptr))
+                        Ok(ret_ptr.as_ptr().assume_owned())
                     }
                 },
                 move |obj: PyObjectRef, value: PySetterValue, vm: &VirtualMachine| unsafe {
@@ -86,7 +85,7 @@ impl PyGetSetDef {
                                 )
                             })
                         })?;
-                        Ok(PyObjectRef::from_raw(ret_ptr))
+                        Ok(ret_ptr.as_ptr().assume_owned())
                     }
                 },
             ),
@@ -142,9 +141,7 @@ impl PyMemberDef {
         ty: &Py<PyType>,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyMemberDescriptor>> {
-        let name = unsafe { CStr::from_ptr(self.name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("PyMemberDef name was not valid UTF-8"))?;
+        let name = unsafe { self.name.try_as_str(vm) }?;
         let kind = match self.type_code {
             6 => MemberKind::Object,
             16 => MemberKind::ObjectEx,
@@ -165,14 +162,7 @@ impl PyMemberDef {
             );
         }
 
-        let doc = NonNull::new(self.doc.cast_mut())
-            .map(|doc| {
-                unsafe { CStr::from_ptr(doc.as_ptr()) }
-                    .to_str()
-                    .map(|s| s.to_owned())
-                    .map_err(|_| vm.new_system_error("PyMemberDef doc was not valid UTF-8"))
-            })
-            .transpose()?;
+        let doc = unsafe { self.doc.try_as_str_opt(vm) }?.map(str::to_owned);
 
         let descriptor = PyMemberDescriptor {
             common: PyDescriptorOwned {
@@ -200,7 +190,7 @@ impl PyMemberDef {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyDictProxy_New(mapping: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let mapping = unsafe { &*mapping }.to_owned();
+        let mapping = unsafe { mapping.assume_borrowed() }.to_owned();
         Ok(PyMappingProxy::from_object(mapping, vm)?.into_ref(&vm.ctx))
     })
 }
@@ -212,7 +202,7 @@ pub unsafe extern "C" fn PyDescr_NewMethod(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let method = build_method_def(vm, unsafe { &*method }, true)?;
-        Ok(method.build_method(unsafe { &*typ }, vm))
+        Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }
 
@@ -223,7 +213,7 @@ pub unsafe extern "C" fn PyDescr_NewClassMethod(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let method = build_method_def(vm, unsafe { &*method }, true)?;
-        Ok(method.build_method(unsafe { &*typ }, vm))
+        Ok(method.build_method(unsafe { typ.assume_borrowed() }, vm))
     })
 }
 
@@ -240,14 +230,14 @@ pub unsafe extern "C" fn PyDescr_NewMember(
     typ: *mut PyTypeObject,
     member: *mut PyMemberDef,
 ) -> *mut PyObject {
-    with_vm(|vm| Ok(unsafe { &*member }.build(unsafe { &*typ }, vm)))
+    with_vm(|vm| Ok(unsafe { &*member }.build(unsafe { typ.assume_borrowed() }, vm)))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyWrapper_New(descr: *mut PyObject, obj: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let descr = unsafe { &*descr };
-        let obj = unsafe { &*obj };
+        let descr = unsafe { descr.assume_borrowed() };
+        let obj = unsafe { obj.assume_borrowed() };
         vm.call_special_method(
             descr,
             vm.ctx.names.__get__,
