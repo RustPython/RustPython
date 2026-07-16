@@ -1,4 +1,5 @@
 use crate::object::define_py_check;
+use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
@@ -70,21 +71,9 @@ pub unsafe extern "C" fn PyUnicode_AsEncodedString(
         let unicode = unsafe { &*unicode }
             .try_downcast_ref::<PyStr>(vm)?
             .to_owned();
-        let encoding = if encoding.is_null() {
-            "utf-8"
-        } else {
-            unsafe { CStr::from_ptr(encoding) }
-                .to_str()
-                .expect("encoding must be valid UTF-8")
-        };
-        let errors = if errors.is_null() {
-            None
-        } else {
-            let errors = unsafe { CStr::from_ptr(errors) }
-                .to_str()
-                .expect("errors must be valid UTF-8");
-            Some(vm.ctx.new_utf8_str(errors))
-        };
+        let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
+        let errors =
+            unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
         vm.state
             .codec_registry
             .encode_text(unicode, encoding, errors, vm)
@@ -177,21 +166,9 @@ pub unsafe extern "C" fn PyUnicode_FromEncodedObject(
             return Err(vm.new_type_error("decoding str is not supported"));
         }
 
-        let encoding = if encoding.is_null() {
-            "utf-8"
-        } else {
-            unsafe { CStr::from_ptr(encoding) }
-                .to_str()
-                .map_err(|_| vm.new_system_error("encoding must be valid UTF-8"))?
-        };
-        let errors = if errors.is_null() {
-            None
-        } else {
-            let errors = unsafe { CStr::from_ptr(errors) }
-                .to_str()
-                .map_err(|_| vm.new_system_error("errors must be valid UTF-8"))?;
-            Some(vm.ctx.new_utf8_str(errors))
-        };
+        let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
+        let errors =
+            unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
 
         obj.try_bytes_like(vm, |b| {
             vm.state.codec_registry.decode_text(

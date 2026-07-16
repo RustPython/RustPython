@@ -1,5 +1,6 @@
+use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
-use core::ffi::{CStr, c_char, c_int};
+use core::ffi::{c_char, c_int};
 use rustpython_vm::AsObject;
 
 #[unsafe(no_mangle)]
@@ -60,9 +61,7 @@ pub unsafe extern "C" fn PyMapping_GetItemString(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("mapping key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
         obj.get_item(key, vm)
     })
 }
@@ -104,9 +103,7 @@ pub unsafe extern "C" fn PyMapping_GetOptionalItemString(
             *result = core::ptr::null_mut();
         }
         let obj = unsafe { &*obj };
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("mapping key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
 
         match obj.get_item(key, vm) {
             Ok(value) => {
@@ -134,7 +131,7 @@ pub unsafe extern "C" fn PyMapping_HasKey(obj: *mut PyObject, key: *mut PyObject
 pub unsafe extern "C" fn PyMapping_HasKeyString(obj: *mut PyObject, key: *const c_char) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        if let Ok(key) = unsafe { CStr::from_ptr(key) }.to_str() {
+        if let Ok(key) = unsafe { key.try_as_str(vm) } {
             obj.get_item(key, vm).is_ok()
         } else {
             false
@@ -166,9 +163,7 @@ pub unsafe extern "C" fn PyMapping_HasKeyStringWithError(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("mapping key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
 
         match obj.get_item(key, vm) {
             Ok(_) => Ok(true),
@@ -186,9 +181,7 @@ pub unsafe extern "C" fn PyMapping_SetItemString(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("mapping key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
         let value = unsafe { &*value }.to_owned();
         obj.set_item(key, value, vm)
     })

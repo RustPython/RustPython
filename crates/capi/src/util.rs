@@ -1,6 +1,7 @@
 use crate::PyObject;
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
+use core::ptr::NonNull;
 use rustpython_vm::{Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 pub(crate) trait FfiResult<Output = Self> {
@@ -219,6 +220,35 @@ where
             },
             |obj| obj.into_output(vm),
         )
+    }
+}
+
+pub(crate) trait CStrExt<'a> {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str>;
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>>;
+}
+
+impl<'a> CStrExt<'a> for *mut c_char {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { self.try_as_str_opt(vm) }?
+            .ok_or_else(|| vm.new_system_error("argument must not be null"))
+    }
+
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        NonNull::new(self)
+            .map(|ptr| unsafe { CStr::from_ptr(ptr.as_ptr()) }.to_str())
+            .transpose()
+            .map_err(|_| vm.new_system_error("argument must be valid UTF-8"))
+    }
+}
+
+impl<'a> CStrExt<'a> for *const c_char {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { self.cast_mut().try_as_str(vm) }
+    }
+
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        unsafe { self.cast_mut().try_as_str_opt(vm) }
     }
 }
 
