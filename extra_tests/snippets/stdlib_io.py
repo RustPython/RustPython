@@ -155,7 +155,9 @@ expect_value_error(
 )
 
 if uninitialized_chunk_size.called:
-    raise AssertionError("__index__ should not be called for uninitialized TextIOWrapper")
+    raise AssertionError(
+        "__index__ should not be called for uninitialized TextIOWrapper"
+    )
 
 
 detached_textio = TextIOWrapper(BytesIO())
