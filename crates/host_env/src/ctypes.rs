@@ -440,7 +440,7 @@ pub fn read_pointer_from_buffer(buffer: &[u8]) -> usize {
 pub const WCHAR_SIZE: usize = core::mem::size_of::<WChar>();
 
 #[inline]
-pub fn wchar_from_bytes(bytes: &[u8]) -> Option<u32> {
+pub const fn wchar_from_bytes(bytes: &[u8]) -> Option<u32> {
     if bytes.len() < WCHAR_SIZE {
         return None;
     }
@@ -524,20 +524,17 @@ pub fn encode_wtf8_to_wchar_padded(s: &Wtf8, size: usize) -> Vec<u8> {
 }
 
 pub fn wchar_null_terminated_bytes(s: &Wtf8) -> Vec<u8> {
-    let wchars: Vec<WChar> = s
-        .code_points()
-        .map(|cp| cp.to_u32() as WChar)
-        .chain(core::iter::once(0))
-        .collect();
-    vec_into_bytes(wchars)
-}
-
-pub fn vec_into_bytes<T>(vec: Vec<T>) -> Vec<u8> {
-    let len = vec.len() * core::mem::size_of::<T>();
-    let cap = vec.capacity() * core::mem::size_of::<T>();
-    let ptr = vec.as_ptr() as *mut u8;
-    core::mem::forget(vec);
-    unsafe { Vec::from_raw_parts(ptr, len, cap) }
+    if size_of::<WChar>() == 2 {
+        // We can't cast u32 to WChar because it would truncate the value on platforms where WChar
+        // is two bytes. Wtf8::encode_wide does all of the hard work for us, so all we have to do
+        // is split the bytes.
+        utf16z_bytes(s)
+    } else {
+        s.code_points()
+            .flat_map(|cp| (cp.to_u32() as WChar).to_ne_bytes())
+            .chain((0 as WChar).to_ne_bytes())
+            .collect()
+    }
 }
 
 pub enum IntegerValue {
@@ -1108,7 +1105,10 @@ pub fn simple_storage_value_to_bytes_endian(
 }
 
 pub fn utf16z_bytes(s: &Wtf8) -> Vec<u8> {
-    vec_into_bytes::<u16>(s.encode_wide().chain(core::iter::once(0)).collect())
+    s.encode_wide()
+        .flat_map(|cp| cp.to_ne_bytes())
+        .chain(0u16.to_ne_bytes())
+        .collect()
 }
 
 pub fn null_terminated_bytes(bytes: &[u8]) -> Vec<u8> {
