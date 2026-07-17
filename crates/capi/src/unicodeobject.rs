@@ -273,27 +273,6 @@ pub unsafe extern "C" fn PyUnicode_DecodeUTF8(
 ) -> *mut PyObject {
     unsafe { PyUnicode_Decode(s, size, c"utf-8".as_ptr(), errors) }
 }
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyUnicode_DecodeUTF16(
-    s: *const c_char,
-    size: isize,
-    errors: *const c_char,
-    _byteorder: *mut c_int,
-) -> *mut PyObject {
-    unsafe { PyUnicode_Decode(s, size, c"utf-16".as_ptr(), errors) }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyUnicode_DecodeUTF32(
-    s: *const c_char,
-    size: isize,
-    errors: *const c_char,
-    _byteorder: *mut c_int,
-) -> *mut PyObject {
-    unsafe { PyUnicode_Decode(s, size, c"utf-32".as_ptr(), errors) }
-}
-
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_DecodeUnicodeEscape(
     s: *const c_char,
