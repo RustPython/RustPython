@@ -1,9 +1,11 @@
 use crate::abstract_::{dict_to_kwargs, tuple_to_args};
+use crate::descrobject::{PyGetSetDef, PyMemberDef};
 use crate::methodobject::{PyMethodDef, build_method_def};
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::slots::{PySlot, PySlotKind, PySlotType};
-use core::ffi::{CStr, c_char, c_int, c_ulong, c_void};
+use crate::util::CStrExt;
+use core::ffi::{c_char, c_int, c_ulong, c_void};
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple, PyType};
 use rustpython_vm::function::{FuncArgs, PyMethodFlags};
 use rustpython_vm::types::{PyTypeFlags, PyTypeSlots, SlotAccessor};
@@ -157,13 +159,15 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
         let mut methods = Vec::new();
         let mut type_slots: PyTypeSlots = Default::default();
         let attrs = Default::default();
+        let mut getsets = Vec::new();
+        let mut members = Vec::new();
 
         for slot in PySlot::iter(slots) {
             match slot.as_kind(vm)? {
                 kind @ PySlotKind::Type(type_slot) => {
                     match type_slot {
                         PySlotType::Name { value, .. } => {
-                            name = unsafe { Some(CStr::from_ptr(value).to_str().unwrap()) }
+                            name = unsafe { Some(value.try_as_str(vm)?) }
                         }
                         PySlotType::Flags(value) => {
                             type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
@@ -185,11 +189,9 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                 match slot_id.try_into().unwrap() {
                                     SlotAccessor::TpDoc => {
                                         let doc = unsafe {
-                                            CStr::from_ptr(slot.pfunc.cast::<c_char>())
-                                                .to_str()
-                                                .expect("tp_doc must be a valid UTF-8 string")
+                                            slot.pfunc.cast::<c_char>().try_as_str_opt(vm)?
                                         };
-                                        type_slots.doc = Some(doc);
+                                        type_slots.doc = doc;
                                     }
                                     SlotAccessor::TpNew => {
                                         type_slots.new.store(Some(|ty, _args, vm| {
@@ -207,17 +209,19 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
                                     }
                                     SlotAccessor::TpMethods => {
                                         for def in PyMethodDef::iter(slot.pfunc.cast()) {
-                                            let name = unsafe {
-                                                CStr::from_ptr(def.ml_name)
-                                                    .to_str()
-                                                    .expect("method name must be valid UTF-8")
-                                            };
+                                            let name = unsafe { def.ml_name.try_as_str(vm)? };
                                             let is_static =
                                                 PyMethodFlags::from_bits_retain(def.ml_flags as _)
                                                     .contains(PyMethodFlags::STATIC);
                                             let method = build_method_def(vm, def, !is_static)?;
                                             methods.push((name, method));
                                         }
+                                    }
+                                    SlotAccessor::TpGetset => {
+                                        getsets.extend(PyGetSetDef::iter(slot.pfunc.cast()));
+                                    }
+                                    SlotAccessor::TpMembers => {
+                                        members.extend(PyMemberDef::iter(slot.pfunc.cast()));
                                     }
                                     slot => {
                                         return Err(vm.new_not_implemented_error(format!(
@@ -256,11 +260,25 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
         })?;
 
         let mut attrs = class.attributes.write();
+        let class_static = unsafe { &*((&*class) as *const _) };
         for (name, method) in methods {
-            let class_static = unsafe { &*((&*class) as *const _) };
             attrs.insert(
                 vm.ctx.intern_str(name),
                 method.build_method(class_static, vm).into(),
+            );
+        }
+        for getset in getsets {
+            let name = unsafe { getset.name.try_as_str(vm)? };
+            attrs.insert(
+                vm.ctx.intern_str(name),
+                getset.build(class_static, vm)?.into(),
+            );
+        }
+        for member in members {
+            let name = unsafe { member.name.try_as_str(vm)? };
+            attrs.insert(
+                vm.ctx.intern_str(name),
+                member.build(class_static, vm)?.into(),
             );
         }
         drop(attrs);
@@ -288,8 +306,9 @@ pub extern "C" fn PyType_Freeze(_ty: *mut PyTypeObject) -> c_int {
 
 #[cfg(test)]
 mod tests {
+    use pyo3::IntoPyObjectExt;
     use pyo3::prelude::*;
-    use pyo3::types::{PyInt, PyString, PyType, PyTypeMethods};
+    use pyo3::types::{PyDict, PyInt, PyString, PyType, PyTypeMethods};
 
     #[test]
     fn type_name() {
@@ -310,8 +329,8 @@ mod tests {
     }
 
     #[test]
-    #[cfg(false)]
-    fn test_rust_class() {
+    #[ignore]
+    fn rust_class() {
         #[pyclass]
         struct MyClass {
             #[pyo3(get)]
@@ -322,15 +341,15 @@ mod tests {
         impl MyClass {
             #[new]
             fn new(value: i32) -> Self {
-                MyClass { num: value }
+                Self { num: value }
             }
 
-            fn method1(&self) -> PyResult<i32> {
-                Ok(self.num + 10)
+            fn method1(&self) -> i32 {
+                self.num + 10
             }
 
-            fn method2(&self, a: i32) -> PyResult<i32> {
-                Ok(self.num + a)
+            fn method2(&self, a: i32) -> i32 {
+                self.num + a
             }
         }
 
@@ -357,6 +376,31 @@ mod tests {
                     .unwrap(),
                 8
             );
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn rust_class_with_member() {
+        #[pyclass(frozen)]
+        struct MyClass {
+            #[pyo3(get)]
+            value: Py<PyAny>,
+        }
+
+        Python::attach(|py| {
+            let obj = Bound::new(
+                py,
+                MyClass {
+                    value: 1.into_bound_py_any(py).unwrap().unbind(),
+                },
+            )
+            .unwrap();
+
+            let globals = PyDict::new(py);
+            globals.set_item("instance", &obj).unwrap();
+            py.run(c"assert instance.value is None", Some(&globals), None)
+                .unwrap();
         });
     }
 
