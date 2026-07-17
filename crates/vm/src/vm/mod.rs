@@ -2302,7 +2302,7 @@ impl VirtualMachine {
         }
     }
 
-    pub(crate) fn topmost_exception(&self) -> Option<PyBaseExceptionRef> {
+    pub fn topmost_exception(&self) -> Option<PyBaseExceptionRef> {
         let excs = self.exceptions.borrow();
         excs.stack.iter().rev().find_map(|e| e.clone())
     }
