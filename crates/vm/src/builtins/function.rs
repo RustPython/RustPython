@@ -87,7 +87,7 @@ static FUNC_VERSION_COUNTER: AtomicU32 = AtomicU32::new(1);
 /// Once the counter wraps to 0, it stays at 0 permanently.
 fn next_func_version() -> u32 {
     FUNC_VERSION_COUNTER
-        .fetch_update(Relaxed, Relaxed, |v| (v != 0).then(|| v.wrapping_add(1)))
+        .try_update(Relaxed, Relaxed, |v| (v != 0).then(|| v.wrapping_add(1)))
         .unwrap_or(0)
 }
 
