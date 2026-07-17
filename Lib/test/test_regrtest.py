@@ -2355,7 +2355,6 @@ class ArgsTestCase(BaseTestCase):
             self.check_executed_tests(output, testname, stats=1, parallel=True)
             self.assertNotIn('SPAM SPAM SPAM', output)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: int() argument must be a string, a bytes-like object or a real number, not 'NoneType'
     def test_xml(self):
         code = textwrap.dedent(r"""
             import unittest
