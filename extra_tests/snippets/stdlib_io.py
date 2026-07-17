@@ -190,8 +190,8 @@ NonAsciiNamedChunkSize = type(
     (),
     {"__index__": lambda self: 2**100},
 )
-truncated_non_ascii_type_name = (
-    non_ascii_type_name.encode("utf-8")[:200].decode("utf-8")
+truncated_non_ascii_type_name = non_ascii_type_name.encode("utf-8")[:200].decode(
+    "utf-8"
 )
 expect_value_error(
     f"cannot fit '{truncated_non_ascii_type_name}' into an index-sized integer",
