@@ -380,7 +380,6 @@ class ReferencesTestCase(TestBase):
     # was not honored, and was broken in different ways for
     # PyWeakref_NewRef() and PyWeakref_NewProxy().  (Two tests.)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_shared_ref_without_callback(self):
         self.check_shared_without_callback(weakref.ref)
 
