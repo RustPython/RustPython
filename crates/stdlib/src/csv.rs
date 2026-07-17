@@ -994,28 +994,68 @@ mod _csv {
 
     impl SelfIter for Reader {}
 
-    fn read_quote_none_record(
+    fn read_quote_record(
         input: &[u8],
         dialect: PyDialect,
         field_limit: isize,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        let mut fields = vec![Vec::new()];
+        // QUOTE_NOTNULL and QUOTE_STRINGS map empty unquoted fields to None,
+        // but preserve quoted empty fields as strings, so retain quote provenance.
+        let mut fields = vec![(Vec::new(), false)];
+        let mut at_field_start = true;
+        let mut in_quoted_field = false;
         let mut escaped = false;
-        let mut after_delimiter = false;
+        let mut index = 0;
 
-        for (index, &byte) in input.iter().enumerate() {
+        while index < input.len() {
+            let byte = input[index];
+
             if escaped {
-                fields.last_mut().unwrap().push(byte);
+                fields.last_mut().unwrap().0.push(byte);
                 escaped = false;
-                after_delimiter = false;
-            } else if dialect.skipinitialspace && after_delimiter && byte == b' ' {
+                at_field_start = false;
+                index += 1;
                 continue;
-            } else if dialect.escapechar == Some(byte) {
+            }
+
+            if dialect.escapechar == Some(byte) {
                 escaped = true;
+                at_field_start = false;
+                index += 1;
+                continue;
+            }
+
+            if in_quoted_field {
+                if dialect.quotechar == Some(byte) {
+                    if dialect.doublequote && input.get(index + 1) == Some(&byte) {
+                        fields.last_mut().unwrap().0.push(byte);
+                        index += 2;
+                    } else {
+                        in_quoted_field = false;
+                        index += 1;
+                    }
+                } else {
+                    fields.last_mut().unwrap().0.push(byte);
+                    index += 1;
+                }
+                continue;
+            }
+
+            if at_field_start && dialect.skipinitialspace && byte == b' ' {
+                index += 1;
+            } else if at_field_start
+                && dialect.quoting != QuoteStyle::None
+                && dialect.quotechar == Some(byte)
+            {
+                fields.last_mut().unwrap().1 = true;
+                at_field_start = false;
+                in_quoted_field = true;
+                index += 1;
             } else if byte == dialect.delimiter {
-                fields.push(Vec::new());
-                after_delimiter = true;
+                fields.push((Vec::new(), false));
+                at_field_start = true;
+                index += 1;
             } else if matches!(byte, b'\r' | b'\n') {
                 if !input[index..]
                     .iter()
@@ -1031,22 +1071,29 @@ mod _csv {
                 }
                 break;
             } else {
-                fields.last_mut().unwrap().push(byte);
-                after_delimiter = false;
+                fields.last_mut().unwrap().0.push(byte);
+                at_field_start = false;
+                index += 1;
             }
         }
 
         // CPython treats an escape character at the end of an iterator item
         // as escaping the implicit newline at the end of that item.
         if escaped {
-            fields.last_mut().unwrap().push(b'\n');
+            fields.last_mut().unwrap().0.push(b'\n');
         }
 
         fields
             .into_iter()
-            .map(|field| {
+            .map(|(field, was_quoted)| {
                 if field.len() > field_limit as usize {
                     return Err(new_csv_error(vm, "filed too long to read"));
+                }
+                if matches!(dialect.quoting, QuoteStyle::Notnull | QuoteStyle::Strings)
+                    && !was_quoted
+                    && field.is_empty()
+                {
+                    return Ok(vm.ctx.none());
                 }
                 let field = core::str::from_utf8(&field)
                     .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
@@ -1086,23 +1133,38 @@ mod _csv {
             let mut output_ends_offset = 0;
             let field_limit = GLOBAL_FIELD_LIMIT.lock().to_owned();
 
-            if zelf.dialect.quoting == QuoteStyle::None && zelf.dialect.escapechar.is_some() {
-                let out = read_quote_none_record(input, zelf.dialect, field_limit, vm)?;
+            let use_quote_record = matches!(
+                zelf.dialect.quoting,
+                QuoteStyle::Notnull | QuoteStyle::Strings
+            ) || (zelf.dialect.quoting == QuoteStyle::None
+                && zelf.dialect.escapechar.is_some());
+            if use_quote_record {
+                let out = read_quote_record(input, zelf.dialect, field_limit, vm)?;
                 *line_num += 1;
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()));
+            }
+
+            #[inline]
+            fn trim_initial_spaces(input: &[u8]) -> &[u8] {
+                let trimmed_start = input.iter().position(|&x| x != b' ').unwrap_or(input.len());
+                &input[trimmed_start..]
             }
 
             #[inline]
             fn trim_spaces(input: &[u8]) -> &[u8] {
                 let trimmed_start = input.iter().position(|&x| x != b' ').unwrap_or(input.len());
                 let trimmed_end = input.iter().rposition(|&x| x != b' ').map_or(0, |i| i + 1);
-                &input[trimmed_start..trimmed_end]
+                if trimmed_start >= trimmed_end {
+                    &input[input.len()..]
+                } else {
+                    &input[trimmed_start..trimmed_end]
+                }
             }
 
             let input = if *skipinitialspace {
                 let t = input.split(|x| x == delimiter);
                 t.map(|x| {
-                    let trimmed = trim_spaces(x);
+                    let trimmed = trim_initial_spaces(x);
                     String::from_utf8(trimmed.to_vec()).unwrap()
                 })
                 .join(format!("{}", *delimiter as char).as_str())
