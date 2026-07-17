@@ -454,7 +454,7 @@ impl<T> PyInner<T> {
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[PyObject {:?}]", &self.payload)
+        write!(f, "[PyObject {:?}]", self.payload)
     }
 }
 

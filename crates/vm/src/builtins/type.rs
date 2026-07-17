@@ -431,7 +431,7 @@ impl core::fmt::Display for PyType {
 
 impl core::fmt::Debug for PyType {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "[PyType {}]", &self.name())
+        write!(f, "[PyType {}]", self.name())
     }
 }
 
@@ -1906,13 +1906,7 @@ impl PyType {
             .get(identifier!(vm, __module__))
             .cloned()
             // We need to exclude this method from going into recursion:
-            .and_then(|found| {
-                if found.fast_isinstance(vm.ctx.types.getset_type) {
-                    None
-                } else {
-                    Some(found)
-                }
-            })
+            .filter(|found| !found.fast_isinstance(vm.ctx.types.getset_type))
             .unwrap_or_else(|| {
                 // For non-heap types, extract module from tp_name (e.g. "typing.TypeAliasType" -> "typing")
                 let slot_name = self.slot_name();

@@ -1,7 +1,8 @@
 use crate::object::define_py_check;
+use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
-use core::ffi::{CStr, c_char, c_int};
+use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;
 use rustpython_vm::builtins::{PyBaseException, PyTuple, PyType};
@@ -144,10 +145,7 @@ pub unsafe extern "C" fn PyErr_SetObject(exception: *mut PyObject, value: *mut P
 pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *const c_char) {
     with_vm::<PyResult<Infallible>, _>(|vm| {
         let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
-
-        let Ok(message) = unsafe { CStr::from_ptr(message) }.to_str() else {
-            return Err(vm.new_type_error("Exception message is not valid UTF-8"));
-        };
+        let message = unsafe { message.try_as_str(vm) }?;
 
         let exc = vm.invoke_exception(
             exc_type.to_owned(),
@@ -210,13 +208,10 @@ pub unsafe extern "C" fn PyErr_NewException(
     dict: *mut PyObject,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let (module, name) = unsafe {
-            CStr::from_ptr(name)
-                .to_str()
-                .expect("Exception name is not valid UTF-8")
-                .rsplit_once('.')
-                .expect("Exception name must be of the form 'module.ExceptionName'")
-        };
+        let (module, name) = unsafe { name.try_as_str(vm) }
+            .expect("Exception name is not valid UTF-8")
+            .rsplit_once('.')
+            .expect("Exception name must be of the form 'module.ExceptionName'");
 
         let bases = unsafe { base.as_ref() }.map(|bases| {
             if let Some(ty) = bases.downcast_ref::<PyType>() {
@@ -332,12 +327,8 @@ pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
     reason: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let encoding = unsafe { CStr::from_ptr(encoding) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("encoding must be valid UTF-8"))?;
-        let reason = unsafe { CStr::from_ptr(reason) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("reason must be valid UTF-8"))?;
+        let encoding = unsafe { encoding.try_as_str(vm) }?;
+        let reason = unsafe { reason.try_as_str(vm) }?;
         let length: usize = length
             .try_into()
             .map_err(|_| vm.new_system_error("length must be non-negative"))?;

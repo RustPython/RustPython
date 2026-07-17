@@ -1752,15 +1752,13 @@ impl<'warnings> Compiler<'warnings> {
 
                 // Check if __class__ is available as a cell/free variable
                 // The scope must be Free (from enclosing class) or have DEF_FREE_CLASS flag
-                if let Some(symbol) = table.lookup("__class__") {
+                {
+                    let symbol = table.lookup("__class__")?;
                     if symbol.scope != SymbolScope::Free
                         && !symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     {
                         return None;
                     }
-                } else {
-                    // __class__ not in symbol table, optimization not possible
-                    return None;
                 }
 
                 Some(SuperCallType::ZeroArg)
@@ -8260,12 +8258,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_name(id, NameUsage::Load)?;
                 AugAssignKind::Name { id }
             }
-            ast::Expr::Subscript(ast::ExprSubscript {
-                value,
-                slice,
-                ctx: _,
-                ..
-            }) => {
+            ast::Expr::Subscript(ast::ExprSubscript { value, slice, .. }) => {
                 let use_slice_opt = self.should_apply_two_element_slice_optimization(slice);
                 self.compile_expression(value)?;
                 self.set_source_range(target_range);
@@ -9225,14 +9218,7 @@ impl<'warnings> Compiler<'warnings> {
         let ast::Expr::Name(ast::ExprName { id, .. }) = func else {
             return None;
         };
-        let [
-            ast::Expr::Generator(ast::ExprGenerator {
-                elt: _,
-                generators: _,
-                ..
-            }),
-        ] = &args.args[..]
-        else {
+        let [ast::Expr::Generator(ast::ExprGenerator { .. })] = &args.args[..] else {
             return None;
         };
         if !args.keywords.is_empty() || {

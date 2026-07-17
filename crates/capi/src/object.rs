@@ -1,6 +1,7 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int, c_uint, c_void};
+use crate::util::CStrExt;
+use core::ffi::{c_char, c_int, c_uint, c_void};
 use core::ptr::NonNull;
 pub use pytype::*;
 use rustpython_vm::builtins::{PyStr, object_generic_set_dict, object_get_dict};
@@ -81,11 +82,7 @@ pub unsafe extern "C" fn PyObject_GetAttrString(
 ) -> *mut PyObject {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let name = unsafe {
-            CStr::from_ptr(attr_name)
-                .to_str()
-                .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?
-        };
+        let name = unsafe { attr_name.try_as_str(vm) }?;
         obj.get_attr(name, vm)
     })
 }
@@ -134,9 +131,7 @@ pub unsafe extern "C" fn PyObject_GetOptionalAttrString(
             *result = core::ptr::null_mut();
         }
         let obj = unsafe { &*obj };
-        let name = unsafe { CStr::from_ptr(attr_name) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
+        let name = unsafe { attr_name.try_as_str(vm) }?;
         if let Some(attr) = vm.get_attribute_opt(obj.to_owned(), name)? {
             unsafe {
                 *result = attr.into_raw().as_ptr();
@@ -156,9 +151,7 @@ pub unsafe extern "C" fn PyObject_SetAttrString(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let name = unsafe { CStr::from_ptr(attr_name) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
+        let name = unsafe { attr_name.try_as_str(vm) }?;
         let value = unsafe { &*value }.to_owned();
         obj.set_attr(name, value, vm)
     })
@@ -194,9 +187,7 @@ pub unsafe extern "C" fn PyObject_DelAttrString(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let name = unsafe { CStr::from_ptr(attr_name) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
+        let name = unsafe { attr_name.try_as_str(vm) }?;
         obj.del_attr(name, vm)
     })
 }
@@ -259,7 +250,7 @@ pub unsafe extern "C" fn PyObject_HasAttrString(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let Ok(name) = unsafe { CStr::from_ptr(attr_name) }.to_str() else {
+        let Ok(name) = (unsafe { attr_name.try_as_str(vm) }) else {
             return false;
         };
 
@@ -280,9 +271,7 @@ pub unsafe extern "C" fn PyObject_HasAttrStringWithError(
 ) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let name = unsafe { CStr::from_ptr(attr_name) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("attribute name must be valid UTF-8"))?;
+        let name = unsafe { attr_name.try_as_str(vm) }?;
         obj.has_attr(name, vm)
     })
 }

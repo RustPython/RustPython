@@ -462,7 +462,7 @@ mod _csv {
     impl From<QuoteStyle> for csv_core::QuoteStyle {
         fn from(val: QuoteStyle) -> Self {
             match val {
-                QuoteStyle::Minimal => Self::Always,
+                QuoteStyle::Minimal => Self::Necessary,
                 QuoteStyle::All => Self::Always,
                 QuoteStyle::Nonnumeric => Self::NonNumeric,
                 QuoteStyle::None => Self::Never,
@@ -796,46 +796,70 @@ mod _csv {
             delimiter
         }
 
-        fn to_reader(&self) -> csv_core::Reader {
-            let mut builder = csv_core::ReaderBuilder::new();
-            let mut reader = match &self.dialect {
+        fn get_lineterminator(&self) -> csv_core::Terminator {
+            let mut lineterminator = match &self.dialect {
                 DialectItem::Str(name) => {
                     let g = GLOBAL_HASHMAP.lock();
                     if let Some(dialect) = g.get(name) {
-                        let mut builder = builder
-                            .delimiter(dialect.delimiter)
-                            .double_quote(dialect.doublequote);
-                        if let Some(t) = dialect.quotechar {
-                            builder = builder.quote(t);
-                        }
-                        builder
-                        // RustPython todo
-                        // todo! Perfecting the remaining attributes.
+                        dialect.lineterminator
                     } else {
-                        &mut builder
+                        Terminator::CRLF
                     }
                 }
-                DialectItem::Obj(obj) => {
-                    let mut builder = builder
-                        .delimiter(obj.delimiter)
-                        .double_quote(obj.doublequote);
-                    if let Some(t) = obj.quotechar {
-                        builder = builder.quote(t);
-                    }
-                    builder
-                }
-                _ => {
-                    let name = "excel";
+                DialectItem::Obj(obj) => obj.lineterminator,
+                _ => Terminator::CRLF,
+            };
+
+            if let Some(attr) = self.lineterminator {
+                lineterminator = attr
+            }
+
+            lineterminator
+        }
+
+        fn get_quoting(&self) -> QuoteStyle {
+            let mut quoting = match &self.dialect {
+                DialectItem::Str(name) => {
                     let g = GLOBAL_HASHMAP.lock();
-                    let dialect = g.get(name).unwrap();
-                    let mut builder = builder
-                        .delimiter(dialect.delimiter)
-                        .double_quote(dialect.doublequote);
-                    if let Some(quotechar) = dialect.quotechar {
-                        builder = builder.quote(quotechar);
+                    if let Some(dialect) = g.get(name) {
+                        dialect.quoting
+                    } else {
+                        QuoteStyle::Minimal
                     }
-                    builder
                 }
+                DialectItem::Obj(obj) => obj.quoting,
+                _ => QuoteStyle::Minimal,
+            };
+
+            if let Some(attr) = self.quoting {
+                quoting = attr
+            }
+
+            quoting
+        }
+
+        fn to_reader(&self) -> csv_core::Reader {
+            let dialect = match &self.dialect {
+                DialectItem::Str(name) => GLOBAL_HASHMAP.lock().get(name).copied(),
+                DialectItem::Obj(obj) => Some(*obj),
+                DialectItem::None => {
+                    let g = GLOBAL_HASHMAP.lock();
+                    Some(*g.get("excel").unwrap())
+                }
+            };
+
+            let mut builder = csv_core::ReaderBuilder::new();
+            let mut reader = if let Some(dialect) = dialect {
+                let mut builder = builder
+                    .delimiter(dialect.delimiter)
+                    .double_quote(dialect.doublequote)
+                    .escape(dialect.escapechar);
+                if let Some(quotechar) = dialect.quotechar {
+                    builder = builder.quote(quotechar);
+                }
+                builder
+            } else {
+                &mut builder
             };
 
             if let Some(t) = self.delimiter {
@@ -918,15 +942,13 @@ mod _csv {
                 writer = writer.double_quote(t);
             }
 
-            writer = writer.terminator(self.lineterminator.unwrap_or(Terminator::CRLF));
+            writer = writer.terminator(self.get_lineterminator());
 
             if let Some(e) = self.escapechar {
                 writer = writer.escape(e);
             }
 
-            if let Some(e) = self.quoting {
-                writer = writer.quote_style(e.into());
-            }
+            writer = writer.quote_style(self.get_quoting().into());
 
             writer.build()
         }
@@ -972,6 +994,67 @@ mod _csv {
 
     impl SelfIter for Reader {}
 
+    fn read_quote_none_record(
+        input: &[u8],
+        dialect: PyDialect,
+        field_limit: isize,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        let mut fields = vec![Vec::new()];
+        let mut escaped = false;
+        let mut after_delimiter = false;
+
+        for (index, &byte) in input.iter().enumerate() {
+            if escaped {
+                fields.last_mut().unwrap().push(byte);
+                escaped = false;
+                after_delimiter = false;
+            } else if dialect.skipinitialspace && after_delimiter && byte == b' ' {
+                continue;
+            } else if dialect.escapechar == Some(byte) {
+                escaped = true;
+            } else if byte == dialect.delimiter {
+                fields.push(Vec::new());
+                after_delimiter = true;
+            } else if matches!(byte, b'\r' | b'\n') {
+                if !input[index..]
+                    .iter()
+                    .all(|&byte| matches!(byte, b'\r' | b'\n'))
+                {
+                    return Err(new_csv_error(
+                        vm,
+                        concat!(
+                            "new-line character seen in unquoted field",
+                            " - do you need to open the file in universal-newline mode?"
+                        ),
+                    ));
+                }
+                break;
+            } else {
+                fields.last_mut().unwrap().push(byte);
+                after_delimiter = false;
+            }
+        }
+
+        // CPython treats an escape character at the end of an iterator item
+        // as escaping the implicit newline at the end of that item.
+        if escaped {
+            fields.last_mut().unwrap().push(b'\n');
+        }
+
+        fields
+            .into_iter()
+            .map(|field| {
+                if field.len() > field_limit as usize {
+                    return Err(new_csv_error(vm, "filed too long to read"));
+                }
+                let field = core::str::from_utf8(&field)
+                    .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+                Ok(vm.ctx.new_str(field).into())
+            })
+            .collect()
+    }
+
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let string = raise_if_stop!(zelf.iter.next(vm)?);
@@ -1002,6 +1085,12 @@ mod _csv {
             let mut output_offset = 0;
             let mut output_ends_offset = 0;
             let field_limit = GLOBAL_FIELD_LIMIT.lock().to_owned();
+
+            if zelf.dialect.quoting == QuoteStyle::None && zelf.dialect.escapechar.is_some() {
+                let out = read_quote_none_record(input, zelf.dialect, field_limit, vm)?;
+                *line_num += 1;
+                return Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()));
+            }
 
             #[inline]
             fn trim_spaces(input: &[u8]) -> &[u8] {

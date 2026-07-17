@@ -2,7 +2,8 @@ use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int};
+use crate::util::CStrExt;
+use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
@@ -60,17 +61,9 @@ pub(crate) fn build_method_def(
     ml: &PyMethodDef,
     has_self: bool,
 ) -> PyResult<PyRef<HeapMethodDef>> {
-    let name = unsafe { CStr::from_ptr(ml.ml_name) }
-        .to_str()
-        .map_err(|_| vm.new_system_error("Method name was not valid UTF-8"))?;
+    let name = unsafe { ml.ml_name.try_as_str(vm) }?;
 
-    let doc = NonNull::new(ml.ml_doc.cast_mut())
-        .map(|doc| {
-            unsafe { CStr::from_ptr(doc.as_ptr()) }
-                .to_str()
-                .map_err(|_| vm.new_system_error("Method doc was not valid UTF-8"))
-        })
-        .transpose()?;
+    let doc = unsafe { ml.ml_doc.try_as_str_opt(vm) }?;
 
     let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
         .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;

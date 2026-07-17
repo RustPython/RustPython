@@ -8,7 +8,9 @@ __pycache__/
 .repl_history.txt
 .vscode/
 wasm-pack.log
-.idea/
+.idea/*
+!.idea/icon.svg
+!.idea/vcs.xml
 .envrc
 
 flame-graph.html

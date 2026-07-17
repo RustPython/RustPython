@@ -99,6 +99,10 @@ pub use zip::PyZip;
 pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
 pub(crate) mod descriptor;
+pub use descriptor::{
+    MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef as DescriptorMemberDef,
+    PyMemberDescriptor,
+};
 
 pub use float::float_from_string as parse_float_from_string;
 pub use float::try_to_bigint as try_f64_to_bigint;

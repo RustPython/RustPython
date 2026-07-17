@@ -198,7 +198,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
             ) -> PyBaseExceptionRef {
                 vm.new_type_error(format!(
                     "'{}' is not a subtype of '{}'",
-                    &cls.name(),
+                    cls.name(),
                     exact_class.name()
                 ))
             }

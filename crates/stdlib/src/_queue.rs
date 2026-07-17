@@ -31,6 +31,17 @@ mod _queue {
 
     const INITIAL_RING_BUF_CAPACITY: usize = 8;
 
+    /// `parking_lot`'s `Condvar` doesn't expose a mid-wait signal to us (unlike
+    /// CPython's raw `sem_timedwait`, which reports `EINTR`), so we poll instead.
+    // FIXME: interim stopgap. The signal already interrupts the wait with EINTR
+    // (SA_RESTART cleared via `siginterrupt`), but `parking_lot::Condvar` swallows
+    // it and re-parks, forcing this poll. Replace with a shared interruptible
+    // timed-wait that surfaces EINTR (`poll`/wakeup-fd, portable incl. macOS; or
+    // `sem_timedwait` where available) -- `_thread` lock and `Thread.join` share
+    // this defect. Then this constant and the chunking loop go away.
+    #[cfg(feature = "threading")]
+    const SIGNAL_CHECK_INTERVAL: Duration = Duration::from_millis(50);
+
     #[pyattr]
     #[pyclass(module = "_queue", name = "Empty", base = PyException)]
     #[repr(transparent)]
@@ -72,31 +83,50 @@ mod _queue {
             self.cond.notify_one();
         }
 
-        /// Returns `true` if the semaphore was acquired, `false` on timeout.
-        #[must_use]
-        fn acquire(&self, block: bool, deadline: Option<Instant>, vm: &VirtualMachine) -> bool {
-            let mut count = self.mutex.lock();
+        /// `Ok(true)` if acquired, `Ok(false)` on timeout, `Err` if a signal
+        /// handler raised (e.g. `KeyboardInterrupt`) while we were waiting.
+        fn acquire(
+            &self,
+            block: bool,
+            deadline: Option<Instant>,
+            vm: &VirtualMachine,
+        ) -> PyResult<bool> {
             loop {
-                if *count > 0 {
-                    *count -= 1;
-                    return true;
+                // Guard must be dropped before check_signals() below, since a
+                // signal handler may call back into this same queue.
+                {
+                    let mut count = self.mutex.lock();
+
+                    if *count > 0 {
+                        *count -= 1;
+                        return Ok(true);
+                    }
+
+                    if !block {
+                        return Ok(false);
+                    }
+
+                    let now = Instant::now();
+                    let chunk_deadline = deadline.map_or_else(
+                        || now + SIGNAL_CHECK_INTERVAL,
+                        |dl| dl.min(now + SIGNAL_CHECK_INTERVAL),
+                    );
+
+                    vm.allow_threads(|| self.cond.wait_until(&mut count, chunk_deadline));
+
+                    if *count > 0 {
+                        *count -= 1;
+                        return Ok(true);
+                    }
+
+                    if let Some(dl) = deadline
+                        && Instant::now() >= dl
+                    {
+                        return Ok(false);
+                    }
                 }
 
-                if !block {
-                    return false;
-                }
-
-                match deadline {
-                    Some(dl) => {
-                        let result = vm.allow_threads(|| self.cond.wait_until(&mut count, dl));
-                        if result.timed_out() && *count == 0 {
-                            return false;
-                        }
-                    }
-                    None => {
-                        vm.allow_threads(|| self.cond.wait(&mut count));
-                    }
-                }
+                vm.check_signals()?;
             }
         }
     }
@@ -227,7 +257,7 @@ mod _queue {
 
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(block, deadline, vm) {
+                if !self.sem.acquire(block, deadline, vm)? {
                     return Err(empty_error(vm));
                 }
             }
@@ -239,7 +269,7 @@ mod _queue {
         fn get_nowait(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
             #[cfg(feature = "threading")]
             {
-                if !self.sem.acquire(false, None, vm) {
+                if !self.sem.acquire(false, None, vm)? {
                     return Err(empty_error(vm));
                 }
             }

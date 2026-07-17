@@ -94,11 +94,15 @@ pub mod windows {
 
     // _Py_fstat_noraise in cpython
     pub fn fstat(fd: crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-        let h = crt_fd::as_handle(fd);
-        if h.is_err() {
-            unsafe { SetLastError(ERROR_INVALID_HANDLE) };
-        }
-        let h = h?;
+        let h = match crt_fd::as_handle(fd) {
+            Ok(h) => h,
+            Err(_) => {
+                // An invalid fd is reported as a Win32 handle error so the
+                // OSError carries winerror = ERROR_INVALID_HANDLE.
+                unsafe { SetLastError(ERROR_INVALID_HANDLE) };
+                return Err(std::io::Error::last_os_error());
+            }
+        };
         let h = h.as_raw_handle();
         // reset stat?
 
@@ -457,6 +461,10 @@ pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
 // _Py_fopen_obj in cpython (Python/fileutils.c:1757-1835)
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
+#[expect(
+    clippy::std_instead_of_core,
+    reason = "false positive: core::io::ErrorKind is unstable (core_io)"
+)]
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
     use alloc::ffi::CString;
     use std::fs::File;

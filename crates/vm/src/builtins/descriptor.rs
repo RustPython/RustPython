@@ -127,7 +127,7 @@ impl PyMethodDescriptor {
 
     #[pygetset]
     fn __qualname__(&self) -> String {
-        format!("{}.{}", self.common.typ.name(), &self.common.name)
+        format!("{}.{}", self.common.typ.name(), self.common.name)
     }
 
     #[pygetset]
@@ -164,7 +164,7 @@ impl Representable for PyMethodDescriptor {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<method '{}' of '{}' objects>",
-            &zelf.method.name,
+            zelf.method.name,
             zelf.common.typ.name()
         ))
     }

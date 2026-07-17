@@ -223,7 +223,9 @@ impl PySetInner {
     }
 
     fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
+        let result = self
+            .retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle));
+        Self::wrap_unhashable_error(result, needle, vm)
     }
 
     fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
@@ -327,15 +329,20 @@ impl PySetInner {
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.insert(vm, &*item, ())
+        let result = self.content.insert(vm, &*item, ());
+        Self::wrap_unhashable_error(result, &item, vm)
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item))
+        let result =
+            self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item));
+        Self::wrap_unhashable_error(result, &item, vm)
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item))
+        let result = self
+            .retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item));
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
     fn clear(&self) {
@@ -487,6 +494,25 @@ impl PySetInner {
                     })
                 })
         })
+    }
+
+    fn wrap_unhashable_error<T>(
+        result: PyResult<T>,
+        item: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<T> {
+        match result {
+            Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                let message = cause.as_object().str(vm)?;
+                let err = vm.new_type_error(format!(
+                    "cannot use '{}' as a set element ({message})",
+                    item.class().name()
+                ));
+                err.set___cause__(Some(cause));
+                Err(err)
+            }
+            result => result,
+        }
     }
 }
 
@@ -932,31 +958,54 @@ impl Constructor for PyFrozenSet {
     type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+        let is_exact_frozenset = cls.is(vm.ctx.types.frozenset_type);
+        let is_frozenset_init = {
+            let cls_init = cls.slots.init.load().map(|init| init as usize);
+            let frozenset_init = vm
+                .ctx
+                .types
+                .frozenset_type
+                .slots
+                .init
+                .load()
+                .map(|init| init as usize);
+            cls_init == frozenset_init
+        };
 
         // Optimizations for exact frozenset type
-        if cls.is(vm.ctx.types.frozenset_type) {
+        let iterable_opt = if is_exact_frozenset || is_frozenset_init {
+            let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+
             // Return exact frozenset as-is
-            if let OptionalArg::Present(ref input) = iterable
-                && let Ok(fs) = input.clone().downcast_exact::<Self>(vm)
+            if is_exact_frozenset
+                && let OptionalArg::Present(input) = &iterable
+                && input.class().is(vm.ctx.types.frozenset_type)
             {
-                return Ok(fs.into_pyref().into());
+                return Ok(input.clone());
             }
 
-            // Return empty frozenset singleton
-            if iterable.is_missing() {
-                return Ok(vm.ctx.empty_frozenset.clone().into());
+            iterable.into_option()
+        } else {
+            match &args.args[..] {
+                [] => None,
+                [iterable] => Some(iterable.clone()),
+                slice => {
+                    return Err(vm.new_type_error(format!(
+                        "frozenset expected at most 1 argument, got {}",
+                        slice.len()
+                    )));
+                }
             }
-        }
+        };
 
-        let elements: Vec<PyObjectRef> = if let OptionalArg::Present(iterable) = iterable {
+        let elements = if let Some(iterable) = iterable_opt {
             iterable.try_to_value(vm)?
         } else {
             vec![]
         };
 
-        // Return empty frozenset singleton for exact frozenset types (when iterable was empty)
-        if elements.is_empty() && cls.is(vm.ctx.types.frozenset_type) {
+        // Return empty frozenset singleton
+        if is_exact_frozenset && elements.is_empty() {
             return Ok(vm.ctx.empty_frozenset.clone().into());
         }
 

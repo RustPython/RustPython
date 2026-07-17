@@ -134,3 +134,16 @@ def test_quote_none_writer_without_quotechar():
 
 
 test_quote_none_writer_without_quotechar()
+
+
+def test_quote_none_reader_skipinitialspace_escapechar():
+    reader = csv.reader(
+        ["a,  b,\\ c,d"],
+        quoting=csv.QUOTE_NONE,
+        escapechar="\\",
+        skipinitialspace=True,
+    )
+    assert list(reader) == [["a", "b", " c", "d"]]
+
+
+test_quote_none_reader_skipinitialspace_escapechar()

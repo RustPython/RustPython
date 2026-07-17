@@ -24,7 +24,6 @@ SMALL_SAMPLE = """<?xml version="1.0"?>
 
 class PullDOMTestCase(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; FileNotFoundError: [Errno 2] No such file or directory (os error 2): 'xmltestdata/test.xml' -> 'None'
     def test_parse(self):
         """Minimal test of DOMEventStream.parse()"""
 

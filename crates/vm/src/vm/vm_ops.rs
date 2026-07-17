@@ -568,7 +568,7 @@ impl VirtualMachine {
         formatted.downcast().map_err(|result| {
             self.new_type_error(format!(
                 "__format__ must return a str, not {}",
-                &result.class().name()
+                result.class().name()
             ))
         })
     }

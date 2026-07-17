@@ -399,6 +399,10 @@ impl PyModule {
         let dict = dict_attr
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
+        // PEP 562: honor a module-level __dir__ if one is defined
+        if let Some(dir_func) = dict.get_item_opt(identifier!(vm, __dir__), vm)? {
+            return dir_func.call((), vm)?.try_to_value(vm);
+        }
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
     }
