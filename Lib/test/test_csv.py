@@ -213,7 +213,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test([bigstring,bigstring], '%s,%s' % \
                          (bigstring, bigstring))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_quoting(self):
         self._write_test(['a',1,'p,q'], 'a,1,"p,q"')
         self._write_error_test(csv.Error, ['a',1,'p,q'],
@@ -857,14 +856,12 @@ class TestEscapedExcel(TestCsvBase):
     def test_escape_fieldsep(self):
         self.writerAssertEqual([['abc,def']], 'abc\\,def\r\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape_fieldsep(self):
         self.readerAssertEqual('abc\\,def\r\n', [['abc,def']])
 
 class TestDialectUnix(TestCsvBase):
     dialect = 'unix'
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_simple_writer(self):
         self.writerAssertEqual([[1, 'abc def', 'abc']], '"1","abc def","abc"\n')
 
@@ -881,7 +878,6 @@ class TestQuotedEscapedExcel(TestCsvBase):
     def test_write_escape_fieldsep(self):
         self.writerAssertEqual([['abc,def']], '"abc,def"\r\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape_fieldsep(self):
         self.readerAssertEqual('"abc\\,def"\r\n', [['abc,def']])
 
@@ -1139,7 +1135,6 @@ class TestArrayWrites(unittest.TestCase):
             fileobj.seek(0)
             self.assertEqual(fileobj.read(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_char_write(self):
         import array, string
         a = array.array('w', string.ascii_letters)

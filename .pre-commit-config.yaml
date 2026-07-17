@@ -77,7 +77,7 @@ repos:
         priority: 0
 
   - repo: https://github.com/rbubley/mirrors-prettier
-    rev: v3.9.1
+    rev: v3.9.4
     hooks:
       - id: prettier
         files: '^wasm/.*$'

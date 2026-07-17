@@ -934,10 +934,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_write(self):
         return super().test_write()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u64
-    def test_seek(self):
-        return super().test_seek()
-
 class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
     UnsupportedOperation = io.UnsupportedOperation
@@ -1029,10 +1025,6 @@ class CStringIOTest(PyStringIOTest):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
     def test_newlines_property(self):
         return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; OverflowError: Python int too large to convert to Rust u64
-    def test_seek(self):
-        return super().test_seek()
 
     @unittest.expectedFailure  # TODO: RUSTPYTHON; d
     def test_newline_cr(self):

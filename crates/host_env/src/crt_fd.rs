@@ -355,9 +355,8 @@ pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
     cfg_select! {
         windows => {
             if ret != 0 {
-                // _chsize_s returns errno directly, convert to Windows error code
-                let winerror = crate::os::errno_to_winerror(ret);
-                return Err(io::Error::from_raw_os_error(winerror));
+                // _chsize_s returns errno directly; preserve it exactly.
+                return Err(crate::os::io_error_from_errno(ret));
             }
         }
         _ => cvt(ret)?,

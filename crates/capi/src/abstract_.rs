@@ -1,6 +1,7 @@
+use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
-use core::ffi::{CStr, c_char, c_int};
+use core::ffi::{c_char, c_int};
 pub use iter::*;
 pub use mapping::*;
 pub use number::*;
@@ -227,9 +228,7 @@ pub unsafe extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject
 pub unsafe extern "C" fn PyObject_DelItemString(obj: *mut PyObject, key: *const c_char) -> c_int {
     with_vm(|vm| {
         let obj = unsafe { &*obj };
-        let key = unsafe { CStr::from_ptr(key) }
-            .to_str()
-            .map_err(|_| vm.new_value_error("mapping key must be valid UTF-8"))?;
+        let key = unsafe { key.try_as_str(vm) }?;
         obj.del_item(key, vm)
     })
 }

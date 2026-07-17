@@ -1,5 +1,6 @@
+use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
-use core::ffi::{CStr, c_char};
+use core::ffi::c_char;
 use rustpython_vm::builtins::{PyCode, PyDict, PyModule, PyStr};
 use rustpython_vm::import::import_code_obj;
 
@@ -14,9 +15,7 @@ pub unsafe extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyImport_AddModuleRef(name: *const c_char) -> *mut PyObject {
     with_vm(|vm| {
-        let name = unsafe { CStr::from_ptr(name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("PyImport_AddModuleRef called with non utf8 name"))?;
+        let name = unsafe { name.try_as_str(vm) }?;
 
         let sys_modules = vm
             .sys_module
@@ -46,16 +45,11 @@ pub unsafe extern "C" fn PyImport_ExecCodeModuleEx(
     pathname: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let name = unsafe { CStr::from_ptr(name) }.to_str().map_err(|_| {
-            vm.new_system_error("PyImport_ExecCodeModuleEx called with non utf8 name")
-        })?;
+        let name = unsafe { name.try_as_str(vm) }?;
         let code = unsafe { &*co }.try_downcast_ref::<PyCode>(vm)?;
         let module = import_code_obj(vm, name, code.to_owned(), false)?;
 
-        if !pathname.is_null() {
-            let pathname = unsafe { CStr::from_ptr(pathname) }.to_str().map_err(|_| {
-                vm.new_system_error("PyImport_ExecCodeModuleEx called with non utf8 pathname")
-            })?;
+        if let Some(pathname) = unsafe { pathname.try_as_str_opt(vm) }? {
             module.set_attr("__file__", vm.ctx.new_str(pathname), vm)?;
         }
 

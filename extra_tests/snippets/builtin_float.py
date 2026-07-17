@@ -549,3 +549,15 @@ _check_msg(
     lambda: INF.__int__(), OverflowError, "cannot convert float infinity to integer"
 )
 _check_msg(lambda: NAN.__floor__(), ValueError, "cannot convert float NaN to integer")
+
+# repr round-half-to-even ties: Rust's shortest formatter can land on the
+# odd-digit neighbour where repr()'s tie-breaking picks the even one.
+assert repr(161852602146008.12) == "161852602146008.12"
+assert repr(-788830060729777.2) == "-788830060729777.2"
+assert repr(1959276370239205.2) == "1959276370239205.2"
+assert repr(-1818262230632059.2) == "-1818262230632059.2"
+assert str(161852602146008.12) == "161852602146008.12"
+# non-tie values are unaffected
+assert repr(1.5) == "1.5"
+assert repr(0.1) == "0.1"
+assert repr(100.0) == "100.0"

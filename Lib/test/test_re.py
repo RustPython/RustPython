@@ -726,7 +726,6 @@ class ReTests(unittest.TestCase):
                                   'first second').groupdict(),
                          {'first':'first', 'second':'second'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expand(self):
         self.assertEqual(re.match("(?P<first>first) (?P<second>second)",
                                   "first second")
@@ -1755,7 +1754,6 @@ class ReTests(unittest.TestCase):
         for x in not_decimal_digits:
             self.assertIsNone(re.match(r'^\d$', x))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; a = array.array(typecode)\n ValueError: bad typecode (must be b, B, u, h, H, i, I, l, L, q, Q, f or d)
     @warnings_helper.ignore_warnings(category=DeprecationWarning)  # gh-80480 array('u')
     def test_empty_array(self):
         # SF buf 1647541

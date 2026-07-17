@@ -343,13 +343,17 @@ impl PyInt {
     where
         I: PrimInt + TryFrom<&'a BigInt>,
     {
-        // TODO: Python 3.14+: ValueError for negative int to unsigned type
-        // See stdlib_socket.py socket.htonl(-1)
-        //
-        // if I::min_value() == I::zero() && self.as_bigint().sign() == Sign::Minus {
-        //     return Err(vm.new_value_error("Cannot convert negative int".to_owned()));
-        // }
+        if I::min_value() == I::zero() && self.as_bigint().sign() == Sign::Minus {
+            return Err(vm.new_value_error("can't convert negative number to unsigned"));
+        }
 
+        self.try_to_primitive_raw(vm)
+    }
+
+    pub fn try_to_primitive_raw<'a, I>(&'a self, vm: &VirtualMachine) -> PyResult<I>
+    where
+        I: PrimInt + TryFrom<&'a BigInt>,
+    {
         I::try_from(self.as_bigint()).map_err(|_| {
             vm.new_overflow_error(format!(
                 "Python int too large to convert to Rust {}",
