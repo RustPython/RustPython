@@ -728,9 +728,7 @@ impl WeakRefList {
                 // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
                 // the canonical proxy type; subclasses and callback-less ref
                 // subclasses must not be mistaken for it.
-                let is_proxy = node
-                    .class()
-                    .is(crate::builtins::PyWeakProxy::static_type());
+                let is_proxy = node.class().is(crate::builtins::PyWeakProxy::static_type());
                 if has_callback || !is_proxy {
                     ptr::null_mut()
                 } else {
