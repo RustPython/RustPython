@@ -1,8 +1,11 @@
 use crate::PyObject;
 use crate::methodobject::PyMethodDef;
 use crate::object::PyType_Slot;
+use crate::util::CStrExt;
 use core::ffi::{c_char, c_int, c_void};
-use rustpython_vm::{PyResult, VirtualMachine};
+use core::slice::from_ref;
+use rustpython_vm::builtins::{PyModule, PyType};
+use rustpython_vm::{Py, PyResult, VirtualMachine};
 
 #[repr(C)]
 pub struct PySlot {
@@ -44,22 +47,12 @@ impl PySlot {
         self.sl_flags & Self::SLOT_INTPTR != 0
     }
 
-    pub(crate) fn as_kind(&self, vm: &VirtualMachine) -> PyResult<PySlotKind> {
+    pub(crate) fn as_kind(&self, vm: &VirtualMachine) -> PyResult<PySlotKind<'_>> {
         let value_ptr = unsafe { self.value.sl_ptr };
         let is_static = self.is_static();
         let kind = match self.sl_id {
-            48 => PySlotKind::Type(PySlotType::Base {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            49 => PySlotKind::Type(PySlotType::Bases {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            83 => PySlotKind::Type(PySlotType::Token {
-                value: value_ptr,
-                is_static,
-            }),
+            48 => PySlotKind::Type(PySlotType::Base(unsafe { &*value_ptr.cast() })),
+            49 => PySlotKind::Type(PySlotType::Bases(unsafe { from_ref(&*value_ptr.cast()) })),
             84 => {
                 let create = unsafe {
                     core::mem::transmute::<
@@ -90,28 +83,25 @@ impl PySlot {
                 value: value_ptr.cast(),
                 is_static,
             }),
-            95 => PySlotKind::Type(PySlotType::Name {
-                value: value_ptr.cast(),
-                is_static,
-            }),
+            95 => PySlotKind::Type(PySlotType::Name(unsafe {
+                value_ptr.cast::<c_char>().try_as_str(vm)?
+            })),
             96 => PySlotKind::Type(PySlotType::BasicSize(unsafe { self.value.sl_size })),
             97 => PySlotKind::Type(PySlotType::ExtraBasicSize(unsafe { self.value.sl_size })),
             99 => PySlotKind::Type(PySlotType::Flags(unsafe { self.value.sl_uint64 })),
-            100 => PySlotKind::Module(PySlotModule::Name {
-                value: value_ptr.cast(),
-                is_static,
-            }),
-            101 => PySlotKind::Module(PySlotModule::Doc {
-                value: value_ptr.cast(),
-                is_static,
-            }),
+            100 => PySlotKind::Module(PySlotModule::Name(unsafe {
+                value_ptr.cast::<c_char>().try_as_str(vm)?
+            })),
+            101 => PySlotKind::Module(PySlotModule::Doc(unsafe {
+                value_ptr.cast::<c_char>().try_as_str(vm)?
+            })),
             // 102 => Py_mod_state_size
-            103 => PySlotKind::Module(PySlotModule::Methods(value_ptr.cast())),
+            103 => PySlotKind::Module(PySlotModule::Methods(unsafe { &*value_ptr.cast() })),
             // 104 => Py_mod_state_traverse
             // 105 => Py_mod_state_clear
             // 106 => Py_mod_state_free
-            107 => PySlotKind::Type(PySlotType::Metaclass(value_ptr.cast())),
-            108 => PySlotKind::Type(PySlotType::Module(value_ptr.cast())),
+            107 => PySlotKind::Type(PySlotType::Metaclass(unsafe { &*value_ptr.cast() })),
+            108 => PySlotKind::Type(PySlotType::Module(unsafe { &*value_ptr.cast() })),
             109 => PySlotKind::Module(PySlotModule::Abi(unsafe { *value_ptr.cast() })),
             // 110 => Py_mod_token
             id => {
@@ -171,60 +161,39 @@ impl PyABIInfo {
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
-pub(crate) enum PySlotModule {
+pub(crate) enum PySlotModule<'a> {
     Create(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
     Exec(unsafe extern "C" fn(*mut PyObject) -> c_int),
-    Name {
-        value: *const c_char,
-        is_static: bool,
-    },
-    Doc {
-        value: *const c_char,
-        is_static: bool,
-    },
-    Methods(*mut PyMethodDef),
+    Name(&'a str),
+    Doc(&'a str),
+    Methods(&'a PyMethodDef),
     Abi(PyABIInfo),
     MultipleInterpreters(*mut c_void),
-    Gil {
-        gil_used: bool,
-    },
+    Gil { gil_used: bool },
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
-pub(crate) enum PySlotType {
-    Base {
-        value: *mut PyObject,
-        is_static: bool,
-    },
-    Bases {
-        value: *mut PyObject,
-        is_static: bool,
-    },
-    Token {
-        value: *mut c_void,
-        is_static: bool,
-    },
+pub(crate) enum PySlotType<'a> {
+    Base(&'a Py<PyType>),
+    Bases(&'a [Py<PyType>]),
     Slots {
         value: *mut PyType_Slot,
         is_static: bool,
     },
-    Name {
-        value: *const c_char,
-        is_static: bool,
-    },
+    Name(&'a str),
     Flags(u64),
     BasicSize(isize),
     ExtraBasicSize(isize),
-    Metaclass(*mut PyObject),
-    Module(*mut PyObject),
+    Metaclass(&'a Py<PyType>),
+    Module(&'a Py<PyModule>),
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Copy, Clone)]
-pub(crate) enum PySlotKind {
-    Module(PySlotModule),
-    Type(PySlotType),
+pub(crate) enum PySlotKind<'a> {
+    Module(PySlotModule<'a>),
+    Type(PySlotType<'a>),
     Unknown {
         id: u16,
         value: *mut c_void,

@@ -166,9 +166,7 @@ pub extern "C" fn PyType_FromSlots(slots: *const PySlot) -> *mut PyObject {
             match slot.as_kind(vm)? {
                 kind @ PySlotKind::Type(type_slot) => {
                     match type_slot {
-                        PySlotType::Name { value, .. } => {
-                            name = unsafe { Some(value.try_as_str(vm)?) }
-                        }
+                        PySlotType::Name(value) => name = Some(value),
                         PySlotType::Flags(value) => {
                             type_slots.flags = PyTypeFlags::from_bits(value).ok_or_else(|| {
                                 vm.new_value_error(format!(
