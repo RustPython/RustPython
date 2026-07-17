@@ -182,3 +182,18 @@ expect_value_error(
     f"cannot fit '{long_type_name[:200]}' into an index-sized integer",
     lambda: setattr(textio, "_CHUNK_SIZE", LongNamedChunkSize()),
 )
+
+
+non_ascii_type_name = "é" * 250
+NonAsciiNamedChunkSize = type(
+    non_ascii_type_name,
+    (),
+    {"__index__": lambda self: 2**100},
+)
+truncated_non_ascii_type_name = (
+    non_ascii_type_name.encode("utf-8")[:200].decode("utf-8")
+)
+expect_value_error(
+    f"cannot fit '{truncated_non_ascii_type_name}' into an index-sized integer",
+    lambda: setattr(textio, "_CHUNK_SIZE", NonAsciiNamedChunkSize()),
+)

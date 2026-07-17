@@ -3219,9 +3219,15 @@ mod _io {
                     let integer = object_value.try_index(vm)?;
 
                     integer.try_to_primitive::<isize>(vm).map_err(|_| {
+                        let class = object_value.class();
+                        let type_name = class.name();
+                        let mut end = type_name.len().min(200);
+                        while !type_name.is_char_boundary(end) {
+                            end -= 1;
+                        }
                         vm.new_value_error(format!(
-                            "cannot fit '{:.200}' into an index-sized integer",
-                            object_value.class().name()
+                            "cannot fit '{}' into an index-sized integer",
+                            &type_name[..end]
                         ))
                     })?
                 }
