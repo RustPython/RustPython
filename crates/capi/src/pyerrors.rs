@@ -417,32 +417,30 @@ pub unsafe extern "C" fn PyErr_Fetch(
     ptraceback: *mut *mut PyObject,
 ) {
     with_vm(|vm| {
-        let (ty, value, tb) = vm.take_raised_exception().map_or_else(
-            || {
-                (
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                )
-            },
+        let (mut ty, mut value, mut tb) = vm.take_raised_exception().map_or_else(
+            || (None, None, None),
             |exc| {
                 let (ty, value, tb) = vm.split_exception(exc);
-                let tb = if vm.is_none(&tb) {
-                    core::ptr::null_mut()
-                } else {
-                    tb.into_raw().as_ptr()
-                };
-                (ty.into_raw().as_ptr(), value.into_raw().as_ptr(), tb)
+                (Some(ty), Some(value), vm.option_if_none(tb))
             },
         );
 
         if let Some(ptype) = NonNull::new(ptype) {
+            let ty = ty
+                .take()
+                .map_or(core::ptr::null_mut(), |value| value.into_raw().as_ptr());
             unsafe { ptype.write(ty) };
         }
         if let Some(pvalue) = NonNull::new(pvalue) {
+            let value = value
+                .take()
+                .map_or(core::ptr::null_mut(), |value| value.into_raw().as_ptr());
             unsafe { pvalue.write(value) };
         }
         if let Some(ptraceback) = NonNull::new(ptraceback) {
+            let tb = tb
+                .take()
+                .map_or(core::ptr::null_mut(), |tb| tb.into_raw().as_ptr());
             unsafe { ptraceback.write(tb) };
         }
     })
@@ -477,7 +475,7 @@ pub unsafe extern "C" fn PyErr_Restore(
 #[unsafe(no_mangle)]
 pub extern "C" fn PyErr_GetHandledException() -> *mut PyObject {
     with_vm(|vm| {
-        vm.current_exception()
+        vm.topmost_exception()
             .map(|exc| exc.into_object().into_raw().as_ptr())
             .unwrap_or_default()
     })
@@ -486,11 +484,11 @@ pub extern "C" fn PyErr_GetHandledException() -> *mut PyObject {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_SetHandledException(exc: *mut PyObject) {
     with_vm(|vm| {
-        if let Some(exc) = NonNull::new(exc) {
-            let exception = unsafe { PyObjectRef::from_raw(exc).downcast_unchecked() };
-            vm.set_exception(Some(exception));
-        } else {
+        if exc.is_null() || vm.is_none(unsafe { &*exc }) {
             vm.set_exception(None);
+        } else {
+            let exception = unsafe { (&*exc).to_owned().downcast_unchecked() };
+            vm.set_exception(Some(exception));
         }
     })
 }
@@ -502,32 +500,30 @@ pub unsafe extern "C" fn PyErr_GetExcInfo(
     ptraceback: *mut *mut PyObject,
 ) {
     with_vm(|vm| {
-        let (ty, value, tb) = vm.current_exception().map_or_else(
-            || {
-                (
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                    core::ptr::null_mut(),
-                )
-            },
+        let (mut ty, mut value, mut tb) = vm.topmost_exception().map_or_else(
+            || (None, None, None),
             |exc| {
                 let (ty, value, tb) = vm.split_exception(exc);
-                let tb = if vm.is_none(&tb) {
-                    core::ptr::null_mut()
-                } else {
-                    tb.into_raw().as_ptr()
-                };
-                (ty.into_raw().as_ptr(), value.into_raw().as_ptr(), tb)
+                (Some(ty), Some(value), vm.option_if_none(tb))
             },
         );
 
         if let Some(ptype) = NonNull::new(ptype) {
+            let ty = ty
+                .take()
+                .map_or(core::ptr::null_mut(), |ty| ty.into_raw().as_ptr());
             unsafe { ptype.write(ty) };
         }
         if let Some(pvalue) = NonNull::new(pvalue) {
+            let value = value
+                .take()
+                .map_or(core::ptr::null_mut(), |value| value.into_raw().as_ptr());
             unsafe { pvalue.write(value) };
         }
         if let Some(ptraceback) = NonNull::new(ptraceback) {
+            let tb = tb
+                .take()
+                .map_or(core::ptr::null_mut(), |tb| tb.into_raw().as_ptr());
             unsafe { ptraceback.write(tb) };
         }
     })
@@ -542,13 +538,14 @@ pub unsafe extern "C" fn PyErr_SetExcInfo(
     with_vm(|vm| {
         let _exc_type = NonNull::new(exc_type).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
         let _exc_tb = NonNull::new(exc_tb).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
-        let exc_val = NonNull::new(exc_val).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
-        let exc = exc_val
-            .map(|obj| {
-                obj.downcast::<PyBaseException>()
-                    .map_err(|_| vm.new_type_error("exception value must be an exception instance"))
-            })
-            .transpose()?;
+        let exc =
+            match NonNull::new(exc_val).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) }) {
+                None => None,
+                Some(obj) if vm.is_none(&obj) => None,
+                Some(obj) => Some(obj.downcast::<PyBaseException>().map_err(|_| {
+                    vm.new_type_error("exception value must be an exception instance")
+                })?),
+            };
         vm.set_exception(exc);
         Ok(())
     })
