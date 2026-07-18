@@ -1554,7 +1554,11 @@ fn build_result(
         let args_tuple = PyTuple::new_ref(args.args.clone(), &vm.ctx);
         let func_obj = zelf.as_object().to_owned();
         let result_obj = result.clone().unwrap_or_else(|| vm.ctx.none());
-        result = Some(errcheck.call((result_obj, func_obj, args_tuple), vm)?);
+        let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
+        // Returning the original args tuple requests normal result processing.
+        if !checked.is(&args_tuple) {
+            result = Some(checked);
+        }
     }
 
     // Handle OUT parameter return values
