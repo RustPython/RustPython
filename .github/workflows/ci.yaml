@@ -438,6 +438,17 @@ jobs:
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
 
+      - if: runner.os == 'Windows'
+        name: Check pip HTTPS with the Windows trust store
+        run: >-
+          target/release/rustpython -m pip download
+          --disable-pip-version-check
+          --no-cache-dir
+          --no-deps
+          --only-binary=:all:
+          --dest "$env:RUNNER_TEMP\rustpython-pip-smoke"
+          six
+
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
@@ -829,4 +840,3 @@ jobs:
 
       - name: cargo doc
         run: cargo doc --locked
-
