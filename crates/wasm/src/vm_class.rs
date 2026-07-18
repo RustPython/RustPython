@@ -249,31 +249,59 @@ impl WASMVirtualMachine {
 
     #[wasm_bindgen(js_name = setStdout)]
     pub fn set_stdout(&self, stdout: JsValue) -> Result<(), JsValue> {
+        self.set_stdstream(
+            "stdout",
+            "JSStdout",
+            stdout,
+            wasm_builtins::sys_stdout_write_console,
+        )
+    }
+
+    #[wasm_bindgen(js_name = setStderr)]
+    pub fn set_stderr(&self, stderr: JsValue) -> Result<(), JsValue> {
+        self.set_stdstream(
+            "stderr",
+            "JSStderr",
+            stderr,
+            wasm_builtins::sys_stderr_write_console,
+        )
+    }
+
+    fn set_stdstream(
+        &self,
+        attr: &'static str,
+        class_name: &'static str,
+        stream: JsValue,
+        console_write: fn(&str, &VirtualMachine) -> PyResult<()>,
+    ) -> Result<(), JsValue> {
         self.with_vm(|vm, _| {
-            fn error() -> JsValue {
-                TypeError::new("Unknown stdout option, please pass a function or 'console'").into()
+            fn error(attr: &str) -> JsValue {
+                TypeError::new(&format!(
+                    "Unknown {attr} option, please pass a function or 'console'"
+                ))
+                .into()
             }
-            use wasm_builtins::make_stdout_object;
-            let stdout: PyObjectRef = if let Some(s) = stdout.as_string() {
+            use wasm_builtins::make_stdstream_object;
+            let stream: PyObjectRef = if let Some(s) = stream.as_string() {
                 match s.as_str() {
-                    "console" => make_stdout_object(vm, wasm_builtins::sys_stdout_write_console),
-                    _ => return Err(error()),
+                    "console" => make_stdstream_object(vm, class_name, console_write),
+                    _ => return Err(error(attr)),
                 }
-            } else if stdout.is_function() {
-                let func = js_sys::Function::from(stdout);
-                make_stdout_object(vm, move |data, vm| {
+            } else if stream.is_function() {
+                let func = js_sys::Function::from(stream);
+                make_stdstream_object(vm, class_name, move |data, vm| {
                     func.call1(&JsValue::UNDEFINED, &data.into())
                         .map_err(|err| convert::js_py_typeerror(vm, err))?;
                     Ok(())
                 })
-            } else if stdout.is_null() {
-                make_stdout_object(vm, |_, _| Ok(()))
-            } else if stdout.is_undefined() {
-                make_stdout_object(vm, wasm_builtins::sys_stdout_write_console)
+            } else if stream.is_null() {
+                make_stdstream_object(vm, class_name, |_, _| Ok(()))
+            } else if stream.is_undefined() {
+                make_stdstream_object(vm, class_name, console_write)
             } else {
-                return Err(error());
+                return Err(error(attr));
             };
-            vm.sys_module.set_attr("stdout", stdout, vm).unwrap();
+            vm.sys_module.set_attr(attr, stream, vm).unwrap();
             Ok(())
         })?
     }
