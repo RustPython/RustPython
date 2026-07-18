@@ -4,7 +4,7 @@ use crate::{
     Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     class::PyClassImpl,
     common::hash::PyHash,
-    function::{OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
+    function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue, PySetterValue},
     protocol::{PyIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     stdlib::builtins::reversed,
     types::{
@@ -13,13 +13,22 @@ use crate::{
     },
 };
 
-#[pyclass(module = false, name = "weakproxy", unhashable = true, traverse)]
+#[pyclass(module = false, name = "weakproxy", unhashable = true)]
 #[derive(Debug)]
-pub struct PyWeakProxy {
-    weak: PyRef<PyWeak>,
-}
+#[repr(transparent)]
+pub struct PyWeakProxy(PyWeak);
 
 impl PyPayload for PyWeakProxy {
+    const PAYLOAD_TYPE_ID: core::any::TypeId = <PyWeak as PyPayload>::PAYLOAD_TYPE_ID;
+
+    #[inline]
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
+        <Self as ::rustpython_vm::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize
+            && obj
+                .class()
+                .fast_issubclass(<Self as ::rustpython_vm::class::StaticType>::static_type())
+    }
+
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.types.weakproxy_type
@@ -37,52 +46,34 @@ pub struct WeakProxyNewArgs {
 impl Constructor for PyWeakProxy {
     type Args = WeakProxyNewArgs;
 
-    fn py_new(
-        _cls: &Py<PyType>,
-        Self::Args { referent, callback }: Self::Args,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
-        let weak = Self::new_weak(referent.as_ref(), callback.into_option(), vm)?;
-        // TODO: PyWeakProxy should use the same payload as PyWeak
-        Ok(Self { weak })
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        let _ = cls;
+        let Self::Args { referent, callback } = args.bind(vm)?;
+        let callback = callback
+            .into_option()
+            .filter(|callback| !vm.is_none(callback));
+        let proxy = Self::new_weakproxy(referent.as_ref(), callback, vm)?;
+        Ok(proxy.into())
     }
-}
 
-crate::common::static_cell! {
-    static WEAK_SUBCLASS: PyTypeRef;
+    fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
+        unimplemented!("use slot_new")
+    }
 }
 
 impl PyWeakProxy {
-    fn new_weak(
-        referent: &PyObject,
-        callback: Option<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyRef<PyWeak>> {
-        // using an internal subclass as the class prevents us from getting the generic weakref,
-        // which would mess up the weakref count
-        let weak_cls = WEAK_SUBCLASS.get_or_init(|| {
-            vm.ctx.new_class(
-                None,
-                "__weakproxy",
-                vm.ctx.types.weakref_type.to_owned(),
-                super::PyWeak::make_slots(),
-            )
-        });
-        referent.downgrade_with_typ(callback, weak_cls.clone(), vm)
-    }
-
     pub fn new_weakproxy(
         referent: &PyObject,
         callback: Option<PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> PyResult<PyRef<Self>> {
-        let weak = Self::new_weak(referent, callback, vm)?;
-        Ok(Self { weak }.into_ref(&vm.ctx))
+    ) -> PyResult<PyRef<PyWeak>> {
+        let typ = vm.ctx.types.weakproxy_type.to_owned();
+        referent.downgrade_with_typ(callback, typ, vm)
     }
 
     #[must_use]
-    pub fn get_weak(&self) -> &PyRef<PyWeak> {
-        &self.weak
+    pub fn get_weak(&self) -> &PyWeak {
+        &self.0
     }
 }
 
@@ -99,7 +90,7 @@ impl PyWeakProxy {
 ))]
 impl PyWeakProxy {
     fn try_upgrade(&self, vm: &VirtualMachine) -> PyResult {
-        self.weak.upgrade().ok_or_else(|| new_reference_error(vm))
+        self.0.upgrade().ok_or_else(|| new_reference_error(vm))
     }
 
     #[pymethod]
