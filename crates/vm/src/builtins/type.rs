@@ -680,7 +680,7 @@ impl PyType {
         let flags_bits = flags.bits();
         let _ = self
             .abc_tpflags
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |old| {
                 Some((old & !collection_bits) | flags_bits)
             });
         self.modified();
