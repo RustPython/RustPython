@@ -3206,19 +3206,45 @@ mod _io {
         }
 
         #[pygetset(setter, name = "_CHUNK_SIZE")]
-        fn set_chunksize(
-            &self,
-            chunk_size: PySetterValue<usize>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
-            let mut textio = self.lock(vm)?;
-            match chunk_size {
-                PySetterValue::Assign(chunk_size) => textio.chunk_size = chunk_size,
-                PySetterValue::Delete => Err(vm.new_attribute_error("cannot delete attribute"))?,
+        fn set_chunksize(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+            {
+                let textio = self.lock(vm)?;
+                if vm.is_none(&textio.buffer) {
+                    return Err(vm.new_value_error("underlying buffer has been detached"));
+                }
+            }
+
+            let chunk_size: isize = match value {
+                PySetterValue::Assign(object_value) => {
+                    let integer = object_value.try_index(vm)?;
+
+                    integer.try_to_primitive::<isize>(vm).map_err(|_| {
+                        let class = object_value.class();
+                        let type_name = class.name();
+                        let mut end = type_name.len().min(200);
+                        while !type_name.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        vm.new_value_error(format!(
+                            "cannot fit '{}' into an index-sized integer",
+                            &type_name[..end]
+                        ))
+                    })?
+                }
+                PySetterValue::Delete => {
+                    return Err(vm.new_attribute_error("cannot delete attribute"));
+                }
             };
-            // TODO: RUSTPYTHON
-            // Change chunk_size type, validate it manually and throws ValueError if invalid.
-            // https://github.com/python/cpython/blob/2e9da8e3522764d09f1d6054a2be567e91a30812/Modules/_io/textio.c#L3124-L3143
+
+            if chunk_size <= 0 {
+                return Err(vm.new_value_error("a strictly positive integer is required"));
+            }
+
+            let chunk_size = usize::try_from(chunk_size)
+                .map_err(|_| vm.new_value_error("a strictly positive integer is required"))?;
+
+            let mut textio = self.lock(vm)?;
+            textio.chunk_size = chunk_size;
             Ok(())
         }
 
