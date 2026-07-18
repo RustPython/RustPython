@@ -8,7 +8,7 @@ use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
     builtins::{
-        PyTuple,
+        PyList, PyTuple,
         iter::{builtins_iter, builtins_reversed},
         type_::PyAttributes,
     },
@@ -187,6 +187,64 @@ impl PyDict {
         self.merge_object_with_override(other, false, vm)
     }
 
+    fn add_update_sequence_note(exc: &PyBaseExceptionRef, index: usize, vm: &VirtualMachine) {
+        if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            let note =
+                format!("Cannot convert dictionary update sequence element #{index} to a sequence");
+            let _ = vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),));
+        }
+    }
+
+    fn update_sequence_pair_from_slice(
+        elements: &[PyObjectRef],
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<[PyObjectRef; 2]> {
+        let [key, value] = elements else {
+            return Err(vm.new_value_error(format!(
+                "dictionary update sequence element #{index} has length {}; 2 is required",
+                elements.len()
+            )));
+        };
+        Ok([key.clone(), value.clone()])
+    }
+
+    fn update_sequence_pair(
+        element: PyObjectRef,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<[PyObjectRef; 2]> {
+        let element = match element.downcast_exact::<PyList>(vm) {
+            Ok(list) => {
+                let elements = list.borrow_vec();
+                return Self::update_sequence_pair_from_slice(&elements, index, vm);
+            }
+            Err(element) => element,
+        };
+        let element = match element.downcast_exact::<PyTuple>(vm) {
+            Ok(tuple) => {
+                return Self::update_sequence_pair_from_slice(tuple.as_slice(), index, vm);
+            }
+            Err(element) => element,
+        };
+
+        let elements = (|| {
+            let elem_iter = element.get_iter(vm).map_err(|exc| {
+                if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    vm.new_type_error("object is not iterable")
+                } else {
+                    exc
+                }
+            })?;
+            elem_iter
+                .into_iter::<PyObjectRef>(vm)?
+                .collect::<PyResult<Vec<_>>>()
+        })()
+        .inspect_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
+
+        Self::update_sequence_pair_from_slice(&elements, index, vm)
+    }
+
     pub fn merge_from_seq2(
         &self,
         seq2: PyObjectRef,
@@ -195,20 +253,10 @@ impl PyDict {
     ) -> PyResult<()> {
         let iter = seq2.get_iter(vm)?;
         let dict = &self.entries;
-        loop {
-            fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                vm.new_value_error("Iterator must have exactly two elements")
-            }
-            let element = match iter.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(_) => break,
-            };
-            let elem_iter = element.get_iter(vm)?;
-            let key = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-            let value = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-            if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
-                return Err(err(vm));
-            }
+
+        for (index, element) in iter.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+            let [key, value] = Self::update_sequence_pair(element?, index, vm)?;
+
             if !override_existing && dict.contains(vm, &*key)? {
                 continue;
             }
