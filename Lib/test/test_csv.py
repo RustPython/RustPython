@@ -276,7 +276,6 @@ class Test_Csv(unittest.TestCase):
                                      f'1,2{lineterminator}'
                                      f'"\r","\n"{lineterminator}')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_iterable(self):
         self._write_test(iter(['a', 1, 'p,q']), 'a,1,"p,q"')
         self._write_test(iter(['a', 1, None]), 'a,1,')
@@ -319,7 +318,6 @@ class Test_Csv(unittest.TestCase):
             self.assertEqual(fileobj.read(), 'a\r\n""\r\n')
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_empty_fields(self):
         self._write_test((), '')
         self._write_test([''], '""')
