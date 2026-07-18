@@ -902,7 +902,7 @@ impl VirtualMachine {
         };
         let exc = self.invoke_exception(stop_iteration_error, args);
 
-        exc.unwrap()
+        exc.expect("StopIteration is a BaseException Subclass.")
     }
 
     fn new_downcast_error(
