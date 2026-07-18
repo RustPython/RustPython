@@ -2102,7 +2102,6 @@ class AssortedBytesTest(unittest.TestCase):
         self.assertEqual(f(b"'\"'"), r"""b'\'"\''""") # '\'"\''
         self.assertEqual(f(BytesSubclass(b"abc")), "b'abc'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bytearray_repr(self, f=repr):
         self.assertEqual(f(bytearray()), "bytearray(b'')")
         self.assertEqual(f(bytearray(b'abc')), "bytearray(b'abc')")
