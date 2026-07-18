@@ -618,16 +618,15 @@ impl WeakRefList {
         // Try reuse under lock first (fast path, no allocation)
         {
             let _lock = weakref_lock::lock(obj as *const PyObject as usize);
-            if is_generic {
-                let generic_ptr = self.generic.load(Ordering::Relaxed);
-                if let Some(existing) = unsafe { try_reuse_weakref(generic_ptr) } {
-                    return existing;
-                }
+            let existing = if is_generic {
+                unsafe { try_reuse_weakref(self.generic.load(Ordering::Relaxed)) }
             } else if is_generic_proxy {
-                let candidate_ptr = self.find_generic_proxy_ptr();
-                if let Some(existing) = unsafe { try_reuse_weakref(candidate_ptr) } {
-                    return existing;
-                }
+                unsafe { try_reuse_weakref(self.find_generic_proxy_ptr()) }
+            } else {
+                None
+            };
+            if let Some(existing) = existing {
+                return existing;
             }
         }
 
