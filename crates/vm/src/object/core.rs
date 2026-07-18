@@ -582,6 +582,18 @@ unsafe fn unlink_weakref(wrl: &WeakRefList, node: NonNull<Py<PyWeak>>) {
     }
 }
 
+// try_reuse_basic_ref
+unsafe fn try_reuse_weakref(ptr: *mut Py<PyWeak>) -> Option<PyRef<PyWeak>> {
+    if ptr.is_null() {
+        return None;
+    }
+    let node = unsafe { &*ptr };
+    node.0
+        .ref_count
+        .safe_inc()
+        .then(|| unsafe { PyRef::from_raw(ptr) })
+}
+
 impl WeakRefList {
     pub(super) fn new() -> Self {
         Self {
@@ -596,22 +608,25 @@ impl WeakRefList {
         obj: &PyObject,
         cls: PyTypeRef,
         cls_is_weakref: bool,
+        cls_is_weakproxy: bool,
         callback: Option<PyObjectRef>,
         dict: Option<PyDictRef>,
     ) -> PyRef<PyWeak> {
         let is_generic = cls_is_weakref && callback.is_none();
+        let is_generic_proxy = cls_is_weakproxy && callback.is_none();
 
         // Try reuse under lock first (fast path, no allocation)
         {
             let _lock = weakref_lock::lock(obj as *const PyObject as usize);
-            if is_generic {
-                let generic_ptr = self.generic.load(Ordering::Relaxed);
-                if !generic_ptr.is_null() {
-                    let generic = unsafe { &*generic_ptr };
-                    if generic.0.ref_count.safe_inc() {
-                        return unsafe { PyRef::from_raw(generic_ptr) };
-                    }
-                }
+            let existing = if is_generic {
+                unsafe { try_reuse_weakref(self.generic.load(Ordering::Relaxed)) }
+            } else if is_generic_proxy {
+                unsafe { try_reuse_weakref(self.find_generic_proxy_ptr()) }
+            } else {
+                None
+            };
+            if let Some(existing) = existing {
+                return existing;
             }
         }
 
@@ -629,64 +644,98 @@ impl WeakRefList {
         // Re-acquire lock for linked list insertion
         let _lock = weakref_lock::lock(obj as *const PyObject as usize);
 
-        // Re-check: another thread may have inserted a generic ref while we
-        // were allocating outside the lock. If so, reuse it and drop ours.
-        if is_generic {
-            let generic_ptr = self.generic.load(Ordering::Relaxed);
-            if !generic_ptr.is_null() {
-                let generic = unsafe { &*generic_ptr };
-                if generic.0.ref_count.safe_inc() {
-                    // Nullify wr_object so drop_inner won't unlink an
-                    // un-inserted node (which would corrupt the list head).
-                    weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
-                    return unsafe { PyRef::from_raw(generic_ptr) };
-                }
-            }
+        // Re-check: another thread may have inserted a generic ref/proxy
+        // while we were allocating outside the lock. If so, reuse it and
+        // drop ours.
+        let existing = if is_generic {
+            unsafe { try_reuse_weakref(self.generic.load(Ordering::Relaxed)) }
+        } else if is_generic_proxy {
+            unsafe { try_reuse_weakref(self.find_generic_proxy_ptr()) }
+        } else {
+            None
+        };
+        if let Some(existing) = existing {
+            // Nullify wr_object so drop_inner won't unlink an
+            // un-inserted node (which would corrupt the list head).
+            weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
+            return existing;
         }
 
         // Insert into linked list under stripe lock
+        // (insert_weakref: generic ref at head, generic proxy right after it)
         let node_ptr = NonNull::from(&*weak);
-        unsafe {
-            let mut ptrs = WeakLink::pointers(node_ptr);
-            if is_generic {
-                // Generic ref goes to head (insert_head for basic ref)
-                let old_head = self.head.load(Ordering::Relaxed);
-                ptrs.as_mut().set_next(NonNull::new(old_head));
-                ptrs.as_mut().set_prev(None);
-                if let Some(old_head) = NonNull::new(old_head) {
-                    WeakLink::pointers(old_head)
-                        .as_mut()
-                        .set_prev(Some(node_ptr));
-                }
-                self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
-                self.generic.store(node_ptr.as_ptr(), Ordering::Relaxed);
-            } else {
-                // Non-generic refs go after generic ref (insert_after)
-                let generic_ptr = self.generic.load(Ordering::Relaxed);
-                if let Some(after) = NonNull::new(generic_ptr) {
-                    let after_next = WeakLink::pointers(after).as_ref().get_next();
-                    ptrs.as_mut().set_prev(Some(after));
-                    ptrs.as_mut().set_next(after_next);
-                    WeakLink::pointers(after).as_mut().set_next(Some(node_ptr));
-                    if let Some(next) = after_next {
-                        WeakLink::pointers(next).as_mut().set_prev(Some(node_ptr));
-                    }
-                } else {
-                    // No generic ref; insert at head
-                    let old_head = self.head.load(Ordering::Relaxed);
-                    ptrs.as_mut().set_next(NonNull::new(old_head));
-                    ptrs.as_mut().set_prev(None);
-                    if let Some(old_head) = NonNull::new(old_head) {
-                        WeakLink::pointers(old_head)
-                            .as_mut()
-                            .set_prev(Some(node_ptr));
-                    }
-                    self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
-                }
-            }
+        let after = if is_generic {
+            None
+        } else if is_generic_proxy {
+            NonNull::new(self.generic.load(Ordering::Relaxed))
+        } else {
+            NonNull::new(self.find_generic_proxy_ptr())
+                .or_else(|| NonNull::new(self.generic.load(Ordering::Relaxed)))
+        };
+        match after {
+            Some(after) => unsafe { self.insert_after(after, node_ptr) },
+            None => unsafe { self.insert_at_head(node_ptr) },
+        }
+        if is_generic {
+            self.generic.store(node_ptr.as_ptr(), Ordering::Relaxed);
         }
 
         weak
+    }
+
+    unsafe fn insert_at_head(&self, node_ptr: NonNull<Py<PyWeak>>) {
+        unsafe {
+            let mut ptrs = WeakLink::pointers(node_ptr);
+            let old_head = self.head.load(Ordering::Relaxed);
+            ptrs.as_mut().set_next(NonNull::new(old_head));
+            ptrs.as_mut().set_prev(None);
+            if let Some(old_head) = NonNull::new(old_head) {
+                WeakLink::pointers(old_head)
+                    .as_mut()
+                    .set_prev(Some(node_ptr));
+            }
+            self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
+        }
+    }
+
+    unsafe fn insert_after(&self, after: NonNull<Py<PyWeak>>, node_ptr: NonNull<Py<PyWeak>>) {
+        unsafe {
+            let mut ptrs = WeakLink::pointers(node_ptr);
+            let after_next = WeakLink::pointers(after).as_ref().get_next();
+            ptrs.as_mut().set_prev(Some(after));
+            ptrs.as_mut().set_next(after_next);
+            WeakLink::pointers(after).as_mut().set_next(Some(node_ptr));
+            if let Some(next) = after_next {
+                WeakLink::pointers(next).as_mut().set_prev(Some(node_ptr));
+            }
+        }
+    }
+
+    // get_basic_refs
+    fn find_generic_proxy_ptr(&self) -> *mut Py<PyWeak> {
+        let generic_ptr = self.generic.load(Ordering::Relaxed);
+        let candidate_ptr = if let Some(generic_node) = NonNull::new(generic_ptr) {
+            unsafe { WeakLink::pointers(generic_node).as_ref().get_next() }
+                .map_or(ptr::null_mut(), |n| n.as_ptr())
+        } else {
+            self.head.load(Ordering::Relaxed)
+        };
+        match NonNull::new(candidate_ptr) {
+            Some(candidate) => {
+                let node = unsafe { candidate.as_ref() };
+                let has_callback = unsafe { (&*node.0.payload.callback.get()).is_some() };
+                // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
+                // the canonical proxy type; subclasses and callback-less ref
+                // subclasses must not be mistaken for it.
+                let is_proxy = node.class().is(crate::builtins::PyWeakProxy::static_type());
+                if has_callback || !is_proxy {
+                    ptr::null_mut()
+                } else {
+                    candidate_ptr
+                }
+            }
+            None => ptr::null_mut(),
+        }
     }
 
     /// Clear all weakrefs and call their callbacks.
@@ -1445,7 +1494,7 @@ impl PyObject {
         typ: PyTypeRef,
     ) -> Option<PyRef<PyWeak>> {
         self.weak_ref_list()
-            .map(|wrl| wrl.add(self, typ, true, callback, None))
+            .map(|wrl| wrl.add(self, typ, true, false, callback, None))
     }
 
     pub(crate) fn downgrade_with_typ(
@@ -1476,13 +1525,14 @@ impl PyObject {
             None
         };
         let cls_is_weakref = typ.is(vm.ctx.types.weakref_type);
+        let cls_is_weakproxy = typ.is(vm.ctx.types.weakproxy_type);
         let wrl = self.weak_ref_list().ok_or_else(|| {
             vm.new_type_error(format!(
                 "cannot create weak reference to '{}' object",
                 self.class().name()
             ))
         })?;
-        Ok(wrl.add(self, typ, cls_is_weakref, callback, dict))
+        Ok(wrl.add(self, typ, cls_is_weakref, cls_is_weakproxy, callback, dict))
     }
 
     pub fn downgrade(
