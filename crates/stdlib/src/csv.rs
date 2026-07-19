@@ -1060,8 +1060,17 @@ mod _csv {
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
             let generation = zelf.state.lock().generation;
-            let string = raise_if_stop!(zelf.iter.next(vm)?);
-            let string = string.downcast::<PyStr>().map_err(|obj| {
+            let string_obj = raise_if_stop!(zelf.iter.next(vm)?);
+            let mut state = zelf.state.lock();
+            if state.generation != generation {
+                return Err(new_csv_error(
+                    vm,
+                    "iterator has already advanced the reader",
+                ));
+            }
+            state.generation += 1;
+
+            let string = string_obj.downcast::<PyStr>().map_err(|obj| {
                 new_csv_error(
                     vm,
                     format!(
@@ -1071,15 +1080,7 @@ mod _csv {
                 )
             })?;
             let input = string.as_bytes();
-            let mut state = zelf.state.lock();
-            if state.generation != generation {
-                return Err(new_csv_error(
-                    vm,
-                    "iterator has already advanced the reader",
-                ));
-            }
             if input.is_empty() || input.starts_with(b"\n") {
-                state.generation += 1;
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(vec![]).into()));
             }
             let ReadState {
@@ -1089,7 +1090,7 @@ mod _csv {
                 skipinitialspace,
                 delimiter,
                 line_num,
-                generation,
+                generation: _,
             } = &mut *state;
 
             let mut input_offset = 0;
@@ -1100,7 +1101,6 @@ mod _csv {
             if zelf.dialect.quoting == QuoteStyle::None && zelf.dialect.escapechar.is_some() {
                 let out = read_quote_none_record(input, zelf.dialect, field_limit, vm)?;
                 *line_num += 1;
-                *generation += 1;
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()));
             }
 
@@ -1188,7 +1188,6 @@ mod _csv {
             //     out.pop();
             // }
             *line_num += 1;
-            *generation += 1;
             Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()))
         }
     }
