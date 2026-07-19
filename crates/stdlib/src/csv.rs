@@ -962,7 +962,7 @@ mod _csv {
         skipinitialspace: bool,
         delimiter: u8,
         line_num: u64,
-        generation: usize,
+        generation: u64,
     }
 
     #[pyclass(no_attr, module = "_csv", name = "reader", traverse)]
