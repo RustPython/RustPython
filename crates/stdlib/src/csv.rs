@@ -1380,6 +1380,55 @@ mod _csv {
             self.write.call((s,), vm)
         }
 
+        fn writerow_minimal(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let _state = self.state.lock();
+
+            let row: ArgIterable = ArgIterable::try_from_object(vm, row.clone()).map_err(|_e| {
+                new_csv_error(
+                    vm,
+                    format!("'{}' object is not iterable", row.class().name()),
+                )
+            })?;
+
+            let fields = row.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+            let single_field = fields.len() == 1;
+            let mut output = Vec::new();
+
+            for (index, field) in fields.into_iter().enumerate() {
+                if index > 0 {
+                    output.push(self.dialect.delimiter);
+                }
+
+                let stringified;
+                let data: &[u8] = match_class!(match field {
+                    ref s @ PyStr => s.as_bytes(),
+                    crate::builtins::PyNone => b"",
+                    ref obj => {
+                        stringified = obj.str(vm)?;
+                        stringified.as_bytes()
+                    }
+                });
+
+                // CPython quotes a QUOTE_MINIMAL field if it contains the
+                // delimiter, the quote character, '\r', '\n', or the line
+                // terminator, regardless of which line terminator is
+                // configured. A row with a single empty field is also quoted
+                // so that it is not read back as an empty line.
+                if field_needs_quotes(data, self.dialect) || (single_field && data.is_empty()) {
+                    write_quoted_field(&mut output, data, self.dialect, vm)?;
+                } else {
+                    output.extend_from_slice(data);
+                }
+            }
+
+            write_lineterminator(&mut output, self.dialect.lineterminator);
+
+            let s = core::str::from_utf8(&output)
+                .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+
+            self.write.call((s,), vm)
+        }
+
         #[pymethod]
         fn writerow(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
             match self.dialect.quoting {
@@ -1387,6 +1436,7 @@ mod _csv {
                 QuoteStyle::Strings | QuoteStyle::Notnull => {
                     return self.writerow_quoted_strings(row, vm);
                 }
+                QuoteStyle::Minimal => return self.writerow_minimal(row, vm),
                 _ => {}
             }
 
