@@ -305,7 +305,6 @@ class RegressionTests(MemoryDatabaseMixin, unittest.TestCase):
                 datetime.datetime(2012, 4, 4, 15, 6, 0, 123456),
             ])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message mismatch
     def test_invalid_isolation_level_type(self):
         # isolation level is a string, not an integer
         regex = "isolation_level must be str or None"
