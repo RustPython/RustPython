@@ -1797,7 +1797,6 @@ cm(x) class method of test.test_pydoc.test_pydoc.X
         self.assertEqual(self._get_summary_line(Exception.args), "args")
         self.assertEqual(self._get_summary_line(memoryview.obj), "obj")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_member_descriptor(self):
         # Currently these attributes are implemented as member descriptors
