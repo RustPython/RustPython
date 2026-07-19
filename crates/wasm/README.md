@@ -34,6 +34,9 @@ pyEval(code, options?);
 - `stdout?`: `"console" | ((out: string) => void) | null`: A function to replace the
   native print function, and it will be `console.log` when giving `undefined`
   or "console", and it will be a dumb function when giving null.
+- `stderr?`: `"console" | ((out: string) => void) | null`: A function to replace
+  `sys.stderr`, and it will be `console.error` when giving `undefined` or
+  "console".
 
 ## License
 
