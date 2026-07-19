@@ -64,8 +64,7 @@ async def _main_wrapper(coro):
         import traceback
         import sys
 
-        # TODO: sys.stderr on wasm
-        traceback.print_exc(file=sys.stdout)
+        traceback.print_exc(file=sys.stderr)
 
 
 def _resolve(prom):
