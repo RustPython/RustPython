@@ -2444,6 +2444,7 @@ mod _socket {
     }
 
     /// returns Ok(true) on timeout
+    #[cfg(feature = "ssl")]
     pub(crate) fn sock_wait(
         sock: &Socket,
         wait_kind: SockWaitKind,
