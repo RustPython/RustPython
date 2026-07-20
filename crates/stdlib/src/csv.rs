@@ -231,7 +231,7 @@ mod _csv {
                     .to_str()
                     .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))?;
                 if value.is_empty() {
-                    return Err(new_csv_error(vm, r#""lineterminator" must be a string"#));
+                    return Err(new_csv_error(vm, r#""lineterminator" must not be empty"#));
                 }
                 Ok(value.to_owned())
             }
@@ -626,7 +626,7 @@ mod _csv {
                 // non-empty string, including multi-character ones, is stored.
                 if value.is_empty() {
                     return Err(vm
-                        .new_type_error(r#""lineterminator" must be a 1-character string"#)
+                        .new_type_error(r#""lineterminator" must not be empty"#)
                         .into());
                 }
                 res.lineterminator = Some(value.to_owned());
@@ -867,8 +867,7 @@ mod _csv {
                     if let Some(dialect) = g.get(name) {
                         let mut builder = builder
                             .delimiter(dialect.delimiter)
-                            .double_quote(dialect.doublequote)
-                            .terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
+                            .double_quote(dialect.doublequote);
 
                         if let Some(t) = dialect.quotechar {
                             builder = builder.quote(t);
@@ -884,8 +883,7 @@ mod _csv {
                 DialectItem::Obj(obj) => {
                     let mut builder = builder
                         .delimiter(obj.delimiter)
-                        .double_quote(obj.doublequote)
-                        .terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
+                        .double_quote(obj.doublequote);
 
                     if let Some(t) = obj.quotechar {
                         builder = builder.quote(t);
@@ -1584,7 +1582,7 @@ mod _csv {
             // closing the final quote / emitting an empty record as needed).
             // Drop that sentinel byte and append the real, possibly
             // multi-character, line terminator.
-            debug_assert_eq!(buffer[buffer_offset - 1], CSV_CORE_TERMINATOR_SENTINEL);
+            assert_eq!(buffer[buffer_offset - 1], CSV_CORE_TERMINATOR_SENTINEL);
             let mut output = buffer[..buffer_offset - 1].to_vec();
             output.extend_from_slice(self.dialect.lineterminator.as_bytes());
 
