@@ -22,11 +22,6 @@ pub type PyInterpreterState = Interpreter;
 #[repr(C)]
 pub struct PyThreadState {
     pub interp: *mut PyInterpreterState,
-}
-
-#[repr(C)]
-struct SavedPyThreadState {
-    public: PyThreadState,
     vm: SavedThreadState,
 }
 
@@ -54,11 +49,11 @@ pub extern "C" fn PyGILState_Release(state: PyGILState_STATE) {
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
     let interp = PyInterpreterState_Get();
-    let state = Box::new(SavedPyThreadState {
-        public: PyThreadState { interp },
+    let state = Box::new(PyThreadState {
+        interp,
         vm: save_current_thread(),
     });
-    Box::into_raw(state).cast()
+    Box::into_raw(state)
 }
 
 #[unsafe(no_mangle)]
@@ -66,7 +61,7 @@ pub unsafe extern "C" fn PyEval_RestoreThread(state: *mut PyThreadState) {
     assert!(!state.is_null(), "PyEval_RestoreThread called with null");
     // SAFETY: PyEval_SaveThread returns this allocation and CPython's API
     // requires callers to restore exactly that thread state once.
-    let state = unsafe { Box::from_raw(state.cast::<SavedPyThreadState>()) };
+    let state = unsafe { Box::from_raw(state) };
     restore_current_thread(state.vm);
 }
 
