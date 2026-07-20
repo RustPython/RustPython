@@ -69,11 +69,12 @@ pub unsafe extern "C" fn PyUnicodeDecodeError_GetStart(
     start: *mut isize,
 ) -> c_int {
     with_vm(|vm| {
+        let exc = unsafe { &*exc };
         let start =
             NonNull::new(start).ok_or_else(|| vm.new_system_error("start must not be null"))?;
-        let value = unsafe { &*exc }.get_attr("start", vm)?;
+        let value = exc.get_attr("start", vm)?;
         let value = value.try_index(vm)?.try_to_primitive::<isize>(vm)?;
-        let object_len = unsafe { &*exc }.get_attr("object", vm)?.length(vm)?;
+        let object_len = exc.get_attr("object", vm)?.length(vm)?;
         let value = if object_len == 0 {
             0
         } else {
