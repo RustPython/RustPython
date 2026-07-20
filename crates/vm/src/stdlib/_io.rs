@@ -943,7 +943,7 @@ mod _io {
                     None => {
                         // BlockingIOError(errno, msg, characters_written=0)
                         return Err(vm.invoke_exception(
-                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            vm.ctx.exceptions.blocking_io_error,
                             vec![
                                 vm.new_pyobj(EAGAIN),
                                 vm.new_pyobj("write could not complete without blocking"),
@@ -1154,7 +1154,7 @@ mod _io {
                     self.write_end += avail as Offset;
                     self.pos += avail as Offset;
                     return Err(vm.invoke_exception(
-                        vm.ctx.exceptions.blocking_io_error.to_owned(),
+                        vm.ctx.exceptions.blocking_io_error,
                         vec![
                             vm.new_pyobj(EAGAIN),
                             vm.new_pyobj("write could not complete without blocking"),
@@ -1200,7 +1200,7 @@ mod _io {
                         // BlockingIOError(errno, msg, characters_written)
                         let chars_written = written + buffer_len;
                         return Err(vm.invoke_exception(
-                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            vm.ctx.exceptions.blocking_io_error,
                             vec![
                                 vm.new_pyobj(EAGAIN),
                                 vm.new_pyobj("write could not complete without blocking"),
