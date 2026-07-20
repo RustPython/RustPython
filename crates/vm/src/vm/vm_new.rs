@@ -894,7 +894,7 @@ impl VirtualMachine {
     }
 
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
-        let stop_iteration_error = self.ctx.exceptions.stop_iteration.to_owned();
+        let stop_iteration_error = self.ctx.exceptions.stop_iteration;
         let args = if let Some(value) = value {
             vec![value]
         } else {

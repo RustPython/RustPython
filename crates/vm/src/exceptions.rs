@@ -353,11 +353,11 @@ impl VirtualMachine {
 
     pub fn invoke_exception(
         &self,
-        cls: PyTypeRef,
+        cls: &Py<PyType>,
         args: Vec<PyObjectRef>,
     ) -> PyResult<PyBaseExceptionRef> {
         // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
-        let res = PyType::call(&cls, args.into_args(self), self)?;
+        let res = PyType::call(cls, args.into_args(self), self)?;
         res.downcast::<PyBaseException>().map_err(|obj| {
             self.new_type_error(format!(
                 "calling {} should have returned an instance of BaseException, not {}",
@@ -444,7 +444,7 @@ impl TryFromObject for ExceptionCtor {
 impl ExceptionCtor {
     pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
         match self {
-            Self::Class(cls) => vm.invoke_exception(cls, vec![]),
+            Self::Class(cls) => vm.invoke_exception(&cls, vec![]),
             Self::Instance(exc) => Ok(exc),
         }
     }
@@ -472,7 +472,7 @@ impl ExceptionCtor {
                     exc @ PyBaseException => exc.args().to_vec(),
                     obj => vec![obj],
                 });
-                vm.invoke_exception(cls, args)
+                vm.invoke_exception(&cls, args)
             }
         }
     }
@@ -2101,7 +2101,7 @@ pub(super) mod types {
                         .downcast_ref::<PyInt>()
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                        .and_then(|typ| vm.invoke_exception(typ.to_owned(), args_vec).ok())
+                        .and_then(|typ| vm.invoke_exception(typ, args_vec).ok())
                     {
                         return error.to_pyresult(vm);
                     }
