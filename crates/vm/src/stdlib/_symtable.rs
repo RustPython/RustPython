@@ -9,9 +9,7 @@ mod _symtable {
         types::Representable,
     };
     use alloc::fmt;
-    use rustpython_codegen::symboltable::{
-        CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
-    };
+    use rustpython_codegen::symboltable::{CompilerScope, SymbolFlags, SymbolScope, SymbolTable};
 
     /// [CPython's `SCOPE_OFFSET`](https://github.com/python/cpython/blob/v3.14.6/Include/internal/pycore_symtable.h#L176)
     const SCOPE_OFFSET: i32 = 12;
@@ -184,15 +182,6 @@ mod _symtable {
         }
 
         #[pygetset]
-        fn identifiers(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-            self.symtable
-                .symbols
-                .keys()
-                .map(|s| vm.ctx.new_str(s.as_str()).into())
-                .collect()
-        }
-
-        #[pygetset]
         fn symbols(&self, vm: &VirtualMachine) -> PyDictRef {
             let dict = vm.ctx.new_dict();
             for (name, symbol) in &self.symtable.symbols {
@@ -218,108 +207,6 @@ mod _symtable {
                 zelf.id(),
                 zelf.symtable.line_number
             ))
-        }
-    }
-
-    #[pyattr]
-    #[pyclass(name = "Symbol")]
-    #[derive(PyPayload)]
-    struct PySymbol {
-        symbol: Symbol,
-        namespaces: Vec<SymbolTable>,
-        is_top_scope: bool,
-    }
-
-    impl fmt::Debug for PySymbol {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "Symbol()")
-        }
-    }
-
-    #[pyclass]
-    impl PySymbol {
-        #[pymethod]
-        fn get_name(&self) -> String {
-            self.symbol.name.clone()
-        }
-
-        #[pymethod]
-        const fn is_global(&self) -> bool {
-            self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
-        }
-
-        #[pymethod]
-        const fn is_declared_global(&self) -> bool {
-            matches!(self.symbol.scope, SymbolScope::GlobalExplicit)
-        }
-
-        #[pymethod]
-        const fn is_local(&self) -> bool {
-            self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
-        }
-
-        #[pymethod]
-        const fn is_imported(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::DEF_IMPORT)
-        }
-
-        #[pymethod]
-        const fn is_nested(&self) -> bool {
-            // TODO
-            false
-        }
-
-        #[pymethod]
-        const fn is_nonlocal(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::DEF_NONLOCAL)
-        }
-
-        #[pymethod]
-        const fn is_referenced(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::USE)
-        }
-
-        #[pymethod]
-        const fn is_assigned(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::DEF_LOCAL)
-        }
-
-        #[pymethod]
-        const fn is_parameter(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::DEF_PARAM)
-        }
-
-        #[pymethod]
-        const fn is_free(&self) -> bool {
-            matches!(self.symbol.scope, SymbolScope::Free)
-        }
-
-        #[pymethod]
-        const fn is_namespace(&self) -> bool {
-            !self.namespaces.is_empty()
-        }
-
-        #[pymethod]
-        const fn is_annotated(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::DEF_ANNOT)
-        }
-
-        #[pymethod]
-        fn get_namespaces(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-            self.namespaces
-                .iter()
-                .map(|table| to_py_symbol_table(table.clone()).into_pyobject(vm))
-                .collect()
-        }
-
-        #[pymethod]
-        fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
-            if self.namespaces.len() != 1 {
-                return Err(vm.new_value_error("namespace is bound to multiple namespaces"));
-            }
-            Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
-                .into_ref(&vm.ctx)
-                .into())
         }
     }
 }

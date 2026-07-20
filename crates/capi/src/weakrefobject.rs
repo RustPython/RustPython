@@ -20,8 +20,6 @@ pub unsafe extern "C" fn PyWeakref_GetRef(
         let reference = unsafe { &*reference };
         let upgraded = if let Some(weak) = reference.downcast_ref::<PyWeak>() {
             weak.upgrade()
-        } else if let Some(proxy) = reference.downcast_ref::<PyWeakProxy>() {
-            proxy.get_weak().upgrade()
         } else {
             return Err(vm.new_type_error("expected a weakref"));
         };

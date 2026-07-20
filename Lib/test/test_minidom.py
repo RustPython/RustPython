@@ -553,7 +553,6 @@ class MinidomTest(unittest.TestCase):
         self.assertEqual(str(node), repr(node))
         dom.unlink()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testWriteXML(self):
         str = '<?xml version="1.0" ?><a b="c"/>'
         dom = parseString(str)
@@ -601,7 +600,6 @@ class MinidomTest(unittest.TestCase):
                 'lflf="&#10;&#10;" '
                 'ws="&#9;&#10;&#13; "/>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testAltNewline(self):
         str = '<?xml version="1.0" ?>\n<a b="c"/>\n'
         dom = parseString(str)
@@ -705,7 +703,6 @@ class MinidomTest(unittest.TestCase):
 
     def testAttrListKeysNS(self): pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testRemoveNamedItem(self):
         doc = parseString("<doc a=''/>")
         e = doc.documentElement
@@ -715,7 +712,6 @@ class MinidomTest(unittest.TestCase):
         self.assertTrue(a1.isSameNode(a2))
         self.assertRaises(xml.dom.NotFoundErr, attrs.removeNamedItem, "a")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testRemoveNamedItemNS(self):
         doc = parseString("<doc xmlns:a='http://xml.python.org/' a:b=''/>")
         e = doc.documentElement
@@ -788,7 +784,6 @@ class MinidomTest(unittest.TestCase):
         root.setAttribute("added", "VALUE")
         return dom, clone
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneElementShallow(self):
         dom, clone = self._setupCloneElement(0)
         self.assertEqual(len(clone.childNodes), 0)
@@ -940,11 +935,9 @@ class MinidomTest(unittest.TestCase):
         self.confirm(clone.specified,
                 testName + ": cloned attribute must have specified == True")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneAttributeShallow(self):
         self.check_clone_attribute(0, "testCloneAttributeShallow")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testCloneAttributeDeep(self):
         self.check_clone_attribute(1, "testCloneAttributeDeep")
 
@@ -1336,7 +1329,6 @@ class MinidomTest(unittest.TestCase):
         self.assertRaises(xml.dom.WrongDocumentErr, doc2.renameNode, node,
                           xml.dom.EMPTY_NAMESPACE, "foo")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testRenameAttribute(self):
         doc = parseString("<doc a='v'/>")
         elem = doc.documentElement
@@ -1541,7 +1533,6 @@ class MinidomTest(unittest.TestCase):
         self.confirm(text is None
                 and len(elem.childNodes) == 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSchemaType(self):
         doc = parseString(
             "<!DOCTYPE doc [\n"
@@ -1575,7 +1566,6 @@ class MinidomTest(unittest.TestCase):
             self.confirm(hasattr(t, "name")
                     and t.namespace == xml.dom.EMPTY_NAMESPACE)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSetIdAttribute(self):
         doc = parseString("<doc a1='v' a2='w'/>")
         e = doc.documentElement
@@ -1607,7 +1597,6 @@ class MinidomTest(unittest.TestCase):
         self.confirm(e.isSameNode(doc.getElementById("w"))
                 and a2.isId)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSetIdAttributeNS(self):
         NS1 = "http://xml.python.org/ns1"
         NS2 = "http://xml.python.org/ns2"
@@ -1644,7 +1633,6 @@ class MinidomTest(unittest.TestCase):
         self.confirm(e.isSameNode(doc.getElementById("w"))
                 and a2.isId)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testSetIdAttributeNode(self):
         NS1 = "http://xml.python.org/ns1"
         NS2 = "http://xml.python.org/ns2"
@@ -1766,7 +1754,6 @@ class MinidomTest(unittest.TestCase):
         pi = doc.createProcessingInstruction("y", "z")
         pi.nodeValue = "crash"
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_minidom_attribute_order(self):
         xml_str = '<?xml version="1.0" ?><curriculum status="public" company="example"/>'
         doc = parseString(xml_str)
@@ -1774,13 +1761,11 @@ class MinidomTest(unittest.TestCase):
         doc.writexml(output)
         self.assertEqual(output.getvalue(), xml_str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_toxml_with_attributes_ordered(self):
         xml_str = '<?xml version="1.0" ?><curriculum status="public" company="example"/>'
         doc = parseString(xml_str)
         self.assertEqual(doc.toxml(), xml_str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_toprettyxml_with_attributes_ordered(self):
         xml_str = '<?xml version="1.0" ?><curriculum status="public" company="example"/>'
         doc = parseString(xml_str)

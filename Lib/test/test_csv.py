@@ -276,7 +276,6 @@ class Test_Csv(unittest.TestCase):
                                      f'1,2{lineterminator}'
                                      f'"\r","\n"{lineterminator}')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_iterable(self):
         self._write_test(iter(['a', 1, 'p,q']), 'a,1,"p,q"')
         self._write_test(iter(['a', 1, None]), 'a,1,')
@@ -319,7 +318,6 @@ class Test_Csv(unittest.TestCase):
             self.assertEqual(fileobj.read(), 'a\r\n""\r\n')
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_empty_fields(self):
         self._write_test((), '')
         self._write_test([''], '""')
@@ -473,7 +471,6 @@ class Test_Csv(unittest.TestCase):
         self._read_test(['1\\.5,\\.5,"\\.5"'], [[1.5, 0.5, ".5"]],
                         quoting=csv.QUOTE_STRINGS, escapechar='\\')
 
-    @unittest.skip("TODO: RUSTPYTHON; slice index starts at 1 but ends at 0")
     def test_read_skipinitialspace(self):
         self._read_test(['no space, space,  spaces,\ttab'],
                         [['no space', 'space', 'spaces', '\ttab']],
@@ -570,7 +567,6 @@ class Test_Csv(unittest.TestCase):
                         self.assertEqual(row, rows[i])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised
     def test_reader_reentrant_iterator(self):
         # gh-145105: re-entering the reader from the iterator must not crash.
         class ReentrantIter:

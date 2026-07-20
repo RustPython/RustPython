@@ -7,9 +7,6 @@ pub use libc::{
     RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK, c_long, rlim_t, rlimit, timeval,
 };
 
-#[cfg(target_os = "android")]
-pub use libc::RLIM_NLIMITS;
-
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
 pub use libc::{RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_RTPRIO, RLIMIT_SIGPENDING};
 
@@ -35,6 +32,9 @@ pub use libc::RUSAGE_THREAD;
 
 #[cfg(not(any(target_os = "windows", target_os = "redox")))]
 pub use libc::{RUSAGE_CHILDREN, RUSAGE_SELF};
+
+#[cfg(target_os = "android")]
+pub const RLIM_NLIMITS: libc::c_int = 16;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RUsage {

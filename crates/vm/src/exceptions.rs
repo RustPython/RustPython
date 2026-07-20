@@ -353,11 +353,11 @@ impl VirtualMachine {
 
     pub fn invoke_exception(
         &self,
-        cls: PyTypeRef,
+        cls: &Py<PyType>,
         args: Vec<PyObjectRef>,
     ) -> PyResult<PyBaseExceptionRef> {
         // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
-        let res = PyType::call(&cls, args.into_args(self), self)?;
+        let res = PyType::call(cls, args.into_args(self), self)?;
         res.downcast::<PyBaseException>().map_err(|obj| {
             self.new_type_error(format!(
                 "calling {} should have returned an instance of BaseException, not {}",
@@ -444,7 +444,7 @@ impl TryFromObject for ExceptionCtor {
 impl ExceptionCtor {
     pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
         match self {
-            Self::Class(cls) => vm.invoke_exception(cls, vec![]),
+            Self::Class(cls) => vm.invoke_exception(&cls, vec![]),
             Self::Instance(exc) => Ok(exc),
         }
     }
@@ -472,7 +472,7 @@ impl ExceptionCtor {
                     exc @ PyBaseException => exc.args().to_vec(),
                     obj => vec![obj],
                 });
-                vm.invoke_exception(cls, args)
+                vm.invoke_exception(&cls, args)
             }
         }
     }
@@ -965,9 +965,7 @@ impl ExceptionZoo {
 
         extend_exception!(PyException, ctx, excs.exception_type);
 
-        extend_exception!(PyStopIteration, ctx, excs.stop_iteration, {
-            "value" => ctx.none(),
-        });
+        extend_exception!(PyStopIteration, ctx, excs.stop_iteration);
         extend_exception!(PyStopAsyncIteration, ctx, excs.stop_async_iteration);
 
         extend_exception!(PyArithmeticError, ctx, excs.arithmetic_error);
@@ -1702,23 +1700,79 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyException(PyBaseException);
 
-    #[pyexception(name, base = PyException, ctx = "stop_iteration")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PyStopIteration(PyException);
+    #[pyexception(name, base = PyException, ctx = "stop_iteration", traverse = "manual")]
+    #[repr(C)]
+    pub struct PyStopIteration {
+        base: PyException,
+        value: PyAtomicRef<Option<PyObject>>,
+    }
 
-    #[pyexception(with(Initializer))]
-    impl PyStopIteration {}
+    impl crate::class::PySubclass for PyStopIteration {
+        type Base = PyException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    impl core::fmt::Debug for PyStopIteration {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PyStopIteration").finish_non_exhaustive()
+        }
+    }
+
+    unsafe impl Traverse for PyStopIteration {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.0.traverse(tracer_fn);
+            if let Some(obj) = self.value.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
+
+    impl Constructor for PyStopIteration {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let base_exception = PyBaseException::new(args.args, vm);
+            Ok(Self {
+                base: PyException(base_exception),
+                value: None.into(),
+            })
+        }
+    }
 
     impl Initializer for PyStopIteration {
         type Args = FuncArgs;
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.set_attr("value", vm.unwrap_or_none(args.args.first().cloned()), vm)?;
+            let value = match args.args.len() {
+                0 => vm.ctx.none(),
+                _ => args.args[0].clone(),
+            };
+            PyBaseException::slot_init(zelf.clone(), args, vm)?;
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
+            exc.value.swap_to_temporary_refs(Some(value), vm);
             Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is defined")
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
+    impl PyStopIteration {
+        #[pygetset]
+        fn value(&self) -> Option<PyObjectRef> {
+            self.value.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_value(&self, setter_value: PySetterValue, vm: &VirtualMachine) {
+            let value = match setter_value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.value.swap_to_temporary_refs(value, vm);
         }
     }
 
@@ -2047,7 +2101,7 @@ pub(super) mod types {
                         .downcast_ref::<PyInt>()
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                        .and_then(|typ| vm.invoke_exception(typ.to_owned(), args_vec).ok())
+                        .and_then(|typ| vm.invoke_exception(typ, args_vec).ok())
                     {
                         return error.to_pyresult(vm);
                     }

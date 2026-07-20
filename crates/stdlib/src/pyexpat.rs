@@ -43,7 +43,8 @@ macro_rules! create_bool_property {
 #[pymodule(name = "pyexpat")]
 mod _pyexpat {
     use crate::vm::{
-        Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
         function::{ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg},
@@ -355,19 +356,30 @@ mod _pyexpat {
                     XmlEvent::StartElement {
                         name, attributes, ..
                     } => {
-                        let dict = vm.ctx.new_dict();
-                        for attribute in attributes {
-                            let attr_name = self.make_name(&attribute.name);
-                            dict.set_item(
-                                attr_name.as_str(),
-                                vm.ctx.new_str(attribute.value).into(),
-                                vm,
-                            )
-                            .unwrap();
-                        }
+                        let ordered = self.ordered_attributes.read().is(&vm.ctx.true_value);
+                        // Build the container.
+                        let attrs: PyObjectRef = if ordered {
+                            let mut items = Vec::with_capacity(attributes.len() * 2);
+                            for attribute in attributes {
+                                items.push(vm.ctx.new_str(self.make_name(&attribute.name)).into());
+                                items.push(vm.ctx.new_str(attribute.value).into());
+                            }
+                            vm.ctx.new_list(items).into()
+                        } else {
+                            let dict = vm.ctx.new_dict();
+                            for attribute in attributes {
+                                dict.set_item(
+                                    self.make_name(&attribute.name).as_str(),
+                                    vm.ctx.new_str(attribute.value).into(),
+                                    vm,
+                                )
+                                .unwrap();
+                            }
+                            dict.into()
+                        };
 
                         let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.start_element, (name_str, dict));
+                        invoke_handler(vm, &self.start_element, (name_str, attrs));
                     }
                     XmlEvent::EndElement { name, .. } => {
                         let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);

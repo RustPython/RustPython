@@ -159,6 +159,7 @@ function onReady() {
 
     terminalVM = rp.vmStore.init('term_vm');
     terminalVM.setStdout((data) => readline.print(data));
+    terminalVM.setStderr((data) => readline.print(data));
     readPrompts().catch((err) => console.error(err));
 
     // so that the test knows that we're ready

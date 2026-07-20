@@ -147,10 +147,7 @@ pub unsafe extern "C" fn PyErr_SetString(exception: *mut PyObject, message: *con
         let exc_type = unsafe { &*exception }.try_downcast_ref::<PyType>(vm)?;
         let message = unsafe { message.try_as_str(vm) }?;
 
-        let exc = vm.invoke_exception(
-            exc_type.to_owned(),
-            vec![vm.ctx.new_str(message).into_object()],
-        )?;
+        let exc = vm.invoke_exception(exc_type, vec![vm.ctx.new_str(message).into_object()])?;
 
         Err(exc)
     })

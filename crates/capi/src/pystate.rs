@@ -2,9 +2,9 @@ use crate::get_main_interpreter;
 use crate::pylifecycle::request_vm_from_interpreter;
 use crate::util::FfiResult;
 use core::ffi::c_int;
-use core::ptr;
 use rustpython_vm::vm::thread::{
-    CurrentVmAttachState, attach_current_thread, release_current_thread, with_current_vm,
+    CurrentVmAttachState, SavedThreadState, attach_current_thread, release_current_thread,
+    restore_current_thread, save_current_thread, with_current_vm,
 };
 use rustpython_vm::{Interpreter, VirtualMachine};
 
@@ -22,6 +22,7 @@ pub type PyInterpreterState = Interpreter;
 #[repr(C)]
 pub struct PyThreadState {
     pub interp: *mut PyInterpreterState,
+    vm: SavedThreadState,
 }
 
 /// Make sure this thread has a running vm attached. This only creates a new vm if we don't already
@@ -47,11 +48,22 @@ pub extern "C" fn PyGILState_Release(state: PyGILState_STATE) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyEval_SaveThread() -> *mut PyThreadState {
-    ptr::null_mut()
+    let interp = PyInterpreterState_Get();
+    let state = Box::new(PyThreadState {
+        interp,
+        vm: save_current_thread(),
+    });
+    Box::into_raw(state)
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn PyEval_RestoreThread(_state: *mut PyThreadState) {}
+pub unsafe extern "C" fn PyEval_RestoreThread(state: *mut PyThreadState) {
+    assert!(!state.is_null(), "PyEval_RestoreThread called with null");
+    // SAFETY: PyEval_SaveThread returns this allocation and CPython's API
+    // requires callers to restore exactly that thread state once.
+    let state = unsafe { Box::from_raw(state) };
+    restore_current_thread(state.vm);
+}
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyInterpreterState_Get() -> *mut PyInterpreterState {
@@ -81,7 +93,7 @@ mod tests {
 
     #[test]
     fn new_thread() {
-        Python::attach(|_py| {
+        Python::attach(|py| {
             with_current_vm(|_vm| {
                 assert!(
                     current_vm_is_set(),
@@ -89,18 +101,24 @@ mod tests {
                 )
             });
 
-            std::thread::spawn(move || {
+            let handle = std::thread::spawn(move || {
                 Python::attach(|_py| {
-                    with_current_vm(|_vm| {
+                    with_current_vm(|vm| {
                         assert!(
                             current_vm_is_set(),
                             "This thread did not have a vm attached"
-                        )
+                        );
+                        vm.state.stop_the_world.stop_the_world(vm);
+                        vm.state.stop_the_world.start_the_world(vm);
                     });
                 });
-            })
-            .join()
-            .unwrap();
+            });
+
+            py.detach(|| {
+                assert!(!current_vm_is_set());
+                handle.join().unwrap();
+            });
+            assert!(current_vm_is_set());
         })
     }
 
