@@ -62,17 +62,26 @@ mod _csv {
 
     #[pyattr]
     #[pyclass(module = "csv", name = "Dialect")]
-    #[derive(Debug, PyPayload, Clone, Copy)]
+    #[derive(Debug, PyPayload, Clone)]
     struct PyDialect {
         delimiter: u8,
         quotechar: Option<u8>,
         escapechar: Option<u8>,
         doublequote: bool,
         skipinitialspace: bool,
-        lineterminator: csv_core::Terminator,
+        lineterminator: String,
         quoting: QuoteStyle,
         strict: bool,
     }
+
+    /// Placeholder single-byte terminator for the csv-core writer paths
+    /// (`QUOTE_ALL` / `QUOTE_NONNUMERIC`). csv-core can only emit a single byte
+    /// for the record terminator, but its `terminator()` call also performs
+    /// essential bookkeeping — closing the final quote and emitting `""` for an
+    /// empty record — that must not be bypassed. So the writer emits this
+    /// sentinel byte, and `writerow` strips it and appends the real (possibly
+    /// multi-character) line terminator afterwards.
+    const CSV_CORE_TERMINATOR_SENTINEL: u8 = b'\n';
 
     impl Constructor for PyDialect {
         type Args = PyObjectRef;
@@ -106,11 +115,7 @@ mod _csv {
 
         #[pygetset]
         fn lineterminator(&self, vm: &VirtualMachine) -> PyRef<PyStr> {
-            match self.lineterminator {
-                Terminator::CRLF => vm.ctx.new_str("\r\n".to_string()),
-                Terminator::Any(t) => vm.ctx.new_str(format!("{}", t as char)),
-                _ => unreachable!(),
-            }
+            vm.ctx.new_str(self.lineterminator.clone())
         }
 
         #[pygetset]
@@ -215,19 +220,20 @@ mod _csv {
         })
     }
 
-    fn prase_lineterminator_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Terminator> {
+    fn prase_lineterminator_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<String> {
         match_class!(match obj.get_attr("lineterminator", vm)? {
             s @ PyStr => {
-                Ok(if s.as_bytes().eq(b"\r\n") {
-                    csv_core::Terminator::CRLF
-                } else if let Some(t) = s.as_bytes().first() {
-                    // Due to limitations in the current implementation within csv_core
-                    // the support for multiple characters in lineterminator is not complete.
-                    // only capture the first character
-                    csv_core::Terminator::Any(*t)
-                } else {
+                // Store the full line terminator string. CPython accepts an
+                // arbitrary-length terminator; the manual writer paths emit it
+                // verbatim and the csv-core writer path appends it after a
+                // sentinel terminator (see `writerow`).
+                let value = s
+                    .to_str()
+                    .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))?;
+                if value.is_empty() {
                     return Err(new_csv_error(vm, r#""lineterminator" must be a string"#));
-                })
+                }
+                Ok(value.to_owned())
             }
             attr => {
                 Err(vm.new_type_error(format!(
@@ -329,7 +335,7 @@ mod _csv {
         let g = GLOBAL_HASHMAP.lock();
 
         if let Some(dialect) = g.get(name.as_str()) {
-            return Ok(*dialect);
+            return Ok(dialect.clone());
         }
 
         Err(new_csv_error(vm, "unknown dialect"))
@@ -525,7 +531,7 @@ mod _csv {
         escapechar: Option<u8>,
         doublequote: Option<bool>,
         skipinitialspace: Option<bool>,
-        lineterminator: Option<csv_core::Terminator>,
+        lineterminator: Option<String>,
         quoting: Option<QuoteStyle>,
         strict: Option<bool>,
     }
@@ -614,15 +620,16 @@ mod _csv {
             };
 
             if let Some(lineterminator) = args.kwargs.swap_remove("lineterminator") {
-                res.lineterminator = Some(csv_core::Terminator::Any(
-                    lineterminator
-                        .try_to_value::<&str>(vm)?
-                        .bytes()
-                        .exactly_one()
-                        .map_err(|_| {
-                            vm.new_type_error(r#""lineterminator" must be a 1-character string"#)
-                        })?,
-                ))
+                let value = lineterminator.try_to_value::<&str>(vm)?;
+                // Preserve the previous behavior of rejecting an empty terminator
+                // (full validation parity is deferred to a follow-up). Any
+                // non-empty string, including multi-character ones, is stored.
+                if value.is_empty() {
+                    return Err(vm
+                        .new_type_error(r#""lineterminator" must be a 1-character string"#)
+                        .into());
+                }
+                res.lineterminator = Some(value.to_owned());
             };
 
             if let Some(doublequote) = args.kwargs.swap_remove("doublequote") {
@@ -702,7 +709,7 @@ mod _csv {
     }
 
     impl FormatOptions {
-        const fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
+        fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
             macro_rules! check_and_fill {
                 ($res:ident, $e:ident) => {{
                     if let Some(t) = self.$e {
@@ -726,7 +733,9 @@ mod _csv {
             };
 
             check_and_fill!(res, quoting);
-            check_and_fill!(res, lineterminator);
+            if let Some(t) = &self.lineterminator {
+                res.lineterminator.clone_from(t);
+            };
             check_and_fill!(res, strict);
             res
         }
@@ -736,16 +745,16 @@ mod _csv {
                 DialectItem::Str(name) => {
                     let g = GLOBAL_HASHMAP.lock();
                     if let Some(dialect) = g.get(name) {
-                        Ok(self.update_py_dialect(*dialect))
+                        Ok(self.update_py_dialect(dialect.clone()))
                     } else {
                         Err(new_csv_error(vm, format!("{name} is not registered.")))
                     }
                     // TODO: Maybe need to update the obj from HashMap
                 }
-                DialectItem::Obj(o) => Ok(self.update_py_dialect(*o)),
+                DialectItem::Obj(o) => Ok(self.update_py_dialect(o.clone())),
                 DialectItem::None => {
                     let g = GLOBAL_HASHMAP.lock();
-                    let res = *g.get("excel").unwrap();
+                    let res = g.get("excel").unwrap().clone();
                     Ok(self.update_py_dialect(res))
                 }
             }
@@ -773,27 +782,6 @@ mod _csv {
             skipinitialspace
         }
 
-        fn get_lineterminator(&self) -> csv_core::Terminator {
-            let mut lineterminator = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        dialect.lineterminator
-                    } else {
-                        Terminator::CRLF
-                    }
-                }
-                DialectItem::Obj(obj) => obj.lineterminator,
-                _ => Terminator::CRLF,
-            };
-
-            if let Some(attr) = self.lineterminator {
-                lineterminator = attr
-            }
-
-            lineterminator
-        }
-
         fn get_quoting(&self) -> QuoteStyle {
             let mut quoting = match &self.dialect {
                 DialectItem::Str(name) => {
@@ -817,11 +805,11 @@ mod _csv {
 
         fn to_reader(&self) -> csv_core::Reader {
             let dialect = match &self.dialect {
-                DialectItem::Str(name) => GLOBAL_HASHMAP.lock().get(name).copied(),
-                DialectItem::Obj(obj) => Some(*obj),
+                DialectItem::Str(name) => GLOBAL_HASHMAP.lock().get(name).cloned(),
+                DialectItem::Obj(obj) => Some(obj.clone()),
                 DialectItem::None => {
                     let g = GLOBAL_HASHMAP.lock();
-                    Some(*g.get("excel").unwrap())
+                    Some(g.get("excel").unwrap().clone())
                 }
             };
 
@@ -853,10 +841,6 @@ mod _csv {
                 reader = reader.quoting(self.quoting != Some(QuoteStyle::None));
             }
 
-            if let Some(t) = self.lineterminator {
-                reader = reader.terminator(t);
-            }
-
             if let Some(t) = self.doublequote {
                 reader = reader.double_quote(t);
             }
@@ -865,7 +849,12 @@ mod _csv {
                 reader = reader.escape(self.escapechar);
             }
 
-            reader = reader.terminator(self.lineterminator.unwrap_or(Terminator::CRLF));
+            // CPython's reader ignores the dialect's `lineterminator` entirely and
+            // only recognizes `\r`, `\n`, and `\r\n` as record separators. Match
+            // that: always use CRLF mode. Feeding a multi-byte terminator's first
+            // byte here would otherwise split records mid-UTF-8 and raise a
+            // UnicodeDecodeError.
+            reader = reader.terminator(Terminator::CRLF);
 
             reader.build()
         }
@@ -879,7 +868,7 @@ mod _csv {
                         let mut builder = builder
                             .delimiter(dialect.delimiter)
                             .double_quote(dialect.doublequote)
-                            .terminator(dialect.lineterminator);
+                            .terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
 
                         if let Some(t) = dialect.quotechar {
                             builder = builder.quote(t);
@@ -896,7 +885,7 @@ mod _csv {
                     let mut builder = builder
                         .delimiter(obj.delimiter)
                         .double_quote(obj.doublequote)
-                        .terminator(obj.lineterminator);
+                        .terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
 
                     if let Some(t) = obj.quotechar {
                         builder = builder.quote(t);
@@ -919,7 +908,7 @@ mod _csv {
                 writer = writer.double_quote(t);
             }
 
-            writer = writer.terminator(self.get_lineterminator());
+            writer = writer.terminator(Terminator::Any(CSV_CORE_TERMINATOR_SENTINEL));
 
             if let Some(e) = self.escapechar {
                 writer = writer.escape(e);
@@ -964,8 +953,8 @@ mod _csv {
         }
 
         #[pygetset]
-        const fn dialect(&self, _vm: &VirtualMachine) -> PyDialect {
-            self.dialect
+        fn dialect(&self, _vm: &VirtualMachine) -> PyDialect {
+            self.dialect.clone()
         }
     }
 
@@ -999,7 +988,7 @@ mod _csv {
             &mut self,
             input: &[u8],
             index: usize,
-            dialect: PyDialect,
+            dialect: &PyDialect,
             unquoted_escape: bool,
         ) -> (QuoteScanEvent, usize) {
             let byte = input[index];
@@ -1052,7 +1041,7 @@ mod _csv {
 
     fn read_quote_record(
         input: &[u8],
-        dialect: PyDialect,
+        dialect: &PyDialect,
         field_limit: isize,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
@@ -1164,13 +1153,13 @@ mod _csv {
             ) || (zelf.dialect.quoting == QuoteStyle::None
                 && zelf.dialect.escapechar.is_some());
             if use_quote_record {
-                let out = read_quote_record(input, zelf.dialect, field_limit, vm)?;
+                let out = read_quote_record(input, &zelf.dialect, field_limit, vm)?;
                 *line_num += 1;
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()));
             }
 
             #[inline]
-            fn trim_initial_spaces(input: &[u8], dialect: PyDialect) -> Vec<u8> {
+            fn trim_initial_spaces(input: &[u8], dialect: &PyDialect) -> Vec<u8> {
                 let mut trimmed = Vec::with_capacity(input.len());
                 let mut scan_state = QuoteScanState::new();
                 let mut index = 0;
@@ -1200,7 +1189,7 @@ mod _csv {
             }
 
             let input = if *skipinitialspace {
-                String::from_utf8(trim_initial_spaces(input, zelf.dialect)).unwrap()
+                String::from_utf8(trim_initial_spaces(input, &zelf.dialect)).unwrap()
             } else {
                 String::from_utf8(input.to_vec()).unwrap()
             };
@@ -1299,7 +1288,7 @@ mod _csv {
     fn write_quoted_field(
         output: &mut Vec<u8>,
         data: &[u8],
-        dialect: PyDialect,
+        dialect: &PyDialect,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let quotechar = dialect
@@ -1331,7 +1320,7 @@ mod _csv {
     fn write_unquoted_field(
         output: &mut Vec<u8>,
         data: &[u8],
-        dialect: PyDialect,
+        dialect: &PyDialect,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for &byte in data {
@@ -1346,36 +1335,35 @@ mod _csv {
         Ok(())
     }
 
-    fn field_needs_quotes(data: &[u8], dialect: PyDialect) -> bool {
+    fn field_needs_quotes(data: &[u8], dialect: &PyDialect) -> bool {
         data.iter().any(|&byte| {
             byte == dialect.delimiter
                 || dialect.quotechar == Some(byte)
                 || matches!(byte, b'\r' | b'\n')
-                || matches!(dialect.lineterminator, Terminator::Any(t) if byte == t)
+                // CPython quotes a field that contains any character of the line
+                // terminator. This byte-wise `contains` matches CPython for
+                // ASCII terminators; non-ASCII terminators are not fully handled.
+                || dialect.lineterminator.as_bytes().contains(&byte)
         })
     }
 
-    fn field_needs_escape(byte: u8, dialect: PyDialect) -> bool {
+    fn field_needs_escape(byte: u8, dialect: &PyDialect) -> bool {
         byte == dialect.delimiter
             || dialect.quotechar == Some(byte)
             || dialect.escapechar == Some(byte)
             || matches!(byte, b'\r' | b'\n')
-            || matches!(dialect.lineterminator, Terminator::Any(t) if byte == t)
+            || dialect.lineterminator.as_bytes().contains(&byte)
     }
 
-    fn write_lineterminator(output: &mut Vec<u8>, terminator: Terminator) {
-        match terminator {
-            Terminator::CRLF => output.extend_from_slice(b"\r\n"),
-            Terminator::Any(byte) => output.push(byte),
-            _ => unreachable!(),
-        }
+    fn write_lineterminator(output: &mut Vec<u8>, terminator: &str) {
+        output.extend_from_slice(terminator.as_bytes());
     }
 
     #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl Writer {
         #[pygetset(name = "dialect")]
-        const fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
-            self.dialect
+        fn get_dialect(&self, _vm: &VirtualMachine) -> PyDialect {
+            self.dialect.clone()
         }
 
         fn writerow_quoted_strings(&self, row: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -1406,12 +1394,12 @@ mod _csv {
                 });
 
                 let should_quote = match self.dialect.quoting {
-                    QuoteStyle::Strings => is_str || field_needs_quotes(data, self.dialect),
+                    QuoteStyle::Strings => is_str || field_needs_quotes(data, &self.dialect),
                     QuoteStyle::Notnull => !is_none,
                     _ => unreachable!(),
                 };
                 if should_quote {
-                    write_quoted_field(&mut output, data, self.dialect, vm)?;
+                    write_quoted_field(&mut output, data, &self.dialect, vm)?;
                 } else if single_field && data.is_empty() {
                     return Err(new_csv_error(
                         vm,
@@ -1422,7 +1410,7 @@ mod _csv {
                 }
             }
 
-            write_lineterminator(&mut output, self.dialect.lineterminator);
+            write_lineterminator(&mut output, &self.dialect.lineterminator);
             let s = core::str::from_utf8(&output)
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
             self.write.call((s,), vm)
@@ -1464,10 +1452,10 @@ mod _csv {
                     ));
                 }
 
-                write_unquoted_field(&mut output, data, self.dialect, vm)?;
+                write_unquoted_field(&mut output, data, &self.dialect, vm)?;
             }
 
-            write_lineterminator(&mut output, self.dialect.lineterminator);
+            write_lineterminator(&mut output, &self.dialect.lineterminator);
 
             let s = core::str::from_utf8(&output)
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
@@ -1509,14 +1497,14 @@ mod _csv {
                 // terminator, regardless of which line terminator is
                 // configured. A row with a single empty field is also quoted
                 // so that it is not read back as an empty line.
-                if field_needs_quotes(data, self.dialect) || (single_field && data.is_empty()) {
-                    write_quoted_field(&mut output, data, self.dialect, vm)?;
+                if field_needs_quotes(data, &self.dialect) || (single_field && data.is_empty()) {
+                    write_quoted_field(&mut output, data, &self.dialect, vm)?;
                 } else {
                     output.extend_from_slice(data);
                 }
             }
 
-            write_lineterminator(&mut output, self.dialect.lineterminator);
+            write_lineterminator(&mut output, &self.dialect.lineterminator);
 
             let s = core::str::from_utf8(&output)
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
@@ -1592,7 +1580,15 @@ mod _csv {
                 handle_res!(writer.terminator(&mut buffer[buffer_offset..]));
             }
 
-            let s = core::str::from_utf8(&buffer[..buffer_offset])
+            // csv-core just emitted the single-byte sentinel terminator (after
+            // closing the final quote / emitting an empty record as needed).
+            // Drop that sentinel byte and append the real, possibly
+            // multi-character, line terminator.
+            debug_assert_eq!(buffer[buffer_offset - 1], CSV_CORE_TERMINATOR_SENTINEL);
+            let mut output = buffer[..buffer_offset - 1].to_vec();
+            output.extend_from_slice(self.dialect.lineterminator.as_bytes());
+
+            let s = core::str::from_utf8(&output)
                 .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
 
             self.write.call((s,), vm)
