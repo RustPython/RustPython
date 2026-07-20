@@ -17,6 +17,7 @@ mod _bz2 {
     };
     use alloc::fmt;
     use bzip2::{Decompress, Status, write::BzEncoder};
+    use core::mem;
     use rustpython_vm::convert::ToPyException;
     use std::io::Write;
 
@@ -155,7 +156,6 @@ mod _bz2 {
         }
     }
 
-    // TODO: return partial results from compress() instead of returning everything in flush()
     #[pyclass(with(Constructor))]
     impl BZ2Compressor {
         #[pymethod]
@@ -165,12 +165,12 @@ mod _bz2 {
                 return Err(vm.new_value_error("Compressor has been flushed"));
             }
 
-            // let CompressorState { flushed, encoder } = &mut *state;
             let CompressorState { encoder, .. } = &mut *state;
-
-            // TODO: handle Err
-            data.with_ref(|input_bytes| encoder.as_mut().unwrap().write_all(input_bytes).unwrap());
-            Ok(vm.ctx.new_bytes(Vec::new()))
+            let encoder = encoder.as_mut().unwrap();
+            data.with_ref(|input_bytes| encoder.write_all(input_bytes).unwrap());
+            // BzEncoder writes its pending output at the start of the next write.
+            assert_eq!(encoder.write(&[]).unwrap(), 0);
+            Ok(vm.ctx.new_bytes(mem::take(encoder.get_mut())))
         }
 
         #[pymethod]
