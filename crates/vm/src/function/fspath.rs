@@ -40,7 +40,7 @@ impl FsPath {
             if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
                 Ok(())
             } else {
-                Err(crate::exceptions::cstring_error(vm))
+                Err(crate::exceptions::nul_char_error(vm))
             }
         };
         let match1 = |obj: PyObjectRef| {
