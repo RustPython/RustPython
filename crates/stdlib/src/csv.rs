@@ -411,6 +411,7 @@ mod _csv {
                 skipinitialspace: options.get_skipinitialspace(),
                 delimiter: options.get_delimiter(),
                 line_num: 0,
+                generation: 0,
             }),
             dialect: options.result(vm)?,
         })
@@ -961,6 +962,7 @@ mod _csv {
         skipinitialspace: bool,
         delimiter: u8,
         line_num: u64,
+        generation: u64,
     }
 
     #[pyclass(no_attr, module = "_csv", name = "reader", traverse)]
@@ -1057,8 +1059,18 @@ mod _csv {
 
     impl IterNext for Reader {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let string = raise_if_stop!(zelf.iter.next(vm)?);
-            let string = string.downcast::<PyStr>().map_err(|obj| {
+            let generation = zelf.state.lock().generation;
+            let string_obj = raise_if_stop!(zelf.iter.next(vm)?);
+            let mut state = zelf.state.lock();
+            if state.generation != generation {
+                return Err(new_csv_error(
+                    vm,
+                    "iterator has already advanced the reader",
+                ));
+            }
+            state.generation += 1;
+
+            let string = string_obj.downcast::<PyStr>().map_err(|obj| {
                 new_csv_error(
                     vm,
                     format!(
@@ -1071,7 +1083,6 @@ mod _csv {
             if input.is_empty() || input.starts_with(b"\n") {
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(vec![]).into()));
             }
-            let mut state = zelf.state.lock();
             let ReadState {
                 buffer,
                 output_ends,
@@ -1079,6 +1090,7 @@ mod _csv {
                 skipinitialspace,
                 delimiter,
                 line_num,
+                generation: _,
             } = &mut *state;
 
             let mut input_offset = 0;
