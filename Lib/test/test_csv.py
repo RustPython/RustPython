@@ -568,7 +568,6 @@ class Test_Csv(unittest.TestCase):
                         self.assertEqual(row, rows[i])
 
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Error not raised
     def test_reader_reentrant_iterator(self):
         # gh-145105: re-entering the reader from the iterator must not crash.
         class ReentrantIter:
