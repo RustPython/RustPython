@@ -2161,7 +2161,7 @@ impl VirtualMachine {
         if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
             // once finalization starts,
             // non-main Python threads should stop running bytecode.
-            return Err(self.invoke_exception(self.ctx.exceptions.system_exit.to_owned(), vec![])?);
+            return Err(self.invoke_exception(self.ctx.exceptions.system_exit, vec![])?);
         }
 
         // Suspend this thread if stop-the-world is in progress

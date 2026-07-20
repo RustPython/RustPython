@@ -776,7 +776,7 @@ pub mod sys {
         } else {
             vec![status]
         };
-        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit.to_owned(), args)?;
+        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit, args)?;
         Err(exc)
     }
 
