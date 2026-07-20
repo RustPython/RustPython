@@ -5,7 +5,7 @@ use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;
 use core::str;
-use rustpython_vm::builtins::{PyStr, PyStrRef};
+use rustpython_vm::builtins::{PyBytesRef, PyStr, PyStrRef, PyUtf8StrRef};
 use rustpython_vm::common::wtf8::{CodePoint, Wtf8Buf};
 use rustpython_vm::convert::ToPyObject;
 use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine};
@@ -93,78 +93,50 @@ pub unsafe extern "C" fn PyUnicode_AsUTF8AndSize(
     })
 }
 
+fn encode_unicode(
+    vm: &VirtualMachine,
+    unicode: *mut PyObject,
+    encoding: &str,
+    errors: Option<PyUtf8StrRef>,
+) -> PyResult<PyBytesRef> {
+    let unicode = unsafe { &*unicode }
+        .try_downcast_ref::<PyStr>(vm)?
+        .to_owned();
+    vm.state
+        .codec_registry
+        .encode_text(unicode, encoding, errors, vm)
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsASCIIString(unicode: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "ascii", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "ascii", None))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsLatin1String(unicode: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "latin-1", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "latin-1", None))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsRawUnicodeEscapeString(
     unicode: *mut PyObject,
 ) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "raw-unicode-escape", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "raw-unicode-escape", None))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUTF16String(unicode: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "utf-16", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "utf-16", None))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUTF32String(unicode: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "utf-32", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "utf-32", None))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUnicodeEscapeString(unicode: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "unicode-escape", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "unicode-escape", None))
 }
 
 #[unsafe(no_mangle)]
@@ -174,28 +146,16 @@ pub unsafe extern "C" fn PyUnicode_AsEncodedString(
     errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
         let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
         let errors =
             unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
-        vm.state
-            .codec_registry
-            .encode_text(unicode, encoding, errors, vm)
+        encode_unicode(vm, unicode, encoding, errors)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUTF8String(unicode: *mut PyObject) -> *mut PyObject {
-    with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state
-            .codec_registry
-            .encode_text(unicode, "utf-8", None, vm)
-    })
+    with_vm(|vm| encode_unicode(vm, unicode, "utf-8", None))
 }
 
 #[unsafe(no_mangle)]
@@ -414,14 +374,11 @@ pub(crate) fn decode_fsdefault_and_size(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_EncodeFSDefault(unicode: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state.codec_registry.encode_text(
+        encode_unicode(
+            vm,
             unicode,
             vm.fs_encoding().as_str(),
             Some(vm.fs_encode_errors().to_owned()),
-            vm,
         )
     })
 }
