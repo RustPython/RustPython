@@ -219,6 +219,15 @@ def test_multichar_lineterminator():
     )
     assert nonnum.getvalue() == '"a",1!@#', nonnum.getvalue()
 
+    # A field that itself contains a line-break byte must be kept intact: the
+    # csv-core path drops only the trailing record terminator, not a byte from
+    # the field data.
+    embedded = io.StringIO()
+    csv.writer(embedded, lineterminator="!@#", quoting=csv.QUOTE_ALL).writerow(
+        ["x\ny", "z"]
+    )
+    assert embedded.getvalue() == '"x\ny","z"!@#', embedded.getvalue()
+
     # QUOTE_NONE escapes any byte of the terminator.
     none = io.StringIO()
     csv.writer(
