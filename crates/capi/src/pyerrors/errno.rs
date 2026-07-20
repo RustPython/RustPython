@@ -3,9 +3,8 @@ use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
 use core::ffi::{CStr, c_char};
 use core::ptr::NonNull;
+use rustpython_vm::PyResult;
 use rustpython_vm::builtins::PyType;
-use rustpython_vm::convert::ToPyObject;
-use rustpython_vm::{AsObject, PyResult};
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyErr_SetFromErrno(exc: *mut PyObject) -> *mut PyObject {
@@ -21,9 +20,6 @@ pub unsafe extern "C" fn PyErr_SetFromErrnoWithFilename(
 ) -> *mut PyObject {
     with_vm::<PyResult<Infallible>, _>(|vm| {
         let errno = rustpython_vm::host_env::os::get_errno();
-        if errno == libc::EINTR {
-            vm.check_signals()?;
-        }
 
         let filename = if filename.is_null() {
             None
@@ -34,23 +30,7 @@ pub unsafe extern "C" fn PyErr_SetFromErrnoWithFilename(
         };
 
         let exc_type = unsafe { &*exc }.try_downcast_ref::<PyType>(vm)?;
-        let msg = if errno == 0 {
-            vm.ctx.new_str("Error").into()
-        } else {
-            let msg = rustpython_vm::host_env::errno::strerror_string(errno)
-                .unwrap_or_else(|| "Error".to_owned());
-            vm.ctx.new_str(msg).into()
-        };
-
-        let args = if let Some(filename) = filename {
-            vec![errno.to_pyobject(vm), msg, filename]
-        } else {
-            vec![errno.to_pyobject(vm), msg]
-        };
-        let err = exc_type.as_object().call(args, vm)?;
-        let err = err
-            .downcast()
-            .map_err(|_| vm.new_type_error("errno helper expected an exception instance"))?;
+        let err = vm.new_errno_error_with_filenames(exc_type.to_owned(), errno, filename, None)?;
         Err(err)
     })
 }
@@ -71,46 +51,14 @@ pub unsafe extern "C" fn PyErr_SetFromErrnoWithFilenameObjects(
 ) -> *mut PyObject {
     with_vm::<PyResult<Infallible>, _>(|vm| {
         let errno = rustpython_vm::host_env::os::get_errno();
-        if errno == libc::EINTR {
-            vm.check_signals()?;
-        }
 
         let exc_type = unsafe { &*exc }.try_downcast_ref::<PyType>(vm)?;
-        let msg = if errno == 0 {
-            vm.ctx.new_str("Error").into()
-        } else {
-            let msg = rustpython_vm::host_env::errno::strerror_string(errno)
-                .unwrap_or_else(|| "Error".to_owned());
-            vm.ctx.new_str(msg).into()
-        };
-
-        let filename = NonNull::new(filename).map_or_else(
-            || vm.ctx.none(),
-            |filename| unsafe { filename.as_ref().to_owned() },
-        );
-        let filename2 = NonNull::new(filename2).map_or_else(
-            || vm.ctx.none(),
-            |filename| unsafe { filename.as_ref().to_owned() },
-        );
-
-        let args = if !vm.is_none(&filename2) {
-            vec![
-                errno.to_pyobject(vm),
-                msg,
-                filename,
-                0.to_pyobject(vm),
-                filename2,
-            ]
-        } else if !vm.is_none(&filename) {
-            vec![errno.to_pyobject(vm), msg, filename]
-        } else {
-            vec![errno.to_pyobject(vm), msg]
-        };
-
-        let err = exc_type.as_object().call(args, vm)?;
-        let err = err
-            .downcast()
-            .map_err(|_| vm.new_type_error("errno helper expected an exception instance"))?;
+        let filename =
+            NonNull::new(filename).map(|filename| unsafe { filename.as_ref().to_owned() });
+        let filename2 =
+            NonNull::new(filename2).map(|filename| unsafe { filename.as_ref().to_owned() });
+        let err =
+            vm.new_errno_error_with_filenames(exc_type.to_owned(), errno, filename, filename2)?;
 
         Err(err)
     })

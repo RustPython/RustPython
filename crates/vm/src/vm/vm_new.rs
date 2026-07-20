@@ -496,6 +496,44 @@ impl VirtualMachine {
         self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
+    pub fn new_errno_error_with_filenames(
+        &self,
+        exc_type: PyTypeRef,
+        errno: i32,
+        filename: Option<PyObjectRef>,
+        filename2: Option<PyObjectRef>,
+    ) -> PyResult<PyBaseExceptionRef> {
+        if errno == libc::EINTR {
+            self.check_signals()?;
+        }
+
+        let msg = if errno == 0 {
+            self.ctx.new_str("Error").into()
+        } else {
+            let msg = crate::host_env::errno::strerror_string(errno)
+                .unwrap_or_else(|| "Error".to_owned());
+            self.ctx.new_str(msg).into()
+        };
+
+        let args = if let Some(filename2) = filename2 {
+            vec![
+                errno.to_pyobject(self),
+                msg,
+                filename.unwrap_or_else(|| self.ctx.none()),
+                0.to_pyobject(self),
+                filename2,
+            ]
+        } else if let Some(filename) = filename {
+            vec![errno.to_pyobject(self), msg, filename]
+        } else {
+            vec![errno.to_pyobject(self), msg]
+        };
+
+        let err = exc_type.as_object().call(args, self)?;
+        err.downcast()
+            .map_err(|_| self.new_type_error("errno helper expected an exception instance"))
+    }
+
     pub fn new_unicode_decode_error_real(
         &self,
         encoding: PyStrRef,
