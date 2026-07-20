@@ -224,6 +224,61 @@ pub enum CurrentVmAttachState {
     Attached,
 }
 
+/// State preserved while the current native thread is detached from its VM.
+#[cfg(feature = "threading")]
+pub struct SavedThreadState {
+    vm_stack: Vec<NonNull<VirtualMachine>>,
+    gilstate_vm: Option<Box<ThreadedVirtualMachine>>,
+}
+
+/// Detach the current native thread and preserve its VM context for restoration.
+#[cfg(feature = "threading")]
+#[must_use = "the saved thread state must be restored"]
+pub fn save_current_thread() -> SavedThreadState {
+    let vm_stack = VM_STACK.with(|vms| core::mem::take(&mut *vms.borrow_mut()));
+    assert!(
+        !vm_stack.is_empty(),
+        "save_current_thread() called without an attached VM"
+    );
+    let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
+    detach_thread();
+    SavedThreadState {
+        vm_stack,
+        gilstate_vm,
+    }
+}
+
+/// Restore a VM context previously returned by [`save_current_thread`].
+#[cfg(feature = "threading")]
+pub fn restore_current_thread(state: SavedThreadState) {
+    assert!(
+        !current_vm_is_set(),
+        "restore_current_thread() called with an attached VM"
+    );
+    let SavedThreadState {
+        vm_stack,
+        gilstate_vm,
+    } = state;
+    let vm = vm_stack
+        .last()
+        .copied()
+        .expect("saved thread state has no VM");
+
+    GILSTATE_VM.with(|current| {
+        let mut current = current.borrow_mut();
+        assert!(
+            current.is_none(),
+            "restore_current_thread() called with a GILState VM"
+        );
+        *current = gilstate_vm;
+    });
+
+    // SAFETY: borrowed VMs remain alive for the dynamic save/restore scope,
+    // while an owned GILState VM was restored above before this dereference.
+    attach_thread(unsafe { vm.as_ref() });
+    VM_STACK.with(|vms| *vms.borrow_mut() = vm_stack);
+}
+
 /// Attach the current native thread to a RustPython VM until
 /// `release_current_thread()` is called.
 #[cfg(feature = "threading")]

@@ -641,6 +641,14 @@ impl PyCArray {
                     let (kept_alive, ptr) = super::base::ensure_z_null_terminated(bytes, vm);
                     zelf.0.keep_alive(index, kept_alive);
                     (ptr, Some(value.to_owned()))
+                } else if let Some(simple) = value.downcast_ref::<super::PyCSimple>()
+                    && value.class().type_code(vm).as_deref() == Some("z")
+                {
+                    let buffer = simple.0.buffer.read();
+                    (
+                        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer),
+                        None,
+                    )
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
@@ -667,6 +675,14 @@ impl PyCArray {
                 } else if let Some(s) = value.downcast_ref::<PyStr>() {
                     let (holder, ptr) = super::base::str_to_wchar_bytes(s.as_wtf8(), vm);
                     (ptr, Some(holder))
+                } else if let Some(simple) = value.downcast_ref::<super::PyCSimple>()
+                    && value.class().type_code(vm).as_deref() == Some("Z")
+                {
+                    let buffer = simple.0.buffer.read();
+                    (
+                        rustpython_host_env::ctypes::read_pointer_from_buffer(&buffer),
+                        None,
+                    )
                 } else if let Ok(int_val) = value.try_index(vm) {
                     (int_val.as_bigint().to_usize().unwrap_or(0), None)
                 } else {
