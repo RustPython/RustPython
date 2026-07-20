@@ -238,15 +238,15 @@ fn bytearray_repr_char_len(ch: u8) -> usize {
 
 fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
     match ch {
-        b'\'' => buf.push_str("\\'"),
-        b'\\' => buf.push_str("\\\\"),
-        b'\t' => buf.push_str("\\t"),
-        b'\n' => buf.push_str("\\n"),
-        b'\r' => buf.push_str("\\r"),
+        b'\'' => buf.push_str(r#"\'"#),
+        b'\\' => buf.push_str(r#"\\"#),
+        b'\t' => buf.push_str(r#"\t"#),
+        b'\n' => buf.push_str(r#"\n"#),
+        b'\r' => buf.push_str(r#"\r"#),
         0x20..=0x7e => buf.push(ch as char),
         ch => {
             const HEX: &[u8; 16] = b"0123456789abcdef";
-            buf.push_str("\\x");
+            buf.push_str(r#"\x"#);
             buf.push(HEX[(ch >> 4) as usize] as char);
             buf.push(HEX[(ch & 0x0f) as usize] as char);
         }

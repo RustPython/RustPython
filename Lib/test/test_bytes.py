@@ -2123,7 +2123,6 @@ class AssortedBytesTest(unittest.TestCase):
     def test_bytes_str(self):
         self.test_bytes_repr(str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @check_bytes_warnings
     def test_bytearray_str(self):
         self.test_bytearray_repr(str)
