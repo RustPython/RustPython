@@ -192,3 +192,11 @@ def test_quote_minimal_writer_empty_fields():
 
 
 test_quote_minimal_writer_empty_fields()
+
+
+def test_reader_skipinitialspace_preserves_quoted_spaces():
+    reader = csv.reader(['a, "b, c", d'], skipinitialspace=True)
+    assert list(reader) == [["a", "b, c", "d"]]
+
+
+test_reader_skipinitialspace_preserves_quoted_spaces()

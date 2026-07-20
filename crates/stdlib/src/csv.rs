@@ -14,7 +14,7 @@ mod _csv {
     };
     use alloc::fmt;
     use csv_core::Terminator;
-    use itertools::{self, Itertools};
+    use itertools::Itertools;
     use parking_lot::Mutex;
     use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
     use rustpython_vm::{match_class, sliceable::SliceableSequenceOp};
@@ -409,7 +409,6 @@ mod _csv {
                 output_ends: vec![0; 16],
                 reader: options.to_reader(),
                 skipinitialspace: options.get_skipinitialspace(),
-                delimiter: options.get_delimiter(),
                 line_num: 0,
                 generation: 0,
             }),
@@ -774,29 +773,6 @@ mod _csv {
             skipinitialspace
         }
 
-        fn get_delimiter(&self) -> u8 {
-            let mut delimiter = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        dialect.delimiter
-                        // RustPython todo
-                        // todo! Perfecting the remaining attributes.
-                    } else {
-                        b','
-                    }
-                }
-                DialectItem::Obj(obj) => obj.delimiter,
-                _ => b',',
-            };
-
-            if let Some(attr) = self.delimiter {
-                delimiter = attr
-            }
-
-            delimiter
-        }
-
         fn get_lineterminator(&self) -> csv_core::Terminator {
             let mut lineterminator = match &self.dialect {
                 DialectItem::Str(name) => {
@@ -960,7 +936,6 @@ mod _csv {
         output_ends: Vec<usize>,
         reader: csv_core::Reader,
         skipinitialspace: bool,
-        delimiter: u8,
         line_num: u64,
         generation: u64,
     }
@@ -996,59 +971,145 @@ mod _csv {
 
     impl SelfIter for Reader {}
 
-    fn read_quote_none_record(
+    enum QuoteScanEvent {
+        InitialSpace,
+        StartQuotedField,
+        EndQuotedField,
+        Escaped(Option<u8>),
+        DoubleQuote(u8),
+        Delimiter,
+        RecordTerminator,
+        Data(u8),
+    }
+
+    struct QuoteScanState {
+        at_field_start: bool,
+        in_quoted_field: bool,
+    }
+
+    impl QuoteScanState {
+        const fn new() -> Self {
+            Self {
+                at_field_start: true,
+                in_quoted_field: false,
+            }
+        }
+
+        fn scan(
+            &mut self,
+            input: &[u8],
+            index: usize,
+            dialect: PyDialect,
+            unquoted_escape: bool,
+        ) -> (QuoteScanEvent, usize) {
+            let byte = input[index];
+
+            if (self.in_quoted_field || unquoted_escape) && dialect.escapechar == Some(byte) {
+                self.at_field_start = false;
+                return match input.get(index + 1).copied() {
+                    Some(escaped) => (QuoteScanEvent::Escaped(Some(escaped)), 2),
+                    None => (QuoteScanEvent::Escaped(None), 1),
+                };
+            }
+
+            if self.in_quoted_field {
+                if dialect.quotechar == Some(byte) {
+                    if dialect.doublequote && input.get(index + 1) == Some(&byte) {
+                        return (QuoteScanEvent::DoubleQuote(byte), 2);
+                    }
+                    self.in_quoted_field = false;
+                    return (QuoteScanEvent::EndQuotedField, 1);
+                }
+                return (QuoteScanEvent::Data(byte), 1);
+            }
+
+            if self.at_field_start && dialect.skipinitialspace && byte == b' ' {
+                return (QuoteScanEvent::InitialSpace, 1);
+            }
+
+            if self.at_field_start
+                && dialect.quoting != QuoteStyle::None
+                && dialect.quotechar == Some(byte)
+            {
+                self.at_field_start = false;
+                self.in_quoted_field = true;
+                return (QuoteScanEvent::StartQuotedField, 1);
+            }
+
+            if byte == dialect.delimiter {
+                self.at_field_start = true;
+                return (QuoteScanEvent::Delimiter, 1);
+            }
+
+            self.at_field_start = false;
+            if matches!(byte, b'\r' | b'\n') {
+                (QuoteScanEvent::RecordTerminator, 1)
+            } else {
+                (QuoteScanEvent::Data(byte), 1)
+            }
+        }
+    }
+
+    fn read_quote_record(
         input: &[u8],
         dialect: PyDialect,
         field_limit: isize,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<PyObjectRef>> {
-        let mut fields = vec![Vec::new()];
-        let mut escaped = false;
-        let mut after_delimiter = false;
+        // QUOTE_NOTNULL and QUOTE_STRINGS map empty unquoted fields to None,
+        // but preserve quoted empty fields as strings, so retain quote provenance.
+        let mut fields = vec![(Vec::new(), false)];
+        let mut scan_state = QuoteScanState::new();
+        let mut dangling_escape = false;
+        let mut index = 0;
 
-        for (index, &byte) in input.iter().enumerate() {
-            if escaped {
-                fields.last_mut().unwrap().push(byte);
-                escaped = false;
-                after_delimiter = false;
-            } else if dialect.skipinitialspace && after_delimiter && byte == b' ' {
-                continue;
-            } else if dialect.escapechar == Some(byte) {
-                escaped = true;
-            } else if byte == dialect.delimiter {
-                fields.push(Vec::new());
-                after_delimiter = true;
-            } else if matches!(byte, b'\r' | b'\n') {
-                if !input[index..]
-                    .iter()
-                    .all(|&byte| matches!(byte, b'\r' | b'\n'))
-                {
-                    return Err(new_csv_error(
-                        vm,
-                        concat!(
-                            "new-line character seen in unquoted field",
-                            " - do you need to open the file in universal-newline mode?"
-                        ),
-                    ));
+        while index < input.len() {
+            let (event, consumed) = scan_state.scan(input, index, dialect, true);
+            match event {
+                QuoteScanEvent::InitialSpace | QuoteScanEvent::EndQuotedField => {}
+                QuoteScanEvent::StartQuotedField => fields.last_mut().unwrap().1 = true,
+                QuoteScanEvent::Escaped(Some(byte)) | QuoteScanEvent::DoubleQuote(byte) => {
+                    fields.last_mut().unwrap().0.push(byte);
                 }
-                break;
-            } else {
-                fields.last_mut().unwrap().push(byte);
-                after_delimiter = false;
+                QuoteScanEvent::Escaped(None) => dangling_escape = true,
+                QuoteScanEvent::Delimiter => fields.push((Vec::new(), false)),
+                QuoteScanEvent::RecordTerminator => {
+                    if !input[index..]
+                        .iter()
+                        .all(|&byte| matches!(byte, b'\r' | b'\n'))
+                    {
+                        return Err(new_csv_error(
+                            vm,
+                            concat!(
+                                "new-line character seen in unquoted field",
+                                " - do you need to open the file in universal-newline mode?"
+                            ),
+                        ));
+                    }
+                    break;
+                }
+                QuoteScanEvent::Data(byte) => fields.last_mut().unwrap().0.push(byte),
             }
+            index += consumed;
         }
 
         // CPython treats an escape character at the end of an iterator item
         // as escaping the implicit newline at the end of that item.
-        if escaped {
-            fields.last_mut().unwrap().push(b'\n');
+        if dangling_escape {
+            fields.last_mut().unwrap().0.push(b'\n');
         }
 
         fields
             .into_iter()
-            .map(|field| {
+            .map(|(field, was_quoted)| {
                 if field.len() > field_limit as usize {
                     return Err(new_csv_error(vm, "filed too long to read"));
+                }
+                if matches!(dialect.quoting, QuoteStyle::Notnull | QuoteStyle::Strings)
+                    && !was_quoted
+                    && field.is_empty()
+                {
+                    return Ok(vm.ctx.none());
                 }
                 let field = core::str::from_utf8(&field)
                     .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
@@ -1088,7 +1149,6 @@ mod _csv {
                 output_ends,
                 reader,
                 skipinitialspace,
-                delimiter,
                 line_num,
                 generation: _,
             } = &mut *state;
@@ -1098,26 +1158,49 @@ mod _csv {
             let mut output_ends_offset = 0;
             let field_limit = GLOBAL_FIELD_LIMIT.lock().to_owned();
 
-            if zelf.dialect.quoting == QuoteStyle::None && zelf.dialect.escapechar.is_some() {
-                let out = read_quote_none_record(input, zelf.dialect, field_limit, vm)?;
+            let use_quote_record = matches!(
+                zelf.dialect.quoting,
+                QuoteStyle::Notnull | QuoteStyle::Strings
+            ) || (zelf.dialect.quoting == QuoteStyle::None
+                && zelf.dialect.escapechar.is_some());
+            if use_quote_record {
+                let out = read_quote_record(input, zelf.dialect, field_limit, vm)?;
                 *line_num += 1;
                 return Ok(PyIterReturn::Return(vm.ctx.new_list(out).into()));
+            }
+
+            #[inline]
+            fn trim_initial_spaces(input: &[u8], dialect: PyDialect) -> Vec<u8> {
+                let mut trimmed = Vec::with_capacity(input.len());
+                let mut scan_state = QuoteScanState::new();
+                let mut index = 0;
+
+                // Delimiters inside quoted fields are data, so only skip spaces
+                // after delimiters encountered outside quotes.
+                while index < input.len() {
+                    let (event, consumed) = scan_state.scan(input, index, dialect, false);
+                    if !matches!(event, QuoteScanEvent::InitialSpace) {
+                        trimmed.extend_from_slice(&input[index..index + consumed]);
+                    }
+                    index += consumed;
+                }
+
+                trimmed
             }
 
             #[inline]
             fn trim_spaces(input: &[u8]) -> &[u8] {
                 let trimmed_start = input.iter().position(|&x| x != b' ').unwrap_or(input.len());
                 let trimmed_end = input.iter().rposition(|&x| x != b' ').map_or(0, |i| i + 1);
-                &input[trimmed_start..trimmed_end]
+                if trimmed_start >= trimmed_end {
+                    &input[input.len()..]
+                } else {
+                    &input[trimmed_start..trimmed_end]
+                }
             }
 
             let input = if *skipinitialspace {
-                let t = input.split(|x| x == delimiter);
-                t.map(|x| {
-                    let trimmed = trim_spaces(x);
-                    String::from_utf8(trimmed.to_vec()).unwrap()
-                })
-                .join(format!("{}", *delimiter as char).as_str())
+                String::from_utf8(trim_initial_spaces(input, zelf.dialect)).unwrap()
             } else {
                 String::from_utf8(input.to_vec()).unwrap()
             };
