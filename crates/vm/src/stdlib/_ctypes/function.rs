@@ -1361,7 +1361,7 @@ fn check_hresult(hresult: i32, zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> Py
             .new_str(format!("HRESULT: 0x{:08X}", hresult as u32))
             .into();
         let details: PyObjectRef = vm.ctx.none();
-        let exc = vm.invoke_exception(com_error_type, vec![text.clone(), details.clone()])?;
+        let exc = vm.invoke_exception(&com_error_type, vec![text.clone(), details.clone()])?;
         let _ = exc.as_object().set_attr("hresult", hresult_obj, vm);
         let _ = exc.as_object().set_attr("text", text, vm);
         let _ = exc.as_object().set_attr("details", details, vm);
@@ -1554,7 +1554,11 @@ fn build_result(
         let args_tuple = PyTuple::new_ref(args.args.clone(), &vm.ctx);
         let func_obj = zelf.as_object().to_owned();
         let result_obj = result.clone().unwrap_or_else(|| vm.ctx.none());
-        result = Some(errcheck.call((result_obj, func_obj, args_tuple), vm)?);
+        let checked = errcheck.call((result_obj, func_obj, args_tuple.clone()), vm)?;
+        // Returning the original args tuple requests normal result processing.
+        if !checked.is(&args_tuple) {
+            result = Some(checked);
+        }
     }
 
     // Handle OUT parameter return values

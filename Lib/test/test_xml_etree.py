@@ -392,7 +392,6 @@ class ElementTreeTest(unittest.TestCase):
         self.serialize_check(ET.XML("<tag><![CDATA[hello]]></tag>"),
                 '<tag>hello</tag>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file_init(self):
         stringfile = io.BytesIO(SAMPLE_XML.encode("utf-8"))
         tree = ET.ElementTree(file=stringfile)
@@ -508,7 +507,6 @@ class ElementTreeTest(unittest.TestCase):
         elem[:] = tuple([subelem])
         self.serialize_check(elem, '<tag><subtag key="value" /></tag>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_parsefile(self):
         # Test parsing from file.
 
@@ -688,7 +686,6 @@ class ElementTreeTest(unittest.TestCase):
         parser2 = ET.XMLParser()
         self.assertIsInstance(parser2.target, ET.TreeBuilder)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_children(self):
         # Test Element children iteration
 
@@ -1091,7 +1088,6 @@ class ElementTreeTest(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                 'undefined entity &entity;: line 4, column 10')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_namespace(self):
         # Test namespace issues.
 
@@ -1335,7 +1331,6 @@ class ElementTreeTest(unittest.TestCase):
 class IterparseTest(unittest.TestCase):
     # Test iterparse interface.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_basic(self):
         iterparse = ET.iterparse
 
@@ -1361,7 +1356,6 @@ class IterparseTest(unittest.TestCase):
             ])
         it.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_external_file(self):
         with open(SIMPLE_XMLFILE, 'rb') as source:
             it = ET.iterparse(source)
@@ -1374,7 +1368,6 @@ class IterparseTest(unittest.TestCase):
                 ])
             self.assertEqual(it.root.tag, 'root')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_events(self):
         iterparse = ET.iterparse
 
@@ -1475,7 +1468,6 @@ class IterparseTest(unittest.TestCase):
         with self.assertRaises(FileNotFoundError):
             ET.iterparse("nonexistent")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_resource_warnings_not_exhausted(self):
         # Not exhausting the iterator still closes the underlying file (bpo-43292)
         it = ET.iterparse(SIMPLE_XMLFILE)
@@ -1514,7 +1506,6 @@ class IterparseTest(unittest.TestCase):
             del it
             gc_collect()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_close_not_exhausted(self):
         iterparse = ET.iterparse
 
@@ -2041,7 +2032,6 @@ class XIncludeTest(unittest.TestCase):
         else:
             return None
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_xinclude_default(self):
         from xml.etree import ElementInclude
         doc = self.xinclude_loader('default.xml')
@@ -2056,7 +2046,6 @@ class XIncludeTest(unittest.TestCase):
             '</root>\n'
             '</document>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_xinclude(self):
         from xml.etree import ElementInclude
 
@@ -2121,7 +2110,6 @@ class XIncludeTest(unittest.TestCase):
             '  </ns0:include>\n'
             '</div>') # C5
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_xinclude_repeated(self):
         from xml.etree import ElementInclude
 
@@ -2129,7 +2117,6 @@ class XIncludeTest(unittest.TestCase):
         ElementInclude.include(document, self.xinclude_loader)
         self.assertEqual(1+4*2, len(document.findall(".//p")))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_xinclude_failures(self):
         from xml.etree import ElementInclude
 
@@ -2234,7 +2221,6 @@ class BugsTest(unittest.TestCase):
         elem.set("123", 123)
         check(elem) # attribute value
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_xmltoolkit25(self):
         # typo in ElementTree.findtext
 
@@ -2258,7 +2244,6 @@ class BugsTest(unittest.TestCase):
             ET.dump(tree)
             self.assertEqual(stdout.getvalue(), '<doc><table><tbody /></table></doc>\n')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_xmltoolkit39(self):
         # non-ascii element and attribute names doesn't work
 
@@ -2345,7 +2330,6 @@ class BugsTest(unittest.TestCase):
             xmltoolkit63()
         self.assertEqual(sys.getrefcount(None), count)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bug_200708_newline(self):
         # Preserve newlines in attributes.
 
@@ -2461,7 +2445,6 @@ class BugsTest(unittest.TestCase):
                 b"<?xml version='1.0' encoding='ascii'?>\n"
                 b'<body>t&#227;g</body>')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_issue6565(self):
         elem = ET.XML("<body><tag/></body>")
         self.assertEqual(summarize_list(elem), ['tag'])
@@ -2533,7 +2516,6 @@ class BugsTest(unittest.TestCase):
         root = ET.XML(xml)
         self.assertEqual(root.get('b'), text.decode('utf-8'))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_expat224_utf8_bug(self):
         # bpo-31170: Expat 2.2.3 had a bug in its UTF-8 decoder.
         # Check that Expat 2.2.4 fixed the bug.
@@ -3355,7 +3337,6 @@ class ElementTreeTypeTest(unittest.TestCase):
 
 
 class ElementFindTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_simple(self):
         e = ET.XML(SAMPLE_XML)
         self.assertEqual(e.find('tag').tag, 'tag')
@@ -3379,7 +3360,6 @@ class ElementFindTest(unittest.TestCase):
         # Issue #16922
         self.assertEqual(ET.XML('<tag><empty /></tag>').findtext('empty'), '')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_xpath(self):
         LINEAR_XML = '''
         <body>
@@ -3402,7 +3382,6 @@ class ElementFindTest(unittest.TestCase):
         self.assertRaisesRegex(SyntaxError, 'XPath', e.find, './tag[last()-0]')
         self.assertRaisesRegex(SyntaxError, 'XPath', e.find, './tag[last()+1]')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_findall(self):
         e = ET.XML(SAMPLE_XML)
         e[2] = ET.XML(SAMPLE_SECTION)
@@ -3591,7 +3570,6 @@ class ElementFindTest(unittest.TestCase):
         with self.assertRaisesRegex(SyntaxError, 'cannot use absolute path'):
             e.findall('/tag')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_through_ElementTree(self):
         e = ET.XML(SAMPLE_XML)
         self.assertEqual(ET.ElementTree(e).find('tag').tag, 'tag')
@@ -4576,7 +4554,6 @@ class NoAcceleratorTest(unittest.TestCase):
 # --------------------------------------------------------------------
 
 class BoolTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_warning(self):
         e = ET.fromstring('<a style="new"></a>')
         msg = (

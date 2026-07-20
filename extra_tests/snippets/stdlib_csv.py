@@ -147,3 +147,56 @@ def test_quote_none_reader_skipinitialspace_escapechar():
 
 
 test_quote_none_reader_skipinitialspace_escapechar()
+
+
+def test_quote_minimal_writer_lineterminator():
+    # https://github.com/RustPython/RustPython/issues/8302
+    # QUOTE_MINIMAL must quote '\r' and '\n' regardless of the line terminator.
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="!")
+    writer.writerow(["a", "b"])
+    writer.writerow([1, 2])
+    writer.writerow(["\r", "\n"])
+    assert buf.getvalue() == 'a,b!1,2!"\r","\n"!'
+
+    nul = io.StringIO()
+    csv.writer(nul, lineterminator="\0").writerow(["\r", "\n"])
+    assert nul.getvalue() == '"\r","\n"\0'
+
+    crlf = io.StringIO()
+    csv.writer(crlf, lineterminator="!").writerow(["\r\n"])
+    assert crlf.getvalue() == '"\r\n"!'
+
+    # the terminator character itself still triggers quoting
+    term = io.StringIO()
+    csv.writer(term, lineterminator="!").writerow(["a!b", "c"])
+    assert term.getvalue() == '"a!b",c!'
+
+    # default terminator behavior is unchanged
+    default = io.StringIO()
+    csv.writer(default).writerow(["\r", "\n"])
+    assert default.getvalue() == '"\r","\n"\r\n'
+
+
+test_quote_minimal_writer_lineterminator()
+
+
+def test_quote_minimal_writer_empty_fields():
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow([""])
+    writer.writerow([None])
+    writer.writerow([])
+    writer.writerow(["", ""])
+    assert buf.getvalue() == '""\r\n""\r\n\r\n,\r\n'
+
+
+test_quote_minimal_writer_empty_fields()
+
+
+def test_reader_skipinitialspace_preserves_quoted_spaces():
+    reader = csv.reader(['a, "b, c", d'], skipinitialspace=True)
+    assert list(reader) == [["a", "b, c", "d"]]
+
+
+test_reader_skipinitialspace_preserves_quoted_spaces()
