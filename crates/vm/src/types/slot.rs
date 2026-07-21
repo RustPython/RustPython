@@ -310,9 +310,38 @@ pub(crate) type DescrGetFunc =
 pub(crate) type DescrSetFunc =
     fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AllocFunc = fn(PyTypeRef, usize, &VirtualMachine) -> PyResult;
-pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
+
+#[derive(Debug, Clone, Copy)]
+pub enum NewFunc {
+    Rust(fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult),
+    C(unsafe extern "C" fn(*mut PyObject, *mut PyObject, *mut PyObject) -> *mut PyObject),
+}
+
+impl NewFunc {
+    #[must_use]
+    pub fn identity(self) -> usize {
+        match self {
+            Self::Rust(func) => func as usize,
+            Self::C(func) => func as usize,
+        }
+    }
+
+    pub fn invoke(self, cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        match self {
+            Self::Rust(func) => func(cls, args, vm),
+            Self::C(func) => {
+                todo!(
+                    "call C new function: {:?} with args: {:?} {:?}",
+                    func,
+                    cls,
+                    args
+                )
+            }
+        }
+    }
+}
 
 // Sequence sub-slot function types
 pub(crate) type SeqLenFunc = fn(PySequence<'_>, &VirtualMachine) -> PyResult<usize>;
@@ -877,12 +906,12 @@ impl PyType {
                         .iter()
                         .find(|cls| cls.attributes.read().contains_key(name))
                         .is_some_and(|cls| {
-                            cls.slots.new.load().map(|f| f as usize)
-                                == Some(new_wrapper as NewFunc as usize)
+                            cls.slots.new.load().map(NewFunc::identity)
+                                == Some(NewFunc::Rust(new_wrapper as _).identity())
                         })
                 };
                 if needs_wrapper {
-                    self.slots.new.store(Some(new_wrapper));
+                    self.slots.new.store(Some(NewFunc::Rust(new_wrapper as _)));
                     self.slots.vectorcall.store(None);
                 } else {
                     let inherited = self.base.deref().and_then(|base| base.slots.new.load());
