@@ -503,16 +503,22 @@ impl VirtualMachine {
         filename: Option<PyObjectRef>,
         filename2: Option<PyObjectRef>,
     ) -> PyResult<PyBaseExceptionRef> {
+        #[cfg(not(target_arch = "wasm32"))]
         if errno == libc::EINTR {
             self.check_signals()?;
         }
 
-        let msg = if errno == 0 {
-            self.ctx.new_str("Error").into()
-        } else {
-            let msg = crate::host_env::errno::strerror_string(errno)
-                .unwrap_or_else(|| "Error".to_owned());
-            self.ctx.new_str(msg).into()
+        let msg = cfg_select! {
+            any(unix, windows) => {
+                if errno == 0 {
+                    self.ctx.new_str("Error").into()
+                } else {
+                    let msg = crate::host_env::errno::strerror_string(errno)
+                        .unwrap_or_else(|| "Error".to_owned());
+                    self.ctx.new_str(msg).into()
+                }
+            },
+            _ => self.ctx.new_str("Error").into()
         };
 
         let args = if let Some(filename2) = filename2 {
