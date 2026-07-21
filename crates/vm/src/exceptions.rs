@@ -2372,9 +2372,9 @@ pub(super) mod types {
         let new = cls.slots.new.load();
         let slot_init: fn(&PyObject, FuncArgs, &VirtualMachine) -> PyResult<()> =
             PyOSError::slot_init;
-        let slot_new: fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult = PyOSError::slot_new;
+        let slot_new = crate::types::NewFunc::Rust(PyOSError::slot_new as _);
         !matches!(init, Some(f) if core::ptr::fn_addr_eq(f, slot_init))
-            && matches!(new, Some(f) if core::ptr::fn_addr_eq(f, slot_new))
+            && matches!(new, Some(f) if f.identity() == slot_new.identity())
     }
 
     fn oserror_init(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
