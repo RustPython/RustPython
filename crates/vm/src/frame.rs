@@ -9952,7 +9952,7 @@ impl ExecutingFrame<'_> {
                 let cls_alloc = cls.slots.alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
-                    && crate::types::fn_addr(cls_new_fn) == crate::types::fn_addr(obj_new_fn)
+                    && cls_new_fn.identity() == obj_new_fn.identity()
                     && crate::types::fn_addr(cls_alloc_fn) == crate::types::fn_addr(obj_alloc_fn)
                 {
                     if type_version == 0 {
