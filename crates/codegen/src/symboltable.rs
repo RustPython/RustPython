@@ -13,7 +13,7 @@ use crate::{
 };
 use alloc::{borrow::Cow, fmt};
 use bitflags::bitflags;
-use ruff_python_ast as ast;
+use ruff_python_ast::{self as ast, name::Name};
 use ruff_text_size::{Ranged, TextRange};
 use rustpython_compiler_core::{PositionEncoding, SourceFile, SourceLocation};
 
@@ -24,7 +24,7 @@ const RECURSION_ERROR: &str = "maximum recursion depth exceeded during compilati
 #[derive(Clone)]
 pub struct SymbolTable {
     /// The name of this symbol table. Often the name of the class or function.
-    pub name: String,
+    pub name: Name,
 
     /// The type of symbol table
     pub typ: CompilerScope,
@@ -39,7 +39,7 @@ pub struct SymbolTable {
     pub is_method: bool,
 
     /// A set of symbols present on this scope level.
-    pub symbols: IndexMap<String, Symbol>,
+    pub symbols: IndexMap<Name, Symbol>,
 
     /// A list of sub-scopes in the order as found in the
     /// AST nodes.
@@ -63,7 +63,7 @@ pub struct SymbolTable {
     pub next_sub_table: usize,
 
     /// Variable names in definition order (parameters first, then locals)
-    pub varnames: Vec<String>,
+    pub varnames: Vec<Name>,
 
     /// Whether this class scope needs an implicit __class__ cell
     pub needs_class_closure: bool,
@@ -116,11 +116,11 @@ pub struct SymbolTable {
     /// Names of type parameters that should still be mangled in type param scopes.
     /// When Some, only names in this set are mangled; other names are left unmangled.
     /// Set on type param blocks for generic classes; inherited by non-class child scopes.
-    pub mangled_names: Option<IndexSet<String>>,
+    pub mangled_names: Option<IndexSet<Name>>,
 }
 
 impl SymbolTable {
-    fn new(name: String, typ: CompilerScope, line_number: u32, is_nested: bool) -> Self {
+    fn new(name: Name, typ: CompilerScope, line_number: u32, is_nested: bool) -> Self {
         Self {
             name,
             typ,
@@ -154,16 +154,16 @@ impl SymbolTable {
     }
 
     fn add_format_parameter(&mut self) {
-        let name = ".format";
+        let name = Name::new_static(".format");
         let symbol = self
             .symbols
-            .entry(name.to_owned())
-            .or_insert_with(|| Symbol::new(name));
+            .entry(name.clone())
+            .or_insert_with(|| Symbol::new(name.clone()));
         symbol
             .flags
             .insert(SymbolFlags::DEF_PARAM | SymbolFlags::USE);
-        if !self.varnames.iter().any(|varname| varname == name) {
-            self.varnames.push(name.to_owned());
+        if !self.varnames.contains(&name) {
+            self.varnames.push(name);
         }
     }
 
@@ -213,7 +213,7 @@ impl SymbolTable {
     }
 
     #[must_use]
-    pub fn lookup(&self, name: &str) -> Option<&Symbol> {
+    pub fn lookup(&self, name: &Name) -> Option<&Symbol> {
         self.symbols.get(name)
     }
 }
@@ -332,16 +332,16 @@ bitflags! {
 /// of the symbol, and also the various uses of the symbol.
 #[derive(Debug, Clone)]
 pub struct Symbol {
-    pub name: String,
+    pub name: Name,
     pub scope: SymbolScope,
     pub flags: SymbolFlags,
     pub location: Option<SourceLocation>,
 }
 
 impl Symbol {
-    fn new(name: &str) -> Self {
+    fn new(name: Name) -> Self {
         Self {
-            name: name.to_owned(),
+            name,
             // table,
             scope: SymbolScope::Unknown,
             flags: SymbolFlags::empty(),
@@ -422,7 +422,7 @@ fn analyze_symbol_table(symbol_table: &mut SymbolTable) -> SymbolTableResult {
    `newfree` set (which contains free variables collected from all child scopes)
    and sets the corresponding flags on the class's symbol table entry.
 */
-fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String>) {
+fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<Name>) {
     // Check if __class__ is in the free variables collected from children
     // If found, it means a child scope (method) references __class__
     if newfree.shift_remove("__class__") {
@@ -446,10 +446,10 @@ fn drop_class_free(symbol_table: &mut SymbolTable, newfree: &mut IndexSet<String
 fn inline_comprehension(
     parent_symbols: &mut SymbolMap,
     comp: &SymbolTable,
-    comp_free: &mut IndexSet<String>,
-    inlined_cells: &mut IndexSet<String>,
+    comp_free: &mut IndexSet<Name>,
+    inlined_cells: &mut IndexSet<Name>,
     parent_type: CompilerScope,
-) -> IndexSet<String> {
+) -> IndexSet<Name> {
     let mut removed_class_implicits = IndexSet::default();
     for (name, sub_symbol) in &comp.symbols {
         // Skip the .0 parameter
@@ -513,7 +513,7 @@ fn inline_comprehension(
     removed_class_implicits
 }
 
-type SymbolMap = IndexMap<String, Symbol>;
+type SymbolMap = IndexMap<Name, Symbol>;
 
 mod stack {
     use alloc::vec::Vec;
@@ -596,7 +596,7 @@ impl SymbolTableAnalyzer {
         &mut self,
         symbol_table: &mut SymbolTable,
         class_entry: Option<&SymbolMap>,
-    ) -> SymbolTableResult<IndexSet<String>> {
+    ) -> SymbolTableResult<IndexSet<Name>> {
         let symbols = core::mem::take(&mut symbol_table.symbols);
         let sub_tables = &mut *symbol_table.sub_tables;
 
@@ -624,8 +624,8 @@ impl SymbolTableAnalyzer {
         // Collect (child_free, is_inlined) pairs from child scopes.
         // We need to process inlined comprehensions after the closure
         // when we have access to symbol_table.symbols.
-        let mut child_frees: Vec<(IndexSet<String>, bool)> = Vec::new();
-        let mut annotation_free: Option<IndexSet<String>> = None;
+        let mut child_frees: Vec<(IndexSet<Name>, bool)> = Vec::new();
+        let mut annotation_free: Option<IndexSet<Name>> = None;
 
         let mut info = (
             symbols,
@@ -664,7 +664,7 @@ impl SymbolTableAnalyzer {
 
         // PEP 709: Process inlined comprehensions.
         // Merge symbols from inlined comps into parent scope without bail-out.
-        let mut inlined_cells: IndexSet<String> = IndexSet::default();
+        let mut inlined_cells: IndexSet<Name> = IndexSet::default();
         let mut newfree = IndexSet::default();
         for (idx, (mut child_free, is_inlined)) in child_frees.into_iter().enumerate() {
             if is_inlined {
@@ -890,7 +890,7 @@ impl SymbolTableAnalyzer {
 
     fn found_in_outer_scope(
         &mut self,
-        name: &str,
+        name: &Name,
         st_typ: CompilerScope,
         skip_enclosing_function_scope: bool,
     ) -> Option<SymbolScope> {
@@ -961,7 +961,7 @@ impl SymbolTableAnalyzer {
                     if let Some(free_class) = table.get_mut(name) {
                         free_class.flags.insert(SymbolFlags::DEF_FREE_CLASS)
                     } else {
-                        let mut symbol = Symbol::new(name);
+                        let mut symbol = Symbol::new(name.clone());
                         symbol.flags.insert(SymbolFlags::DEF_FREE_CLASS);
                         symbol.scope = SymbolScope::Free;
                         table.insert(name.to_owned(), symbol);
@@ -977,7 +977,7 @@ impl SymbolTableAnalyzer {
                     // Skip: don't add __classdict__/__conditional_annotations__
                     // as free vars in regular functions — only annotation/type scopes need them
                 } else if !table.contains_key(name) {
-                    let mut symbol = Symbol::new(name);
+                    let mut symbol = Symbol::new(name.clone());
                     symbol.scope = SymbolScope::Free;
                     table.insert(name.to_owned(), symbol);
                 }
@@ -990,7 +990,7 @@ impl SymbolTableAnalyzer {
     fn found_in_inner_scope(
         &self,
         sub_tables: &[SymbolTable],
-        name: &str,
+        name: &Name,
         st_typ: CompilerScope,
     ) -> Option<SymbolScope> {
         sub_tables.iter().find_map(|st| {
@@ -1036,16 +1036,16 @@ enum SymbolUsage {
 }
 
 struct SymbolTableBuilder {
-    class_name: Option<String>,
+    class_name: Option<Name>,
     // Scope stack.
     tables: Vec<SymbolTable>,
     future_annotations: bool,
     allow_top_level_await: bool,
     source_file: SourceFile,
     // Current scope's varnames being collected (temporary storage)
-    current_varnames: Vec<String>,
+    current_varnames: Vec<Name>,
     // Stack to preserve parent varnames when entering nested scopes
-    varnames_stack: Vec<Vec<String>>,
+    varnames_stack: Vec<Vec<Name>>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
     // Track if we're scanning an inner loop iteration target (not the first generator)
@@ -1090,7 +1090,7 @@ impl SymbolTableBuilder {
             recursion_depth: 0,
             recursion_limit: DEFAULT_RECURSION_LIMIT,
         };
-        this.enter_scope("top", CompilerScope::Module, 0);
+        this.enter_scope(&"top".into(), CompilerScope::Module, 0);
         this
     }
 
@@ -1149,7 +1149,7 @@ impl SymbolTableBuilder {
         Ok(symbol_table)
     }
 
-    fn enter_scope(&mut self, name: &str, typ: CompilerScope, line_number: u32) {
+    fn enter_scope(&mut self, name: &Name, typ: CompilerScope, line_number: u32) {
         let parent = self.tables.last();
         let is_nested =
             parent.is_some_and(|table| table.is_nested || Self::is_function_like_scope(table.typ));
@@ -1181,7 +1181,7 @@ impl SymbolTableBuilder {
 
     fn enter_type_param_block(
         &mut self,
-        name: &str,
+        name: &Name,
         range: TextRange,
         for_class: bool,
         has_defaults: bool,
@@ -1211,22 +1211,22 @@ impl SymbolTableBuilder {
 
         // Add __classdict__ as a USE symbol in type param scope if in class
         if in_class {
-            self.register_name("__classdict__", SymbolUsage::Used, range)?;
+            self.register_name(&"__classdict__".into(), SymbolUsage::Used, range)?;
         }
 
         if for_class {
             // It gets set when we create the type params tuple and used when
             // we build up the bases.
-            self.register_name(".type_params", SymbolUsage::Assigned, range)?;
-            self.register_name(".type_params", SymbolUsage::Used, range)?;
-            self.register_name(".generic_base", SymbolUsage::Assigned, range)?;
-            self.register_name(".generic_base", SymbolUsage::Used, range)?;
+            self.register_name(&".type_params".into(), SymbolUsage::Assigned, range)?;
+            self.register_name(&".type_params".into(), SymbolUsage::Used, range)?;
+            self.register_name(&".generic_base".into(), SymbolUsage::Assigned, range)?;
+            self.register_name(&".generic_base".into(), SymbolUsage::Used, range)?;
         }
         if has_defaults {
-            self.register_name(".defaults", SymbolUsage::Parameter, range)?;
+            self.register_name(&".defaults".into(), SymbolUsage::Parameter, range)?;
         }
         if has_kwdefaults {
-            self.register_name(".kwdefaults", SymbolUsage::Parameter, range)?;
+            self.register_name(&".kwdefaults".into(), SymbolUsage::Parameter, range)?;
         }
 
         Ok(())
@@ -1267,7 +1267,7 @@ impl SymbolTableBuilder {
         // Create annotation block if not exists
         if current.annotation_block.is_none() {
             let mut annotation_table = SymbolTable::new(
-                "__annotate__".to_owned(),
+                Name::new_static("__annotate__"),
                 CompilerScope::Annotation,
                 line_number,
                 is_nested,
@@ -1311,10 +1311,10 @@ impl SymbolTableBuilder {
 
     fn add_classdict_freevar(&mut self) {
         let table = self.tables.last_mut().unwrap();
-        let name = "__classdict__";
+        let name = Name::new_static("__classdict__");
         let symbol = table
             .symbols
-            .entry(name.to_owned())
+            .entry(name.clone())
             .or_insert_with(|| Symbol::new(name));
         symbol.scope = SymbolScope::Free;
         symbol
@@ -1324,10 +1324,10 @@ impl SymbolTableBuilder {
 
     fn add_conditional_annotations_freevar(&mut self) {
         let table = self.tables.last_mut().unwrap();
-        let name = "__conditional_annotations__";
+        let name = Name::new_static("__conditional_annotations__");
         let symbol = table
             .symbols
-            .entry(name.to_owned())
+            .entry(name.clone())
             .or_insert_with(|| Symbol::new(name));
         symbol.scope = SymbolScope::Free;
         symbol
@@ -1426,11 +1426,19 @@ impl SymbolTableBuilder {
         let current = self.tables.last().unwrap();
         let can_see_class_scope =
             current.typ == CompilerScope::Class || current.can_see_class_scope;
-        self.enter_scope("__annotate__", CompilerScope::Annotation, line_number);
+        self.enter_scope(
+            &"__annotate__".into(),
+            CompilerScope::Annotation,
+            line_number,
+        );
         self.tables.last_mut().unwrap().can_see_class_scope = can_see_class_scope;
         self.tables.last_mut().unwrap().add_format_parameter();
         if can_see_class_scope {
-            self.register_name("__classdict__", SymbolUsage::Used, TextRange::default())?;
+            self.register_name(
+                &"__classdict__".into(),
+                SymbolUsage::Used,
+                TextRange::default(),
+            )?;
         }
 
         let was_in_unevaluated_annotation = self.tables.last().unwrap().in_unevaluated_annotation;
@@ -1519,7 +1527,7 @@ impl SymbolTableBuilder {
 
         if should_register_conditional_annotations {
             self.register_name(
-                "__conditional_annotations__",
+                &"__conditional_annotations__".into(),
                 SymbolUsage::Used,
                 annotation.range(),
             )?;
@@ -1554,16 +1562,12 @@ impl SymbolTableBuilder {
             match &statement {
                 Stmt::Global(StmtGlobal { names, .. }) => {
                     for name in names {
-                        self.register_name(name.as_str(), SymbolUsage::Global, statement.range())?;
+                        self.register_name(name.id(), SymbolUsage::Global, statement.range())?;
                     }
                 }
                 Stmt::Nonlocal(StmtNonlocal { names, .. }) => {
                     for name in names {
-                        self.register_name(
-                            name.as_str(),
-                            SymbolUsage::Nonlocal,
-                            statement.range(),
-                        )?;
+                        self.register_name(name.id(), SymbolUsage::Nonlocal, statement.range())?;
                     }
                 }
                 Stmt::FunctionDef(StmtFunctionDef {
@@ -1577,7 +1581,7 @@ impl SymbolTableBuilder {
                     is_async,
                     ..
                 }) => {
-                    self.register_name(name.as_str(), SymbolUsage::Assigned, *range)?;
+                    self.register_name(name.id(), SymbolUsage::Assigned, *range)?;
 
                     self.scan_parameter_defaults(parameters)?;
                     self.scan_decorators(decorator_list, ExpressionContext::Load)?;
@@ -1586,7 +1590,7 @@ impl SymbolTableBuilder {
                     // annotation scopes are nested inside and can see type parameters.
                     if let Some(type_params) = type_params {
                         self.enter_type_param_block(
-                            name.as_str(),
+                            name.id(),
                             *range,
                             false,
                             Self::has_positional_defaults(parameters),
@@ -1595,7 +1599,7 @@ impl SymbolTableBuilder {
                         self.scan_type_params(type_params)?;
                     }
                     self.enter_scope_with_parameters(
-                        name.as_str(),
+                        name.id(),
                         parameters,
                         self.line_index_start(*range),
                         returns.as_deref(),
@@ -1626,19 +1630,19 @@ impl SymbolTableBuilder {
                     ..
                 }) => {
                     let prev_class = self.class_name.clone();
-                    self.register_name(name.as_str(), SymbolUsage::Assigned, *range)?;
+                    self.register_name(name.id(), SymbolUsage::Assigned, *range)?;
                     self.scan_decorators(decorator_list, ExpressionContext::Load)?;
 
                     if let Some(type_params) = type_params {
                         self.enter_type_param_block(
-                            name.as_str(),
+                            name.id(),
                             *range,
                             true, // for_class: enable selective mangling
                             false,
                             false,
                         )?;
                         // Set class_name for mangling in type param scope
-                        self.class_name = Some(name.to_string());
+                        self.class_name = Some(name.id().clone());
                         self.scan_type_params(type_params)?;
                     }
 
@@ -1650,11 +1654,7 @@ impl SymbolTableBuilder {
                         self.scan_expressions(&arguments.args, ExpressionContext::Load)?;
                         for keyword in &arguments.keywords {
                             if let Some(arg) = &keyword.arg {
-                                self.check_name(
-                                    arg.as_str(),
-                                    ExpressionContext::Store,
-                                    keyword.range,
-                                )?;
+                                self.check_name(arg.id(), ExpressionContext::Store, keyword.range)?;
                             }
                         }
                         for keyword in &arguments.keywords {
@@ -1663,17 +1663,21 @@ impl SymbolTableBuilder {
                     }
 
                     self.enter_scope(
-                        name.as_str(),
+                        name.id(),
                         CompilerScope::Class,
                         self.line_index_start(*range),
                     );
                     // Reset in_conditional_block for new class scope
                     let saved_in_conditional = self.in_conditional_block;
                     self.in_conditional_block = false;
-                    self.class_name = Some(name.to_string());
+                    self.class_name = Some(name.id().clone());
                     if type_params.is_some() {
-                        self.register_name(".type_params", SymbolUsage::Used, *range)?;
-                        self.register_name("__type_params__", SymbolUsage::Assigned, *range)?;
+                        self.register_name(&".type_params".into(), SymbolUsage::Used, *range)?;
+                        self.register_name(
+                            &"__type_params__".into(),
+                            SymbolUsage::Assigned,
+                            *range,
+                        )?;
                     }
                     self.scan_statements(body)?;
                     self.leave_scope();
@@ -1754,11 +1758,7 @@ impl SymbolTableBuilder {
                     for name in names {
                         if let Some(alias) = &name.asname {
                             // `import my_module as my_alias`
-                            self.register_name(
-                                alias.as_str(),
-                                SymbolUsage::Imported,
-                                name.name.range,
-                            )?;
+                            self.register_name(alias.id(), SymbolUsage::Imported, name.name.range)?;
                         } else if name.name.as_str() == "*" {
                             // Star imports are only allowed at module level
                             if self.tables.last().unwrap().typ != CompilerScope::Module {
@@ -1775,14 +1775,14 @@ impl SymbolTableBuilder {
                             // Don't register star imports as symbols
                         } else {
                             // `import module` or `from x import name`
-                            let imported_name = name.name.split('.').next().unwrap();
+                            let imported_name = name.name.split('.').next().unwrap().into();
                             self.check_name(
-                                imported_name,
+                                &imported_name,
                                 ExpressionContext::Store,
                                 name.name.range,
                             )?;
                             self.register_name(
-                                imported_name,
+                                &imported_name,
                                 SymbolUsage::Imported,
                                 name.name.range,
                             )?;
@@ -1828,14 +1828,12 @@ impl SymbolTableBuilder {
                             range: target_range,
                             ..
                         }) => {
-                            let id_str = id.as_str();
-
                             if *simple {
                                 let existing_flags = self.tables.last().and_then(|table| {
                                     let name = maybe_mangle_name(
-                                        self.class_name.as_deref(),
+                                        self.class_name.as_ref(),
                                         table.mangled_names.as_ref(),
-                                        id_str,
+                                        id,
                                     );
                                     table.symbols.get(name.as_ref()).map(|symbol| symbol.flags)
                                 });
@@ -1854,9 +1852,7 @@ impl SymbolTableBuilder {
                                         "nonlocal"
                                     };
                                     return Err(SymbolTableError {
-                                        error: format!(
-                                            "annotated name '{id_str}' can't be {usage}"
-                                        ),
+                                        error: format!("annotated name '{id}' can't be {usage}"),
                                         location: Some(
                                             self.source_file.to_source_code().source_location(
                                                 range.start(),
@@ -1867,7 +1863,7 @@ impl SymbolTableBuilder {
                                 }
 
                                 self.register_name(
-                                    id_str,
+                                    id,
                                     SymbolUsage::AnnotationAssigned,
                                     *target_range,
                                 )?;
@@ -1876,14 +1872,14 @@ impl SymbolTableBuilder {
                                 match current_scope {
                                     Some(CompilerScope::Module) => {
                                         self.register_name(
-                                            "__annotate__",
+                                            &"__annotate__".into(),
                                             SymbolUsage::Assigned,
                                             *range,
                                         )?;
                                     }
                                     Some(CompilerScope::Class) => {
                                         self.register_name(
-                                            "__annotate_func__",
+                                            &"__annotate_func__".into(),
                                             SymbolUsage::Assigned,
                                             *range,
                                         )?;
@@ -1891,7 +1887,7 @@ impl SymbolTableBuilder {
                                     _ => {}
                                 }
                             } else if value.is_some() {
-                                self.register_name(id_str, SymbolUsage::Assigned, *target_range)?;
+                                self.register_name(id, SymbolUsage::Assigned, *target_range)?;
                             }
                         }
                         _ => {
@@ -1955,11 +1951,7 @@ impl SymbolTableBuilder {
                             self.scan_expression(expression, ExpressionContext::Load)?;
                         }
                         if let Some(name) = name {
-                            self.register_name(
-                                name.as_str(),
-                                SymbolUsage::Assigned,
-                                handler.range(),
-                            )?;
+                            self.register_name(name.id(), SymbolUsage::Assigned, handler.range())?;
                         }
                         self.scan_statements(body)?;
                     }
@@ -2006,7 +1998,7 @@ impl SymbolTableBuilder {
                             ),
                         });
                     };
-                    let alias_name = name_expr.id.to_string();
+                    let alias_name = name_expr.id();
                     self.scan_expression(name, ExpressionContext::Store)?;
                     // Check before entering any sub-scopes
                     let in_class = self
@@ -2015,23 +2007,27 @@ impl SymbolTableBuilder {
                         .is_some_and(|t| t.typ == CompilerScope::Class);
                     let is_generic = type_params.is_some();
                     if let Some(type_params) = type_params {
-                        self.enter_type_param_block(&alias_name, *range, false, false, false)?;
+                        self.enter_type_param_block(alias_name, *range, false, false, false)?;
                         self.scan_type_params(type_params)?;
                     }
                     // Value scope for lazy evaluation
                     self.enter_scope(
-                        &alias_name,
+                        alias_name,
                         CompilerScope::TypeAlias,
                         self.line_index_start(*range),
                     );
                     // Evaluator takes a format parameter
-                    self.register_name(".format", SymbolUsage::Parameter, *range)?;
-                    self.register_name(".format", SymbolUsage::Used, *range)?;
+                    self.register_name(&".format".into(), SymbolUsage::Parameter, *range)?;
+                    self.register_name(&".format".into(), SymbolUsage::Used, *range)?;
                     if in_class {
                         if let Some(table) = self.tables.last_mut() {
                             table.can_see_class_scope = true;
                         }
-                        self.register_name("__classdict__", SymbolUsage::Used, value.range())?;
+                        self.register_name(
+                            &"__classdict__".into(),
+                            SymbolUsage::Used,
+                            value.range(),
+                        )?;
                     }
                     self.scan_expression(value, ExpressionContext::Load)?;
                     self.leave_scope();
@@ -2159,7 +2155,7 @@ impl SymbolTableBuilder {
                 Expr::Attribute(ExprAttribute {
                     value, attr, range, ..
                 }) => {
-                    self.check_name(attr.as_str(), context, *range)?;
+                    self.check_name(attr.id(), context, *range)?;
                     self.scan_expression(value, ExpressionContext::Load)?;
                 }
                 Expr::Dict(ExprDict { items, .. }) => {
@@ -2273,7 +2269,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Generator expression - is_generator = true
-                    self.scan_comprehension("<genexpr>", elt, None, generators, *range, true)?;
+                    self.scan_comprehension(
+                        &"<genexpr>".into(),
+                        elt,
+                        None,
+                        generators,
+                        *range,
+                        true,
+                    )?;
                     self.in_iter_def_exp = was_in_iter_def_exp;
                 }
                 Expr::ListComp(ExprListComp {
@@ -2287,7 +2290,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // List comprehension - is_generator = false (can be inlined)
-                    self.scan_comprehension("<listcomp>", elt, None, generators, *range, false)?;
+                    self.scan_comprehension(
+                        &"<listcomp>".into(),
+                        elt,
+                        None,
+                        generators,
+                        *range,
+                        false,
+                    )?;
                     self.in_iter_def_exp = was_in_iter_def_exp;
                 }
                 Expr::SetComp(ExprSetComp {
@@ -2301,7 +2311,14 @@ impl SymbolTableBuilder {
                         self.in_iter_def_exp = true;
                     }
                     // Set comprehension - is_generator = false (can be inlined)
-                    self.scan_comprehension("<setcomp>", elt, None, generators, *range, false)?;
+                    self.scan_comprehension(
+                        &"<setcomp>".into(),
+                        elt,
+                        None,
+                        generators,
+                        *range,
+                        false,
+                    )?;
                     self.in_iter_def_exp = was_in_iter_def_exp;
                 }
                 Expr::DictComp(ExprDictComp {
@@ -2318,7 +2335,7 @@ impl SymbolTableBuilder {
                     // Dict comprehension - is_generator = false (can be inlined)
                     let key = key.as_ref();
                     self.scan_comprehension(
-                        "<dictcomp>",
+                        &"<dictcomp>".into(),
                         key,
                         Some(value),
                         generators,
@@ -2342,7 +2359,7 @@ impl SymbolTableBuilder {
                     self.scan_expressions(&arguments.args, ExpressionContext::Load)?;
                     for keyword in &arguments.keywords {
                         if let Some(arg) = &keyword.arg {
-                            self.check_name(arg.as_str(), ExpressionContext::Store, keyword.range)?;
+                            self.check_name(arg.id(), ExpressionContext::Store, keyword.range)?;
                         }
                     }
                     for keyword in &arguments.keywords {
@@ -2350,8 +2367,6 @@ impl SymbolTableBuilder {
                     }
                 }
                 Expr::Name(ExprName { id, range, .. }) => {
-                    let id = id.as_str();
-
                     self.check_name(id, context, *range)?;
 
                     if !self
@@ -2380,7 +2395,7 @@ impl SymbolTableBuilder {
                             && Self::is_function_like_scope(self.tables.last().unwrap().typ)
                             && id == "super"
                         {
-                            self.register_name("__class__", SymbolUsage::Used, *range)?;
+                            self.register_name(&"__class__".into(), SymbolUsage::Used, *range)?;
                         }
                     }
                 }
@@ -2393,7 +2408,7 @@ impl SymbolTableBuilder {
                             self.scan_parameter_defaults(parameters)?;
                         }
                         self.enter_scope_with_parameters(
-                            "lambda",
+                            &"lambda".into(),
                             parameters,
                             self.line_index_start(expression.range()),
                             None, // lambdas have no return annotation
@@ -2403,7 +2418,7 @@ impl SymbolTableBuilder {
                         )?;
                     } else {
                         self.enter_scope(
-                            "lambda",
+                            &"lambda".into(),
                             CompilerScope::Lambda,
                             self.line_index_start(expression.range()),
                         );
@@ -2512,7 +2527,6 @@ impl SymbolTableBuilder {
                         ..
                     }) = &**target
                     {
-                        let id = id.as_str();
                         self.check_name(id, ExpressionContext::Store, *target_range)?;
                         let table = self.tables.last().unwrap();
                         if table.typ == CompilerScope::Comprehension {
@@ -2556,7 +2570,7 @@ impl SymbolTableBuilder {
 
     fn scan_comprehension(
         &mut self,
-        scope_name: &str,
+        scope_name: &Name,
         elt1: &ast::Expr,
         elt2: Option<&ast::Expr>,
         generators: &[ast::Comprehension],
@@ -2596,10 +2610,10 @@ impl SymbolTableBuilder {
         }
 
         // Register the passed argument to the generator function as the name ".0"
-        self.register_name(".0", SymbolUsage::Parameter, range)?;
+        self.register_name(&".0".into(), SymbolUsage::Parameter, range)?;
 
         let saved_comprehension_yield_context = self.comprehension_yield_context;
-        self.comprehension_yield_context = Some(match scope_name {
+        self.comprehension_yield_context = Some(match scope_name.as_ref() {
             "<listcomp>" => "list comprehension",
             "<setcomp>" => "set comprehension",
             "<dictcomp>" => "dict comprehension",
@@ -2669,7 +2683,7 @@ impl SymbolTableBuilder {
     fn scan_type_param_bound_or_default(
         &mut self,
         expr: &ast::Expr,
-        scope_name: &str,
+        scope_name: &Name,
         scope_info: &'static str,
     ) -> SymbolTableResult {
         // Bounds/defaults are compiled as annotation scopes.
@@ -2677,14 +2691,14 @@ impl SymbolTableBuilder {
         let line_number = self.line_index_start(expr.range());
         self.enter_scope(scope_name, CompilerScope::TypeVariable, line_number);
         // Evaluator takes a format parameter
-        self.register_name(".format", SymbolUsage::Parameter, expr.range())?;
-        self.register_name(".format", SymbolUsage::Used, expr.range())?;
+        self.register_name(&".format".into(), SymbolUsage::Parameter, expr.range())?;
+        self.register_name(&".format".into(), SymbolUsage::Used, expr.range())?;
 
         if in_class {
             if let Some(table) = self.tables.last_mut() {
                 table.can_see_class_scope = true;
             }
-            self.register_name("__classdict__", SymbolUsage::Used, expr.range())?;
+            self.register_name(&"__classdict__".into(), SymbolUsage::Used, expr.range())?;
         }
 
         self.tables.last_mut().unwrap().scope_info = Some(scope_info);
@@ -2716,7 +2730,7 @@ impl SymbolTableBuilder {
                         default,
                         ..
                     }) => {
-                        self.register_name(name.as_str(), SymbolUsage::TypeParam, *type_var_range)?;
+                        self.register_name(name.id(), SymbolUsage::TypeParam, *type_var_range)?;
                         if name.as_str() == "__classdict__" {
                             return Err(SymbolTableError {
                                 error: format!(
@@ -2737,18 +2751,14 @@ impl SymbolTableBuilder {
                             } else {
                                 "a TypeVar bound"
                             };
-                            self.scan_type_param_bound_or_default(
-                                binding,
-                                name.as_str(),
-                                scope_info,
-                            )?;
+                            self.scan_type_param_bound_or_default(binding, name.id(), scope_info)?;
                         }
 
                         // Process default in a separate scope
                         if let Some(default_value) = default {
                             self.scan_type_param_bound_or_default(
                                 default_value,
-                                name.as_str(),
+                                name.id(),
                                 "a TypeVar default",
                             )?;
                         }
@@ -2759,7 +2769,7 @@ impl SymbolTableBuilder {
                         default,
                         ..
                     }) => {
-                        self.register_name(name, SymbolUsage::TypeParam, *param_spec_range)?;
+                        self.register_name(name.id(), SymbolUsage::TypeParam, *param_spec_range)?;
                         if name == "__classdict__" {
                             return Err(SymbolTableError {
                                 error: format!(
@@ -2776,7 +2786,7 @@ impl SymbolTableBuilder {
                         if let Some(default_value) = default {
                             self.scan_type_param_bound_or_default(
                                 default_value,
-                                name,
+                                name.id(),
                                 "a ParamSpec default",
                             )?;
                         }
@@ -2787,7 +2797,11 @@ impl SymbolTableBuilder {
                         default,
                         ..
                     }) => {
-                        self.register_name(name, SymbolUsage::TypeParam, *type_var_tuple_range)?;
+                        self.register_name(
+                            name.id(),
+                            SymbolUsage::TypeParam,
+                            *type_var_tuple_range,
+                        )?;
                         if name == "__classdict__" {
                             return Err(SymbolTableError {
                                 error: format!(
@@ -2804,7 +2818,7 @@ impl SymbolTableBuilder {
                         if let Some(default_value) = default {
                             self.scan_type_param_bound_or_default(
                                 default_value,
-                                name,
+                                name.id(),
                                 "a TypeVarTuple default",
                             )?;
                         }
@@ -2866,7 +2880,7 @@ impl SymbolTableBuilder {
                                 ),
                             });
                         }
-                        self.register_name(rest.as_str(), SymbolUsage::Assigned, pattern.range())?;
+                        self.register_name(rest.id(), SymbolUsage::Assigned, pattern.range())?;
                     }
                 }
                 MatchClass(ast::PatternMatchClass { cls, arguments, .. }) => {
@@ -2874,7 +2888,7 @@ impl SymbolTableBuilder {
                     self.scan_patterns(&arguments.patterns)?;
                     for kw in &arguments.keywords {
                         self.check_name(
-                            kw.attr.as_str(),
+                            kw.attr.id(),
                             ExpressionContext::Store,
                             kw.pattern.range(),
                         )?;
@@ -2885,7 +2899,7 @@ impl SymbolTableBuilder {
                 }
                 MatchStar(ast::PatternMatchStar { name, .. }) => {
                     if let Some(name) = name {
-                        self.register_name(name.as_str(), SymbolUsage::Assigned, pattern.range())?;
+                        self.register_name(name.id(), SymbolUsage::Assigned, pattern.range())?;
                     }
                 }
                 MatchAs(ast::PatternMatchAs {
@@ -2897,7 +2911,7 @@ impl SymbolTableBuilder {
                         self.scan_pattern(as_pattern)?;
                     }
                     if let Some(name) = name {
-                        self.register_name(name.as_str(), SymbolUsage::Assigned, pattern.range())?;
+                        self.register_name(name.id(), SymbolUsage::Assigned, pattern.range())?;
                     }
                 }
                 MatchOr(ast::PatternMatchOr { patterns, .. }) => self.scan_patterns(patterns)?,
@@ -2943,7 +2957,7 @@ impl SymbolTableBuilder {
     )]
     fn enter_scope_with_parameters(
         &mut self,
-        name: &str,
+        name: &Name,
         parameters: &ast::Parameters,
         line_number: u32,
         returns: Option<&ast::Expr>,
@@ -2980,12 +2994,12 @@ impl SymbolTableBuilder {
     }
 
     fn register_ident(&mut self, ident: &ast::Identifier, role: SymbolUsage) -> SymbolTableResult {
-        self.register_name(ident.as_str(), role, ident.range)
+        self.register_name(ident.id(), role, ident.range)
     }
 
     fn check_name(
         &self,
-        name: &str,
+        name: &Name,
         context: ExpressionContext,
         range: TextRange,
     ) -> SymbolTableResult {
@@ -3017,7 +3031,7 @@ impl SymbolTableBuilder {
     // Mirrors symtable_extend_namedexpr_scope(): assignment expressions
     // inside comprehensions bind in the nearest function/module-like scope, not
     // in the synthetic comprehension scope itself.
-    fn extend_namedexpr_scope(&mut self, name: &str, range: TextRange) -> SymbolTableResult {
+    fn extend_namedexpr_scope(&mut self, name: &Name, range: TextRange) -> SymbolTableResult {
         let location = Some(
             self.source_file
                 .to_source_code()
@@ -3027,7 +3041,7 @@ impl SymbolTableBuilder {
         for table_idx in (0..self.tables.len()).rev() {
             let table_type = self.tables[table_idx].typ;
             let mangled = maybe_mangle_name(
-                self.class_name.as_deref(),
+                self.class_name.as_ref(),
                 self.tables[table_idx].mangled_names.as_ref(),
                 name,
             )
@@ -3059,7 +3073,7 @@ impl SymbolTableBuilder {
                     let current_symbol = current
                         .symbols
                         .entry(mangled.clone())
-                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                        .or_insert_with(|| Symbol::new(mangled.clone()));
                     if parent_is_global {
                         current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                         current_symbol.scope = SymbolScope::GlobalExplicit;
@@ -3071,7 +3085,7 @@ impl SymbolTableBuilder {
                     let symbol = self.tables[table_idx]
                         .symbols
                         .entry(mangled.clone())
-                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                        .or_insert_with(|| Symbol::new(mangled.clone()));
                     symbol.flags.insert(SymbolFlags::DEF_LOCAL);
                     return Ok(());
                 }
@@ -3080,14 +3094,14 @@ impl SymbolTableBuilder {
                     let current_symbol = current
                         .symbols
                         .entry(mangled.clone())
-                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                        .or_insert_with(|| Symbol::new(mangled.clone()));
                     current_symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                     current_symbol.scope = SymbolScope::GlobalExplicit;
 
                     let symbol = self.tables[table_idx]
                         .symbols
                         .entry(mangled.clone())
-                        .or_insert_with(|| Symbol::new(mangled.as_str()));
+                        .or_insert_with(|| Symbol::new(mangled.clone()));
                     symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
                     symbol.scope = SymbolScope::GlobalExplicit;
                     return Ok(());
@@ -3130,7 +3144,7 @@ impl SymbolTableBuilder {
 
     fn register_name(
         &mut self,
-        name: &str,
+        name: &Name,
         role: SymbolUsage,
         range: TextRange,
     ) -> SymbolTableResult {
@@ -3170,11 +3184,7 @@ impl SymbolTableBuilder {
         }
 
         let original_name = name;
-        let name = maybe_mangle_name(
-            self.class_name.as_deref(),
-            table.mangled_names.as_ref(),
-            name,
-        );
+        let name = &maybe_mangle_name(self.class_name.as_ref(), table.mangled_names.as_ref(), name);
         // Some checks for the symbol that present on this scope level:
         let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
             let flags = &symbol.flags;
@@ -3305,8 +3315,11 @@ impl SymbolTableBuilder {
                 }
             }
             // Insert symbol when required:
-            let symbol = Symbol::new(name.as_ref());
-            table.symbols.entry(name.into_owned()).or_insert(symbol)
+            let symbol = Symbol::new(name.clone().into_owned());
+            table
+                .symbols
+                .entry(name.clone().into_owned())
+                .or_insert(symbol)
         };
 
         if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) {
@@ -3391,38 +3404,38 @@ fn is_docstring_expr(expr: &ast::Expr) -> bool {
     )
 }
 
-pub(crate) fn mangle_name<'a>(class_name: Option<&str>, name: &'a str) -> Cow<'a, str> {
-    let class_name = match class_name {
-        Some(n) => n,
-        None => return name.into(),
+pub(crate) fn mangle_name<'a>(class_name: Option<&Name>, name: &'a Name) -> Cow<'a, Name> {
+    let Some(class_name) = class_name else {
+        return Cow::Borrowed(name);
     };
+
     if !name.starts_with("__") || name.ends_with("__") || name.contains('.') {
-        return name.into();
+        return Cow::Borrowed(name);
     }
     // Strip leading underscores from class name
     let class_name = class_name.trim_start_matches('_');
     if class_name.is_empty() {
-        return name.into();
+        return Cow::Borrowed(name);
     }
     let mut ret = String::with_capacity(1 + class_name.len() + name.len());
     ret.push('_');
     ret.push_str(class_name);
     ret.push_str(name);
-    ret.into()
+    Cow::Owned(ret.into())
 }
 
 /// Selective mangling for type parameter scopes around generic classes.
 /// If `mangled_names` is Some, only mangle names that are in the set;
 /// other names are left unmangled.
 pub(crate) fn maybe_mangle_name<'a>(
-    class_name: Option<&str>,
-    mangled_names: Option<&IndexSet<String>>,
-    name: &'a str,
-) -> Cow<'a, str> {
+    class_name: Option<&Name>,
+    mangled_names: Option<&IndexSet<Name>>,
+    name: &'a Name,
+) -> Cow<'a, Name> {
     if let Some(set) = mangled_names
         && !set.contains(name)
     {
-        return name.into();
+        return Cow::Borrowed(name);
     }
     mangle_name(class_name, name)
 }
@@ -3453,15 +3466,24 @@ mod tests {
 
     #[test]
     fn mangle_name_leaves_private_name_in_underscore_only_class() {
-        assert_eq!(mangle_name(Some("_"), "__a"), "__a");
-        assert_eq!(mangle_name(Some("__"), "__a"), "__a");
-        assert_eq!(mangle_name(Some("___"), "__a"), "__a");
+        assert_eq!(mangle_name(Some(&"_".into()), &"__a".into()), "__a".into());
+        assert_eq!(mangle_name(Some(&"__".into()), &"__a".into()), "__a".into());
+        assert_eq!(
+            mangle_name(Some(&"___".into()), &"__a".into()),
+            "__a".into()
+        );
     }
 
     #[test]
     fn mangle_name_strips_leading_class_underscores() {
-        assert_eq!(mangle_name(Some("_a"), "__a"), "_a__a");
-        assert_eq!(mangle_name(Some("__a"), "__a"), "_a__a");
+        assert_eq!(
+            mangle_name(Some(&"_a".into()), &"__a".into()),
+            "_a__a".into()
+        );
+        assert_eq!(
+            mangle_name(Some(&"__a".into()), &"__a".into()),
+            "_a__a".into()
+        );
     }
 
     #[test]
@@ -3490,7 +3512,7 @@ mod tests {
             .expect("missing lambda scope");
 
         assert!(
-            lambda.lookup("__class__").is_some(),
+            lambda.lookup(&"__class__".into()).is_some(),
             "CPython symtable Name_kind treats super as a __class__ use in any function-like scope"
         );
     }
@@ -3504,7 +3526,7 @@ mod tests {
             .find(|table| table.typ == CompilerScope::Comprehension)
             .expect("missing comprehension scope");
         let symbol = comprehension
-            .lookup("i")
+            .lookup(&"i".into())
             .expect("missing comprehension iteration target");
 
         assert!(
@@ -3552,7 +3574,7 @@ mod tests {
             .expect("CPython still creates an AnnotationBlock for future annotations");
 
         assert!(
-            annotation_block.lookup("T").is_some(),
+            annotation_block.lookup(&"T".into()).is_some(),
             "CPython symtable_visit_annotation still visits the annotation expression with future annotations"
         );
     }
@@ -3566,7 +3588,7 @@ mod tests {
             .find(|table| table.typ == CompilerScope::Annotation)
             .expect("missing function annotation block");
         let format = annotation_block
-            .lookup(".format")
+            .lookup(&".format".into())
             .expect("missing annotation .format parameter");
         assert!(
             format
@@ -3582,7 +3604,7 @@ mod tests {
             .find(|table| table.typ == CompilerScope::TypeAlias)
             .expect("missing type alias scope");
         let format = alias
-            .lookup(".format")
+            .lookup(&".format".into())
             .expect("missing type alias .format parameter");
         assert!(
             format
@@ -3603,7 +3625,7 @@ mod tests {
             .find(|table| table.typ == CompilerScope::TypeVariable)
             .expect("missing type variable scope");
         let format = type_variable
-            .lookup(".format")
+            .lookup(&".format".into())
             .expect("missing type variable .format parameter");
         assert!(
             format
