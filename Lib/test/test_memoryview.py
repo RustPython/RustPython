@@ -664,7 +664,6 @@ class OtherTest(unittest.TestCase):
         m2 = m1[::-1]
         self.assertEqual(m2.hex(), '30' * 200000)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument sep
     def test_memoryview_hex_separator(self):
         x = bytes(range(97, 102))
         m1 = memoryview(x)

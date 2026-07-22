@@ -518,7 +518,6 @@ class BaseBytesTest:
         self.assertEqual(self.type2test(b"\x1a\x2b\x30").hex(), '1a2b30')
         self.assertEqual(memoryview(b"\x1a\x2b\x30").hex(), '1a2b30')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument sep
     def test_hex_separator_basics(self):
         three_bytes = self.type2test(b'\xb9\x01\xef')
         self.assertEqual(three_bytes.hex(), 'b901ef')
