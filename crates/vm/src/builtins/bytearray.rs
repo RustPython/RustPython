@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef,
-    PyTuple, PyTupleRef, PyType, PyTypeRef, iter::builtins_iter,
+    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple,
+    PyTupleRef, PyType, PyTypeRef, iter::builtins_iter,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -10,8 +10,8 @@ use crate::{
     atomic_func,
     byte::{bytes_from_object, value_from_object},
     bytes_inner::{
-        ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
-        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{
@@ -321,12 +321,8 @@ impl PyByteArray {
     }
 
     #[pymethod]
-    fn hex(
-        &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
+        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.inner().hex(sep, bytes_per_sep, vm)
     }
 

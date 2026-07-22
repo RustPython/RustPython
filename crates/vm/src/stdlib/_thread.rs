@@ -20,7 +20,10 @@ pub(crate) mod _thread {
 
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
+        builtins::{
+            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
+            PyUtf8StrRef,
+        },
         common::wtf8::Wtf8Buf,
         frame::FrameRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
@@ -558,6 +561,19 @@ pub(crate) mod _thread {
             .map_err(|_err| vm.new_runtime_error("can't start new thread"))
     }
 
+    fn report_unraisable_thread_exception(
+        exc: PyBaseExceptionRef,
+        func: &ArgCallable,
+        vm: &VirtualMachine,
+    ) {
+        let msg = func
+            .as_ref()
+            .repr(vm)
+            .ok()
+            .map(|repr| format!("Exception ignored in thread started by {}", repr.as_wtf8()));
+        vm.run_unraisable(exc, msg, vm.ctx.none());
+    }
+
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
         // Increment thread count when thread actually starts executing
         vm.state.thread_count.fetch_add(1);
@@ -572,11 +588,7 @@ pub(crate) mod _thread {
             if let Err(exc) = func.invoke(args, vm)
                 && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
             {
-                vm.run_unraisable(
-                    exc,
-                    Some("Exception ignored in thread started by".to_owned()),
-                    func.into(),
-                );
+                report_unraisable_thread_exception(exc, &func, vm);
             }
         }
         for lock in SENTINELS.take() {
@@ -1755,11 +1767,7 @@ pub(crate) mod _thread {
                     if let Err(exc) = func.invoke((), vm)
                         && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
                     {
-                        vm.run_unraisable(
-                            exc,
-                            Some("Exception ignored in thread started by".to_owned()),
-                            func.into(),
-                        );
+                        report_unraisable_thread_exception(exc, &func, vm);
                     }
                 }
             }))
