@@ -278,9 +278,12 @@ mod termios {
     #[pyfunction]
     fn tcsetwinsize(fd: PyObjectRef, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
-        let size = vm.extract_elements_with(&size, Ok)?;
-        let [row, col] = <[PyObjectRef; 2]>::try_from(size)
-            .map_err(|_| vm.new_type_error("tcsetwinsize: size must be 2 element tuple/list"))?;
+        let seq = size.try_sequence(vm)?;
+        if seq.length(vm)? != 2 {
+            return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));
+        }
+        let row = seq.get_item(0, vm)?;
+        let col = seq.get_item(1, vm)?;
 
         let row: u16 = row
             .downcast_ref::<PyInt>()
