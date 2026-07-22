@@ -228,6 +228,31 @@ impl ByteInnerTranslateOptions {
 
 pub(crate) type ByteInnerSplitOptions = anystr::SplitArgs<PyBytesInner>;
 
+fn bytearray_repr_char_len(ch: u8) -> usize {
+    match ch {
+        b'\'' | b'\\' | b'\t' | b'\r' | b'\n' => 2,
+        0x20..=0x7e => 1,
+        _ => 4, // \xHH
+    }
+}
+
+fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
+    match ch {
+        b'\'' => buf.push_str(r#"\'"#),
+        b'\\' => buf.push_str(r#"\\"#),
+        b'\t' => buf.push_str(r#"\t"#),
+        b'\n' => buf.push_str(r#"\n"#),
+        b'\r' => buf.push_str(r#"\r"#),
+        0x20..=0x7e => buf.push(ch as char),
+        ch => {
+            const HEX: &[u8; 16] = b"0123456789abcdef";
+            buf.push_str(r#"\x"#);
+            buf.push(HEX[(ch >> 4) as usize] as char);
+            buf.push(HEX[(ch & 0x0f) as usize] as char);
+        }
+    }
+}
+
 impl PyBytesInner {
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
@@ -251,17 +276,33 @@ impl PyBytesInner {
     }
 
     pub fn repr_with_name(&self, class_name: &str, vm: &VirtualMachine) -> PyResult<String> {
-        const DECORATION_LEN: isize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
-        let escape = crate::literal::escape::AsciiEscape::new_repr(&self.elements);
-        let len = escape
-            .layout()
-            .len
-            .and_then(|len| (len as isize).checked_add(DECORATION_LEN + class_name.len() as isize))
-            .ok_or_else(|| Self::new_repr_overflow_error(vm))? as usize;
+        const DECORATION_LEN: usize = 2 + 3; // 2 for (), 3 for b"" => bytearray(b"")
+        let quote = if self.elements.contains(&b'\'') && !self.elements.contains(&b'"') {
+            '"'
+        } else {
+            '\''
+        };
+        let body_len = self
+            .elements
+            .iter()
+            .try_fold(0usize, |len, &ch| {
+                len.checked_add(bytearray_repr_char_len(ch))
+            })
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
+        let len = class_name
+            .len()
+            .checked_add(DECORATION_LEN)
+            .and_then(|len| len.checked_add(body_len))
+            .ok_or_else(|| Self::new_repr_overflow_error(vm))?;
         let mut buf = String::with_capacity(len);
         buf.push_str(class_name);
         buf.push('(');
-        escape.bytes_repr().write(&mut buf).unwrap();
+        buf.push('b');
+        buf.push(quote);
+        for &ch in &self.elements {
+            write_bytearray_repr_char(ch, &mut buf);
+        }
+        buf.push(quote);
         buf.push(')');
         debug_assert_eq!(buf.len(), len);
         Ok(buf)
