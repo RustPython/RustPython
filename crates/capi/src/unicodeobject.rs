@@ -5,8 +5,10 @@ use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
 use core::slice;
 use core::str;
-use rustpython_vm::builtins::{PyStr, PyStrRef};
-use rustpython_vm::{PyObjectRef, PyResult, VirtualMachine};
+use rustpython_vm::builtins::{PyBytesRef, PyStr, PyStrRef, PyUtf8StrRef};
+use rustpython_vm::common::wtf8::{CodePoint, Wtf8Buf};
+use rustpython_vm::convert::ToPyObject;
+use rustpython_vm::{AsObject, PyObjectRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyUnicode_Check, types.str_type);
 define_py_check!(exact fn PyUnicode_CheckExact, types.str_type);
@@ -38,6 +40,36 @@ pub unsafe extern "C" fn PyUnicode_FromStringAndSize(
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_FromString(s: *const c_char) -> *mut PyObject {
+    with_vm(|vm| {
+        let s = unsafe { s.try_as_str(vm)? };
+        Ok(vm.ctx.new_str(s))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_FromObject(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        Ok(unsafe { &*obj }
+            .try_downcast_ref::<PyStr>(vm)?
+            .as_object()
+            .str(vm))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_FromOrdinal(ordinal: c_int) -> *mut PyObject {
+    with_vm(|vm| {
+        let ordinal: u32 = ordinal
+            .try_into()
+            .map_err(|_| vm.new_value_error("ordinal not in range(0x110000)"))?;
+        let code_point = CodePoint::from_u32(ordinal)
+            .ok_or_else(|| vm.new_value_error("ordinal not in range(0x110000)"))?;
+        Ok(vm.ctx.new_str(Wtf8Buf::from_iter([code_point])))
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUTF8AndSize(
     obj: *mut PyObject,
     size: *mut isize,
@@ -61,6 +93,52 @@ pub unsafe extern "C" fn PyUnicode_AsUTF8AndSize(
     })
 }
 
+fn encode_unicode(
+    vm: &VirtualMachine,
+    unicode: *mut PyObject,
+    encoding: &str,
+    errors: Option<PyUtf8StrRef>,
+) -> PyResult<PyBytesRef> {
+    let unicode = unsafe { &*unicode }
+        .try_downcast_ref::<PyStr>(vm)?
+        .to_owned();
+    vm.state
+        .codec_registry
+        .encode_text(unicode, encoding, errors, vm)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsASCIIString(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "ascii", None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsLatin1String(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "latin-1", None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsRawUnicodeEscapeString(
+    unicode: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "raw-unicode-escape", None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsUTF16String(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "utf-16", None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsUTF32String(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "utf-32", None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_AsUnicodeEscapeString(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "unicode-escape", None))
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsEncodedString(
     unicode: *mut PyObject,
@@ -68,28 +146,100 @@ pub unsafe extern "C" fn PyUnicode_AsEncodedString(
     errors: *const c_char,
 ) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
         let encoding = unsafe { encoding.try_as_str_opt(vm) }?.unwrap_or("utf-8");
         let errors =
             unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
-        vm.state
-            .codec_registry
-            .encode_text(unicode, encoding, errors, vm)
+        encode_unicode(vm, unicode, encoding, errors)
     })
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_AsUTF8String(unicode: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| encode_unicode(vm, unicode, "utf-8", None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Decode(
+    s: *const c_char,
+    size: isize,
+    encoding: *const c_char,
+    errors: *const c_char,
+) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
+        let size: usize = size
+            .try_into()
+            .map_err(|_| vm.new_system_error("size must be non-negative"))?;
+
+        let bytes = if s.is_null() {
+            if size != 0 {
+                return Err(vm.new_system_error("decode called with null data and non-zero size"));
+            }
+            Vec::new()
+        } else {
+            unsafe { slice::from_raw_parts(s.cast::<u8>(), size) }.to_vec()
+        };
+
+        let encoding = unsafe { encoding.try_as_str_opt(vm)?.unwrap_or("utf-8") };
+        let errors =
+            unsafe { errors.try_as_str_opt(vm) }?.map(|errors| vm.ctx.new_utf8_str(errors));
+
         vm.state
             .codec_registry
-            .encode_text(unicode, "utf-8", None, vm)
+            .decode_text(vm.ctx.new_bytes(bytes).into(), encoding, errors, vm)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeASCII(
+    s: *const c_char,
+    size: isize,
+    errors: *const c_char,
+) -> *mut PyObject {
+    unsafe { PyUnicode_Decode(s, size, c"ascii".as_ptr(), errors) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeLatin1(
+    s: *const c_char,
+    size: isize,
+    errors: *const c_char,
+) -> *mut PyObject {
+    unsafe { PyUnicode_Decode(s, size, c"latin-1".as_ptr(), errors) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeRawUnicodeEscape(
+    s: *const c_char,
+    size: isize,
+    errors: *const c_char,
+) -> *mut PyObject {
+    unsafe { PyUnicode_Decode(s, size, c"raw-unicode-escape".as_ptr(), errors) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeUTF7(
+    s: *const c_char,
+    size: isize,
+    errors: *const c_char,
+) -> *mut PyObject {
+    unsafe { PyUnicode_Decode(s, size, c"utf-7".as_ptr(), errors) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeUTF8(
+    s: *const c_char,
+    size: isize,
+    errors: *const c_char,
+) -> *mut PyObject {
+    unsafe { PyUnicode_Decode(s, size, c"utf-8".as_ptr(), errors) }
+}
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_DecodeUnicodeEscape(
+    s: *const c_char,
+    size: isize,
+    errors: *const c_char,
+) -> *mut PyObject {
+    unsafe { PyUnicode_Decode(s, size, c"unicode-escape".as_ptr(), errors) }
 }
 
 #[unsafe(no_mangle)]
@@ -103,6 +253,89 @@ pub unsafe extern "C" fn PyUnicode_DecodeFSDefaultAndSize(
             .map_err(|_| vm.new_system_error("size must be non-negative"))?;
 
         decode_fsdefault_and_size(vm, s, size)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Concat(
+    left: *mut PyObject,
+    right: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
+        let right = unsafe { &*right }.try_downcast_ref::<PyStr>(vm)?;
+        vm._add(left.as_object(), right.as_object())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_GetLength(unicode: *mut PyObject) -> isize {
+    with_vm(|vm| {
+        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        Ok(unicode.char_len())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_GetDefaultEncoding() -> *const c_char {
+    c"utf-8".as_ptr()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_InternFromString(s: *const c_char) -> *mut PyObject {
+    with_vm(|vm| {
+        let s = unsafe { s.try_as_str(vm)? };
+        Ok(vm.ctx.intern_str(s).to_owned())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Compare(left: *mut PyObject, right: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
+        let right = unsafe { &*right }.try_downcast_ref::<PyStr>(vm)?;
+        Ok(match left.as_wtf8().cmp(right.as_wtf8()) {
+            core::cmp::Ordering::Less => -1,
+            core::cmp::Ordering::Equal => 0,
+            core::cmp::Ordering::Greater => 1,
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_CompareWithASCIIString(
+    left: *mut PyObject,
+    right: *const c_char,
+) -> c_int {
+    with_vm(|vm| {
+        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
+        let right = unsafe { right.try_as_str(vm)? };
+        Ok(match left.as_wtf8().cmp(right.into()) {
+            core::cmp::Ordering::Less => -1,
+            core::cmp::Ordering::Equal => 0,
+            core::cmp::Ordering::Greater => 1,
+        })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Equal(left: *mut PyObject, right: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let left = unsafe { &*left }.try_downcast_ref::<PyStr>(vm)?;
+        let right = unsafe { &*right }.try_downcast_ref::<PyStr>(vm)?;
+        Ok(left.as_wtf8() == right.as_wtf8())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_EqualToUTF8(
+    unicode: *mut PyObject,
+    string: *const c_char,
+) -> c_int {
+    with_vm(|vm| {
+        let unicode = unsafe { &*unicode }.try_downcast_ref::<PyStr>(vm)?;
+        let other = unsafe { string.try_as_str(vm)? };
+        Ok(unicode.to_str().is_some_and(|s| s == other))
     })
 }
 
@@ -141,14 +374,11 @@ pub(crate) fn decode_fsdefault_and_size(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyUnicode_EncodeFSDefault(unicode: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
-        let unicode = unsafe { &*unicode }
-            .try_downcast_ref::<PyStr>(vm)?
-            .to_owned();
-        vm.state.codec_registry.encode_text(
+        encode_unicode(
+            vm,
             unicode,
             vm.fs_encoding().as_str(),
             Some(vm.fs_encode_errors().to_owned()),
-            vm,
         )
     })
 }
@@ -178,6 +408,76 @@ pub unsafe extern "C" fn PyUnicode_FromEncodedObject(
                 vm,
             )
         })?
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Contains(
+    container: *mut PyObject,
+    element: *mut PyObject,
+) -> c_int {
+    with_vm(|vm| {
+        let container = unsafe { &*container }.try_downcast_ref::<PyStr>(vm)?;
+        let element = unsafe { &*element }.try_downcast_ref::<PyStr>(vm)?;
+        Ok(container.as_wtf8().contains(element.as_wtf8()))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Format(
+    format: *mut PyObject,
+    args: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let format = unsafe { &*format }.try_downcast_ref::<PyStr>(vm)?;
+        let result = format.__mod__(unsafe { &*args }.to_owned(), vm)?;
+        Ok(result.to_pyobject(vm))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_IsIdentifier(s: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
+        Ok(s.isidentifier())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Partition(
+    s: *mut PyObject,
+    sep: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
+        let sep = unsafe { &*sep }.try_downcast_ref::<PyStr>(vm)?;
+        s.partition(sep.to_owned(), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_RPartition(
+    s: *mut PyObject,
+    sep: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
+        let sep = unsafe { &*sep }.try_downcast_ref::<PyStr>(vm)?;
+        s.rpartition(sep.to_owned(), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyUnicode_Translate(
+    str_obj: *mut PyObject,
+    table: *mut PyObject,
+    _errors: *const c_char,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let str_obj = unsafe { &*str_obj }.try_downcast_ref::<PyStr>(vm)?;
+        Ok(str_obj
+            .translate(unsafe { &*table }.to_owned(), vm)?
+            .to_pyobject(vm))
     })
 }
 
