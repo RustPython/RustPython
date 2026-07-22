@@ -341,12 +341,11 @@ impl VirtualMachine {
     /// [`vm.invoke_exception()`][Self::invoke_exception] or
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
-        debug_assert_eq!(
-            exc_type.slots.basicsize,
-            core::mem::size_of::<PyBaseException>(),
-            "vm.new_exception() is only for exception types without additional payload. The given type '{}' is not allowed. Use vm.new_os_subtype_error() for OSError subtypes.",
-            exc_type.name()
-        );
+        if exc_type.slots.basicsize != core::mem::size_of::<PyBaseException>() {
+            return self
+                .invoke_exception(&exc_type, args)
+                .expect("vm.new_exception() called with an invalid exception type");
+        }
 
         PyBaseException::new(args, self)
             .into_ref_with_type_lazy_dict(self, exc_type)

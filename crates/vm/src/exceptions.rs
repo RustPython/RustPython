@@ -9,7 +9,7 @@ use crate::{
     },
     class::{PyClassImpl, StaticType},
     convert::{IntoPyException, ToPyException, ToPyObject},
-    function::{ArgIterable, FuncArgs, IntoFuncArgs, PySetterValue},
+    function::{ArgIterable, FuncArgs, IntoFuncArgs},
     py_io::{self, Write},
     stdlib::sys,
     suggestion::offer_suggestions,
@@ -1029,21 +1029,7 @@ impl ExceptionZoo {
             excs.python_finalization_error
         );
 
-        extend_exception!(PySyntaxError, ctx, excs.syntax_error, {
-            "msg" => ctx.new_static_getset(
-                "msg",
-                excs.syntax_error,
-                make_arg_getter(0),
-                syntax_error_set_msg,
-            ),
-            // TODO: members
-            "filename" => ctx.none(),
-            "lineno" => ctx.none(),
-            "end_lineno" => ctx.none(),
-            "offset" => ctx.none(),
-            "end_offset" => ctx.none(),
-            "text" => ctx.none(),
-        });
+        extend_exception!(PySyntaxError, ctx, excs.syntax_error);
         extend_exception!(PyIncompleteInputError, ctx, excs.incomplete_input_error);
         extend_exception!(PyIndentationError, ctx, excs.indentation_error);
         extend_exception!(PyTabError, ctx, excs.tab_error);
@@ -1080,20 +1066,6 @@ impl ExceptionZoo {
 
 fn make_arg_getter(idx: usize) -> impl Fn(PyBaseExceptionRef) -> Option<PyObjectRef> {
     move |exc| exc.get_arg(idx)
-}
-
-fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &VirtualMachine) {
-    let mut args = exc.args.write();
-    let mut new_args = args.as_slice().to_vec();
-    // Ensure the message slot at index 0 always exists for SyntaxError.args.
-    if new_args.is_empty() {
-        new_args.push(vm.ctx.none());
-    }
-    match value {
-        PySetterValue::Assign(value) => new_args[0] = value,
-        PySetterValue::Delete => new_args[0] = vm.ctx.none(),
-    }
-    *args = PyTuple::new_ref(new_args, &vm.ctx);
 }
 
 #[cfg(feature = "serde")]
@@ -2551,12 +2523,64 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyPythonFinalizationError(PyRuntimeError);
 
-    #[pyexception(name, base = PyException, ctx = "syntax_error")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySyntaxError(PyException);
+    #[pyexception(name, base = PyException, ctx = "syntax_error", traverse = "manual")]
+    #[repr(C)]
+    pub struct PySyntaxError {
+        base: PyException,
+        msg: PyAtomicRef<Option<PyObject>>,
+        filename: PyAtomicRef<Option<PyObject>>,
+        lineno: PyAtomicRef<Option<PyObject>>,
+        offset: PyAtomicRef<Option<PyObject>>,
+        text: PyAtomicRef<Option<PyObject>>,
+        end_lineno: PyAtomicRef<Option<PyObject>>,
+        end_offset: PyAtomicRef<Option<PyObject>>,
+        print_file_and_line: PyAtomicRef<Option<PyObject>>,
+    }
 
-    #[pyexception(with(Initializer))]
+    impl crate::class::PySubclass for PySyntaxError {
+        type Base = PyException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    impl core::fmt::Debug for PySyntaxError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PySyntaxError").finish_non_exhaustive()
+        }
+    }
+
+    unsafe impl Traverse for PySyntaxError {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.0.traverse(tracer_fn);
+            if let Some(obj) = self.msg.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.filename.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.lineno.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.offset.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.text.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.end_lineno.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.end_offset.deref() {
+                tracer_fn(obj);
+            }
+            if let Some(obj) = self.print_file_and_line.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
     impl PySyntaxError {
         #[pymethod]
         fn __str__(zelf: &Py<PyBaseException>, vm: &VirtualMachine) -> PyStrRef {
@@ -2620,22 +2644,163 @@ pub(super) mod types {
 
             vm.ctx.new_str(msg_with_location_info)
         }
+
+        #[pygetset]
+        fn msg(&self) -> Option<PyObjectRef> {
+            self.msg.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_msg(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.msg.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn filename(&self) -> Option<PyObjectRef> {
+            self.filename.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_filename(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.filename.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn lineno(&self) -> Option<PyObjectRef> {
+            self.lineno.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_lineno(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.lineno.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn offset(&self) -> Option<PyObjectRef> {
+            self.offset.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_offset(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.offset.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn text(&self) -> Option<PyObjectRef> {
+            self.text.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_text(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.text.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn end_lineno(&self) -> Option<PyObjectRef> {
+            self.end_lineno.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_end_lineno(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.end_lineno.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn end_offset(&self) -> Option<PyObjectRef> {
+            self.end_offset.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_end_offset(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.end_offset.swap_to_temporary_refs(value, vm);
+        }
+
+        #[pygetset]
+        fn print_file_and_line(&self) -> Option<PyObjectRef> {
+            self.print_file_and_line.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_print_file_and_line(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let value = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.print_file_and_line.swap_to_temporary_refs(value, vm);
+        }
+    }
+
+    impl Constructor for PySyntaxError {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let msg = args.args.first().cloned();
+            let base_exception = PyBaseException::new(args.args, vm);
+            Ok(Self {
+                base: PyException(base_exception),
+                msg: msg.into(),
+                filename: None.into(),
+                lineno: None.into(),
+                offset: None.into(),
+                text: None.into(),
+                end_lineno: None.into(),
+                end_offset: None.into(),
+                print_file_and_line: None.into(),
+            })
+        }
     }
 
     impl Initializer for PySyntaxError {
         type Args = FuncArgs;
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            let len = args.args.len();
-            let new_args = args;
-
-            zelf.set_attr("print_file_and_line", vm.ctx.none(), vm)?;
-
-            if len == 2
-                && let Ok(location_tuple) = new_args.args[1]
+            let msg = args.args.first().cloned();
+            let location_tuple = if args.args.len() == 2 {
+                args.args[1]
                     .clone()
                     .downcast::<crate::builtins::PyTuple>()
-            {
+                    .ok()
+            } else {
+                None
+            };
+
+            PyBaseException::slot_init(zelf.clone(), args, vm)?;
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
+
+            if let Some(msg) = msg {
+                exc.msg.swap_to_temporary_refs(Some(msg), vm);
+            }
+
+            // SyntaxError(msg, (filename, lineno, offset, text[, end_lineno, end_offset]))
+            if let Some(location_tuple) = location_tuple {
                 let location_tup_len = location_tuple.len();
 
                 match location_tup_len {
@@ -2652,26 +2817,26 @@ pub(super) mod types {
                     }
                 }
 
-                for (i, &attr) in [
-                    "filename",
-                    "lineno",
-                    "offset",
-                    "text",
-                    "end_lineno",
-                    "end_offset",
-                ]
-                .iter()
-                .enumerate()
-                {
-                    if location_tup_len > i {
-                        zelf.set_attr(attr, location_tuple[i].to_owned(), vm)?;
-                    } else {
-                        break;
-                    }
+                exc.end_lineno.swap_to_temporary_refs(None, vm);
+                exc.end_offset.swap_to_temporary_refs(None, vm);
+
+                exc.filename
+                    .swap_to_temporary_refs(Some(location_tuple[0].to_owned()), vm);
+                exc.lineno
+                    .swap_to_temporary_refs(Some(location_tuple[1].to_owned()), vm);
+                exc.offset
+                    .swap_to_temporary_refs(Some(location_tuple[2].to_owned()), vm);
+                exc.text
+                    .swap_to_temporary_refs(Some(location_tuple[3].to_owned()), vm);
+                if location_tup_len == 6 {
+                    exc.end_lineno
+                        .swap_to_temporary_refs(Some(location_tuple[4].to_owned()), vm);
+                    exc.end_offset
+                        .swap_to_temporary_refs(Some(location_tuple[5].to_owned()), vm);
                 }
             }
 
-            PyBaseException::slot_init(zelf, new_args, vm)
+            Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
