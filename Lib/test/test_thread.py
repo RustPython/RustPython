@@ -151,7 +151,6 @@ class ThreadRunningTests(BasicThreadTest):
                 support.gc_collect()  # For PyPy or other GCs.
             self.assertEqual(thread._count(), orig)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unraisable_exception(self):
         def task():
             started.release()
