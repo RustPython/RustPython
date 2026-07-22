@@ -2527,7 +2527,6 @@ class SyntaxErrorTests(unittest.TestCase):
         args = ("bad.py", 1, 2, "abcdefg", 1)
         self.assertRaises(TypeError, SyntaxError, "bad bad", args)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 2 is not None
     def test_syntax_error_memory_leak(self):
         # gh-146250: memory leak with re-initialization of SyntaxError
         e = SyntaxError("msg", ("file.py", 1, 2, "txt", 2, 3))
