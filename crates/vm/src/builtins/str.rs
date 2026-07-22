@@ -977,7 +977,7 @@ impl PyStr {
         !self.data.is_empty() && self.char_all(unicode::classify::is_decimal)
     }
 
-    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    pub fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         cformat_string(vm, self.as_wtf8(), values)
     }
 
@@ -1192,7 +1192,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (front, has_mid, back) = self.as_wtf8().py_partition(
             sep.as_wtf8(),
             || self.as_wtf8().splitn(2, sep.as_wtf8()),
@@ -1211,7 +1211,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (back, has_mid, front) = self.as_wtf8().py_partition(
             sep.as_wtf8(),
             || self.as_wtf8().rsplitn(2, sep.as_wtf8()),
@@ -1344,7 +1344,7 @@ impl PyStr {
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
-    fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    pub fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
             format!("'{}' object is not subscriptable", table.class().name())
         })?;
