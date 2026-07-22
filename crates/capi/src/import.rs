@@ -8,7 +8,18 @@ use rustpython_vm::import::import_code_obj;
 pub unsafe extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
-        vm.import(name, 0)
+        vm.import(name, 0)?;
+
+        let sys_modules = vm
+            .sys_module
+            .get_attr(rustpython_vm::identifier!(vm, modules), vm)?;
+        let sys_modules = sys_modules.try_downcast_ref::<PyDict>(vm)?;
+
+        if let Some(module) = sys_modules.get_item_opt(name, vm)? {
+            Ok(module)
+        } else {
+            vm.import(name, 0)
+        }
     })
 }
 
@@ -72,6 +83,14 @@ mod tests {
     fn import_stdlib() {
         Python::attach(|py| {
             let _module = py.import("types").unwrap();
+        })
+    }
+
+    #[test]
+    fn import_sub_module() {
+        Python::attach(|py| {
+            let module = py.import("collections.abc").unwrap();
+            module.getattr("Sequence").unwrap();
         })
     }
 }
