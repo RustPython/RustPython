@@ -598,6 +598,7 @@ mod tests {
             let x = 5i32.into_pyobject(py).unwrap();
             assert!(x.is_instance_of::<PyInt>());
 
+            // spell-checker:ignore bbbbbbytes
             assert!(x.hasattr("to_bytes").unwrap());
             assert!(!x.hasattr("bbbbbbytes").unwrap());
         })
