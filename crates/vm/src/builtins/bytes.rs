@@ -9,8 +9,8 @@ use crate::{
     anystr::{self, AnyStr},
     atomic_func,
     bytes_inner::{
-        ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
-        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
@@ -318,10 +318,10 @@ impl PyBytes {
     #[pymethod]
     pub(crate) fn hex(
         &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
+        options: ByteInnerHexOptions,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
+        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.inner.hex(sep, bytes_per_sep, vm)
     }
 

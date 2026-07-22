@@ -1113,6 +1113,14 @@ pub(crate) fn bytes_decode(
         .decode_text(zelf, encoding, errors, vm)
 }
 
+#[derive(FromArgs)]
+pub(crate) struct ByteInnerHexOptions {
+    #[pyarg(any, optional)]
+    pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    #[pyarg(any, optional)]
+    pub bytes_per_sep: OptionalArg<isize>,
+}
+
 fn hex_impl_no_sep(bytes: &[u8]) -> String {
     let mut buf: Vec<u8> = vec![0; bytes.len() * 2];
     hex::encode_to_slice(bytes, buf.as_mut_slice()).unwrap();
