@@ -268,6 +268,33 @@ mod termios {
         Ok(())
     }
 
+    #[pyfunction]
+    fn tcgetwinsize(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<(u16, u16)> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+        let size = host_termios::tcgetwinsize(fd).map_err(|e| termios_error(e, vm))?;
+        Ok(size)
+    }
+
+    #[pyfunction]
+    fn tcsetwinsize(fd: PyObjectRef, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
+        let size = vm.extract_elements_with(&size, Ok)?;
+        let [row, col] = <[PyObjectRef; 2]>::try_from(size)
+            .map_err(|_| vm.new_type_error("tcsetwinsize: size must be 2 element tuple/list"))?;
+
+        let row: u16 = row
+            .downcast_ref::<PyInt>()
+            .ok_or_else(|| vm.new_type_error("tcsetwinsize: winsize values must be integers"))?
+            .try_to_primitive(vm)?;
+        let col: u16 = col
+            .downcast_ref::<PyInt>()
+            .ok_or_else(|| vm.new_type_error("tcsetwinsize: winsize values must be integers"))?
+            .try_to_primitive(vm)?;
+
+        host_termios::tcsetwinsize(fd, row, col).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
     fn termios_error(err: std::io::Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         vm.new_os_subtype_error(
             error_type(vm),

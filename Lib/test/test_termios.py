@@ -221,7 +221,6 @@ class TestFunctions(unittest.TestCase):
                             'output was not resumed')
             self.assertEqual(os.read(rfd, 1024), b'def')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcgetwinsize(self):
         size = termios.tcgetwinsize(self.fd)
         self.assertIsInstance(size, tuple)
@@ -230,7 +229,6 @@ class TestFunctions(unittest.TestCase):
         self.assertIsInstance(size[1], int)
         self.assertEqual(termios.tcgetwinsize(self.stream), size)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcgetwinsize_errors(self):
         self.assertRaisesTermiosError(errno.ENOTTY, termios.tcgetwinsize, self.bad_fd)
         self.assertRaises(ValueError, termios.tcgetwinsize, -1)
@@ -238,14 +236,12 @@ class TestFunctions(unittest.TestCase):
         self.assertRaises(TypeError, termios.tcgetwinsize, object())
         self.assertRaises(TypeError, termios.tcgetwinsize)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcsetwinsize(self):
         size = termios.tcgetwinsize(self.fd)
         termios.tcsetwinsize(self.fd, size)
         termios.tcsetwinsize(self.fd, list(size))
         termios.tcsetwinsize(self.stream, size)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: module 'termios' has no attribute 'tcgetwinsize'
     def test_tcsetwinsize_errors(self):
         size = termios.tcgetwinsize(self.fd)
         self.assertRaises(TypeError, termios.tcsetwinsize, self.fd, size[:-1])
