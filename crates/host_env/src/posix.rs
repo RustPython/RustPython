@@ -1424,8 +1424,9 @@ fn build_posix_spawn_attrs(
             target_os = "hurd",
         ))]
         {
+            #[allow(clippy::useless_conversion)]
             flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
-                libc::POSIX_SPAWN_SETSID,
+                libc::POSIX_SPAWN_SETSID.into(),
             ));
         }
         #[cfg(not(any(
