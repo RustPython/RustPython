@@ -2133,7 +2133,7 @@ impl Constructor for PyType {
             let metatype = if !winner.is(&metatype) {
                 if let Some(ref slot_new) = winner.slots.new.load() {
                     // Pass it to the winner
-                    return slot_new(winner, args, vm);
+                    return slot_new.invoke(winner, args, vm);
                 }
                 winner
             } else {
@@ -2832,14 +2832,14 @@ impl Callable for PyType {
             // path incorrectly.
             if zelf.slots.init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
-                && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize
+                && slot_new.identity() != crate::types::new_wrapper as *const () as usize
             {
-                return slot_new(zelf.to_owned(), args, vm);
+                return slot_new.invoke(zelf.to_owned(), args, vm);
             }
             args.clone()
         };
 
-        let obj = slot_new(zelf.to_owned(), args, vm)?;
+        let obj = slot_new.invoke(zelf.to_owned(), args, vm)?;
 
         if !obj.class().fast_issubclass(zelf) {
             return Ok(obj);
@@ -3069,7 +3069,7 @@ pub(crate) fn call_slot_new(
     // Check if staticbase's tp_new differs from typ's tp_new
     let typ_new = typ.slots.new.load();
     let staticbase_new = staticbase.slots.new.load();
-    if typ_new.map(|f| f as usize) != staticbase_new.map(|f| f as usize) {
+    if typ_new.map(|f| f.identity()) != staticbase_new.map(|f| f.identity()) {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
             typ.slot_name(),
@@ -3083,7 +3083,7 @@ pub(crate) fn call_slot_new(
         .new
         .load()
         .expect("Should be able to find a new slot somewhere in the mro");
-    slot_new(subtype, args, vm)
+    slot_new.invoke(subtype, args, vm)
 }
 
 pub(crate) fn or_(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {

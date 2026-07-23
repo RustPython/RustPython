@@ -665,7 +665,11 @@ fn vectorcall_tuple(
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     // Use the type's own slot_new rather than calling PyTuple::slot_new directly,
     // so Rust-level subclasses (e.g. struct sequences) get their custom slot_new called.
-    (zelf.slots.new.load().unwrap())(zelf.to_owned(), func_args, vm)
+    zelf.slots
+        .new
+        .load()
+        .unwrap()
+        .invoke(zelf.to_owned(), func_args, vm)
 }
 
 pub(crate) fn init(context: &'static Context) {

@@ -9305,7 +9305,7 @@ impl ExecutingFrame<'_> {
                 let cls_alloc = cls.slots.alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
-                    && cls_new_fn as usize == obj_new_fn as usize
+                    && cls_new_fn.identity() == obj_new_fn.identity()
                     && cls_alloc_fn as usize == obj_alloc_fn as usize
                 {
                     if type_version == 0 {
