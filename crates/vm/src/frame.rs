@@ -8470,9 +8470,12 @@ impl ExecutingFrame<'_> {
                     // attribute is missing on both the class and the current
                     // instance, keep the generic opcode and just enter
                     // cooldown instead of specializing a repeated miss path.
+                    // A present attribute always specializes; when no entry
+                    // index is representable the hint degrades to 0 and the
+                    // handler simply keeps taking its full-probe fallback.
                     let instance_attr_hint = if let Some(dict) = obj.dict() {
-                        match dict.hint_for_key(attr_name, _vm) {
-                            Ok(hint) => hint,
+                        match dict.get_item_opt_refresh_hint(attr_name, 0, _vm) {
+                            Ok(present) => present.map(|(_, refreshed)| refreshed.unwrap_or(0)),
                             Err(_) => {
                                 unsafe {
                                     self.code.instructions.write_adaptive_counter(
