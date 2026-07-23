@@ -181,6 +181,83 @@ def test_quote_minimal_writer_lineterminator():
 test_quote_minimal_writer_lineterminator()
 
 
+def test_multichar_lineterminator():
+    # https://github.com/RustPython/RustPython/issues/8322
+    # The writer must store and emit a full multi-character line terminator.
+    for lineterminator in "\r\n", "\n", "\r", "!@#", "\0":
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator=lineterminator)
+        writer.writerow(["a", "b"])
+        writer.writerow([1, 2])
+        writer.writerow(["\r", "\n"])
+        assert buf.getvalue() == (
+            f'a,b{lineterminator}1,2{lineterminator}"\r","\n"{lineterminator}'
+        ), (lineterminator, buf.getvalue())
+
+    # A field is quoted when it contains any byte of the terminator (QUOTE_MINIMAL).
+    for field, expected in [
+        ("a@b", '"a@b",x!@#'),
+        ("a!b", '"a!b",x!@#'),
+        ("a#b", '"a#b",x!@#'),
+        ("abc", "abc,x!@#"),
+    ]:
+        buf = io.StringIO()
+        csv.writer(buf, lineterminator="!@#").writerow([field, "x"])
+        assert buf.getvalue() == expected, (field, buf.getvalue())
+
+    # The csv-core-backed QUOTE_ALL / QUOTE_NONNUMERIC paths emit the full
+    # terminator too, and keep the state machine correct across rows.
+    allq = io.StringIO()
+    writer = csv.writer(allq, lineterminator="!@#", quoting=csv.QUOTE_ALL)
+    writer.writerow(["a", "b"])
+    writer.writerow(["c", "d"])
+    assert allq.getvalue() == '"a","b"!@#"c","d"!@#', allq.getvalue()
+
+    nonnum = io.StringIO()
+    csv.writer(nonnum, lineterminator="!@#", quoting=csv.QUOTE_NONNUMERIC).writerow(
+        ["a", 1]
+    )
+    assert nonnum.getvalue() == '"a",1!@#', nonnum.getvalue()
+
+    # A field that itself contains a line-break byte must be kept intact: the
+    # csv-core path drops only the trailing record terminator, not a byte from
+    # the field data.
+    embedded = io.StringIO()
+    csv.writer(embedded, lineterminator="!@#", quoting=csv.QUOTE_ALL).writerow(
+        ["x\ny", "z"]
+    )
+    assert embedded.getvalue() == '"x\ny","z"!@#', embedded.getvalue()
+
+    # QUOTE_NONE escapes any byte of the terminator.
+    none = io.StringIO()
+    csv.writer(
+        none, lineterminator="!@#", quoting=csv.QUOTE_NONE, escapechar="\\"
+    ).writerow(["a!b", "x"])
+    assert none.getvalue() == "a\\!b,x!@#", none.getvalue()
+
+    # register_dialect round-trips a multi-character terminator.
+    csv.register_dialect("multichar_lt", delimiter=",", lineterminator="!@#")
+    try:
+        reg = io.StringIO()
+        csv.writer(reg, dialect="multichar_lt").writerow(["a", "b"])
+        assert reg.getvalue() == "a,b!@#", reg.getvalue()
+    finally:
+        csv.unregister_dialect("multichar_lt")
+
+    # The dialect attribute reflects the full terminator.
+    assert (
+        csv.writer(io.StringIO(), lineterminator="!@#").dialect.lineterminator == "!@#"
+    )
+
+    # The reader ignores lineterminator (like CPython) and only splits on \r\n.
+    assert list(csv.reader(io.StringIO("a,b!@#c,d!@#"), lineterminator="!@#")) == [
+        ["a", "b!@#c", "d!@#"]
+    ]
+
+
+test_multichar_lineterminator()
+
+
 def test_quote_minimal_writer_empty_fields():
     buf = io.StringIO()
     writer = csv.writer(buf)
