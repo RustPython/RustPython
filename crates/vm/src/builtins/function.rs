@@ -825,6 +825,7 @@ impl Py<PyFunction> {
 
         unsafe {
             // Initialize the LightFrame header with borrowed pointers (NO refcount bumps)
+            let prev_chain = crate::vm::thread::get_current_frame();
             core::ptr::write(
                 light,
                 LightFrame {
@@ -834,8 +835,7 @@ impl Py<PyFunction> {
                     func_obj: self.as_object() as *const _,
                     lasti: Radium::new(0),
                     prev_line: 0,
-                    previous_light: crate::vm::thread::get_current_light_frame(),
-                    saved_current_frame: crate::vm::thread::get_current_frame(),
+                    previous: prev_chain,
                     materialized: core::cell::UnsafeCell::new(core::ptr::null_mut()),
                     nlocalsplus: nlocalsplus as u32,
                     max_stackdepth: max_stackdepth as u32,
@@ -865,15 +865,25 @@ impl Py<PyFunction> {
                 }
             }
 
-            // Push light frame onto TLS chain
-            let prev_light = crate::vm::thread::set_current_light_frame(light);
+            // Push light frame onto the unified chain
+            let old_chain = crate::vm::thread::set_current_frame(
+                crate::frame::FrameChainPtr::from_light(light),
+            );
 
             // Recursion depth and C stack overflow check
             let depth = vm.current_recursion_depth();
-            if depth >= vm.recursion_limit.get() || (depth & 63 == 0 && vm.check_c_stack_overflow())
-            {
-                // Clean up the light frame TLS before erroring
-                crate::vm::thread::set_current_light_frame(prev_light);
+            // C stack check: every call in debug builds (large frames may
+            // overflow before the Python recursion limit triggers), every
+            // 16th call in release.
+            #[allow(clippy::bad_bit_mask)]
+            let c_stack_due = if cfg!(debug_assertions) {
+                true
+            } else {
+                depth & 15 == 0
+            };
+            if depth >= vm.recursion_limit.get() || (c_stack_due && vm.check_c_stack_overflow()) {
+                // Clean up the frame chain before erroring
+                let _ = crate::vm::thread::set_current_frame(old_chain);
                 // Drop values we moved into localsplus
                 let slots =
                     core::slice::from_raw_parts_mut(lp_ptr as *mut Option<PyObjectRef>, capacity);
@@ -890,13 +900,13 @@ impl Py<PyFunction> {
             let materialized_cell: *const core::cell::UnsafeCell<*mut Py<Frame>> =
                 &(*light).materialized;
 
-            // Panic guard: restore TLS and recursion depth, reclaim materialized
+            // Panic guard: restore chain and recursion depth, reclaim materialized
             // frame, pop DataStack. Localsplus values are dropped by
             // LocalsPlus::drop (run_light_frame takes ownership).
-            // TLS restored first so destructors can re-enter the VM safely.
+            // Chain restored first so destructors can re-enter the VM safely.
             scopeguard::defer! {
                 vm.recursion_depth_decrement();
-                crate::vm::thread::set_current_light_frame(prev_light);
+                let _ = crate::vm::thread::set_current_frame(old_chain);
                 let materialized_ptr = *(*materialized_cell).get();
                 if !materialized_ptr.is_null() {
                     let reclaim = FrameRef::from_raw(materialized_ptr as *const _);

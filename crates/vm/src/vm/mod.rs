@@ -1714,11 +1714,8 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        // Inline recursion check (avoids with_recursion closure overhead)
         self.check_recursive_call("")?;
 
-        // C stack overflow check: amortized over every 64th call to reduce
-        // the cost of psm::stack_pointer() on the hot path.
         let depth = self.recursion_depth.get();
         if depth & 63 == 0 && self.check_c_stack_overflow() {
             return Err(self.new_recursion_error(String::new()));
@@ -1726,45 +1723,18 @@ impl VirtualMachine {
 
         self.recursion_depth.update(|d| d + 1);
 
-        // Publish the frame for sys._current_frames() and faulthandler.
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
-        // Link frame into the signal-safe frame chain.
-        // If a light frame is currently on top, materialize it so that
-        // f_back and inspect.stack() see the correct interleaved order
-        // (H_new → L_materialized → H_old instead of H_new → H_old).
-        let light = crate::vm::thread::get_current_light_frame();
-        let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
-        let _materialized_back = if !light.is_null() {
-            let saved = unsafe { (*light).saved_current_frame };
-            if core::ptr::eq(old_frame, saved) {
-                // The top light frame belongs to this heavy call level —
-                // materialize and use as the predecessor.
-                let mat =
-                    unsafe { crate::frame::materialize_light_frame_pub(light as *mut _, self) };
-                let payload = (&**mat) as *const crate::frame::Frame as *mut crate::frame::Frame;
-                frame
-                    .previous
-                    .store(payload, core::sync::atomic::Ordering::Relaxed);
-                // Keep the materialized frame alive via retained_back so
-                // f_back can find it even after the light frame's cleanup.
-                *frame.retained_back.lock() = Some(mat.clone());
-                Some(mat)
-            } else {
-                frame.previous.store(
-                    old_frame as *mut crate::frame::Frame,
-                    core::sync::atomic::Ordering::Relaxed,
-                );
-                None
-            }
-        } else {
-            frame.previous.store(
-                old_frame as *mut crate::frame::Frame,
-                core::sync::atomic::Ordering::Relaxed,
-            );
-            None
-        };
-        // Save exc_info if this frame does exception handling.
+        let payload: *const Frame = &**frame;
+        let old_chain =
+            crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .previous
+                .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
+        }
         let save_exc = frame.code.has_exc_handling;
         let saved_exc = if save_exc {
             self.current_exception()
@@ -1776,25 +1746,18 @@ impl VirtualMachine {
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        // Ensure all state is restored on panic or normal exit. Installed
-        // immediately after all setup so no intermediate panic can leak.
         scopeguard::defer! {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             if save_exc {
                 self.restore_exception(saved_exc);
             }
-            crate::vm::thread::set_current_frame(old_frame);
+            let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
             self.recursion_depth.update(|d| d - 1);
         }
 
-        // Execute: skip dispatch_traced_frame when tracing is off (hot path).
-        if self.use_tracing.get() {
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-        } else {
-            f(frame.to_owned())
-        }
+        self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
     }
 
     /// Frame execution for generator/coroutine resume.
@@ -1815,14 +1778,17 @@ impl VirtualMachine {
         // SAFETY: frame (&FrameRef) stays alive for the duration, so NonNull is valid until pop.
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
-        let old_frame = crate::vm::thread::set_current_frame((&***frame) as *const Frame);
-        frame.previous.store(
-            old_frame as *mut Frame,
-            core::sync::atomic::Ordering::Relaxed,
-        );
+        let payload: *const Frame = &***frame;
+        let old_chain =
+            crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .previous
+                .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
+        }
         // Push generator's exc_info slot onto the chain
-        // (gi_exc_state.previous_item = tstate->exc_info;
-        //  tstate->exc_info = &gi_exc_state;)
         self.push_exception(exc);
         let old_owner = frame.owner.swap(
             crate::frame::FrameOwner::Thread as i8,
@@ -1834,7 +1800,7 @@ impl VirtualMachine {
         scopeguard::defer! {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
-            crate::vm::thread::set_current_frame(old_frame);
+            let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
 
@@ -1925,7 +1891,7 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameRef> {
-        crate::frame::current_thread_frame_vm(self)
+        crate::frame::current_thread_frame()
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {

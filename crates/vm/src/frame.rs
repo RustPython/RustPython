@@ -38,7 +38,6 @@ use bstr::ByteSlice;
 use core::cell::UnsafeCell;
 use core::ptr::NonNull;
 use core::sync::atomic;
-use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering::{Acquire, Relaxed};
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -51,6 +50,123 @@ use rustpython_common::{
 use rustpython_compiler_core::SourceLocation;
 
 pub type FrameRef = PyRef<Frame>;
+
+/// Tagged pointer for the unified frame chain. Bit 0 distinguishes
+/// heavy (`*const Frame` payload) from light (`*const LightFrame`) entries.
+/// Null (0) marks the end of the chain.
+///
+/// Used in `CURRENT_FRAME` TLS, `InterpreterFrame.previous`, and
+/// `LightFrame.previous` to form a single interleaved chain — mirroring
+/// `tstate->current_frame` in CPython 3.14.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(transparent)]
+pub struct FrameChainPtr(usize);
+
+impl FrameChainPtr {
+    const LIGHT_TAG: usize = 1;
+
+    #[inline(always)]
+    #[must_use]
+    pub const fn null() -> Self {
+        Self(0)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn is_null(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn from_heavy(frame: *const Frame) -> Self {
+        debug_assert!(
+            frame as usize & Self::LIGHT_TAG == 0,
+            "misaligned Frame pointer"
+        );
+        Self(frame as usize)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn from_light(light: *const LightFrame) -> Self {
+        debug_assert!(
+            light as usize & Self::LIGHT_TAG == 0,
+            "misaligned LightFrame pointer"
+        );
+        Self(light as usize | Self::LIGHT_TAG)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn is_light(self) -> bool {
+        !self.is_null() && (self.0 & Self::LIGHT_TAG != 0)
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn as_heavy(self) -> Option<*const Frame> {
+        if self.is_null() || self.is_light() {
+            None
+        } else {
+            Some(self.0 as *const Frame)
+        }
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub(crate) fn as_light(self) -> Option<*mut LightFrame> {
+        if self.is_light() {
+            Some((self.0 & !Self::LIGHT_TAG) as *mut LightFrame)
+        } else {
+            None
+        }
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn raw(self) -> usize {
+        self.0
+    }
+
+    #[inline(always)]
+    #[must_use]
+    pub fn from_raw(v: usize) -> Self {
+        Self(v)
+    }
+
+    /// Walk to the next entry in the chain.
+    /// # Safety
+    /// The current entry must be valid and alive.
+    #[inline]
+    #[must_use]
+    pub unsafe fn next(self) -> Self {
+        if let Some(heavy) = self.as_heavy() {
+            let iframe_opt = unsafe { &*(*heavy).iframe.get() };
+            match iframe_opt.as_ref() {
+                Some(iframe) => Self::from_raw(iframe.previous.load(Relaxed)),
+                None => Self::null(),
+            }
+        } else if let Some(light) = self.as_light() {
+            unsafe { (*light).previous }
+        } else {
+            Self::null()
+        }
+    }
+
+    /// Materialize to a `FrameRef` for Python-visible access. Cold path.
+    /// # Safety
+    /// The current entry must be valid and alive.
+    #[cold]
+    pub unsafe fn to_frame_ref(self, vm: &VirtualMachine) -> Option<FrameRef> {
+        if let Some(heavy) = self.as_heavy() {
+            unsafe { owned_chain_frame(heavy) }
+        } else {
+            self.as_light()
+                .map(|light| unsafe { materialize_light_frame(light, vm) })
+        }
+    }
+}
 
 // LightFrame — stack-allocated frame header for unobserved Python→Python calls
 
@@ -70,11 +186,8 @@ pub struct LightFrame {
     pub lasti: PyAtomic<u32>,
     pub prev_line: u32,
 
-    // Frame chain
-    pub previous_light: *const Self,
-    /// The heavy frame that was `CURRENT_FRAME` when this light frame was entered.
-    /// Used to interleave light and heavy frames during stack walks.
-    pub saved_current_frame: *const Frame,
+    // Unified frame chain — single previous pointer
+    pub previous: FrameChainPtr,
 
     // Lazy materialization: NULL until first observation
     pub materialized: core::cell::UnsafeCell<*mut Py<Frame>>,
@@ -201,33 +314,19 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
         iframe.lasti.store(lasti_val, Relaxed);
         iframe.prev_line = (*light).prev_line;
 
-        // Set up the `previous` frame pointer for f_back:
-        // Link f_back to the correct predecessor:
-        // - If previous_light has the same saved_current_frame, it is the
-        //   direct caller → materialize and link to it.
-        // - Otherwise, the direct caller is the heavy frame recorded at entry
-        //   time (saved_current_frame).
-        let prev_light = (*light).previous_light;
-        let saved = (*light).saved_current_frame;
-        let prev_frame_ptr =
-            if !prev_light.is_null() && core::ptr::eq((*prev_light).saved_current_frame, saved) {
-                let prev_materialized = materialize_light_frame(prev_light as *mut _, vm);
-                // Store a strong reference in retained_back so the predecessor
-                // stays alive even after the predecessor's light frame is cleaned
-                // up (f_back can be accessed after the caller returns).
-                *iframe.retained_back.lock() = Some(prev_materialized.clone());
-                // Use payload pointer (not Py<Frame> pointer) — the chain stores
-                // &**frame (Frame payload) consistently.
-                let ptr = (&**prev_materialized) as *const Frame as *mut Frame;
-                // Drop the temporary; retained_back keeps the predecessor alive.
-                drop(prev_materialized);
-                ptr
-            } else {
-                saved as *mut Frame
-            };
-        iframe
-            .previous
-            .store(prev_frame_ptr, atomic::Ordering::Relaxed);
+        // Set the previous chain pointer: materialize the predecessor
+        // if it is a light frame, otherwise store the heavy pointer directly.
+        let prev = (*light).previous;
+        if let Some(prev_light) = prev.as_light() {
+            let prev_materialized = materialize_light_frame(prev_light, vm);
+            *iframe.retained_back.lock() = Some(prev_materialized.clone());
+            let ptr = (&**prev_materialized) as *const Frame;
+            iframe
+                .previous
+                .store(FrameChainPtr::from_heavy(ptr).raw(), Relaxed);
+        } else {
+            iframe.previous.store(prev.raw(), Relaxed);
+        }
 
         // Store the materialized frame pointer back
         *(*light).materialized.get() = &*frame as *const Py<Frame> as *mut Py<Frame>;
@@ -279,7 +378,10 @@ unsafe fn sync_light_to_materialized(light: *const LightFrame, frame: &Py<Frame>
 ///
 /// # Safety
 /// `light` must point to a valid LightFrame whose borrowed pointers are still alive.
-pub unsafe fn materialize_light_frame_pub(light: *mut LightFrame, vm: &VirtualMachine) -> FrameRef {
+pub(crate) unsafe fn materialize_light_frame_pub(
+    light: *mut LightFrame,
+    vm: &VirtualMachine,
+) -> FrameRef {
     unsafe { materialize_light_frame(light, vm) }
 }
 
@@ -298,144 +400,86 @@ unsafe fn owned_chain_frame(frame: *const Frame) -> Option<FrameRef> {
     Some(py.to_owned())
 }
 
-/// The current thread's topmost frame object, if any.
-/// If light frames are active, they are on top of the heavy chain.
+/// The current thread's topmost heavy frame object, if any.
+/// Skips light frames — use `current_thread_frame_vm` to materialize them.
 #[must_use]
 pub fn current_thread_frame() -> Option<FrameRef> {
-    // SAFETY: the chain top executes on this thread, hence is alive.
-    unsafe { owned_chain_frame(crate::vm::thread::get_current_frame()) }
+    let mut cur = crate::vm::thread::get_current_frame();
+    while cur.is_light() {
+        cur = unsafe { cur.next() };
+    }
+    // SAFETY: heavy frame on this thread's chain is alive.
+    cur.as_heavy().and_then(|h| unsafe { owned_chain_frame(h) })
 }
 
 /// The current thread's topmost frame, materializing any light frame if needed.
-///
-/// The top frame is determined by comparing the topmost light frame's
-/// `saved_current_frame` against the current heavy frame pointer. If a heavy
-/// frame has been pushed after the light frame, the heavy frame is on top.
 #[must_use]
 pub fn current_thread_frame_vm(vm: &VirtualMachine) -> Option<FrameRef> {
-    let heavy = crate::vm::thread::get_current_frame();
-    let light = crate::vm::thread::get_current_light_frame();
-    if !light.is_null() {
-        // The light frame recorded which heavy frame was current when it started.
-        // If the current heavy frame is DIFFERENT, a heavy frame was pushed after
-        // the light frame (e.g. native code calling back into Python). In that case,
-        // the heavy frame is on top.
-        let saved = unsafe { (*light).saved_current_frame };
-        if core::ptr::eq(heavy, saved) {
-            // No heavy frame has been pushed since this light frame — it's the topmost.
-            return Some(unsafe { materialize_light_frame(light as *mut _, vm) });
-        }
-        // A heavy frame was pushed after the light frame — use the heavy chain.
-    }
+    let cur = crate::vm::thread::get_current_frame();
     // SAFETY: the chain top executes on this thread, hence is alive.
-    unsafe { owned_chain_frame(heavy) }
+    unsafe { cur.to_frame_ref(vm) }
 }
 
 /// The frame `offset` positions below the current thread's top frame (offset 0
 /// is the top), or `None` if the stack is not that deep.
-/// Does not account for light frames.
+/// Skips light frames — only counts heavy frames.
 #[must_use]
 pub fn frame_at_offset(offset: usize) -> Option<FrameRef> {
     let mut cur = crate::vm::thread::get_current_frame();
-    for _ in 0..offset {
-        if cur.is_null() {
-            return None;
-        }
-        // SAFETY: chain frames are alive on the current thread's stack.
-        cur = unsafe { (*cur).previous_frame() };
-    }
-    // SAFETY: same as above.
-    unsafe { owned_chain_frame(cur) }
-}
-
-/// The frame `offset` positions below the top of the unified frame stack,
-/// materializing light frames as needed.
-///
-/// The unified stack interleaves light and heavy frames in call order.
-/// Heavy frames pushed after the topmost light frame are walked first.
-#[must_use]
-pub fn frame_at_offset_vm(offset: usize, vm: &VirtualMachine) -> Option<FrameRef> {
     let mut remaining = offset;
-    let mut light = crate::vm::thread::get_current_light_frame();
-    let mut heavy = crate::vm::thread::get_current_frame();
-
-    // Walk heavy frames that are ABOVE the topmost light frame.
-    // These are heavy frames pushed by native callbacks from within a light frame.
-    if !light.is_null() {
-        let saved = unsafe { (*light).saved_current_frame };
-        while !core::ptr::eq(heavy, saved) && !heavy.is_null() {
+    while !cur.is_null() {
+        if let Some(heavy) = cur.as_heavy() {
             if remaining == 0 {
                 return unsafe { owned_chain_frame(heavy) };
             }
             remaining -= 1;
-            heavy = unsafe { (*heavy).previous_frame() };
         }
-    }
-
-    while !light.is_null() {
-        // This light frame is the next in the unified stack
-        if remaining == 0 {
-            return Some(unsafe { materialize_light_frame(light as *mut _, vm) });
-        }
-        remaining -= 1;
-
-        // Walk any heavy frames between this light frame and the next
-        let next_light = unsafe { (*light).previous_light };
-        let stop_at = if !next_light.is_null() {
-            unsafe { (*next_light).saved_current_frame }
-        } else {
-            core::ptr::null()
-        };
-        let saved = unsafe { (*light).saved_current_frame };
-        // Walk heavy frames from saved_current_frame down to stop_at (exclusive)
-        let mut h = saved;
-        while !h.is_null() && !core::ptr::eq(h, stop_at) {
-            if remaining == 0 {
-                return unsafe { owned_chain_frame(h) };
-            }
-            remaining -= 1;
-            h = unsafe { (*h).previous_frame() };
-        }
-        heavy = stop_at;
-        light = next_light;
-    }
-
-    // Walk remaining heavy frames
-    let mut cur = heavy;
-    while !cur.is_null() {
-        if remaining == 0 {
-            return unsafe { owned_chain_frame(cur) };
-        }
-        remaining -= 1;
-        cur = unsafe { (*cur).previous_frame() };
+        cur = unsafe { cur.next() };
     }
     None
 }
 
-/// If `target` is a frame on the current thread's chain, return an owned
-/// reference to it; otherwise `None`. Presence on the chain proves liveness.
+/// The frame `offset` positions below the top of the unified frame stack,
+/// materializing light frames as needed.
+#[must_use]
+pub fn frame_at_offset_vm(offset: usize, vm: &VirtualMachine) -> Option<FrameRef> {
+    let mut cur = crate::vm::thread::get_current_frame();
+    let mut remaining = offset;
+    while !cur.is_null() {
+        if remaining == 0 {
+            return unsafe { cur.to_frame_ref(vm) };
+        }
+        remaining -= 1;
+        cur = unsafe { cur.next() };
+    }
+    None
+}
+
+/// If `target` is a heavy frame on the current thread's chain, return an
+/// owned reference to it; otherwise `None`. Presence on the chain proves liveness.
 #[must_use]
 pub fn find_owned_chain_frame(target: *const Frame) -> Option<FrameRef> {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
-        if core::ptr::eq(cur, target) {
-            // SAFETY: a frame on the current thread's chain is alive.
-            return unsafe { owned_chain_frame(cur) };
+        if let Some(heavy) = cur.as_heavy()
+            && core::ptr::eq(heavy, target)
+        {
+            return unsafe { owned_chain_frame(heavy) };
         }
-        // SAFETY: chain frames are alive on the current thread's stack.
-        cur = unsafe { (*cur).previous_frame() };
+        cur = unsafe { cur.next() };
     }
     None
 }
 
-/// Invoke `f` for each frame on the current thread's chain, from the topmost
-/// frame down to the bottom. Does not visit light frames.
+/// Invoke `f` for each heavy frame on the current thread's chain, from the
+/// topmost frame down to the bottom. Skips light frames.
 pub fn for_each_current_frame(mut f: impl FnMut(&Py<Frame>)) {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
-        // SAFETY: chain frames are alive on the current thread's stack.
-        f(unsafe { &*Py::<Frame>::from_payload_ptr(cur) });
-        cur = unsafe { (*cur).previous_frame() };
+        if let Some(heavy) = cur.as_heavy() {
+            f(unsafe { &*Py::<Frame>::from_payload_ptr(heavy) });
+        }
+        cur = unsafe { cur.next() };
     }
 }
 
@@ -1040,9 +1084,9 @@ pub struct InterpreterFrame {
     /// Borrowed reference (not ref-counted) to avoid Generator↔Frame cycle.
     /// Cleared by the generator's Drop impl.
     pub generator: PyAtomicBorrow,
-    /// Previous frame in the call chain for signal-safe traceback walking.
-    /// Mirrors `_PyInterpreterFrame.previous`.
-    pub(crate) previous: AtomicPtr<Frame>,
+    /// Linked-list pointer to the previous frame in the call chain.
+    /// Stores a `FrameChainPtr` raw value (tagged: heavy or light).
+    pub(crate) previous: PyAtomic<usize>,
     /// Who owns this frame. Mirrors `_PyInterpreterFrame.owner`.
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
@@ -1318,7 +1362,7 @@ impl Frame {
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
-            previous: AtomicPtr::new(core::ptr::null_mut()),
+            previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
@@ -1447,9 +1491,9 @@ impl Frame {
         self.code.locations[self.lasti() as usize - 1].0
     }
 
-    /// Get the previous frame pointer for signal-safe traceback walking.
-    pub fn previous_frame(&self) -> *const Self {
-        self.previous.load(atomic::Ordering::Relaxed)
+    /// Get the previous frame chain pointer.
+    pub fn previous_frame(&self) -> FrameChainPtr {
+        FrameChainPtr::from_raw(self.previous.load(atomic::Ordering::Relaxed))
     }
 
     /// Record that a durable Python-level reference to this frame escaped.
@@ -1628,12 +1672,15 @@ impl Frame {
         if owner != FrameOwner::Thread {
             return Ok(());
         }
+        let self_ptr: *const Self = self;
         let mut cur = crate::vm::thread::get_current_frame();
         while !cur.is_null() {
-            if core::ptr::eq(cur, self) {
+            if let Some(heavy) = cur.as_heavy()
+                && core::ptr::eq(heavy, self_ptr)
+            {
                 return Ok(());
             }
-            cur = unsafe { (*cur).previous_frame() };
+            cur = unsafe { cur.next() };
         }
         Err(vm.new_runtime_error(
             "cannot access frame locals while the frame is executing in another thread",
@@ -2154,7 +2201,22 @@ pub(crate) fn release_datastack_frame(frame: &Py<Frame>, vm: &VirtualMachine) {
     // executing here (this frame is unwinding back into it), so its payload
     // pointer is live.
     // SAFETY: `previous` points at the live caller on this thread's stack.
-    *frame.retained_back.lock() = unsafe { owned_chain_frame(frame.previous_frame()) };
+    let prev = frame.previous_frame();
+    if let Some(light) = prev.as_light() {
+        // The previous frame is a light frame — materialize it so f_back
+        // survives after the light frame returns and its DataStack storage
+        // is popped.
+        let mat = unsafe { materialize_light_frame(light, vm) };
+        frame.previous.store(
+            FrameChainPtr::from_heavy(&**mat as *const Frame).raw(),
+            Relaxed,
+        );
+        *frame.retained_back.lock() = Some(mat);
+    } else {
+        *frame.retained_back.lock() = prev
+            .as_heavy()
+            .and_then(|h| unsafe { owned_chain_frame(h) });
+    }
     // Invariant: a tracked frame must always have heap-backed localsplus
     // (proven here for escaped datastack frames and by construction for
     // generator frames, which are born heap-backed). A stop-the-world

@@ -5,12 +5,16 @@ use crate::builtins::PyBaseExceptionRef;
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
 
+#[cfg(feature = "threading")]
 use crate::frame::Frame;
+use crate::frame::FrameChainPtr;
 use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(all(unix, feature = "threading"))]
+use core::sync::atomic::AtomicPtr;
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use itertools::Itertools;
 use std::thread_local;
@@ -82,18 +86,11 @@ thread_local! {
     static CURRENT_THREAD_SLOT: RefCell<Option<CurrentFrameSlot>> = const { RefCell::new(None) };
 
     /// Current top frame for signal-safe traceback walking.
-    /// Mirrors `PyThreadState.current_frame`. Read by faulthandler's signal
-    /// handler to dump tracebacks without accessing RefCell or locks.
-    /// Uses AtomicPtr for async-signal-safety (signal handlers may read this
-    /// while the owning thread is writing).
-    pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
-        const { AtomicPtr::new(core::ptr::null_mut()) };
-
-    /// Current top light frame for unobserved Python-to-Python calls.
-    /// NULL when no light frame is active. Light frames form their own
-    /// chain via `LightFrame::previous_light`.
-    pub(crate) static CURRENT_LIGHT_FRAME: Cell<*const crate::frame::LightFrame> =
-        const { Cell::new(core::ptr::null()) };
+    /// Stores a `FrameChainPtr` raw value (tagged: heavy or light).
+    /// Read by faulthandler's signal handler to dump tracebacks without
+    /// accessing RefCell or locks. Uses AtomicUsize for async-signal-safety.
+    pub(crate) static CURRENT_FRAME: AtomicUsize =
+        const { AtomicUsize::new(0) };
 
     /// Cached pointer to this thread's `ThreadSlot::top_frame`, so the hot
     /// push/pop path can publish the top frame with a single relaxed store and
@@ -676,42 +673,28 @@ pub fn pop_thread_frame() {
     });
 }
 
-/// Set the current thread's top frame pointer for signal-safe traceback walking.
-/// Returns the previous frame pointer so it can be restored on pop.
-pub fn set_current_frame(frame: *const Frame) -> *const Frame {
-    // Publish the top frame for cross-thread readers. The relaxed store is
-    // ordered by stop-the-world at read time (see `ThreadSlot::top_frame`).
+/// Set the current thread's top frame chain pointer.
+/// Returns the previous chain pointer so it can be restored on pop.
+#[must_use]
+pub fn set_current_frame(chain: FrameChainPtr) -> FrameChainPtr {
+    // Publish the top heavy frame for cross-thread readers (signal safety).
+    // Only heavy frames are published — light frames cannot be safely
+    // dereferenced from a signal handler on another thread.
     #[cfg(all(unix, feature = "threading"))]
-    {
+    if let Some(heavy) = chain.as_heavy() {
         let slot_top = CURRENT_TOP_FRAME_SLOT.with(Cell::get);
         if !slot_top.is_null() {
-            // SAFETY: points to this thread's `ThreadSlot::top_frame`, kept
-            // alive by the Arc in `CURRENT_THREAD_SLOT` for the thread's life.
-            unsafe { (*slot_top).store(frame as *mut Frame, Ordering::Relaxed) };
+            unsafe { (*slot_top).store(heavy as *mut Frame, Ordering::Relaxed) };
         }
     }
-    CURRENT_FRAME.with(|c| c.swap(frame as *mut Frame, Ordering::Relaxed) as *const Frame)
+    FrameChainPtr::from_raw(CURRENT_FRAME.with(|c| c.swap(chain.raw(), Ordering::Relaxed)))
 }
 
-/// Get the current thread's top frame pointer.
+/// Get the current thread's top frame chain pointer.
 /// Used by faulthandler's signal handler to start traceback walking.
 #[must_use]
-pub fn get_current_frame() -> *const Frame {
-    CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
-}
-
-/// Set the current thread's top light frame pointer.
-/// Returns the previous pointer so it can be restored on pop.
-pub fn set_current_light_frame(
-    frame: *const crate::frame::LightFrame,
-) -> *const crate::frame::LightFrame {
-    CURRENT_LIGHT_FRAME.with(|c| c.replace(frame))
-}
-
-/// Get the current thread's top light frame pointer.
-#[must_use]
-pub fn get_current_light_frame() -> *const crate::frame::LightFrame {
-    CURRENT_LIGHT_FRAME.with(|c| c.get())
+pub fn get_current_frame() -> FrameChainPtr {
+    FrameChainPtr::from_raw(CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed)))
 }
 
 /// Update the current thread's exception slot atomically (no locks).
@@ -803,19 +786,23 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         let mut current_frames = Vec::new();
         let mut cur = get_current_frame();
         while !cur.is_null() {
-            // SAFETY: the forking thread's chain frames are alive.
-            let py = unsafe { crate::Py::<Frame>::from_payload_ptr(cur) };
-            current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
-            cur = unsafe { (*cur).previous_frame() };
+            if let Some(heavy) = cur.as_heavy() {
+                // SAFETY: the forking thread's chain frames are alive.
+                let py = unsafe { crate::Py::<Frame>::from_payload_ptr(heavy) };
+                current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
+            }
+            cur = unsafe { cur.next() };
         }
         current_frames.reverse();
         current_frames
     };
     let new_slot = Arc::new(ThreadSlot {
-        // The surviving child thread keeps executing its current frame chain,
-        // whose top is the signal-safe `get_current_frame()`.
+        // The surviving child thread keeps executing its current frame chain.
+        // Only publish heavy frames for signal safety.
         #[cfg(unix)]
-        top_frame: AtomicPtr::new(get_current_frame() as *mut Frame),
+        top_frame: AtomicPtr::new(
+            get_current_frame().as_heavy().unwrap_or(core::ptr::null()) as *mut Frame
+        ),
         #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
