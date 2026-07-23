@@ -1714,55 +1714,57 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_recursion("", || {
-            // SAFETY: `frame` (FrameRef) stays alive for the entire closure scope,
-            // keeping the FramePtr valid. We pass a clone to `f` so that `f`
-            // consuming its FrameRef doesn't invalidate our pointer.
-            // Publish the frame for sys._current_frames() and faulthandler.
-            // On unix, set_current_frame below publishes the top frame into the
-            // thread slot; only non-unix builds maintain the mutex-guarded Vec.
-            #[cfg(all(not(unix), feature = "threading"))]
-            crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
-            // Link frame into the signal-safe frame chain (previous pointer).
-            // This chain is the single source for the current thread's frame
-            // stack (current_frame, sys._getframe, f_back, monitoring).
-            let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
-            frame.previous.store(
-                old_frame as *mut Frame,
-                core::sync::atomic::Ordering::Relaxed,
-            );
-            // Normal frame calls share the caller's exc_info slot so that
-            // callees can see the caller's handled exception via sys.exc_info().
-            // Save the current value to restore on exit — this prevents
-            // exc_info pollution from frames with unbalanced
-            // PUSH_EXC_INFO/POP_EXCEPT (e.g., exception escaping an except block
-            // whose cleanup entry is missing from the exception table).
-            // A callee whose bytecode never mutates the slot cannot pollute it,
-            // so the save/restore is skipped for it.
-            let save_exc = frame.code.has_exc_handling;
-            let saved_exc = if save_exc {
-                self.current_exception()
-            } else {
-                None
-            };
-            let old_owner = frame.owner.swap(
-                crate::frame::FrameOwner::Thread as i8,
-                core::sync::atomic::Ordering::AcqRel,
-            );
+        // Inline recursion check (avoids with_recursion closure overhead)
+        self.check_recursive_call("")?;
 
-            // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
-            scopeguard::defer! {
-                frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                if save_exc {
-                    self.restore_exception(saved_exc);
-                }
-                crate::vm::thread::set_current_frame(old_frame);
-                #[cfg(all(not(unix), feature = "threading"))]
-                crate::vm::thread::pop_thread_frame();
+        // C stack overflow check: amortised over every 64th call to reduce
+        // the cost of psm::stack_pointer() on the hot path.
+        let depth = self.recursion_depth.get();
+        if depth & 63 == 0 && self.check_c_stack_overflow() {
+            return Err(self.new_recursion_error(String::new()));
+        }
+
+        self.recursion_depth.update(|d| d + 1);
+
+        // Publish the frame for sys._current_frames() and faulthandler.
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
+        // Link frame into the signal-safe frame chain.
+        let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
+        frame.previous.store(
+            old_frame as *mut Frame,
+            core::sync::atomic::Ordering::Relaxed,
+        );
+        // Save exc_info if this frame does exception handling.
+        let save_exc = frame.code.has_exc_handling;
+        let saved_exc = if save_exc {
+            self.current_exception()
+        } else {
+            None
+        };
+        let old_owner = frame.owner.swap(
+            crate::frame::FrameOwner::Thread as i8,
+            core::sync::atomic::Ordering::AcqRel,
+        );
+
+        // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
+        scopeguard::defer! {
+            frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
+            if save_exc {
+                self.restore_exception(saved_exc);
             }
+            crate::vm::thread::set_current_frame(old_frame);
+            #[cfg(all(not(unix), feature = "threading"))]
+            crate::vm::thread::pop_thread_frame();
+            self.recursion_depth.update(|d| d - 1);
+        }
 
+        // Execute: skip dispatch_traced_frame when tracing is off (hot path).
+        if self.use_tracing.get() {
             self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-        })
+        } else {
+            f(frame.to_owned())
+        }
     }
 
     /// Frame execution for generator/coroutine resume.
