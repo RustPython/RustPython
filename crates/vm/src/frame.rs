@@ -8062,15 +8062,6 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
-    /// Read a cached descriptor pointer and validate it against the expected
-    /// type version, using a lock-free double-check pattern:
-    ///   1. read pointer  →  incref (try_to_owned)
-    ///   2. re-read version + pointer and confirm they still match
-    ///
-    /// This matches the read-side pattern used in LOAD_ATTR_METHOD_WITH_VALUES
-    /// and friends: no read-side lock, relying on the write side to invalidate
-    /// the version tag before swapping the pointer.
-    #[inline]
     /// Store an instance attribute through the cached entry index at
     /// `cache_base + 3`, refreshing the cache when the hint missed.
     fn store_attr_dict_hinted(
@@ -8126,6 +8117,15 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    /// Read a cached descriptor pointer and validate it against the expected
+    /// type version, using a lock-free double-check pattern:
+    ///   1. read pointer  →  incref (try_to_owned)
+    ///   2. re-read version + pointer and confirm they still match
+    ///
+    /// This matches the read-side pattern used in LOAD_ATTR_METHOD_WITH_VALUES
+    /// and friends: no read-side lock, relying on the write side to invalidate
+    /// the version tag before swapping the pointer.
+    #[inline]
     fn try_read_cached_descriptor(
         &self,
         cache_base: usize,
