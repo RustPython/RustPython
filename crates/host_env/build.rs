@@ -20,13 +20,23 @@ fn main() {
 
     let host = env::var("HOST").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
-    if host != target && env::var_os("CC").is_none() {
+    // cc::Build resolves CC_<target>, CC_<target_with_underscores>, TARGET_CC, then CC.
+    if host != target && !has_target_c_compiler(&target) {
         return;
     }
 
     if probe_altzone() {
         println!("cargo:rustc-cfg=has_altzone");
     }
+}
+
+/// Whether any compiler env var that `cc::Build` would consult for the target is set.
+fn has_target_c_compiler(target: &str) -> bool {
+    let underscored = target.replace(['-', '.'], "_");
+    env::var_os(format!("CC_{target}")).is_some()
+        || env::var_os(format!("CC_{underscored}")).is_some()
+        || env::var_os("TARGET_CC").is_some()
+        || env::var_os("CC").is_some()
 }
 
 /// Check corresponding to `AC_TRY_COMPILE(... altzone ...)` in CPython's `configure`.
