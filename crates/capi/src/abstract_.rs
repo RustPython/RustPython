@@ -17,11 +17,11 @@ mod sequence;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
-fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
+pub(crate) fn tuple_to_args(tuple: &Py<PyTuple>) -> PosArgs {
     tuple.iter().cloned().collect::<Vec<_>>().into()
 }
 
-fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
+pub(crate) fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
     dict.items_vec()
         .into_iter()
         .map(|(key, value)| {
@@ -70,6 +70,25 @@ pub unsafe extern "C" fn PyObject_CallObject(
         } else {
             callable.call((), vm)
         }
+    })
+}
+
+#[unsafe(no_mangle)]
+#[cfg(feature = "nightly")]
+pub unsafe extern "C" fn PyObject_CallMethodObjArgs(
+    receiver: *mut PyObject,
+    name: *mut PyObject,
+    mut args: ...
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let method_name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
+        let callable = unsafe { (&*receiver).get_attr(method_name, vm)? };
+        let arguments = core::iter::from_fn(|| unsafe {
+            core::ptr::NonNull::new(args.next_arg::<*mut PyObject>())
+                .map(|obj| obj.as_ref().to_owned())
+        })
+        .collect::<Vec<_>>();
+        callable.call(arguments, vm)
     })
 }
 
@@ -269,6 +288,18 @@ pub unsafe extern "C" fn PyObject_Type(obj: *mut PyObject) -> *mut PyObject {
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::{PyDict, PyString};
+
+    #[test]
+    #[cfg(feature = "nightly")]
+    fn test_call_method0() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert_eq!(
+                string.call_method0("upper").unwrap().str().unwrap(),
+                "HELLO, WORLD!"
+            );
+        })
+    }
 
     #[test]
     fn call_method1() {

@@ -4,6 +4,7 @@ use crate::object::define_py_check;
 use crate::pystate::with_vm;
 use crate::util::CStrExt;
 use core::ffi::{c_char, c_int};
+use core::fmt::Debug;
 use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
@@ -12,11 +13,26 @@ define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
 define_py_check!(exact fn PyCFunction_CheckExact, types.builtin_function_or_method_type);
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct PyMethodDef {
     pub ml_name: *const c_char,
     pub ml_meth: PyMethodPointer,
     pub ml_flags: c_int,
     pub ml_doc: *const c_char,
+}
+
+impl PyMethodDef {
+    pub(crate) fn iter<'a>(mut methods: *const Self) -> impl Iterator<Item = &'a Self> {
+        core::iter::from_fn(move || {
+            let def = unsafe { &*methods };
+            if def.ml_name.is_null() {
+                None
+            } else {
+                methods = unsafe { methods.add(1) };
+                Some(def)
+            }
+        })
+    }
 }
 
 #[repr(C)]
@@ -40,6 +56,12 @@ pub union PyMethodPointer {
         nargs: isize,
         kwnames: *mut PyObject,
     ) -> *mut PyObject,
+}
+
+impl Debug for PyMethodPointer {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        unsafe { self.PyCFunction.fmt(f) }
+    }
 }
 
 pub(crate) fn build_method_def(
