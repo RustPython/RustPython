@@ -24,9 +24,10 @@ pub(crate) mod _thread {
             PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
             PyUtf8StrRef,
         },
-        common::wtf8::Wtf8Buf,
+        common::{lock::PyMutex, wtf8::Wtf8Buf},
         frame::FrameRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
     };
 
@@ -929,15 +930,35 @@ pub(crate) mod _thread {
             if let Some(local_data) = self.local.upgrade() {
                 // Remove from map while holding the lock, but drop the value
                 // outside the lock to prevent deadlock if __del__ accesses _local
-                let removed = local_data.data.lock().remove(&self.thread_id);
+                let removed = local_data.state.lock().dicts.remove(&self.thread_id);
                 drop(removed);
             }
         }
     }
 
+    struct LocalState {
+        init_args: FuncArgs,
+        dicts: std::collections::HashMap<u64, PyDictRef>,
+    }
+
+    unsafe impl Traverse for LocalState {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.init_args.traverse(tracer_fn);
+            for (_, dict) in &self.dicts {
+                dict.traverse(tracer_fn);
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+            out.append(&mut self.init_args.args);
+            out.extend(self.init_args.kwargs.drain(..).map(|(_, value)| value));
+            out.extend(self.dicts.drain().map(|(_, dict)| dict.into()));
+        }
+    }
+
     // Shared data structure for Local
     struct LocalData {
-        data: parking_lot::Mutex<std::collections::HashMap<u64, PyDictRef>>,
+        state: PyMutex<LocalState>,
     }
 
     impl fmt::Debug for LocalData {
@@ -947,37 +968,62 @@ pub(crate) mod _thread {
     }
 
     #[pyattr]
-    #[pyclass(module = "_thread", name = "_local")]
+    #[pyclass(module = "_thread", name = "_local", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     struct Local {
         inner: Arc<LocalData>,
     }
 
+    unsafe impl Traverse for Local {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.inner.state.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+            if let Some(mut state) = self.inner.state.try_lock() {
+                state.clear(out);
+            }
+        }
+    }
+
     #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
-        fn l_dict(&self, vm: &VirtualMachine) -> PyDictRef {
+        fn custom_init(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<crate::types::InitFunc> {
+            let cls_init = cls.slots.init.load()?;
+            let object_init = vm
+                .ctx
+                .types
+                .object_type
+                .slots
+                .init
+                .load()
+                .map(|init| init as usize);
+            (Some(cls_init as usize) != object_init).then_some(cls_init)
+        }
+
+        fn create_dict(&self, vm: &VirtualMachine) -> (PyDictRef, bool) {
             let thread_id = current_thread_id();
 
             // Fast path: check if dict exists under lock
-            let value = self.inner.data.lock().get(&thread_id).cloned();
+            let value = self.inner.state.lock().dicts.get(&thread_id).cloned();
             if let Some(dict) = value {
-                return dict;
+                return (dict, false);
             }
 
             // Slow path: allocate dict outside lock to reduce lock hold time
             let new_dict = vm.ctx.new_dict();
 
             // Insert with double-check to handle races
-            let mut data = self.inner.data.lock();
+            let mut state = self.inner.state.lock();
             use std::collections::hash_map::Entry;
-            let (dict, need_guard) = match data.entry(thread_id) {
+            let (dict, need_guard) = match state.dicts.entry(thread_id) {
                 Entry::Occupied(e) => (e.get().clone(), false),
                 Entry::Vacant(e) => {
                     e.insert(new_dict.clone());
                     (new_dict, true)
                 }
             };
-            drop(data); // Release lock before TLS access
+            drop(state); // Release lock before TLS access
 
             // Register cleanup guard only if we inserted a new entry
             if need_guard {
@@ -990,29 +1036,80 @@ pub(crate) mod _thread {
                 });
             }
 
-            dict
+            (dict, need_guard)
+        }
+
+        fn remove_current_dict(&self) {
+            let thread_id = current_thread_id();
+            let guard = LOCAL_GUARDS.with(|guards| {
+                let mut guards = guards.borrow_mut();
+                guards
+                    .iter()
+                    .rposition(|guard| {
+                        guard.thread_id == thread_id
+                            && guard.local.as_ptr() == Arc::as_ptr(&self.inner)
+                    })
+                    .map(|position| guards.remove(position))
+            });
+
+            if let Some(guard) = guard {
+                drop(guard);
+            } else {
+                let removed = self.inner.state.lock().dicts.remove(&thread_id);
+                drop(removed);
+            }
+        }
+
+        fn l_dict(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let (dict, created) = zelf.create_dict(vm);
+            if !created {
+                return Ok(dict);
+            }
+
+            let Some(init) = Self::custom_init(zelf.class(), vm) else {
+                return Ok(dict);
+            };
+            let init_args = zelf.inner.state.lock().init_args.clone();
+            if let Err(err) = init(zelf.as_object().to_owned(), init_args, vm) {
+                zelf.remove_current_dict();
+                return Err(err);
+            }
+
+            Ok(dict)
         }
 
         #[pygetset(name = "__dict__")]
-        fn dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyDictRef {
-            zelf.l_dict(vm)
+        fn dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            Self::l_dict(&zelf, vm)
         }
 
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if !args.is_empty() && Self::custom_init(&cls, vm).is_none() {
+                return Err(vm.new_type_error("Initialization arguments are not supported"));
+            }
+
+            let zelf = Self {
                 inner: Arc::new(LocalData {
-                    data: parking_lot::Mutex::new(std::collections::HashMap::new()),
+                    state: PyMutex::new(LocalState {
+                        init_args: args,
+                        dicts: std::collections::HashMap::new(),
+                    }),
                 }),
             }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            .into_ref_with_type(vm, cls)?;
+
+            // type.__call__ invokes __init__ after __new__. Create this thread's
+            // dict first so assignments made by __init__ cannot recursively
+            // initialize the same local object.
+            zelf.create_dict(vm);
+            Ok(zelf.into())
         }
     }
 
     impl GetAttr for Local {
         fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-            let l_dict = zelf.l_dict(vm);
+            let l_dict = Self::l_dict(zelf, vm)?;
             if attr.as_bytes() == b"__dict__" {
                 Ok(l_dict.into())
             } else {
@@ -1042,7 +1139,7 @@ pub(crate) mod _thread {
                     zelf.class().name()
                 )))
             } else {
-                let dict = zelf.l_dict(vm);
+                let dict = Self::l_dict(zelf, vm)?;
                 if let PySetterValue::Assign(value) = value {
                     dict.set_item(attr, value, vm)?;
                 } else {
