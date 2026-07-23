@@ -64,6 +64,6 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
     *interp = Some(interpreter);
     MAIN_INTERP_PTR.store(
         interp.as_ref().unwrap() as *const _ as *mut _,
-        Ordering::Relaxed,
+        Ordering::Release,
     );
 }

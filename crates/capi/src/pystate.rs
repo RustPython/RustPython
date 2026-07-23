@@ -67,7 +67,12 @@ pub unsafe extern "C" fn PyEval_RestoreThread(state: *mut PyThreadState) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyInterpreterState_Get() -> *mut PyInterpreterState {
-    MAIN_INTERP_PTR.load(Ordering::Acquire)
+    let ptr = MAIN_INTERP_PTR.load(Ordering::Acquire);
+    assert!(
+        !ptr.is_null(),
+        "PyInterpreterState_Get() called but the interpreter is not initialized"
+    );
+    ptr
 }
 
 #[unsafe(no_mangle)]
