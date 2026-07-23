@@ -1000,14 +1000,6 @@ class CStringIOTest(PyStringIOTest):
         memio2.write(MyStr("world"))
         self.assertEqual(memio2.getvalue(), "hello world")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_issue5265(self):
-        return super().test_issue5265()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
-    def test_newline_none(self):
-        return super().test_newline_none()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
     def test_flags(self):
         return super().test_flags()
@@ -1015,15 +1007,6 @@ class CStringIOTest(PyStringIOTest):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
     def test_newlines_property(self):
         return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_cr(self):
-        return super().test_newline_cr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_crlf(self):
-        return super().test_newline_crlf()
-
 
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
@@ -1034,26 +1017,9 @@ class CStringIOPickleTest(PyStringIOPickleTest):
         def __init__(self, *args, **kwargs):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_issue5265(self):
-        return super().test_issue5265()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
-    def test_newline_none(self):
-        return super().test_newline_none()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
     def test_newlines_property(self):
         return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_cr(self):
-        return super().test_newline_cr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_crlf(self):
-        return super().test_newline_crlf()
-
 
 if __name__ == '__main__':
     unittest.main()

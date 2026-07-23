@@ -2371,10 +2371,10 @@ mod _io {
                         match memchr::memchr(b'\r', remaining) {
                             Some(p) => match remaining.get(p + 1) {
                                 Some(&ch_after_cr) => {
-                                    let pos_after = p + 2;
                                     if ch_after_cr == b'\n' {
-                                        break Ok(searched + pos_after);
+                                        break Ok(searched + p + 2);
                                     }
+                                    let pos_after = p + 1;
                                     searched += pos_after;
                                     remaining = &remaining[pos_after..];
                                     continue;
@@ -4414,15 +4414,15 @@ mod _io {
             Self::Args { object, newline }: Self::Args,
             _vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let raw_bytes = object
-                .flatten()
-                .map_or_else(Vec::new, |v| v.as_bytes().to_vec());
-            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
             let newline = match newline {
                 OptionalArg::Missing => Newlines::Lf,
                 OptionalArg::Present(None) => Newlines::Universal,
                 OptionalArg::Present(Some(newline)) => newline,
             };
+            let raw_bytes = object.flatten().map_or_else(Vec::new, |v| {
+                Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
+            });
+            *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
             zelf.newline.store(newline);
             Ok(())
         }
@@ -4437,52 +4437,44 @@ mod _io {
             }
         }
 
-        fn char_offset_to_byte(
-            bytes: &[u8],
-            char_offset: usize,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
-            let text = Wtf8::from_bytes(bytes)
-                .ok_or_else(|| vm.new_value_error("Error Retrieving Value"))?;
-            let char_len = text.code_points().count();
-            if char_offset >= char_len {
-                return Ok(bytes.len() + (char_offset - char_len));
+        fn translate_newlines(data: &Wtf8, newline: Newlines) -> Wtf8Buf {
+            match newline {
+                Newlines::Universal => data
+                    .replace("\r\n".as_ref(), "\n".as_ref())
+                    .replace("\r".as_ref(), "\n".as_ref()),
+                Newlines::Cr => data.replace("\n".as_ref(), "\r".as_ref()),
+                Newlines::Crlf => data.replace("\n".as_ref(), "\r\n".as_ref()),
+                Newlines::Passthrough | Newlines::Lf => data.to_owned(),
             }
-            Ok(crate::common::str::codepoint_range_end(text, char_offset)
-                .expect("char_offset is within the string"))
         }
 
-        fn byte_offset_to_char(
-            bytes: &[u8],
-            byte_offset: usize,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
+        fn text(bytes: &[u8]) -> &Wtf8 {
+            // SAFETY: StringIO is populated only from PyStr values, which are valid WTF-8.
+            unsafe { Wtf8::from_bytes_unchecked(bytes) }
+        }
+
+        fn char_offset_to_byte(bytes: &[u8], char_offset: usize) -> usize {
+            let text = Self::text(bytes);
+            crate::common::str::codepoint_range_end(text, char_offset)
+                .unwrap_or_else(|| bytes.len() + (char_offset - text.code_points().count()))
+        }
+
+        fn byte_offset_to_char(bytes: &[u8], byte_offset: usize) -> usize {
             let content_len = bytes.len();
             let in_content = byte_offset.min(content_len);
-            let text = Wtf8::from_bytes(&bytes[..in_content])
-                .ok_or_else(|| vm.new_value_error("Error Retrieving Value"))?;
-            Ok(text.code_points().count() + byte_offset.saturating_sub(content_len))
+            Self::text(&bytes[..in_content]).code_points().count()
+                + byte_offset.saturating_sub(content_len)
         }
 
-        fn read_size(
-            buffer: &BufferedIO,
-            size: Option<usize>,
-            newline: Option<Newlines>,
-            vm: &VirtualMachine,
-        ) -> PyResult<usize> {
+        fn read_size(buffer: &BufferedIO, size: Option<usize>, newline: Option<Newlines>) -> usize {
             let position = buffer.tell() as usize;
             let bytes = buffer.cursor.get_ref().get(position..).unwrap_or_default();
-            let text = Wtf8::from_bytes(bytes)
-                .ok_or_else(|| vm.new_value_error("Error Retrieving Value"))?;
             let size_end = size
-                .and_then(|size| crate::common::str::codepoint_range_end(text, size))
+                .and_then(|size| crate::common::str::codepoint_range_end(Self::text(bytes), size))
                 .unwrap_or(bytes.len());
-            Ok(match newline {
-                Some(newline) => match newline.find_newline(text) {
-                    Ok(line_end) | Err(line_end) => line_end.min(size_end),
-                },
-                None => size_end,
-            })
+            newline
+                .and_then(|newline| newline.find_newline(Self::text(&bytes[..size_end])).ok())
+                .unwrap_or(size_end)
         }
     }
 
@@ -4516,9 +4508,9 @@ mod _io {
         // write string to underlying vector
         #[pymethod]
         fn write(&self, data: PyStrRef, vm: &VirtualMachine) -> PyResult<u64> {
-            let bytes = data.as_bytes();
+            let bytes = Self::translate_newlines(data.as_wtf8(), self.newline.load()).into_bytes();
             self.buffer(vm)?
-                .write(bytes)
+                .write(&bytes)
                 .ok_or_else(|| vm.new_type_error("Error Writing String"))?;
             Ok(data.char_len() as u64)
         }
@@ -4540,23 +4532,22 @@ mod _io {
         ) -> PyResult<u64> {
             let offset: isize = ArgSize::try_from_object(vm, offset)?.into();
             let how = how.unwrap_or(0);
+            let mut buffer = self.buffer(vm)?;
             let char_offset = match how {
                 0 if offset >= 0 => offset as usize,
                 0 => return Err(vm.new_value_error(format!("negative seek position {offset}"))),
-                1 if offset == 0 => {
-                    let buffer = self.buffer(vm)?;
-                    Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize, vm)?
+                1 | 2 if offset != 0 => {
+                    let kind = if how == 1 { "cur" } else { "end" };
+                    return Err(vm.new_os_error(format!("can't do nonzero {kind}-relative seeks")));
                 }
-                1 => return Err(vm.new_os_error("can't do nonzero cur-relative seeks")),
-                2 if offset == 0 => {
-                    let buffer = self.buffer(vm)?;
-                    Self::byte_offset_to_char(
-                        buffer.cursor.get_ref(),
-                        buffer.cursor.get_ref().len(),
-                        vm,
-                    )?
+                1 | 2 => {
+                    let byte_offset = if how == 1 {
+                        buffer.tell() as usize
+                    } else {
+                        buffer.cursor.get_ref().len()
+                    };
+                    Self::byte_offset_to_char(buffer.cursor.get_ref(), byte_offset)
                 }
-                2 => return Err(vm.new_os_error("can't do nonzero end-relative seeks")),
                 _ => {
                     return Err(
                         vm.new_value_error(format!("invalid whence ({how}, should be 0, 1 or 2)"))
@@ -4564,8 +4555,7 @@ mod _io {
                 }
             };
 
-            let mut buffer = self.buffer(vm)?;
-            let byte_offset = Self::char_offset_to_byte(buffer.cursor.get_ref(), char_offset, vm)?;
+            let byte_offset = Self::char_offset_to_byte(buffer.cursor.get_ref(), char_offset);
             buffer
                 .seek(SeekFrom::Start(byte_offset as u64))
                 .map_err(|err| os_err(vm, err))?;
@@ -4578,7 +4568,7 @@ mod _io {
         #[pymethod]
         fn read(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let mut buffer = self.buffer(vm)?;
-            let size = Self::read_size(&buffer, size.to_usize(), None, vm)?;
+            let size = Self::read_size(&buffer, size.to_usize(), None);
             let data = buffer.read(Some(size)).unwrap_or_default();
 
             let value = Wtf8Buf::from_bytes(data)
@@ -4589,20 +4579,13 @@ mod _io {
         #[pymethod]
         fn tell(&self, vm: &VirtualMachine) -> PyResult<u64> {
             let buffer = self.buffer(vm)?;
-            Ok(
-                Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize, vm)?
-                    as u64,
-            )
+            Ok(Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize) as u64)
         }
 
         #[pymethod]
         fn readline(&self, size: OptionalSize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
             let mut buffer = self.buffer(vm)?;
-            let newline = match self.newline.load() {
-                Newlines::Passthrough => Newlines::Passthrough,
-                _ => Newlines::Lf,
-            };
-            let size = Self::read_size(&buffer, size.to_usize(), Some(newline), vm)?;
+            let size = Self::read_size(&buffer, size.to_usize(), Some(self.newline.load()));
             let input = buffer.read(Some(size)).unwrap_or_default();
             Wtf8Buf::from_bytes(input).map_err(|_| vm.new_value_error("Error Retrieving Value"))
         }
@@ -4612,11 +4595,9 @@ mod _io {
             let mut buffer = self.buffer(vm)?;
             let pos = match pos.try_usize(vm)? {
                 Some(pos) => pos,
-                None => {
-                    Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize, vm)?
-                }
+                None => Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize),
             };
-            let byte_pos = Self::char_offset_to_byte(buffer.cursor.get_ref(), pos, vm)?;
+            let byte_pos = Self::char_offset_to_byte(buffer.cursor.get_ref(), pos);
             buffer.truncate(Some(byte_pos));
             Ok(pos)
         }
@@ -4631,8 +4612,7 @@ mod _io {
             let buffer = zelf.buffer(vm)?;
             let content = Wtf8Buf::from_bytes(buffer.getvalue())
                 .map_err(|_| vm.new_value_error("Error Retrieving Value"))?;
-            let pos =
-                Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize, vm)?;
+            let pos = Self::byte_offset_to_char(buffer.cursor.get_ref(), buffer.tell() as usize);
             drop(buffer);
 
             // Get __dict__ if it exists and is non-empty
@@ -4683,7 +4663,7 @@ mod _io {
             let raw_bytes = content.as_bytes().to_vec();
             let mut buffer = zelf.buffer.write();
             *buffer = BufferedIO::new(Cursor::new(raw_bytes));
-            let byte_pos = Self::char_offset_to_byte(buffer.cursor.get_ref(), pos as usize, vm)?;
+            let byte_pos = Self::char_offset_to_byte(buffer.cursor.get_ref(), pos as usize);
             buffer
                 .seek(SeekFrom::Start(byte_pos as u64))
                 .map_err(|err| os_err(vm, err))?;
