@@ -2783,14 +2783,7 @@ pub(super) mod types {
 
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             let msg = args.args.first().cloned();
-            let location_tuple = if args.args.len() == 2 {
-                args.args[1]
-                    .clone()
-                    .downcast::<crate::builtins::PyTuple>()
-                    .ok()
-            } else {
-                None
-            };
+            let location_arg = (args.args.len() == 2).then(|| args.args[1].clone());
 
             PyBaseException::slot_init(zelf.clone(), args, vm)?;
             let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
@@ -2800,19 +2793,21 @@ pub(super) mod types {
             }
 
             // SyntaxError(msg, (filename, lineno, offset, text[, end_lineno, end_offset]))
-            if let Some(location_tuple) = location_tuple {
-                let location_tup_len = location_tuple.len();
+            // The location argument is coerced from any sequence like CPython's
+            // PySequence_Tuple; a non-sequence raises TypeError.
+            if let Some(location_arg) = location_arg {
+                let location: Vec<PyObjectRef> = location_arg.try_to_value(vm)?;
 
-                match location_tup_len {
+                match location.len() {
                     4 | 6 => {}
                     5 => {
                         return Err(vm.new_type_error(
                             "end_offset must be provided when end_lineno is provided",
                         ));
                     }
-                    _ => {
+                    len => {
                         return Err(vm.new_type_error(format!(
-                            "function takes exactly 4 or 6 arguments ({location_tup_len} given)"
+                            "function takes exactly 4 or 6 arguments ({len} given)"
                         )));
                     }
                 }
@@ -2821,18 +2816,18 @@ pub(super) mod types {
                 exc.end_offset.swap_to_temporary_refs(None, vm);
 
                 exc.filename
-                    .swap_to_temporary_refs(Some(location_tuple[0].to_owned()), vm);
+                    .swap_to_temporary_refs(Some(location[0].clone()), vm);
                 exc.lineno
-                    .swap_to_temporary_refs(Some(location_tuple[1].to_owned()), vm);
+                    .swap_to_temporary_refs(Some(location[1].clone()), vm);
                 exc.offset
-                    .swap_to_temporary_refs(Some(location_tuple[2].to_owned()), vm);
+                    .swap_to_temporary_refs(Some(location[2].clone()), vm);
                 exc.text
-                    .swap_to_temporary_refs(Some(location_tuple[3].to_owned()), vm);
-                if location_tup_len == 6 {
+                    .swap_to_temporary_refs(Some(location[3].clone()), vm);
+                if location.len() == 6 {
                     exc.end_lineno
-                        .swap_to_temporary_refs(Some(location_tuple[4].to_owned()), vm);
+                        .swap_to_temporary_refs(Some(location[4].clone()), vm);
                     exc.end_offset
-                        .swap_to_temporary_refs(Some(location_tuple[5].to_owned()), vm);
+                        .swap_to_temporary_refs(Some(location[5].clone()), vm);
                 }
             }
 
