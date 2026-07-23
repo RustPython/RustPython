@@ -20,8 +20,8 @@ use alloc::fmt;
 use core::mem::size_of;
 use core::ops::ControlFlow;
 use core::sync::atomic::{
-    AtomicU64,
-    Ordering::{Acquire, Release},
+    AtomicU32, AtomicU64,
+    Ordering::{AcqRel, Acquire, Relaxed, Release},
 };
 use num_traits::ToPrimitive;
 
@@ -40,6 +40,104 @@ type EntryIndex = usize;
 pub(crate) struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
     version: AtomicU64,
+    /// Keys-version stamp, assigned lazily by `assign_keys_version` and
+    /// reset to 0 whenever the key set changes. Value-only updates keep it.
+    ///
+    /// A nonzero stamp identifies either a *shape* — an exact hole-free
+    /// entry sequence of interned string keys, shared by every dict with
+    /// that layout — or, when no shape is derivable, this dict's key set
+    /// frozen at assignment time. Either way a stamp match guarantees the
+    /// entry layout is exactly the one the stamp was issued for, so entry
+    /// indexes cached against a stamp stay valid wherever the stamp matches.
+    keys_version: AtomicU32,
+}
+
+/// Source of keys-version stamps. Allocated globally so a shape stamp and a
+/// dict-unique stamp can never collide.
+static KEYS_VERSION: AtomicU32 = AtomicU32::new(0);
+
+/// Allocate a new keys-version stamp. Returns 0 once the stamp space is
+/// exhausted; stamps are only allocated on specialization, so exhaustion is
+/// unrealistic in practice.
+fn next_keys_version() -> u32 {
+    KEYS_VERSION
+        .fetch_update(Relaxed, Relaxed, |v| v.checked_add(1))
+        .map_or(0, |v| v + 1)
+}
+
+/// Largest key count eligible for a shared shape stamp.
+const SHAPE_MAX_KEYS: usize = 32;
+/// Shape registry slot count (power of two).
+const SHAPE_TABLE_SIZE: usize = 1 << 12;
+/// Linear-probe limit before giving up on registering a shape.
+const SHAPE_MAX_PROBE: usize = 8;
+
+/// A registered shape: the ordered interned-key-pointer sequence of a
+/// hole-free dict, plus the stamp shared by every dict with that layout.
+/// Interned strings are never freed, so the addresses are stable identities.
+struct ShapeData {
+    keys: Box<[usize]>,
+    stamp: u32,
+}
+
+/// Lock-free registry mapping shapes to shared stamps. Fixed-size open
+/// addressing; slots are installed with CAS and never removed, so a stamp
+/// permanently means "exactly this entry sequence". Registered `ShapeData`
+/// is intentionally leaked (bounded by the table size). Lock-free makes the
+/// registry safe across fork() without reinitialization.
+static SHAPE_TABLE: std::sync::LazyLock<Box<[core::sync::atomic::AtomicPtr<ShapeData>]>> =
+    std::sync::LazyLock::new(|| {
+        (0..SHAPE_TABLE_SIZE)
+            .map(|_| core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()))
+            .collect()
+    });
+
+fn shape_stamp(shape: &[usize]) -> Option<u32> {
+    use core::hash::BuildHasher;
+    use core::sync::atomic::AtomicPtr;
+    // The hasher seed must be process-stable so equal shapes always probe
+    // the same slots.
+    static SHAPE_HASHER: std::sync::LazyLock<rapidhash::quality::RandomState> =
+        std::sync::LazyLock::new(Default::default);
+    let hash = SHAPE_HASHER.hash_one(shape) as usize;
+    let mut candidate: *mut ShapeData = core::ptr::null_mut();
+    let mut result = None;
+    for probe in 0..SHAPE_MAX_PROBE {
+        let slot: &AtomicPtr<ShapeData> = &SHAPE_TABLE[(hash + probe) & (SHAPE_TABLE_SIZE - 1)];
+        let mut installed = slot.load(Acquire);
+        if installed.is_null() {
+            if candidate.is_null() {
+                let stamp = next_keys_version();
+                if stamp == 0 {
+                    break;
+                }
+                candidate = Box::into_raw(Box::new(ShapeData {
+                    keys: shape.into(),
+                    stamp,
+                }));
+            }
+            match slot.compare_exchange(core::ptr::null_mut(), candidate, AcqRel, Acquire) {
+                Ok(_) => {
+                    // SAFETY: candidate was just leaked into the table.
+                    result = Some(unsafe { (*candidate).stamp });
+                    candidate = core::ptr::null_mut();
+                    break;
+                }
+                Err(current) => installed = current,
+            }
+        }
+        // SAFETY: non-null slots reference leaked ShapeData, never freed.
+        let data = unsafe { &*installed };
+        if *data.keys == *shape {
+            result = Some(data.stamp);
+            break;
+        }
+    }
+    if !candidate.is_null() {
+        // SAFETY: the candidate lost the race and was never shared.
+        drop(unsafe { Box::from_raw(candidate) });
+    }
+    result
 }
 
 unsafe impl<T: Traverse> Traverse for Dict<T> {
@@ -105,6 +203,7 @@ impl<T: Clone> Clone for Dict<T> {
         Self {
             inner: PyRwLock::new(self.inner.read().clone()),
             version: AtomicU64::new(0),
+            keys_version: AtomicU32::new(0),
         }
     }
 }
@@ -119,6 +218,7 @@ impl<T> Default for Dict<T> {
                 entries: Vec::new(),
             }),
             version: AtomicU64::new(0),
+            keys_version: AtomicU32::new(0),
         }
     }
 }
@@ -272,6 +372,83 @@ impl<T: Clone> Dict<T> {
         self.version.fetch_add(1, Release);
     }
 
+    /// Current keys-version stamp, or 0 if none has been assigned since the
+    /// last key-set change. Equal nonzero stamps guarantee an unchanged key
+    /// set (values may differ).
+    pub(crate) fn keys_version(&self) -> u32 {
+        self.keys_version.load(Acquire)
+    }
+
+    /// Return the current keys-version stamp, assigning one if none is set.
+    /// Returns 0 only if no stamp could be allocated.
+    ///
+    /// When the dict is hole-free and all keys are interned strings, the
+    /// stamp is the *shared shape stamp* for that exact key sequence, so
+    /// dicts with identical layouts (e.g. instances of the same class built
+    /// by the same `__init__`) carry equal stamps and one cached stamp or
+    /// entry index serves them all. Otherwise a dict-unique stamp is used.
+    ///
+    /// The shape inspection and the stamp install happen under the inner
+    /// read lock. Key-set changes reset the stamp under the write lock, so
+    /// an installed stamp always attests the layout it was derived from.
+    pub(crate) fn assign_keys_version(&self) -> u32 {
+        let version = self.keys_version.load(Acquire);
+        if version != 0 {
+            return version;
+        }
+        let inner = self.read();
+        // Re-check under the lock: a concurrent assign may have won.
+        let version = self.keys_version.load(Acquire);
+        if version != 0 {
+            return version;
+        }
+        let new_version = Self::derive_shape_stamp(&inner).unwrap_or_else(next_keys_version);
+        if new_version == 0 {
+            return 0;
+        }
+        // Only install over 0 so an already-valid stamp is never replaced.
+        match self
+            .keys_version
+            .compare_exchange(0, new_version, AcqRel, Acquire)
+        {
+            Ok(_) => new_version,
+            Err(current) => current,
+        }
+    }
+
+    /// Compute the shared shape stamp for the current layout, if it
+    /// qualifies: hole-free entries, bounded size, all keys interned strings.
+    fn derive_shape_stamp(inner: &DictInner<T>) -> Option<u32> {
+        if inner.entries.len() != inner.used || inner.used > SHAPE_MAX_KEYS {
+            return None;
+        }
+        let shape = inner
+            .entries
+            .iter()
+            .map(|entry| {
+                let key = &entry.as_ref()?.key;
+                key.is_interned()
+                    .then(|| key.as_ref() as *const PyObject as usize)
+            })
+            .collect::<Option<Vec<usize>>>()?;
+        shape_stamp(&shape)
+    }
+
+    /// Reset the keys-version stamp on a key-set change (insert of a new
+    /// key, deletion, or clear). Value-only updates keep the stamp.
+    ///
+    /// Must be called while holding the write lock, *before* the key set is
+    /// modified: a lock-free stamp reader that still observes the old stamp
+    /// then provably ran before the change became visible, so acting on the
+    /// old key set is linearizable. A stamp assigned concurrently (between
+    /// this reset and the mutation) can only be trusted by a caller whose
+    /// subsequent probe serializes after the mutation through the inner
+    /// lock, which then reflects the new key set. Since stamps are never
+    /// reused, a cached stamp can never spuriously match again.
+    fn invalidate_keys_version(&self) {
+        self.keys_version.store(0, Release);
+    }
+
     fn read(&self) -> PyRwLockReadGuard<'_, DictInner<T>> {
         self.inner.read()
     }
@@ -320,6 +497,7 @@ impl<T: Clone> Dict<T> {
                     // Dict was resized since lookup, retry
                     continue;
                 }
+                self.invalidate_keys_version();
                 inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value, entry_index);
                 self.bump_version();
                 break None;
@@ -364,6 +542,62 @@ impl<T: Clone> Dict<T> {
             return Ok(None);
         };
         Ok(u16::try_from(index).ok())
+    }
+
+    /// Retrieve a key along with its entry index, for hint caching.
+    ///
+    /// Same as [`Self::get`], but on a hit also returns the entry index
+    /// usable as a `hint` for [`Self::get_hint`] (`None` if it doesn't fit).
+    pub(crate) fn get_with_hint<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+    ) -> PyResult<Option<(T, Option<u16>)>> {
+        let hash = key.key_hash(vm)?;
+        let ret = loop {
+            let (entry, index_index) = self.lookup(vm, key, hash, None)?;
+            if let Some(index) = entry.index() {
+                let inner = self.read();
+                if let Some(entry) = inner.get_entry_checked(index, index_index) {
+                    // The dict was not changed since we did lookup
+                    break Some((entry.value.clone(), u16::try_from(index).ok()));
+                }
+                // The dict was changed since we did lookup. Let's try again.
+            } else {
+                break None;
+            }
+        };
+        Ok(ret)
+    }
+
+    /// Replace the value at entry index `hint` if that entry's key is
+    /// identical to `key`, otherwise fall back to a full probing store.
+    ///
+    /// On a hint miss, returns a refreshed hint for the key (`None` when the
+    /// hint hit or no hint is representable).
+    pub(crate) fn insert_with_hint<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hint: usize,
+        value: T,
+    ) -> PyResult<Option<u16>> {
+        let value = {
+            let mut inner = self.write();
+            match inner.entries.get_mut(hint) {
+                Some(Some(entry)) if key.key_is(&entry.key) => {
+                    let removed = core::mem::replace(&mut entry.value, value);
+                    self.bump_version();
+                    drop(inner);
+                    // defer dec RC until after the lock is released
+                    drop(removed);
+                    return Ok(None);
+                }
+                _ => value,
+            }
+        };
+        self.insert(vm, key, value)?;
+        self.hint_for_key(vm, key)
     }
 
     /// Fast path lookup using a cached entry index (`hint`).
@@ -433,6 +667,7 @@ impl<T: Clone> Dict<T> {
     pub(crate) fn clear(&self) {
         let _removed = {
             let mut inner = self.write();
+            self.invalidate_keys_version();
             inner.indices.clear();
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
@@ -521,6 +756,7 @@ impl<T: Clone> Dict<T> {
             if inner.indices.get(index_index) != Some(&entry) {
                 continue;
             }
+            self.invalidate_keys_version();
             inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
             self.bump_version();
             break None;
@@ -551,6 +787,7 @@ impl<T: Clone> Dict<T> {
             let value = default
                 .take()
                 .expect("default must only be computed on insertion")();
+            self.invalidate_keys_version();
             inner.unchecked_push(
                 index_index,
                 hash,
@@ -594,6 +831,7 @@ impl<T: Clone> Dict<T> {
                 .expect("default must only be computed on insertion")();
             let key_obj = key.to_pyobject(vm);
             let ret = (key_obj.clone(), value.clone());
+            self.invalidate_keys_version();
             inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
             self.bump_version();
             return Ok(ret);
@@ -787,6 +1025,7 @@ impl<T: Clone> Dict<T> {
             // The dict was changed since we did lookup. Let's try again.
             _ => return Ok(ControlFlow::Continue(())),
         }
+        self.invalidate_keys_version();
         *unsafe {
             // index_index is result of lookup
             inner.indices.get_unchecked_mut(index_index)
@@ -822,6 +1061,7 @@ impl<T: Clone> Dict<T> {
                 break entry;
             }
         };
+        self.invalidate_keys_version();
         inner.used -= 1;
         *unsafe {
             // entry.index always refers valid index
@@ -843,6 +1083,7 @@ impl<T: Clone> Dict<T> {
     /// This is used for circular reference resolution in GC.
     /// Requires &mut self to avoid lock contention.
     pub(crate) fn drain_entries(&mut self) -> impl Iterator<Item = (PyObjectRef, T)> + '_ {
+        self.keys_version.store(0, Release);
         let inner = self.inner.get_mut();
         inner.used = 0;
         inner.filled = 0;
