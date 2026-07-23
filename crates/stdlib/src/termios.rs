@@ -285,14 +285,8 @@ mod termios {
         let row = seq.get_item(0, vm)?;
         let col = seq.get_item(1, vm)?;
 
-        let row: u16 = row
-            .downcast_ref::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("tcsetwinsize: winsize values must be integers"))?
-            .try_to_primitive(vm)?;
-        let col: u16 = col
-            .downcast_ref::<PyInt>()
-            .ok_or_else(|| vm.new_type_error("tcsetwinsize: winsize values must be integers"))?
-            .try_to_primitive(vm)?;
+        let row: u16 = row.try_index(vm)?.try_to_primitive(vm)?;
+        let col: u16 = col.try_index(vm)?.try_to_primitive(vm)?;
 
         host_termios::tcsetwinsize(fd, row, col).map_err(|e| termios_error(e, vm))?;
         Ok(())
