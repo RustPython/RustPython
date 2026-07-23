@@ -52,9 +52,7 @@ use rustpython_compiler_core::SourceLocation;
 
 pub type FrameRef = PyRef<Frame>;
 
-// ---------------------------------------------------------------------------
 // LightFrame — stack-allocated frame header for unobserved Python→Python calls
-// ---------------------------------------------------------------------------
 
 /// Lightweight interpreter frame allocated on the DataStack for unobserved calls.
 /// Contains only what bytecode execution needs. A full Frame PyObject is
@@ -69,7 +67,7 @@ pub struct LightFrame {
     pub func_obj: *const PyObject,
 
     // Execution state (written during bytecode execution)
-    pub lasti: core::sync::atomic::AtomicU32,
+    pub lasti: PyAtomic<u32>,
     pub prev_line: u32,
 
     // Frame chain
@@ -86,12 +84,8 @@ pub struct LightFrame {
     pub max_stackdepth: u32,
 }
 
-// SAFETY: LightFrame is per-thread, not shared across threads.
-// The raw pointers point to thread-local data.
-#[cfg(feature = "threading")]
-unsafe impl Send for LightFrame {}
-#[cfg(feature = "threading")]
-unsafe impl Sync for LightFrame {}
+// LightFrame is per-thread and never shared across threads. Raw pointers
+// make it !Send + !Sync by default, which is the correct bound.
 
 impl LightFrame {
     /// Pointer to the localsplus data that follows immediately after this header.
@@ -153,10 +147,7 @@ impl<'a> FrameSource<'a> {
 /// # Safety
 /// `light` must point to a valid LightFrame whose borrowed pointers are still alive.
 #[cold]
-unsafe fn materialize_light_frame(
-    light: *mut LightFrame,
-    vm: &VirtualMachine,
-) -> FrameRef {
+unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -> FrameRef {
     unsafe {
         // Check if already materialized
         let existing = *(*light).materialized.get();
@@ -209,18 +200,32 @@ unsafe fn materialize_light_frame(
         iframe.prev_line = (*light).prev_line;
 
         // Set up the `previous` frame pointer for f_back:
-        // If the previous light frame exists, materialize it and point there.
-        // Otherwise, point to the top heavy frame.
+        // Link f_back to the correct predecessor:
+        // - If previous_light has the same saved_current_frame, it is the
+        //   direct caller → materialize and link to it.
+        // - Otherwise, the direct caller is the heavy frame recorded at entry
+        //   time (saved_current_frame).
         let prev_light = (*light).previous_light;
-        let prev_frame_ptr = if !prev_light.is_null() {
-            let prev_materialized = materialize_light_frame(prev_light as *mut _, vm);
-            let ptr = &*prev_materialized as *const Py<Frame> as *mut Frame;
-            core::mem::forget(prev_materialized);
-            ptr
-        } else {
-            crate::vm::thread::get_current_frame() as *mut Frame
-        };
-        iframe.previous.store(prev_frame_ptr, atomic::Ordering::Relaxed);
+        let saved = (*light).saved_current_frame;
+        let prev_frame_ptr =
+            if !prev_light.is_null() && core::ptr::eq((*prev_light).saved_current_frame, saved) {
+                let prev_materialized = materialize_light_frame(prev_light as *mut _, vm);
+                // Store a strong reference in retained_back so the predecessor
+                // stays alive even after the predecessor's light frame is cleaned
+                // up (f_back can be accessed after the caller returns).
+                *iframe.retained_back.lock() = Some(prev_materialized.clone());
+                // Use payload pointer (not Py<Frame> pointer) — the chain stores
+                // &**frame (Frame payload) consistently.
+                let ptr = (&**prev_materialized) as *const Frame as *mut Frame;
+                // Drop the temporary; retained_back keeps the predecessor alive.
+                drop(prev_materialized);
+                ptr
+            } else {
+                saved as *mut Frame
+            };
+        iframe
+            .previous
+            .store(prev_frame_ptr, atomic::Ordering::Relaxed);
 
         // Store the materialized frame pointer back
         *(*light).materialized.get() = &*frame as *const Py<Frame> as *mut Py<Frame>;
@@ -240,10 +245,7 @@ unsafe fn materialize_light_frame(
 ///
 /// # Safety
 /// `light` must point to a valid LightFrame whose borrowed pointers are still alive.
-pub unsafe fn materialize_light_frame_pub(
-    light: *mut LightFrame,
-    vm: &VirtualMachine,
-) -> FrameRef {
+pub unsafe fn materialize_light_frame_pub(light: *mut LightFrame, vm: &VirtualMachine) -> FrameRef {
     unsafe { materialize_light_frame(light, vm) }
 }
 
@@ -2400,8 +2402,7 @@ impl ExecutingFrame<'_> {
     /// Get pending_stack_pops from the heavy frame.
     #[inline]
     fn pending_stack_pops(&self) -> u32 {
-        self.heavy_frame_ref()
-            .map_or(0, |f| f.pending_stack_pops())
+        self.heavy_frame_ref().map_or(0, |f| f.pending_stack_pops())
     }
 
     /// Get pending_unwind_from_stack from the heavy frame.
@@ -2789,7 +2790,9 @@ impl ExecutingFrame<'_> {
                             // The traceback was created with the correct lasti when exception
                             // was first raised, but frame.lasti may have changed during cleanup
                             if let Some(tb) = exception.__traceback__()
-                                && self.heavy_frame_ref().is_some_and(|obj| core::ptr::eq::<Py<Frame>>(&*tb.frame, obj))
+                                && self
+                                    .heavy_frame_ref()
+                                    .is_some_and(|obj| core::ptr::eq::<Py<Frame>>(&*tb.frame, obj))
                             {
                                 // This traceback entry is for this frame - restore its lasti
                                 // tb.lasti is in bytes (idx * 2), convert back to instruction index
@@ -2878,12 +2881,8 @@ impl ExecutingFrame<'_> {
                     if idx < self.code.locations.len() {
                         let (loc, _end_loc) = self.code.locations[idx];
                         let next = err.__traceback__();
-                        let new_traceback = PyTraceback::new(
-                            next,
-                            self.frame_object(vm),
-                            idx as u32 * 2,
-                            loc.line,
-                        );
+                        let new_traceback =
+                            PyTraceback::new(next, self.frame_object(vm), idx as u32 * 2, loc.line);
                         err.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
                     }
 

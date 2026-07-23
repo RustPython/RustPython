@@ -1679,7 +1679,7 @@ impl VirtualMachine {
     /// single native frame can exceed the margin and step past it.
     #[cfg(all(not(miri), not(target_env = "musl")))]
     #[inline(always)]
-    fn check_c_stack_overflow(&self) -> bool {
+    pub(crate) fn check_c_stack_overflow(&self) -> bool {
         let current_sp = psm::stack_pointer() as usize;
         let soft_limit = self.c_stack_soft_limit.get();
         current_sp < soft_limit
@@ -1689,7 +1689,7 @@ impl VirtualMachine {
     /// the probe during stdlib bootstrap.
     #[cfg(any(miri, target_env = "musl"))]
     #[inline(always)]
-    fn check_c_stack_overflow(&self) -> bool {
+    pub(crate) fn check_c_stack_overflow(&self) -> bool {
         false
     }
 
@@ -1747,7 +1747,8 @@ impl VirtualMachine {
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
+        // Ensure all state is restored on panic or normal exit. Installed
+        // immediately after all setup so no intermediate panic can leak.
         scopeguard::defer! {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             if save_exc {
