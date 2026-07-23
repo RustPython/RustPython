@@ -801,11 +801,17 @@ impl Py<PyFunction> {
         let code: &Py<PyCode> = &self.code;
 
         // Generator/coroutine code and tracing must use the heavy path
+        // Fall back to the heavy path for generators/coroutines, tracing,
+        // and non-optimized/non-NEWLOCALS code (e.g. types.FunctionType
+        // with a non-standard code object).
         if code.flags.intersects(
             bytecode::CodeFlags::GENERATOR
                 | bytecode::CodeFlags::COROUTINE
                 | bytecode::CodeFlags::ASYNC_GENERATOR,
         ) || vm.use_tracing.get()
+            || !code
+                .flags
+                .contains(bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED)
         {
             return self.invoke_exact_args_slots(args, vm);
         }
