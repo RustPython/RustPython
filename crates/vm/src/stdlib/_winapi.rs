@@ -235,12 +235,12 @@ mod _winapi {
         if let Some(ref name) = args.name
             && name.as_bytes().contains(&0)
         {
-            return Err(crate::exceptions::cstring_error(vm));
+            return Err(crate::exceptions::nul_char_error(vm));
         }
         if let Some(ref cmd) = args.command_line
             && cmd.as_bytes().contains(&0)
         {
-            return Err(crate::exceptions::cstring_error(vm));
+            return Err(crate::exceptions::nul_char_error(vm));
         }
 
         let wcstring = |s: PyStrRef| s.as_wtf8().to_wide_cstring();

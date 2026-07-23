@@ -52,7 +52,7 @@ mod pwd {
     fn getpwnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<PasswdData> {
         let pw_name = name.as_str();
         if pw_name.contains('\0') {
-            return Err(exceptions::cstring_error(vm));
+            return Err(exceptions::nul_char_error(vm));
         }
         let user = host_pwd::getpwnam(name.as_str());
         let user = user.ok_or_else(|| {

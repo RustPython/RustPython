@@ -753,6 +753,63 @@ impl Py<PyDict> {
         }
     }
 
+    /// Lookup trying a cached entry index hint first.
+    ///
+    /// When the hint misses but the key is present, also returns a refreshed
+    /// hint (`None` when the hint hit or no hint is representable).
+    pub(crate) fn get_item_opt_refresh_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<(PyObjectRef, Option<u16>)>> {
+        if self.exact_dict(vm) {
+            if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
+                return Ok(Some((value, None)));
+            }
+            self.entries.get_with_hint(vm, key)
+        } else {
+            Ok(self.get_item_opt(key, vm)?.map(|value| (value, None)))
+        }
+    }
+
+    /// Store using a cached entry index hint for the value-replace fast path.
+    ///
+    /// On a hint miss, returns a refreshed hint for the key (`None` when the
+    /// hint hit or no hint is representable).
+    pub(crate) fn set_item_with_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<u16>> {
+        if self.exact_dict(vm) {
+            self.entries
+                .insert_with_hint(vm, key, usize::from(hint), value)
+        } else {
+            self.as_object().set_item(key, value, vm)?;
+            Ok(None)
+        }
+    }
+
+    /// Current keys-version stamp of the underlying storage (0 if unset).
+    pub(crate) fn keys_version(&self) -> u32 {
+        self.entries.keys_version()
+    }
+
+    /// Current keys-version stamp, assigning one if none is set.
+    ///
+    /// Returns 0 for dict subclasses: their lookup can be overridden, so a
+    /// key-set attestation on the raw storage must never be cached for them.
+    pub(crate) fn assign_keys_version(&self, vm: &VirtualMachine) -> u32 {
+        if self.exact_dict(vm) {
+            self.entries.assign_keys_version()
+        } else {
+            0
+        }
+    }
+
     pub fn get_item<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult {
         if self.exact_dict(vm) {
             self.inner_getitem(key, vm)

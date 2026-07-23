@@ -2,7 +2,8 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::pyerrors::init_exception_statics;
-use crate::pylifecycle::MAIN_INTERP;
+use crate::pylifecycle::{MAIN_INTERP, MAIN_INTERP_PTR};
+use core::sync::atomic::Ordering;
 pub use rustpython_vm::PyObject;
 use rustpython_vm::{Context, Interpreter};
 use std::sync::MutexGuard;
@@ -63,4 +64,8 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
     // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
     unsafe { init_exception_statics(&Context::genesis().exceptions) };
     *interp = Some(interpreter);
+    MAIN_INTERP_PTR.store(
+        interp.as_ref().unwrap() as *const _ as *mut _,
+        Ordering::Release,
+    );
 }
