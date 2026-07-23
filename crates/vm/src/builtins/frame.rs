@@ -724,22 +724,26 @@ impl Py<Frame> {
 
     #[pygetset]
     pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
-        #[cfg(not(feature = "threading"))]
-        let _ = vm;
-        let previous = self.previous_frame();
-        if previous.is_null() {
+        let chain = self.previous_frame();
+        if chain.is_null() {
             return None;
         }
 
-        // Look for the caller on the current thread's signal-safe frame chain.
-        // Finding it there proves it is still live on this thread.
-        if let Some(frame) = crate::frame::find_owned_chain_frame(previous) {
+        // Light frame predecessor: materialize it
+        if let Some(light) = chain.as_light() {
+            let frame = unsafe { crate::frame::materialize_light_frame_pub(light, vm) };
             frame.mark_escaped();
             return Some(frame);
         }
 
-        // The caller already returned and left the live chain, but this frame
-        // escaped and retained a strong reference to it at release time.
+        // Heavy frame predecessor: look up on the current thread's chain
+        let target = chain.as_heavy().unwrap();
+        if let Some(frame) = crate::frame::find_owned_chain_frame(target) {
+            frame.mark_escaped();
+            return Some(frame);
+        }
+
+        // The caller already returned — check retained_back
         let retained = self.retained_back.lock().clone();
         if let Some(frame) = retained {
             frame.mark_escaped();
@@ -749,7 +753,7 @@ impl Py<Frame> {
         // The caller lives on another thread. unix: park every thread under
         // stop-the-world so their frame chains are quiescent and alive, then
         // walk each published top frame down its `previous` chain looking for
-        // the caller. Request stop-the-world before the registry lock.
+        // the caller.
         #[cfg(all(unix, feature = "threading"))]
         {
             use core::sync::atomic::Ordering;
@@ -763,15 +767,16 @@ impl Py<Frame> {
             for slot in registry.values() {
                 let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const Frame;
                 while !cur.is_null() {
-                    if core::ptr::eq(cur, previous) {
-                        // SAFETY: world stopped -> this frame is alive on its
-                        // owning thread's parked call stack.
+                    if core::ptr::eq(cur, target) {
                         let f = unsafe { &*Self::from_payload_ptr(cur) };
                         f.mark_escaped();
                         return Some(f.to_owned());
                     }
-                    // SAFETY: chain frames on a parked thread are alive.
-                    cur = unsafe { (*cur).previous_frame() };
+                    // Walk heavy-only chain from top_frame (signal-safe pointers)
+                    cur = unsafe {
+                        let prev = (*cur).previous_frame();
+                        prev.as_heavy().unwrap_or(core::ptr::null())
+                    };
                 }
             }
         }
@@ -790,7 +795,7 @@ impl Py<Frame> {
                 if let Some(frame) = frames.iter().find_map(|fp| {
                     let f = unsafe { fp.as_ref() };
                     let ptr: *const Frame = &**f;
-                    core::ptr::eq(ptr, previous).then(|| f.to_owned())
+                    core::ptr::eq(ptr, target).then(|| f.to_owned())
                 }) {
                     frame.mark_escaped();
                     return Some(frame);
