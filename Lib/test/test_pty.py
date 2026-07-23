@@ -195,7 +195,7 @@ class PtyTest(unittest.TestCase):
         s2 = _readline(master_fd)
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; pty.fork() child is not made a session leader
+    @unittest.skip("TODO: RUSTPYTHON; pty.fork() child is not made a session leader")
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()
@@ -297,7 +297,7 @@ class PtyTest(unittest.TestCase):
 
         self.assertEqual(data, b"")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; pty.fork() child is not made a session leader
+    @unittest.skip("TODO: RUSTPYTHON; pty.fork() child is not made a session leader")
     def test_spawn_doesnt_hang(self):
         # gh-140482: Do the test in a pty.fork() child to avoid messing
         # with the interactive test runner's terminal settings.
