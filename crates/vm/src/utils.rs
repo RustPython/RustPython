@@ -4,7 +4,7 @@ use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
-    exceptions::cstring_error,
+    exceptions::nul_char_error,
 };
 
 pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
@@ -26,7 +26,7 @@ pub trait ToCString: AsRef<Wtf8> {
     }
     fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.as_ref().as_bytes().contains(&b'\0') {
-            Err(cstring_error(vm))
+            Err(nul_char_error(vm))
         } else {
             Ok(())
         }

@@ -181,6 +181,8 @@ impl ToPyObject for crt_fd::Borrowed<'_> {
 #[pymodule(sub)]
 pub(super) mod _os {
     use super::{DirFd, DstDirFd, FollowSymlinks, RawMode, SrcDirFd, SupportFunc};
+    #[cfg(not(windows))]
+    use crate::exceptions;
     use crate::host_env::fileutils::StatStruct;
     #[cfg(any(unix, windows))]
     use crate::utils::ToCString;
@@ -531,7 +533,7 @@ pub(super) mod _os {
         let key = env_bytes_as_bytes(&key);
         let value = env_bytes_as_bytes(&value);
         if key.contains(&b'\0') || value.contains(&b'\0') {
-            return Err(vm.new_value_error("embedded null byte"));
+            return Err(exceptions::nul_byte_error(vm));
         }
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
@@ -574,7 +576,7 @@ pub(super) mod _os {
     ) -> PyResult<()> {
         let key = env_bytes_as_bytes(&key);
         if key.contains(&b'\0') {
-            return Err(vm.new_value_error("embedded null byte"));
+            return Err(exceptions::nul_byte_error(vm));
         }
         if key.is_empty() || key.contains(&b'=') {
             let x = vm.new_errno_error(
@@ -817,7 +819,7 @@ pub(super) mod _os {
                         FollowSymlinks(false),
                     )
                     .map_err(|e| e.into_pyexception(vm))?
-                    .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
+                    .ok_or_else(|| crate::exceptions::nul_char_error(vm))?;
                     // On Windows, combine st_ino and st_ino_high into 128-bit value
                     let ino: u128 = cfg_select! {
                         windows => stat.st_ino as u128 | ((stat.st_ino_high as u128) << 64),
@@ -1360,7 +1362,7 @@ pub(super) mod _os {
     ) -> PyResult {
         let stat = stat_inner(file.clone(), dir_fd, follow_symlinks)
             .map_err(|err| OSErrorBuilder::with_filename(&err, file, vm))?
-            .ok_or_else(|| crate::exceptions::cstring_error(vm))?;
+            .ok_or_else(|| crate::exceptions::nul_char_error(vm))?;
         Ok(StatResultData::from_stat(&stat, vm).to_pyobject(vm))
     }
 
@@ -1543,10 +1545,12 @@ pub(super) mod _os {
         #[cfg(unix)]
         {
             use std::os::unix::ffi::OsStrExt;
+
+            use crate::convert::ToPyException;
             let src_cstr = alloc::ffi::CString::new(src.path.as_os_str().as_bytes())
-                .map_err(|_| vm.new_value_error("embedded null byte"))?;
+                .map_err(|e| e.to_pyexception(vm))?;
             let dst_cstr = alloc::ffi::CString::new(dst.path.as_os_str().as_bytes())
-                .map_err(|_| vm.new_value_error("embedded null byte"))?;
+                .map_err(|e| e.to_pyexception(vm))?;
 
             let follow = follow_symlinks.into_option().unwrap_or(true);
             if let Err(err) =

@@ -6,7 +6,8 @@ pub(crate) use winsound::module_def;
 #[pymodule]
 mod winsound {
     use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
-    use crate::convert::{IntoPyException, TryFromBorrowedObject};
+    use crate::convert::{IntoPyException, ToPyException, TryFromBorrowedObject};
+    use crate::exceptions;
     use crate::host_env::windows::ToWideString;
     use crate::protocol::PyBuffer;
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
@@ -142,12 +143,12 @@ mod winsound {
 
         // Check for embedded null characters
         if path.as_bytes().contains(&0) {
-            return Err(vm.new_value_error("embedded null character"));
+            return Err(exceptions::nul_char_error(vm));
         }
 
         let wide = path.to_wide_with_nul();
-        let wide_cstr = widestring::WideCStr::from_slice_truncate(&wide)
-            .map_err(|_| vm.new_value_error("embedded null character"))?;
+        let wide_cstr =
+            widestring::WideCStr::from_slice_truncate(&wide).map_err(|e| e.to_pyexception(vm))?;
         play_sound(PlaySoundSource::Name(wide_cstr), flags).map_err(map_play_err(vm))
     }
 
