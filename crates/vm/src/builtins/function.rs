@@ -24,6 +24,7 @@ use crate::{
 };
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
+use rustpython_common::atomic::Radium;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
@@ -818,19 +819,22 @@ impl Py<PyFunction> {
 
         unsafe {
             // Initialize the LightFrame header with borrowed pointers (NO refcount bumps)
-            core::ptr::write(light, LightFrame {
-                code: code as *const _,
-                globals: &*self.globals as *const _,
-                builtins: &*self.builtins as *const _,
-                func_obj: self.as_object() as *const _,
-                lasti: core::sync::atomic::AtomicU32::new(0),
-                prev_line: 0,
-                previous_light: crate::vm::thread::get_current_light_frame(),
-                saved_current_frame: crate::vm::thread::get_current_frame(),
-                materialized: core::cell::UnsafeCell::new(core::ptr::null_mut()),
-                nlocalsplus: nlocalsplus as u32,
-                max_stackdepth: max_stackdepth as u32,
-            });
+            core::ptr::write(
+                light,
+                LightFrame {
+                    code: code as *const _,
+                    globals: &*self.globals as *const _,
+                    builtins: &*self.builtins as *const _,
+                    func_obj: self.as_object() as *const _,
+                    lasti: Radium::new(0),
+                    prev_line: 0,
+                    previous_light: crate::vm::thread::get_current_light_frame(),
+                    saved_current_frame: crate::vm::thread::get_current_frame(),
+                    materialized: core::cell::UnsafeCell::new(core::ptr::null_mut()),
+                    nlocalsplus: nlocalsplus as u32,
+                    max_stackdepth: max_stackdepth as u32,
+                },
+            );
 
             // Zero-init the localsplus area
             let lp_ptr = (*light).localsplus_ptr();
@@ -838,10 +842,8 @@ impl Py<PyFunction> {
             core::ptr::write_bytes(lp_ptr, 0, capacity);
 
             // Move args into localsplus
-            let slots = core::slice::from_raw_parts_mut(
-                lp_ptr as *mut Option<PyObjectRef>,
-                nlocalsplus,
-            );
+            let slots =
+                core::slice::from_raw_parts_mut(lp_ptr as *mut Option<PyObjectRef>, nlocalsplus);
             for (slot, arg_slot) in slots.iter_mut().zip(args.iter_mut()) {
                 *slot = arg_slot.take();
             }
@@ -860,29 +862,45 @@ impl Py<PyFunction> {
             // Push light frame onto TLS chain
             let prev_light = crate::vm::thread::set_current_light_frame(light);
 
-            // Recursion depth check
-            if vm.current_recursion_depth() >= vm.recursion_limit.get() {
+            // Recursion depth and C stack overflow check
+            let depth = vm.current_recursion_depth();
+            if depth >= vm.recursion_limit.get() || (depth & 63 == 0 && vm.check_c_stack_overflow())
+            {
                 // Clean up the light frame TLS before erroring
                 crate::vm::thread::set_current_light_frame(prev_light);
                 // Drop values we moved into localsplus
-                let slots = core::slice::from_raw_parts_mut(
-                    lp_ptr as *mut Option<PyObjectRef>,
-                    capacity,
-                );
+                let slots =
+                    core::slice::from_raw_parts_mut(lp_ptr as *mut Option<PyObjectRef>, capacity);
                 for slot in slots.iter_mut() {
                     *slot = None;
                 }
                 vm.datastack_pop(base);
-                return Err(vm.new_recursion_error(
-                    "maximum recursion depth exceeded".to_string(),
-                ));
+                return Err(vm.new_recursion_error("maximum recursion depth exceeded".to_string()));
             }
             vm.recursion_depth_increment();
 
+            // Cache the materialized-field pointer so the panic guard doesn't
+            // need to borrow `light` (which is also used mutably for prev_line).
+            let materialized_cell: *const core::cell::UnsafeCell<*mut Py<Frame>> =
+                &(*light).materialized;
+
+            // Panic guard: restore TLS and recursion depth, reclaim materialized
+            // frame, pop DataStack. Localsplus values are dropped by
+            // LocalsPlus::drop (run_light_frame takes ownership).
+            // TLS restored first so destructors can re-enter the VM safely.
+            scopeguard::defer! {
+                vm.recursion_depth_decrement();
+                crate::vm::thread::set_current_light_frame(prev_light);
+                let materialized_ptr = *(*materialized_cell).get();
+                if !materialized_ptr.is_null() {
+                    let reclaim = FrameRef::from_raw(materialized_ptr as *const _);
+                    drop(reclaim);
+                }
+                vm.datastack_pop(base);
+            }
+
             // Build LocalsPlus view over the light frame data
-            let localsplus = LocalsPlus::from_datastack_raw(
-                lp_ptr, capacity, nlocalsplus,
-            );
+            let localsplus = LocalsPlus::from_datastack_raw(lp_ptr, capacity, nlocalsplus);
 
             // Create lazy FrameLocals (NEWLOCALS fast path)
             let locals = FrameLocals::lazy();
@@ -897,9 +915,6 @@ impl Py<PyFunction> {
             };
 
             // Run the bytecode
-            let lasti_ref: &rustpython_common::atomic::PyAtomic<u32> =
-                &*(&(*light).lasti as *const core::sync::atomic::AtomicU32
-                    as *const rustpython_common::atomic::PyAtomic<u32>);
             let code_ref = (*(*light).code).to_owned();
             let result = crate::frame::run_light_frame(
                 &code_ref,
@@ -910,36 +925,12 @@ impl Py<PyFunction> {
                 builtins_dict,
                 FrameSource::Light(light),
                 self.as_object(),
-                lasti_ref,
+                &(*light).lasti,
                 &mut (*light).prev_line,
                 vm,
             );
 
-            // Cleanup: restore recursion depth and light frame chain
-            vm.recursion_depth_decrement();
-            crate::vm::thread::set_current_light_frame(prev_light);
-
-            // Check if frame was materialized
-            let materialized_ptr = *(*light).materialized.get();
-
-            if !materialized_ptr.is_null() {
-                // Frame was materialized (observed by traceback/sys._getframe).
-                // Drop the leaked ref from materialization.
-                let materialized_ref: FrameRef = (&*materialized_ptr).to_owned();
-                drop(materialized_ref);
-            }
-
-            // Drop all values in localsplus
-            let slots = core::slice::from_raw_parts_mut(
-                lp_ptr as *mut Option<PyObjectRef>,
-                capacity,
-            );
-            for slot in slots.iter_mut() {
-                *slot = None;
-            }
-
-            // Pop from datastack
-            vm.datastack_pop(base);
+            // Normal exit: the scopeguard handles all cleanup.
 
             // Convert result
             match result {
