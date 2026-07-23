@@ -76,9 +76,10 @@ impl Representable for PyCapsule {
 
 impl Destructor for PyCapsule {
     fn del(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<()> {
-        if !zelf.pointer().is_null()
-            && let Some(destructor) = zelf.destructor()
-        {
+        if zelf.pointer().is_null() {
+            return Ok(());
+        }
+        if let Some(destructor) = zelf.destructor() {
             unsafe { destructor(zelf.as_object().as_raw().cast_mut()) };
         }
         Ok(())
