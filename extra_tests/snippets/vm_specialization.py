@@ -156,3 +156,54 @@ def store_hint_survives_dict_replacement():
 
 
 store_hint_survives_dict_replacement()
+
+
+## Shared shape stamps: same-layout instances share the shadow-check stamp
+
+
+class ShapedCounter:
+    def __init__(self):
+        self.a = 1
+        self.b = 2
+
+    def m(self):
+        return "method"
+
+
+def shape_sharing_shadow_one_instance():
+    objs = [ShapedCounter() for _ in range(30)]
+    for _ in range(300):
+        for o in objs:
+            assert o.m() == "method"
+    objs[13].m = lambda: "thirteen"
+    for i, o in enumerate(objs):
+        expected = "thirteen" if i == 13 else "method"
+        assert o.m() == expected
+    del objs[13].m
+    for o in objs:
+        assert o.m() == "method"
+
+
+shape_sharing_shadow_one_instance()
+
+
+def holey_dict_falls_back():
+    class Holey:
+        def m(self):
+            return "g"
+
+    g1, g2 = Holey(), Holey()
+    for o in (g1, g2):
+        o.x = 1
+        o.y = 2
+        o.z = 3
+        del o.y  # leaves a hole in the entries
+    for _ in range(300):
+        assert g1.m() == "g"
+        assert g2.m() == "g"
+    g2.m = lambda: "g2"
+    assert g1.m() == "g"
+    assert g2.m() == "g2"
+
+
+holey_dict_falls_back()

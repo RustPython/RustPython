@@ -40,15 +40,20 @@ type EntryIndex = usize;
 pub(crate) struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
     version: AtomicU64,
-    /// Keys-version stamp: nonzero values are globally unique per key set,
-    /// assigned lazily by `assign_keys_version` and invalidated (reset to 0)
-    /// whenever the key set changes. Value-only updates keep the stamp.
+    /// Keys-version stamp, assigned lazily by `assign_keys_version` and
+    /// reset to 0 whenever the key set changes. Value-only updates keep it.
+    ///
+    /// A nonzero stamp identifies either a *shape* — an exact hole-free
+    /// entry sequence of interned string keys, shared by every dict with
+    /// that layout — or, when no shape is derivable, this dict's key set
+    /// frozen at assignment time. Either way a stamp match guarantees the
+    /// entry layout is exactly the one the stamp was issued for, so entry
+    /// indexes cached against a stamp stay valid wherever the stamp matches.
     keys_version: AtomicU32,
 }
 
-/// Source of keys-version stamps. Stamps are allocated globally so that a
-/// nonzero stamp is never shared by two dicts: equal nonzero stamps imply
-/// the same dict with an unchanged key set. Stamps are never reused.
+/// Source of keys-version stamps. Allocated globally so a shape stamp and a
+/// dict-unique stamp can never collide.
 static KEYS_VERSION: AtomicU32 = AtomicU32::new(0);
 
 /// Allocate a new keys-version stamp. Returns 0 once the stamp space is
@@ -58,6 +63,85 @@ fn next_keys_version() -> u32 {
     KEYS_VERSION
         .fetch_update(Relaxed, Relaxed, |v| v.checked_add(1))
         .map_or(0, |v| v + 1)
+}
+
+/// Largest key count eligible for a shared shape stamp.
+const SHAPE_MAX_KEYS: usize = 32;
+/// Shape registry slot count (power of two).
+const SHAPE_TABLE_SIZE: usize = 1 << 12;
+/// Linear-probe limit before giving up on registering a shape.
+const SHAPE_MAX_PROBE: usize = 8;
+
+/// A registered shape: the ordered interned-key-pointer sequence of a
+/// hole-free dict, plus the stamp shared by every dict with that layout.
+/// Interned strings are never freed, so the addresses are stable identities.
+struct ShapeData {
+    keys: Box<[usize]>,
+    stamp: u32,
+}
+
+/// Lock-free registry mapping shapes to shared stamps. Fixed-size open
+/// addressing; slots are installed with CAS and never removed, so a stamp
+/// permanently means "exactly this entry sequence". Registered `ShapeData`
+/// is intentionally leaked (bounded by the table size). Lock-free makes the
+/// registry safe across fork() without reinitialization.
+static SHAPE_TABLE: std::sync::LazyLock<Box<[core::sync::atomic::AtomicPtr<ShapeData>]>> =
+    std::sync::LazyLock::new(|| {
+        (0..SHAPE_TABLE_SIZE)
+            .map(|_| core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()))
+            .collect()
+    });
+
+fn shape_stamp(shape: &[usize]) -> Option<u32> {
+    use core::sync::atomic::AtomicPtr;
+    // The hasher seed must be process-stable so equal shapes always probe
+    // the same slots.
+    static SHAPE_HASHER: std::sync::LazyLock<rapidhash::quality::RandomState> =
+        std::sync::LazyLock::new(Default::default);
+    let hash = {
+        use core::hash::{BuildHasher, Hash, Hasher};
+        let mut hasher = SHAPE_HASHER.build_hasher();
+        shape.hash(&mut hasher);
+        hasher.finish() as usize
+    };
+    let mut candidate: *mut ShapeData = core::ptr::null_mut();
+    let mut result = None;
+    for probe in 0..SHAPE_MAX_PROBE {
+        let slot: &AtomicPtr<ShapeData> = &SHAPE_TABLE[(hash + probe) & (SHAPE_TABLE_SIZE - 1)];
+        let mut installed = slot.load(Acquire);
+        if installed.is_null() {
+            if candidate.is_null() {
+                let stamp = next_keys_version();
+                if stamp == 0 {
+                    break;
+                }
+                candidate = Box::into_raw(Box::new(ShapeData {
+                    keys: shape.into(),
+                    stamp,
+                }));
+            }
+            match slot.compare_exchange(core::ptr::null_mut(), candidate, AcqRel, Acquire) {
+                Ok(_) => {
+                    // SAFETY: candidate was just leaked into the table.
+                    result = Some(unsafe { (*candidate).stamp });
+                    candidate = core::ptr::null_mut();
+                    break;
+                }
+                Err(current) => installed = current,
+            }
+        }
+        // SAFETY: non-null slots reference leaked ShapeData, never freed.
+        let data = unsafe { &*installed };
+        if *data.keys == *shape {
+            result = Some(data.stamp);
+            break;
+        }
+    }
+    if !candidate.is_null() {
+        // SAFETY: the candidate lost the race and was never shared.
+        drop(unsafe { Box::from_raw(candidate) });
+    }
+    result
 }
 
 unsafe impl<T: Traverse> Traverse for Dict<T> {
@@ -299,21 +383,30 @@ impl<T: Clone> Dict<T> {
         self.keys_version.load(Acquire)
     }
 
-    /// Return the current keys-version stamp, assigning a fresh one if none
-    /// is set. Returns 0 only if the global stamp space is exhausted.
+    /// Return the current keys-version stamp, assigning one if none is set.
+    /// Returns 0 only if no stamp could be allocated.
     ///
-    /// A caller that wants to prove a key absent must call this *before*
-    /// probing: "stamp still equals V" then implies the key set is unchanged
-    /// since before the probe. This is safe against concurrent key-set
-    /// changes because their reset trails the mutation (see
-    /// `bump_version_keys_changed`): a stamp installed during a change is
-    /// retired by that trailing reset before it could ever match again.
+    /// When the dict is hole-free and all keys are interned strings, the
+    /// stamp is the *shared shape stamp* for that exact key sequence, so
+    /// dicts with identical layouts (e.g. instances of the same class built
+    /// by the same `__init__`) carry equal stamps and one cached stamp or
+    /// entry index serves them all. Otherwise a dict-unique stamp is used.
+    ///
+    /// The shape inspection and the stamp install happen under the inner
+    /// read lock. Key-set changes reset the stamp under the write lock, so
+    /// an installed stamp always attests the layout it was derived from.
     pub(crate) fn assign_keys_version(&self) -> u32 {
         let version = self.keys_version.load(Acquire);
         if version != 0 {
             return version;
         }
-        let new_version = next_keys_version();
+        let inner = self.read();
+        // Re-check under the lock: a concurrent assign may have won.
+        let version = self.keys_version.load(Acquire);
+        if version != 0 {
+            return version;
+        }
+        let new_version = Self::derive_shape_stamp(&inner).unwrap_or_else(next_keys_version);
         if new_version == 0 {
             return 0;
         }
@@ -325,6 +418,24 @@ impl<T: Clone> Dict<T> {
             Ok(_) => new_version,
             Err(current) => current,
         }
+    }
+
+    /// Compute the shared shape stamp for the current layout, if it
+    /// qualifies: hole-free entries, bounded size, all keys interned strings.
+    fn derive_shape_stamp(inner: &DictInner<T>) -> Option<u32> {
+        if inner.entries.len() != inner.used || inner.used > SHAPE_MAX_KEYS {
+            return None;
+        }
+        let shape = inner
+            .entries
+            .iter()
+            .map(|entry| {
+                let key = &entry.as_ref()?.key;
+                key.is_interned()
+                    .then(|| key.as_ref() as *const PyObject as usize)
+            })
+            .collect::<Option<Vec<usize>>>()?;
+        shape_stamp(&shape)
     }
 
     /// Reset the keys-version stamp on a key-set change (insert of a new
