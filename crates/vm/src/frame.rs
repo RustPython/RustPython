@@ -149,10 +149,12 @@ impl<'a> FrameSource<'a> {
 #[cold]
 unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -> FrameRef {
     unsafe {
-        // Check if already materialized
+        // Check if already materialized — synchronize execution state
         let existing = *(*light).materialized.get();
         if !existing.is_null() {
-            return (&*existing).to_owned();
+            let frame_ref: FrameRef = (&*existing).to_owned();
+            sync_light_to_materialized(light, &frame_ref);
+            return frame_ref;
         }
 
         // Create owned references from borrowed pointers
@@ -238,6 +240,38 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
         core::mem::forget(leaked);
 
         frame
+    }
+}
+
+/// Synchronize the live light frame's execution state into its materialized
+/// heavy frame. Called on every re-observation so introspection APIs
+/// (`f_lineno`, `f_locals`, `inspect.currentframe()`) see current values.
+///
+/// # Safety
+/// Both `light` and `frame` must be valid and the light frame must still be
+/// executing (its localsplus on the DataStack is live).
+#[cold]
+unsafe fn sync_light_to_materialized(light: *const LightFrame, frame: &Py<Frame>) {
+    unsafe {
+        let iframe = (&mut *frame.iframe.get()).as_mut().unwrap();
+        // Sync lasti and prev_line
+        let lasti_val = (*light).lasti.load(Relaxed);
+        iframe.lasti.store(lasti_val, Relaxed);
+        iframe.prev_line = (*light).prev_line;
+        // Sync fastlocals (clone current values from light frame)
+        let nlocalsplus = (*light).nlocalsplus as usize;
+        let src_ptr = (*light).localsplus_ptr();
+        let dst = iframe.localsplus.fastlocals_mut();
+        for (i, slot) in dst.iter_mut().enumerate().take(nlocalsplus) {
+            let src_val = core::ptr::read(src_ptr.add(i) as *const Option<PyObjectRef>);
+            if let Some(ref obj) = src_val {
+                *slot = Some(obj.clone());
+            } else {
+                *slot = None;
+            }
+            // Don't drop the source — it's still owned by the light frame
+            core::mem::forget(src_val);
+        }
     }
 }
 

@@ -1717,7 +1717,7 @@ impl VirtualMachine {
         // Inline recursion check (avoids with_recursion closure overhead)
         self.check_recursive_call("")?;
 
-        // C stack overflow check: amortised over every 64th call to reduce
+        // C stack overflow check: amortized over every 64th call to reduce
         // the cost of psm::stack_pointer() on the hot path.
         let depth = self.recursion_depth.get();
         if depth & 63 == 0 && self.check_c_stack_overflow() {
@@ -1730,11 +1730,40 @@ impl VirtualMachine {
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
         // Link frame into the signal-safe frame chain.
+        // If a light frame is currently on top, materialize it so that
+        // f_back and inspect.stack() see the correct interleaved order
+        // (H_new → L_materialized → H_old instead of H_new → H_old).
+        let light = crate::vm::thread::get_current_light_frame();
         let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
-        frame.previous.store(
-            old_frame as *mut Frame,
-            core::sync::atomic::Ordering::Relaxed,
-        );
+        let _materialized_back = if !light.is_null() {
+            let saved = unsafe { (*light).saved_current_frame };
+            if core::ptr::eq(old_frame, saved) {
+                // The top light frame belongs to this heavy call level —
+                // materialize and use as the predecessor.
+                let mat =
+                    unsafe { crate::frame::materialize_light_frame_pub(light as *mut _, self) };
+                let payload = (&**mat) as *const crate::frame::Frame as *mut crate::frame::Frame;
+                frame
+                    .previous
+                    .store(payload, core::sync::atomic::Ordering::Relaxed);
+                // Keep the materialized frame alive via retained_back so
+                // f_back can find it even after the light frame's cleanup.
+                *frame.retained_back.lock() = Some(mat.clone());
+                Some(mat)
+            } else {
+                frame.previous.store(
+                    old_frame as *mut crate::frame::Frame,
+                    core::sync::atomic::Ordering::Relaxed,
+                );
+                None
+            }
+        } else {
+            frame.previous.store(
+                old_frame as *mut crate::frame::Frame,
+                core::sync::atomic::Ordering::Relaxed,
+            );
+            None
+        };
         // Save exc_info if this frame does exception handling.
         let save_exc = frame.code.has_exc_handling;
         let saved_exc = if save_exc {
