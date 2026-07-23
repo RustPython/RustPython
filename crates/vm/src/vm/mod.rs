@@ -1576,6 +1576,18 @@ impl VirtualMachine {
         self.recursion_depth.get()
     }
 
+    /// Increment recursion depth. Used by light frame path.
+    #[inline]
+    pub(crate) fn recursion_depth_increment(&self) {
+        self.recursion_depth.update(|d| d + 1);
+    }
+
+    /// Decrement recursion depth. Used by light frame path.
+    #[inline]
+    pub(crate) fn recursion_depth_decrement(&self) {
+        self.recursion_depth.update(|d| d - 1);
+    }
+
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// The margin is doubled for debug/sanitized builds because frame
     /// evaluation consumes more native stack in those configurations.
@@ -1881,7 +1893,7 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameRef> {
-        crate::frame::current_thread_frame()
+        crate::frame::current_thread_frame_vm(self)
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {

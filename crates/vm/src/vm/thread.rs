@@ -89,6 +89,12 @@ thread_local! {
     pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
         const { AtomicPtr::new(core::ptr::null_mut()) };
 
+    /// Current top light frame for unobserved Python-to-Python calls.
+    /// NULL when no light frame is active. Light frames form their own
+    /// chain via `LightFrame::previous_light`.
+    pub(crate) static CURRENT_LIGHT_FRAME: Cell<*const crate::frame::LightFrame> =
+        const { Cell::new(core::ptr::null()) };
+
     /// Cached pointer to this thread's `ThreadSlot::top_frame`, so the hot
     /// push/pop path can publish the top frame with a single relaxed store and
     /// no `CURRENT_THREAD_SLOT` RefCell borrow. Null until the slot is
@@ -692,6 +698,20 @@ pub fn set_current_frame(frame: *const Frame) -> *const Frame {
 #[must_use]
 pub fn get_current_frame() -> *const Frame {
     CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
+}
+
+/// Set the current thread's top light frame pointer.
+/// Returns the previous pointer so it can be restored on pop.
+pub fn set_current_light_frame(
+    frame: *const crate::frame::LightFrame,
+) -> *const crate::frame::LightFrame {
+    CURRENT_LIGHT_FRAME.with(|c| c.replace(frame))
+}
+
+/// Get the current thread's top light frame pointer.
+#[must_use]
+pub fn get_current_light_frame() -> *const crate::frame::LightFrame {
+    CURRENT_LIGHT_FRAME.with(|c| c.get())
 }
 
 /// Update the current thread's exception slot atomically (no locks).
