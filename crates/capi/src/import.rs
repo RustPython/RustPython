@@ -1,15 +1,18 @@
 use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::ffi::c_char;
-use rustpython_vm::builtins::{PyCode, PyDict, PyModule, PyStr, PyTuple};
+use rustpython_vm::builtins::{PyCode, PyDict, PyModule, PyStr};
 use rustpython_vm::import::import_code_obj;
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyImport_Import(name: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let name = unsafe { (&*name).try_downcast_ref::<PyStr>(vm)? };
-        let from_list = PyTuple::new_ref_typed(vec![vm.ctx.new_str("*")], &vm.ctx);
-        vm.import_from(name, &from_list, 0)
+        let _ = vm.import(name, 0)?;
+
+        vm.sys_module
+            .get_attr(rustpython_vm::identifier!(vm, modules), vm)?
+            .get_item(name, vm)
     })
 }
 
