@@ -132,7 +132,7 @@ mod _io {
         },
         common::wtf8::{Wtf8, Wtf8Buf},
         convert::ToPyObject,
-        exceptions::cstring_error,
+        exceptions::nul_char_error,
         function::{
             ArgBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either, FsPath, FuncArgs,
             IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
@@ -2855,7 +2855,7 @@ mod _io {
 
         fn validate_errors(errors: &PyRef<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
             if errors.as_str().contains('\0') {
-                return Err(cstring_error(vm));
+                return Err(nul_char_error(vm));
             }
             vm.state
                 .codec_registry
@@ -2896,7 +2896,7 @@ mod _io {
                 },
                 Some(enc) => {
                     if enc.as_str().contains('\0') {
-                        return Err(cstring_error(vm));
+                        return Err(nul_char_error(vm));
                     }
                     enc
                 }
@@ -2915,7 +2915,7 @@ mod _io {
                 },
             };
             if encoding.as_str().contains('\0') {
-                return Err(cstring_error(vm));
+                return Err(nul_char_error(vm));
             }
             Ok(encoding)
         }

@@ -3,6 +3,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
+    exceptions,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
 
@@ -282,7 +283,7 @@ impl FormatCode {
 
             // Check for embedded null character
             if c == 0 {
-                return Err("embedded null character".to_owned());
+                return Err(exceptions::NulError.to_string());
             }
 
             // PEP3118: Handle extended format specifiers

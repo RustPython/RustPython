@@ -1041,7 +1041,7 @@ mod _ssl {
         fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
             let ciphers: &str = cipherlist.as_ref();
             if ciphers.contains('\0') {
-                return Err(exceptions::cstring_error(vm));
+                return Err(exceptions::nul_char_error(vm));
             }
             self.builder()
                 .set_cipher_list(ciphers)
@@ -1097,12 +1097,12 @@ mod _ssl {
                 Either::A(s) => {
                     let s: &str = s.as_ref();
                     if s.contains('\0') {
-                        return Err(exceptions::cstring_error(vm));
+                        return Err(exceptions::nul_char_error(vm));
                     }
                     s.to_cstring(vm)?
                 }
                 Either::B(b) => std::ffi::CString::new(b.borrow_buf().to_vec())
-                    .map_err(|_| exceptions::cstring_error(vm))?,
+                    .map_err(|_| exceptions::nul_char_error(vm))?,
             };
 
             // Find the NID for the curve name using OBJ_sn2nid
@@ -2038,7 +2038,7 @@ mod _ssl {
                     ));
                 }
                 if hostname_str.contains('\0') {
-                    return Err(vm.new_type_error("embedded null character"));
+                    return Err(exceptions::nul_char_type_error(vm));
                 }
                 let ip = hostname_str.parse::<core::net::IpAddr>();
                 if ip.is_err() {

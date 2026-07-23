@@ -63,7 +63,7 @@ mod grp {
     fn getgrnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<GroupData> {
         let gr_name = name.as_str();
         if gr_name.contains('\0') {
-            return Err(exceptions::cstring_error(vm));
+            return Err(exceptions::nul_char_error(vm));
         }
         let group = host_grp::getgrnam(gr_name).map_err(|err| err.into_pyexception(vm))?;
         let group = group.ok_or_else(|| {
