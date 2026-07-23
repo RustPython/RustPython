@@ -13,7 +13,7 @@ mod _codecs {
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyUtf8StrRef},
         codecs,
-        exceptions::cstring_error,
+        exceptions::nul_char_error,
         function::{ArgBytesLike, FuncArgs},
     };
 
@@ -30,7 +30,7 @@ mod _codecs {
     #[pyfunction]
     fn lookup(encoding: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         if encoding.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+            return Err(nul_char_error(vm));
         }
         vm.state
             .codec_registry
@@ -106,7 +106,7 @@ mod _codecs {
     #[pyfunction]
     fn lookup_error(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
         if name.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+            return Err(nul_char_error(vm));
         }
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
@@ -114,7 +114,7 @@ mod _codecs {
     #[pyfunction]
     fn _unregister_error(errors: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<bool> {
         if errors.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+            return Err(nul_char_error(vm));
         }
         vm.state
             .codec_registry

@@ -15,6 +15,7 @@ use crate::{
     suggestion::offer_suggestions,
     types::{Callable, Constructor, Initializer, Representable},
 };
+use core::fmt::{self, Display, Formatter};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 #[cfg(feature = "host_env")]
@@ -1188,20 +1189,62 @@ impl serde::Serialize for SerializeException<'_, '_> {
     }
 }
 
-pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+#[derive(Debug)]
+pub struct NulError;
+
+impl Display for NulError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "embedded null character")
+    }
+}
+
+pub fn nul_char_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character")
+}
+
+pub fn nul_char_type_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_type_error("embedded null character")
+}
+
+pub fn nul_byte_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_value_error("embedded null byte")
 }
 
 impl ToPyException for alloc::ffi::NulError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        cstring_error(vm)
+        nul_char_error(vm)
+    }
+}
+
+impl ToPyException for alloc::ffi::FromVecWithNulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
+    }
+}
+
+impl ToPyException for core::ffi::FromBytesWithNulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
+    }
+}
+
+impl ToPyException for NulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
     }
 }
 
 #[cfg(windows)]
 impl<C> ToPyException for widestring::error::ContainsNul<C> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        cstring_error(vm)
+        nul_char_error(vm)
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for widestring::error::MissingNulTerminator {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_value_error(self.to_string())
     }
 }
 

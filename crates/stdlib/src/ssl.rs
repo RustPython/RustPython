@@ -70,6 +70,7 @@ mod _ssl {
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
+    use rustpython_vm::exceptions;
     use std::{
         collections::{HashMap, hash_map::DefaultHasher},
         io::BufRead,
@@ -392,7 +393,7 @@ mod _ssl {
         // SNI will not be sent for IP addresses
 
         if hostname.contains('\0') {
-            return Err(vm.new_type_error("embedded null character"));
+            return Err(exceptions::nul_char_type_error(vm));
         }
 
         if hostname.len() > 253 {
@@ -1869,7 +1870,7 @@ mod _ssl {
 
                     // Check for NULL bytes
                     if hostname.contains('\0') {
-                        return Err(vm.new_type_error("embedded null character"));
+                        return Err(exceptions::nul_char_error(vm));
                     }
 
                     Some(hostname.to_string())

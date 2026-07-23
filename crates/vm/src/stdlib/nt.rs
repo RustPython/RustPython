@@ -9,7 +9,7 @@ pub(crate) mod module {
         Py, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytes, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
-        exceptions::OSErrorBuilder,
+        exceptions::{self, OSErrorBuilder},
         function::{ArgMapping, Either, OptionalArg},
         host_env::{crt_fd, windows::ToWideString},
         ospath::{OsPath, OsPathOrFd},
@@ -552,7 +552,7 @@ pub(crate) mod module {
 
             // Validate: no null characters in key or value
             if key_str.contains('\0') || value_str.contains('\0') {
-                return Err(vm.new_value_error("embedded null character"));
+                return Err(exceptions::nul_char_error(vm));
             }
             // Validate: empty key or '=' in key after position 0
             // (search from index 1 because on Windows starting '=' is allowed
