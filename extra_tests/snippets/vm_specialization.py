@@ -192,6 +192,10 @@ def holey_dict_falls_back():
         def m(self):
             return "g"
 
+    def call_m(obj):
+        # single LOAD_ATTR cache site shared by both instances
+        return obj.m()
+
     g1, g2 = Holey(), Holey()
     for o in (g1, g2):
         o.x = 1
@@ -199,11 +203,11 @@ def holey_dict_falls_back():
         o.z = 3
         del o.y  # leaves a hole in the entries
     for _ in range(300):
-        assert g1.m() == "g"
-        assert g2.m() == "g"
+        assert call_m(g1) == "g"
+        assert call_m(g2) == "g"
     g2.m = lambda: "g2"
-    assert g1.m() == "g"
-    assert g2.m() == "g2"
+    assert call_m(g1) == "g"
+    assert call_m(g2) == "g2"
 
 
 holey_dict_falls_back()

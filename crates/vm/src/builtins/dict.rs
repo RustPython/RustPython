@@ -775,8 +775,8 @@ impl Py<PyDict> {
 
     /// Store using a cached entry index hint for the value-replace fast path.
     ///
-    /// Returns a refreshed hint for the key when the hinted slot was vacant
-    /// (`None` otherwise).
+    /// On a hint miss, returns a refreshed hint for the key (`None` when the
+    /// hint hit or no hint is representable).
     pub(crate) fn set_item_with_hint<K: DictKey + ?Sized>(
         &self,
         key: &K,

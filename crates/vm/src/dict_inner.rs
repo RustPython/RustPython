@@ -93,17 +93,13 @@ static SHAPE_TABLE: std::sync::LazyLock<Box<[core::sync::atomic::AtomicPtr<Shape
     });
 
 fn shape_stamp(shape: &[usize]) -> Option<u32> {
+    use core::hash::BuildHasher;
     use core::sync::atomic::AtomicPtr;
     // The hasher seed must be process-stable so equal shapes always probe
     // the same slots.
     static SHAPE_HASHER: std::sync::LazyLock<rapidhash::quality::RandomState> =
         std::sync::LazyLock::new(Default::default);
-    let hash = {
-        use core::hash::{BuildHasher, Hash, Hasher};
-        let mut hasher = SHAPE_HASHER.build_hasher();
-        shape.hash(&mut hasher);
-        hasher.finish() as usize
-    };
+    let hash = SHAPE_HASHER.hash_one(shape) as usize;
     let mut candidate: *mut ShapeData = core::ptr::null_mut();
     let mut result = None;
     for probe in 0..SHAPE_MAX_PROBE {
