@@ -797,11 +797,17 @@ impl Py<PyFunction> {
         let code: &Py<PyCode> = &self.code;
 
         // Generator/coroutine code and tracing must use the heavy path.
+        // Also fall back when inside a trace/profile callback
+        // (tracing_is_suppressed) — the callback itself may rely on
+        // frame identity (profile.Profile.trace_dispatch_return checks
+        // `frame is self.cur[-2]`), which breaks when the callback
+        // runs as a light frame because current_frame() skips light frames.
         if code.flags.intersects(
             bytecode::CodeFlags::GENERATOR
                 | bytecode::CodeFlags::COROUTINE
                 | bytecode::CodeFlags::ASYNC_GENERATOR,
         ) || vm.use_tracing.get()
+            || vm.tracing_is_suppressed()
             || !code
                 .flags
                 .contains(bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED)

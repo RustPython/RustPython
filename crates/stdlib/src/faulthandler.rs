@@ -139,7 +139,9 @@ mod decl {
             }
             cur = unsafe { cur.next() };
         }
-        if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
+        if depth == 0 {
+            puts(fd, "  <no Python frame>\n");
+        } else if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
             puts(fd, "  ...\n");
         }
     }

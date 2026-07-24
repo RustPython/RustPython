@@ -1784,9 +1784,16 @@ impl VirtualMachine {
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
+            // Skip light frames: a suspended generator must not hold a
+            // pointer into a caller's DataStack (which is reclaimed when
+            // the caller returns). Store the nearest heavy predecessor.
+            let mut prev = old_chain;
+            while prev.is_light() {
+                prev = unsafe { prev.next() };
+            }
             frame
                 .previous
-                .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
+                .store(prev.raw(), core::sync::atomic::Ordering::Relaxed);
         }
         // Push generator's exc_info slot onto the chain
         self.push_exception(exc);
@@ -1968,8 +1975,7 @@ impl VirtualMachine {
             // use globals as locals (light frame locals are on the data stack).
             let locals_mapping = self
                 .current_frame()
-                .map(|f| f.locals.clone_mapping(self))
-                .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone()));
+                .map_or_else(|| ArgMapping::from_dict_exact(globals.clone()), |f| f.locals.clone_mapping(self));
             (Some(locals_mapping), Some(globals))
         } else {
             (None, None)

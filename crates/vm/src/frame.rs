@@ -321,10 +321,10 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
         iframe.previous.store(prev.raw(), Relaxed);
         // For heavy predecessors, keep a strong reference so the frame
         // stays alive after the predecessor returns and leaves the chain.
-        if let Some(heavy) = prev.as_heavy() {
-            if let Some(owned) = owned_chain_frame(heavy) {
-                *iframe.retained_back.lock() = Some(owned);
-            }
+        if let Some(heavy) = prev.as_heavy()
+            && let Some(owned) = owned_chain_frame(heavy)
+        {
+            *iframe.retained_back.lock() = Some(owned);
         }
 
         // Store the materialized frame pointer back
