@@ -2,13 +2,23 @@ use crate::object::define_py_check;
 use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
 use core::convert::Infallible;
-use core::ffi::{c_char, c_int};
+use core::ffi::{CStr, c_char, c_int};
 use core::ptr::NonNull;
-use core::slice;
+pub use errno::*;
 use rustpython_vm::builtins::{PyBaseException, PyTuple, PyType};
 use rustpython_vm::convert::IntoObject;
 use rustpython_vm::exceptions::ExceptionZoo;
+use rustpython_vm::signal::set_interrupt_ex;
 use rustpython_vm::{AsObject, PyObjectRef, PyResult};
+use std::process::abort;
+pub use unicode::*;
+#[cfg(windows)]
+pub use windows::*;
+
+mod errno;
+mod unicode;
+#[cfg(windows)]
+mod windows;
 
 macro_rules! define_exception_statics {
     ($( $(#[$meta:meta])* $export:ident => $exc:ident ),* $(,)?) => {
@@ -315,55 +325,246 @@ pub unsafe extern "C" fn PyException_SetContext(exc: *mut PyObject, context: *mu
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
-    encoding: *const c_char,
-    object: *const c_char,
-    length: isize,
-    start: isize,
-    end: isize,
-    reason: *const c_char,
-) -> *mut PyObject {
-    with_vm(|vm| {
-        let encoding = unsafe { encoding.try_as_str(vm) }?;
-        let reason = unsafe { reason.try_as_str(vm) }?;
-        let length: usize = length
-            .try_into()
-            .map_err(|_| vm.new_system_error("length must be non-negative"))?;
-        let start: usize = start
-            .try_into()
-            .map_err(|_| vm.new_system_error("start must be non-negative"))?;
-        let end: usize = end
-            .try_into()
-            .map_err(|_| vm.new_system_error("end must be non-negative"))?;
-
-        let bytes = if object.is_null() {
-            if length != 0 {
-                return Err(vm.new_system_error(
-                    "PyUnicodeDecodeError_Create called with null object and non-zero length",
-                ));
-            }
-            Vec::new()
-        } else {
-            unsafe { slice::from_raw_parts(object.cast::<u8>(), length) }.to_vec()
-        };
-
-        let exc = vm.new_unicode_decode_error_real(
-            vm.ctx.new_str(encoding),
-            vm.ctx.new_bytes(bytes),
-            start,
-            end,
-            vm.ctx.new_str(reason),
-        );
-        Ok(exc)
-    })
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyException_SetTraceback(exc: *mut PyObject, tb: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
         let traceback = unsafe { tb.as_ref() }.map(|obj| obj.to_owned());
         exc.set___traceback__(vm.unwrap_or_none(traceback), vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_Clear() {
+    with_vm(|vm| vm.set_exception(None))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_ExceptionMatches(exc: *mut PyObject) -> c_int {
+    with_vm(|vm| {
+        if let Some(current) = vm.current_exception() {
+            current
+                .class()
+                .as_object()
+                .is_subclass(unsafe { &*exc }, vm)
+        } else {
+            Ok(false)
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_BadArgument() -> c_int {
+    with_vm::<PyResult<Infallible>, ()>(|vm| {
+        Err(vm.new_type_error("bad argument type for built-in operation"))
+    });
+    0
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_BadInternalCall() {
+    with_vm::<PyResult<Infallible>, _>(|vm| {
+        Err(vm.new_system_error("bad argument to internal function"))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_CheckSignals() -> c_int {
+    with_vm(|vm| vm.check_signals())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_SetInterrupt() {
+    PyErr_SetInterruptEx(libc::SIGINT);
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_SetInterruptEx(signum: c_int) -> c_int {
+    let Ok(signum) = signum.try_into() else {
+        return -1;
+    };
+    set_interrupt_ex(signum).map_or(-1, |_| 0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn Py_FatalError(message: *const c_char) -> ! {
+    let message = if message.is_null() {
+        c"(null)"
+    } else {
+        unsafe { CStr::from_ptr(message) }
+    };
+    eprintln!("Fatal Python error: {message:?}");
+    abort()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_SetNone(exception: *mut PyObject) {
+    with_vm::<PyResult<Infallible>, _>(|vm| {
+        let exc_type = unsafe { (&*exception).to_owned() };
+        let normalized = vm.normalize_exception(exc_type, vm.ctx.none(), vm.ctx.none())?;
+        Err(normalized)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_NoMemory() -> *mut PyObject {
+    with_vm::<PyResult<*mut PyObject>, _>(|vm| Err(vm.new_memory_error("")))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_Fetch(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    with_vm(|vm| {
+        let (mut ty, mut value, mut tb) = vm.take_raised_exception().map_or_else(
+            || (None, None, None),
+            |exc| {
+                let (ty, value, tb) = vm.split_exception(exc);
+                (Some(ty), Some(value), vm.option_if_none(tb))
+            },
+        );
+
+        if let Some(ptype) = NonNull::new(ptype) {
+            let ty = ty
+                .take()
+                .map_or(core::ptr::null_mut(), |value| value.into_raw().as_ptr());
+            unsafe { ptype.write(ty) };
+        }
+        if let Some(pvalue) = NonNull::new(pvalue) {
+            let value = value
+                .take()
+                .map_or(core::ptr::null_mut(), |value| value.into_raw().as_ptr());
+            unsafe { pvalue.write(value) };
+        }
+        if let Some(ptraceback) = NonNull::new(ptraceback) {
+            let tb = tb
+                .take()
+                .map_or(core::ptr::null_mut(), |tb| tb.into_raw().as_ptr());
+            unsafe { ptraceback.write(tb) };
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_Restore(
+    exc_type: *mut PyObject,
+    exc_val: *mut PyObject,
+    exc_tb: *mut PyObject,
+) {
+    with_vm(|vm| {
+        let exc_type = NonNull::new(exc_type).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+        let exc_val = NonNull::new(exc_val).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+        let exc_tb = NonNull::new(exc_tb).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+
+        if let Some(exc_type) = exc_type {
+            let normalized = vm.normalize_exception(
+                exc_type,
+                vm.unwrap_or_none(exc_val),
+                vm.unwrap_or_none(exc_tb),
+            )?;
+            vm.set_exception(Some(normalized));
+        } else {
+            vm.set_exception(None);
+        };
+
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn PyErr_GetHandledException() -> *mut PyObject {
+    with_vm(|vm| {
+        vm.topmost_exception()
+            .map(|exc| exc.into_object().into_raw().as_ptr())
+            .unwrap_or_default()
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_SetHandledException(exc: *mut PyObject) {
+    with_vm(|vm| {
+        if exc.is_null() || vm.is_none(unsafe { &*exc }) {
+            vm.set_exception(None);
+        } else {
+            let exception = unsafe { (&*exc).to_owned().downcast_unchecked() };
+            vm.set_exception(Some(exception));
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_GetExcInfo(
+    ptype: *mut *mut PyObject,
+    pvalue: *mut *mut PyObject,
+    ptraceback: *mut *mut PyObject,
+) {
+    with_vm(|vm| {
+        let (mut ty, mut value, mut tb) = vm.topmost_exception().map_or_else(
+            || (None, None, None),
+            |exc| {
+                let (ty, value, tb) = vm.split_exception(exc);
+                (Some(ty), Some(value), vm.option_if_none(tb))
+            },
+        );
+
+        if let Some(ptype) = NonNull::new(ptype) {
+            let ty = ty
+                .take()
+                .map_or(core::ptr::null_mut(), |ty| ty.into_raw().as_ptr());
+            unsafe { ptype.write(ty) };
+        }
+        if let Some(pvalue) = NonNull::new(pvalue) {
+            let value = value
+                .take()
+                .map_or(core::ptr::null_mut(), |value| value.into_raw().as_ptr());
+            unsafe { pvalue.write(value) };
+        }
+        if let Some(ptraceback) = NonNull::new(ptraceback) {
+            let tb = tb
+                .take()
+                .map_or(core::ptr::null_mut(), |tb| tb.into_raw().as_ptr());
+            unsafe { ptraceback.write(tb) };
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyErr_SetExcInfo(
+    exc_type: *mut PyObject,
+    exc_val: *mut PyObject,
+    exc_tb: *mut PyObject,
+) {
+    with_vm(|vm| {
+        let _exc_type = NonNull::new(exc_type).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+        let _exc_tb = NonNull::new(exc_tb).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) });
+        let exc =
+            match NonNull::new(exc_val).map(|ptr| unsafe { PyObjectRef::from_raw(ptr) }) {
+                None => None,
+                Some(obj) if vm.is_none(&obj) => None,
+                Some(obj) => Some(obj.downcast::<PyBaseException>().map_err(|_| {
+                    vm.new_type_error("exception value must be an exception instance")
+                })?),
+            };
+        vm.set_exception(exc);
+        Ok(())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_GetArgs(exc: *mut PyObject) -> *mut PyObject {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        Ok(exc.args())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyException_SetArgs(exc: *mut PyObject, args: *mut PyObject) {
+    with_vm(|vm| {
+        let exc = unsafe { &*exc }.try_downcast_ref::<PyBaseException>(vm)?;
+        let args = unsafe { &*args }.to_owned();
+        exc.as_object().set_attr("args", args, vm)
     })
 }
 
