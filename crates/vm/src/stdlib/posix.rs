@@ -1731,10 +1731,15 @@ pub mod module {
         let Some(login) = rustpython_host_env::posix::getlogin() else {
             return Err(vm.new_os_error("unable to determine login name"));
         };
-        login
-            .to_str()
-            .map(|s| s.to_owned())
-            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {e}")))
+        login.to_str().map(|s| s.to_owned()).map_err(|e| {
+            vm.new_unicode_decode_error_real(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(login.as_bytes().to_vec()),
+                e.valid_up_to(),
+                e.valid_up_to() + 1,
+                vm.ctx.new_str("unable to decode login name"),
+            )
+        })
     }
 
     // cfg from nix

@@ -2612,8 +2612,15 @@ mod _socket {
             }
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes)
-                    .map_err(|_| vm.new_unicode_decode_error("host bytes is not utf8"))?;
+                let host_str = core::str::from_utf8(&bytes).map_err(|e| {
+                    vm.new_unicode_decode_error_real(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        e.valid_up_to(),
+                        e.valid_up_to() + 1,
+                        vm.ctx.new_str("host bytes is not utf8"),
+                    )
+                })?;
                 Some(host_str.to_owned())
             }
             None => None,
@@ -2627,14 +2634,35 @@ mod _socket {
                     ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
-                            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed"))?
+                            .ok_or_else(|| {
+                                let start = s
+                                    .as_wtf8()
+                                    .code_points()
+                                    .position(|c| c.to_char().is_none())
+                                    .unwrap();
+                                vm.new_unicode_encode_error_real(
+                                    vm.ctx.new_str("utf-8"),
+                                    (*s).clone(),
+                                    start,
+                                    start + 1,
+                                    vm.ctx.new_str("surrogates not allowed"),
+                                )
+                            })?
                             .to_owned()
                     }
                     ArgStrOrBytesLike::Buf(b) => {
                         // For bytes, check if it's valid UTF-8
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
-                            .map_err(|_| vm.new_unicode_decode_error("port is not utf8"))?
+                            .map_err(|e| {
+                                vm.new_unicode_decode_error_real(
+                                    vm.ctx.new_str("utf-8"),
+                                    vm.ctx.new_bytes(bytes.to_vec()),
+                                    e.valid_up_to(),
+                                    e.valid_up_to() + 1,
+                                    vm.ctx.new_str("port is not utf8"),
+                                )
+                            })?
                             .to_owned()
                     }
                 };
