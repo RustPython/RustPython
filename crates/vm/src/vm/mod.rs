@@ -1891,7 +1891,7 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameRef> {
-        crate::frame::current_thread_frame()
+        crate::frame::current_thread_frame_vm(self)
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
