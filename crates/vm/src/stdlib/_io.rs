@@ -5394,10 +5394,10 @@ mod _io {
             if vm.state.config.settings.warn_default_encoding {
                 let mut stacklevel = stacklevel.unwrap_or(2);
                 if stacklevel > 1
-                    && let Some(frame) = vm.current_frame()
+                    && let Some(code) = crate::frame::current_code()
                     && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
                 {
-                    let path = frame.code.source_path().as_str();
+                    let path = code.source_path().as_str();
                     if !path.starts_with(stdlib_dir) {
                         stacklevel = stacklevel.saturating_sub(1);
                     }

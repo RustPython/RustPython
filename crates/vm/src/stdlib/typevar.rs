@@ -50,11 +50,8 @@ pub(crate) mod typevar {
     /// RustPython's Frame doesn't store a reference to the function object, so we
     /// get the module name from the frame's globals dictionary instead.
     fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let frame = vm.current_frame()?;
-
-        // In RustPython, we get the module name from frame's globals
-        // This is similar to CPython's sys._getframe().f_globals.get('__name__')
-        frame.globals.get_item("__name__", vm).ok()
+        let globals = crate::frame::current_globals()?;
+        globals.get_item("__name__", vm).ok()
     }
 
     /// Set __module__ attribute for an object based on the caller's module.

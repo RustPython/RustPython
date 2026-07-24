@@ -314,29 +314,17 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
         iframe.lasti.store(lasti_val, Relaxed);
         iframe.prev_line = (*light).prev_line;
 
-        // Set the previous chain pointer: materialize the predecessor
-        // if it is a light frame, otherwise store the heavy pointer directly.
-        // In both cases, store a strong reference in `retained_back` so
-        // `f_back` can still resolve after the predecessor returns and
-        // leaves the live frame chain.
+        // Store the raw chain pointer as-is. Predecessor materialization
+        // is deferred to `f_back` access time to avoid recursive
+        // materialization on every `current_frame()` call.
         let prev = (*light).previous;
-        if let Some(prev_light) = prev.as_light() {
-            let prev_materialized = materialize_light_frame(prev_light, vm);
-            *iframe.retained_back.lock() = Some(prev_materialized.clone());
-            let ptr = (&**prev_materialized) as *const Frame;
-            iframe
-                .previous
-                .store(FrameChainPtr::from_heavy(ptr).raw(), Relaxed);
-        } else if let Some(heavy) = prev.as_heavy() {
-            iframe.previous.store(prev.raw(), Relaxed);
-            // The heavy predecessor may leave the chain before f_back is
-            // queried — keep a strong reference so the frame stays alive.
+        iframe.previous.store(prev.raw(), Relaxed);
+        // For heavy predecessors, keep a strong reference so the frame
+        // stays alive after the predecessor returns and leaves the chain.
+        if let Some(heavy) = prev.as_heavy() {
             if let Some(owned) = owned_chain_frame(heavy) {
                 *iframe.retained_back.lock() = Some(owned);
             }
-        } else {
-            // null — end of chain
-            iframe.previous.store(0, Relaxed);
         }
 
         // Store the materialized frame pointer back
@@ -444,6 +432,53 @@ pub fn current_thread_frame_vm(vm: &VirtualMachine) -> Option<FrameRef> {
     let cur = crate::vm::thread::get_current_frame();
     // SAFETY: the chain top executes on this thread, hence is alive.
     unsafe { cur.to_frame_ref(vm) }
+}
+
+/// Read the globals dict from the topmost frame on this thread's chain
+/// without materializing a light frame. Returns `None` if the chain is empty.
+#[must_use]
+pub fn current_globals() -> Option<PyDictRef> {
+    let cur = crate::vm::thread::get_current_frame();
+    if let Some(light) = cur.as_light() {
+        // SAFETY: light frame is on this thread and alive during execution.
+        Some(unsafe { (*(*light).globals).to_owned() })
+    } else if let Some(heavy) = cur.as_heavy() {
+        // SAFETY: heavy frame on this thread's chain is alive.
+        let iframe = unsafe { &*(*heavy).iframe.get() };
+        iframe.as_ref().map(|f| f.globals.clone())
+    } else {
+        None
+    }
+}
+
+/// Read the code object from the topmost frame on this thread's chain
+/// without materializing a light frame. Returns `None` if the chain is empty.
+#[must_use]
+pub fn current_code() -> Option<PyRef<PyCode>> {
+    let cur = crate::vm::thread::get_current_frame();
+    if let Some(light) = cur.as_light() {
+        Some(unsafe { (*(*light).code).to_owned() })
+    } else if let Some(heavy) = cur.as_heavy() {
+        let iframe = unsafe { &*(*heavy).iframe.get() };
+        iframe.as_ref().map(|f| f.code.clone())
+    } else {
+        None
+    }
+}
+
+/// Read the builtins object from the topmost frame on this thread's chain
+/// without materializing a light frame.
+#[must_use]
+pub fn current_builtins() -> Option<PyObjectRef> {
+    let cur = crate::vm::thread::get_current_frame();
+    if let Some(light) = cur.as_light() {
+        Some(unsafe { (*(*light).builtins).to_owned() })
+    } else if let Some(heavy) = cur.as_heavy() {
+        let iframe = unsafe { &*(*heavy).iframe.get() };
+        iframe.as_ref().map(|f| f.builtins.clone())
+    } else {
+        None
+    }
 }
 
 /// The frame `offset` positions below the current thread's top frame (offset 0

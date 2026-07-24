@@ -183,11 +183,7 @@ impl PyFunction {
         let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
         let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
             // If not in globals, inherit from current execution context
-            if let Some(frame) = vm.current_frame() {
-                frame.builtins.clone()
-            } else {
-                vm.builtins.dict().into()
-            }
+            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
         });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
@@ -800,10 +796,7 @@ impl Py<PyFunction> {
 
         let code: &Py<PyCode> = &self.code;
 
-        // Generator/coroutine code and tracing must use the heavy path
-        // Fall back to the heavy path for generators/coroutines, tracing,
-        // and non-optimized/non-NEWLOCALS code (e.g. types.FunctionType
-        // with a non-standard code object).
+        // Generator/coroutine code and tracing must use the heavy path.
         if code.flags.intersects(
             bytecode::CodeFlags::GENERATOR
                 | bytecode::CodeFlags::COROUTINE
