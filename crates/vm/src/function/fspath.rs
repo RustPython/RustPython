@@ -125,8 +125,15 @@ impl FsPath {
     }
 
     pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
-        rustpython_host_env::os::bytes_as_os_str(b)
-            .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
+        rustpython_host_env::os::bytes_as_os_str(b).map_err(|e| {
+            vm.new_unicode_decode_error_real(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(b.to_vec()),
+                e.valid_up_to(),
+                e.valid_up_to() + 1,
+                vm.ctx.new_str("can't decode path for utf-8"),
+            )
+        })
     }
 }
 
