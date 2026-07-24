@@ -638,10 +638,9 @@ unsafe extern "C" {
 
 #[cfg(windows)]
 pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
-    if fmt.contains('\0') {
-        return Err(CheckedTmError::EmbeddedNul);
-    }
-    let fmt_wide: Vec<u16> = fmt.encode_utf16().chain(core::iter::once(0)).collect();
+    let fmt_wide = widestring::WideCString::from_str(fmt)
+        .map_err(|_| CheckedTmError::EmbeddedNul)?
+        .into_vec_with_nul();
     let mut size = 1024usize;
     let max_scale = 256usize.saturating_mul(fmt.len().max(1));
     loop {
