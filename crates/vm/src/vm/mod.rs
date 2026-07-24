@@ -1895,7 +1895,8 @@ impl VirtualMachine {
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
-        self.current_frame()
+        // Must include light frames so locals() returns the correct scope.
+        crate::frame::current_thread_frame_vm(self)
             .expect("called current_locals but no frames on the stack")
             .locals(self)
     }
