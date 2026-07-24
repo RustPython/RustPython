@@ -870,18 +870,12 @@ impl Py<PyFunction> {
                 crate::frame::FrameChainPtr::from_light(light),
             );
 
-            // Recursion depth and C stack overflow check
+            // Recursion depth and C stack overflow check.
+            // Check every call — light frames use less C stack than heavy
+            // frames but invoke_light_slots itself occupies a non-trivial
+            // amount, and CI worker threads may have small stacks.
             let depth = vm.current_recursion_depth();
-            // C stack check: every call in debug builds (large frames may
-            // overflow before the Python recursion limit triggers), every
-            // 16th call in release.
-            #[allow(clippy::bad_bit_mask)]
-            let c_stack_due = if cfg!(debug_assertions) {
-                true
-            } else {
-                depth & 15 == 0
-            };
-            if depth >= vm.recursion_limit.get() || (c_stack_due && vm.check_c_stack_overflow()) {
+            if depth >= vm.recursion_limit.get() || vm.check_c_stack_overflow() {
                 // Clean up the frame chain before erroring
                 let _ = crate::vm::thread::set_current_frame(old_chain);
                 // Drop values we moved into localsplus
@@ -899,27 +893,17 @@ impl Py<PyFunction> {
             // (which is also used mutably for prev_line).
             let materialized_cell: *const core::cell::UnsafeCell<*mut Py<Frame>> =
                 &(*light).materialized;
-            let light_for_cleanup: *mut LightFrame = light;
+            let _light_for_cleanup: *mut LightFrame = light;
 
-            // Panic guard: restore chain and recursion depth, handle materialized
-            // frame lifecycle, pop DataStack. Localsplus values are dropped by
-            // LocalsPlus::drop (run_light_frame takes ownership).
+            // Panic guard: restore chain, recursion depth, reclaim materialized
+            // frame, and pop DataStack.
             // Chain restored first so destructors can re-enter the VM safely.
             scopeguard::defer! {
                 vm.recursion_depth_decrement();
                 let _ = crate::vm::thread::set_current_frame(old_chain);
                 let materialized_ptr = *(*materialized_cell).get();
                 if !materialized_ptr.is_null() {
-                    // Reclaim the leaked refcount (see materialize_light_frame).
                     let reclaim = FrameRef::from_raw(materialized_ptr as *const _);
-                    if reclaim.as_object().strong_count() > 1 {
-                        // The materialized frame escaped (traceback, sys._getframe,
-                        // f_back, etc). Sync final state and join GC so reference
-                        // cycles can be collected.
-                        crate::frame::sync_materialized_on_exit(
-                            light_for_cleanup, &reclaim, vm,
-                        );
-                    }
                     drop(reclaim);
                 }
                 vm.datastack_pop(base);
@@ -956,7 +940,18 @@ impl Py<PyFunction> {
                 vm,
             );
 
-            // Normal exit: the scopeguard handles all cleanup.
+            // After execution, if the materialized frame escaped (traceback,
+            // sys._getframe, f_back, etc), finalize it: set owner to
+            // detached and join GC so reference cycles are collectible.
+            let materialized_ptr = *(*materialized_cell).get();
+            if !materialized_ptr.is_null() {
+                let mat_ref: &Py<Frame> = &*materialized_ptr;
+                if mat_ref.as_object().strong_count() > 1 {
+                    // strong_count > 1: leaked ref + one or more escaped refs
+                    // (e.g. traceback, sys._getframe, f_back)
+                    crate::frame::sync_materialized_on_exit(mat_ref);
+                }
+            }
 
             // Convert result
             match result {

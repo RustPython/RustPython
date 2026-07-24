@@ -400,27 +400,13 @@ pub(crate) unsafe fn materialize_light_frame_pub(
 /// cleanup time. Sets owner to detached and joins the GC so reference
 /// cycles (traceback → frame → locals → object) are collectible.
 ///
-/// Note: localsplus is NOT re-synced here — LocalsPlus may already be
-/// dropped at this point.  The last `sync_light_to_materialized` call
-/// during execution captured the relevant state.
-///
 /// # Safety
-/// `light` must still point to a valid LightFrame header (lasti, prev_line).
 /// `frame` must be the materialized frame.
-pub(crate) unsafe fn sync_materialized_on_exit(
-    light: *mut LightFrame,
-    frame: &Py<Frame>,
-    _vm: &VirtualMachine,
-) {
+pub(crate) unsafe fn sync_materialized_on_exit(frame: &Py<Frame>) {
+    // Set owner to FrameObject (detached) so clear/GC knows it's not executing
+    frame.owner.store(FrameOwner::FrameObject as i8, Relaxed);
+    // Track in GC so cycles can be collected
     unsafe {
-        // Sync lasti/prev_line only (localsplus may be dropped already)
-        let iframe = (&mut *frame.iframe.get()).as_mut().unwrap();
-        let lasti_val = (*light).lasti.load(Relaxed);
-        iframe.lasti.store(lasti_val, Relaxed);
-        iframe.prev_line = (*light).prev_line;
-        // Set owner to FrameObject (detached) so clear/GC knows it's not executing
-        frame.owner.store(FrameOwner::FrameObject as i8, Relaxed);
-        // Track in GC so cycles can be collected
         crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
     }
 }
