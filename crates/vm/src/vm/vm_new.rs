@@ -342,9 +342,9 @@ impl VirtualMachine {
     /// [`exceptions::ExceptionCtor`][crate::exceptions::ExceptionCtor] instead.
     pub fn new_exception(&self, exc_type: PyTypeRef, args: Vec<PyObjectRef>) -> PyBaseExceptionRef {
         if exc_type.slots.basicsize != core::mem::size_of::<PyBaseException>() {
-            return self
-                .invoke_exception(&exc_type, args)
-                .expect("vm.new_exception() called with an invalid exception type");
+            // If constructing the exception raises (e.g. __init__ rejects the
+            // args), surface that exception instead of panicking.
+            return self.invoke_exception(&exc_type, args).unwrap_or_else(|e| e);
         }
 
         PyBaseException::new(args, self)

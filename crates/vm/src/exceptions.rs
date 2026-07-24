@@ -2762,6 +2762,8 @@ pub(super) mod types {
         type Args = FuncArgs;
 
         fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            // msg must also be set here, not only in slot_init: second-level
+            // subclasses such as TabError never reach PySyntaxError::slot_init.
             let msg = args.args.first().cloned();
             let base_exception = PyBaseException::new(args.args, vm);
             Ok(Self {
