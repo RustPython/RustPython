@@ -1891,7 +1891,7 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameRef> {
-        crate::frame::current_thread_frame_vm(self)
+        crate::frame::current_thread_frame()
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
@@ -1901,10 +1901,9 @@ impl VirtualMachine {
     }
 
     pub fn current_globals(&self) -> PyDictRef {
-        self.current_frame()
-            .expect("called current_globals but no frames on the stack")
-            .globals
-            .clone()
+        // Fast path: read globals directly from the chain top without
+        // materializing a light frame.
+        crate::frame::current_globals().expect("called current_globals but no frames on the stack")
     }
 
     pub fn try_class(&self, module: &'static str, class: &'static str) -> PyResult<PyTypeRef> {
@@ -1963,11 +1962,14 @@ impl VirtualMachine {
             .get_attr(identifier!(self, __import__), self)
             .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
-        let (locals, globals) = if let Some(frame) = self.current_frame() {
-            (
-                Some(frame.locals.clone_mapping(self)),
-                Some(frame.globals.clone()),
-            )
+        let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
+            // Locals fallback: use the heavy frame if available, otherwise
+            // use globals as locals (light frame locals are on the data stack).
+            let locals_mapping = self
+                .current_frame()
+                .map(|f| f.locals.clone_mapping(self))
+                .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone()));
+            (Some(locals_mapping), Some(globals))
         } else {
             (None, None)
         };
