@@ -126,12 +126,12 @@ mod builtins {
     fn merge_compile_future_features(
         flags: i32,
         dont_inherit: bool,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> bytecode::CodeFlags {
         let mut future_features = compile_future_features_from_flags(flags);
-        if !dont_inherit && let Some(frame) = vm.current_frame() {
+        if !dont_inherit && let Some(code) = crate::frame::current_code() {
             future_features |= bytecode::CodeFlags::from_bits_truncate(
-                frame.code.flags.bits() & compile_future_feature_mask().bits(),
+                code.flags.bits() & compile_future_feature_mask().bits(),
             );
         }
         future_features
@@ -649,9 +649,9 @@ mod builtins {
             Either::A(string) => {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
-                if let Some(frame) = vm.current_frame() {
+                if let Some(code) = crate::frame::current_code() {
                     opts.future_features = bytecode::CodeFlags::from_bits_truncate(
-                        frame.code.flags.bits() & compile_future_feature_mask().bits(),
+                        code.flags.bits() & compile_future_feature_mask().bits(),
                     );
                 }
                 vm.compile_with_opts(source, mode, "<string>", opts)

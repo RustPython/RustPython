@@ -29,5 +29,6 @@ Lib/site-packages/*
 Lib/test/data/*
 !Lib/test/data/README
 cpython/
-.claude/scheduled_tasks.lock
+.claude/
+rustpython-unicode-isolation-issue.md
 docs/superpowers/

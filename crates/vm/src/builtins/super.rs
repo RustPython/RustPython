@@ -79,8 +79,7 @@ impl Initializer for PySuper {
         let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
             (ty, py_obj.unwrap_or_none(vm))
         } else {
-            let frame = vm
-                .current_frame()
+            let frame = crate::frame::current_thread_frame_vm(vm)
                 .ok_or_else(|| vm.new_runtime_error("super(): no current frame"))?;
 
             if frame.code.arg_count == 0 {

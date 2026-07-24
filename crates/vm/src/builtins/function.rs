@@ -24,6 +24,7 @@ use crate::{
 };
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
+use rustpython_common::atomic::Radium;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
@@ -182,11 +183,7 @@ impl PyFunction {
         let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
         let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
             // If not in globals, inherit from current execution context
-            if let Some(frame) = vm.current_frame() {
-                frame.builtins.clone()
-            } else {
-                vm.builtins.dict().into()
-            }
+            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
         });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
@@ -782,6 +779,182 @@ impl Py<PyFunction> {
             return self.invoke(FuncArgs::from(args), vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
+    }
+
+    /// Fast path for unobserved Python-to-Python calls.
+    /// Allocates a LightFrame on the DataStack instead of a full Frame PyObject.
+    /// The frame is materialized lazily only if observed (traceback, sys._getframe).
+    ///
+    /// Falls back to `invoke_exact_args_slots` for generators/coroutines or when
+    /// tracing is active.
+    pub(crate) fn invoke_light_slots(
+        &self,
+        args: &mut [Option<PyObjectRef>],
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        use crate::frame::{ExecutionResult, FrameLocals, FrameSource, LightFrame, LocalsPlus};
+
+        let code: &Py<PyCode> = &self.code;
+
+        // Generator/coroutine code and tracing must use the heavy path.
+        if code.flags.intersects(
+            bytecode::CodeFlags::GENERATOR
+                | bytecode::CodeFlags::COROUTINE
+                | bytecode::CodeFlags::ASYNC_GENERATOR,
+        ) || vm.use_tracing.get()
+            || !code
+                .flags
+                .contains(bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED)
+        {
+            return self.invoke_exact_args_slots(args, vm);
+        }
+
+        let nlocalsplus = code.localspluskinds.len();
+        let max_stackdepth = code.max_stackdepth as usize;
+        let alloc_size = LightFrame::alloc_size(nlocalsplus, max_stackdepth);
+
+        let base = vm.datastack_push(alloc_size);
+        let light = base as *mut LightFrame;
+
+        unsafe {
+            // Initialize the LightFrame header with borrowed pointers (NO refcount bumps)
+            let prev_chain = crate::vm::thread::get_current_frame();
+            core::ptr::write(
+                light,
+                LightFrame {
+                    code: code as *const _,
+                    globals: &*self.globals as *const _,
+                    builtins: &*self.builtins as *const _,
+                    func_obj: self.as_object() as *const _,
+                    lasti: Radium::new(0),
+                    prev_line: 0,
+                    previous: prev_chain,
+                    materialized: core::cell::UnsafeCell::new(core::ptr::null_mut()),
+                    nlocalsplus: nlocalsplus as u32,
+                    max_stackdepth: max_stackdepth as u32,
+                },
+            );
+
+            // Zero-init the localsplus area
+            let lp_ptr = (*light).localsplus_ptr();
+            let capacity = nlocalsplus + max_stackdepth;
+            core::ptr::write_bytes(lp_ptr, 0, capacity);
+
+            // Move args into localsplus
+            let slots =
+                core::slice::from_raw_parts_mut(lp_ptr as *mut Option<PyObjectRef>, nlocalsplus);
+            for (slot, arg_slot) in slots.iter_mut().zip(args.iter_mut()) {
+                *slot = arg_slot.take();
+            }
+
+            // Copy closure cells if present
+            if let Some(ref closure) = self.closure {
+                let nfrees = code.freevars.len();
+                if nfrees > 0 {
+                    let freevar_start = nlocalsplus - nfrees;
+                    for (i, cell) in closure.iter().enumerate() {
+                        slots[freevar_start + i] = Some(cell.clone().into());
+                    }
+                }
+            }
+
+            // Push light frame onto the unified chain
+            let old_chain = crate::vm::thread::set_current_frame(
+                crate::frame::FrameChainPtr::from_light(light),
+            );
+
+            // Recursion depth and C stack overflow check.
+            // Check every call — light frames use less C stack than heavy
+            // frames but invoke_light_slots itself occupies a non-trivial
+            // amount, and CI worker threads may have small stacks.
+            let depth = vm.current_recursion_depth();
+            if depth >= vm.recursion_limit.get() || vm.check_c_stack_overflow() {
+                // Clean up the frame chain before erroring
+                let _ = crate::vm::thread::set_current_frame(old_chain);
+                // Drop values we moved into localsplus
+                let slots =
+                    core::slice::from_raw_parts_mut(lp_ptr as *mut Option<PyObjectRef>, capacity);
+                for slot in slots.iter_mut() {
+                    *slot = None;
+                }
+                vm.datastack_pop(base);
+                return Err(vm.new_recursion_error("maximum recursion depth exceeded".to_string()));
+            }
+            vm.recursion_depth_increment();
+
+            // Cache pointers so the panic guard doesn't borrow `light`
+            // (which is also used mutably for prev_line).
+            let materialized_cell: *const core::cell::UnsafeCell<*mut Py<Frame>> =
+                &(*light).materialized;
+            let _light_for_cleanup: *mut LightFrame = light;
+
+            // Panic guard: restore chain, recursion depth, reclaim materialized
+            // frame, and pop DataStack.
+            // Chain restored first so destructors can re-enter the VM safely.
+            scopeguard::defer! {
+                vm.recursion_depth_decrement();
+                let _ = crate::vm::thread::set_current_frame(old_chain);
+                let materialized_ptr = *(*materialized_cell).get();
+                if !materialized_ptr.is_null() {
+                    let reclaim = FrameRef::from_raw(materialized_ptr as *const _);
+                    drop(reclaim);
+                }
+                vm.datastack_pop(base);
+            }
+
+            // Build LocalsPlus view over the light frame data
+            let localsplus = LocalsPlus::from_datastack_raw(lp_ptr, capacity, nlocalsplus);
+
+            // Create lazy FrameLocals (NEWLOCALS fast path)
+            let locals = FrameLocals::lazy();
+
+            // Build the builtins_dict cache
+            let builtins_dict = if self.globals.class().is(vm.ctx.types.dict_type) {
+                self.builtins
+                    .downcast_ref_if_exact::<super::PyDict>(vm)
+                    .map(|d| crate::PyExact::ref_unchecked(d))
+            } else {
+                None
+            };
+
+            // Run the bytecode
+            let code_ref = (*(*light).code).to_owned();
+            let result = crate::frame::run_light_frame(
+                &code_ref,
+                localsplus,
+                &locals,
+                &self.globals,
+                &self.builtins,
+                builtins_dict,
+                FrameSource::Light(light),
+                self.as_object(),
+                &(*light).lasti,
+                &mut (*light).prev_line,
+                vm,
+            );
+
+            // After execution, if the materialized frame escaped (traceback,
+            // sys._getframe, f_back, etc), finalize it: set owner to
+            // detached and join GC so reference cycles are collectible.
+            let materialized_ptr = *(*materialized_cell).get();
+            if !materialized_ptr.is_null() {
+                let mat_ref: &Py<Frame> = &*materialized_ptr;
+                if mat_ref.as_object().strong_count() > 1 {
+                    // strong_count > 1: leaked ref + one or more escaped refs
+                    // (e.g. traceback, sys._getframe, f_back)
+                    crate::frame::sync_materialized_on_exit(mat_ref);
+                }
+            }
+
+            // Convert result
+            match result {
+                Ok(ExecutionResult::Return(value)) => Ok(value),
+                Ok(ExecutionResult::Yield(_)) => {
+                    unreachable!("light frame should never yield")
+                }
+                Err(e) => Err(e),
+            }
+        }
     }
 }
 

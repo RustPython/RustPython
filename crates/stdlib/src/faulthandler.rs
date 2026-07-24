@@ -119,25 +119,27 @@ mod decl {
     }
 
     /// Dump the current thread's live frame chain to fd (signal-safe).
-    /// Walks the `Frame.previous` pointer chain starting from the
-    /// thread-local current frame pointer.
+    /// Walks the unified frame chain, skipping light entries (not
+    /// signal-safe to dereference in a signal handler).
     #[cfg(any(unix, windows))]
     fn dump_live_frames(fd: i32) {
         const MAX_FRAME_DEPTH: usize = 100;
 
-        let mut frame_ptr = crate::vm::vm::thread::get_current_frame();
-        if frame_ptr.is_null() {
+        let mut cur = crate::vm::vm::thread::get_current_frame();
+        if cur.is_null() {
             puts(fd, "  <no Python frame>\n");
             return;
         }
         let mut depth = 0;
-        while !frame_ptr.is_null() && depth < MAX_FRAME_DEPTH {
-            let frame = unsafe { &*frame_ptr };
-            dump_frame_from_raw(fd, frame);
-            frame_ptr = frame.previous_frame();
-            depth += 1;
+        while !cur.is_null() && depth < MAX_FRAME_DEPTH {
+            if let Some(heavy) = cur.as_heavy() {
+                let frame = unsafe { &*heavy };
+                dump_frame_from_raw(fd, frame);
+                depth += 1;
+            }
+            cur = unsafe { cur.next() };
         }
-        if depth >= MAX_FRAME_DEPTH && !frame_ptr.is_null() {
+        if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
             puts(fd, "  ...\n");
         }
     }
@@ -268,6 +270,7 @@ mod decl {
     /// may still run).
     #[cfg(all(unix, feature = "threading"))]
     fn dump_traceback_thread_chain(fd: i32, thread_id: u64, is_current: bool, top: *const Frame) {
+        use crate::vm::frame::FrameChainPtr;
         const MAX_FRAME_DEPTH: usize = 100;
         write_thread_id(fd, thread_id, is_current);
 
@@ -275,16 +278,17 @@ mod decl {
             puts(fd, "  <no Python frame>\n");
             return;
         }
-        let mut frame_ptr = top;
+        let mut cur = FrameChainPtr::from_heavy(top);
         let mut depth = 0;
-        while !frame_ptr.is_null() && depth < MAX_FRAME_DEPTH {
-            // SAFETY: the frame is alive per the caller's liveness guarantee.
-            let frame = unsafe { &*frame_ptr };
-            dump_frame_from_raw(fd, frame);
-            frame_ptr = frame.previous_frame();
-            depth += 1;
+        while !cur.is_null() && depth < MAX_FRAME_DEPTH {
+            if let Some(heavy) = cur.as_heavy() {
+                let frame = unsafe { &*heavy };
+                dump_frame_from_raw(fd, frame);
+                depth += 1;
+            }
+            cur = unsafe { cur.next() };
         }
-        if depth >= MAX_FRAME_DEPTH && !frame_ptr.is_null() {
+        if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
             puts(fd, "  ...\n");
         }
     }

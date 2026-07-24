@@ -549,7 +549,9 @@ fn setup_context(
     skip_file_prefixes: Option<&PyTupleRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyStrRef, usize, Option<PyObjectRef>, PyObjectRef)> {
-    let mut f = vm.current_frame();
+    // Materialize the topmost frame (including light frames) so stack
+    // level counting is correct across the full Python frame chain.
+    let mut f = crate::frame::current_thread_frame_vm(vm);
 
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.

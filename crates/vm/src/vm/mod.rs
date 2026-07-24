@@ -1576,6 +1576,18 @@ impl VirtualMachine {
         self.recursion_depth.get()
     }
 
+    /// Increment recursion depth. Used by light frame path.
+    #[inline]
+    pub(crate) fn recursion_depth_increment(&self) {
+        self.recursion_depth.update(|d| d + 1);
+    }
+
+    /// Decrement recursion depth. Used by light frame path.
+    #[inline]
+    pub(crate) fn recursion_depth_decrement(&self) {
+        self.recursion_depth.update(|d| d - 1);
+    }
+
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// The margin is doubled for debug/sanitized builds because frame
     /// evaluation consumes more native stack in those configurations.
@@ -1667,7 +1679,7 @@ impl VirtualMachine {
     /// single native frame can exceed the margin and step past it.
     #[cfg(all(not(miri), not(target_env = "musl")))]
     #[inline(always)]
-    fn check_c_stack_overflow(&self) -> bool {
+    pub(crate) fn check_c_stack_overflow(&self) -> bool {
         let current_sp = psm::stack_pointer() as usize;
         let soft_limit = self.c_stack_soft_limit.get();
         current_sp < soft_limit
@@ -1677,7 +1689,7 @@ impl VirtualMachine {
     /// the probe during stdlib bootstrap.
     #[cfg(any(miri, target_env = "musl"))]
     #[inline(always)]
-    fn check_c_stack_overflow(&self) -> bool {
+    pub(crate) fn check_c_stack_overflow(&self) -> bool {
         false
     }
 
@@ -1702,55 +1714,50 @@ impl VirtualMachine {
         frame: FrameRef,
         f: F,
     ) -> PyResult<R> {
-        self.with_recursion("", || {
-            // SAFETY: `frame` (FrameRef) stays alive for the entire closure scope,
-            // keeping the FramePtr valid. We pass a clone to `f` so that `f`
-            // consuming its FrameRef doesn't invalidate our pointer.
-            // Publish the frame for sys._current_frames() and faulthandler.
-            // On unix, set_current_frame below publishes the top frame into the
-            // thread slot; only non-unix builds maintain the mutex-guarded Vec.
-            #[cfg(all(not(unix), feature = "threading"))]
-            crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
-            // Link frame into the signal-safe frame chain (previous pointer).
-            // This chain is the single source for the current thread's frame
-            // stack (current_frame, sys._getframe, f_back, monitoring).
-            let old_frame = crate::vm::thread::set_current_frame((&**frame) as *const Frame);
-            frame.previous.store(
-                old_frame as *mut Frame,
-                core::sync::atomic::Ordering::Relaxed,
-            );
-            // Normal frame calls share the caller's exc_info slot so that
-            // callees can see the caller's handled exception via sys.exc_info().
-            // Save the current value to restore on exit — this prevents
-            // exc_info pollution from frames with unbalanced
-            // PUSH_EXC_INFO/POP_EXCEPT (e.g., exception escaping an except block
-            // whose cleanup entry is missing from the exception table).
-            // A callee whose bytecode never mutates the slot cannot pollute it,
-            // so the save/restore is skipped for it.
-            let save_exc = frame.code.has_exc_handling;
-            let saved_exc = if save_exc {
-                self.current_exception()
-            } else {
-                None
-            };
-            let old_owner = frame.owner.swap(
-                crate::frame::FrameOwner::Thread as i8,
-                core::sync::atomic::Ordering::AcqRel,
-            );
+        self.check_recursive_call("")?;
 
-            // Ensure cleanup on panic: restore owner, exc_info, and frame chain.
-            scopeguard::defer! {
-                frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
-                if save_exc {
-                    self.restore_exception(saved_exc);
-                }
-                crate::vm::thread::set_current_frame(old_frame);
-                #[cfg(all(not(unix), feature = "threading"))]
-                crate::vm::thread::pop_thread_frame();
+        let depth = self.recursion_depth.get();
+        if depth & 63 == 0 && self.check_c_stack_overflow() {
+            return Err(self.new_recursion_error(String::new()));
+        }
+
+        self.recursion_depth.update(|d| d + 1);
+
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
+        let payload: *const Frame = &**frame;
+        let old_chain =
+            crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .previous
+                .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
+        }
+        let save_exc = frame.code.has_exc_handling;
+        let saved_exc = if save_exc {
+            self.current_exception()
+        } else {
+            None
+        };
+        let old_owner = frame.owner.swap(
+            crate::frame::FrameOwner::Thread as i8,
+            core::sync::atomic::Ordering::AcqRel,
+        );
+
+        scopeguard::defer! {
+            frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
+            if save_exc {
+                self.restore_exception(saved_exc);
             }
+            let _ = crate::vm::thread::set_current_frame(old_chain);
+            #[cfg(all(not(unix), feature = "threading"))]
+            crate::vm::thread::pop_thread_frame();
+            self.recursion_depth.update(|d| d - 1);
+        }
 
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-        })
+        self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
     }
 
     /// Frame execution for generator/coroutine resume.
@@ -1771,14 +1778,17 @@ impl VirtualMachine {
         // SAFETY: frame (&FrameRef) stays alive for the duration, so NonNull is valid until pop.
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
-        let old_frame = crate::vm::thread::set_current_frame((&***frame) as *const Frame);
-        frame.previous.store(
-            old_frame as *mut Frame,
-            core::sync::atomic::Ordering::Relaxed,
-        );
+        let payload: *const Frame = &***frame;
+        let old_chain =
+            crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .previous
+                .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
+        }
         // Push generator's exc_info slot onto the chain
-        // (gi_exc_state.previous_item = tstate->exc_info;
-        //  tstate->exc_info = &gi_exc_state;)
         self.push_exception(exc);
         let old_owner = frame.owner.swap(
             crate::frame::FrameOwner::Thread as i8,
@@ -1790,7 +1800,7 @@ impl VirtualMachine {
         scopeguard::defer! {
             frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
-            crate::vm::thread::set_current_frame(old_frame);
+            let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
 
@@ -1885,16 +1895,16 @@ impl VirtualMachine {
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
-        self.current_frame()
+        // Must include light frames so locals() returns the correct scope.
+        crate::frame::current_thread_frame_vm(self)
             .expect("called current_locals but no frames on the stack")
             .locals(self)
     }
 
     pub fn current_globals(&self) -> PyDictRef {
-        self.current_frame()
-            .expect("called current_globals but no frames on the stack")
-            .globals
-            .clone()
+        // Fast path: read globals directly from the chain top without
+        // materializing a light frame.
+        crate::frame::current_globals().expect("called current_globals but no frames on the stack")
     }
 
     pub fn try_class(&self, module: &'static str, class: &'static str) -> PyResult<PyTypeRef> {
@@ -1953,11 +1963,14 @@ impl VirtualMachine {
             .get_attr(identifier!(self, __import__), self)
             .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
-        let (locals, globals) = if let Some(frame) = self.current_frame() {
-            (
-                Some(frame.locals.clone_mapping(self)),
-                Some(frame.globals.clone()),
-            )
+        let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
+            // Locals fallback: use the heavy frame if available, otherwise
+            // use globals as locals (light frame locals are on the data stack).
+            let locals_mapping = self
+                .current_frame()
+                .map(|f| f.locals.clone_mapping(self))
+                .unwrap_or_else(|| ArgMapping::from_dict_exact(globals.clone()));
+            (Some(locals_mapping), Some(globals))
         } else {
             (None, None)
         };
