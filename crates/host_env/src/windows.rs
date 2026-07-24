@@ -2,8 +2,8 @@ use rustpython_wtf8::Wtf8;
 use std::{
     ffi::{OsStr, OsString},
     io,
-    os::windows::ffi::{OsStrExt, OsStringExt},
 };
+use widestring::{WideCString, error::NulError};
 use windows_sys::Win32::{
     Foundation::{
         E_POINTER, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FLAGS, ERROR_NO_UNICODE_TRANSLATION,
@@ -394,54 +394,37 @@ pub fn multi_byte_to_wide(
     }
 }
 
+/// [`OsStr`] to [`WideCString`] for Windows FFI.
+///
+/// Prefer using this trait when encoding bytes to pass to Windows. Interior NULs are memory safe
+/// but possibly a security hazard for FFI.
+///
+/// https://github.com/python/cpython/issues/111656
 pub trait ToWideString {
-    fn to_wide(&self) -> Vec<u16>;
-    fn to_wide_with_nul(&self) -> Vec<u16>;
-    fn to_wide_cstring(&self) -> widestring::WideCString {
-        widestring::WideCString::from_vec_truncate(self.to_wide())
-    }
+    fn to_wide_with_nul(&self) -> Result<Vec<u16>, io::Error>;
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error>;
 }
 
 impl<T> ToWideString for T
 where
     T: AsRef<OsStr>,
 {
-    fn to_wide(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().collect()
+    fn to_wide_with_nul(&self) -> Result<Vec<u16>, io::Error> {
+        WideCString::from_os_str(self)
+            .map(WideCString::into_vec_with_nul)
+            .map_err(io::Error::other)
     }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().chain(Some(0)).collect()
-    }
-}
-
-impl ToWideString for OsStr {
-    fn to_wide(&self) -> Vec<u16> {
-        self.encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.encode_wide().chain(Some(0)).collect()
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
+        WideCString::from_os_str(self).map_err(io::Error::other)
     }
 }
 
 impl ToWideString for Wtf8 {
-    fn to_wide(&self) -> Vec<u16> {
-        self.encode_wide().collect()
+    fn to_wide_with_nul(&self) -> Result<Vec<u16>, io::Error> {
+        self.encode_wide_ffi().collect().map_err(io::Error::other)
     }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.encode_wide().chain(Some(0)).collect()
-    }
-}
-
-pub trait FromWideString
-where
-    Self: Sized,
-{
-    fn from_wides_until_nul(wide: &[u16]) -> Self;
-}
-
-impl FromWideString for OsString {
-    fn from_wides_until_nul(wide: &[u16]) -> Self {
-        let len = wide.iter().take_while(|&&c| c != 0).count();
-        Self::from_wide(&wide[..len])
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
+        let code_points = self.code_points().map(|cp| cp.to_char_lossy()).collect();
+        WideCString::from_chars(code_points).map_err(io::Error::other)
     }
 }

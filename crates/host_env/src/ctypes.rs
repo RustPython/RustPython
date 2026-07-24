@@ -1,7 +1,11 @@
-use alloc::borrow::Cow;
-use core::ffi::{
-    CStr, c_char, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint,
-    c_ulong, c_ulonglong, c_ushort, c_void,
+use alloc::{borrow::Cow, ffi::CString};
+use core::{
+    array,
+    ffi::{
+        CStr, c_char, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar,
+        c_uint, c_ulong, c_ulonglong, c_ushort, c_void,
+    },
+    iter,
 };
 #[cfg(all(
     any(
@@ -32,8 +36,7 @@ use libloading::Library;
 use libloading::os::unix::Library as UnixLibrary;
 #[cfg(any(unix, windows))]
 use parking_lot::{Mutex, RwLock};
-use rustpython_wtf8::Wtf8;
-use rustpython_wtf8::Wtf8Buf;
+use rustpython_wtf8::{InteriorNulError, Wtf8, Wtf8Buf};
 #[cfg(any(unix, windows))]
 use std::{collections::HashMap, ffi::OsStr, sync::OnceLock};
 
@@ -383,7 +386,7 @@ pub fn dlopen_mode(load_flags: Option<i32>) -> i32 {
 
 #[cfg(target_os = "macos")]
 pub fn dyld_shared_cache_contains_path(path: &str) -> Result<bool, alloc::ffi::NulError> {
-    let c_path = alloc::ffi::CString::new(path)?;
+    let c_path = CString::new(path)?;
 
     unsafe extern "C" {
         fn _dyld_shared_cache_contains_path(path: *const c_char) -> bool;
@@ -535,6 +538,51 @@ pub fn wchar_null_terminated_bytes(s: &Wtf8) -> Vec<u8> {
             .chain((0 as WChar).to_ne_bytes())
             .collect()
     }
+}
+
+/// Encode buffer as a wide string but yield bytes instead of u16.
+///
+/// The resulting bytes buffer is suitable for FFI. It is NUL capped without interior
+/// NULs.
+pub fn wchar_ffi_bytes(s: &Wtf8) -> impl Iterator<Item = Result<u8, InteriorNulError>> {
+    let mut iter = s.code_points().map(|cp| cp.to_u32() as WChar);
+    let mut pending: Option<array::IntoIter<_, _>> = None;
+    let mut complete = false;
+
+    iter::from_fn(move || {
+        if let Some(pending) = pending.as_mut()
+            && let Some(next) = pending.next()
+        {
+            return Some(Ok(next));
+        }
+
+        match iter.next() {
+            Some(0) => {
+                core::hint::cold_path();
+                complete = true;
+
+                for next in iter.by_ref() {
+                    if next != 0 {
+                        return Some(Err(InteriorNulError));
+                    }
+                }
+
+                pending = Some((0 as WChar).to_ne_bytes().into_iter());
+            }
+            Some(next) => {
+                pending = Some(next.to_ne_bytes().into_iter());
+            }
+            None if !complete => {
+                complete = true;
+                pending = Some((0 as WChar).to_ne_bytes().into_iter());
+            }
+            None => {
+                return None;
+            }
+        }
+
+        pending.as_mut().unwrap().next().map(Result::Ok)
+    })
 }
 
 pub enum IntegerValue {
@@ -1111,10 +1159,25 @@ pub fn utf16z_bytes(s: &Wtf8) -> Vec<u8> {
         .collect()
 }
 
+/// Return a NUL terminated copy of `bytes`.
+///
+/// The input may contain interior NULs.
 pub fn null_terminated_bytes(bytes: &[u8]) -> Vec<u8> {
-    let mut buffer = bytes.to_vec();
-    buffer.push(0);
-    buffer
+    if bytes.last() == Some(&0) {
+        bytes.to_vec()
+    } else {
+        bytes.iter().copied().chain(Some(0)).collect()
+    }
+}
+
+/// Return a NUL terminated copy of `bytes` if it doesn't contain interior NULs.
+pub fn c_string_bytes(bytes: &[u8]) -> Result<Vec<u8>, InteriorNulError> {
+    if bytes.last() == Some(&0) {
+        CString::from_vec_with_nul(bytes.to_vec()).map_err(|_| InteriorNulError)
+    } else {
+        CString::new(bytes).map_err(|_| InteriorNulError)
+    }
+    .map(CString::into_bytes_with_nul)
 }
 
 pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {

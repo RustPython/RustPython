@@ -78,7 +78,7 @@ fn rename_impl(
         .into_vec_with_nul();
 
     // SAFETY:
-    // * from and to are NUL terminated wide strings
+    // * from and to are NUL terminated wide strings without interior nuls
     let success = unsafe {
         // Rust's [`std::fs::rename`] is more complicated than CPython's. Rust attempts to use modern APIs
         // where available, such as `FileRenameInfoEx`, which better map to POSIX. CPython simply

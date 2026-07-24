@@ -743,10 +743,12 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_splitroot(path: OsPath, _vm: &VirtualMachine) -> (Wtf8Buf, Wtf8Buf) {
-        let orig: Vec<_> = path.path.to_wide();
+    fn _path_splitroot(path: OsPath, vm: &VirtualMachine) -> PyResult<(Wtf8Buf, Wtf8Buf)> {
+        let orig: Vec<_> = widestring::WideCString::from_os_str(path.path)
+            .map_err(|e| e.to_pyexception(vm))?
+            .into_vec();
         if orig.is_empty() {
-            return (Wtf8Buf::new(), Wtf8Buf::new());
+            return Ok((Wtf8Buf::new(), Wtf8Buf::new()));
         }
         let backslashed: Vec<_> = orig
             .iter()
@@ -755,8 +757,8 @@ pub(crate) mod module {
             .chain(core::iter::once(0)) // null-terminated
             .collect();
 
-        let backslashed_wide = widestring::WideCStr::from_slice_truncate(&backslashed)
-            .expect("backslashed is null-terminated");
+        let backslashed_wide = widestring::WideCStr::from_slice(&backslashed)
+            .expect("backslashed is null-terminated and does not contain interior nulls");
         if let Some(len) = host_nt::path_skip_root(backslashed_wide) {
             assert!(
                 len < backslashed.len(), // backslashed is null-terminated
@@ -766,15 +768,15 @@ pub(crate) mod module {
                 backslashed.len()
             );
             if len != 0 {
-                (
+                Ok((
                     Wtf8Buf::from_wide(&orig[..len]),
                     Wtf8Buf::from_wide(&orig[len..]),
-                )
+                ))
             } else {
-                (Wtf8Buf::from_wide(&orig), Wtf8Buf::new())
+                Ok((Wtf8Buf::from_wide(&orig), Wtf8Buf::new()))
             }
         } else {
-            (Wtf8Buf::new(), Wtf8Buf::from_wide(&orig))
+            Ok((Wtf8Buf::new(), Wtf8Buf::from_wide(&orig)))
         }
     }
 
