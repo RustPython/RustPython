@@ -1096,6 +1096,7 @@ impl PyFunction {
         let arg_types = jit::get_jit_arg_types(&zelf, vm)?;
         let ret_type = jit::jit_ret_type(&zelf, vm)?;
         let code: &Py<PyCode> = &zelf.code;
+
         let compiled = rustpython_jit::compile(&code.code, &arg_types, ret_type)
             .map_err(|err| jit::new_jit_error(err.to_string(), vm))?;
         *jit_guard = Some(compiled);

@@ -21,7 +21,7 @@ mod tests {
     #[test]
     fn basic_add() {
         let add = jit_function! { add(a:f64, b:f64) -> f64 => r##"
-        def add(a: float, b: float):
+        def add(a: float, b: float) -> float:
             return a + b
     "## };
 
@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn add_with_integer() {
         let add = jit_function! { add(a:f64, b:i64) -> f64 => r##"
-        def add(a: float, b: int):
+        def add(a: float, b: int) -> float:
             return a + b
     "## };
 
@@ -49,7 +49,7 @@ mod tests {
     #[test]
     fn basic_sub() {
         let sub = jit_function! { sub(a:f64, b:f64) -> f64 => r##"
-        def sub(a: float, b: float):
+        def sub(a: float, b: float) -> float:
             return a - b
     "## };
 
@@ -66,7 +66,7 @@ mod tests {
     #[test]
     fn sub_with_integer() {
         let sub = jit_function! { sub(a:i64, b:f64) -> f64 => r##"
-        def sub(a: int, b: float):
+        def sub(a: int, b: float) -> float:
             return a - b
     "## };
 
@@ -79,7 +79,7 @@ mod tests {
     #[test]
     fn basic_mul() {
         let mul = jit_function! { mul(a:f64, b:f64) -> f64 => r##"
-        def mul(a: float, b: float):
+        def mul(a: float, b: float) -> float:
             return a * b
     "## };
 
@@ -100,7 +100,7 @@ mod tests {
     #[test]
     fn mul_with_integer() {
         let mul = jit_function! { mul(a:f64, b:i64) -> f64 => r##"
-        def mul(a: float, b: int):
+        def mul(a: float, b: int) -> float:
             return a * b
     "## };
 
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn basic_power() {
         let pow = jit_function! { pow(a:f64, b:f64) -> f64 => r##"
-        def pow(a:float, b: float):
+        def pow(a:float, b: float) -> float:
             return a**b
     "##};
         // Test base cases
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn basic_div() {
         let div = jit_function! { div(a:f64, b:f64) -> f64 => r##"
-        def div(a: float, b: float):
+        def div(a: float, b: float) -> float:
             return a / b
     "## };
 
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn div_with_integer() {
         let div = jit_function! { div(a:f64, b:i64) -> f64 => r##"
-        def div(a: float, b: int):
+        def div(a: float, b: int) -> float:
             return a / b
     "## };
 
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn basic_if_bool() {
         let if_bool = jit_function! { if_bool(a:f64) -> i64 => r##"
-        def if_bool(a: float):
+        def if_bool(a: float) -> int:
             if a:
                 return 1
             return 0
@@ -281,7 +281,7 @@ mod tests {
     #[test]
     fn basic_float_eq() {
         let float_eq = jit_function! { float_eq(a: f64, b: f64) -> bool => r##"
-        def float_eq(a: float, b: float):
+        def float_eq(a: float, b: float) -> bool:
             return a == b
     "## };
 
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn basic_float_ne() {
         let float_ne = jit_function! { float_ne(a: f64, b: f64) -> bool => r##"
-        def float_ne(a: float, b: float):
+        def float_ne(a: float, b: float) -> bool:
             return a != b
     "## };
 
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn basic_float_gt() {
         let float_gt = jit_function! { float_gt(a: f64, b: f64) -> bool => r##"
-        def float_gt(a: float, b: float):
+        def float_gt(a: float, b: float) -> bool:
             return a > b
     "## };
 
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn basic_float_gte() {
         let float_gte = jit_function! { float_gte(a: f64, b: f64) -> bool => r##"
-        def float_gte(a: float, b: float):
+        def float_gte(a: float, b: float) -> bool:
             return a >= b
     "## };
 
@@ -349,7 +349,7 @@ mod tests {
     #[test]
     fn basic_float_lt() {
         let float_lt = jit_function! { float_lt(a: f64, b: f64) -> bool => r##"
-        def float_lt(a: float, b: float):
+        def float_lt(a: float, b: float) -> bool:
             return a < b
     "## };
 
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn basic_float_lte() {
         let float_lte = jit_function! { float_lte(a: f64, b: f64) -> bool => r##"
-        def float_lte(a: float, b: float):
+        def float_lte(a: float, b: float) -> bool:
             return a <= b
     "## };
 

@@ -31,9 +31,9 @@ pub(super) enum ArgsError {
 impl ToPyObject for AbiValue {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {
-            AbiValue::Int(i) => i.to_pyobject(vm),
-            AbiValue::Float(f) => f.to_pyobject(vm),
-            AbiValue::Bool(b) => b.to_pyobject(vm),
+            Self::Int(i) => i.to_pyobject(vm),
+            Self::Float(f) => f.to_pyobject(vm),
+            Self::Bool(b) => b.to_pyobject(vm),
             _ => unimplemented!(),
         }
     }
@@ -52,9 +52,11 @@ fn get_jit_arg_type(dict: &Py<PyDict>, name: &str, vm: &VirtualMachine) -> PyRes
             Ok(JitType::Float)
         } else if value.is(vm.ctx.types.bool_type) {
             Ok(JitType::Bool)
+        } else if value.is(vm.ctx.types.tuple_type) {
+            Ok(JitType::Object)
         } else {
             Err(new_jit_error(
-                "Jit requires argument to be either int, float or bool".to_owned(),
+                "Jit requires argument to be either int, float, bool or a tuple".to_owned(),
                 vm,
             ))
         }
