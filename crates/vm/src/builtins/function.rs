@@ -895,13 +895,14 @@ impl Py<PyFunction> {
             }
             vm.recursion_depth_increment();
 
-            // Cache the materialized-field pointer so the panic guard doesn't
-            // need to borrow `light` (which is also used mutably for prev_line).
+            // Cache pointers so the panic guard doesn't borrow `light`
+            // (which is also used mutably for prev_line).
             let materialized_cell: *const core::cell::UnsafeCell<*mut Py<Frame>> =
                 &(*light).materialized;
+            let light_for_cleanup: *mut LightFrame = light;
 
-            // Panic guard: restore chain and recursion depth, reclaim materialized
-            // frame, pop DataStack. Localsplus values are dropped by
+            // Panic guard: restore chain and recursion depth, handle materialized
+            // frame lifecycle, pop DataStack. Localsplus values are dropped by
             // LocalsPlus::drop (run_light_frame takes ownership).
             // Chain restored first so destructors can re-enter the VM safely.
             scopeguard::defer! {
@@ -909,7 +910,16 @@ impl Py<PyFunction> {
                 let _ = crate::vm::thread::set_current_frame(old_chain);
                 let materialized_ptr = *(*materialized_cell).get();
                 if !materialized_ptr.is_null() {
+                    // Reclaim the leaked refcount (see materialize_light_frame).
                     let reclaim = FrameRef::from_raw(materialized_ptr as *const _);
+                    if reclaim.as_object().strong_count() > 1 {
+                        // The materialized frame escaped (traceback, sys._getframe,
+                        // f_back, etc). Sync final state and join GC so reference
+                        // cycles can be collected.
+                        crate::frame::sync_materialized_on_exit(
+                            light_for_cleanup, &reclaim, vm,
+                        );
+                    }
                     drop(reclaim);
                 }
                 vm.datastack_pop(base);

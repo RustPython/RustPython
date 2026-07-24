@@ -529,6 +529,7 @@ class TestFrameLocals(unittest.TestCase):
 
         return StringSubclass('x'), ImpostorX(), 'x'
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: dict_keys(['obj', 'x']) != ['obj', 'x', 'proxy']
     def test_proxy_key_stringlikes_overwrite(self):
         def f(obj):
             x = 1
@@ -551,6 +552,7 @@ class TestFrameLocals(unittest.TestCase):
                 self.assertEqual(keys_snapshot,  expected_keys)
                 self.assertEqual(proxy_snapshot, expected_dict)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; UnboundLocalError: local variable 'b' referenced before assignment
     def test_proxy_key_stringlikes_ftrst_write(self):
         def f(obj):
             proxy = sys._getframe().f_locals

@@ -316,6 +316,9 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
 
         // Set the previous chain pointer: materialize the predecessor
         // if it is a light frame, otherwise store the heavy pointer directly.
+        // In both cases, store a strong reference in `retained_back` so
+        // `f_back` can still resolve after the predecessor returns and
+        // leaves the live frame chain.
         let prev = (*light).previous;
         if let Some(prev_light) = prev.as_light() {
             let prev_materialized = materialize_light_frame(prev_light, vm);
@@ -324,8 +327,16 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
             iframe
                 .previous
                 .store(FrameChainPtr::from_heavy(ptr).raw(), Relaxed);
-        } else {
+        } else if let Some(heavy) = prev.as_heavy() {
             iframe.previous.store(prev.raw(), Relaxed);
+            // The heavy predecessor may leave the chain before f_back is
+            // queried — keep a strong reference so the frame stays alive.
+            if let Some(owned) = owned_chain_frame(heavy) {
+                *iframe.retained_back.lock() = Some(owned);
+            }
+        } else {
+            // null — end of chain
+            iframe.previous.store(0, Relaxed);
         }
 
         // Store the materialized frame pointer back
@@ -383,6 +394,35 @@ pub(crate) unsafe fn materialize_light_frame_pub(
     vm: &VirtualMachine,
 ) -> FrameRef {
     unsafe { materialize_light_frame(light, vm) }
+}
+
+/// Finalize a materialized light frame that escaped (refcount > 1) at
+/// cleanup time. Sets owner to detached and joins the GC so reference
+/// cycles (traceback → frame → locals → object) are collectible.
+///
+/// Note: localsplus is NOT re-synced here — LocalsPlus may already be
+/// dropped at this point.  The last `sync_light_to_materialized` call
+/// during execution captured the relevant state.
+///
+/// # Safety
+/// `light` must still point to a valid LightFrame header (lasti, prev_line).
+/// `frame` must be the materialized frame.
+pub(crate) unsafe fn sync_materialized_on_exit(
+    light: *mut LightFrame,
+    frame: &Py<Frame>,
+    _vm: &VirtualMachine,
+) {
+    unsafe {
+        // Sync lasti/prev_line only (localsplus may be dropped already)
+        let iframe = (&mut *frame.iframe.get()).as_mut().unwrap();
+        let lasti_val = (*light).lasti.load(Relaxed);
+        iframe.lasti.store(lasti_val, Relaxed);
+        iframe.prev_line = (*light).prev_line;
+        // Set owner to FrameObject (detached) so clear/GC knows it's not executing
+        frame.owner.store(FrameOwner::FrameObject as i8, Relaxed);
+        // Track in GC so cycles can be collected
+        crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
+    }
 }
 
 /// Recover an owned reference to a live chain frame, or `None` for null.
