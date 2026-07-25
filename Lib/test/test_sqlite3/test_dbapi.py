@@ -2045,7 +2045,6 @@ class RowTests(unittest.TestCase):
 
         self.assertNotEqual(r1, r3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Row with no description fails
     def test_row_no_description(self):
         cu = self.cx.cursor()
         self.assertIsNone(cu.description)
