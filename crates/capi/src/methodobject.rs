@@ -53,6 +53,7 @@ pub(crate) fn build_method_def(
 
     let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
         .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;
+    let has_self = has_self && !flags.contains(PyMethodFlags::STATIC);
 
     let method = ml.ml_meth;
 
@@ -358,5 +359,18 @@ mod tests {
                 "Exception('Something went wrong')"
             );
         })
+    }
+
+    #[test]
+    fn wrap_static_no_args_function() {
+        #[pyfunction()]
+        fn f() {}
+
+        Python::attach(|py| {
+            let module = PyModule::new(py, "test_wrap_pyfunction_forms").unwrap();
+
+            let func = wrap_pyfunction!(f, &module).unwrap();
+            func.call0().unwrap();
+        });
     }
 }

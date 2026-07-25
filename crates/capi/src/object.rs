@@ -217,7 +217,7 @@ pub unsafe extern "C" fn PyObject_HasAttrWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { &*attr_name }.try_downcast_ref::<PyStr>(vm)?;
-        obj.has_attr(name, vm)
+        Ok(vm.get_attribute_opt(obj.to_owned(), name)?.is_some())
     })
 }
 
@@ -272,7 +272,7 @@ pub unsafe extern "C" fn PyObject_HasAttrStringWithError(
     with_vm(|vm| {
         let obj = unsafe { &*obj };
         let name = unsafe { attr_name.try_as_str(vm) }?;
-        obj.has_attr(name, vm)
+        Ok(vm.get_attribute_opt(obj.to_owned(), name)?.is_some())
     })
 }
 
@@ -589,6 +589,18 @@ mod tests {
             }
             .unwrap();
             assert!(dict.get_item("foo").is_ok());
+        })
+    }
+
+    #[test]
+    fn hasattr() {
+        Python::attach(|py| {
+            let x = 5i32.into_pyobject(py).unwrap();
+            assert!(x.is_instance_of::<PyInt>());
+
+            // spell-checker:ignore bbbbbbytes
+            assert!(x.hasattr("to_bytes").unwrap());
+            assert!(!x.hasattr("bbbbbbytes").unwrap());
         })
     }
 }
