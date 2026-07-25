@@ -199,21 +199,21 @@ impl PyDict {
         elements: &[PyObjectRef],
         index: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<[PyObjectRef; 2]> {
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
         let [key, value] = elements else {
             return Err(vm.new_value_error(format!(
                 "dictionary update sequence element #{index} has length {}; 2 is required",
                 elements.len()
             )));
         };
-        Ok([key.clone(), value.clone()])
+        Ok((key.clone(), value.clone()))
     }
 
     fn update_sequence_pair(
         element: PyObjectRef,
         index: usize,
         vm: &VirtualMachine,
-    ) -> PyResult<[PyObjectRef; 2]> {
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
         let element = match element.downcast_exact::<PyList>(vm) {
             Ok(list) => {
                 let elements = list.borrow_vec();
@@ -255,7 +255,7 @@ impl PyDict {
         let dict = &self.entries;
 
         for (index, element) in iter.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
-            let [key, value] = Self::update_sequence_pair(element?, index, vm)?;
+            let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
             if !override_existing && dict.contains(vm, &*key)? {
                 continue;
