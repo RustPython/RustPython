@@ -76,9 +76,6 @@ class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
 class PyFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
     cls = tasks._PyTask
 
-    async def test_task_exc_handler_correct_context(self):
-        await super().test_task_exc_handler_correct_context()
-
 class FutureReprTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_recursive_repr_for_pending_tasks(self):
