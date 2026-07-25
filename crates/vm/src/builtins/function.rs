@@ -952,9 +952,7 @@ impl Py<PyFunction> {
                 // and drop the clones, keeping the total refcount unchanged.
                 // This prevents delayed GC of objects only reachable through
                 // the materialized frame's cloned localsplus.
-                crate::frame::transfer_localsplus_to_materialized(
-                    lp_ptr, nlocalsplus, mat_ref,
-                );
+                crate::frame::transfer_localsplus_to_materialized(lp_ptr, nlocalsplus, mat_ref);
                 if mat_ref.as_object().strong_count() > 1 {
                     // strong_count > 1: leaked ref + one or more escaped refs
                     // (e.g. traceback, sys._getframe, f_back)

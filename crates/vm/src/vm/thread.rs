@@ -800,9 +800,14 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         // The surviving child thread keeps executing its current frame chain.
         // Only publish heavy frames for signal safety.
         #[cfg(unix)]
-        top_frame: AtomicPtr::new(
-            get_current_frame().as_heavy().unwrap_or(core::ptr::null()) as *mut Frame
-        ),
+        top_frame: AtomicPtr::new({
+            // Walk past any light frames to find the nearest heavy frame.
+            let mut cur = get_current_frame();
+            while cur.is_light() {
+                cur = unsafe { cur.next() };
+            }
+            cur.as_heavy().unwrap_or(core::ptr::null()) as *mut Frame
+        }),
         #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),

@@ -430,8 +430,7 @@ pub(crate) unsafe fn transfer_localsplus_to_materialized(
     for (i, slot) in dst.iter_mut().enumerate().take(nlocalsplus) {
         // Read the original value from the light frame's localsplus.
         // ptr::read does a bitwise copy — the refcount is not changed.
-        let src_val =
-            unsafe { core::ptr::read(src_ptr.add(i) as *const Option<PyObjectRef>) };
+        let src_val = unsafe { core::ptr::read(src_ptr.add(i) as *const Option<PyObjectRef>) };
         // Replace the clone in the materialized frame with the original.
         // This drops the clone (refcount -1) and the slot now holds the
         // original (no net refcount change for the original).

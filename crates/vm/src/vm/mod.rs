@@ -1593,7 +1593,7 @@ impl VirtualMachine {
     /// evaluation consumes more native stack in those configurations.
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     const STACK_MARGIN_BYTES: usize =
-        (if cfg!(debug_assertions) { 16384 } else { 2048 }) * core::mem::size_of::<usize>();
+        (if cfg!(debug_assertions) { 16384 } else { 3072 }) * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -1757,7 +1757,11 @@ impl VirtualMachine {
             self.recursion_depth.update(|d| d - 1);
         }
 
-        self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+        if self.use_tracing.get() {
+            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+        } else {
+            f(frame.to_owned())
+        }
     }
 
     /// Frame execution for generator/coroutine resume.
@@ -1973,9 +1977,10 @@ impl VirtualMachine {
         let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
             // Locals fallback: use the heavy frame if available, otherwise
             // use globals as locals (light frame locals are on the data stack).
-            let locals_mapping = self
-                .current_frame()
-                .map_or_else(|| ArgMapping::from_dict_exact(globals.clone()), |f| f.locals.clone_mapping(self));
+            let locals_mapping = self.current_frame().map_or_else(
+                || ArgMapping::from_dict_exact(globals.clone()),
+                |f| f.locals.clone_mapping(self),
+            );
             (Some(locals_mapping), Some(globals))
         } else {
             (None, None)
