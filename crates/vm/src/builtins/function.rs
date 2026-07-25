@@ -787,6 +787,14 @@ impl Py<PyFunction> {
     ///
     /// Falls back to `invoke_exact_args_slots` for generators/coroutines or when
     /// tracing is active.
+    // Cold error path: extracted so the compiler does not inflate
+    // invoke_light_slots's stack frame with cleanup temporaries.
+    #[cold]
+    #[inline(never)]
+    fn light_slots_stack_overflow(vm: &VirtualMachine) -> PyResult {
+        Err(vm.new_recursion_error("maximum recursion depth exceeded".to_string()))
+    }
+
     pub(crate) fn invoke_light_slots(
         &self,
         args: &mut [Option<PyObjectRef>],
@@ -813,6 +821,12 @@ impl Py<PyFunction> {
                 .contains(bytecode::CodeFlags::NEWLOCALS | bytecode::CodeFlags::OPTIMIZED)
         {
             return self.invoke_exact_args_slots(args, vm);
+        }
+
+        // Early C stack check: if the stack is nearly exhausted, bail
+        // out before allocating anything on the DataStack.
+        if vm.current_recursion_depth() >= vm.recursion_limit.get() || vm.check_c_stack_overflow() {
+            return Self::light_slots_stack_overflow(vm);
         }
 
         let nlocalsplus = code.localspluskinds.len();

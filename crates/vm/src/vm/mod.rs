@@ -1592,8 +1592,10 @@ impl VirtualMachine {
     /// The margin is doubled for debug/sanitized builds because frame
     /// evaluation consumes more native stack in those configurations.
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
+    // 2× CPython's _PY_STACK_MARGIN_BYTES to account for both heavy and
+    // light frame native stack usage per recursion step.
     const STACK_MARGIN_BYTES: usize =
-        (if cfg!(debug_assertions) { 16384 } else { 3072 }) * core::mem::size_of::<usize>();
+        (if cfg!(debug_assertions) { 16384 } else { 4096 }) * core::mem::size_of::<usize>();
 
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
@@ -1716,8 +1718,13 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.check_recursive_call("")?;
 
+        // Check the native C stack periodically.  The sampling interval
+        // (every 8th call) balances overhead against the risk of missing
+        // an overflow between checks, especially when light and heavy
+        // frames alternate (each recursion step uses different native
+        // stack amounts).
         let depth = self.recursion_depth.get();
-        if depth & 63 == 0 && self.check_c_stack_overflow() {
+        if depth & 7 == 0 && self.check_c_stack_overflow() {
             return Err(self.new_recursion_error(String::new()));
         }
 
@@ -1757,11 +1764,7 @@ impl VirtualMachine {
             self.recursion_depth.update(|d| d - 1);
         }
 
-        if self.use_tracing.get() {
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-        } else {
-            f(frame.to_owned())
-        }
+        self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
     }
 
     /// Frame execution for generator/coroutine resume.
