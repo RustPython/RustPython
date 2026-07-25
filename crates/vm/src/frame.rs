@@ -283,7 +283,7 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
         let nlocalsplus = (*light).nlocalsplus as usize;
 
         // Build the frame with heap-backed localsplus
-        let frame = FrameObject::new(
+        let frame = FrameObject::new_ref(
             code,
             Scope::new(None, globals),
             builtins,
@@ -291,8 +291,7 @@ unsafe fn materialize_light_frame(light: *mut LightFrame, vm: &VirtualMachine) -
             func_obj,
             false, // heap-backed, not datastack
             vm,
-        )
-        .into_ref(&vm.ctx);
+        );
 
         // Copy localsplus data from LightFrame into the materialized frame
         let src_ptr = (*light).localsplus_ptr();
@@ -489,7 +488,7 @@ pub fn current_globals() -> Option<PyDictRef> {
     } else if let Some(heavy) = cur.as_heavy() {
         // SAFETY: heavy frame on this thread's chain is alive.
         let iframe = unsafe { &*(*heavy).iframe.get() };
-        iframe.as_ref().map(|f| f.globals.clone())
+        iframe.as_ref().map(|f| f.globals().to_owned())
     } else {
         None
     }
@@ -504,7 +503,7 @@ pub fn current_code() -> Option<PyRef<PyCode>> {
         Some(unsafe { (*(*light).code).to_owned() })
     } else if let Some(heavy) = cur.as_heavy() {
         let iframe = unsafe { &*(*heavy).iframe.get() };
-        iframe.as_ref().map(|f| f.code.clone())
+        iframe.as_ref().map(|f| f.code().to_owned())
     } else {
         None
     }
@@ -519,7 +518,7 @@ pub fn current_builtins() -> Option<PyObjectRef> {
         Some(unsafe { (*(*light).builtins).to_owned() })
     } else if let Some(heavy) = cur.as_heavy() {
         let iframe = unsafe { &*(*heavy).iframe.get() };
-        iframe.as_ref().map(|f| f.builtins.clone())
+        iframe.as_ref().map(|f| f.builtins().to_owned())
     } else {
         None
     }
@@ -1160,18 +1159,21 @@ unsafe impl Traverse for FrameLocals {
 /// Lightweight execution frame. Not a PyObject.
 /// Analogous to CPython's `_PyInterpreterFrame`.
 ///
-/// Currently always embedded inside a `FrameObject` PyObject via `FrameUnsafeCell`.
-/// In future PRs this will be usable independently for normal function calls
-/// (allocated on the Rust stack + DataStack), eliminating PyObject overhead.
+/// The four "identity" fields (`code`, `globals`, `builtins`, `func_obj`)
+/// are borrowed raw pointers — refcounts are maintained by the owner
+/// (FrameObject's owned fields, or the PyFunction on the caller's stack
+/// in the DataStack path).
+#[repr(C)]
 pub struct InterpreterFrame {
-    pub code: PyRef<PyCode>,
-    pub func_obj: Option<PyObjectRef>,
+    // Borrowed pointers — owned by FrameObject or by PyFunction on caller's stack.
+    pub(crate) code: *const Py<PyCode>,
+    pub(crate) func_obj: *const PyObject, // nullable
+    pub(crate) globals: *const Py<PyDict>,
+    pub(crate) builtins: *const PyObject,
 
     /// Unified storage for local variables and evaluation stack.
     pub(crate) localsplus: LocalsPlus,
     pub locals: FrameLocals,
-    pub globals: PyDictRef,
-    pub builtins: PyObjectRef,
 
     /// index of last instruction ran
     pub lasti: PyAtomic<u32>,
@@ -1220,10 +1222,56 @@ pub struct InterpreterFrame {
     pub(crate) pending_unwind_from_stack: PyAtomic<i64>,
 }
 
+// Raw pointers make InterpreterFrame !Send+!Sync by default.
+// SAFETY: The pointers reference heap-resident PyObjects whose lifetimes
+// are managed by the owning FrameObject (or PyFunction). Frame execution
+// is single-threaded (enforced by the owner field).
+#[cfg(feature = "threading")]
+unsafe impl Send for InterpreterFrame {}
+#[cfg(feature = "threading")]
+unsafe impl Sync for InterpreterFrame {}
+
+impl InterpreterFrame {
+    /// Borrowed code object.
+    #[inline(always)]
+    pub fn code(&self) -> &Py<PyCode> {
+        unsafe { &*self.code }
+    }
+
+    /// Borrowed globals dict.
+    #[inline(always)]
+    pub fn globals(&self) -> &Py<PyDict> {
+        unsafe { &*self.globals }
+    }
+
+    /// Borrowed builtins object.
+    #[inline(always)]
+    pub fn builtins(&self) -> &PyObject {
+        unsafe { &*self.builtins }
+    }
+
+    /// Borrowed function object, or None if not set.
+    #[inline(always)]
+    pub fn func_obj(&self) -> Option<&PyObject> {
+        if self.func_obj.is_null() {
+            None
+        } else {
+            Some(unsafe { &*self.func_obj })
+        }
+    }
+}
+
 /// Python-visible frame object. Currently always wraps an `InterpreterFrame`.
 /// Analogous to CPython's `PyFrameObject`.
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct FrameObject {
+    // Owned references — keep the pointed-to objects alive for InterpreterFrame's
+    // raw pointers. These are the "ownership anchors".
+    pub(crate) owned_code: PyRef<PyCode>,
+    pub(crate) owned_globals: PyDictRef,
+    pub(crate) owned_builtins: PyObjectRef,
+    pub(crate) owned_func_obj: Option<PyObjectRef>,
+
     /// Always `Some` while the frame is reachable from Python. Emptied only
     /// by `Traverse::clear` during deallocation, leaving a trivially-droppable
     /// husk that the freelist can cache.
@@ -1345,35 +1393,18 @@ impl PyPayload for FrameObject {
 
 unsafe impl Traverse for FrameObject {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        // SAFETY: this traversal reads the frame's live interpreter state
-        // (`localsplus`), which the owning thread mutates without
-        // synchronization while executing bytecode. It is only sound when no
-        // other thread is executing this frame: in threading builds the
-        // collector stops the world around the traversal phases, and in
-        // single-threaded builds there is no other thread. A cleared frame
-        // (iframe == None) has no children to visit.
-        //
-        // Invariant (load-bearing for the untracked-frame optimization): every
-        // reference *to* a frame is recorded as a graph edge by
-        // `PyRef<FrameObject>::traverse` — no other type's `traverse` recurses into a
-        // frame's payload. So the collector reads a frame's `localsplus` only
-        // when the frame is itself a tracked candidate. Tracked datastack
-        // frames are tracked only at `release_datastack_frame`, after they stop
-        // executing and their localsplus is materialized onto the heap; tracked
-        // generator frames are heap-backed by construction and their execution
-        // is stopped-the-world. Hence a running, data-stack-resident frame is
-        // never traversed by a concurrent collector. If a future change makes
-        // some type's `traverse` recurse into a frame payload, this invariant
-        // (and the debug asserts at the track sites) breaks.
+        // Visit the owned reference anchors on FrameObject.
+        self.owned_code.traverse(tracer_fn);
+        self.owned_func_obj.traverse(tracer_fn);
+        self.owned_globals.traverse(tracer_fn);
+        self.owned_builtins.traverse(tracer_fn);
+
+        // Visit interior references in the InterpreterFrame.
         let Some(iframe) = (unsafe { &*self.iframe.get() }) else {
             return;
         };
-        iframe.code.traverse(tracer_fn);
-        iframe.func_obj.traverse(tracer_fn);
         iframe.localsplus.traverse(tracer_fn);
         iframe.locals.traverse(tracer_fn);
-        iframe.globals.traverse(tracer_fn);
-        iframe.builtins.traverse(tracer_fn);
         iframe.trace.traverse(tracer_fn);
         iframe.temporary_refs.traverse(tracer_fn);
         iframe.f_locals_hidden_overlay.traverse(tracer_fn);
@@ -1447,19 +1478,23 @@ impl FrameObject {
             0
         };
 
+        let locals = match scope.locals {
+            Some(locals) => FrameLocals::with_locals(locals),
+            None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
+            None => FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone())),
+        };
+
+        // Build the owned shell first, then set up the raw pointers.
+        // The pointers are initially dangling — they'll be patched by
+        // `init_iframe_ptrs` below, which runs while the FrameObject
+        // is pinned on the heap.
         let iframe = InterpreterFrame {
+            code: core::ptr::null(),
+            func_obj: core::ptr::null(),
+            globals: core::ptr::null(),
+            builtins: core::ptr::null(),
             localsplus,
-            locals: match scope.locals {
-                Some(locals) => FrameLocals::with_locals(locals),
-                None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => FrameLocals::lazy(),
-                None => {
-                    FrameLocals::with_locals(ArgMapping::from_dict_exact(scope.globals.clone()))
-                }
-            },
-            globals: scope.globals,
-            builtins,
-            code,
-            func_obj,
+            locals,
             lasti: Radium::new(0),
             prev_line,
             trace: PyMutex::new(vm.ctx.none()),
@@ -1477,8 +1512,43 @@ impl FrameObject {
             pending_unwind_from_stack: Default::default(),
         };
         Self {
+            owned_code: code,
+            owned_globals: scope.globals,
+            owned_builtins: builtins,
+            owned_func_obj: func_obj,
             iframe: FrameUnsafeCell::new(Some(iframe)),
         }
+    }
+
+    /// Patch the InterpreterFrame's raw pointers to point at this
+    /// FrameObject's owned fields. Must be called once after the
+    /// FrameObject is allocated on the heap (i.e. after `into_ref`).
+    fn init_iframe_ptrs(self_: &Py<FrameObject>) {
+        let iframe = unsafe { self_.iframe_mut() };
+        iframe.code = &*self_.owned_code as *const Py<PyCode>;
+        iframe.globals = &*self_.owned_globals as *const Py<PyDict>;
+        iframe.builtins = &*self_.owned_builtins as *const PyObject;
+        iframe.func_obj = match &self_.owned_func_obj {
+            Some(obj) => &**obj as *const PyObject,
+            None => core::ptr::null(),
+        };
+    }
+
+    /// Create a new FrameObject, allocate it on the heap, and patch
+    /// the InterpreterFrame's raw pointers. Returns an owned reference.
+    pub(crate) fn new_ref(
+        code: PyRef<PyCode>,
+        scope: Scope,
+        builtins: PyObjectRef,
+        closure: &[PyCellRef],
+        func_obj: Option<PyObjectRef>,
+        use_datastack: bool,
+        vm: &VirtualMachine,
+    ) -> FrameObjectRef {
+        let frame = Self::new(code, scope, builtins, closure, func_obj, use_datastack, vm)
+            .into_ref(&vm.ctx);
+        Self::init_iframe_ptrs(&frame);
+        frame
     }
 
     /// Access fastlocals immutably.
@@ -1593,7 +1663,7 @@ impl FrameObject {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.iframe().code.locations[self.lasti() as usize - 1].0
+        self.iframe().code().locations[self.lasti() as usize - 1].0
     }
 
     /// Get the previous frame chain pointer.
@@ -1637,7 +1707,7 @@ impl FrameObject {
 
     fn has_active_hidden_locals(&self) -> bool {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
-        let code = &**self.iframe().code;
+        let code = self.iframe().code();
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
         let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
         !is_optimized
@@ -1669,7 +1739,7 @@ impl FrameObject {
         };
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
-        let code = &**self.iframe().code;
+        let code = self.iframe().code();
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
 
         // Iterate through all localsplus slots using localspluskinds
@@ -1851,7 +1921,7 @@ impl FrameObject {
         // frame is not executing on another thread.
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
         let obj = fastlocals.get(i)?.as_ref()?;
-        let kind = self.iframe().code.localspluskinds.get(i).copied().unwrap_or(0);
+        let kind = self.iframe().code().localspluskinds.get(i).copied().unwrap_or(0);
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
             if let Some(cell) = obj.downcast_ref::<PyCell>() {
                 cell.get()
@@ -1867,7 +1937,7 @@ impl FrameObject {
     /// the slot holds one so closures keep sharing the same cell.
     fn framelocalsproxy_setval(&self, i: usize, value: PyObjectRef) {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
-        let kind = self.iframe().code.localspluskinds.get(i).copied().unwrap_or(0);
+        let kind = self.iframe().code().localspluskinds.get(i).copied().unwrap_or(0);
         // SAFETY: callers first pass through `check_locals_access`.
         let fastlocals = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0
@@ -1893,8 +1963,8 @@ impl FrameObject {
         use rustpython_compiler_core::bytecode::CO_FAST_HIDDEN;
         // The proxy hashes the key first; an unhashable key raises TypeError.
         key.hash(vm)?;
-        for (i, &kind) in self.iframe().code.localspluskinds.iter().enumerate() {
-            let name = localsplus_name(&self.iframe().code, i);
+        for (i, &kind) in self.iframe().code().localspluskinds.iter().enumerate() {
+            let name = localsplus_name(self.iframe().code(), i);
             if !name
                 .as_object()
                 .rich_compare_bool(key, PyComparisonOp::Eq, vm)?
@@ -2054,24 +2124,35 @@ impl Py<FrameObject> {
         // executes a given frame (enforced by the owner field and generator
         // running flag). Same safety argument as FastLocals (UnsafeCell).
         let iframe = unsafe { self.iframe_mut() };
+        // Dereference the raw pointers before taking mutable borrows
+        // to localsplus/prev_line. The raw pointers point to FrameObject's
+        // owned fields, not into InterpreterFrame, so there is no aliasing.
+        let code: &Py<PyCode> = unsafe { &*iframe.code };
+        let globals: &Py<PyDict> = unsafe { &*iframe.globals };
+        let builtins: &PyObject = unsafe { &*iframe.builtins };
+        let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
+            None
+        } else {
+            Some(unsafe { &*iframe.func_obj })
+        };
+        let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+            builtins
+                .downcast_ref_if_exact::<PyDict>(vm)
+                // SAFETY: downcast_ref_if_exact already verified exact type
+                .map(|d| unsafe { PyExact::ref_unchecked(d) })
+        } else {
+            None
+        };
         let exec = ExecutingFrame {
-            code: &iframe.code,
+            code,
             localsplus: &mut iframe.localsplus,
             locals: &iframe.locals,
-            globals: &iframe.globals,
-            builtins: &iframe.builtins,
-            builtins_dict: if iframe.globals.class().is(vm.ctx.types.dict_type) {
-                iframe
-                    .builtins
-                    .downcast_ref_if_exact::<PyDict>(vm)
-                    // SAFETY: downcast_ref_if_exact already verified exact type
-                    .map(|d| unsafe { PyExact::ref_unchecked(d) })
-            } else {
-                None
-            },
+            globals,
+            builtins,
+            builtins_dict,
             lasti: &iframe.lasti,
             frame_source: FrameSource::Heavy(self),
-            func_obj: iframe.func_obj.as_deref(),
+            func_obj,
             prev_line: &mut iframe.prev_line,
             monitoring_mask: 0,
         };
@@ -2115,16 +2196,24 @@ impl Py<FrameObject> {
         }
         // SAFETY: FrameObject is not executing, so UnsafeCell access is safe.
         let iframe = unsafe { self.iframe_mut() };
+        let code: &Py<PyCode> = unsafe { &*iframe.code };
+        let globals: &Py<PyDict> = unsafe { &*iframe.globals };
+        let builtins: &PyObject = unsafe { &*iframe.builtins };
+        let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
+            None
+        } else {
+            Some(unsafe { &*iframe.func_obj })
+        };
         let exec = ExecutingFrame {
-            code: &iframe.code,
+            code,
             localsplus: &mut iframe.localsplus,
             locals: &iframe.locals,
-            globals: &iframe.globals,
-            builtins: &iframe.builtins,
+            globals,
+            builtins,
             builtins_dict: None,
             lasti: &iframe.lasti,
             frame_source: FrameSource::Heavy(self),
-            func_obj: iframe.func_obj.as_deref(),
+            func_obj,
             prev_line: &mut iframe.prev_line,
             monitoring_mask: 0,
         };
@@ -2153,11 +2242,11 @@ impl Py<FrameObject> {
 /// An executing frame; borrows mutable frame-internal data for the duration
 /// of bytecode execution.
 pub(crate) struct ExecutingFrame<'a> {
-    code: &'a PyRef<PyCode>,
+    code: &'a Py<PyCode>,
     localsplus: &'a mut LocalsPlus,
     locals: &'a FrameLocals,
-    globals: &'a PyDictRef,
-    builtins: &'a PyObjectRef,
+    globals: &'a Py<PyDict>,
+    builtins: &'a PyObject,
     /// Cached downcast of builtins to PyDict for fast LOAD_GLOBAL.
     /// Only set when both globals and builtins are exact dict types (not
     /// subclasses), so that `__missing__` / `__getitem__` overrides are
@@ -7380,7 +7469,7 @@ impl ExecutingFrame<'_> {
         if let Some(builtins_dict) = self.builtins_dict {
             // Fast path: both globals and builtins are exact dicts
             // SAFETY: builtins_dict is only set when globals is also exact dict
-            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals.as_ref()) };
+            let globals_exact = unsafe { PyExact::ref_unchecked(self.globals) };
             globals_exact
                 .get_chain_exact(builtins_dict, name, vm)?
                 .ok_or_else(|| {
@@ -8231,7 +8320,7 @@ impl ExecutingFrame<'_> {
             .expect("Stack value should be code object");
 
         // Create function with minimal attributes
-        let func_obj = PyFunction::new(code_obj, self.globals.clone(), vm)?.into_pyobject(vm);
+        let func_obj = PyFunction::new(code_obj, self.globals.to_owned(), vm)?.into_pyobject(vm);
 
         self.push_value(func_obj);
         Ok(None)

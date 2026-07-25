@@ -338,7 +338,7 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
             g.as_coro()
                 .frame()
                 .iframe()
-                .code
+                .code()
                 .flags
                 .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
         })
@@ -354,7 +354,7 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
                 g.as_coro()
                     .frame()
                     .iframe()
-                    .code
+                    .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })

@@ -149,17 +149,17 @@ mod decl {
     /// Dump a single frame's info to fd (signal-safe), reading live data.
     #[cfg(any(unix, windows))]
     fn dump_frame_from_raw(fd: i32, frame: &FrameObject) {
-        let filename = frame.iframe().code.source_path().as_str();
-        let funcname = frame.iframe().code.obj_name.as_str();
+        let filename = frame.iframe().code().source_path().as_str();
+        let funcname = frame.iframe().code().obj_name.as_str();
         let lasti = frame.lasti();
         let lineno = if lasti == 0 {
-            frame.iframe().code.first_line_number.map_or(1, |n| n.get()) as u32
+            frame.iframe().code().first_line_number.map_or(1, |n| n.get()) as u32
         } else {
             let idx = (lasti as usize).saturating_sub(1);
-            if idx < frame.iframe().code.locations.len() {
-                frame.iframe().code.locations[idx].0.line.get() as u32
+            if idx < frame.iframe().code().locations.len() {
+                frame.iframe().code().locations[idx].0.line.get() as u32
             } else {
-                frame.iframe().code.first_line_number.map_or(0, |n| n.get()) as u32
+                frame.iframe().code().first_line_number.map_or(0, |n| n.get()) as u32
             }
         };
 
@@ -225,10 +225,10 @@ mod decl {
     /// Write a frame's info to an fd using signal-safe I/O.
     #[cfg(any(unix, windows))]
     fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<FrameObject>) {
-        let funcname = frame.iframe().code.obj_name.as_str();
-        let filename = frame.iframe().code.source_path().as_str();
+        let funcname = frame.iframe().code().obj_name.as_str();
+        let filename = frame.iframe().code().source_path().as_str();
         let lineno = if frame.lasti() == 0 {
-            frame.iframe().code.first_line_number.map_or(1, |n| n.get()) as u32
+            frame.iframe().code().first_line_number.map_or(1, |n| n.get()) as u32
         } else {
             frame.current_location().line.get() as u32
         };

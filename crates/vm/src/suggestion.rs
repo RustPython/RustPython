@@ -71,17 +71,17 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
         let tb = exc.__traceback__()?;
         let tb = tb.iter().last().unwrap_or(tb);
 
-        let varnames = tb.frame.iframe().code.clone().co_varnames(vm);
+        let varnames = tb.frame.iframe().code().to_owned().co_varnames(vm);
         if let Some(suggestions) = calculate_suggestions(varnames.iter(), &name) {
             return Some(suggestions);
         };
 
-        let globals: Vec<_> = tb.frame.iframe().globals.as_object().try_to_value(vm).ok()?;
+        let globals: Vec<_> = tb.frame.iframe().globals().as_object().try_to_value(vm).ok()?;
         if let Some(suggestions) = calculate_suggestions(globals.iter(), &name) {
             return Some(suggestions);
         };
 
-        let builtins: Vec<_> = tb.frame.iframe().builtins.try_to_value(vm).ok()?;
+        let builtins: Vec<_> = tb.frame.iframe().builtins().try_to_value(vm).ok()?;
         calculate_suggestions(builtins.iter(), &name)
     } else if exc.class().fast_issubclass(vm.ctx.exceptions.import_error) {
         let mod_name = exc.as_object().get_attr("name", vm).ok()?;

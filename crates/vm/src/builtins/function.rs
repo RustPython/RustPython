@@ -570,7 +570,7 @@ impl Py<PyFunction> {
         let use_datastack = !(is_gen || is_coro || is_async_gen);
 
         // Construct frame:
-        let frame = FrameObject::new(
+        let frame = FrameObject::new_ref(
             code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
@@ -578,8 +578,7 @@ impl Py<PyFunction> {
             Some(self.to_owned().into()),
             use_datastack,
             vm,
-        )
-        .into_ref(&vm.ctx);
+        );
 
         self.fill_locals_from_args(&frame, func_args, vm)?;
         if use_datastack {
@@ -709,7 +708,7 @@ impl Py<PyFunction> {
             Some(ArgMapping::from_dict_exact(self.globals.clone()))
         };
 
-        let frame = FrameObject::new(
+        let frame = FrameObject::new_ref(
             code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
@@ -717,8 +716,7 @@ impl Py<PyFunction> {
             Some(self.to_owned().into()),
             true, // Exact-args fast path is only used for non-gen/coro functions.
             vm,
-        )
-        .into_ref(&vm.ctx);
+        );
 
         {
             let fastlocals = unsafe { frame.fastlocals_mut() };

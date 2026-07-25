@@ -1743,7 +1743,7 @@ impl VirtualMachine {
                 .previous
                 .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
         }
-        let save_exc = frame.iframe().code.has_exc_handling;
+        let save_exc = frame.iframe().code().has_exc_handling;
         let saved_exc = if save_exc {
             self.current_exception()
         } else {

@@ -85,7 +85,7 @@ impl PyGenerator {
 
     #[pygetset]
     fn gi_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().iframe().code.clone()
+        self.inner.frame().iframe().code().to_owned()
     }
 
     #[pygetset]

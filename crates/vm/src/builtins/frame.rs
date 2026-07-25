@@ -446,17 +446,17 @@ impl Representable for FrameObject {
 impl FrameObject {
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
-        self.iframe().globals.clone()
+        self.iframe().globals().to_owned()
     }
 
     #[pygetset]
     fn f_builtins(&self) -> PyObjectRef {
-        self.iframe().builtins.clone()
+        self.iframe().builtins().to_owned()
     }
 
     #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
-        self.iframe().code.clone()
+        self.iframe().code().to_owned()
     }
 
     #[pygetset]
@@ -470,7 +470,7 @@ impl FrameObject {
         // If lasti is 0, execution hasn't started yet - use first line number
         // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.iframe().code.first_line_number.map_or(1, |n| n.get())
+            self.iframe().code().first_line_number.map_or(1, |n| n.get())
         } else {
             self.current_location().line.get()
         }
@@ -492,7 +492,7 @@ impl FrameObject {
             }
         };
 
-        let first_line = self.iframe().code.first_line_number.map_or(1, |n| n.get() as i32);
+        let first_line = self.iframe().code().first_line_number.map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(
@@ -500,7 +500,7 @@ impl FrameObject {
             )));
         }
 
-        let py_code: &PyCode = &self.iframe().code;
+        let py_code: &PyCode = self.iframe().code();
         let code = &py_code.code;
         let lines = mark_lines(code);
 
@@ -513,7 +513,7 @@ impl FrameObject {
         }
 
         let stacks = mark_stacks(code);
-        let len = self.iframe().code.instructions.len();
+        let len = self.iframe().code().instructions.len();
 
         // lasti points past the current instruction (already incremented).
         // stacks[lasti - 1] gives the stack state before executing the
@@ -707,7 +707,7 @@ impl Py<FrameObject> {
         // Optimized (function) frames expose a live write-through
         // FrameLocalsProxy; class/module/exec frames expose their namespace
         // mapping directly.
-        if self.iframe().code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+        if self.iframe().code().flags.contains(bytecode::CodeFlags::OPTIMIZED) {
             self.check_locals_access(vm)?;
             self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());

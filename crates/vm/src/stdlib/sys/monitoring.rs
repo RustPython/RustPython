@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
     function::FuncArgs,
 };
@@ -529,7 +529,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
     crate::frame::for_each_current_frame(|frame| {
-        let code = &frame.iframe().code;
+        let code = frame.iframe().code();
         let code_ver = code.instrumentation_version.load(Ordering::Acquire);
         if code_ver != new_ver {
             let code_events = state.events_for_code(code.get_id());
@@ -740,7 +740,7 @@ thread_local! {
 fn fire(
     vm: &VirtualMachine,
     event: u32,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
@@ -788,7 +788,7 @@ fn fire(
     }
 
     let mut args_vec = Vec::with_capacity(1 + cb_extra.len());
-    args_vec.push(code.clone().into());
+    args_vec.push(code.to_owned().into());
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
 
@@ -825,7 +825,7 @@ fn fire(
 
 pub(crate) fn fire_py_start(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
 ) -> PyResult<()> {
     fire(
@@ -839,7 +839,7 @@ pub(crate) fn fire_py_start(
 
 pub(crate) fn fire_py_resume(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
 ) -> PyResult<()> {
     fire(
@@ -853,7 +853,7 @@ pub(crate) fn fire_py_resume(
 
 pub(crate) fn fire_py_return(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     retval: &PyObjectRef,
 ) -> PyResult<()> {
@@ -868,7 +868,7 @@ pub(crate) fn fire_py_return(
 
 pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     retval: &PyObjectRef,
 ) -> PyResult<()> {
@@ -883,7 +883,7 @@ pub(crate) fn fire_py_yield(
 
 pub(crate) fn fire_call(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     callable: &PyObjectRef,
     arg0: PyObjectRef,
@@ -899,7 +899,7 @@ pub(crate) fn fire_call(
 
 pub(crate) fn fire_c_return(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     callable: &PyObjectRef,
     arg0: PyObjectRef,
@@ -915,7 +915,7 @@ pub(crate) fn fire_c_return(
 
 pub(crate) fn fire_c_raise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     callable: &PyObjectRef,
     arg0: PyObjectRef,
@@ -931,7 +931,7 @@ pub(crate) fn fire_c_raise(
 
 pub(crate) fn fire_line(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     line: u32,
 ) -> PyResult<()> {
@@ -940,7 +940,7 @@ pub(crate) fn fire_line(
 
 pub(crate) fn fire_instruction(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
 ) -> PyResult<()> {
     fire(
@@ -954,7 +954,7 @@ pub(crate) fn fire_instruction(
 
 pub(crate) fn fire_raise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -971,7 +971,7 @@ pub(crate) fn fire_raise(
 /// preventing duplicate events from chained cleanup handlers.
 pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -994,7 +994,7 @@ pub(crate) fn fire_reraise(
 
 pub(crate) fn fire_exception_handled(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1010,7 +1010,7 @@ pub(crate) fn fire_exception_handled(
 
 pub(crate) fn fire_py_unwind(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1026,7 +1026,7 @@ pub(crate) fn fire_py_unwind(
 
 pub(crate) fn fire_py_throw(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1041,7 +1041,7 @@ pub(crate) fn fire_py_throw(
 
 pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1056,7 +1056,7 @@ pub(crate) fn fire_stop_iteration(
 
 pub(crate) fn fire_jump(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
@@ -1074,7 +1074,7 @@ pub(crate) fn fire_jump(
 
 pub(crate) fn fire_branch_left(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
@@ -1092,7 +1092,7 @@ pub(crate) fn fire_branch_left(
 
 pub(crate) fn fire_branch_right(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
