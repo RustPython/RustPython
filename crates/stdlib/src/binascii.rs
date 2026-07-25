@@ -504,7 +504,7 @@ mod decl {
                 }
                 in_idx += 1;
             }
-            if buflen > 0 && in_idx < buflen && buf[in_idx - 1] == b'\r' {
+            if in_idx > 0 && in_idx < buflen && buf[in_idx - 1] == b'\r' {
                 crlf = true;
             }
 
