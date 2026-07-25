@@ -3422,6 +3422,7 @@ name = "rustpython-host_env"
 version = "0.5.0"
 dependencies = [
  "bitflags 2.13.1",
+ "cc",
  "dns-lookup",
  "gethostname",
  "getrandom 0.4.3",

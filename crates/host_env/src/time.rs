@@ -15,7 +15,7 @@ pub const SEC_TO_NS: i64 = SEC_TO_MS * MS_TO_NS;
 pub const NS_TO_MS: i64 = 1000 * 1000;
 pub const NS_TO_US: i64 = 1000;
 
-/// Access to the C runtime's `tzset` / `timezone` / `daylight` / `tzname`
+/// Access to the C runtime's `tzset` / `timezone` / `altzone` / `daylight` / `tzname`
 /// globals used by Python's `time` module.
 ///
 /// Not available under MSVC (which exposes these only via the
@@ -28,6 +28,10 @@ pub mod tz {
         static c_daylight: core::ffi::c_int;
         #[link_name = "timezone"]
         static c_timezone: core::ffi::c_long;
+        // Set by `build.rs` when `time.h` exposes `altzone` (CPython `HAVE_ALTZONE`).
+        #[cfg(has_altzone)]
+        #[link_name = "altzone"]
+        static c_altzone: core::ffi::c_long;
         #[link_name = "tzname"]
         static c_tzname: [*const core::ffi::c_char; 2];
         #[link_name = "tzset"]
@@ -41,6 +45,22 @@ pub mod tz {
     #[must_use]
     pub fn timezone() -> core::ffi::c_long {
         unsafe { c_timezone }
+    }
+
+    /// DST offset west of UTC in seconds, matching CPython's `time.altzone`.
+    ///
+    /// Uses the C `altzone` global when available; otherwise falls back to
+    /// `timezone - 3600` (same as CPython without `HAVE_ALTZONE`).
+    #[must_use]
+    pub fn altzone() -> core::ffi::c_long {
+        #[cfg(has_altzone)]
+        {
+            unsafe { c_altzone }
+        }
+        #[cfg(not(has_altzone))]
+        {
+            timezone() - 3600
+        }
     }
 
     #[cfg(not(target_os = "freebsd"))]

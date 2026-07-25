@@ -84,5 +84,8 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[build-dependencies]
+cc = "1"
+
 [lints]
 workspace = true
