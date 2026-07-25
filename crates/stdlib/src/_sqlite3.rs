@@ -3203,6 +3203,16 @@ mod _sqlite3 {
             }
 
             for i in 1..=num_needed {
+                let name = unsafe { sqlite3_bind_parameter_name(self.st, i) };
+                if !name.is_null() && unsafe { *name } != b'?' as libc::c_char {
+                    let name_str = ptr_to_str(name, vm)?;
+                    return Err(new_programming_error(
+                        vm,
+                        format!(
+                            "Binding {i} ('{name_str}') is a named parameter, but you supplied a sequence which requires nameless (qmark) placeholders."
+                        ),
+                    ));
+                }
                 let val = seq.get_item(i as isize - 1, vm)?;
                 self.bind_parameter(i, &val, vm)?;
             }

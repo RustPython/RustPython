@@ -875,7 +875,6 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             self.cu.execute("select name from test where name=?", L())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; mixed named and positional parameters not validated
     def test_execute_named_param_and_sequence(self):
         dataset = (
             ("select :a", (1,)),
