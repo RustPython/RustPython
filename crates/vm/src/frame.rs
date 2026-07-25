@@ -393,9 +393,54 @@ pub(crate) unsafe fn materialize_light_frame_pub(
 pub(crate) unsafe fn sync_materialized_on_exit(frame: &Py<Frame>) {
     // Set owner to FrameObject (detached) so clear/GC knows it's not executing
     frame.owner.store(FrameOwner::FrameObject as i8, Relaxed);
+    // Stabilize localsplus on the heap — the data-stack backing will
+    // be popped momentarily, so a collector must never see the
+    // data-stack pointer.
+    unsafe {
+        frame.materialize_localsplus();
+    }
     // Track in GC so cycles can be collected
     unsafe {
         crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
+    }
+}
+
+/// Move localsplus values from a finished light frame into its materialized
+/// frame, dropping the clones created during materialization.
+///
+/// During `materialize_light_frame`, each local is cloned (refcount +1).
+/// After `run_light_frame` returns, the light frame's values will be dropped
+/// by `LocalsPlus::drop`, decrementing refcount. We move the originals into
+/// the materialized frame's slots before that drop, replacing the clones.
+/// The net effect: no extra refcount survives, and objects reachable only
+/// through the frame are eligible for immediate GC instead of waiting for
+/// cycle collection.
+///
+/// # Safety
+/// `src_ptr` must point to the light frame's localsplus array with at least
+/// `nlocalsplus` slots, and `frame` must be the corresponding materialized
+/// frame whose localsplus was populated by `materialize_light_frame`.
+pub(crate) unsafe fn transfer_localsplus_to_materialized(
+    src_ptr: *mut usize,
+    nlocalsplus: usize,
+    frame: &Py<Frame>,
+) {
+    let iframe = unsafe { (&mut *frame.iframe.get()).as_mut().unwrap() };
+    let dst = iframe.localsplus.fastlocals_mut();
+    for (i, slot) in dst.iter_mut().enumerate().take(nlocalsplus) {
+        // Read the original value from the light frame's localsplus.
+        // ptr::read does a bitwise copy — the refcount is not changed.
+        let src_val =
+            unsafe { core::ptr::read(src_ptr.add(i) as *const Option<PyObjectRef>) };
+        // Replace the clone in the materialized frame with the original.
+        // This drops the clone (refcount -1) and the slot now holds the
+        // original (no net refcount change for the original).
+        *slot = src_val;
+        // Write None into the light frame's slot so LocalsPlus::drop
+        // doesn't double-drop it.
+        unsafe {
+            core::ptr::write(src_ptr.add(i) as *mut Option<PyObjectRef>, None);
+        }
     }
 }
 
@@ -2492,7 +2537,7 @@ impl fmt::Debug for ExecutingFrame<'_> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_light_frame<'a>(
     code: &'a PyRef<PyCode>,
-    mut localsplus: LocalsPlus,
+    localsplus: &mut LocalsPlus,
     locals: &'a FrameLocals,
     globals: &'a PyDictRef,
     builtins: &'a PyObjectRef,
@@ -2505,7 +2550,7 @@ pub(crate) fn run_light_frame<'a>(
 ) -> PyResult<ExecutionResult> {
     let mut exec = ExecutingFrame {
         code,
-        localsplus: &mut localsplus,
+        localsplus,
         locals,
         globals,
         builtins,

@@ -909,7 +909,7 @@ impl Py<PyFunction> {
             }
 
             // Build LocalsPlus view over the light frame data
-            let localsplus = LocalsPlus::from_datastack_raw(lp_ptr, capacity, nlocalsplus);
+            let mut localsplus = LocalsPlus::from_datastack_raw(lp_ptr, capacity, nlocalsplus);
 
             // Create lazy FrameLocals (NEWLOCALS fast path)
             let locals = FrameLocals::lazy();
@@ -927,7 +927,7 @@ impl Py<PyFunction> {
             let code_ref = (*(*light).code).to_owned();
             let result = crate::frame::run_light_frame(
                 &code_ref,
-                localsplus,
+                &mut localsplus,
                 &locals,
                 &self.globals,
                 &self.builtins,
@@ -945,6 +945,16 @@ impl Py<PyFunction> {
             let materialized_ptr = *(*materialized_cell).get();
             if !materialized_ptr.is_null() {
                 let mat_ref: &Py<Frame> = &*materialized_ptr;
+                // Transfer ownership of localsplus values from the light
+                // frame to the materialized frame. During materialization,
+                // values were cloned (refcount +1). Now that execution is
+                // finished, move the originals into the materialized frame
+                // and drop the clones, keeping the total refcount unchanged.
+                // This prevents delayed GC of objects only reachable through
+                // the materialized frame's cloned localsplus.
+                crate::frame::transfer_localsplus_to_materialized(
+                    lp_ptr, nlocalsplus, mat_ref,
+                );
                 if mat_ref.as_object().strong_count() > 1 {
                     // strong_count > 1: leaked ref + one or more escaped refs
                     // (e.g. traceback, sys._getframe, f_back)

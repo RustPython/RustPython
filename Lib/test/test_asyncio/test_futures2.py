@@ -76,7 +76,6 @@ class CFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
 class PyFutureTests(FutureTests, unittest.IsolatedAsyncioTestCase):
     cls = tasks._PyTask
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Task.__del__ not called in time due to debug-mode Handle preventing ref-count drop
     async def test_task_exc_handler_correct_context(self):
         await super().test_task_exc_handler_correct_context()
 
