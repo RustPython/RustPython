@@ -6,7 +6,7 @@ use crate::builtins::PyBaseExceptionRef;
 use alloc::sync::Arc;
 
 #[cfg(feature = "threading")]
-use crate::frame::Frame;
+use crate::frame::FrameObject;
 use crate::frame::FrameChainPtr;
 use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(all(unix, feature = "threading"))]
@@ -42,9 +42,9 @@ pub struct ThreadSlot {
     /// thread at a safepoint and supplies the happens-before edge, so the
     /// pointer and the frames it reaches are quiescent and alive at read time.
     #[cfg(unix)]
-    pub top_frame: AtomicPtr<Frame>,
+    pub top_frame: AtomicPtr<FrameObject>,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
-    /// Readers must hold the Mutex and convert to FrameRef inside the lock.
+    /// Readers must hold the Mutex and convert to FrameObjectRef inside the lock.
     /// Used on non-unix threading builds, which have no stop-the-world.
     #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
@@ -98,7 +98,7 @@ thread_local! {
     /// initialized; the `Arc<ThreadSlot>` in `CURRENT_THREAD_SLOT` keeps the
     /// pointee alive until `cleanup_current_thread_frames` clears this.
     #[cfg(all(unix, feature = "threading"))]
-    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<Frame>> =
+    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<FrameObject>> =
         const { Cell::new(core::ptr::null()) };
 
 }
@@ -684,7 +684,7 @@ pub fn set_current_frame(chain: FrameChainPtr) -> FrameChainPtr {
     if let Some(heavy) = chain.as_heavy() {
         let slot_top = CURRENT_TOP_FRAME_SLOT.with(Cell::get);
         if !slot_top.is_null() {
-            unsafe { (*slot_top).store(heavy as *mut Frame, Ordering::Relaxed) };
+            unsafe { (*slot_top).store(heavy as *mut FrameObject, Ordering::Relaxed) };
         }
     }
     FrameChainPtr::from_raw(CURRENT_FRAME.with(|c| c.swap(chain.raw(), Ordering::Relaxed)))
@@ -788,7 +788,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         while !cur.is_null() {
             if let Some(heavy) = cur.as_heavy() {
                 // SAFETY: the forking thread's chain frames are alive.
-                let py = unsafe { crate::Py::<Frame>::from_payload_ptr(heavy) };
+                let py = unsafe { crate::Py::<FrameObject>::from_payload_ptr(heavy) };
                 current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
             }
             cur = unsafe { cur.next() };
@@ -806,7 +806,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             while cur.is_light() {
                 cur = unsafe { cur.next() };
             }
-            cur.as_heavy().unwrap_or(core::ptr::null()) as *mut Frame
+            cur.as_heavy().unwrap_or(core::ptr::null()) as *mut FrameObject
         }),
         #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),

@@ -4,7 +4,7 @@ pub(crate) use decl::module_def;
 #[pymodule(name = "faulthandler")]
 mod decl {
     #[cfg(any(unix, windows))]
-    use crate::vm::frame::Frame;
+    use crate::vm::frame::FrameObject;
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
         function::{ArgIntoFloat, OptionalArg},
@@ -148,7 +148,7 @@ mod decl {
 
     /// Dump a single frame's info to fd (signal-safe), reading live data.
     #[cfg(any(unix, windows))]
-    fn dump_frame_from_raw(fd: i32, frame: &Frame) {
+    fn dump_frame_from_raw(fd: i32, frame: &FrameObject) {
         let filename = frame.code.source_path().as_str();
         let funcname = frame.code.obj_name.as_str();
         let lasti = frame.lasti();
@@ -224,7 +224,7 @@ mod decl {
 
     /// Write a frame's info to an fd using signal-safe I/O.
     #[cfg(any(unix, windows))]
-    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<Frame>) {
+    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<FrameObject>) {
         let funcname = frame.code.obj_name.as_str();
         let filename = frame.code.source_path().as_str();
         let lineno = if frame.lasti() == 0 {
@@ -271,7 +271,7 @@ mod decl {
     /// `_Py_DumpTracebackThreads`, which walks lock-free while other threads
     /// may still run).
     #[cfg(all(unix, feature = "threading"))]
-    fn dump_traceback_thread_chain(fd: i32, thread_id: u64, is_current: bool, top: *const Frame) {
+    fn dump_traceback_thread_chain(fd: i32, thread_id: u64, is_current: bool, top: *const FrameObject) {
         use crate::vm::frame::FrameChainPtr;
         const MAX_FRAME_DEPTH: usize = 100;
         write_thread_id(fd, thread_id, is_current);
@@ -350,7 +350,7 @@ mod decl {
                     if tid == current_tid {
                         continue;
                     }
-                    let top = slot.top_frame.load(Ordering::Relaxed) as *const Frame;
+                    let top = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
                     dump_traceback_thread_chain(fd, tid, false, top);
                     puts(fd, "\n");
                 }
@@ -734,7 +734,7 @@ mod decl {
                                 let top = slot
                                     .top_frame
                                     .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const Frame;
+                                    as *const FrameObject;
                                 dump_traceback_thread_chain(fd, *tid, false, top);
                             }
                         }

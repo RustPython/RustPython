@@ -3,7 +3,7 @@ use crate::{
     builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, Frame, FrameOwner, FrameRef},
+    frame::{ExecutionResult, FrameObject, FrameOwner, FrameObjectRef},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -29,7 +29,7 @@ impl ExecutionResult {
 
 #[derive(Debug)]
 pub struct Coro {
-    frame: FrameRef,
+    frame: FrameObjectRef,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
     // code
@@ -62,7 +62,7 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             frame,
             closed: AtomicCell::new(false),
@@ -94,7 +94,7 @@ impl Coro {
         match res {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
                 self.closed.store(true);
-                // Frame is no longer suspended; allow frame.clear() to succeed.
+                // FrameObject is no longer suspended; allow frame.clear() to succeed.
                 self.frame.owner.store(
                     FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
@@ -114,7 +114,7 @@ impl Coro {
         func: F,
     ) -> (PyResult<ExecutionResult>, bool)
     where
-        F: FnOnce(&Py<Frame>) -> PyResult<ExecutionResult>,
+        F: FnOnce(&Py<FrameObject>) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
             return (
@@ -290,7 +290,7 @@ impl Coro {
         self.closed.load()
     }
 
-    pub fn frame(&self) -> FrameRef {
+    pub fn frame(&self) -> FrameObjectRef {
         self.frame.clone()
     }
 

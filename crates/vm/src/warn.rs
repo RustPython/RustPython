@@ -513,7 +513,7 @@ fn show_warning(
 }
 
 /// Check if a frame's filename starts with any of the given prefixes.
-fn is_filename_to_skip(frame: &crate::frame::Frame, prefixes: &PyTupleRef) -> bool {
+fn is_filename_to_skip(frame: &crate::frame::FrameObject, prefixes: &PyTupleRef) -> bool {
     let filename = frame.f_code().co_filename();
     let filename_bytes = filename.as_bytes();
     prefixes.iter().any(|prefix| {
@@ -523,15 +523,15 @@ fn is_filename_to_skip(frame: &crate::frame::Frame, prefixes: &PyTupleRef) -> bo
     })
 }
 
-/// Like Frame::next_external_frame but also skips frames matching prefixes.
+/// Like FrameObject::next_external_frame but also skips frames matching prefixes.
 fn next_external_frame_with_skip(
-    frame: &crate::frame::FrameRef,
+    frame: &crate::frame::FrameObjectRef,
     skip_file_prefixes: Option<&PyTupleRef>,
     vm: &VirtualMachine,
-) -> Option<crate::frame::FrameRef> {
+) -> Option<crate::frame::FrameObjectRef> {
     let mut f = frame.f_back(vm);
     loop {
-        let current: crate::frame::FrameRef = f.take()?;
+        let current: crate::frame::FrameObjectRef = f.take()?;
         if current.is_internal_frame()
             || skip_file_prefixes.is_some_and(|p| is_filename_to_skip(&current, p))
         {

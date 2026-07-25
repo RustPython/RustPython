@@ -6,7 +6,7 @@ use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{Frame, FrameOwner, FrameRef},
+    frame::{FrameObject, FrameOwner, FrameObjectRef},
     function::PySetterValue,
     types::Representable,
 };
@@ -426,10 +426,10 @@ pub(crate) mod stack_analysis {
 }
 
 pub(crate) fn init(context: &'static Context) {
-    Frame::extend_class(context, context.types.frame_type);
+    FrameObject::extend_class(context, context.types.frame_type);
 }
 
-impl Representable for Frame {
+impl Representable for FrameObject {
     #[inline]
     fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         const REPR: &str = "<frame object at .. >";
@@ -443,7 +443,7 @@ impl Representable for Frame {
 }
 
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
-impl Frame {
+impl FrameObject {
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
         self.globals.clone()
@@ -594,7 +594,7 @@ impl Frame {
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
         let boxed = zelf.trace_lines.lock();
         Ok(vm.ctx.new_bool(*boxed).into())
@@ -608,7 +608,7 @@ impl Frame {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
                 let value: PyIntRef = value
                     .downcast()
@@ -626,7 +626,7 @@ impl Frame {
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
         let trace_opcodes = zelf.trace_opcodes.lock();
         Ok(vm.ctx.new_bool(*trace_opcodes).into())
     }
@@ -639,7 +639,7 @@ impl Frame {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
                 let value: PyIntRef = value
                     .downcast()
@@ -658,7 +658,7 @@ impl Frame {
 }
 
 #[pyclass]
-impl Py<Frame> {
+impl Py<FrameObject> {
     #[pymethod]
     // = frame_clear_impl
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -682,7 +682,7 @@ impl Py<Frame> {
         }
 
         // Clear fastlocals
-        // SAFETY: Frame is not executing (detached or stopped).
+        // SAFETY: FrameObject is not executing (detached or stopped).
         {
             let fastlocals = unsafe { self.fastlocals_mut() };
             for slot in fastlocals.iter_mut() {
@@ -723,7 +723,7 @@ impl Py<Frame> {
     }
 
     #[pygetset]
-    pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
+    pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
         let chain = self.previous_frame();
         if chain.is_null() {
             return None;
@@ -765,7 +765,7 @@ impl Py<Frame> {
                 reason = "Iteration order doesn't matter here"
             )]
             for slot in registry.values() {
-                let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const Frame;
+                let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
                 while !cur.is_null() {
                     if core::ptr::eq(cur, target) {
                         let f = unsafe { &*Self::from_payload_ptr(cur) };
@@ -794,7 +794,7 @@ impl Py<Frame> {
                 // so FramePtr is valid for the duration of the lock.
                 if let Some(frame) = frames.iter().find_map(|fp| {
                     let f = unsafe { fp.as_ref() };
-                    let ptr: *const Frame = &**f;
+                    let ptr: *const FrameObject = &**f;
                     core::ptr::eq(ptr, target).then(|| f.to_owned())
                 }) {
                     frame.mark_escaped();

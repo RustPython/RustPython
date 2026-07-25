@@ -1,7 +1,7 @@
 use super::{PyList, PyType};
 use crate::{
     AsObject, Context, Py, PyPayload, PyRef, PyResult, VirtualMachine, class::PyClassImpl,
-    frame::FrameRef, function::PySetterValue, types::Constructor,
+    frame::FrameObjectRef, function::PySetterValue, types::Constructor,
 };
 use rustpython_common::lock::PyMutex;
 use rustpython_compiler_core::OneIndexed;
@@ -10,7 +10,7 @@ use rustpython_compiler_core::OneIndexed;
 #[derive(Debug)]
 pub struct PyTraceback {
     pub next: PyMutex<Option<PyTracebackRef>>,
-    pub frame: FrameRef,
+    pub frame: FrameObjectRef,
     #[pytraverse(skip)]
     pub lasti: u32,
     #[pytraverse(skip)]
@@ -31,7 +31,7 @@ impl PyTraceback {
     #[must_use]
     pub const fn new(
         next: Option<PyRef<Self>>,
-        frame: FrameRef,
+        frame: FrameObjectRef,
         lasti: u32,
         lineno: OneIndexed,
     ) -> Self {
@@ -44,7 +44,7 @@ impl PyTraceback {
     }
 
     #[pygetset]
-    fn tb_frame(&self) -> FrameRef {
+    fn tb_frame(&self) -> FrameObjectRef {
         self.frame.clone()
     }
 
@@ -104,7 +104,7 @@ impl PyTraceback {
 }
 
 impl Constructor for PyTraceback {
-    type Args = (Option<PyRef<Self>>, FrameRef, u32, usize);
+    type Args = (Option<PyRef<Self>>, FrameObjectRef, u32, usize);
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         let (next, frame, lasti, lineno) = args;

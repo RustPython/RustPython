@@ -24,8 +24,8 @@ pub(crate) mod _thread {
             PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
             PyUtf8StrRef,
         },
-        common::{lock::PyMutex, wtf8::Wtf8Buf},
-        frame::FrameRef,
+        common::wtf8::Wtf8Buf,
+        frame::FrameObjectRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
@@ -1161,7 +1161,7 @@ pub(crate) mod _thread {
     pub(crate) use crate::vm::thread::CurrentFrameSlot;
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
-    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
+    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameObjectRef)> {
         // unix: read each thread's published top frame under stop-the-world so
         // the owning thread is parked at a safepoint and cannot pop or free the
         // frame while we take a strong reference. Request stop-the-world before
@@ -1181,7 +1181,7 @@ pub(crate) mod _thread {
                         // and cannot pop or free this frame; it is alive on
                         // that thread's call stack.
                         let py =
-                            unsafe { &*Py::<crate::frame::Frame>::from_payload_ptr(p.as_ptr()) };
+                            unsafe { &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr()) };
                         (*id, py.to_owned())
                     })
                 })

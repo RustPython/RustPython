@@ -33,7 +33,7 @@ use crate::{
     common::{hash::HashSecret, lock::PyMutex, rc::PyRc},
     convert::ToPyObject,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, Frame, FrameRef},
+    frame::{ExecutionResult, FrameObject, FrameObjectRef},
     frozen::FrozenModule,
     function::{ArgMapping, FuncArgs, PySetterValue},
     import,
@@ -111,23 +111,23 @@ pub struct VirtualMachine {
 /// Non-owning frame pointer for the non-unix threading frames stack.
 /// The pointed-to frame is kept alive by the caller of with_frame/resume_gen_frame.
 /// Unix threading builds publish the top frame through `ThreadSlot::top_frame`
-/// and walk the rest via `Frame::previous`, so they do not use this type.
+/// and walk the rest via `FrameObject::previous`, so they do not use this type.
 #[cfg(all(not(unix), feature = "threading"))]
 #[derive(Copy, Clone)]
-pub struct FramePtr(NonNull<Py<Frame>>);
+pub struct FramePtr(NonNull<Py<FrameObject>>);
 
 #[cfg(all(not(unix), feature = "threading"))]
 impl FramePtr {
     /// # Safety
     /// The pointed-to frame must still be alive.
     #[must_use]
-    pub unsafe fn as_ref(&self) -> &Py<Frame> {
+    pub unsafe fn as_ref(&self) -> &Py<FrameObject> {
         unsafe { self.0.as_ref() }
     }
 }
 
 // SAFETY: FramePtr is only stored in a thread's shared frame stack
-// (`ThreadSlot::frames`) while the corresponding FrameRef is alive on that
+// (`ThreadSlot::frames`) while the corresponding FrameObjectRef is alive on that
 // thread's call stack; readers dereference it under the slot mutex.
 #[cfg(all(not(unix), feature = "threading"))]
 unsafe impl Send for FramePtr {}
@@ -1332,7 +1332,7 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
-    pub fn run_frame(&self, frame: FrameRef) -> PyResult {
+    pub fn run_frame(&self, frame: FrameObjectRef) -> PyResult {
         // Only ordinary (datastack) call frames reach `run_frame`; generator
         // and coroutine frames are resumed through `resume_gen_frame`. A
         // datastack frame is created untracked and is tracked lazily only when
@@ -1711,9 +1711,9 @@ impl VirtualMachine {
         f()
     }
 
-    pub fn with_frame<R, F: FnOnce(FrameRef) -> PyResult<R>>(
+    pub fn with_frame<R, F: FnOnce(FrameObjectRef) -> PyResult<R>>(
         &self,
-        frame: FrameRef,
+        frame: FrameObjectRef,
         f: F,
     ) -> PyResult<R> {
         self.check_recursive_call("")?;
@@ -1732,7 +1732,7 @@ impl VirtualMachine {
 
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
-        let payload: *const Frame = &**frame;
+        let payload: *const FrameObject = &**frame;
         let old_chain =
             crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
         {
@@ -1767,12 +1767,12 @@ impl VirtualMachine {
         self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
     }
 
-    /// Frame execution for generator/coroutine resume.
+    /// FrameObject execution for generator/coroutine resume.
     /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
     /// linking the generator's saved handled-exception.
-    pub fn resume_gen_frame<R, F: FnOnce(&Py<Frame>) -> PyResult<R>>(
+    pub fn resume_gen_frame<R, F: FnOnce(&Py<FrameObject>) -> PyResult<R>>(
         &self,
-        frame: &FrameRef,
+        frame: &FrameObjectRef,
         exc: Option<PyBaseExceptionRef>,
         f: F,
     ) -> PyResult<R> {
@@ -1782,10 +1782,10 @@ impl VirtualMachine {
         }
         self.recursion_depth.update(|d| d + 1);
 
-        // SAFETY: frame (&FrameRef) stays alive for the duration, so NonNull is valid until pop.
+        // SAFETY: frame (&FrameObjectRef) stays alive for the duration, so NonNull is valid until pop.
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
-        let payload: *const Frame = &***frame;
+        let payload: *const FrameObject = &***frame;
         let old_chain =
             crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
         {
@@ -1833,9 +1833,9 @@ impl VirtualMachine {
     /// - Fire `TraceEvent::Return` on both normal return **and** exception
     ///   unwind (`PY_UNWIND` → `PyTrace_RETURN` with `arg = None`).
     ///   Propagate any trace-function error, replacing the original exception.
-    fn dispatch_traced_frame<R, F: FnOnce(&Py<Frame>) -> PyResult<R>>(
+    fn dispatch_traced_frame<R, F: FnOnce(&Py<FrameObject>) -> PyResult<R>>(
         &self,
-        frame: &Py<Frame>,
+        frame: &Py<FrameObject>,
         f: F,
     ) -> PyResult<R> {
         use crate::protocol::TraceEvent;
@@ -1904,7 +1904,7 @@ impl VirtualMachine {
         }
     }
 
-    pub fn current_frame(&self) -> Option<FrameRef> {
+    pub fn current_frame(&self) -> Option<FrameObjectRef> {
         crate::frame::current_thread_frame()
     }
 

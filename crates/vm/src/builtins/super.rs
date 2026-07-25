@@ -86,7 +86,7 @@ impl Initializer for PySuper {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
 
-            // SAFETY: Frame is current and not concurrently mutated.
+            // SAFETY: FrameObject is current and not concurrently mutated.
             use rustpython_compiler_core::bytecode::CO_FAST_CELL;
             let obj = unsafe { frame.fastlocals() }[0]
                 .clone()

@@ -649,7 +649,7 @@ impl GcState {
                     while !cur.is_null() {
                         if let Some(heavy) = cur.as_heavy() {
                             let obj = unsafe {
-                                &*crate::Py::<crate::frame::Frame>::from_payload_ptr(heavy)
+                                &*crate::Py::<crate::frame::FrameObject>::from_payload_ptr(heavy)
                             }
                             .as_object();
                             let ptr = GcPtr(NonNull::from(obj));

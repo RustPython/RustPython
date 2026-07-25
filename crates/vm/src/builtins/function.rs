@@ -14,7 +14,7 @@ use crate::{
     bytecode,
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
-    frame::{Frame, FrameRef},
+    frame::{FrameObject, FrameObjectRef},
     function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
@@ -225,7 +225,7 @@ impl PyFunction {
 
     fn fill_locals_from_args(
         &self,
-        frame: &Frame,
+        frame: &FrameObject,
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -241,7 +241,7 @@ impl PyFunction {
         // See also: PyEval_EvalCodeWithName in cpython:
         // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
 
-        // SAFETY: Frame was just created and not yet executing.
+        // SAFETY: FrameObject was just created and not yet executing.
         let fastlocals = unsafe { frame.fastlocals_mut() };
 
         let mut args_iter = func_args.args.into_iter();
@@ -570,7 +570,7 @@ impl Py<PyFunction> {
         let use_datastack = !(is_gen || is_coro || is_async_gen);
 
         // Construct frame:
-        let frame = Frame::new(
+        let frame = FrameObject::new(
             code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
@@ -686,7 +686,7 @@ impl Py<PyFunction> {
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> FrameRef {
+    ) -> FrameObjectRef {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -709,7 +709,7 @@ impl Py<PyFunction> {
             Some(ArgMapping::from_dict_exact(self.globals.clone()))
         };
 
-        let frame = Frame::new(
+        let frame = FrameObject::new(
             code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
@@ -782,7 +782,7 @@ impl Py<PyFunction> {
     }
 
     /// Fast path for unobserved Python-to-Python calls.
-    /// Allocates a LightFrame on the DataStack instead of a full Frame PyObject.
+    /// Allocates a LightFrame on the DataStack instead of a full FrameObject PyObject.
     /// The frame is materialized lazily only if observed (traceback, sys._getframe).
     ///
     /// Falls back to `invoke_exact_args_slots` for generators/coroutines or when
@@ -904,7 +904,7 @@ impl Py<PyFunction> {
 
             // Cache pointers so the panic guard doesn't borrow `light`
             // (which is also used mutably for prev_line).
-            let materialized_cell: *const core::cell::UnsafeCell<*mut Py<Frame>> =
+            let materialized_cell: *const core::cell::UnsafeCell<*mut Py<FrameObject>> =
                 &(*light).materialized;
             let _light_for_cleanup: *mut LightFrame = light;
 
@@ -916,7 +916,7 @@ impl Py<PyFunction> {
                 let _ = crate::vm::thread::set_current_frame(old_chain);
                 let materialized_ptr = *(*materialized_cell).get();
                 if !materialized_ptr.is_null() {
-                    let reclaim = FrameRef::from_raw(materialized_ptr as *const _);
+                    let reclaim = FrameObjectRef::from_raw(materialized_ptr as *const _);
                     drop(reclaim);
                 }
                 vm.datastack_pop(base);
@@ -958,7 +958,7 @@ impl Py<PyFunction> {
             // detached and join GC so reference cycles are collectible.
             let materialized_ptr = *(*materialized_cell).get();
             if !materialized_ptr.is_null() {
-                let mat_ref: &Py<Frame> = &*materialized_ptr;
+                let mat_ref: &Py<FrameObject> = &*materialized_ptr;
                 // Transfer ownership of localsplus values from the light
                 // frame to the materialized frame. During materialization,
                 // values were cloned (refcount +1). Now that execution is

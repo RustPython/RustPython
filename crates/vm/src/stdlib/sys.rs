@@ -44,7 +44,7 @@ pub mod sys {
             hash::{PyHash, PyUHash},
         },
         convert::ToPyObject,
-        frame::FrameRef,
+        frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
         stdlib::{_warnings::warn, builtins},
         types::PyStructSequence,
@@ -968,7 +968,7 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
+    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
         let offset = offset.into_option().unwrap_or(0);
         let frame_ref = crate::frame::frame_at_offset_vm(offset, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;

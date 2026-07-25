@@ -211,7 +211,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Extract child references to break circular refs (tp_clear), then drop
-    // them. Some payloads (e.g. Frame) drop children in place inside clear_fn
+    // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
     // instead of extracting them, so user code (`__del__`) may run here.
     let mut edges = Vec::new();
     if let Some(clear_fn) = vtable.clear {

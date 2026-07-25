@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::lock::PyMutex,
     coroutine::{Coro, warn_deprecated_throw_signature},
-    frame::FrameRef,
+    frame::FrameObjectRef,
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -50,7 +50,7 @@ impl PyAsyncGen {
     }
 
     #[must_use]
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
             running_async: AtomicCell::new(false),
@@ -127,7 +127,7 @@ impl PyAsyncGen {
         self.inner.frame().yield_from_target()
     }
     #[pygetset]
-    fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
+    fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
         if self.inner.closed() {
             None
         } else {
