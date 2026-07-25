@@ -1026,6 +1026,11 @@ mod _sqlite3 {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
                     x.as_mut().unwrap_unchecked()
                 }))
+            } else if self.initialized.load(Ordering::Acquire) {
+                Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed database.".to_owned(),
+                ))
             } else {
                 Err(new_programming_error(
                     vm,
