@@ -210,8 +210,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        // TODO: RUSTPYTHON; Add support for using the C altzone
-        crate::host_env::time::tz::timezone() - 3600
+        crate::host_env::time::tz::altzone()
     }
 
     #[cfg(target_env = "msvc")]
