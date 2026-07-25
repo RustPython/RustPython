@@ -1,4 +1,5 @@
 import ast
+import copy
 
 print(ast)
 
@@ -40,8 +41,6 @@ assert i.names[0].asname is None
 
 
 # Regression: parsed AST identifier fields are interned, matching CPython.
-import copy
-
 name_literal = "x"
 name = ast.parse("x").body[0].value
 assert name.id is name_literal
