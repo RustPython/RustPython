@@ -993,7 +993,7 @@ pub mod sys {
 
         // Get the frame at the specified depth
         let func_obj = match crate::frame::frame_at_offset_vm(depth, vm) {
-            Some(frame) => frame.func_obj.clone(),
+            Some(frame) => frame.iframe().func_obj.clone(),
             None => return Ok(vm.ctx.none()),
         };
 

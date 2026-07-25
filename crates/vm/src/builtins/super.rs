@@ -82,7 +82,7 @@ impl Initializer for PySuper {
             let frame = crate::frame::current_thread_frame_vm(vm)
                 .ok_or_else(|| vm.new_runtime_error("super(): no current frame"))?;
 
-            if frame.code.arg_count == 0 {
+            if frame.iframe().code.arg_count == 0 {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
 
@@ -93,6 +93,7 @@ impl Initializer for PySuper {
                 .and_then(|val| {
                     // If slot 0 is a merged cell (LOCAL|CELL), extract value from cell
                     if frame
+                        .iframe()
                         .code
                         .localspluskinds
                         .first()
@@ -107,10 +108,10 @@ impl Initializer for PySuper {
 
             let mut typ = None;
             // Search for __class__ in freevars using localspluskinds
-            let nlocalsplus = frame.code.localspluskinds.len();
-            let nfrees = frame.code.freevars.len();
+            let nlocalsplus = frame.iframe().code.localspluskinds.len();
+            let nfrees = frame.iframe().code.freevars.len();
             let free_start = nlocalsplus - nfrees;
-            for (i, var) in frame.code.freevars.iter().enumerate() {
+            for (i, var) in frame.iframe().code.freevars.iter().enumerate() {
                 if var.as_bytes() == b"__class__" {
                     let class = frame
                         .get_cell_contents(free_start + i)

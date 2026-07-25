@@ -578,10 +578,10 @@ fn setup_context(
     }
 
     let (globals, filename, lineno) = if let Some(f) = f {
-        (f.globals.clone(), f.code.source_path(), f.f_lineno())
+        (f.iframe().globals.clone(), f.iframe().code.source_path(), f.f_lineno())
     } else if let Some(frame) = vm.current_frame() {
         // We have a frame but it wasn't found during stack walking
-        (frame.globals.clone(), vm.ctx.intern_str("<sys>"), 1)
+        (frame.iframe().globals.clone(), vm.ctx.intern_str("<sys>"), 1)
     } else {
         // No frames on the stack - use sys.__dict__ (interp->sysdict)
         let globals = vm

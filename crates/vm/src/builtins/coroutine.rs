@@ -93,7 +93,7 @@ impl PyCoroutine {
     }
     #[pygetset]
     fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+        self.inner.frame().iframe().code.clone()
     }
     // TODO: coroutine origin tracking:
     // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth

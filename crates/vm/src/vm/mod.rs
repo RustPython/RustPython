@@ -1739,22 +1739,23 @@ impl VirtualMachine {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
             frame
+                .iframe()
                 .previous
                 .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
         }
-        let save_exc = frame.code.has_exc_handling;
+        let save_exc = frame.iframe().code.has_exc_handling;
         let saved_exc = if save_exc {
             self.current_exception()
         } else {
             None
         };
-        let old_owner = frame.owner.swap(
+        let old_owner = frame.iframe().owner.swap(
             crate::frame::FrameOwner::Thread as i8,
             core::sync::atomic::Ordering::AcqRel,
         );
 
         scopeguard::defer! {
-            frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
+            frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
             if save_exc {
                 self.restore_exception(saved_exc);
             }
@@ -1799,12 +1800,13 @@ impl VirtualMachine {
                 prev = unsafe { prev.next() };
             }
             frame
+                .iframe()
                 .previous
                 .store(prev.raw(), core::sync::atomic::Ordering::Relaxed);
         }
         // Push generator's exc_info slot onto the chain
         self.push_exception(exc);
-        let old_owner = frame.owner.swap(
+        let old_owner = frame.iframe().owner.swap(
             crate::frame::FrameOwner::Thread as i8,
             core::sync::atomic::Ordering::AcqRel,
         );
@@ -1812,7 +1814,7 @@ impl VirtualMachine {
         // Ensure cleanup on panic: restore owner, pop exc_info slot, frame chain,
         // frames Vec, and recursion depth.
         scopeguard::defer! {
-            frame.owner.store(old_owner, core::sync::atomic::Ordering::Release);
+            frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
             let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
@@ -1843,7 +1845,7 @@ impl VirtualMachine {
         // Fire 'call' trace event. current_frame() now returns the callee.
         let trace_result = self.trace_event(TraceEvent::Call, None)?;
         if let Some(local_trace) = trace_result {
-            *frame.trace.lock() = local_trace;
+            *frame.iframe().trace.lock() = local_trace;
         }
 
         let result = f(frame);
@@ -1852,7 +1854,7 @@ impl VirtualMachine {
         // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
         // both Ok and Err, matching `call_trace_protected` behavior.
         if self.use_tracing.get()
-            && (!self.is_none(&frame.trace.lock()) || !self.is_none(&self.profile_func.borrow()))
+            && (!self.is_none(&frame.iframe().trace.lock()) || !self.is_none(&self.profile_func.borrow()))
         {
             let ret_result = self.trace_event(TraceEvent::Return, None);
             // call_trace_protected: if trace function raises, its error
@@ -1982,7 +1984,7 @@ impl VirtualMachine {
             // use globals as locals (light frame locals are on the data stack).
             let locals_mapping = self.current_frame().map_or_else(
                 || ArgMapping::from_dict_exact(globals.clone()),
-                |f| f.locals.clone_mapping(self),
+                |f| f.iframe().locals.clone_mapping(self),
             );
             (Some(locals_mapping), Some(globals))
         } else {

@@ -392,7 +392,7 @@ pub(crate) unsafe fn materialize_light_frame_pub(
 /// `frame` must be the materialized frame.
 pub(crate) unsafe fn sync_materialized_on_exit(frame: &Py<FrameObject>) {
     // Set owner to FrameObject (detached) so clear/GC knows it's not executing
-    frame.owner.store(FrameOwner::FrameObject as i8, Relaxed);
+    frame.iframe().owner.store(FrameOwner::FrameObject as i8, Relaxed);
     // Stabilize localsplus on the heap — the data-stack backing will
     // be popped momentarily, so a collector must never see the
     // data-stack pointer.
@@ -1238,7 +1238,7 @@ impl FrameObject {
     /// and that the frame has not been cleared (i.e. it is still reachable
     /// from Python; `Traverse::clear` only runs during deallocation).
     #[inline(always)]
-    unsafe fn iframe_ref(&self) -> &InterpreterFrame {
+    pub(crate) unsafe fn iframe_ref(&self) -> &InterpreterFrame {
         let opt = unsafe { &*self.iframe.get() };
         #[cfg(debug_assertions)]
         if opt.is_none() {
@@ -1255,7 +1255,7 @@ impl FrameObject {
     /// the frame has not been cleared.
     #[inline(always)]
     #[allow(clippy::mut_from_ref)]
-    unsafe fn iframe_mut(&self) -> &mut InterpreterFrame {
+    pub(crate) unsafe fn iframe_mut(&self) -> &mut InterpreterFrame {
         let opt = unsafe { &mut *self.iframe.get() };
         #[cfg(debug_assertions)]
         if opt.is_none() {
@@ -1263,6 +1263,18 @@ impl FrameObject {
         }
         // SAFETY: iframe is always Some while the frame is reachable (see above).
         unsafe { opt.as_mut().unwrap_unchecked() }
+    }
+
+    /// Shared access to the embedded interpreter frame. Safe to call on any
+    /// reachable FrameObject: immutable fields and atomic/mutex fields are
+    /// always safe to access.
+    #[inline(always)]
+    pub fn iframe(&self) -> &InterpreterFrame {
+        // SAFETY: FrameObject is always reachable from Python when this is
+        // called. Immutable fields and atomic/mutex fields provide their own
+        // synchronization. Mutable fields (localsplus, prev_line) are only
+        // mutated during single-threaded execution via with_exec.
+        unsafe { self.iframe_ref() }
     }
 }
 
@@ -1275,20 +1287,8 @@ fn cleared_frame_access() -> ! {
     panic!("frame accessed after clear");
 }
 
-impl core::ops::Deref for FrameObject {
-    type Target = InterpreterFrame;
-    /// Transparent access to InterpreterFrame fields.
-    ///
-    /// # Safety argument
-    /// Immutable fields (code, globals, builtins, func_obj, locals) are safe
-    /// to access at any time. Atomic/mutex fields (lasti, trace, owner, etc.)
-    /// provide their own synchronization. Mutable fields (localsplus, prev_line)
-    /// are only mutated during single-threaded execution via `with_exec`.
-    #[inline(always)]
-    fn deref(&self) -> &InterpreterFrame {
-        unsafe { self.iframe_ref() }
-    }
-}
+// NOTE: Deref<Target = InterpreterFrame> removed to decouple FrameObject
+// from InterpreterFrame field layout. Access through iframe_ref()/iframe_mut().
 
 thread_local! {
     /// Free list of dead frame objects for reuse. Entries are cleared husks
@@ -1553,8 +1553,8 @@ impl FrameObject {
         for slot in fastlocals.iter_mut() {
             *slot = None;
         }
-        self.f_locals_hidden_overlay.lock().take();
-        self.f_extra_locals.lock().take();
+        self.iframe().f_locals_hidden_overlay.lock().take();
+        self.iframe().f_extra_locals.lock().take();
     }
 
     /// Get cell contents by localsplus index.
@@ -1571,8 +1571,8 @@ impl FrameObject {
     /// Store a borrowed back-reference to the owning generator/coroutine.
     /// The caller must ensure the generator outlives the frame.
     pub fn set_generator(&self, generator: &PyObject) {
-        self.generator.store(generator);
-        self.owner
+        self.iframe().generator.store(generator);
+        self.iframe().owner
             .store(FrameOwner::Generator as i8, atomic::Ordering::Release);
     }
 
@@ -1593,51 +1593,51 @@ impl FrameObject {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.code.locations[self.lasti() as usize - 1].0
+        self.iframe().code.locations[self.lasti() as usize - 1].0
     }
 
     /// Get the previous frame chain pointer.
     pub fn previous_frame(&self) -> FrameChainPtr {
-        FrameChainPtr::from_raw(self.previous.load(atomic::Ordering::Relaxed))
+        FrameChainPtr::from_raw(self.iframe().previous.load(atomic::Ordering::Relaxed))
     }
 
     /// Record that a durable Python-level reference to this frame escaped.
     pub(crate) fn mark_escaped(&self) {
-        self.escaped.store(true, atomic::Ordering::Release);
+        self.iframe().escaped.store(true, atomic::Ordering::Release);
     }
 
     /// Whether a durable reference to this frame has escaped.
     pub(crate) fn has_escaped(&self) -> bool {
-        self.escaped.load(atomic::Ordering::Acquire)
+        self.iframe().escaped.load(atomic::Ordering::Acquire)
     }
 
     pub fn lasti(&self) -> u32 {
-        self.lasti.load(Relaxed)
+        self.iframe().lasti.load(Relaxed)
     }
 
     pub fn set_lasti(&self, val: u32) {
-        self.lasti.store(val, Relaxed);
+        self.iframe().lasti.store(val, Relaxed);
     }
 
     pub(crate) fn pending_stack_pops(&self) -> u32 {
-        self.pending_stack_pops.load(Relaxed)
+        self.iframe().pending_stack_pops.load(Relaxed)
     }
 
     pub(crate) fn set_pending_stack_pops(&self, val: u32) {
-        self.pending_stack_pops.store(val, Relaxed);
+        self.iframe().pending_stack_pops.store(val, Relaxed);
     }
 
     pub(crate) fn pending_unwind_from_stack(&self) -> i64 {
-        self.pending_unwind_from_stack.load(Relaxed)
+        self.iframe().pending_unwind_from_stack.load(Relaxed)
     }
 
     pub(crate) fn set_pending_unwind_from_stack(&self, val: i64) {
-        self.pending_unwind_from_stack.store(val, Relaxed);
+        self.iframe().pending_unwind_from_stack.store(val, Relaxed);
     }
 
     fn has_active_hidden_locals(&self) -> bool {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
-        let code = &**self.code;
+        let code = &**self.iframe().code;
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
         let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
         !is_optimized
@@ -1669,7 +1669,7 @@ impl FrameObject {
         };
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
-        let code = &**self.code;
+        let code = &**self.iframe().code;
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
 
         // Iterate through all localsplus slots using localspluskinds
@@ -1773,7 +1773,7 @@ impl FrameObject {
     /// builtin, trace callbacks) is fine: the frame sits on the current
     /// thread's frame chain and is at a bytecode boundary.
     pub(crate) fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let owner = FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire));
+        let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
         if owner != FrameOwner::Thread {
             return Ok(());
         }
@@ -1795,12 +1795,12 @@ impl FrameObject {
     pub fn f_locals_mapping(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
         self.check_locals_access(vm)?;
         if !self.has_active_hidden_locals() {
-            self.f_locals_hidden_overlay.lock().take();
+            self.iframe().f_locals_hidden_overlay.lock().take();
             return self.locals(vm);
         }
 
         let overlay_dict = {
-            let mut overlay = self.f_locals_hidden_overlay.lock();
+            let mut overlay = self.iframe().f_locals_hidden_overlay.lock();
             match overlay.as_ref() {
                 Some(dict) => dict.clone(),
                 None => {
@@ -1824,8 +1824,8 @@ impl FrameObject {
             self.sync_visible_locals_to_mapping(overlay.mapping(), vm)?;
             overlay
         } else {
-            self.sync_visible_locals_to_mapping(self.locals.mapping(vm), vm)?;
-            self.locals.clone_mapping(vm)
+            self.sync_visible_locals_to_mapping(self.iframe().locals.mapping(vm), vm)?;
+            self.iframe().locals.clone_mapping(vm)
         };
         self.fold_extra_locals(&mapping, vm)?;
         Ok(mapping)
@@ -1834,7 +1834,7 @@ impl FrameObject {
     /// Copy the frame's extra-locals side storage (proxy keys that are not
     /// fast locals) into `mapping`. No-op when nothing was ever stored.
     fn fold_extra_locals(&self, mapping: &ArgMapping, vm: &VirtualMachine) -> PyResult<()> {
-        let extra = self.f_extra_locals.lock().clone();
+        let extra = self.iframe().f_extra_locals.lock().clone();
         if let Some(extra) = extra {
             for (key, value) in &extra {
                 mapping.mapping().ass_subscript(&key, Some(value), vm)?;
@@ -1851,7 +1851,7 @@ impl FrameObject {
         // frame is not executing on another thread.
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
         let obj = fastlocals.get(i)?.as_ref()?;
-        let kind = self.code.localspluskinds.get(i).copied().unwrap_or(0);
+        let kind = self.iframe().code.localspluskinds.get(i).copied().unwrap_or(0);
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
             if let Some(cell) = obj.downcast_ref::<PyCell>() {
                 cell.get()
@@ -1867,7 +1867,7 @@ impl FrameObject {
     /// the slot holds one so closures keep sharing the same cell.
     fn framelocalsproxy_setval(&self, i: usize, value: PyObjectRef) {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
-        let kind = self.code.localspluskinds.get(i).copied().unwrap_or(0);
+        let kind = self.iframe().code.localspluskinds.get(i).copied().unwrap_or(0);
         // SAFETY: callers first pass through `check_locals_access`.
         let fastlocals = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0
@@ -1893,8 +1893,8 @@ impl FrameObject {
         use rustpython_compiler_core::bytecode::CO_FAST_HIDDEN;
         // The proxy hashes the key first; an unhashable key raises TypeError.
         key.hash(vm)?;
-        for (i, &kind) in self.code.localspluskinds.iter().enumerate() {
-            let name = localsplus_name(&self.code, i);
+        for (i, &kind) in self.iframe().code.localspluskinds.iter().enumerate() {
+            let name = localsplus_name(&self.iframe().code, i);
             if !name
                 .as_object()
                 .rich_compare_bool(key, PyComparisonOp::Eq, vm)?
@@ -1935,7 +1935,7 @@ impl FrameObject {
         {
             return Ok(value);
         }
-        let extra = self.f_extra_locals.lock().clone();
+        let extra = self.iframe().f_extra_locals.lock().clone();
         if let Some(extra) = extra
             && let Some(value) = extra.get_item_opt(&*key, vm)?
         {
@@ -1954,7 +1954,7 @@ impl FrameObject {
         if self.framelocalsproxy_getkeyindex(&key, true, vm)?.is_some() {
             return Ok(true);
         }
-        let extra = self.f_extra_locals.lock().clone();
+        let extra = self.iframe().f_extra_locals.lock().clone();
         if let Some(extra) = extra {
             return Ok(extra.get_item_opt(&*key, vm)?.is_some());
         }
@@ -1992,7 +1992,7 @@ impl FrameObject {
         {
             return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
         }
-        let extra = self.f_extra_locals.lock().clone();
+        let extra = self.iframe().f_extra_locals.lock().clone();
         if let Some(extra) = extra
             && extra.get_item_opt(&*key, vm)?.is_some()
         {
@@ -2015,7 +2015,7 @@ impl FrameObject {
         {
             return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
         }
-        let extra = self.f_extra_locals.lock().clone();
+        let extra = self.iframe().f_extra_locals.lock().clone();
         if let Some(extra) = extra
             && let Some(value) = extra.pop_item(&*key, vm)?
         {
@@ -2042,7 +2042,7 @@ impl FrameObject {
     }
 
     fn extra_locals_get_or_create(&self, vm: &VirtualMachine) -> PyDictRef {
-        let mut extra = self.f_extra_locals.lock();
+        let mut extra = self.iframe().f_extra_locals.lock();
         extra.get_or_insert_with(|| vm.ctx.new_dict()).clone()
     }
 }
@@ -2109,7 +2109,7 @@ impl Py<FrameObject> {
     pub fn yield_from_target(&self) -> Option<PyObjectRef> {
         // If the frame is currently executing (owned by thread), it has no
         // yield-from target to report.
-        let owner = FrameOwner::from_i8(self.owner.load(atomic::Ordering::Acquire));
+        let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
         if owner == FrameOwner::Thread {
             return None;
         }
@@ -2312,13 +2312,13 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
         // survives after the light frame returns and its DataStack storage
         // is popped.
         let mat = unsafe { materialize_light_frame(light, vm) };
-        frame.previous.store(
+        frame.iframe().previous.store(
             FrameChainPtr::from_heavy(&**mat as *const FrameObject).raw(),
             Relaxed,
         );
-        *frame.retained_back.lock() = Some(mat);
+        *frame.iframe().retained_back.lock() = Some(mat);
     } else {
-        *frame.retained_back.lock() = prev
+        *frame.iframe().retained_back.lock() = prev
             .as_heavy()
             .and_then(|h| unsafe { owned_chain_frame(h) });
     }
@@ -2584,7 +2584,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn trace_is_set(&self, vm: &VirtualMachine) -> bool {
         if let Some(frame) = self.heavy_frame_ref() {
-            !vm.is_none(&frame.trace.lock())
+            !vm.is_none(&frame.iframe().trace.lock())
         } else {
             false
         }
@@ -2594,7 +2594,7 @@ impl ExecutingFrame<'_> {
     #[inline]
     fn trace_opcodes_is_set(&self) -> bool {
         if let Some(frame) = self.heavy_frame_ref() {
-            *frame.trace_opcodes.lock()
+            *frame.iframe().trace_opcodes.lock()
         } else {
             false
         }
@@ -11032,7 +11032,7 @@ impl fmt::Debug for FrameObject {
             f,
             "FrameObject Object {{ \n Stack:{}\n Locals initialized:{}\n}}",
             stack_str,
-            self.locals.get().is_some()
+            self.iframe().locals.get().is_some()
         )
     }
 }

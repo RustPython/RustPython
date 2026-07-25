@@ -140,7 +140,7 @@ impl PyAsyncGen {
     }
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+        self.inner.frame().iframe().code.clone()
     }
 
     #[pyclassmethod]
@@ -688,6 +688,7 @@ impl PyAnextAwaitable {
                 && generator
                     .as_coro()
                     .frame()
+                    .iframe()
                     .code
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)

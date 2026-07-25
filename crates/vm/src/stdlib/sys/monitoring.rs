@@ -529,7 +529,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
     crate::frame::for_each_current_frame(|frame| {
-        let code = &frame.code;
+        let code = &frame.iframe().code;
         let code_ver = code.instrumentation_version.load(Ordering::Acquire);
         if code_ver != new_ver {
             let code_events = state.events_for_code(code.get_id());

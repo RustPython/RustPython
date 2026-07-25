@@ -95,7 +95,7 @@ impl Coro {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
                 self.closed.store(true);
                 // FrameObject is no longer suspended; allow frame.clear() to succeed.
-                self.frame.owner.store(
+                self.frame.iframe().owner.store(
                     FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
                 );
@@ -337,6 +337,7 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
         || obj.downcast_ref::<PyGenerator>().is_some_and(|g| {
             g.as_coro()
                 .frame()
+                .iframe()
                 .code
                 .flags
                 .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
@@ -352,6 +353,7 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
             || result.downcast_ref::<PyGenerator>().is_some_and(|g| {
                 g.as_coro()
                     .frame()
+                    .iframe()
                     .code
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)

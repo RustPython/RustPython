@@ -446,17 +446,17 @@ impl Representable for FrameObject {
 impl FrameObject {
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
-        self.globals.clone()
+        self.iframe().globals.clone()
     }
 
     #[pygetset]
     fn f_builtins(&self) -> PyObjectRef {
-        self.builtins.clone()
+        self.iframe().builtins.clone()
     }
 
     #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
-        self.code.clone()
+        self.iframe().code.clone()
     }
 
     #[pygetset]
@@ -470,7 +470,7 @@ impl FrameObject {
         // If lasti is 0, execution hasn't started yet - use first line number
         // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.code.first_line_number.map_or(1, |n| n.get())
+            self.iframe().code.first_line_number.map_or(1, |n| n.get())
         } else {
             self.current_location().line.get()
         }
@@ -492,7 +492,7 @@ impl FrameObject {
             }
         };
 
-        let first_line = self.code.first_line_number.map_or(1, |n| n.get() as i32);
+        let first_line = self.iframe().code.first_line_number.map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(
@@ -500,7 +500,7 @@ impl FrameObject {
             )));
         }
 
-        let py_code: &PyCode = &self.code;
+        let py_code: &PyCode = &self.iframe().code;
         let code = &py_code.code;
         let lines = mark_lines(code);
 
@@ -513,7 +513,7 @@ impl FrameObject {
         }
 
         let stacks = mark_stacks(code);
-        let len = self.code.instructions.len();
+        let len = self.iframe().code.instructions.len();
 
         // lasti points past the current instruction (already incremented).
         // stacks[lasti - 1] gives the stack state before executing the
@@ -581,13 +581,13 @@ impl FrameObject {
 
     #[pygetset]
     fn f_trace(&self) -> PyObjectRef {
-        let boxed = self.trace.lock();
+        let boxed = self.iframe().trace.lock();
         boxed.clone()
     }
 
     #[pygetset(setter)]
     fn set_f_trace(&self, value: PySetterValue, vm: &VirtualMachine) {
-        let mut storage = self.trace.lock();
+        let mut storage = self.iframe().trace.lock();
         *storage = value.unwrap_or_none(vm);
     }
 
@@ -596,7 +596,7 @@ impl FrameObject {
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
-        let boxed = zelf.trace_lines.lock();
+        let boxed = zelf.iframe().trace_lines.lock();
         Ok(vm.ctx.new_bool(*boxed).into())
     }
 
@@ -614,7 +614,7 @@ impl FrameObject {
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
-                let mut trace_lines = zelf.trace_lines.lock();
+                let mut trace_lines = zelf.iframe().trace_lines.lock();
                 *trace_lines = !value.as_bigint().is_zero();
 
                 Ok(())
@@ -627,7 +627,7 @@ impl FrameObject {
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let trace_opcodes = zelf.trace_opcodes.lock();
+        let trace_opcodes = zelf.iframe().trace_opcodes.lock();
         Ok(vm.ctx.new_bool(*trace_opcodes).into())
     }
 
@@ -645,7 +645,7 @@ impl FrameObject {
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
-                let mut trace_opcodes = zelf.trace_opcodes.lock();
+                let mut trace_opcodes = zelf.iframe().trace_opcodes.lock();
                 *trace_opcodes = !value.as_bigint().is_zero();
 
                 // TODO: Implement the equivalent of _PyEval_SetOpcodeTrace()
@@ -662,7 +662,7 @@ impl Py<FrameObject> {
     #[pymethod]
     // = frame_clear_impl
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let owner = FrameOwner::from_i8(self.owner.load(core::sync::atomic::Ordering::Acquire));
+        let owner = FrameOwner::from_i8(self.iframe().owner.load(core::sync::atomic::Ordering::Acquire));
         match owner {
             FrameOwner::Generator => {
                 // Generator frame: check if suspended (lasti > 0 means
@@ -694,10 +694,10 @@ impl Py<FrameObject> {
         self.clear_stack_and_cells();
 
         // Clear temporary refs
-        self.temporary_refs.lock().clear();
-        self.f_locals_hidden_overlay.lock().take();
-        self.f_extra_locals.lock().take();
-        self.retained_back.lock().take();
+        self.iframe().temporary_refs.lock().clear();
+        self.iframe().f_locals_hidden_overlay.lock().take();
+        self.iframe().f_extra_locals.lock().take();
+        self.iframe().retained_back.lock().take();
 
         Ok(())
     }
@@ -707,7 +707,7 @@ impl Py<FrameObject> {
         // Optimized (function) frames expose a live write-through
         // FrameLocalsProxy; class/module/exec frames expose their namespace
         // mapping directly.
-        if self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+        if self.iframe().code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
             self.check_locals_access(vm)?;
             self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
@@ -719,7 +719,7 @@ impl Py<FrameObject> {
 
     #[pygetset]
     fn f_generator(&self) -> Option<PyObjectRef> {
-        self.generator.to_owned()
+        self.iframe().generator.to_owned()
     }
 
     #[pygetset]
@@ -744,7 +744,7 @@ impl Py<FrameObject> {
         }
 
         // The caller already returned — check retained_back
-        let retained = self.retained_back.lock().clone();
+        let retained = self.iframe().retained_back.lock().clone();
         if let Some(frame) = retained {
             frame.mark_escaped();
             return Some(frame);
