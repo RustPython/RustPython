@@ -409,7 +409,7 @@ impl Node for ast::StmtFunctionDef {
 
         let node = NodeAst.into_ref_with_type(vm, cls).unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("name", vm.ctx.new_str(name.as_str()).to_pyobject(vm), vm)
+        dict.set_item("name", name.ast_to_object(vm, source_file), vm)
             .unwrap();
         dict.set_item("args", parameters.ast_to_object(vm, source_file), vm)
             .unwrap();
