@@ -1331,7 +1331,6 @@ class CopyTests(unittest.TestCase):
         self.assertEqual(repl.x, 0)
         self.assertEqual(repl.y, y)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'x' is not 'x'
     def test_replace_ignore_known_custom_instance_fields(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1401,7 +1400,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node2.returns, None)
         self.assertEqual(node2.decorator_list, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'extra'\." does not match "replace() does not support Name objects"
     def test_replace_reject_known_custom_instance_fields_commits(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1417,7 +1415,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node.ctx, context)
         self.assertIs(node.extra, extra)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'unknown'\." does not match "replace() does not support Name objects"
     def test_replace_reject_unknown_instance_fields(self):
         node = ast.parse('x').body[0].value
         context = node.ctx

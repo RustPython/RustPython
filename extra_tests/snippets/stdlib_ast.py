@@ -39,6 +39,27 @@ assert i.names[0].name == "a"
 assert i.names[0].asname is None
 
 
+# Regression: parsed AST identifier fields are interned, matching CPython.
+import copy
+
+name_literal = "x"
+name = ast.parse("x").body[0].value
+assert name.id is name_literal
+
+name.extra = object()
+replacement = copy.replace(name)
+assert replacement.id is name.id
+assert replacement.ctx is name.ctx
+assert not hasattr(replacement, "extra")
+
+function_name = "f"
+function = ast.parse("def f(): pass").body[0]
+assert function.name is function_name
+
+async_function = ast.parse("async def f(): pass").body[0]
+assert async_function.name is function_name
+
+
 # Regression test for issue #4862:
 # A cyclic AST fed to compile() used to overflow the Rust stack and SIGSEGV.
 # After the fix, the recursion guard in ast_from_object raises RecursionError,
