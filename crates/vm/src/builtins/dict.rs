@@ -9,7 +9,7 @@ use crate::{
     TryFromObject, atomic_func,
     builtins::{
         PyTuple,
-        iter::{builtins_iter, builtins_reversed},
+        iter::builtins_iter,
         type_::PyAttributes,
     },
     class::{PyClassDef, PyClassImpl},
@@ -1118,10 +1118,17 @@ macro_rules! dict_view {
                 let iter = builtins_iter(vm);
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
-                    IterStatus::Active(dict) => dict
-                        .into_iter()
-                        .map(|(key, value)| ($result_fn)(vm, key, value))
-                        .collect::<Vec<_>>(),
+                    IterStatus::Active(dict) => {
+                        let mut position = internal.position;
+                        let mut entries = Vec::new();
+                        while let Some((next_position, key, value)) =
+                            dict.entries.next_entry(position)
+                        {
+                            entries.push(($result_fn)(vm, key, value));
+                            position = next_position;
+                        }
+                        entries
+                    }
                     IterStatus::Exhausted => vec![],
                 };
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
@@ -1184,14 +1191,23 @@ macro_rules! dict_view {
 
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_reversed(vm);
+                let iter = builtins_iter(vm);
                 let internal = self.internal.lock();
-                // TODO: entries must be reversed too
                 let entries = match &internal.status {
-                    IterStatus::Active(dict) => dict
-                        .into_iter()
-                        .map(|(key, value)| ($result_fn)(vm, key, value))
-                        .collect::<Vec<_>>(),
+                    IterStatus::Active(dict) => {
+                        let mut position = internal.position;
+                        let mut entries = Vec::new();
+                        while let Some((found_index, key, value)) =
+                            dict.entries.prev_entry(position)
+                        {
+                            entries.push(($result_fn)(vm, key, value));
+                            if found_index == 0 {
+                                break;
+                            }
+                            position = found_index - 1;
+                        }
+                        entries
+                    }
                     IterStatus::Exhausted => vec![],
                 };
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
@@ -1218,11 +1234,11 @@ macro_rules! dict_view {
                         );
                     }
                     match dict.entries.prev_entry(internal.position) {
-                        Some((position, key, value)) => {
-                            if internal.position == position {
+                        Some((found_index, key, value)) => {
+                            if found_index == 0 {
                                 internal.status = IterStatus::Exhausted;
                             } else {
-                                internal.position = position;
+                                internal.position = found_index - 1;
                             }
                             PyIterReturn::Return(($result_fn)(vm, key, value))
                         }
