@@ -48,6 +48,7 @@ impl IntoPyException for FormatSpecError {
                 vm.new_value_error("Too many decimal digits in format string")
             }
             Self::PrecisionTooBig => vm.new_value_error("Precision too big"),
+            Self::PrecisionMissing => vm.new_value_error("Format specifier missing precision"),
             Self::InvalidFormatSpecifier => vm.new_value_error("Invalid format specifier"),
             Self::UnspecifiedFormat(c1, c2) => {
                 let msg = format!("Cannot specify '{c1}' with '{c2}'.");
