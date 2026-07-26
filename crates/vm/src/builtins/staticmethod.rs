@@ -179,7 +179,7 @@ impl Callable for PyStaticMethod {
 
 impl Representable for PyStaticMethod {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.lock().repr(vm).unwrap();
+        let callable = zelf.callable.lock().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         match (

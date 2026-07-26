@@ -195,7 +195,7 @@ impl PyClassMethod {
 impl Representable for PyClassMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.lock().repr(vm).unwrap();
+        let callable = zelf.callable.lock().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         let repr = match (
