@@ -782,12 +782,10 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         let mut current_frames = Vec::new();
         let mut cur = get_current_frame();
         while !cur.is_null() {
-            if let Some(heavy) = cur.as_heavy() {
-                // SAFETY: the forking thread's chain frames are alive.
-                let py = unsafe { crate::Py::<FrameObject>::from_payload_ptr(heavy) };
-                current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
-            }
-            cur = unsafe { cur.next() };
+            // SAFETY: the forking thread's chain frames are alive.
+            let py = unsafe { crate::Py::<FrameObject>::from_payload_ptr(cur) };
+            current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
+            cur = unsafe { (*cur).previous_frame() };
         }
         current_frames.reverse();
         current_frames

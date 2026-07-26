@@ -78,18 +78,6 @@ pub fn current_thread_frame() -> Option<FrameObjectRef> {
     unsafe { owned_chain_frame(ptr) }
 }
 
-/// The current thread's topmost frame (same as `current_thread_frame`).
-#[must_use]
-pub fn current_thread_frame_vm(_vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    current_thread_frame()
-}
-
-/// The frame `offset` positions below the top of the frame stack.
-#[must_use]
-pub fn frame_at_offset_vm(offset: usize, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    frame_at_offset(offset)
-}
-
 /// Read the globals dict from the topmost frame on this thread's chain.
 /// Returns `None` if the chain is empty.
 #[must_use]
@@ -835,10 +823,11 @@ impl InterpreterFrame {
 #[pyclass(module = false, name = "frame", traverse = "manual")]
 pub struct FrameObject {
     // Owned references — keep the pointed-to objects alive for InterpreterFrame's
-    // raw pointers. These are the "ownership anchors".
-    pub(crate) owned_code: PyRef<PyCode>,
-    pub(crate) owned_globals: PyDictRef,
-    pub(crate) owned_builtins: PyObjectRef,
+    // raw pointers. Wrapped in Option so Traverse::clear can release them,
+    // allowing GC cycle collection to reclaim referenced objects.
+    pub(crate) owned_code: Option<PyRef<PyCode>>,
+    pub(crate) owned_globals: Option<PyDictRef>,
+    pub(crate) owned_builtins: Option<PyObjectRef>,
     pub(crate) owned_func_obj: Option<PyObjectRef>,
 
     /// Always `Some` while the frame is reachable from Python. Emptied only
@@ -963,6 +952,7 @@ impl PyPayload for FrameObject {
 unsafe impl Traverse for FrameObject {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
         // Visit the owned reference anchors on FrameObject.
+        // After clear(), these are None.
         self.owned_code.traverse(tracer_fn);
         self.owned_func_obj.traverse(tracer_fn);
         self.owned_globals.traverse(tracer_fn);
@@ -982,14 +972,14 @@ unsafe impl Traverse for FrameObject {
     }
 
     fn clear(&mut self, _out: &mut Vec<PyObjectRef>) {
-        // Drop the interpreter frame in place instead of extracting children
-        // into `_out`: pushing ~10 refs per frame would grow the buffer, a
-        // heap allocation on the hot dealloc path. Direct drops release the
-        // same references under the same recursion protection (trashcan in
-        // dealloc, deferred-drop context in cycle collection) as the payload
-        // drop did before the freelist existed. The payload is left as a
-        // trivially-droppable husk for the freelist.
+        // Drop the interpreter frame and owned reference anchors so GC
+        // cycle collection can reclaim the referenced objects. The payload
+        // is left as a trivially-droppable husk for the freelist.
         drop(self.iframe.get_mut().take());
+        self.owned_code.take();
+        self.owned_globals.take();
+        self.owned_builtins.take();
+        self.owned_func_obj.take();
     }
 }
 
@@ -1081,9 +1071,9 @@ impl FrameObject {
             pending_unwind_from_stack: Default::default(),
         };
         Self {
-            owned_code: code,
-            owned_globals: scope.globals,
-            owned_builtins: builtins,
+            owned_code: Some(code),
+            owned_globals: Some(scope.globals),
+            owned_builtins: Some(builtins),
             owned_func_obj: func_obj,
             iframe: FrameUnsafeCell::new(Some(iframe)),
         }
@@ -1092,11 +1082,11 @@ impl FrameObject {
     /// Patch the InterpreterFrame's raw pointers to point at this
     /// FrameObject's owned fields. Must be called once after the
     /// FrameObject is allocated on the heap (i.e. after `into_ref`).
-    fn init_iframe_ptrs(self_: &Py<FrameObject>) {
+    fn init_iframe_ptrs(self_: &Py<Self>) {
         let iframe = unsafe { self_.iframe_mut() };
-        iframe.code = &*self_.owned_code as *const Py<PyCode>;
-        iframe.globals = &*self_.owned_globals as *const Py<PyDict>;
-        iframe.builtins = &*self_.owned_builtins as *const PyObject;
+        iframe.code = &**self_.owned_code.as_ref().unwrap() as *const Py<PyCode>;
+        iframe.globals = &**self_.owned_globals.as_ref().unwrap() as *const Py<PyDict>;
+        iframe.builtins = &**self_.owned_builtins.as_ref().unwrap() as *const PyObject;
         iframe.func_obj = match &self_.owned_func_obj {
             Some(obj) => &**obj as *const PyObject,
             None => core::ptr::null(),
@@ -1236,8 +1226,14 @@ impl FrameObject {
     }
 
     /// Get the previous frame chain pointer.
-    pub fn previous_frame(&self) -> *const FrameObject {
-        self.iframe().previous.load(atomic::Ordering::Relaxed) as *const FrameObject
+    /// Returns null if the frame has been cleared (GC deallocation).
+    pub fn previous_frame(&self) -> *const Self {
+        // Use raw access instead of iframe() to avoid panicking on cleared frames.
+        let iframe_opt = unsafe { &*self.iframe.get() };
+        match iframe_opt.as_ref() {
+            Some(iframe) => iframe.previous.load(atomic::Ordering::Relaxed) as *const Self,
+            None => core::ptr::null(),
+        }
     }
 
     /// Record that a durable Python-level reference to this frame escaped.
@@ -1416,7 +1412,7 @@ impl FrameObject {
         if owner != FrameOwner::Thread {
             return Ok(());
         }
-        let self_ptr: *const FrameObject = self;
+        let self_ptr: *const Self = self;
         let mut cur = crate::vm::thread::get_current_frame();
         while !cur.is_null() {
             if core::ptr::eq(cur, self_ptr) {
@@ -1424,7 +1420,7 @@ impl FrameObject {
             }
             let iframe = unsafe { &*(*cur).iframe.get() };
             cur = match iframe.as_ref() {
-                Some(f) => f.previous.load(Relaxed) as *const FrameObject,
+                Some(f) => f.previous.load(Relaxed) as *const Self,
                 None => core::ptr::null(),
             };
         }
@@ -4856,7 +4852,7 @@ impl ExecutingFrame<'_> {
                     let owner = self.pop_value();
                     let attr_name = self.code.names[oparg.name_idx() as usize].to_owned().into();
                     let result =
-                        func.invoke_light_slots(&mut [Some(owner), Some(attr_name)], vm)?;
+                        func.invoke_exact_args_slots(&mut [Some(owner), Some(attr_name)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -4903,7 +4899,7 @@ impl ExecutingFrame<'_> {
                     && self.specialization_has_datastack_space_for_func(vm, func)
                 {
                     let owner = self.pop_value();
-                    let result = func.invoke_light_slots(&mut [Some(owner)], vm)?;
+                    let result = func.invoke_exact_args_slots(&mut [Some(owner)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -5051,7 +5047,7 @@ impl ExecutingFrame<'_> {
                     debug_assert!(func.has_exact_argcount(2));
                     let sub = self.pop_value();
                     let owner = self.pop_value();
-                    let result = func.invoke_light_slots(&mut [Some(owner), Some(sub)], vm)?;
+                    let result = func.invoke_exact_args_slots(&mut [Some(owner), Some(sub)], vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -5215,7 +5211,7 @@ impl ExecutingFrame<'_> {
                     }
                     let callable = self.pop_value();
                     let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
-                    let result = func.invoke_light_slots(args, vm)?;
+                    let result = func.invoke_exact_args_slots(args, vm)?;
                     self.push_value(result);
                     Ok(None)
                 } else {
@@ -5267,7 +5263,7 @@ impl ExecutingFrame<'_> {
                         self.pop_value_opt(); // null (self_or_null)
                         self.pop_value(); // callable (bound method)
                         args[0] = Some(bound_self);
-                        let result = func.invoke_light_slots(args, vm)?;
+                        let result = func.invoke_exact_args_slots(args, vm)?;
                         self.push_value(result);
                         return Ok(None);
                     }

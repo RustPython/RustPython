@@ -58,7 +58,7 @@ pub extern "C" fn PyEval_GetBuiltins() -> *mut PyObject {
     with_vm(|vm| {
         vm.current_frame().map_or_else(
             || vm.builtins.as_object().as_raw(),
-            |frame| frame.builtins.as_object().as_raw(),
+            |frame| frame.iframe().builtins().as_raw(),
         )
     })
 }
@@ -78,7 +78,7 @@ pub extern "C" fn PyEval_GetFrameBuiltins() -> *mut PyObject {
     with_vm(|vm| {
         vm.current_frame().map_or_else(
             || vm.builtins.as_object().to_owned(),
-            |frame| frame.builtins.as_object().to_owned(),
+            |frame| frame.iframe().builtins().to_owned(),
         )
     })
 }
@@ -87,7 +87,7 @@ pub extern "C" fn PyEval_GetFrameBuiltins() -> *mut PyObject {
 pub extern "C" fn PyEval_GetFrameGlobals() -> *mut PyObject {
     with_vm(|vm| {
         vm.current_frame()
-            .map(|frame| frame.globals.as_object().to_owned().into_raw().as_ptr())
+            .map(|frame| frame.iframe().globals().as_object().to_owned().into_raw().as_ptr())
             .unwrap_or_default()
     })
 }
@@ -107,7 +107,7 @@ pub extern "C" fn PyEval_GetFrameLocals() -> *mut PyObject {
 pub extern "C" fn PyEval_GetGlobals() -> *mut PyObject {
     with_vm(|vm| {
         vm.current_frame()
-            .map(|frame| frame.globals.as_object().as_raw())
+            .map(|frame| frame.iframe().globals().as_object().as_raw())
             .unwrap_or_default()
     })
 }
@@ -119,7 +119,7 @@ pub extern "C" fn PyEval_GetLocals() -> *mut PyObject {
             return Ok(core::ptr::null_mut());
         };
         let _ = frame.locals(vm)?;
-        Ok(frame.locals.as_object(vm).as_raw().cast_mut())
+        Ok(frame.iframe().locals.as_object(vm).as_raw().cast_mut())
     })
 }
 

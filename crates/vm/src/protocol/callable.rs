@@ -228,13 +228,7 @@ impl VirtualMachine {
         let is_profile_event = event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
-        // Must use current_thread_frame_vm (which materializes light frames)
-        // instead of current_frame() (which skips them). If a light frame
-        // is currently executing and enables tracing inside itself
-        // (e.g. profile.Profile.runctx calls sys.setprofile), subsequent
-        // events need the materialized frame to maintain frame identity
-        // for profiler assertions like `frame.f_back is self.cur[-2]`.
-        let Some(frame_ref) = crate::frame::current_thread_frame_vm(self) else {
+        let Some(frame_ref) = crate::frame::current_thread_frame() else {
             return Ok(None);
         };
 

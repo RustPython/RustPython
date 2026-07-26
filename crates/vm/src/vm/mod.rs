@@ -1576,18 +1576,6 @@ impl VirtualMachine {
         self.recursion_depth.get()
     }
 
-    /// Increment recursion depth. Used by light frame path.
-    #[inline]
-    pub(crate) fn recursion_depth_increment(&self) {
-        self.recursion_depth.update(|d| d + 1);
-    }
-
-    /// Decrement recursion depth. Used by light frame path.
-    #[inline]
-    pub(crate) fn recursion_depth_decrement(&self) {
-        self.recursion_depth.update(|d| d - 1);
-    }
-
     /// Stack margin bytes (like _PyOS_STACK_MARGIN_BYTES).
     /// The margin is doubled for debug/sanitized builds because frame
     /// evaluation consumes more native stack in those configurations.
@@ -1734,7 +1722,7 @@ impl VirtualMachine {
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
         let payload: *const FrameObject = &**frame;
         let old_chain =
-            crate::vm::thread::set_current_frame(payload as *const crate::frame::FrameObject);
+            crate::vm::thread::set_current_frame(payload);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1788,7 +1776,7 @@ impl VirtualMachine {
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let payload: *const FrameObject = &***frame;
         let old_chain =
-            crate::vm::thread::set_current_frame(payload as *const crate::frame::FrameObject);
+            crate::vm::thread::set_current_frame(payload);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1905,7 +1893,7 @@ impl VirtualMachine {
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
         // Must include light frames so locals() returns the correct scope.
-        crate::frame::current_thread_frame_vm(self)
+        crate::frame::current_thread_frame()
             .expect("called current_locals but no frames on the stack")
             .locals(self)
     }

@@ -723,7 +723,7 @@ impl Py<FrameObject> {
     }
 
     #[pygetset]
-    pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
+    pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
         let prev = self.previous_frame();
         if prev.is_null() {
             return None;

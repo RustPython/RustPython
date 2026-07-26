@@ -24,7 +24,6 @@ use crate::{
 };
 use core::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use itertools::Itertools;
-use rustpython_common::atomic::Radium;
 #[cfg(feature = "jit")]
 use rustpython_jit::CompiledCode;
 
@@ -777,15 +776,6 @@ impl Py<PyFunction> {
             return self.invoke(FuncArgs::from(args), vm);
         }
         self.invoke_prepared_exact_args(taken, vm)
-    }
-
-    /// Invoke with pre-staged argument slots. Delegates to `invoke_exact_args_slots`.
-    pub(crate) fn invoke_light_slots(
-        &self,
-        args: &mut [Option<PyObjectRef>],
-        vm: &VirtualMachine,
-    ) -> PyResult {
-        self.invoke_exact_args_slots(args, vm)
     }
 }
 
