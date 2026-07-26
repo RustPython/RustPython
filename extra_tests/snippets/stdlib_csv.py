@@ -254,6 +254,10 @@ def test_multichar_lineterminator():
     assert list(csv.reader(io.StringIO("a,b!@#c,d!@#"), lineterminator="!@#")) == [
         ["a", "b!@#c", "d!@#"]
     ]
+    assert list(csv.reader(io.StringIO("a,b\r\nc,d\r\n"), lineterminator="!@#")) == [
+        ["a", "b"],
+        ["c", "d"],
+    ]
 
 
 test_multichar_lineterminator()
