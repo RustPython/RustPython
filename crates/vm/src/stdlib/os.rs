@@ -135,7 +135,7 @@ fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ff
             vm.ctx.new_str("utf-8"),
             vm.ctx.new_bytes(b.to_vec()),
             e.valid_up_to(),
-            e.valid_up_to() + 1,
+            e.error_len().map_or(b.len(), |n| e.valid_up_to() + n),
             vm.ctx.new_str("can't decode path for utf-8"),
         )
     })

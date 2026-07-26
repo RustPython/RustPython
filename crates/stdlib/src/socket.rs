@@ -2617,7 +2617,7 @@ mod _socket {
                         vm.ctx.new_str("utf-8"),
                         vm.ctx.new_bytes(bytes.to_vec()),
                         e.valid_up_to(),
-                        e.valid_up_to() + 1,
+                        e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
                         vm.ctx.new_str("host bytes is not utf8"),
                     )
                 })?;
@@ -2659,7 +2659,7 @@ mod _socket {
                                     vm.ctx.new_str("utf-8"),
                                     vm.ctx.new_bytes(bytes.to_vec()),
                                     e.valid_up_to(),
-                                    e.valid_up_to() + 1,
+                                    e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
                                     vm.ctx.new_str("port is not utf8"),
                                 )
                             })?

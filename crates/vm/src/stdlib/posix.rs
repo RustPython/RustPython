@@ -1736,7 +1736,8 @@ pub mod module {
                 vm.ctx.new_str("utf-8"),
                 vm.ctx.new_bytes(login.as_bytes().to_vec()),
                 e.valid_up_to(),
-                e.valid_up_to() + 1,
+                e.error_len()
+                    .map_or(login.as_bytes().len(), |n| e.valid_up_to() + n),
                 vm.ctx.new_str("unable to decode login name"),
             )
         })

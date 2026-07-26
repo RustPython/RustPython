@@ -69,7 +69,8 @@ mod _csv {
             vm.ctx.new_str("utf-8"),
             vm.ctx.new_bytes(bytes.to_vec()),
             err.valid_up_to(),
-            err.valid_up_to() + 1,
+            err.error_len()
+                .map_or(bytes.len(), |n| err.valid_up_to() + n),
             vm.ctx.new_str("csv not utf8"),
         )
     }
