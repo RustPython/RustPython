@@ -31,10 +31,14 @@ pub struct PyTuple<R = PyObjectRef> {
     elements: Box<[R]>,
 }
 
-impl<R> fmt::Debug for PyTuple<R> {
+impl<R> fmt::Debug for PyTuple<R>
+where
+    R: fmt::Debug,
+{
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // TODO: implement more informational, non-recursive Debug formatter
-        f.write_str("tuple")
+        f.debug_struct("PyTuple")
+            .field("elements", &self.elements)
+            .finish()
     }
 }
 
