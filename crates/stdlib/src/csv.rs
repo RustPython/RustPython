@@ -60,6 +60,21 @@ mod _csv {
         vm.new_exception_msg(super::_csv::error(vm), msg.into())
     }
 
+    fn new_not_utf8_error(
+        vm: &VirtualMachine,
+        bytes: &[u8],
+        err: core::str::Utf8Error,
+    ) -> PyBaseExceptionRef {
+        vm.new_unicode_decode_error_real(
+            vm.ctx.new_str("utf-8"),
+            vm.ctx.new_bytes(bytes.to_vec()),
+            err.valid_up_to(),
+            err.error_len()
+                .map_or(bytes.len(), |n| err.valid_up_to() + n),
+            vm.ctx.new_str("csv not utf8"),
+        )
+    }
+
     #[pyattr]
     #[pyclass(module = "csv", name = "Dialect")]
     #[derive(Debug, PyPayload, Clone, Copy)]
@@ -1111,8 +1126,8 @@ mod _csv {
                 {
                     return Ok(vm.ctx.none());
                 }
-                let field = core::str::from_utf8(&field)
-                    .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+                let field =
+                    core::str::from_utf8(&field).map_err(|e| new_not_utf8_error(vm, &field, e))?;
                 Ok(vm.ctx.new_str(field).into())
             })
             .collect()
@@ -1248,7 +1263,7 @@ mod _csv {
                     prev_end = end;
                     let s = core::str::from_utf8(&buffer[range.clone()])
                         // not sure if this is possible - the input was all strings
-                        .map_err(|_e| vm.new_unicode_decode_error("csv not utf8"))?;
+                        .map_err(|e| new_not_utf8_error(vm, &buffer[range.clone()], e))?;
 
                     // TODO: RUSTPYTHON; Incomplete implementation
                     if let QuoteStyle::Nonnumeric = zelf.dialect.quoting {
@@ -1423,8 +1438,8 @@ mod _csv {
             }
 
             write_lineterminator(&mut output, self.dialect.lineterminator);
-            let s = core::str::from_utf8(&output)
-                .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+            let s =
+                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
             self.write.call((s,), vm)
         }
 
@@ -1469,8 +1484,8 @@ mod _csv {
 
             write_lineterminator(&mut output, self.dialect.lineterminator);
 
-            let s = core::str::from_utf8(&output)
-                .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+            let s =
+                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
 
             self.write.call((s,), vm)
         }
@@ -1518,8 +1533,8 @@ mod _csv {
 
             write_lineterminator(&mut output, self.dialect.lineterminator);
 
-            let s = core::str::from_utf8(&output)
-                .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+            let s =
+                core::str::from_utf8(&output).map_err(|e| new_not_utf8_error(vm, &output, e))?;
 
             self.write.call((s,), vm)
         }
@@ -1593,7 +1608,7 @@ mod _csv {
             }
 
             let s = core::str::from_utf8(&buffer[..buffer_offset])
-                .map_err(|_| vm.new_unicode_decode_error("csv not utf8"))?;
+                .map_err(|e| new_not_utf8_error(vm, &buffer[..buffer_offset], e))?;
 
             self.write.call((s,), vm)
         }
