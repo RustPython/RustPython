@@ -1734,14 +1734,14 @@ impl VirtualMachine {
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
         let payload: *const FrameObject = &**frame;
         let old_chain =
-            crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
+            crate::vm::thread::set_current_frame(payload as *const crate::frame::FrameObject);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
             frame
                 .iframe()
                 .previous
-                .store(old_chain.raw(), core::sync::atomic::Ordering::Relaxed);
+                .store(old_chain as usize, core::sync::atomic::Ordering::Relaxed);
         }
         let save_exc = frame.iframe().code().has_exc_handling;
         let saved_exc = if save_exc {
@@ -1788,21 +1788,14 @@ impl VirtualMachine {
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let payload: *const FrameObject = &***frame;
         let old_chain =
-            crate::vm::thread::set_current_frame(crate::frame::FrameChainPtr::from_heavy(payload));
+            crate::vm::thread::set_current_frame(payload as *const crate::frame::FrameObject);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
-            // Skip light frames: a suspended generator must not hold a
-            // pointer into a caller's DataStack (which is reclaimed when
-            // the caller returns). Store the nearest heavy predecessor.
-            let mut prev = old_chain;
-            while prev.is_light() {
-                prev = unsafe { prev.next() };
-            }
             frame
                 .iframe()
                 .previous
-                .store(prev.raw(), core::sync::atomic::Ordering::Relaxed);
+                .store(old_chain as usize, core::sync::atomic::Ordering::Relaxed);
         }
         // Push generator's exc_info slot onto the chain
         self.push_exception(exc);

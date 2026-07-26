@@ -132,12 +132,10 @@ mod decl {
         }
         let mut depth = 0;
         while !cur.is_null() && depth < MAX_FRAME_DEPTH {
-            if let Some(heavy) = cur.as_heavy() {
-                let frame = unsafe { &*heavy };
-                dump_frame_from_raw(fd, frame);
-                depth += 1;
-            }
-            cur = unsafe { cur.next() };
+            let frame = unsafe { &*cur };
+            dump_frame_from_raw(fd, frame);
+            depth += 1;
+            cur = unsafe { frame.previous_frame() };
         }
         if depth == 0 {
             puts(fd, "  <no Python frame>\n");
@@ -272,7 +270,7 @@ mod decl {
     /// may still run).
     #[cfg(all(unix, feature = "threading"))]
     fn dump_traceback_thread_chain(fd: i32, thread_id: u64, is_current: bool, top: *const FrameObject) {
-        use crate::vm::frame::FrameChainPtr;
+        use rustpython_common::atomic::Radium;
         const MAX_FRAME_DEPTH: usize = 100;
         write_thread_id(fd, thread_id, is_current);
 
@@ -280,15 +278,14 @@ mod decl {
             puts(fd, "  <no Python frame>\n");
             return;
         }
-        let mut cur = FrameChainPtr::from_heavy(top);
+        let mut cur = top;
         let mut depth = 0;
         while !cur.is_null() && depth < MAX_FRAME_DEPTH {
-            if let Some(heavy) = cur.as_heavy() {
-                let frame = unsafe { &*heavy };
-                dump_frame_from_raw(fd, frame);
-                depth += 1;
-            }
-            cur = unsafe { cur.next() };
+            let frame = unsafe { &*cur };
+            dump_frame_from_raw(fd, frame);
+            depth += 1;
+            // Walk to previous frame via public accessor
+            cur = unsafe { frame.previous_frame() };
         }
         if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
             puts(fd, "  ...\n");

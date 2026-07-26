@@ -24,7 +24,7 @@ pub(crate) mod _thread {
             PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
             PyUtf8StrRef,
         },
-        common::wtf8::Wtf8Buf,
+        common::{lock::PyMutex, wtf8::Wtf8Buf},
         frame::FrameObjectRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         object::{Traverse, TraverseFn},

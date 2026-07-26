@@ -724,21 +724,13 @@ impl Py<FrameObject> {
 
     #[pygetset]
     pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
-        let chain = self.previous_frame();
-        if chain.is_null() {
+        let prev = self.previous_frame();
+        if prev.is_null() {
             return None;
         }
 
-        // Light frame predecessor: materialize it
-        if let Some(light) = chain.as_light() {
-            let frame = unsafe { crate::frame::materialize_light_frame_pub(light, vm) };
-            frame.mark_escaped();
-            return Some(frame);
-        }
-
-        // Heavy frame predecessor: look up on the current thread's chain
-        let target = chain.as_heavy().unwrap();
-        if let Some(frame) = crate::frame::find_owned_chain_frame(target) {
+        // Look up the previous frame on the current thread's chain
+        if let Some(frame) = crate::frame::find_owned_chain_frame(prev) {
             frame.mark_escaped();
             return Some(frame);
         }
@@ -767,16 +759,12 @@ impl Py<FrameObject> {
             for slot in registry.values() {
                 let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
                 while !cur.is_null() {
-                    if core::ptr::eq(cur, target) {
+                    if core::ptr::eq(cur, prev) {
                         let f = unsafe { &*Self::from_payload_ptr(cur) };
                         f.mark_escaped();
                         return Some(f.to_owned());
                     }
-                    // Walk heavy-only chain from top_frame (signal-safe pointers)
-                    cur = unsafe {
-                        let prev = (*cur).previous_frame();
-                        prev.as_heavy().unwrap_or(core::ptr::null())
-                    };
+                    cur = unsafe { (*cur).previous_frame() };
                 }
             }
         }
@@ -795,7 +783,7 @@ impl Py<FrameObject> {
                 if let Some(frame) = frames.iter().find_map(|fp| {
                     let f = unsafe { fp.as_ref() };
                     let ptr: *const FrameObject = &**f;
-                    core::ptr::eq(ptr, target).then(|| f.to_owned())
+                    core::ptr::eq(ptr, prev).then(|| f.to_owned())
                 }) {
                     frame.mark_escaped();
                     return Some(frame);
