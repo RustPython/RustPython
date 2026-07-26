@@ -7,11 +7,7 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
-    builtins::{
-        PyTuple,
-        iter::builtins_iter,
-        type_::PyAttributes,
-    },
+    builtins::{PyTuple, iter::builtins_iter, type_::PyAttributes},
     class::{PyClassDef, PyClassImpl},
     common::ascii,
     dict_inner::{self, DictKey},
