@@ -19,27 +19,36 @@ pub struct PyMethodDef {
     pub ml_doc: *const c_char,
 }
 
+pub type PyCFunction =
+    unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject;
+
+pub type PyCFunctionWithKeywords = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject;
+
+pub type PyCFunctionFast = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *const *mut PyObject,
+    nargs: isize,
+) -> *mut PyObject;
+
+pub type PyCFunctionFastWithKeywords = unsafe extern "C" fn(
+    slf: *mut PyObject,
+    args: *const *mut PyObject,
+    nargs: isize,
+    kwnames: *mut PyObject,
+) -> *mut PyObject;
+
 #[repr(C)]
 #[derive(Copy, Clone)]
 #[allow(non_snake_case)]
 pub union PyMethodPointer {
-    pub PyCFunction: unsafe extern "C" fn(slf: *mut PyObject, args: *mut PyObject) -> *mut PyObject,
-    pub PyCFunctionWithKeywords: unsafe extern "C" fn(
-        slf: *mut PyObject,
-        args: *mut PyObject,
-        kwargs: *mut PyObject,
-    ) -> *mut PyObject,
-    pub PyCFunctionFast: unsafe extern "C" fn(
-        slf: *mut PyObject,
-        args: *const *mut PyObject,
-        nargs: isize,
-    ) -> *mut PyObject,
-    pub PyCFunctionFastWithKeywords: unsafe extern "C" fn(
-        slf: *mut PyObject,
-        args: *const *mut PyObject,
-        nargs: isize,
-        kwnames: *mut PyObject,
-    ) -> *mut PyObject,
+    pub PyCFunction: PyCFunction,
+    pub PyCFunctionWithKeywords: PyCFunctionWithKeywords,
+    pub PyCFunctionFast: PyCFunctionFast,
+    pub PyCFunctionFastWithKeywords: PyCFunctionFastWithKeywords,
 }
 
 pub(crate) fn build_method_def(
@@ -176,15 +185,24 @@ unsafe fn call_function_with_keywords(
         .map(|obj| obj.as_object().as_raw().cast_mut())
         .unwrap_or_default();
     let arg_tuple = vm.ctx.new_tuple(args.args);
-    let kwargs = vm.ctx.new_dict();
-    for (k, v) in args.kwargs {
-        kwargs.set_item(&*k, v, vm)?;
-    }
+    // A call without keywords passes a NULL kwargs, which is what a function
+    // that rejects keywords tests for.
+    let kwargs = if args.kwargs.is_empty() {
+        None
+    } else {
+        let dict = vm.ctx.new_dict();
+        for (k, v) in args.kwargs {
+            dict.set_item(&*k, v, vm)?;
+        }
+        Some(dict)
+    };
     let ret_ptr = unsafe {
         f(
             slf_ptr,
             arg_tuple.as_object().as_raw().cast_mut(),
-            kwargs.as_object().as_raw().cast_mut(),
+            kwargs
+                .as_ref()
+                .map_or(core::ptr::null_mut(), |d| d.as_object().as_raw().cast_mut()),
         )
     };
     ret_ptr_to_pyresult(vm, ret_ptr)
