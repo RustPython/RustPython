@@ -235,6 +235,30 @@ mod _csv {
         })
     }
 
+    /// Validate that a line terminator is ASCII and return it as a `str`.
+    ///
+    /// The writer's quoting and escaping predicates compare raw bytes, so a
+    /// non-ASCII terminator would either quote a field that merely shares a
+    /// UTF-8 lead byte or splice an escape character into the middle of a
+    /// multi-byte sequence. Reject those here.
+    ///
+    /// The ASCII check must come before any UTF-8 conversion so that lone
+    /// surrogates are reported as this `csv.Error` too.
+    ///
+    /// TODO: RUSTPYTHON; handle non-ASCII terminators code-point-wise as part
+    /// of full Unicode dialect support.
+    fn ascii_lineterminator<'a>(vm: &VirtualMachine, s: &'a PyStr) -> PyResult<&'a str> {
+        if !s.as_wtf8().is_ascii() {
+            return Err(new_csv_error(
+                vm,
+                r#""lineterminator" must be an ASCII string"#,
+            ));
+        }
+        // An ASCII string is always valid UTF-8.
+        s.to_str()
+            .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))
+    }
+
     fn prase_lineterminator_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<String> {
         match_class!(match obj.get_attr("lineterminator", vm)? {
             s @ PyStr => {
@@ -242,9 +266,7 @@ mod _csv {
                 // arbitrary-length terminator; the manual writer paths emit it
                 // verbatim and the csv-core writer path appends it after a
                 // sentinel terminator (see `writerow`).
-                let value = s
-                    .to_str()
-                    .ok_or_else(|| new_csv_error(vm, r#""lineterminator" must be a string"#))?;
+                let value = ascii_lineterminator(vm, &s)?;
                 if value.is_empty() {
                     return Err(new_csv_error(vm, r#""lineterminator" must not be empty"#));
                 }
@@ -635,7 +657,13 @@ mod _csv {
             };
 
             if let Some(lineterminator) = args.kwargs.swap_remove("lineterminator") {
-                let value = lineterminator.try_to_value::<&str>(vm)?;
+                let s = lineterminator.downcast_ref::<PyStr>().ok_or_else(|| {
+                    vm.new_type_error(format!(
+                        r#""lineterminator" must be a string, not {}"#,
+                        lineterminator.class().name()
+                    ))
+                })?;
+                let value = ascii_lineterminator(vm, s)?;
                 // Preserve the previous behavior of rejecting an empty terminator
                 // (full validation parity is deferred to a follow-up). Any
                 // non-empty string, including multi-character ones, is stored.
@@ -1353,9 +1381,12 @@ mod _csv {
             byte == dialect.delimiter
                 || dialect.quotechar == Some(byte)
                 || matches!(byte, b'\r' | b'\n')
-                // CPython quotes a field that contains any character of the line
-                // terminator. This byte-wise `contains` matches CPython for
-                // ASCII terminators; non-ASCII terminators are not fully handled.
+                // CPython quotes a field containing any character of the line
+                // terminator. The terminator is ASCII-validated at parse time, so
+                // comparing raw bytes cannot match part of a multi-byte character.
+                // TODO: RUSTPYTHON; supporting non-ASCII terminators needs
+                //       code-point-wise quoting and escaping as part of full
+                //       Unicode dialect support.
                 || dialect.lineterminator.as_bytes().contains(&byte)
         })
     }
