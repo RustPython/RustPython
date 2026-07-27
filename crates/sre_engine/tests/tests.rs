@@ -191,10 +191,7 @@ mod tests {
         };
         let (req, mut state) = optional.state("eeea");
         assert!(state.py_match(&req));
-        assert_eq!(
-            state.marks.get(0),
-            (Optioned::some(3), Optioned::some(3))
-        );
+        assert_eq!(state.marks.get(0), (Optioned::some(3), Optioned::some(3)));
 
         // ((x)|y|z){3}+: group 1 is the final "z"; group 2 retains "x".
         #[rustfmt::skip] let alternation = Pattern {
@@ -203,14 +200,8 @@ mod tests {
         };
         let (req, mut state) = alternation.state("xyz");
         assert!(state.py_match(&req));
-        assert_eq!(
-            state.marks.get(0),
-            (Optioned::some(2), Optioned::some(3))
-        );
-        assert_eq!(
-            state.marks.get(1),
-            (Optioned::some(0), Optioned::some(1))
-        );
+        assert_eq!(state.marks.get(0), (Optioned::some(2), Optioned::some(3)));
+        assert_eq!(state.marks.get(1), (Optioned::some(0), Optioned::some(1)));
     }
 
     #[test]
