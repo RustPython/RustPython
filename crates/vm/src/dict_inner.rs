@@ -861,10 +861,13 @@ impl<T: Clone> Dict<T> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
-            position = position.saturating_sub(1);
             if let Some(entry) = entry {
                 break Some((position, entry.key.clone(), entry.value.clone()));
             }
+            if position == 0 {
+                break None;
+            }
+            position -= 1;
         }
     }
 
