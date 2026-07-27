@@ -17,7 +17,7 @@ mod _csv {
     use itertools::Itertools;
     use parking_lot::Mutex;
     use rustpython_common::{lock::LazyLock, wtf8::Wtf8Buf};
-    use rustpython_vm::{match_class, sliceable::SliceableSequenceOp};
+    use rustpython_vm::match_class;
     use std::collections::HashMap;
 
     #[pyattr]
@@ -169,12 +169,11 @@ mod _csv {
         } else {
             match_class!(match obj.to_owned() {
                 s @ PyStr => {
-                    Ok(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                    parse_single_char(&s, |len| {
                         vm.new_type_error(format!(
-                            r#""delimiter" must be a unicode character, not a string of length {}"#,
-                            s.len()
+                            r#""delimiter" must be a unicode character, not a string of length {len}"#
                         ))
-                    })?)
+                    })
                 }
                 attr => {
                     Err(vm.new_type_error(format!(
@@ -189,8 +188,13 @@ mod _csv {
     fn parse_quotechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("quotechar", vm)? {
             s @ PyStr => {
-                Ok(Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
-                    new_csv_error(vm, format!(r#""quotechar" must be a unicode character or None, not a string of length {}"#, s.len()))
+                Ok(Some(parse_single_char(&s, |len| {
+                    new_csv_error(
+                        vm,
+                        format!(
+                            r#""quotechar" must be a unicode character or None, not a string of length {len}"#
+                        ),
+                    )
                 })?))
             }
             _n @ PyNone => {
@@ -211,10 +215,12 @@ mod _csv {
     fn parse_escapechar_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Option<u8>> {
         match_class!(match obj.get_attr("escapechar", vm)? {
             s @ PyStr => {
-                Ok(Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
+                Ok(Some(parse_single_char(&s, |len| {
                     new_csv_error(
                         vm,
-                        format!(r#""escapechar" must be a unicode character or None, not a string of length {}"#, s.len()),
+                        format!(
+                            r#""escapechar" must be a unicode character or None, not a string of length {len}"#
+                        ),
                     )
                 })?))
             }
@@ -235,13 +241,10 @@ mod _csv {
             s @ PyStr => {
                 Ok(if s.as_bytes().eq(b"\r\n") {
                     csv_core::Terminator::CRLF
-                } else if let Some(t) = s.as_bytes().first() {
-                    // Due to limitations in the current implementation within csv_core
-                    // the support for multiple characters in lineterminator is not complete.
-                    // only capture the first character
-                    csv_core::Terminator::Any(*t)
                 } else {
-                    return Err(new_csv_error(vm, r#""lineterminator" must be a string"#));
+                    csv_core::Terminator::Any(parse_first_char(&s, |_| {
+                        new_csv_error(vm, r#""lineterminator" must be a string"#)
+                    })?)
                 })
             }
             attr => {
@@ -251,6 +254,30 @@ mod _csv {
                 )))
             }
         })
+    }
+
+    fn parse_single_char(
+        s: &Py<PyStr>,
+        error: impl Fn(usize) -> PyBaseExceptionRef,
+    ) -> PyResult<u8> {
+        let ch = s
+            .as_wtf8()
+            .code_points()
+            .exactly_one()
+            .map_err(|_| error(s.char_len()))?;
+        u8::try_from(ch.to_u32()).map_err(|_| error(s.char_len()))
+    }
+
+    fn parse_first_char(
+        s: &Py<PyStr>,
+        error: impl Fn(usize) -> PyBaseExceptionRef,
+    ) -> PyResult<u8> {
+        let ch = s
+            .as_wtf8()
+            .code_points()
+            .next()
+            .ok_or_else(|| error(s.char_len()))?;
+        u8::try_from(ch.to_u32()).map_err(|_| error(s.char_len()))
     }
 
     fn prase_quoting_from_obj(vm: &VirtualMachine, obj: &PyObject) -> PyResult<QuoteStyle> {
@@ -320,6 +347,7 @@ mod _csv {
         };
 
         let dialect = opts.update_py_dialect(dialect);
+        validate_dialect(vm, &dialect)?;
         GLOBAL_HASHMAP
             .lock()
             .insert(name.as_str().to_owned(), dialect);
@@ -417,17 +445,18 @@ mod _csv {
         _rest: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Reader> {
+        let dialect = options.result(vm)?;
         Ok(Reader {
             iter,
             state: PyMutex::new(ReadState {
                 buffer: vec![0; 1024],
                 output_ends: vec![0; 16],
                 reader: options.to_reader(),
-                skipinitialspace: options.get_skipinitialspace(),
+                skipinitialspace: dialect.skipinitialspace,
                 line_num: 0,
                 generation: 0,
             }),
-            dialect: options.result(vm)?,
+            dialect,
         })
     }
 
@@ -446,6 +475,7 @@ mod _csv {
                 return Err(vm.new_type_error(r#"argument 1 must have a "write" method"#));
             }
         };
+        let dialect = options.result(vm)?;
 
         Ok(Writer {
             write,
@@ -453,7 +483,7 @@ mod _csv {
                 buffer: vec![0; 1024],
                 writer: options.to_writer(),
             }),
-            dialect: options.result(vm)?,
+            dialect,
         })
     }
 
@@ -620,24 +650,34 @@ mod _csv {
 
             if let Some(escapechar) = args.kwargs.swap_remove("escapechar") {
                 res.escapechar = match_class!(match escapechar {
-                    s @ PyStr =>
-                        Some(s.as_bytes().iter().copied().exactly_one().map_err(|_| {
-                            vm.new_type_error(r#""escapechar" must be a 1-character string"#)
-                        })?),
-                    _ => None,
+                    s @ PyStr => Some(parse_single_char(&s, |_| {
+                        vm.new_type_error(r#""escapechar" must be a 1-character string"#)
+                    })?),
+                    _ => {
+                        return Err(ArgumentError::Exception(
+                            vm.new_type_error(r#""escapechar" must be a 1-character string"#),
+                        ));
+                    }
                 })
             };
 
             if let Some(lineterminator) = args.kwargs.swap_remove("lineterminator") {
-                res.lineterminator = Some(csv_core::Terminator::Any(
-                    lineterminator
-                        .try_to_value::<&str>(vm)?
-                        .bytes()
-                        .exactly_one()
-                        .map_err(|_| {
-                            vm.new_type_error(r#""lineterminator" must be a 1-character string"#)
-                        })?,
-                ))
+                res.lineterminator = Some(match_class!(match lineterminator {
+                    s @ PyStr => {
+                        if s.as_bytes() == b"\r\n" {
+                            Terminator::CRLF
+                        } else {
+                            Terminator::Any(parse_single_char(&s, |_| {
+                                vm.new_type_error(r#""lineterminator" must be a string"#)
+                            })?)
+                        }
+                    }
+                    _ => {
+                        return Err(ArgumentError::Exception(
+                            vm.new_type_error(r#""lineterminator" must be a string"#),
+                        ));
+                    }
+                }));
             };
 
             if let Some(doublequote) = args.kwargs.swap_remove("doublequote") {
@@ -671,9 +711,9 @@ mod _csv {
 
             if let Some(quotechar) = args.kwargs.swap_remove("quotechar") {
                 res.quotechar = match_class!(match quotechar {
-                    s @ PyStr => Some(Some(s.as_bytes().iter().copied().exactly_one().map_err(
-                        |_| { vm.new_type_error(r#""quotechar" must be a 1-character string"#) }
-                    )?)),
+                    s @ PyStr => Some(Some(parse_single_char(&s, |_| {
+                        vm.new_type_error(r#""quotechar" must be a 1-character string"#)
+                    })?)),
                     PyNone => {
                         if res
                             .quoting
@@ -716,6 +756,58 @@ mod _csv {
         }
     }
 
+    fn validate_dialect(vm: &VirtualMachine, dialect: &PyDialect) -> PyResult<()> {
+        let special = |name: &str, value: u8| {
+            if matches!(value, b'\r' | b'\n') {
+                Err(vm.new_value_error(format!(
+                    "{name} must be a single character, not a line break"
+                )))
+            } else {
+                Ok(())
+            }
+        };
+
+        special("delimiter", dialect.delimiter)?;
+        if let Some(quotechar) = dialect.quotechar {
+            special("quotechar", quotechar)?;
+        }
+        if let Some(escapechar) = dialect.escapechar {
+            special("escapechar", escapechar)?;
+        }
+
+        let line_terminator = match dialect.lineterminator {
+            Terminator::CRLF => None,
+            Terminator::Any(value) => Some(value),
+            _ => unreachable!(),
+        };
+        if dialect.skipinitialspace
+            && (matches!(dialect.escapechar, Some(b' '))
+                || matches!(dialect.quotechar, Some(b' ')))
+        {
+            return Err(vm.new_value_error(
+                "escapechar or quotechar cannot be a space when skipinitialspace is enabled",
+            ));
+        }
+
+        let values = [
+            ("delimiter", Some(dialect.delimiter)),
+            ("quotechar", dialect.quotechar),
+            ("escapechar", dialect.escapechar),
+            ("lineterminator", line_terminator),
+        ];
+        for (index, (left_name, left)) in values.iter().enumerate() {
+            let Some(left) = left else { continue };
+            for (right_name, right) in values.iter().skip(index + 1) {
+                if right.as_ref() == Some(left) {
+                    return Err(vm.new_value_error(format!(
+                        "{left_name} and {right_name} cannot be the same"
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     impl FormatOptions {
         const fn update_py_dialect(&self, mut res: PyDialect) -> PyDialect {
             macro_rules! check_and_fill {
@@ -747,7 +839,7 @@ mod _csv {
         }
 
         fn result(&self, vm: &VirtualMachine) -> PyResult<PyDialect> {
-            match &self.dialect {
+            let dialect = match &self.dialect {
                 DialectItem::Str(name) => {
                     let g = GLOBAL_HASHMAP.lock();
                     if let Some(dialect) = g.get(name) {
@@ -763,29 +855,9 @@ mod _csv {
                     let res = *g.get("excel").unwrap();
                     Ok(self.update_py_dialect(res))
                 }
-            }
-        }
-
-        fn get_skipinitialspace(&self) -> bool {
-            let mut skipinitialspace = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        dialect.skipinitialspace
-                        // TODO: RUSTPYTHON; Perfecting the remaining attributes.
-                    } else {
-                        false
-                    }
-                }
-                DialectItem::Obj(obj) => obj.skipinitialspace,
-                _ => false,
-            };
-
-            if let Some(attr) = self.skipinitialspace {
-                skipinitialspace = attr
-            }
-
-            skipinitialspace
+            }?;
+            validate_dialect(vm, &dialect)?;
+            Ok(dialect)
         }
 
         fn get_lineterminator(&self) -> csv_core::Terminator {

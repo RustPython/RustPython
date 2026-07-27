@@ -87,12 +87,10 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(ValueError, ctor, arg,
                           quotechar='\x85', lineterminator='\x85')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_reader_arg_valid(self):
         self._test_arg_valid(csv.reader, [])
         self.assertRaises(OSError, csv.reader, BadIterable())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_writer_arg_valid(self):
         self._test_arg_valid(csv.writer, StringIO())
         class BadWriter:
