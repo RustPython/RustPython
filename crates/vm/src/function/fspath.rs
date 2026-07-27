@@ -6,6 +6,7 @@ use crate::{
     protocol::PyBuffer,
 };
 use alloc::borrow::Cow;
+use core::hint::cold_path;
 use std::{ffi::OsStr, path::PathBuf};
 
 /// Helper to implement os.fspath()
@@ -36,21 +37,20 @@ impl FsPath {
         msg: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let check_nul = |b: &[u8]| {
-            if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
-                Ok(())
-            } else {
-                Err(crate::exceptions::nul_char_error(vm))
-            }
-        };
         let match1 = |obj: PyObjectRef| {
             let pathlike = match_class!(match obj {
                 s @ PyStr => {
-                    check_nul(s.as_bytes())?;
+                    if check_for_nul && s.contains_nuls() {
+                        cold_path();
+                        return Err(crate::exceptions::nul_char_error(vm));
+                    }
                     Self::Str(s)
                 }
                 b @ PyBytes => {
-                    check_nul(&b)?;
+                    if check_for_nul && b.contains_nuls() {
+                        cold_path();
+                        return Err(crate::exceptions::nul_char_error(vm));
+                    }
                     Self::Bytes(b)
                 }
                 obj => return Ok(Err(obj)),

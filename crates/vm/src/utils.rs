@@ -4,7 +4,6 @@ use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
-    exceptions::nul_char_error,
 };
 
 pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
@@ -23,13 +22,6 @@ impl ToPyObject for core::convert::Infallible {
 pub trait ToCString: AsRef<Wtf8> {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
         alloc::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
-    }
-    fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.as_ref().as_bytes().contains(&b'\0') {
-            Err(nul_char_error(vm))
-        } else {
-            Ok(())
-        }
     }
 }
 

@@ -32,12 +32,13 @@ pub enum SemError {
     AlreadyExists,
     NotFound,
     InvalidInput,
+    InteriorNul,
     Other(i32),
 }
 
 #[cfg(unix)]
 impl SemError {
-    fn from_errno(err: Errno) -> Self {
+    const fn from_errno(err: Errno) -> Self {
         match err {
             Errno::EAGAIN => Self::WouldBlock,
             Errno::ETIMEDOUT => Self::TimedOut,
@@ -49,14 +50,14 @@ impl SemError {
         }
     }
 
-    pub fn raw_os_error(self) -> i32 {
+    pub const fn raw_os_error(self) -> i32 {
         match self {
             Self::WouldBlock => Errno::EAGAIN as i32,
             Self::TimedOut => Errno::ETIMEDOUT as i32,
             Self::Interrupted => Errno::EINTR as i32,
             Self::AlreadyExists => Errno::EEXIST as i32,
             Self::NotFound => Errno::ENOENT as i32,
-            Self::InvalidInput => Errno::EINVAL as i32,
+            Self::InvalidInput | Self::InteriorNul => Errno::EINVAL as i32,
             Self::Other(code) => code,
         }
     }
@@ -119,7 +120,7 @@ impl SemHandle {
         value: u32,
         unlink: bool,
     ) -> Result<(Self, Option<String>), SemError> {
-        let cname = semaphore_name(name).map_err(|_| SemError::InvalidInput)?;
+        let cname = semaphore_name(name)?;
         let raw =
             unsafe { libc::sem_open(cname.as_ptr(), libc::O_CREAT | libc::O_EXCL, 0o600, value) };
         if raw == libc::SEM_FAILED {
@@ -141,7 +142,7 @@ impl SemHandle {
     }
 
     pub fn open_existing(name: &str) -> Result<Self, SemError> {
-        let cname = semaphore_name(name).map_err(|_| SemError::InvalidInput)?;
+        let cname = semaphore_name(name)?;
         let raw = unsafe { libc::sem_open(cname.as_ptr(), 0) };
         if raw == libc::SEM_FAILED {
             Err(SemError::from_errno(Errno::last()))
@@ -305,18 +306,18 @@ pub fn is_too_many_posts(err: u32) -> bool {
 }
 
 #[cfg(unix)]
-pub fn semaphore_name(name: &str) -> Result<CString, alloc::ffi::NulError> {
-    let mut full = String::with_capacity(name.len() + 1);
+pub fn semaphore_name(name: &str) -> Result<CString, SemError> {
+    let mut full = String::with_capacity(name.len() + 2);
     if !name.starts_with('/') {
         full.push('/');
     }
     full.push_str(name);
-    CString::new(full)
+    CString::new(full).map_err(|_| SemError::InteriorNul)
 }
 
 #[cfg(unix)]
 pub fn sem_unlink(name: &str) -> Result<(), SemError> {
-    let cname = semaphore_name(name).map_err(|_| SemError::InvalidInput)?;
+    let cname = semaphore_name(name)?;
     let res = unsafe { libc::sem_unlink(cname.as_ptr()) };
     if res < 0 {
         Err(SemError::from_errno(Errno::last()))

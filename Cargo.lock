@@ -3431,6 +3431,7 @@ dependencies = [
  "libffi",
  "libloading 0.9.0",
  "mac_address",
+ "memchr",
  "memmap2 0.9.11",
  "nix 0.31.3",
  "num-traits",

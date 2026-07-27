@@ -51,6 +51,7 @@ libffi = { workspace = true, features = ["system"] }
 system-configuration = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }
 widestring = { workspace = true }

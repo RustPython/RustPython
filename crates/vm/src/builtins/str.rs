@@ -37,6 +37,7 @@ use bstr::ByteSlice;
 use core::ffi::CStr;
 use core::{char, mem, ops::Range};
 use itertools::Itertools;
+use memchr::memchr;
 use num_traits::ToPrimitive;
 use rustpython_common::{
     ascii,
@@ -543,6 +544,13 @@ impl PyStr {
                 vm.ctx.new_str("surrogates not allowed"),
             ))
         }
+    }
+
+    /// Check string bytes for interior NULs.
+    #[inline]
+    #[must_use]
+    pub fn contains_nuls(&self) -> bool {
+        memchr(b'\0', self.as_bytes()).is_some()
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
@@ -2150,7 +2158,7 @@ impl PyUtf8Str {
 
 impl Py<PyUtf8Str> {
     /// Upcast to PyStr.
-    pub fn as_pystr(&self) -> &Py<PyStr> {
+    pub const fn as_pystr(&self) -> &Py<PyStr> {
         unsafe {
             // Safety: PyUtf8Str is a wrapper around PyStr, so this cast is safe.
             &*(self as *const Self as *const Py<PyStr>)

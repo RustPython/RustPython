@@ -15,6 +15,7 @@ pub(crate) mod module {
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
+    use core::hint::cold_path;
     use libc::intptr_t;
     use rustpython_common::wtf8::Wtf8Buf;
     use rustpython_host_env::nt as host_nt;
@@ -551,7 +552,8 @@ pub(crate) mod module {
             let value_str = value.expect_str();
 
             // Validate: no null characters in key or value
-            if key_str.contains('\0') || value_str.contains('\0') {
+            if key.contains_nuls() || value.contains_nuls() {
+                cold_path();
                 return Err(exceptions::nul_char_error(vm));
             }
             // Validate: empty key or '=' in key after position 0

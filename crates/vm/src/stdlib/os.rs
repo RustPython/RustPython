@@ -211,7 +211,7 @@ pub(super) mod _os {
     };
     #[cfg(not(windows))]
     use core::marker::PhantomData;
-    use core::time::Duration;
+    use core::{hint::cold_path, time::Duration};
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
     #[cfg(windows)]
@@ -487,10 +487,16 @@ pub(super) mod _os {
     }
 
     #[cfg(not(windows))]
-    fn env_bytes_as_bytes(obj: &crate::function::Either<PyStrRef, PyBytesRef>) -> &[u8] {
+    fn env_bytes_as_bytes_checked(
+        obj: &crate::function::Either<PyStrRef, PyBytesRef>,
+    ) -> Option<&[u8]> {
         match obj {
-            crate::function::Either::A(s) => s.as_bytes(),
-            crate::function::Either::B(b) => b.as_bytes(),
+            crate::function::Either::A(s) if !s.contains_nuls() => Some(s.as_bytes()),
+            crate::function::Either::B(b) if !b.contains_nuls() => Some(b.as_bytes()),
+            _ => {
+                cold_path();
+                None
+            }
         }
     }
 
@@ -515,9 +521,10 @@ pub(super) mod _os {
         // defining hidden environment variables.
         if key_str.is_empty()
             || key_str.get(1..).is_some_and(|s| s.contains('='))
-            || key_str.contains('\0')
-            || value_str.contains('\0')
+            || key.contains_nuls()
+            || value.contains_nuls()
         {
+            cold_path();
             return Err(vm.new_value_error("illegal environment variable name"));
         }
         let env_str = format!("{key_str}={value_str}");
@@ -537,11 +544,13 @@ pub(super) mod _os {
         value: crate::function::Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let key = env_bytes_as_bytes(&key);
-        let value = env_bytes_as_bytes(&value);
-        if key.contains(&b'\0') || value.contains(&b'\0') {
+        let (Some(key), Some(value)) = (
+            env_bytes_as_bytes_checked(&key),
+            env_bytes_as_bytes_checked(&value),
+        ) else {
+            cold_path();
             return Err(exceptions::nul_byte_error(vm));
-        }
+        };
         if key.is_empty() || key.contains(&b'=') {
             return Err(vm.new_value_error("illegal environment variable name"));
         }
@@ -560,8 +569,9 @@ pub(super) mod _os {
         // defining hidden environment variables.
         if key_str.is_empty()
             || key_str.get(1..).is_some_and(|s| s.contains('='))
-            || key_str.contains('\0')
+            || key.contains_nuls()
         {
+            cold_path();
             return Err(vm.new_value_error("illegal environment variable name"));
         }
         // "key=" to unset (empty value removes the variable)
@@ -581,10 +591,10 @@ pub(super) mod _os {
         key: crate::function::Either<PyStrRef, PyBytesRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let key = env_bytes_as_bytes(&key);
-        if key.contains(&b'\0') {
+        let Some(key) = env_bytes_as_bytes_checked(&key) else {
+            cold_path();
             return Err(exceptions::nul_byte_error(vm));
-        }
+        };
         if key.is_empty() || key.contains(&b'=') {
             let x = vm.new_errno_error(
                 22,
