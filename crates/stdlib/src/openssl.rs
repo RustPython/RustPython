@@ -53,6 +53,8 @@ fn probe() -> &'static ProbeResult {
     #[cfg(ossl111)] ossl111,
     #[cfg(windows)] windows))]
 mod _ssl {
+    use core::hint::cold_path;
+
     use super::{bio, probe};
 
     // Import error types and helpers used in this module (others are exposed via pymodule(with(...)))
@@ -85,6 +87,7 @@ mod _ssl {
     };
     use crossbeam_utils::atomic::AtomicCell;
     use foreign_types_shared::{ForeignType, ForeignTypeRef};
+    use memchr::memchr;
     use openssl::{
         asn1::{Asn1Object, Asn1ObjectRef},
         error::ErrorStack,
@@ -1039,12 +1042,13 @@ mod _ssl {
 
         #[pymethod]
         fn set_ciphers(&self, cipherlist: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-            let ciphers: &str = cipherlist.as_ref();
-            if ciphers.contains('\0') {
+            if cipherlist.contains_nuls() {
+                cold_path();
                 return Err(exceptions::nul_char_error(vm));
             }
+
             self.builder()
-                .set_cipher_list(ciphers)
+                .set_cipher_list(cipherlist.as_ref())
                 .map_err(|_| new_ssl_error(vm, "No cipher can be selected."))
         }
 
@@ -1096,9 +1100,6 @@ mod _ssl {
             let name_cstr = match name {
                 Either::A(s) => {
                     let s: &str = s.as_ref();
-                    if s.contains('\0') {
-                        return Err(exceptions::nul_char_error(vm));
-                    }
                     s.to_cstring(vm)?
                 }
                 Either::B(b) => std::ffi::CString::new(b.borrow_buf().to_vec())
@@ -2031,14 +2032,15 @@ mod _ssl {
 
             // Configure server hostname
             if let Some(hostname) = &server_hostname {
+                if hostname.contains_nuls() {
+                    cold_path();
+                    return Err(exceptions::nul_char_type_error(vm));
+                }
                 let hostname_str: &str = hostname.as_ref();
                 if hostname_str.is_empty() || hostname_str.starts_with('.') {
                     return Err(vm.new_value_error(
                         "server_hostname cannot be an empty string or start with a leading dot.",
                     ));
-                }
-                if hostname_str.contains('\0') {
-                    return Err(exceptions::nul_char_type_error(vm));
                 }
                 let ip = hostname_str.parse::<core::net::IpAddr>();
                 if ip.is_err() {

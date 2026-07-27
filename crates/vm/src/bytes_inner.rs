@@ -255,8 +255,8 @@ fn write_bytearray_repr_char(ch: u8, buf: &mut String) {
 
 impl PyBytesInner {
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
-        &self.elements
+    pub const fn as_bytes(&self) -> &[u8] {
+        self.elements.as_slice()
     }
 
     fn new_repr_overflow_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
