@@ -3,7 +3,7 @@ use crate::{
     builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, FrameObject, FrameOwner, FrameObjectRef},
+    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,

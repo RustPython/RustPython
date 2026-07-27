@@ -151,13 +151,21 @@ mod decl {
         let funcname = frame.iframe().code().obj_name.as_str();
         let lasti = frame.lasti();
         let lineno = if lasti == 0 {
-            frame.iframe().code().first_line_number.map_or(1, |n| n.get()) as u32
+            frame
+                .iframe()
+                .code()
+                .first_line_number
+                .map_or(1, |n| n.get()) as u32
         } else {
             let idx = (lasti as usize).saturating_sub(1);
             if idx < frame.iframe().code().locations.len() {
                 frame.iframe().code().locations[idx].0.line.get() as u32
             } else {
-                frame.iframe().code().first_line_number.map_or(0, |n| n.get()) as u32
+                frame
+                    .iframe()
+                    .code()
+                    .first_line_number
+                    .map_or(0, |n| n.get()) as u32
             }
         };
 
@@ -226,7 +234,11 @@ mod decl {
         let funcname = frame.iframe().code().obj_name.as_str();
         let filename = frame.iframe().code().source_path().as_str();
         let lineno = if frame.lasti() == 0 {
-            frame.iframe().code().first_line_number.map_or(1, |n| n.get()) as u32
+            frame
+                .iframe()
+                .code()
+                .first_line_number
+                .map_or(1, |n| n.get()) as u32
         } else {
             frame.current_location().line.get() as u32
         };
@@ -269,7 +281,12 @@ mod decl {
     /// `_Py_DumpTracebackThreads`, which walks lock-free while other threads
     /// may still run).
     #[cfg(all(unix, feature = "threading"))]
-    fn dump_traceback_thread_chain(fd: i32, thread_id: u64, is_current: bool, top: *const FrameObject) {
+    fn dump_traceback_thread_chain(
+        fd: i32,
+        thread_id: u64,
+        is_current: bool,
+        top: *const FrameObject,
+    ) {
         const MAX_FRAME_DEPTH: usize = 100;
         write_thread_id(fd, thread_id, is_current);
 

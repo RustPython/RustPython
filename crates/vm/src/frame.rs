@@ -1201,7 +1201,8 @@ impl FrameObject {
     /// The caller must ensure the generator outlives the frame.
     pub fn set_generator(&self, generator: &PyObject) {
         self.iframe().generator.store(generator);
-        self.iframe().owner
+        self.iframe()
+            .owner
             .store(FrameOwner::Generator as i8, atomic::Ordering::Release);
     }
 
@@ -1488,7 +1489,13 @@ impl FrameObject {
         // frame is not executing on another thread.
         let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
         let obj = fastlocals.get(i)?.as_ref()?;
-        let kind = self.iframe().code().localspluskinds.get(i).copied().unwrap_or(0);
+        let kind = self
+            .iframe()
+            .code()
+            .localspluskinds
+            .get(i)
+            .copied()
+            .unwrap_or(0);
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
             if let Some(cell) = obj.downcast_ref::<PyCell>() {
                 cell.get()
@@ -1504,7 +1511,13 @@ impl FrameObject {
     /// the slot holds one so closures keep sharing the same cell.
     fn framelocalsproxy_setval(&self, i: usize, value: PyObjectRef) {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
-        let kind = self.iframe().code().localspluskinds.get(i).copied().unwrap_or(0);
+        let kind = self
+            .iframe()
+            .code()
+            .localspluskinds
+            .get(i)
+            .copied()
+            .unwrap_or(0);
         // SAFETY: callers first pass through `check_locals_access`.
         let fastlocals = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0

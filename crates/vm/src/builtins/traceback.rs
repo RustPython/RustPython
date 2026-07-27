@@ -132,7 +132,10 @@ impl serde::Serialize for PyTraceback {
         let mut struc = s.serialize_struct("PyTraceback", 3)?;
         struc.serialize_field("name", self.frame.iframe().code().obj_name.as_str())?;
         struc.serialize_field("lineno", &self.lineno.get())?;
-        struc.serialize_field("filename", self.frame.iframe().code().source_path().as_str())?;
+        struc.serialize_field(
+            "filename",
+            self.frame.iframe().code().source_path().as_str(),
+        )?;
         struc.end()
     }
 }

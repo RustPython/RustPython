@@ -76,7 +76,13 @@ pub fn offer_suggestions(exc: &Py<PyBaseException>, vm: &VirtualMachine) -> Opti
             return Some(suggestions);
         };
 
-        let globals: Vec<_> = tb.frame.iframe().globals().as_object().try_to_value(vm).ok()?;
+        let globals: Vec<_> = tb
+            .frame
+            .iframe()
+            .globals()
+            .as_object()
+            .try_to_value(vm)
+            .ok()?;
         if let Some(suggestions) = calculate_suggestions(globals.iter(), &name) {
             return Some(suggestions);
         };

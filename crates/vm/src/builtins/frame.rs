@@ -6,7 +6,7 @@ use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{FrameObject, FrameOwner, FrameObjectRef},
+    frame::{FrameObject, FrameObjectRef, FrameOwner},
     function::PySetterValue,
     types::Representable,
 };
@@ -470,7 +470,10 @@ impl FrameObject {
         // If lasti is 0, execution hasn't started yet - use first line number
         // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.iframe().code().first_line_number.map_or(1, |n| n.get())
+            self.iframe()
+                .code()
+                .first_line_number
+                .map_or(1, |n| n.get())
         } else {
             self.current_location().line.get()
         }
@@ -492,7 +495,11 @@ impl FrameObject {
             }
         };
 
-        let first_line = self.iframe().code().first_line_number.map_or(1, |n| n.get() as i32);
+        let first_line = self
+            .iframe()
+            .code()
+            .first_line_number
+            .map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(
@@ -662,7 +669,11 @@ impl Py<FrameObject> {
     #[pymethod]
     // = frame_clear_impl
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let owner = FrameOwner::from_i8(self.iframe().owner.load(core::sync::atomic::Ordering::Acquire));
+        let owner = FrameOwner::from_i8(
+            self.iframe()
+                .owner
+                .load(core::sync::atomic::Ordering::Acquire),
+        );
         match owner {
             FrameOwner::Generator => {
                 // Generator frame: check if suspended (lasti > 0 means
@@ -707,7 +718,12 @@ impl Py<FrameObject> {
         // Optimized (function) frames expose a live write-through
         // FrameLocalsProxy; class/module/exec frames expose their namespace
         // mapping directly.
-        if self.iframe().code().flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+        if self
+            .iframe()
+            .code()
+            .flags
+            .contains(bytecode::CodeFlags::OPTIMIZED)
+        {
             self.check_locals_access(vm)?;
             self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());

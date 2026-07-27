@@ -1180,8 +1180,9 @@ pub(crate) mod _thread {
                         // SAFETY: world stopped -> the owning thread is parked
                         // and cannot pop or free this frame; it is alive on
                         // that thread's call stack.
-                        let py =
-                            unsafe { &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr()) };
+                        let py = unsafe {
+                            &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
+                        };
                         (*id, py.to_owned())
                     })
                 })

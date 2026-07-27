@@ -87,7 +87,15 @@ pub extern "C" fn PyEval_GetFrameBuiltins() -> *mut PyObject {
 pub extern "C" fn PyEval_GetFrameGlobals() -> *mut PyObject {
     with_vm(|vm| {
         vm.current_frame()
-            .map(|frame| frame.iframe().globals().as_object().to_owned().into_raw().as_ptr())
+            .map(|frame| {
+                frame
+                    .iframe()
+                    .globals()
+                    .as_object()
+                    .to_owned()
+                    .into_raw()
+                    .as_ptr()
+            })
             .unwrap_or_default()
     })
 }

@@ -1721,8 +1721,7 @@ impl VirtualMachine {
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
         let payload: *const FrameObject = &**frame;
-        let old_chain =
-            crate::vm::thread::set_current_frame(payload);
+        let old_chain = crate::vm::thread::set_current_frame(payload);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1775,8 +1774,7 @@ impl VirtualMachine {
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let payload: *const FrameObject = &***frame;
-        let old_chain =
-            crate::vm::thread::set_current_frame(payload);
+        let old_chain = crate::vm::thread::set_current_frame(payload);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1835,7 +1833,8 @@ impl VirtualMachine {
         // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
         // both Ok and Err, matching `call_trace_protected` behavior.
         if self.use_tracing.get()
-            && (!self.is_none(&frame.iframe().trace.lock()) || !self.is_none(&self.profile_func.borrow()))
+            && (!self.is_none(&frame.iframe().trace.lock())
+                || !self.is_none(&self.profile_func.borrow()))
         {
             let ret_result = self.trace_event(TraceEvent::Return, None);
             // call_trace_protected: if trace function raises, its error
