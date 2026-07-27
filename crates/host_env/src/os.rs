@@ -4,10 +4,10 @@
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
+#[cfg(windows)]
+pub use crate::posix::rename;
 #[cfg(any(unix, target_os = "wasi"))]
 pub use crate::posix_unix_like::rename;
-#[cfg(windows)]
-pub use crate::posix_windows::rename;
 #[cfg(any(unix, windows))]
 use core::ffi::CStr;
 use core::str::Utf8Error;
