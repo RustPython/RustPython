@@ -963,7 +963,7 @@ mod _sqlite3 {
             zelf.reset_factories(vm);
 
             if was_initialized {
-                zelf.drop_db();
+                zelf.drop_db(vm)?;
             }
 
             // Attempt to open the new database before mutating other state so failures leave
@@ -994,8 +994,20 @@ mod _sqlite3 {
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
-        fn drop_db(&self) {
-            self.db.lock().take();
+        fn drop_db(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = self.db.lock();
+            let rollback_result = if let Some(db) = guard.as_ref()
+                && *self.autocommit.lock() == AutocommitMode::Disabled
+                && !db.is_autocommit()
+            {
+                db._exec(b"ROLLBACK\0", vm)
+            } else {
+                Ok(())
+            };
+            let db = guard.take();
+            drop(guard);
+            drop(db);
+            rollback_result
         }
 
         fn reset_factories(&self, vm: &VirtualMachine) {
@@ -1011,6 +1023,9 @@ mod _sqlite3 {
             db.busy_timeout(timeout);
             if let Some(isolation_level) = &args.isolation_level.0 {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
+            }
+            if args.autocommit == AutocommitMode::Disabled {
+                db._exec(b"BEGIN\0", vm)?;
             }
             Ok(db)
         }
@@ -1108,8 +1123,7 @@ mod _sqlite3 {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.check_thread(vm)?;
-            self.drop_db();
-            Ok(())
+            self.drop_db(vm)
         }
 
         fn is_closed(&self) -> bool {
@@ -1118,16 +1132,35 @@ mod _sqlite3 {
 
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.db_lock(vm)?.implicit_commit(vm)
+            let db = self.db_lock(vm)?;
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => db.implicit_commit(vm),
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"COMMIT\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
+            }
         }
 
         #[pymethod]
         fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
-            if !db.is_autocommit() {
-                db._exec(b"ROLLBACK\0", vm)
-            } else {
-                Ok(())
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => {
+                    if db.is_autocommit() {
+                        Ok(())
+                    } else {
+                        db._exec(b"ROLLBACK\0", vm)
+                    }
+                }
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"ROLLBACK\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
             }
         }
 
@@ -1521,11 +1554,7 @@ mod _sqlite3 {
 
                     // If setting isolation_level to None (auto-commit mode), commit any pending transaction
                     if value.is_none() {
-                        let db = self.db_lock(vm)?;
-                        if !db.is_autocommit() {
-                            // Keep the lock and call implicit_commit directly to avoid race conditions
-                            db.implicit_commit(vm)?;
-                        }
+                        self.commit(vm)?;
                     }
                     let _ = unsafe { self.isolation_level.swap(value) };
                     Ok(())
@@ -1549,6 +1578,7 @@ mod _sqlite3 {
         fn set_autocommit(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
             let db = self.db_lock(vm)?;
+            *self.autocommit.lock() = mode;
 
             // Handle transaction state based on mode change
             match mode {
@@ -1568,9 +1598,6 @@ mod _sqlite3 {
                     // Legacy mode doesn't change transaction state
                 }
             }
-
-            drop(db);
-            *self.autocommit.lock() = mode;
             Ok(())
         }
 
