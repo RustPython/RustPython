@@ -12,17 +12,18 @@ use rustpython_compiler::{CompileError, ParseError};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
-        PyType, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError,
+        PyStopIteration, PyStrRef, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
     convert::{ToPyException, ToPyObject},
     exceptions::OSErrorBuilder,
-    function::{IntoPyNativeFn, PyMethodFlags},
+    function::{FuncArgs, IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     set_attrs,
+    types::{Constructor, Initializer},
     vm::VirtualMachine,
 };
 
@@ -351,6 +352,19 @@ impl VirtualMachine {
         PyBaseException::new(args, self)
             .into_ref_with_type_lazy_dict(self, exc_type)
             .expect("vm.new_exception() called with an invalid exception type")
+    }
+
+    /// Construct a built-in exception type that carries a payload, directly
+    /// (`py_new` + `slot_init`), without routing through `PyType::call`.
+    /// Only valid for a built-in `T` whose exact type is known at compile time.
+    pub fn new_payload_exception<T>(&self, cls: PyTypeRef, args: FuncArgs) -> PyResult<PyRef<T>>
+    where
+        T: Constructor<Args = FuncArgs> + Initializer,
+    {
+        let payload = T::py_new(&cls, args.clone(), self)?;
+        let exc = payload.into_ref_with_type_lazy_dict(self, cls)?;
+        T::slot_init(exc.as_object().to_owned(), args, self)?;
+        Ok(exc)
     }
 
     pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
@@ -894,15 +908,17 @@ impl VirtualMachine {
     }
 
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
-        let stop_iteration_error = self.ctx.exceptions.stop_iteration;
-        let args = if let Some(value) = value {
-            vec![value]
-        } else {
-            Vec::new()
-        };
-        let exc = self.invoke_exception(stop_iteration_error, args);
-
-        exc.expect("StopIteration is a BaseException Subclass.")
+        let args: FuncArgs = value.map(|v| vec![v]).unwrap_or_default().into();
+        self.new_payload_exception::<PyStopIteration>(
+            self.ctx.exceptions.stop_iteration.to_owned(),
+            args,
+        )
+        .expect("StopIteration is a BaseException Subclass.")
+        // `PyStopIteration` -> `PyBaseException` needs an owned upcast here.
+        // `.upcast()` does a runtime downcast; the zero-cost `upcast_ref`/`to_base`
+        // only return `&Py<_>`, which doesn't fit the owned `PyBaseExceptionRef`
+        // return. Keeping the downcast for now.
+        .upcast()
     }
 
     fn new_downcast_error(

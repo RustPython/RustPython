@@ -1385,14 +1385,8 @@ impl OSErrorBuilder {
             vec![strerror.to_pyobject(vm)]
         };
 
-        let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
-            .expect("new_os_error usage error");
-        let os_error = payload
-            .into_ref_with_type_lazy_dict(vm, exc_type)
-            .expect("new_os_error usage error");
-        PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
-            .expect("new_os_error usage error");
-        os_error
+        vm.new_payload_exception::<PyOSError>(exc_type, args.into())
+            .expect("new_os_error usage error")
     }
 }
 
