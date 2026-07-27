@@ -890,7 +890,6 @@ class ReTests(unittest.TestCase):
         self.checkPatternError(br'\N{LESS-THAN SIGN}', r'bad escape \N', 0)
         self.checkPatternError(br'[\N{LESS-THAN SIGN}]', r'bad escape \N', 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; re.search(r"\B", "") now returns a match in CPython 3.14
     def test_word_boundaries(self):
         # See http://bugs.python.org/issue10713
         self.assertEqual(re.search(r"\b(abc)\b", "abc").group(1), "abc")
@@ -2493,7 +2492,6 @@ class ReTests(unittest.TestCase):
         # With optimization -- 0.0003 seconds.
         self.assertLess(stopwatch.seconds, 0.1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_possessive_quantifiers(self):
         """Test Possessive Quantifiers
         Test quantifiers of the form @+ for some repetition operator @,
@@ -2647,7 +2645,6 @@ class ReTests(unittest.TestCase):
         self.assertEqual(re.match("(?>(?:ab?c){1,3})", "aca").span(), (0, 2))
         self.assertEqual(re.match("(?:ab?c){1,3}+", "aca").span(), (0, 2))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; self.assertEqual(re.match('((x)|y|z){3}+', 'xyz').groups(), ('z', 'x'))\n AssertionError: Tuples differ: ('x', 'x') != ('z', 'x')
     def test_bug_gh101955(self):
         # Possessive quantifier with nested alternative with capture groups
         self.assertEqual(re.match('((x)|y|z)*+', 'xyz').groups(), ('z', 'x'))
