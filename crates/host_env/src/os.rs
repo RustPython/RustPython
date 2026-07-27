@@ -4,6 +4,10 @@
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
+#[cfg(any(unix, target_os = "wasi"))]
+pub use crate::posix_unix_like::rename;
+#[cfg(windows)]
+pub use crate::posix_windows::rename;
 #[cfg(any(unix, windows))]
 use core::ffi::CStr;
 use core::str::Utf8Error;
@@ -27,6 +31,23 @@ use {
         System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
 };
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn rename(
+    from: impl AsRef<std::path::Path>,
+    from_fd: Option<crt_fd::Borrowed<'_>>,
+    to: impl AsRef<std::path::Path>,
+    to_fd: Option<crt_fd::Borrowed<'_>>,
+) -> io::Result<()> {
+    if from_fd.is_none() && to_fd.is_none() {
+        std::fs::rename(from, to)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "renameat is not available on this platform",
+        ))
+    }
+}
 
 /// Convert exit code to std::process::ExitCode
 ///
