@@ -1142,7 +1142,7 @@ mod mmap {
         }
 
         #[pymethod]
-        const fn seekable(&self) -> bool {
+        fn seekable(&self) -> bool {
             true
         }
 
