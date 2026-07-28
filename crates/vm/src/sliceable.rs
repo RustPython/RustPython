@@ -1,7 +1,7 @@
 // export through sliceable module, not slice.
 use crate::{
     Py, PyObject, PyResult, VirtualMachine,
-    builtins::{PyBaseExceptionRef, int::PyInt, slice::PySlice},
+    builtins::{int::PyInt, slice::PySlice},
 };
 use core::ops::Range;
 use malachite_bigint::BigInt;
@@ -285,34 +285,25 @@ impl SequenceIndex {
         obj: &PyObject,
         type_name: &str,
     ) -> PyResult<Self> {
-        Self::try_from_borrowed_object_with_err(vm, obj, || {
-            vm.new_type_error(format!(
-                "{type_name} indices must be integers or slices, not {}",
-                obj.class().slot_name()
-            ))
+        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| {
+            if type_name == "str" {
+                // unicode_subscript raises a distinct message here.
+                Err(vm.new_type_error(format!(
+                    "string indices must be integers, not '{}'",
+                    obj.class()
+                )))
+            } else {
+                Err(vm.new_type_error(format!(
+                    "{type_name} indices must be integers or slices, not {}",
+                    obj.class().slot_name()
+                )))
+            }
         })
-    }
-
-    /// Like [`Self::try_from_borrowed_object`], but lets the caller supply the
-    /// `TypeError` raised for a non-index object. Used by types whose message
-    /// differs from the shared sequence wording (e.g. `str`, whose
-    /// `unicode_subscript` says "string indices must be integers, not ...").
-    pub fn try_from_borrowed_object_with_err(
-        vm: &VirtualMachine,
-        obj: &PyObject,
-        err: impl FnOnce() -> PyBaseExceptionRef,
-    ) -> PyResult<Self> {
-        Self::try_from_object_opt(vm, obj).unwrap_or_else(|| Err(err()))
     }
 
     /// `unicode_subscript`, which turns down what it cannot use in its own words.
     pub fn try_from_str_subscript(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Self> {
-        Self::try_from_borrowed_object_with_err(vm, obj, || {
-            vm.new_type_error(format!(
-                "string indices must be integers, not '{}'",
-                obj.class()
-            ))
-        })
+        Self::try_from_borrowed_object(vm, obj, "str")
     }
 }
 
