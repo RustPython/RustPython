@@ -110,6 +110,21 @@ impl Marks {
         self.marks_stack.pop();
     }
 
+    fn stack_depth(&self) -> usize {
+        self.marks_stack.len()
+    }
+
+    fn discard_to(&mut self, depth: usize) {
+        self.marks_stack.truncate(depth);
+    }
+
+    fn restore_to(&mut self, depth: usize) {
+        let (marks, last_index) = self.marks_stack[depth].clone();
+        self.marks = marks;
+        self.last_index = last_index;
+        self.marks_stack.truncate(depth);
+    }
+
     fn clear(&mut self) {
         self.last_index = -1;
         self.marks.clear();
@@ -144,6 +159,7 @@ impl State {
             jump: Jump::OpCode,
             repeat_ctx_id: usize::MAX,
             count: -1,
+            marks_stack_base: usize::MAX,
         };
         _match(req, self, ctx)
     }
@@ -165,6 +181,7 @@ impl State {
             jump: Jump::OpCode,
             repeat_ctx_id: usize::MAX,
             count: -1,
+            marks_stack_base: usize::MAX,
         };
 
         if ctx.peek_code(&req, 0) == SreOpcode::INFO as u32 {
@@ -483,6 +500,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::PossessiveRepeat2 => {
                         if popped_result {
+                            ctx.cursor = state.cursor;
                             ctx.count += 1;
                             ctx.jump = Jump::PossessiveRepeat1;
                             continue 'context;
@@ -495,6 +513,7 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                         if ((ctx.count as usize) < max_count || max_count == MAXREPEAT)
                             && ctx.cursor.position != state.cursor.position
                         {
+                            ctx.marks_stack_base = state.marks.stack_depth();
                             state.marks.push();
                             ctx.cursor = state.cursor;
                             let mut next = ctx.next_offset(4, Jump::PossessiveRepeat4);
@@ -507,12 +526,12 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                     }
                     Jump::PossessiveRepeat4 => {
                         if popped_result {
-                            state.marks.pop_discard();
+                            state.marks.discard_to(ctx.marks_stack_base);
                             ctx.count += 1;
                             ctx.jump = Jump::PossessiveRepeat3;
                             continue 'context;
                         }
-                        state.marks.pop();
+                        state.marks.restore_to(ctx.marks_stack_base);
                         state.cursor = ctx.cursor;
                         ctx.skip_code_from(req, 1);
                         ctx.skip_code(1);
@@ -1057,6 +1076,7 @@ struct MatchContext {
     jump: Jump,
     repeat_ctx_id: usize,
     count: isize,
+    marks_stack_base: usize,
 }
 
 impl MatchContext {
@@ -1147,7 +1167,9 @@ impl MatchContext {
         mut word_checker: F,
     ) -> bool {
         if self.at_beginning() && self.at_end(req) {
-            return false;
+            // Python 3.14 changed `\B` to match an empty input.  Keep the
+            // boundary predicate false there, but its negation true.
+            return true;
         }
         let that = !self.at_beginning() && word_checker(self.back_peek_char::<S>());
         let this = !self.at_end(req) && word_checker(self.peek_char::<S>());
