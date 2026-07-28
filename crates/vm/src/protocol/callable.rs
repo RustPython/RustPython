@@ -228,7 +228,7 @@ impl VirtualMachine {
         let is_profile_event = event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
-        let Some(frame_ref) = crate::frame::current_thread_frame() else {
+        let Some(frame_ref) = crate::frame::current_thread_frame_materialize(self) else {
             return Ok(None);
         };
 

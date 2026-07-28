@@ -643,20 +643,25 @@ impl GcState {
                     reason = "assertion over every registered thread slot"
                 )]
                 for slot in registry.values() {
-                    let mut cur: *const crate::frame::FrameObject =
+                    let top: *const crate::frame::FrameObject =
                         slot.top_frame.load(core::sync::atomic::Ordering::Relaxed);
-                    while !cur.is_null() {
-                        let obj = unsafe {
-                            &*crate::Py::<crate::frame::FrameObject>::from_payload_ptr(cur)
+                    if !top.is_null() {
+                        let mut cur = unsafe {
+                            (*top).iframe() as *const crate::frame::InterpreterFrame
+                        };
+                        while !cur.is_null() {
+                            let iframe = unsafe { &*cur };
+                            if let Some(fo) = iframe.frame_obj() {
+                                let obj = fo.as_object();
+                                let ptr = GcPtr(NonNull::from(obj));
+                                debug_assert!(
+                                    !unreachable_set.contains(&ptr),
+                                    "running frame {obj:p} classified unreachable during GC"
+                                );
+                            }
+                            cur = iframe.previous.load(core::sync::atomic::Ordering::Relaxed)
+                                as *const crate::frame::InterpreterFrame;
                         }
-                        .as_object();
-                        let ptr = GcPtr(NonNull::from(obj));
-                        debug_assert!(
-                            !unreachable_set.contains(&ptr),
-                            "running frame {obj:p} classified unreachable during GC"
-                        );
-                        // Walk to previous frame via public accessor
-                        cur = unsafe { (*cur).previous_frame() };
                     }
                 }
             });

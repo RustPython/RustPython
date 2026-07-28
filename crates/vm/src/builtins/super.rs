@@ -79,22 +79,27 @@ impl Initializer for PySuper {
         let (typ, obj) = if let OptionalArg::Present(ty) = py_type {
             (ty, py_obj.unwrap_or_none(vm))
         } else {
-            let frame = crate::frame::current_thread_frame()
-                .ok_or_else(|| vm.new_runtime_error("super(): no current frame"))?;
+            // Access the InterpreterFrame directly — no need to materialize
+            // a FrameObject just to read code/locals.
+            let iframe_ptr = crate::frame::current_thread_iframe();
+            if iframe_ptr.is_null() {
+                return Err(vm.new_runtime_error("super(): no current frame"));
+            }
+            let iframe = unsafe { &*iframe_ptr };
+            let code = iframe.code();
 
-            if frame.iframe().code().arg_count == 0 {
+            if code.arg_count == 0 {
                 return Err(vm.new_runtime_error("super(): no arguments"));
             }
 
-            // SAFETY: FrameObject is current and not concurrently mutated.
+            // SAFETY: InterpreterFrame is current and not concurrently mutated.
             use rustpython_compiler_core::bytecode::CO_FAST_CELL;
-            let obj = unsafe { frame.fastlocals() }[0]
+            let fastlocals = iframe.localsplus.fastlocals();
+            let obj = fastlocals[0]
                 .clone()
                 .and_then(|val| {
                     // If slot 0 is a merged cell (LOCAL|CELL), extract value from cell
-                    if frame
-                        .iframe()
-                        .code()
+                    if code
                         .localspluskinds
                         .first()
                         .is_some_and(|&k| k & CO_FAST_CELL != 0)
@@ -108,13 +113,15 @@ impl Initializer for PySuper {
 
             let mut typ = None;
             // Search for __class__ in freevars using localspluskinds
-            let nlocalsplus = frame.iframe().code().localspluskinds.len();
-            let nfrees = frame.iframe().code().freevars.len();
+            let nlocalsplus = code.localspluskinds.len();
+            let nfrees = code.freevars.len();
             let free_start = nlocalsplus - nfrees;
-            for (i, var) in frame.iframe().code().freevars.iter().enumerate() {
+            for (i, var) in code.freevars.iter().enumerate() {
                 if var.as_bytes() == b"__class__" {
-                    let class = frame
-                        .get_cell_contents(free_start + i)
+                    let class = fastlocals[free_start + i]
+                        .as_ref()
+                        .and_then(|v| v.downcast_ref::<PyCell>())
+                        .and_then(|c| c.get())
                         .ok_or_else(|| vm.new_runtime_error("super(): empty __class__ cell"))?;
                     typ = Some(class.downcast().map_err(|o| {
                         vm.new_type_error(format!(

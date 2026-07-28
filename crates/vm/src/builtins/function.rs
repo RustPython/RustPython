@@ -228,20 +228,31 @@ impl PyFunction {
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        // SAFETY: FrameObject was just created and not yet executing.
+        let fastlocals = unsafe { frame.fastlocals_mut() };
+        self.fill_locals_from_args_inner(fastlocals, func_args, vm)
+    }
+
+    fn fill_locals_from_args_iframe(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let fastlocals = iframe.localsplus.fastlocals_mut();
+        self.fill_locals_from_args_inner(fastlocals, func_args, vm)
+    }
+
+    fn fill_locals_from_args_inner(
+        &self,
+        fastlocals: &mut [Option<PyObjectRef>],
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let code: &Py<PyCode> = &self.code;
         let nargs = func_args.args.len();
         let n_expected_args = code.arg_count as usize;
         let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
-        // let arg_names = self.code.arg_names();
-
-        // This parses the arguments from args and kwargs into
-        // the proper variables keeping into account default values
-        // and star-args and kwargs.
-        // See also: PyEval_EvalCodeWithName in cpython:
-        // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
-
-        // SAFETY: FrameObject was just created and not yet executing.
-        let fastlocals = unsafe { frame.fastlocals_mut() };
 
         let mut args_iter = func_args.args.into_iter();
 
@@ -566,55 +577,91 @@ impl Py<PyFunction> {
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
-        let use_datastack = !(is_gen || is_coro || is_async_gen);
 
-        // Construct frame:
-        let frame = FrameObject::new_ref(
-            code,
-            Scope::new(locals, self.globals.clone()),
-            self.builtins.clone(),
+        if is_gen || is_coro || is_async_gen {
+            // Generator/coroutine: must heap-allocate, lifetime exceeds call stack.
+            let frame = FrameObject::new_ref(
+                code,
+                Scope::new(locals, self.globals.clone()),
+                self.builtins.clone(),
+                self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                Some(self.to_owned().into()),
+                false,
+                vm,
+            );
+            self.fill_locals_from_args(&frame, func_args, vm)?;
+            return self.make_generator_or_coro(frame, vm);
+        }
+
+        // Fast path: stack-allocated InterpreterFrame, no FrameObject.
+        let nlocalsplus = code.localspluskinds.len();
+        let max_stackdepth = code.max_stackdepth as usize;
+        let localsplus = crate::frame::LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm);
+
+        let locals = match locals {
+            Some(locals) => crate::frame::FrameLocals::with_locals(locals),
+            None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => {
+                crate::frame::FrameLocals::lazy()
+            }
+            None => crate::frame::FrameLocals::with_locals(
+                crate::function::ArgMapping::from_dict_exact(self.globals.clone()),
+            ),
+        };
+
+        let func_obj_ref: PyObjectRef = self.to_owned().into();
+        let mut iframe = crate::frame::InterpreterFrame::new(
+            &self.code,
+            &self.globals,
+            &self.builtins,
+            Some(&*func_obj_ref),
+            localsplus,
+            locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            Some(self.to_owned().into()),
-            use_datastack,
+            crate::frame::FrameOwner::Thread,
             vm,
         );
-
-        self.fill_locals_from_args(&frame, func_args, vm)?;
-        if use_datastack {
-            let result = vm.run_frame(frame.clone());
-            // Release data stack memory after frame execution completes.
-            crate::frame::release_datastack_frame(&frame, vm);
-            result
-        } else {
-            let obj = if is_async_gen {
-                PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm)
-            } else if is_gen {
-                PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm)
-            } else {
-                PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm)
-            };
-            // Generator/coroutine frames outlive this call and can join a
-            // reference cycle through their owning generator, so they must
-            // participate in the GC. They were created untracked
-            // (NEW_REF_UNTRACKED); track them now, before the back-reference
-            // is installed. Their localsplus is heap-backed by construction
-            // (use_datastack == false), so a collector never reads data-stack
-            // storage when it traverses them.
-            debug_assert!(
-                !frame.localsplus_is_datastack_backed(),
-                "generator frame is data-stack-backed"
-            );
-            // SAFETY: the frame is alive (held by `frame`) and untracked.
-            unsafe {
-                crate::gc_state::gc_state()
-                    .track_object(core::ptr::NonNull::from(frame.as_object()));
+        let result = self.fill_locals_from_args_iframe(&mut iframe, func_args, vm)
+            .and_then(|()| vm.run_frame_fast(&mut iframe));
+        // Release data stack memory — must happen on both success and error.
+        unsafe {
+            if let Some(base) = iframe.localsplus.release_datastack() {
+                vm.datastack_pop(base);
             }
-            frame.set_generator(&obj);
-            Ok(obj)
         }
+        result
+    }
+
+    /// Create generator, coroutine, or async generator from a FrameObject.
+    fn make_generator_or_coro(
+        &self,
+        frame: FrameObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult {
+        let code = frame.iframe().code();
+        let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
+        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
+
+        let obj = if is_async_gen {
+            PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm)
+        } else if is_gen {
+            PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm)
+        } else {
+            PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
+                .into_pyobject(vm)
+        };
+        debug_assert!(
+            !frame.localsplus_is_datastack_backed(),
+            "generator frame is data-stack-backed"
+        );
+        // SAFETY: the frame is alive (held by `frame`) and untracked.
+        unsafe {
+            crate::gc_state::gc_state()
+                .track_object(core::ptr::NonNull::from(frame.as_object()));
+        }
+        frame.set_generator(&obj);
+        Ok(obj)
     }
 
     #[inline(always)]
@@ -732,10 +779,46 @@ impl Py<PyFunction> {
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let frame = self.prepare_exact_args_frame(args, vm);
+        let code = &*self.code;
+        let nlocalsplus = code.localspluskinds.len();
+        let max_stackdepth = code.max_stackdepth as usize;
+        let localsplus = crate::frame::LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm);
 
-        let result = vm.run_frame(frame.clone());
-        crate::frame::release_datastack_frame(&frame, vm);
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            crate::frame::FrameLocals::lazy()
+        } else {
+            crate::frame::FrameLocals::with_locals(
+                ArgMapping::from_dict_exact(self.globals.clone()),
+            )
+        };
+
+        let func_obj_ref: PyObjectRef = self.to_owned().into();
+        let mut iframe = crate::frame::InterpreterFrame::new(
+            code,
+            &self.globals,
+            &self.builtins,
+            Some(&*func_obj_ref),
+            localsplus,
+            locals,
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            crate::frame::FrameOwner::Thread,
+            vm,
+        );
+
+        // Fill arguments directly into fastlocals
+        {
+            let fastlocals = iframe.localsplus.fastlocals_mut();
+            for (slot, arg) in fastlocals.iter_mut().zip(args) {
+                *slot = Some(arg);
+            }
+        }
+
+        let result = vm.run_frame_fast(&mut iframe);
+        unsafe {
+            if let Some(base) = iframe.localsplus.release_datastack() {
+                vm.datastack_pop(base);
+            }
+        }
         result
     }
 

@@ -1332,6 +1332,18 @@ impl VirtualMachine {
     }
 
     #[inline(always)]
+    /// Run a stack-allocated InterpreterFrame without heap allocation.
+    /// This is the fast path for regular (non-generator) function calls.
+    pub fn run_frame_fast(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+    ) -> PyResult {
+        match self.with_iframe(iframe, |iframe| crate::frame::run_iframe(iframe, self))? {
+            ExecutionResult::Return(value) => Ok(value),
+            _ => panic!("Got unexpected result from function"),
+        }
+    }
+
     pub fn run_frame(&self, frame: FrameObjectRef) -> PyResult {
         // Only ordinary (datastack) call frames reach `run_frame`; generator
         // and coroutine frames are resumed through `resume_gen_frame`. A
@@ -1720,8 +1732,8 @@ impl VirtualMachine {
 
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
-        let payload: *const FrameObject = &**frame;
-        let old_chain = crate::vm::thread::set_current_frame(payload);
+        let iframe = frame.iframe() as *const crate::frame::InterpreterFrame;
+        let old_chain = crate::vm::thread::set_current_frame(iframe);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1755,6 +1767,59 @@ impl VirtualMachine {
         self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
     }
 
+    /// Execute a stack-allocated InterpreterFrame without heap-allocating
+    /// a FrameObject. This is the fast path for regular function calls.
+    /// The frame is pushed onto the chain as a `*const InterpreterFrame`.
+    pub fn with_iframe<R>(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
+    ) -> PyResult<R> {
+        self.check_recursive_call("")?;
+
+        let depth = self.recursion_depth.get();
+        if depth & 7 == 0 && self.check_c_stack_overflow() {
+            return Err(self.new_recursion_error(String::new()));
+        }
+
+        self.recursion_depth.update(|d| d + 1);
+
+        let iframe_ptr = iframe as *const crate::frame::InterpreterFrame;
+        let old_chain = crate::vm::thread::set_current_frame(iframe_ptr);
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            iframe
+                .previous
+                .store(old_chain as usize, core::sync::atomic::Ordering::Relaxed);
+        }
+        let save_exc = iframe.code().has_exc_handling;
+        let saved_exc = if save_exc {
+            self.current_exception()
+        } else {
+            None
+        };
+        let old_owner = iframe.owner.swap(
+            crate::frame::FrameOwner::Thread as i8,
+            core::sync::atomic::Ordering::AcqRel,
+        );
+
+        // Use raw pointer for scopeguard so we don't conflict with
+        // the mutable borrow of `iframe` in the closure `f`.
+        let owner_ptr = &iframe.owner as *const core::sync::atomic::AtomicI8;
+        scopeguard::defer! {
+            // SAFETY: iframe is pinned on the stack and outlives this scope.
+            unsafe { &*owner_ptr }.store(old_owner, core::sync::atomic::Ordering::Release);
+            if save_exc {
+                self.restore_exception(saved_exc);
+            }
+            let _ = crate::vm::thread::set_current_frame(old_chain);
+            self.recursion_depth.update(|d| d - 1);
+        }
+
+        f(iframe)
+    }
+
     /// FrameObject execution for generator/coroutine resume.
     /// Pushes a new exc_info slot (gi_exc_state) onto the chain,
     /// linking the generator's saved handled-exception.
@@ -1773,8 +1838,8 @@ impl VirtualMachine {
         // SAFETY: frame (&FrameObjectRef) stays alive for the duration, so NonNull is valid until pop.
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
-        let payload: *const FrameObject = &***frame;
-        let old_chain = crate::vm::thread::set_current_frame(payload);
+        let iframe = frame.iframe() as *const crate::frame::InterpreterFrame;
+        let old_chain = crate::vm::thread::set_current_frame(iframe);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1887,12 +1952,12 @@ impl VirtualMachine {
     }
 
     pub fn current_frame(&self) -> Option<FrameObjectRef> {
-        crate::frame::current_thread_frame()
+        crate::frame::current_thread_frame_materialize(self)
     }
 
     pub fn current_locals(&self) -> PyResult<ArgMapping> {
         // Must include light frames so locals() returns the correct scope.
-        crate::frame::current_thread_frame()
+        crate::frame::current_thread_frame_materialize(self)
             .expect("called current_locals but no frames on the stack")
             .locals(self)
     }

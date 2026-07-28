@@ -740,13 +740,14 @@ impl Py<FrameObject> {
 
     #[pygetset]
     pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
-        let prev = self.previous_frame();
+        let prev = self.previous_iframe();
         if prev.is_null() {
             return None;
         }
 
-        // Look up the previous frame on the current thread's chain
-        if let Some(frame) = crate::frame::find_owned_chain_frame(prev) {
+        // Walk the previous chain to find the first materialized FrameObject
+        // Look up the previous iframe on the current thread's chain
+        if let Some(frame) = crate::frame::find_owned_chain_frame_by_iframe(prev) {
             frame.mark_escaped();
             return Some(frame);
         }
@@ -773,14 +774,23 @@ impl Py<FrameObject> {
                 reason = "Iteration order doesn't matter here"
             )]
             for slot in registry.values() {
-                let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
-                while !cur.is_null() {
-                    if core::ptr::eq(cur, prev) {
-                        let f = unsafe { &*Self::from_payload_ptr(cur) };
-                        f.mark_escaped();
-                        return Some(f.to_owned());
+                // top_frame still stores *const FrameObject for cross-thread readers
+                let top = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
+                if !top.is_null() {
+                    // Walk the iframe chain from this FrameObject's iframe
+                    let mut cur_iframe = unsafe {
+                        (*top).iframe() as *const crate::frame::InterpreterFrame
+                    };
+                    while !cur_iframe.is_null() {
+                        if core::ptr::eq(cur_iframe, prev) {
+                            let iframe_ref = unsafe { &*cur_iframe };
+                            if let Some(fo) = iframe_ref.frame_obj() {
+                                fo.mark_escaped();
+                                return Some(fo.to_owned());
+                            }
+                        }
+                        cur_iframe = unsafe { (*cur_iframe).previous() };
                     }
-                    cur = unsafe { (*cur).previous_frame() };
                 }
             }
         }
@@ -798,8 +808,9 @@ impl Py<FrameObject> {
                 // so FramePtr is valid for the duration of the lock.
                 if let Some(frame) = frames.iter().find_map(|fp| {
                     let f = unsafe { fp.as_ref() };
-                    let ptr: *const FrameObject = &**f;
-                    core::ptr::eq(ptr, prev).then(|| f.to_owned())
+                    let fo_iframe = f.iframe() as *const crate::frame::InterpreterFrame;
+                    // Check if any iframe in this frame's chain matches
+                    core::ptr::eq(fo_iframe, prev).then(|| f.to_owned())
                 }) {
                     frame.mark_escaped();
                     return Some(frame);

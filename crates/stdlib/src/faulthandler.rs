@@ -119,8 +119,7 @@ mod decl {
     }
 
     /// Dump the current thread's live frame chain to fd (signal-safe).
-    /// Walks the unified frame chain, skipping light entries (not
-    /// signal-safe to dereference in a signal handler).
+    /// Walks the InterpreterFrame chain directly.
     #[cfg(any(unix, windows))]
     fn dump_live_frames(fd: i32) {
         const MAX_FRAME_DEPTH: usize = 100;
@@ -132,10 +131,10 @@ mod decl {
         }
         let mut depth = 0;
         while !cur.is_null() && depth < MAX_FRAME_DEPTH {
-            let frame = unsafe { &*cur };
-            dump_frame_from_raw(fd, frame);
+            let iframe = unsafe { &*cur };
+            dump_iframe(fd, iframe);
             depth += 1;
-            cur = frame.previous_frame();
+            cur = iframe.previous();
         }
         if depth == 0 {
             puts(fd, "  <no Python frame>\n");
@@ -144,28 +143,22 @@ mod decl {
         }
     }
 
-    /// Dump a single frame's info to fd (signal-safe), reading live data.
+    /// Dump a single InterpreterFrame's info to fd (signal-safe).
     #[cfg(any(unix, windows))]
-    fn dump_frame_from_raw(fd: i32, frame: &FrameObject) {
-        let filename = frame.iframe().code().source_path().as_str();
-        let funcname = frame.iframe().code().obj_name.as_str();
-        let lasti = frame.lasti();
+    fn dump_iframe(fd: i32, iframe: &rustpython_vm::frame::InterpreterFrame) {
+        use rustpython_common::atomic::Radium;
+        let code = iframe.code();
+        let filename = code.source_path().as_str();
+        let funcname = code.obj_name.as_str();
+        let lasti = iframe.lasti.load(core::sync::atomic::Ordering::Relaxed);
         let lineno = if lasti == 0 {
-            frame
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get()) as u32
+            code.first_line_number.map_or(1, |n| n.get()) as u32
         } else {
             let idx = (lasti as usize).saturating_sub(1);
-            if idx < frame.iframe().code().locations.len() {
-                frame.iframe().code().locations[idx].0.line.get() as u32
+            if idx < code.locations.len() {
+                code.locations[idx].0.line.get() as u32
             } else {
-                frame
-                    .iframe()
-                    .code()
-                    .first_line_number
-                    .map_or(0, |n| n.get()) as u32
+                code.first_line_number.map_or(0, |n| n.get()) as u32
             }
         };
 
@@ -294,14 +287,14 @@ mod decl {
             puts(fd, "  <no Python frame>\n");
             return;
         }
-        let mut cur = top;
+        // Walk the iframe chain starting from the top FrameObject's iframe
+        let mut cur = unsafe { (*top).iframe() as *const rustpython_vm::frame::InterpreterFrame };
         let mut depth = 0;
         while !cur.is_null() && depth < MAX_FRAME_DEPTH {
-            let frame = unsafe { &*cur };
-            dump_frame_from_raw(fd, frame);
+            let iframe = unsafe { &*cur };
+            dump_iframe(fd, iframe);
             depth += 1;
-            // Walk to previous frame via public accessor
-            cur = frame.previous_frame();
+            cur = iframe.previous();
         }
         if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
             puts(fd, "  ...\n");
