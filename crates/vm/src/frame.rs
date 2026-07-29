@@ -802,7 +802,7 @@ pub struct InterpreterFrame {
     pub trace: PyMutex<Option<PyObjectRef>>,
 
     /// Previous line number for LINE event suppression.
-    pub(crate) prev_line: u32,
+    pub(crate) prev_line: core::cell::Cell<u32>,
 
     // member
     pub trace_lines: PyMutex<bool>,
@@ -916,7 +916,7 @@ impl InterpreterFrame {
             localsplus,
             locals,
             lasti: Radium::new(0),
-            prev_line,
+            prev_line: core::cell::Cell::new(prev_line),
             trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
@@ -998,7 +998,7 @@ impl InterpreterFrame {
             localsplus,
             locals,
             lasti: Radium::new(self.lasti.load(Relaxed)),
-            prev_line: self.prev_line,
+            prev_line: core::cell::Cell::new(self.prev_line.get()),
             trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
@@ -1961,7 +1961,7 @@ impl Py<FrameObject> {
             lasti: &iframe.lasti,
             iframe: iframe_ptr,
             func_obj,
-            prev_line: &mut iframe.prev_line,
+            prev_line: &iframe.prev_line,
             monitoring_mask: 0,
         };
         f(exec)
@@ -2023,7 +2023,7 @@ impl Py<FrameObject> {
             lasti: &iframe.lasti,
             iframe: iframe_ptr,
             func_obj,
-            prev_line: &mut iframe.prev_line,
+            prev_line: &iframe.prev_line,
             monitoring_mask: 0,
         };
         exec.yield_from_target().map(PyObject::to_owned)
@@ -2112,7 +2112,7 @@ pub(crate) struct ExecutingFrame<'a> {
     /// Borrowed function object that created this frame (if any).
     func_obj: Option<&'a PyObject>,
     lasti: &'a PyAtomic<u32>,
-    prev_line: &'a mut u32,
+    prev_line: &'a core::cell::Cell<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
 }
@@ -2646,9 +2646,9 @@ impl ExecutingFrame<'_> {
                     Instruction::Resume { .. } | Instruction::InstrumentedResume
                 )
                 && let Some((loc, _)) = self.code.locations.get(idx)
-                && loc.line.get() as u32 != *self.prev_line
+                && loc.line.get() as u32 != self.prev_line.get()
             {
-                *self.prev_line = loc.line.get() as u32;
+                self.prev_line.set(loc.line.get() as u32);
                 vm.trace_event(crate::protocol::TraceEvent::Line, None)?;
                 // Trace callback may have changed lasti via set_f_lineno.
                 // Re-read and restart the loop from the new position.
@@ -2670,17 +2670,19 @@ impl ExecutingFrame<'_> {
             let mut do_extend_arg = false;
             let caches = op.cache_entries();
 
-            // Update prev_line only when tracing or monitoring is active.
-            // When neither is enabled, prev_line is stale but unused.
-            if vm.use_tracing.get() {
-                if !matches!(
-                    op.into(),
-                    Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
-                ) && let Some((loc, _)) = self.code.locations.get(idx)
-                {
-                    *self.prev_line = loc.line.get() as u32;
-                }
+            // Always update prev_line so f_lineno returns the correct line
+            // even when the frame is observed mid-call (e.g. sys._getframe,
+            // warnings.warn). The lookup is a simple array index, so the
+            // cost is negligible.
+            if !matches!(
+                op.into(),
+                Opcode::Resume | Opcode::ExtendedArg | Opcode::InstrumentedLine
+            ) && let Some((loc, _)) = self.code.locations.get(idx)
+            {
+                self.prev_line.set(loc.line.get() as u32);
+            }
 
+            if vm.use_tracing.get() {
                 // Fire 'opcode' trace event for sys.settrace when f_trace_opcodes
                 // is set. Skip RESUME and ExtendedArg
                 // (_Py_call_instrumentation_instruction).
@@ -2988,7 +2990,7 @@ impl ExecutingFrame<'_> {
                     vm.contextualize_exception(&err);
                     return match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                         Ok(None) => {
-                            *self.prev_line = 0;
+                            self.prev_line.set(0);
                             self.run(vm)
                         }
                         Ok(Some(result)) => Ok(result),
@@ -3033,7 +3035,7 @@ impl ExecutingFrame<'_> {
                         vm.contextualize_exception(&err);
                         match self.unwind_blocks(vm, UnwindReason::Raising { exception: err }) {
                             Ok(None) => {
-                                *self.prev_line = 0;
+                                self.prev_line.set(0);
                                 self.run(vm)
                             }
                             Ok(Some(result)) => Ok(result),
@@ -3107,7 +3109,7 @@ impl ExecutingFrame<'_> {
                 // Reset prev_line so that the first instruction in the handler
                 // fires a LINE event. In CPython, gen_send_ex re-enters the
                 // eval loop which reinitializes its local prev_instr tracker.
-                *self.prev_line = 0;
+                self.prev_line.set(0);
                 self.run(vm)
             }
             Ok(Some(result)) => Ok(result),
@@ -7185,8 +7187,8 @@ impl ExecutingFrame<'_> {
                 // Fire LINE event only if line changed
                 if let Some((loc, _)) = self.code.locations.get(idx) {
                     let line = loc.line.get() as u32;
-                    if line != *self.prev_line && line > 0 {
-                        *self.prev_line = line;
+                    if line != self.prev_line.get() && line > 0 {
+                        self.prev_line.set(line);
                         monitoring::fire_line(vm, self.code, offset, line)?;
                     }
                 }

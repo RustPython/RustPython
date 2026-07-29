@@ -474,13 +474,23 @@ impl FrameObject {
         // If lasti is 0, execution hasn't started yet - use first line number
         // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.iframe()
+            return self
+                .iframe()
                 .code()
                 .first_line_number
-                .map_or(1, |n| n.get())
-        } else {
-            self.current_location().line.get()
+                .map_or(1, |n| n.get());
         }
+        // For executing frames, use prev_line which is updated at each
+        // bytecode instruction *before* the instruction runs. This gives
+        // the correct line even when observed mid-CALL (where lasti has
+        // already advanced past the CALL instruction).
+        // prev_line is Cell<u32>, so reading it via &self (shared ref) is
+        // safe even while ExecutingFrame holds a &Cell<u32> to the same field.
+        let prev = self.iframe().prev_line.get();
+        if prev > 0 {
+            return prev as usize;
+        }
+        self.current_location().line.get()
     }
 
     #[pygetset(setter)]
