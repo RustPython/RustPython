@@ -203,7 +203,7 @@ pub trait PyClassImpl: PyClassDef {
             let object_new = ctx.types.object_type.slots.new.load();
             let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
             let is_inherited_from_object = !is_object_itself
-                && object_new.is_some_and(|obj_new| slot_new.identity() == obj_new.identity());
+                && object_new.is_some_and(|obj_new| fn_addr(slot_new) == fn_addr(obj_new));
 
             if !is_inherited_from_object {
                 let bound_new =
