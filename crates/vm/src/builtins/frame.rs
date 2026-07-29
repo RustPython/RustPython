@@ -484,9 +484,26 @@ impl FrameObject {
         // bytecode instruction *before* the instruction runs. This gives
         // the correct line even when observed mid-CALL (where lasti has
         // already advanced past the CALL instruction).
-        // prev_line is Cell<u32>, so reading it via &self (shared ref) is
-        // safe even while ExecutingFrame holds a &Cell<u32> to the same field.
-        let prev = self.iframe().prev_line.get();
+        //
+        // If this FrameObject is a materialized copy of a stack-allocated
+        // iframe, its prev_line is a snapshot from materialize time. Find
+        // the source iframe on the TLS chain and read its live prev_line.
+        // materialized stores *const Py<FrameObject> as usize.
+        // self is &FrameObject (payload); convert to Py<FrameObject> address.
+        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as *const Py<Self> as usize;
+        let mut prev = self.iframe().prev_line.get();
+        {
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+                if materialized == self_py_ptr {
+                    // Found the source iframe — read its live prev_line.
+                    prev = unsafe { (*cur).prev_line.get() };
+                    break;
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+        }
         if prev > 0 {
             return prev as usize;
         }
