@@ -317,7 +317,7 @@ pub fn gethrvtime_duration() -> Duration {
     Duration::from_nanos(unsafe { libc::gethrvtime() })
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 pub struct WindowsTimeZoneInfo {
@@ -328,7 +328,7 @@ pub struct WindowsTimeZoneInfo {
     pub daylight_name: String,
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 fn decode_tz_name(name: &[u16]) -> String {
     widestring::decode_utf16_lossy(name.iter().copied())
@@ -336,7 +336,7 @@ fn decode_tz_name(name: &[u16]) -> String {
         .collect()
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 #[must_use]
 pub fn get_tz_info() -> WindowsTimeZoneInfo {
