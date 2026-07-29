@@ -1754,16 +1754,22 @@ impl VirtualMachine {
 
         // Capture f_back before clearing previous so code holding a
         // reference to this FrameObject can walk the chain after return.
+        // Only use existing FrameObjects (frame_obj) — do NOT materialize
+        // new ones here, as that would create localsplus snapshots with
+        // extra refcounts on local variables.
         if frame
             .iframe()
             .escaped
             .load(core::sync::atomic::Ordering::Relaxed)
             && !old_chain.is_null()
         {
-            let prev_iframe = unsafe { &*old_chain };
-            let back_fo = prev_iframe.materialize(self);
-            back_fo.mark_escaped(); // propagate escape up the chain
-            *frame.iframe().retained_back.lock() = Some(back_fo.to_owned());
+            let mut guard = frame.iframe().retained_back.lock();
+            if guard.is_none() {
+                let prev_iframe = unsafe { &*old_chain };
+                if let Some(fo) = prev_iframe.frame_obj() {
+                    *guard = Some(fo.to_owned());
+                }
+            }
         }
 
         frame

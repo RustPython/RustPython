@@ -2249,7 +2249,6 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
     // the caller returns and leaves the live frame chain. The caller is still
     // executing here (this frame is unwinding back into it), so its payload
     // pointer is live.
-    // Only set retained_back if not already set by with_frame cleanup.
     {
         let mut guard = frame.iframe().retained_back.lock();
         if guard.is_none() {
@@ -2257,6 +2256,10 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
             *guard = unsafe { owned_chain_frame(prev) };
         }
     }
+    // Note: previous is NOT cleared here. retained_back captures the
+    // caller reference, and previous may be read again by f_back or
+    // frame chain walkers (the pointer is live as long as the caller
+    // is still executing, which it is at this point).
     // Invariant: a tracked frame must always have heap-backed localsplus
     // (proven here for escaped datastack frames and by construction for
     // generator frames, which are born heap-backed). A stop-the-world
