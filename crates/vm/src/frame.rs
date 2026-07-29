@@ -387,6 +387,33 @@ impl LocalsPlus {
         Some(base)
     }
 
+    /// Create a new heap-backed LocalsPlus that is a clone of the
+    /// fastlocals portion of this one.  Stack slots are NOT copied
+    /// (stack_top = 0, stacksize = 0).
+    ///
+    /// # Safety
+    /// The caller must ensure that `self.fastlocals()` is a valid slice
+    /// (backing storage is alive, not concurrently mutated).
+    pub(crate) unsafe fn snapshot_to_heap(&self) -> Self {
+        let n = self.nlocalsplus as usize;
+        let src = self.fastlocals();
+        let mut data = vec![0usize; n];
+        // Clone each Option<PyObjectRef> into the heap buffer.
+        for (i, slot) in src.iter().enumerate() {
+            if let Some(obj) = slot {
+                let cloned: Option<PyObjectRef> = Some(obj.clone());
+                // SAFETY: Option<PyObjectRef> has the same layout as usize.
+                data[i] = unsafe { core::mem::transmute_copy(&cloned) };
+                core::mem::forget(cloned);
+            }
+        }
+        Self {
+            data: LocalsPlusData::Heap(data.into_boxed_slice()),
+            nlocalsplus: self.nlocalsplus,
+            stack_top: 0,
+        }
+    }
+
     /// Drop all contained values without freeing the backing storage.
     fn drop_values(&mut self) {
         self.stack_clear();
@@ -951,6 +978,16 @@ impl InterpreterFrame {
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
+        // Copy localsplus from the stack frame so materialized frames have
+        // usable fastlocals (for locals(), f_locals, tracebacks, etc).
+        let localsplus = unsafe { self.localsplus.snapshot_to_heap() };
+
+        // Copy the locals mapping if it exists.
+        let locals = match self.locals.get() {
+            Some(mapping) => FrameLocals::with_locals(mapping.clone()),
+            None => FrameLocals::lazy(),
+        };
+
         // Build a fresh InterpreterFrame inside the FrameObject.
         // Its raw pointers will be patched by init_iframe_ptrs.
         let inner_iframe = Self {
@@ -958,11 +995,8 @@ impl InterpreterFrame {
             func_obj: core::ptr::null(),
             globals: core::ptr::null(),
             builtins: core::ptr::null(),
-            // Empty localsplus — the real data is in the stack frame.
-            // Callers that need locals (tracebacks) access them through
-            // the live stack frame, not through this materialized copy.
-            localsplus: LocalsPlus::new(0, 0),
-            locals: FrameLocals::lazy(),
+            localsplus,
+            locals,
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: self.prev_line,
             trace: PyMutex::new(None),
@@ -970,7 +1004,10 @@ impl InterpreterFrame {
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
-            previous: Radium::new(self.previous.load(Relaxed)),
+            // Do NOT copy previous — it may point to stack-allocated frames
+            // that become dangling after their call returns. The f_back chain
+            // is resolved through the TLS CURRENT_FRAME chain instead.
+            previous: Radium::new(0),
             owner: atomic::AtomicI8::new(self.owner.load(atomic::Ordering::Relaxed)),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
@@ -1596,9 +1633,18 @@ impl FrameObject {
             return Ok(());
         }
         let self_iframe = self.iframe() as *const InterpreterFrame;
+        // Get the Py<FrameObject> address from &FrameObject (payload).
+        // materialized stores a *const Py<FrameObject>.
+        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as usize;
         let mut cur = crate::vm::thread::get_current_frame();
         while !cur.is_null() {
             if core::ptr::eq(cur, self_iframe) {
+                return Ok(());
+            }
+            // Also match if this FrameObject is the materialized version
+            // of a stack-allocated frame in the chain.
+            let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+            if materialized == self_py_ptr {
                 return Ok(());
             }
             cur = unsafe { (*cur).previous.load(Relaxed) as *const InterpreterFrame };

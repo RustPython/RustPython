@@ -1755,6 +1755,13 @@ impl VirtualMachine {
             if save_exc {
                 self.restore_exception(saved_exc);
             }
+            // Clear previous before popping — it may point to a stack-allocated
+            // iframe that will be freed when the caller's with_iframe exits.
+            {
+                #[allow(unused_imports)]
+                use rustpython_common::atomic::Radium;
+                frame.iframe().previous.store(0, core::sync::atomic::Ordering::Relaxed);
+            }
             let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
@@ -1849,6 +1856,13 @@ impl VirtualMachine {
         scopeguard::defer! {
             frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
+            // Clear previous before popping — it may point to a stack-allocated
+            // iframe that will be freed when the caller's with_iframe exits.
+            {
+                #[allow(unused_imports)]
+                use rustpython_common::atomic::Radium;
+                frame.iframe().previous.store(0, core::sync::atomic::Ordering::Relaxed);
+            }
             let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();

@@ -775,34 +775,21 @@ impl Py<FrameObject> {
         // stop-the-world so their frame chains are quiescent and alive, then
         // walk each published top frame down its `previous` chain looking for
         // the caller.
+        // Cross-thread f_back: walk CURRENT_FRAME TLS chain instead of
+        // top_frame, because stack-allocated frames update only CURRENT_FRAME.
+        // This runs under stop-the-world on the current thread's own chain.
         #[cfg(all(unix, feature = "threading"))]
         {
-            use core::sync::atomic::Ordering;
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
-            let registry = vm.state.thread_frames.lock();
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for slot in registry.values() {
-                // top_frame still stores *const FrameObject for cross-thread readers
-                let top = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
-                if !top.is_null() {
-                    // Walk the iframe chain from this FrameObject's iframe
-                    let mut cur_iframe =
-                        unsafe { (*top).iframe() as *const crate::frame::InterpreterFrame };
-                    while !cur_iframe.is_null() {
-                        if core::ptr::eq(cur_iframe, prev) {
-                            let iframe_ref = unsafe { &*cur_iframe };
-                            if let Some(fo) = iframe_ref.frame_obj() {
-                                fo.mark_escaped();
-                                return Some(fo.to_owned());
-                            }
-                        }
-                        cur_iframe = unsafe { (*cur_iframe).previous() };
+            let mut cur_iframe = crate::vm::thread::get_current_frame();
+            while !cur_iframe.is_null() {
+                if core::ptr::eq(cur_iframe, prev) {
+                    let iframe_ref = unsafe { &*cur_iframe };
+                    if let Some(fo) = iframe_ref.frame_obj() {
+                        fo.mark_escaped();
+                        return Some(fo.to_owned());
                     }
                 }
+                cur_iframe = unsafe { (*cur_iframe).previous() };
             }
         }
 
