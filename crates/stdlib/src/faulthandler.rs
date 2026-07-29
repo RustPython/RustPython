@@ -318,9 +318,7 @@ mod decl {
                 dump_all_threads(fd, vm);
             } else {
                 puts(fd, "Stack (most recent call first):\n");
-                crate::vm::frame::for_each_current_frame(|frame| {
-                    dump_frame_from_ref(fd, frame);
-                });
+                dump_live_frames(fd);
             }
         }
 

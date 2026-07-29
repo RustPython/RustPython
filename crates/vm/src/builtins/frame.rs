@@ -10,6 +10,10 @@ use crate::{
     function::PySetterValue,
     types::Representable,
 };
+use core::sync::atomic::Ordering::Relaxed;
+// Radium is needed for Cell<usize>::load() in non-threading builds.
+#[allow(unused_imports)]
+use rustpython_common::atomic::Radium;
 use num_traits::Zero;
 use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
@@ -752,16 +756,49 @@ impl Py<FrameObject> {
 
     #[pygetset]
     pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
-        let prev = self.previous_iframe();
+        let mut prev = self.previous_iframe();
+
+        // For materialized frames (previous == 0), find the source iframe on
+        // the TLS chain and use its `previous` instead.
         if prev.is_null() {
-            return None;
+            // materialized stores `*const Py<FrameObject>` as usize.
+            // `self` is `&Py<FrameObject>` — compare addresses directly.
+            let self_py_ptr = self as *const Self as usize;
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+                if materialized == self_py_ptr {
+                    // Found the source iframe — use its previous
+                    prev = unsafe { (*cur).previous() };
+                    break;
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+            if prev.is_null() {
+                // Check retained_back for frames whose callers have returned
+                let retained = self.iframe().retained_back.lock().clone();
+                if let Some(frame) = retained {
+                    frame.mark_escaped();
+                    return Some(frame);
+                }
+                return None;
+            }
         }
 
-        // Walk the previous chain to find the first materialized FrameObject
-        // Look up the previous iframe on the current thread's chain
-        if let Some(frame) = crate::frame::find_owned_chain_frame_by_iframe(prev) {
-            frame.mark_escaped();
-            return Some(frame);
+        // Walk the TLS chain to find the prev iframe and materialize it.
+        // This handles both heap-allocated FrameObjects and stack-allocated
+        // iframes that haven't been observed yet.
+        {
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                if core::ptr::eq(cur, prev) {
+                    let iframe_ref = unsafe { &*cur };
+                    let fo = iframe_ref.materialize(vm);
+                    fo.mark_escaped();
+                    return Some(fo.to_owned());
+                }
+                cur = unsafe { (*cur).previous() };
+            }
         }
 
         // The caller already returned — check retained_back
@@ -771,28 +808,7 @@ impl Py<FrameObject> {
             return Some(frame);
         }
 
-        // The caller lives on another thread. unix: park every thread under
-        // stop-the-world so their frame chains are quiescent and alive, then
-        // walk each published top frame down its `previous` chain looking for
-        // the caller.
-        // Cross-thread f_back: walk CURRENT_FRAME TLS chain instead of
-        // top_frame, because stack-allocated frames update only CURRENT_FRAME.
-        // This runs under stop-the-world on the current thread's own chain.
-        #[cfg(all(unix, feature = "threading"))]
-        {
-            let mut cur_iframe = crate::vm::thread::get_current_frame();
-            while !cur_iframe.is_null() {
-                if core::ptr::eq(cur_iframe, prev) {
-                    let iframe_ref = unsafe { &*cur_iframe };
-                    if let Some(fo) = iframe_ref.frame_obj() {
-                        fo.mark_escaped();
-                        return Some(fo.to_owned());
-                    }
-                }
-                cur_iframe = unsafe { (*cur_iframe).previous() };
-            }
-        }
-
+        // The caller lives on another thread.
         #[cfg(all(not(unix), feature = "threading"))]
         {
             let registry = vm.state.thread_frames.lock();
@@ -807,7 +823,6 @@ impl Py<FrameObject> {
                 if let Some(frame) = frames.iter().find_map(|fp| {
                     let f = unsafe { fp.as_ref() };
                     let fo_iframe = f.iframe() as *const crate::frame::InterpreterFrame;
-                    // Check if any iframe in this frame's chain matches
                     core::ptr::eq(fo_iframe, prev).then(|| f.to_owned())
                 }) {
                     frame.mark_escaped();

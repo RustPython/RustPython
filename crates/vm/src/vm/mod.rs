@@ -1750,25 +1750,45 @@ impl VirtualMachine {
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        scopeguard::defer! {
-            frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
-            if save_exc {
-                self.restore_exception(saved_exc);
-            }
-            // Clear previous before popping — it may point to a stack-allocated
-            // iframe that will be freed when the caller's with_iframe exits.
-            {
-                #[allow(unused_imports)]
-                use rustpython_common::atomic::Radium;
-                frame.iframe().previous.store(0, core::sync::atomic::Ordering::Relaxed);
-            }
-            let _ = crate::vm::thread::set_current_frame(old_chain);
-            #[cfg(all(not(unix), feature = "threading"))]
-            crate::vm::thread::pop_thread_frame();
-            self.recursion_depth.update(|d| d - 1);
+        let result = self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()));
+
+        // Capture f_back before clearing previous so code holding a
+        // reference to this FrameObject can walk the chain after return.
+        if frame
+            .iframe()
+            .escaped
+            .load(core::sync::atomic::Ordering::Relaxed)
+            && !old_chain.is_null()
+        {
+            let prev_iframe = unsafe { &*old_chain };
+            let back_fo = prev_iframe.materialize(self);
+            back_fo.mark_escaped(); // propagate escape up the chain
+            *frame.iframe().retained_back.lock() = Some(back_fo.to_owned());
         }
 
-        self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+        frame
+            .iframe()
+            .owner
+            .store(old_owner, core::sync::atomic::Ordering::Release);
+        if save_exc {
+            self.restore_exception(saved_exc);
+        }
+        // Clear previous before popping — it may point to a stack-allocated
+        // iframe that will be freed when the caller's with_iframe exits.
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            frame
+                .iframe()
+                .previous
+                .store(0, core::sync::atomic::Ordering::Relaxed);
+        }
+        let _ = crate::vm::thread::set_current_frame(old_chain);
+        #[cfg(all(not(unix), feature = "threading"))]
+        crate::vm::thread::pop_thread_frame();
+        self.recursion_depth.update(|d| d - 1);
+
+        result
     }
 
     /// Execute a stack-allocated InterpreterFrame without heap-allocating
@@ -1805,15 +1825,47 @@ impl VirtualMachine {
             None
         };
 
-        scopeguard::defer! {
-            if save_exc {
-                self.restore_exception(saved_exc);
+        let result = f(iframe);
+
+        // If this iframe was materialized, capture f_back so that code
+        // holding a reference to the FrameObject (e.g. sys._getframe()
+        // return value, traceback frames) can walk the chain after return.
+        //
+        // Read materialized through the raw TLS pointer instead of the
+        // &mut iframe reference.  During f(iframe), bytecode can
+        // materialize the frame via the TLS chain (a raw pointer alias);
+        // the &mut borrow lets LLVM assume no aliased writes, which can
+        // cause the store to be invisible through `iframe.materialized`.
+        {
+            // Use read_volatile through the original raw pointer to bypass
+            // LLVM's noalias assumptions on the &mut iframe borrow.
+            let mat_ptr = unsafe {
+                let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
+                core::ptr::read_volatile(field_ptr as *const usize)
+            };
+            if mat_ptr != 0 {
+                let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
+                if !old_chain.is_null() {
+                    let prev_iframe = unsafe { &*old_chain };
+                    let back_fo = prev_iframe.materialize(self);
+                    *fo.iframe().retained_back.lock() = Some(back_fo.to_owned());
+                }
+                // Set owner to FrameObject since this frame is no longer
+                // executing on a thread.
+                fo.iframe().owner.store(
+                    crate::frame::FrameOwner::FrameObject as i8,
+                    core::sync::atomic::Ordering::Release,
+                );
             }
-            let _ = crate::vm::thread::set_current_frame(old_chain);
-            self.recursion_depth.update(|d| d - 1);
         }
 
-        f(iframe)
+        if save_exc {
+            self.restore_exception(saved_exc);
+        }
+        let _ = crate::vm::thread::set_current_frame(old_chain);
+        self.recursion_depth.update(|d| d - 1);
+
+        result
     }
 
     /// FrameObject execution for generator/coroutine resume.

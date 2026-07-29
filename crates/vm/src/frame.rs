@@ -1008,7 +1008,10 @@ impl InterpreterFrame {
             // that become dangling after their call returns. The f_back chain
             // is resolved through the TLS CURRENT_FRAME chain instead.
             previous: Radium::new(0),
-            owner: atomic::AtomicI8::new(self.owner.load(atomic::Ordering::Relaxed)),
+            // Materialized frame is a detached snapshot — always FrameObject-owned.
+            // If we copied Thread from the source iframe, frame.clear() would
+            // reject the frame with "cannot clear an executing frame".
+            owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
             escaped: atomic::AtomicBool::new(true),
@@ -2246,9 +2249,14 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
     // the caller returns and leaves the live frame chain. The caller is still
     // executing here (this frame is unwinding back into it), so its payload
     // pointer is live.
-    // SAFETY: `previous` points at the live caller on this thread's stack.
-    let prev = frame.previous_iframe();
-    *frame.iframe().retained_back.lock() = unsafe { owned_chain_frame(prev) };
+    // Only set retained_back if not already set by with_frame cleanup.
+    {
+        let mut guard = frame.iframe().retained_back.lock();
+        if guard.is_none() {
+            let prev = frame.previous_iframe();
+            *guard = unsafe { owned_chain_frame(prev) };
+        }
+    }
     // Invariant: a tracked frame must always have heap-backed localsplus
     // (proven here for escaped datastack frames and by construction for
     // generator frames, which are born heap-backed). A stop-the-world
