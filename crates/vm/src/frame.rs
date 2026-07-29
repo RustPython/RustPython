@@ -90,9 +90,10 @@ pub fn current_thread_iframe() -> *const InterpreterFrame {
 /// The current thread's topmost frame object, materializing if necessary.
 /// Unlike `current_thread_frame()`, this always returns `Some` if there is
 /// an active frame, even if it's stack-allocated and hasn't been observed yet.
+/// Uses `vm.current_frame` Cell for fast lookup (no TLS).
 #[must_use]
 pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    let ptr = crate::vm::thread::get_current_frame();
+    let ptr = vm.get_current_frame_ptr();
     if ptr.is_null() {
         return None;
     }
@@ -137,7 +138,7 @@ pub fn current_builtins() -> Option<PyObjectRef> {
 /// Materializes the FrameObject on demand for stack-allocated frames.
 #[must_use]
 pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    let mut cur = crate::vm::thread::get_current_frame();
+    let mut cur = vm.get_current_frame_ptr();
     let mut remaining = offset;
     while !cur.is_null() {
         if remaining == 0 {
@@ -1586,7 +1587,7 @@ impl FrameObject {
             return Ok(());
         }
         let self_iframe = self.iframe() as *const InterpreterFrame;
-        let mut cur = crate::vm::thread::get_current_frame();
+        let mut cur = vm.get_current_frame_ptr();
         while !cur.is_null() {
             if core::ptr::eq(cur, self_iframe) {
                 return Ok(());

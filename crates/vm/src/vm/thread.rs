@@ -699,6 +699,15 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
     CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
 }
 
+/// Fire-and-forget version of set_current_frame for the hot path.
+/// Only writes to TLS CURRENT_FRAME. Does not update cross-thread top_frame
+/// (that's updated by set_current_frame which is called in with_frame for
+/// FrameObject-based calls, and lazily for stack frames).
+#[inline(always)]
+pub fn set_current_frame_nosave(frame: *const InterpreterFrame) {
+    CURRENT_FRAME.with(|c| c.store(frame as usize, Ordering::Relaxed));
+}
+
 /// Get the current thread's top InterpreterFrame pointer.
 /// Used by faulthandler's signal handler to start traceback walking.
 #[must_use]
@@ -988,6 +997,7 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: self.callable_cache.clone(),
             audit_hooks: RefCell::new(vec![]),
+            current_frame_ptr: Cell::new(0),
         };
         ThreadedVirtualMachine { vm }
     }

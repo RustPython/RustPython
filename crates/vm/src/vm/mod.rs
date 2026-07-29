@@ -106,6 +106,11 @@ pub struct VirtualMachine {
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
     pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
+    /// Top of the current thread's Python frame chain. Stored on the VM
+    /// (which is already thread-local) to avoid TLS lookup on the hot path.
+    /// The TLS `CURRENT_FRAME` is still maintained for signal-safe access.
+    /// Uses `usize` instead of raw pointer to avoid `!Send` on VirtualMachine.
+    current_frame_ptr: Cell<usize>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -891,6 +896,7 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
             audit_hooks: RefCell::new(vec![]),
+            current_frame_ptr: Cell::new(0),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1733,7 +1739,8 @@ impl VirtualMachine {
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
         let iframe = frame.iframe() as *const crate::frame::InterpreterFrame;
-        let old_chain = crate::vm::thread::set_current_frame(iframe);
+        let old_chain = self.set_current_frame_ptr(iframe);
+        let _old_tls = crate::vm::thread::set_current_frame(iframe);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1758,6 +1765,7 @@ impl VirtualMachine {
             if save_exc {
                 self.restore_exception(saved_exc);
             }
+            self.current_frame_ptr.set(old_chain as usize);
             let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
@@ -1785,7 +1793,8 @@ impl VirtualMachine {
         self.recursion_depth.update(|d| d + 1);
 
         let iframe_ptr = iframe as *const crate::frame::InterpreterFrame;
-        let old_chain = crate::vm::thread::set_current_frame(iframe_ptr);
+        // Push onto the VM's frame chain (Cell — no TLS lookup on hot path).
+        let old_chain = self.set_current_frame_ptr(iframe_ptr);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1793,24 +1802,23 @@ impl VirtualMachine {
                 .previous
                 .store(old_chain as usize, core::sync::atomic::Ordering::Relaxed);
         }
+        // Publish to TLS for signal-safe traceback walking.
+        // This is kept in sync so faulthandler signal handlers always see
+        // a valid chain.
+        crate::vm::thread::set_current_frame_nosave(iframe_ptr);
         let save_exc = iframe.code().has_exc_handling;
         let saved_exc = if save_exc {
             self.current_exception()
         } else {
             None
         };
-        // Stack-allocated frames are always owned by the current thread.
-        // No cross-thread clear() is possible, so skip the AcqRel swap.
-        debug_assert_eq!(
-            iframe.owner.load(core::sync::atomic::Ordering::Relaxed),
-            crate::frame::FrameOwner::Thread as i8,
-        );
 
         scopeguard::defer! {
             if save_exc {
                 self.restore_exception(saved_exc);
             }
-            let _ = crate::vm::thread::set_current_frame(old_chain);
+            self.current_frame_ptr.set(old_chain as usize);
+            crate::vm::thread::set_current_frame_nosave(old_chain);
             self.recursion_depth.update(|d| d - 1);
         }
 
@@ -1836,7 +1844,8 @@ impl VirtualMachine {
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&**frame)));
         let iframe = frame.iframe() as *const crate::frame::InterpreterFrame;
-        let old_chain = crate::vm::thread::set_current_frame(iframe);
+        let old_chain = self.set_current_frame_ptr(iframe);
+        let _old_tls = crate::vm::thread::set_current_frame(iframe);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1857,6 +1866,7 @@ impl VirtualMachine {
         scopeguard::defer! {
             frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
+            self.current_frame_ptr.set(old_chain as usize);
             let _ = crate::vm::thread::set_current_frame(old_chain);
             #[cfg(all(not(unix), feature = "threading"))]
             crate::vm::thread::pop_thread_frame();
@@ -1948,6 +1958,21 @@ impl VirtualMachine {
         }
     }
 
+    /// Get the current frame pointer (fast, no TLS).
+    #[inline(always)]
+    pub(crate) fn get_current_frame_ptr(&self) -> *const crate::frame::InterpreterFrame {
+        self.current_frame_ptr.get() as *const crate::frame::InterpreterFrame
+    }
+
+    /// Set the current frame pointer and return the old one (fast, no TLS).
+    #[inline(always)]
+    pub(crate) fn set_current_frame_ptr(
+        &self,
+        ptr: *const crate::frame::InterpreterFrame,
+    ) -> *const crate::frame::InterpreterFrame {
+        self.current_frame_ptr.replace(ptr as usize) as *const crate::frame::InterpreterFrame
+    }
+
     pub fn current_frame(&self) -> Option<FrameObjectRef> {
         crate::frame::current_thread_frame_materialize(self)
     }
@@ -1960,8 +1985,10 @@ impl VirtualMachine {
     }
 
     pub fn current_globals(&self) -> PyDictRef {
-        // Fast path: read globals directly from the chain top without
-        // materializing a light frame.
+        let ptr = self.get_current_frame_ptr();
+        if !ptr.is_null() {
+            return unsafe { (*ptr).globals().to_owned() };
+        }
         crate::frame::current_globals().expect("called current_globals but no frames on the stack")
     }
 
