@@ -844,6 +844,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             }
         }
     };
+    #[cfg(unix)]
     let top_iframe_ptr = get_current_frame() as usize;
     let new_slot = Arc::new(ThreadSlot {
         // The surviving child thread keeps executing its current frame chain.
