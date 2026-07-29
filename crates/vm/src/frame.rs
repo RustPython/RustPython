@@ -766,8 +766,10 @@ pub struct InterpreterFrame {
 
     /// index of last instruction ran
     pub lasti: PyAtomic<u32>,
-    /// tracer function for this frame (usually is None)
-    pub trace: PyMutex<PyObjectRef>,
+    /// Per-frame tracer function. `None` means no per-frame trace is set
+    /// (equivalent to `f_trace = None` in Python). This avoids a refcounted
+    /// None clone on every frame init.
+    pub trace: PyMutex<Option<PyObjectRef>>,
 
     /// Previous line number for LINE event suppression.
     pub(crate) prev_line: u32,
@@ -841,7 +843,6 @@ impl InterpreterFrame {
         locals: FrameLocals,
         closure: &[PyCellRef],
         owner: FrameOwner,
-        vm: &VirtualMachine,
     ) -> Self {
         let mut localsplus = localsplus;
         let nlocalsplus = code.localspluskinds.len();
@@ -885,7 +886,7 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(0),
             prev_line,
-            trace: PyMutex::new(vm.ctx.none()),
+            trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
@@ -954,7 +955,7 @@ impl InterpreterFrame {
             locals: FrameLocals::lazy(),
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: self.prev_line,
-            trace: PyMutex::new(vm.ctx.none()),
+            trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
             temporary_refs: PyMutex::new(vec![]),
@@ -1241,7 +1242,6 @@ impl FrameObject {
             locals,
             closure,
             FrameOwner::FrameObject,
-            vm,
         );
         Self {
             owned_code: Some(code),
@@ -2420,10 +2420,10 @@ impl ExecutingFrame<'_> {
         self.iframe().materialize(vm).to_owned()
     }
 
-    /// Access the frame's trace lock.
+    /// Whether this frame has a per-frame trace function set.
     #[inline]
-    fn trace_is_set(&self, vm: &VirtualMachine) -> bool {
-        !vm.is_none(&self.iframe().trace.lock())
+    fn trace_is_set(&self, _vm: &VirtualMachine) -> bool {
+        self.iframe().trace.lock().is_some()
     }
 
     /// Access the frame's trace_opcodes lock.

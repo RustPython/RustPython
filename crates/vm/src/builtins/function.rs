@@ -619,7 +619,6 @@ impl Py<PyFunction> {
             locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             crate::frame::FrameOwner::Thread,
-            vm,
         );
         let result = self.fill_locals_from_args_iframe(&mut iframe, func_args, vm)
             .and_then(|()| vm.run_frame_fast(&mut iframe));
@@ -802,7 +801,6 @@ impl Py<PyFunction> {
             locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
             crate::frame::FrameOwner::Thread,
-            vm,
         );
 
         // Fill arguments directly into fastlocals

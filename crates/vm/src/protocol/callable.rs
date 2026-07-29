@@ -261,7 +261,7 @@ impl VirtualMachine {
                     // trace_trampoline behavior: clear per-frame f_trace
                     // and propagate the error.
                     if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.iframe().trace.lock() = self.ctx.none();
+                        *frame_ref.iframe().trace.lock() = None;
                     }
                     return Err(e);
                 }

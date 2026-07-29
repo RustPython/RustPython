@@ -587,15 +587,23 @@ impl FrameObject {
     }
 
     #[pygetset]
-    fn f_trace(&self) -> PyObjectRef {
-        let boxed = self.iframe().trace.lock();
-        boxed.clone()
+    fn f_trace(&self, vm: &VirtualMachine) -> PyObjectRef {
+        self.iframe()
+            .trace
+            .lock()
+            .clone()
+            .unwrap_or_else(|| vm.ctx.none())
     }
 
     #[pygetset(setter)]
     fn set_f_trace(&self, value: PySetterValue, vm: &VirtualMachine) {
         let mut storage = self.iframe().trace.lock();
-        *storage = value.unwrap_or_none(vm);
+        *storage = match value {
+            PySetterValue::Assign(v) => {
+                if vm.is_none(&v) { None } else { Some(v) }
+            }
+            PySetterValue::Delete => None,
+        };
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]

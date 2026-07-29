@@ -1886,7 +1886,7 @@ impl VirtualMachine {
         // Fire 'call' trace event. current_frame() now returns the callee.
         let trace_result = self.trace_event(TraceEvent::Call, None)?;
         if let Some(local_trace) = trace_result {
-            *frame.iframe().trace.lock() = local_trace;
+            *frame.iframe().trace.lock() = Some(local_trace);
         }
 
         let result = f(frame);
@@ -1895,7 +1895,7 @@ impl VirtualMachine {
         // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
         // both Ok and Err, matching `call_trace_protected` behavior.
         if self.use_tracing.get()
-            && (!self.is_none(&frame.iframe().trace.lock())
+            && (frame.iframe().trace.lock().is_some()
                 || !self.is_none(&self.profile_func.borrow()))
         {
             let ret_result = self.trace_event(TraceEvent::Return, None);
