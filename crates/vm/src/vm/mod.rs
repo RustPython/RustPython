@@ -1790,7 +1790,7 @@ impl VirtualMachine {
         self.recursion_depth.update(|d| d + 1);
 
         let iframe_ptr = iframe as *const crate::frame::InterpreterFrame;
-        let old_chain = crate::vm::thread::set_current_frame_nosave(iframe_ptr);
+        let old_chain = crate::vm::thread::set_current_frame(iframe_ptr);
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -1809,7 +1809,7 @@ impl VirtualMachine {
             if save_exc {
                 self.restore_exception(saved_exc);
             }
-            let _ = crate::vm::thread::set_current_frame_nosave(old_chain);
+            let _ = crate::vm::thread::set_current_frame(old_chain);
             self.recursion_depth.update(|d| d - 1);
         }
 

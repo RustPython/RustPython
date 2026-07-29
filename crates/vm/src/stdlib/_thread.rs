@@ -1166,25 +1166,47 @@ pub(crate) mod _thread {
         // the owning thread is parked at a safepoint and cannot pop or free the
         // frame while we take a strong reference. Request stop-the-world before
         // the registry lock to avoid deadlocking a thread parking mid-registry.
+        //
+        // For the current thread, use TLS CURRENT_FRAME directly because
+        // stack-allocated frames only update TLS (not top_frame).
         #[cfg(unix)]
         {
             use core::sync::atomic::Ordering;
+            let current_ident = get_ident();
             vm.state.stop_the_world.stop_the_world(vm);
             scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
                 .filter_map(|(id, slot)| {
-                    let top = slot.top_frame.load(Ordering::Relaxed);
-                    core::ptr::NonNull::new(top).map(|p| {
-                        // SAFETY: world stopped -> the owning thread is parked
-                        // and cannot pop or free this frame; it is alive on
-                        // that thread's call stack.
-                        let py = unsafe {
-                            &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
-                        };
-                        (*id, py.to_owned())
-                    })
+                    if *id == current_ident {
+                        // Current thread: materialize from TLS chain
+                        crate::frame::current_thread_frame_materialize(vm)
+                            .map(|frame| (*id, frame))
+                    } else {
+                        // Other threads: try top_frame first (FrameObject),
+                        // fall back to top_iframe (may be a stack-allocated frame).
+                        let top = slot.top_frame.load(Ordering::Relaxed);
+                        if let Some(p) = core::ptr::NonNull::new(top) {
+                            let py = unsafe {
+                                &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
+                            };
+                            Some((*id, py.to_owned()))
+                        } else {
+                            // Stack-allocated frame: materialize from top_iframe.
+                            // SAFETY: world stopped -> owning thread is parked.
+                            let iframe_ptr =
+                                slot.top_iframe.load(Ordering::Relaxed)
+                                    as *const crate::frame::InterpreterFrame;
+                            if !iframe_ptr.is_null() {
+                                let iframe = unsafe { &*iframe_ptr };
+                                let fo = iframe.materialize(vm);
+                                Some((*id, fo.to_owned()))
+                            } else {
+                                None
+                            }
+                        }
+                    }
                 })
                 .collect()
         }

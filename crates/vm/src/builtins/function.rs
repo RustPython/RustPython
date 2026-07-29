@@ -570,8 +570,13 @@ impl Py<PyFunction> {
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
 
-        if is_gen || is_coro || is_async_gen {
-            // Generator/coroutine: must heap-allocate, lifetime exceeds call stack.
+        let needs_heap_frame =
+            is_gen || is_coro || is_async_gen || vm.use_tracing.get();
+
+        if needs_heap_frame {
+            // Heap-allocate FrameObject for generators/coroutines (lifetime
+            // exceeds call stack) or when tracing is active (trace callbacks
+            // need a FrameObject).
             let code_owned: PyRef<PyCode> = code.to_owned();
             let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
                 None
@@ -580,17 +585,28 @@ impl Py<PyFunction> {
             } else {
                 Some(ArgMapping::from_dict_exact(self.globals.clone()))
             };
+            let use_datastack = !is_gen && !is_coro && !is_async_gen;
             let frame = FrameObject::new_ref(
                 code_owned,
                 Scope::new(locals, self.globals.clone()),
                 self.builtins.clone(),
                 self.closure.as_ref().map_or(&[], |c| c.as_slice()),
                 Some(self.to_owned().into()),
-                false,
+                use_datastack,
                 vm,
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
-            return Ok(self.make_generator_or_coro(frame, vm));
+            if is_gen || is_coro || is_async_gen {
+                return Ok(self.make_generator_or_coro(frame, vm));
+            }
+            // Tracing active: use heap frame with full trace support.
+            let result = vm.run_frame(frame.clone());
+            unsafe {
+                if let Some(base) = frame.iframe_mut().localsplus.release_datastack() {
+                    vm.datastack_pop(base);
+                }
+            }
+            return result;
         }
 
         // Fast path: stack-allocated InterpreterFrame, no FrameObject.

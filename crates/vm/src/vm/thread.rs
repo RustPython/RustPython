@@ -48,6 +48,11 @@ pub struct ThreadSlot {
     /// pointer and the frames it reaches are quiescent and alive at read time.
     #[cfg(unix)]
     pub top_frame: AtomicPtr<FrameObject>,
+    /// Raw InterpreterFrame pointer, published alongside top_frame so
+    /// cross-thread readers (sys._current_frames) can materialize
+    /// stack-allocated frames that have no FrameObject.
+    #[cfg(unix)]
+    pub top_iframe: AtomicUsize,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
     /// Readers must hold the Mutex and convert to FrameObjectRef inside the lock.
     /// Used on non-unix threading builds, which have no stop-the-world.
@@ -347,6 +352,8 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             let new_slot = Arc::new(ThreadSlot {
                 #[cfg(unix)]
                 top_frame: AtomicPtr::new(core::ptr::null_mut()),
+                #[cfg(unix)]
+                top_iframe: AtomicUsize::new(0),
                 #[cfg(not(unix))]
                 frames: parking_lot::Mutex::new(Vec::new()),
                 exception: crate::PyAtomicRef::from(None::<PyBaseExceptionRef>),
@@ -686,18 +693,24 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
     // Publish the top frame for cross-thread readers (signal safety).
     #[cfg(all(unix, feature = "threading"))]
     {
-        let slot_top = CURRENT_TOP_FRAME_SLOT.with(Cell::get);
-        if !slot_top.is_null() && !frame.is_null() {
-            // Publish the FrameObject pointer for cross-thread readers.
-            // For stack-allocated frames without a materialized FrameObject,
-            // publish null — cross-thread readers will see a gap.
-            let frame_obj = unsafe { (*frame).frame_obj() };
-            let fo_ptr = match frame_obj {
-                Some(py) => py as *const Py<FrameObject> as *const FrameObject as *mut FrameObject,
-                None => core::ptr::null_mut(),
-            };
-            unsafe { (*slot_top).store(fo_ptr, Ordering::Relaxed) };
-        }
+        CURRENT_THREAD_SLOT.with(|slot| {
+            if let Some(s) = slot.borrow().as_ref() {
+                if !frame.is_null() {
+                    let frame_obj = unsafe { (*frame).frame_obj() };
+                    let fo_ptr = match frame_obj {
+                        Some(py) => {
+                            py as *const Py<FrameObject> as *const FrameObject as *mut FrameObject
+                        }
+                        None => core::ptr::null_mut(),
+                    };
+                    s.top_frame.store(fo_ptr, Ordering::Relaxed);
+                    s.top_iframe.store(frame as usize, Ordering::Relaxed);
+                } else {
+                    s.top_frame.store(core::ptr::null_mut(), Ordering::Relaxed);
+                    s.top_iframe.store(0, Ordering::Relaxed);
+                }
+            }
+        });
     }
     CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
 }
@@ -831,11 +844,14 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             }
         }
     };
+    let top_iframe_ptr = get_current_frame() as usize;
     let new_slot = Arc::new(ThreadSlot {
         // The surviving child thread keeps executing its current frame chain.
         // Only publish heavy frames for signal safety.
         #[cfg(unix)]
         top_frame: AtomicPtr::new(top_fo_ptr),
+        #[cfg(unix)]
+        top_iframe: AtomicUsize::new(top_iframe_ptr),
         #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
