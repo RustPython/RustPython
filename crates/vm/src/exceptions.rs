@@ -704,7 +704,7 @@ impl PyRef<PyBaseException> {
 
         let notes = notes
             .downcast::<PyList>()
-            .map_err(|_| vm.new_type_error("__notes__ must be a list"))?;
+            .map_err(|_| vm.new_type_error("Cannot add note: __notes__ is not a list"))?;
 
         notes.borrow_vec_mut().push(note.into());
         Ok(())
