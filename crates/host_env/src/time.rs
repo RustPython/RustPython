@@ -227,11 +227,13 @@ pub fn process_times() -> std::io::Result<ProcessTimes> {
     })
 }
 
-#[cfg(unix)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg(any(unix, target_os = "wasi"))]
+#[derive(Copy, Clone, Debug)]
+// WASI libc represents clockid_t as an opaque pointer type without Eq or PartialEq.
+#[cfg_attr(unix, derive(Eq, PartialEq))]
 pub struct ClockId(libc::clockid_t);
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl ClockId {
     pub const fn from_raw(raw: libc::clockid_t) -> Self {
         Self(raw)
@@ -259,6 +261,7 @@ impl ClockId {
         target_os = "solaris",
         target_os = "openbsd",
         target_os = "redox",
+        target_os = "wasi",
     )))]
     pub const CLOCK_THREAD_CPUTIME_ID: Self = Self(libc::CLOCK_THREAD_CPUTIME_ID);
 }
@@ -273,6 +276,20 @@ pub fn clock_gettime(id: ClockId) -> std::io::Result<Duration> {
     nix::time::clock_gettime(nix_clock_id(id))
         .map(Duration::from)
         .map_err(std::io::Error::from)
+}
+
+#[cfg(target_os = "wasi")]
+pub fn clock_gettime(id: ClockId) -> std::io::Result<Duration> {
+    let mut ts = core::mem::MaybeUninit::<libc::timespec>::uninit();
+
+    let ret = unsafe { libc::clock_gettime(id.as_raw(), ts.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let ts = unsafe { ts.assume_init() };
+
+    Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]

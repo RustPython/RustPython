@@ -31,6 +31,8 @@ mod decl {
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
     use core::time::Duration;
+    #[cfg(target_os = "wasi")]
+    use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
     use rustpython_host_env::time::asctime_from_tm;
     use rustpython_host_env::time::{self as host_time};
@@ -60,14 +62,27 @@ mod decl {
     #[pyattr]
     pub const _STRUCT_TM_ITEMS: usize = 11;
 
-    // TODO: implement proper monotonic time for wasm/wasi.
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(target_os = "wasi")]
+    fn get_clock_time(id: ClockId, vm: &VirtualMachine) -> PyResult<Duration> {
+        host_time::clock_gettime(id).map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
 
-    // TODO: implement proper perf time for wasm/wasi.
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
