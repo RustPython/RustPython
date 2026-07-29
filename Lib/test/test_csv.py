@@ -262,7 +262,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test(['C\\', '6', '7', 'X"'], 'C\\\\,6,7,"X"""',
                          escapechar='\\', quoting=csv.QUOTE_MINIMAL)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_lineterminator(self):
         for lineterminator in '\r\n', '\n', '\r', '!@#', '\0':
             with self.subTest(lineterminator=lineterminator):
