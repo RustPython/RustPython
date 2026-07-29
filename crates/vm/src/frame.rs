@@ -877,7 +877,7 @@ impl InterpreterFrame {
             0
         };
 
-        InterpreterFrame {
+        Self {
             code: code as *const Py<PyCode>,
             func_obj: match func_obj {
                 Some(obj) => obj as *const PyObject,
@@ -908,8 +908,8 @@ impl InterpreterFrame {
 
     /// Get the previous InterpreterFrame in the chain, or null.
     #[inline(always)]
-    pub fn previous(&self) -> *const InterpreterFrame {
-        self.previous.load(Relaxed) as *const InterpreterFrame
+    pub fn previous(&self) -> *const Self {
+        self.previous.load(Relaxed) as *const Self
     }
 
     /// Get the owning FrameObject, if this frame has been materialized.
@@ -946,7 +946,7 @@ impl InterpreterFrame {
 
         // Build a fresh InterpreterFrame inside the FrameObject.
         // Its raw pointers will be patched by init_iframe_ptrs.
-        let inner_iframe = InterpreterFrame {
+        let inner_iframe = Self {
             code: core::ptr::null(),
             func_obj: core::ptr::null(),
             globals: core::ptr::null(),
@@ -1997,6 +1997,7 @@ impl Py<FrameObject> {
 /// # Safety
 /// The InterpreterFrame's raw pointers (code, globals, builtins, func_obj)
 /// must be valid for the duration of this call.
+#[inline(always)]
 pub(crate) fn run_iframe(
     iframe: &mut InterpreterFrame,
     vm: &VirtualMachine,

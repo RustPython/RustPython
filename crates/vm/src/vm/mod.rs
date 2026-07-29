@@ -1775,6 +1775,7 @@ impl VirtualMachine {
     /// Execute a stack-allocated InterpreterFrame without heap-allocating
     /// a FrameObject. This is the fast path for regular function calls.
     /// The frame is pushed onto the chain as a `*const InterpreterFrame`.
+    #[inline(always)]
     pub fn with_iframe<R>(
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
