@@ -167,12 +167,10 @@ class ShlexTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             shlex.split(None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testSplitPosix(self):
         """Test data splitting with posix parser"""
         self.splitTest(self.posix_data, comments=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testCompat(self):
         """Test compatibility interface"""
         for i in range(len(self.data)):
@@ -313,7 +311,6 @@ class ShlexTest(unittest.TestCase):
         s = shlex.shlex("'')abc", punctuation_chars=True)
         self.assertEqual(list(s), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testUnicodeHandling(self):
         """Test punctuation_chars and whitespace_split handle unicode."""
         ss = "\u2119\u01b4\u2602\u210c\u00f8\u1f24"
@@ -356,7 +353,6 @@ class ShlexTest(unittest.TestCase):
                 joined = shlex.join(split_command)
                 self.assertEqual(joined, command)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Error Retrieving Value
     def testJoinRoundtrip(self):
         all_data = self.data + self.posix_data
         for command, *split_command in all_data:

@@ -3,6 +3,7 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
+    exceptions,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
 
@@ -282,7 +283,7 @@ impl FormatCode {
 
             // Check for embedded null character
             if c == 0 {
-                return Err("embedded null character".to_owned());
+                return Err(exceptions::NulError.to_string());
             }
 
             // PEP3118: Handle extended format specifiers
@@ -615,14 +616,22 @@ make_pack_prim_int!(usize);
 make_pack_prim_int!(isize);
 
 macro_rules! make_pack_float {
-    ($T:ty) => {
+    ($T:ty, $fmt:literal) => {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> PyResult<()> {
-                let f = ArgIntoFloat::try_from_object(vm, arg)?.into_float() as $T;
+                let f_64 = ArgIntoFloat::try_from_object(vm, arg)?.into_float();
+                let f = f_64 as $T;
+                if f.is_infinite() != f_64.is_infinite() {
+                    return Err(vm.new_overflow_error(concat!(
+                        "float too large to pack with ",
+                        $fmt,
+                        " format"
+                    )));
+                }
                 f.to_bits().pack_int::<E>(data);
                 Ok(())
             }
@@ -635,8 +644,8 @@ macro_rules! make_pack_float {
     };
 }
 
-make_pack_float!(f32);
-make_pack_float!(f64);
+make_pack_float!(f32, "f");
+make_pack_float!(f64, "d");
 
 impl Packable for f16 {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {

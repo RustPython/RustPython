@@ -1296,18 +1296,24 @@ impl VirtualMachine {
             }
         };
 
-        let msg_str = if let Some(msg) = msg {
-            format!("{msg}: ")
+        if self.is_none(object) {
+            if let Some(msg) = msg {
+                write_to_stderr(&format!("{msg}:\n"), &stderr, self);
+            }
         } else {
-            "Exception ignored in: ".to_owned()
-        };
-        write_to_stderr(&msg_str, &stderr, self);
+            let msg_str = if let Some(msg) = msg {
+                format!("{msg}: ")
+            } else {
+                "Exception ignored in: ".to_owned()
+            };
+            write_to_stderr(&msg_str, &stderr, self);
 
-        let repr_result = object.repr(self);
-        let repr_wtf8 = repr_result
-            .as_ref()
-            .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
-        write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
+            let repr_result = object.repr(self);
+            let repr_wtf8 = repr_result
+                .as_ref()
+                .map_or_else(|_| "<object repr failed>".as_ref(), |s| s.as_wtf8());
+            write_to_stderr(&format!("{repr_wtf8}\n"), &stderr, self);
+        }
 
         // Write exception type and message
         let exc_type_name = e.class().name();

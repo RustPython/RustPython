@@ -1,7 +1,7 @@
-use crate::get_main_interpreter;
-use crate::pylifecycle::request_vm_from_interpreter;
+use crate::pylifecycle::{MAIN_INTERP_PTR, request_vm_from_interpreter};
 use crate::util::FfiResult;
 use core::ffi::c_int;
+use core::sync::atomic::Ordering;
 use rustpython_vm::vm::thread::{
     CurrentVmAttachState, SavedThreadState, attach_current_thread, release_current_thread,
     restore_current_thread, save_current_thread, with_current_vm,
@@ -67,11 +67,12 @@ pub unsafe extern "C" fn PyEval_RestoreThread(state: *mut PyThreadState) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyInterpreterState_Get() -> *mut PyInterpreterState {
-    get_main_interpreter()
-        .as_ref()
-        .map(|interp| interp as *const PyInterpreterState)
-        .expect("PyInterpreterState_Get called but no main interpreter was found")
-        .cast_mut()
+    let ptr = MAIN_INTERP_PTR.load(Ordering::Acquire);
+    assert!(
+        !ptr.is_null(),
+        "PyInterpreterState_Get() called but the interpreter is not initialized"
+    );
+    ptr
 }
 
 #[unsafe(no_mangle)]

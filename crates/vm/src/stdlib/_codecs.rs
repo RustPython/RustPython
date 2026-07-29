@@ -6,6 +6,8 @@ use crate::common::static_cell::StaticCell;
 
 #[pymodule(with(#[cfg(windows)] _codecs_windows))]
 mod _codecs {
+    use core::hint::cold_path;
+
     use crate::codecs::{ErrorsHandler, PyDecodeContext, PyEncodeContext};
     use crate::common::encodings;
     use crate::common::wtf8::Wtf8Buf;
@@ -13,7 +15,7 @@ mod _codecs {
         AsObject, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyStrRef, PyUtf8StrRef},
         codecs,
-        exceptions::cstring_error,
+        exceptions::nul_char_error,
         function::{ArgBytesLike, FuncArgs},
     };
 
@@ -29,8 +31,9 @@ mod _codecs {
 
     #[pyfunction]
     fn lookup(encoding: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        if encoding.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+        if encoding.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(nul_char_error(vm));
         }
         vm.state
             .codec_registry
@@ -105,16 +108,18 @@ mod _codecs {
 
     #[pyfunction]
     fn lookup_error(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        if name.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+        if name.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(nul_char_error(vm));
         }
         vm.state.codec_registry.lookup_error(name.as_str(), vm)
     }
 
     #[pyfunction]
     fn _unregister_error(errors: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<bool> {
-        if errors.as_str().contains('\0') {
-            return Err(cstring_error(vm));
+        if errors.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(nul_char_error(vm));
         }
         vm.state
             .codec_registry

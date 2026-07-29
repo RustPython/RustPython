@@ -963,7 +963,7 @@ mod _sqlite3 {
             zelf.reset_factories(vm);
 
             if was_initialized {
-                zelf.drop_db();
+                zelf.drop_db(vm)?;
             }
 
             // Attempt to open the new database before mutating other state so failures leave
@@ -994,8 +994,20 @@ mod _sqlite3 {
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
-        fn drop_db(&self) {
-            self.db.lock().take();
+        fn drop_db(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = self.db.lock();
+            let rollback_result = if let Some(db) = guard.as_ref()
+                && *self.autocommit.lock() == AutocommitMode::Disabled
+                && !db.is_autocommit()
+            {
+                db._exec(b"ROLLBACK\0", vm)
+            } else {
+                Ok(())
+            };
+            let db = guard.take();
+            drop(guard);
+            drop(db);
+            rollback_result
         }
 
         fn reset_factories(&self, vm: &VirtualMachine) {
@@ -1012,6 +1024,9 @@ mod _sqlite3 {
             if let Some(isolation_level) = &args.isolation_level.0 {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
+            if args.autocommit == AutocommitMode::Disabled {
+                db._exec(b"BEGIN\0", vm)?;
+            }
             Ok(db)
         }
 
@@ -1026,6 +1041,11 @@ mod _sqlite3 {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
                     x.as_mut().unwrap_unchecked()
                 }))
+            } else if self.initialized.load(Ordering::Acquire) {
+                Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed database.".to_owned(),
+                ))
             } else {
                 Err(new_programming_error(
                     vm,
@@ -1103,8 +1123,7 @@ mod _sqlite3 {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.check_thread(vm)?;
-            self.drop_db();
-            Ok(())
+            self.drop_db(vm)
         }
 
         fn is_closed(&self) -> bool {
@@ -1113,16 +1132,35 @@ mod _sqlite3 {
 
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.db_lock(vm)?.implicit_commit(vm)
+            let db = self.db_lock(vm)?;
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => db.implicit_commit(vm),
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"COMMIT\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
+            }
         }
 
         #[pymethod]
         fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
-            if !db.is_autocommit() {
-                db._exec(b"ROLLBACK\0", vm)
-            } else {
-                Ok(())
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => {
+                    if db.is_autocommit() {
+                        Ok(())
+                    } else {
+                        db._exec(b"ROLLBACK\0", vm)
+                    }
+                }
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"ROLLBACK\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
             }
         }
 
@@ -1516,11 +1554,7 @@ mod _sqlite3 {
 
                     // If setting isolation_level to None (auto-commit mode), commit any pending transaction
                     if value.is_none() {
-                        let db = self.db_lock(vm)?;
-                        if !db.is_autocommit() {
-                            // Keep the lock and call implicit_commit directly to avoid race conditions
-                            db.implicit_commit(vm)?;
-                        }
+                        self.commit(vm)?;
                     }
                     let _ = unsafe { self.isolation_level.swap(value) };
                     Ok(())
@@ -1544,6 +1578,7 @@ mod _sqlite3 {
         fn set_autocommit(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
             let db = self.db_lock(vm)?;
+            *self.autocommit.lock() = mode;
 
             // Handle transaction state based on mode change
             match mode {
@@ -1563,9 +1598,6 @@ mod _sqlite3 {
                     // Legacy mode doesn't change transaction state
                 }
             }
-
-            drop(db);
-            *self.autocommit.lock() = mode;
             Ok(())
         }
 
@@ -2250,7 +2282,7 @@ mod _sqlite3 {
                         return self.data.getitem_by_index(vm, i);
                     }
                 }
-                Err(vm.new_index_error("No item with that key"))
+                Err(vm.new_index_error(format!("No item with key '{}'", name.to_string_lossy())))
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_tuple(list).into())
@@ -2272,7 +2304,7 @@ mod _sqlite3 {
                 .inner(vm)?
                 .description
                 .clone()
-                .ok_or_else(|| vm.new_value_error("no description in Cursor"))?;
+                .unwrap_or_else(|| vm.ctx.empty_tuple.clone());
 
             Ok(Self { data, description })
         }
@@ -3203,6 +3235,16 @@ mod _sqlite3 {
             }
 
             for i in 1..=num_needed {
+                let name = unsafe { sqlite3_bind_parameter_name(self.st, i) };
+                if !name.is_null() && unsafe { *name } != b'?' as libc::c_char {
+                    let name_str = ptr_to_str(name, vm)?;
+                    return Err(new_programming_error(
+                        vm,
+                        format!(
+                            "Binding {i} ('{name_str}') is a named parameter, but you supplied a sequence which requires nameless (qmark) placeholders."
+                        ),
+                    ));
+                }
                 let val = seq.get_item(i as isize - 1, vm)?;
                 self.bind_parameter(i, &val, vm)?;
             }

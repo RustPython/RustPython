@@ -875,7 +875,6 @@ class CursorTests(unittest.TestCase):
         with self.assertRaises(ZeroDivisionError):
             self.cu.execute("select name from test where name=?", L())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; mixed named and positional parameters not validated
     def test_execute_named_param_and_sequence(self):
         dataset = (
             ("select :a", (1,)),
@@ -1775,29 +1774,23 @@ class ClosedConTests(unittest.TestCase):
         self.cur = self.con.cursor()
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_con_cursor(self):
         self.check(self.con.cursor)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_con_commit(self):
         self.check(self.con.commit)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_con_rollback(self):
         self.check(self.con.rollback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_cur_execute(self):
         self.check(self.cur.execute, "select 4")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_create_function(self):
         def f(x):
             return 17
         self.check(self.con.create_function, "foo", 1, f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_create_aggregate(self):
         class Agg:
             def __init__(self):
@@ -1808,19 +1801,16 @@ class ClosedConTests(unittest.TestCase):
                 return 17
         self.check(self.con.create_aggregate, "foo", 1, Agg)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_set_authorizer(self):
         def authorizer(*args):
             return sqlite.DENY
         self.check(self.con.set_authorizer, authorizer)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_set_progress_callback(self):
         def progress():
             pass
         self.check(self.con.set_progress_handler, progress, 100)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for closed connection
     def test_closed_call(self):
         self.check(self.con)
 
@@ -2054,7 +2044,6 @@ class RowTests(unittest.TestCase):
 
         self.assertNotEqual(r1, r3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Row with no description fails
     def test_row_no_description(self):
         cu = self.cx.cursor()
         self.assertIsNone(cu.description)

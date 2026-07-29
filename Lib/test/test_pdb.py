@@ -1290,7 +1290,7 @@ def test_post_mortem_chained():
     ...     except Exception as e:
     ...         pdb._post_mortem(e, instance)
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
     ...     'exceptions',
     ...     'exceptions 0',
     ...     '$_exception',
@@ -2133,7 +2133,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(test(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +EXPECTED_FAILURE
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     '$_asynctask',
             ...     'continue',
             ... ]):
@@ -4185,7 +4185,6 @@ def bœr():
         self.assertTrue(any("__main__.py(4)<module>()"
                             in l for l in stdout.splitlines()), stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file_modified_after_execution(self):
         script = """
             print("hello")
@@ -4259,7 +4258,6 @@ def bœr():
         self.assertIn("WARNING:", stdout)
         self.assertIn("was edited", stdout)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_file_modified_after_execution_with_restart(self):
         script = """
             import random

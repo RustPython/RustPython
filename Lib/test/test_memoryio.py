@@ -940,7 +940,6 @@ class CStringIOTest(PyStringIOTest):
 
     # XXX: For the Python version of io.StringIO, this is highly
     # dependent on the encoding used for the underlying buffer.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 8 != 2
     def test_widechar(self):
         buf = self.buftype("\U0002030a\U00020347")
         memio = self.ioclass(buf)
@@ -965,7 +964,6 @@ class CStringIOTest(PyStringIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by __setstate__
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -1002,22 +1000,6 @@ class CStringIOTest(PyStringIOTest):
         memio2.write(MyStr("world"))
         self.assertEqual(memio2.getvalue(), "hello world")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_issue5265(self):
-        return super().test_issue5265()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                      ++++
-    def test_newline_empty(self):
-        return super().test_newline_empty()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
-    def test_newline_none(self):
-        return super().test_newline_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by seek
-    def test_relative_seek(self):
-        return super().test_relative_seek()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
     def test_flags(self):
         return super().test_flags()
@@ -1025,15 +1007,6 @@ class CStringIOTest(PyStringIOTest):
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
     def test_newlines_property(self):
         return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_cr(self):
-        return super().test_newline_cr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_crlf(self):
-        return super().test_newline_crlf()
-
 
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
@@ -1044,34 +1017,9 @@ class CStringIOPickleTest(PyStringIOPickleTest):
         def __init__(self, *args, **kwargs):
             pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_issue5265(self):
-        return super().test_issue5265()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                      ++++
-    def test_newline_empty(self):
-        return super().test_newline_empty()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
-    def test_newline_none(self):
-        return super().test_newline_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by seek
-    def test_relative_seek(self):
-        return super().test_relative_seek()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
     def test_newlines_property(self):
         return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_cr(self):
-        return super().test_newline_cr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_crlf(self):
-        return super().test_newline_crlf()
-
 
 if __name__ == '__main__':
     unittest.main()

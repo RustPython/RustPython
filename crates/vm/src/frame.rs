@@ -4430,18 +4430,11 @@ impl ExecutingFrame<'_> {
                 let type_version = self.code.instructions.read_cache_u32(cache_base + 1);
 
                 if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
-                    // Check instance dict doesn't shadow the method
-                    let shadowed = if let Some(dict) = owner.dict() {
-                        match dict.get_item_opt(attr_name, vm) {
-                            Ok(Some(_)) => true,
-                            Ok(None) => false,
-                            Err(_) => {
-                                // Dict lookup error -> use safe path.
-                                return self.load_attr_slow(vm, oparg);
-                            }
-                        }
-                    } else {
-                        false
+                    // Check instance dict doesn't shadow the method.
+                    let shadowed = match self.shadowing_instance_attr(cache_base, attr_name, vm) {
+                        Ok(shadowed) => shadowed.is_some(),
+                        // Dict lookup error -> use safe path.
+                        Err(_) => return self.load_attr_slow(vm, oparg),
                     };
 
                     if !shadowed
@@ -4489,16 +4482,29 @@ impl ExecutingFrame<'_> {
                 if type_version != 0
                     && owner.class().tp_version_tag.load(Acquire) == type_version
                     && let Some(dict) = owner.dict()
-                    && let Some(value) = dict.get_item_opt(attr_name, vm)?
                 {
-                    self.pop_value();
-                    if oparg.is_method() {
-                        self.push_value(value);
-                        self.push_value_opt(None);
-                    } else {
-                        self.push_value(value);
+                    // Try the cached entry index first; a hit is an identity
+                    // check on the entry key instead of a hash probe.
+                    let hint = self.code.instructions.read_cache_u16(cache_base + 3);
+                    if let Some((value, refreshed)) =
+                        dict.get_item_opt_refresh_hint(attr_name, hint, vm)?
+                    {
+                        if let Some(new_hint) = refreshed {
+                            unsafe {
+                                self.code
+                                    .instructions
+                                    .write_cache_u16(cache_base + 3, new_hint);
+                            }
+                        }
+                        self.pop_value();
+                        if oparg.is_method() {
+                            self.push_value(value);
+                            self.push_value_opt(None);
+                        } else {
+                            self.push_value(value);
+                        }
+                        return Ok(None);
                     }
-                    return Ok(None);
                 }
 
                 self.load_attr_slow(vm, oparg)
@@ -4559,9 +4565,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0 && owner.class().tp_version_tag.load(Acquire) == type_version {
                     // Instance dict has priority — check if attr is shadowed
-                    if let Some(dict) = owner.dict()
-                        && let Some(value) = dict.get_item_opt(attr_name, vm)?
-                    {
+                    if let Some(value) = self.shadowing_instance_attr(cache_base, attr_name, vm)? {
                         self.pop_value();
                         if oparg.is_method() {
                             self.push_value(value);
@@ -4725,7 +4729,10 @@ impl ExecutingFrame<'_> {
                 {
                     self.pop_value(); // owner
                     let value = self.pop_value();
-                    dict.set_item(attr_name, value, vm)?;
+                    // The key was absent at specialization time, but this
+                    // very store inserts it; hint learning makes later
+                    // executions replace by entry index.
+                    self.store_attr_dict_hinted(&dict, attr_name, value, cache_base, vm)?;
                     return Ok(None);
                 }
                 self.store_attr(vm, attr_idx)
@@ -4744,7 +4751,7 @@ impl ExecutingFrame<'_> {
                 {
                     self.pop_value(); // owner
                     let value = self.pop_value();
-                    dict.set_item(attr_name, value, vm)?;
+                    self.store_attr_dict_hinted(&dict, attr_name, value, cache_base, vm)?;
                     return Ok(None);
                 }
                 self.store_attr(vm, attr_idx)
@@ -8055,6 +8062,61 @@ impl ExecutingFrame<'_> {
         Ok(None)
     }
 
+    /// Store an instance attribute through the cached entry index at
+    /// `cache_base + 3`, refreshing the cache when the hint missed.
+    fn store_attr_dict_hinted(
+        &mut self,
+        dict: &Py<PyDict>,
+        attr_name: &'static PyStrInterned,
+        value: PyObjectRef,
+        cache_base: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let hint = self.code.instructions.read_cache_u16(cache_base + 3);
+        if let Some(new_hint) = dict.set_item_with_hint(attr_name, hint, value, vm)? {
+            unsafe {
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base + 3, new_hint);
+            }
+        }
+        Ok(())
+    }
+
+    /// Shadow check for method/nondescriptor loads: return the instance
+    /// attribute shadowing the cached class attr, or `None` if not shadowed.
+    ///
+    /// A keys-version stamp of the instance dict is kept in the pointer cache
+    /// at `cache_base + 3`. While the dict reports the same stamp, its key
+    /// set is unchanged since the name was last verified absent, so the probe
+    /// is skipped. On a verified-absent probe the current stamp is recorded
+    /// for the next execution.
+    fn shadowing_instance_attr(
+        &self,
+        cache_base: usize,
+        attr_name: &'static PyStrInterned,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<PyObjectRef>> {
+        let Some(dict) = self.top_value().dict() else {
+            return Ok(None);
+        };
+        let stamp = self.code.instructions.read_cache_ptr(cache_base + 3);
+        if stamp != 0 && stamp == dict.keys_version() as usize {
+            return Ok(None);
+        }
+        // Take the stamp before probing so it attests the probed key set.
+        let stamp = dict.assign_keys_version(vm);
+        if let Some(value) = dict.get_item_opt(attr_name, vm)? {
+            return Ok(Some(value));
+        }
+        unsafe {
+            self.code
+                .instructions
+                .write_cache_ptr(cache_base + 3, stamp as usize);
+        }
+        Ok(None)
+    }
+
     /// Read a cached descriptor pointer and validate it against the expected
     /// type version, using a lock-free double-check pattern:
     ///   1. read pointer  →  incref (try_to_owned)
@@ -8408,10 +8470,12 @@ impl ExecutingFrame<'_> {
                     // attribute is missing on both the class and the current
                     // instance, keep the generic opcode and just enter
                     // cooldown instead of specializing a repeated miss path.
-                    let has_instance_attr = if let Some(dict) = obj.dict() {
-                        match dict.get_item_opt(attr_name, _vm) {
-                            Ok(Some(_)) => true,
-                            Ok(None) => false,
+                    // A present attribute always specializes; when no entry
+                    // index is representable the hint degrades to 0 and the
+                    // handler simply keeps taking its full-probe fallback.
+                    let instance_attr_hint = if let Some(dict) = obj.dict() {
+                        match dict.get_item_opt_refresh_hint(attr_name, 0, _vm) {
+                            Ok(present) => present.map(|(_, refreshed)| refreshed.unwrap_or(0)),
                             Err(_) => {
                                 unsafe {
                                     self.code.instructions.write_adaptive_counter(
@@ -8427,13 +8491,14 @@ impl ExecutingFrame<'_> {
                             }
                         }
                     } else {
-                        false
+                        None
                     };
-                    if has_instance_attr {
+                    if let Some(hint) = instance_attr_hint {
                         unsafe {
                             self.code
                                 .instructions
                                 .write_cache_u32(cache_base + 1, type_version);
+                            self.code.instructions.write_cache_u16(cache_base + 3, hint);
                         }
                         self.specialize_at(instr_idx, cache_base, Instruction::LoadAttrWithHint);
                     } else {
@@ -9951,9 +10016,8 @@ impl ExecutingFrame<'_> {
                 }
             }
         } else if let Some(dict) = owner.dict() {
-            let use_hint = match dict.get_item_opt(attr_name, vm) {
-                Ok(Some(_)) => true,
-                Ok(None) => false,
+            let hint = match dict.hint_for_key(attr_name, vm) {
+                Ok(hint) => hint,
                 Err(_) => {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
@@ -9970,11 +10034,14 @@ impl ExecutingFrame<'_> {
                 self.code
                     .instructions
                     .write_cache_u32(cache_base + 1, type_version);
+                self.code
+                    .instructions
+                    .write_cache_u16(cache_base + 3, hint.unwrap_or(0));
             }
             self.specialize_at(
                 instr_idx,
                 cache_base,
-                if use_hint {
+                if hint.is_some() {
                     Instruction::StoreAttrWithHint
                 } else {
                     Instruction::StoreAttrInstanceValue

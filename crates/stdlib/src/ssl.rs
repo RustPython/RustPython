@@ -67,9 +67,12 @@ mod _ssl {
     use alloc::sync::Arc;
     use core::{
         hash::{Hash, Hasher},
+        hint::cold_path,
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
+    use memchr::memchr;
+    use rustpython_vm::exceptions;
     use std::{
         collections::{HashMap, hash_map::DefaultHasher},
         io::BufRead,
@@ -391,8 +394,9 @@ mod _ssl {
         // IP addresses are allowed as server_hostname
         // SNI will not be sent for IP addresses
 
-        if hostname.contains('\0') {
-            return Err(vm.new_type_error("embedded null character"));
+        if memchr(b'\0', hostname.as_bytes()).is_some() {
+            cold_path();
+            return Err(exceptions::nul_char_type_error(vm));
         }
 
         if hostname.len() > 253 {
@@ -1853,25 +1857,7 @@ mod _ssl {
             let hostname = match args.server_hostname.into_option().flatten() {
                 Some(hostname_str) => {
                     let hostname = hostname_str.as_str();
-
-                    // Validate hostname
-                    if hostname.is_empty() {
-                        return Err(vm.new_value_error("server_hostname cannot be an empty string"));
-                    }
-
-                    // Check if it starts with a dot
-                    if hostname.starts_with('.') {
-                        return Err(vm.new_value_error("server_hostname cannot start with a dot"));
-                    }
-
-                    // IP addresses are allowed
-                    // SNI will not be sent for IP addresses
-
-                    // Check for NULL bytes
-                    if hostname.contains('\0') {
-                        return Err(vm.new_type_error("embedded null character"));
-                    }
-
+                    validate_hostname(hostname, vm)?;
                     Some(hostname.to_string())
                 }
                 None => None,

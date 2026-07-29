@@ -210,8 +210,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        // TODO: RUSTPYTHON; Add support for using the C altzone
-        crate::host_env::time::tz::timezone() - 3600
+        crate::host_env::time::tz::altzone()
     }
 
     #[cfg(target_env = "msvc")]
@@ -571,8 +570,8 @@ mod decl {
         for codepoint in format.as_wtf8().code_points() {
             if codepoint.to_u32() == 0 {
                 if !ascii.is_empty() {
-                    let part = host_time::strftime_ascii(&ascii, &tm)
-                        .map_err(|_| vm.new_value_error("embedded null character"))?;
+                    let part =
+                        host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
                     out.extend(part.chars());
                     ascii.clear();
                 }
@@ -587,16 +586,15 @@ mod decl {
             }
 
             if !ascii.is_empty() {
-                let part = host_time::strftime_ascii(&ascii, &tm)
-                    .map_err(|_| vm.new_value_error("embedded null character"))?;
+                let part =
+                    host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
                 out.extend(part.chars());
                 ascii.clear();
             }
             out.push(codepoint);
         }
         if !ascii.is_empty() {
-            let part = host_time::strftime_ascii(&ascii, &tm)
-                .map_err(|_| vm.new_value_error("embedded null character"))?;
+            let part = host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
             out.extend(part.chars());
         }
         Ok(out.to_pyobject(vm))

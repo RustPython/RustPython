@@ -37,6 +37,7 @@ use bstr::ByteSlice;
 use core::ffi::CStr;
 use core::{char, mem, ops::Range};
 use itertools::Itertools;
+use memchr::memchr;
 use num_traits::ToPrimitive;
 use rustpython_common::{
     ascii,
@@ -545,6 +546,13 @@ impl PyStr {
         }
     }
 
+    /// Check string bytes for interior NULs.
+    #[inline]
+    #[must_use]
+    pub fn contains_nuls(&self) -> bool {
+        memchr(b'\0', self.as_bytes()).is_some()
+    }
+
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
         self.to_str()
             .map_or_else(|| self.as_wtf8().to_string_lossy(), Cow::Borrowed)
@@ -977,7 +985,7 @@ impl PyStr {
         !self.data.is_empty() && self.char_all(unicode::classify::is_decimal)
     }
 
-    fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    pub fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         cformat_string(vm, self.as_wtf8(), values)
     }
 
@@ -1192,7 +1200,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (front, has_mid, back) = self.as_wtf8().py_partition(
             sep.as_wtf8(),
             || self.as_wtf8().splitn(2, sep.as_wtf8()),
@@ -1211,7 +1219,7 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
         let (back, has_mid, front) = self.as_wtf8().py_partition(
             sep.as_wtf8(),
             || self.as_wtf8().rsplitn(2, sep.as_wtf8()),
@@ -1344,7 +1352,7 @@ impl PyStr {
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
     #[pymethod]
-    fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    pub fn translate(&self, table: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         vm.get_method_or_type_error(table.clone(), identifier!(vm, __getitem__), || {
             format!("'{}' object is not subscriptable", table.class().name())
         })?;
@@ -2150,7 +2158,7 @@ impl PyUtf8Str {
 
 impl Py<PyUtf8Str> {
     /// Upcast to PyStr.
-    pub fn as_pystr(&self) -> &Py<PyStr> {
+    pub const fn as_pystr(&self) -> &Py<PyStr> {
         unsafe {
             // Safety: PyUtf8Str is a wrapper around PyStr, so this cast is safe.
             &*(self as *const Self as *const Py<PyStr>)

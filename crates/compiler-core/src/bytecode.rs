@@ -776,12 +776,15 @@ impl CodeUnits {
     /// Store a pointer-sized value atomically in the pointer cache at `index`.
     ///
     /// Uses a single `AtomicUsize` store to prevent torn writes when
-    /// multiple threads specialize the same instruction concurrently.
+    /// multiple threads specialize the same instruction concurrently. The
+    /// tear-free width also makes this the right slot for non-pointer guard
+    /// values (e.g. dict keys-version stamps) that must never be observed
+    /// half-written.
     ///
     /// # Safety
     /// - `index` must be in bounds.
-    /// - `value` must be `0` or a valid `*const PyObject` encoded as `usize`.
-    /// - Callers must follow the cache invalidation/upgrade protocol:
+    /// - When the slot holds a `*const PyObject` encoded as `usize` (or `0`),
+    ///   callers must follow the cache invalidation/upgrade protocol:
     ///   invalidate the version guard before writing and publish the new
     ///   version after writing.
     pub unsafe fn write_cache_ptr(&self, index: usize, value: usize) {

@@ -1,13 +1,13 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
     buffer::FormatSpec,
-    bytes_inner::bytes_to_hex,
+    bytes_inner::{ByteInnerHexOptions, bytes_to_hex},
     class::PyClassImpl,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
@@ -739,12 +739,8 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn hex(
-        &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
+        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.try_not_released(vm)?;
         self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep, vm))
     }

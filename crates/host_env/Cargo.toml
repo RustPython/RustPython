@@ -51,6 +51,7 @@ libffi = { workspace = true, features = ["system"] }
 system-configuration = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }
 widestring = { workspace = true }
@@ -83,6 +84,9 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[build-dependencies]
+cc = "1"
 
 [lints]
 workspace = true
