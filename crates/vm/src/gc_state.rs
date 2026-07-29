@@ -646,9 +646,8 @@ impl GcState {
                     let top: *const crate::frame::FrameObject =
                         slot.top_frame.load(core::sync::atomic::Ordering::Relaxed);
                     if !top.is_null() {
-                        let mut cur = unsafe {
-                            (*top).iframe() as *const crate::frame::InterpreterFrame
-                        };
+                        let mut cur =
+                            unsafe { (*top).iframe() as *const crate::frame::InterpreterFrame };
                         while !cur.is_null() {
                             let iframe = unsafe { &*cur };
                             if let Some(fo) = iframe.frame_obj() {

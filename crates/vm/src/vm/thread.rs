@@ -807,8 +807,9 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             // SAFETY: the forking thread's chain frames are alive.
             let iframe = unsafe { &*cur };
             if let Some(fo) = iframe.frame_obj() {
-                current_frames
-                    .push(FramePtr(unsafe { NonNull::new_unchecked(fo as *const _ as *mut _) }));
+                current_frames.push(FramePtr(unsafe {
+                    NonNull::new_unchecked(fo as *const _ as *mut _)
+                }));
             }
             cur = iframe.previous.load(Ordering::Relaxed) as *const InterpreterFrame;
         }

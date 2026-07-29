@@ -1340,10 +1340,7 @@ impl VirtualMachine {
     #[inline(always)]
     /// Run a stack-allocated InterpreterFrame without heap allocation.
     /// This is the fast path for regular (non-generator) function calls.
-    pub fn run_frame_fast(
-        &self,
-        iframe: &mut crate::frame::InterpreterFrame,
-    ) -> PyResult {
+    pub fn run_frame_fast(&self, iframe: &mut crate::frame::InterpreterFrame) -> PyResult {
         match self.with_iframe(iframe, |iframe| crate::frame::run_iframe(iframe, self))? {
             ExecutionResult::Return(value) => Ok(value),
             _ => panic!("Got unexpected result from function"),
@@ -1905,8 +1902,7 @@ impl VirtualMachine {
         // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
         // both Ok and Err, matching `call_trace_protected` behavior.
         if self.use_tracing.get()
-            && (frame.iframe().trace.lock().is_some()
-                || !self.is_none(&self.profile_func.borrow()))
+            && (frame.iframe().trace.lock().is_some() || !self.is_none(&self.profile_func.borrow()))
         {
             let ret_result = self.trace_event(TraceEvent::Return, None);
             // call_trace_protected: if trace function raises, its error

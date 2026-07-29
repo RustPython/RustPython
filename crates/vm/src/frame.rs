@@ -154,9 +154,7 @@ pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObject
 /// If a FrameObject wrapping `target` InterpreterFrame is on the current
 /// thread's chain, return an owned reference to it; otherwise `None`.
 #[must_use]
-pub fn find_owned_chain_frame_by_iframe(
-    target: *const InterpreterFrame,
-) -> Option<FrameObjectRef> {
+pub fn find_owned_chain_frame_by_iframe(target: *const InterpreterFrame) -> Option<FrameObjectRef> {
     let mut cur = crate::vm::thread::get_current_frame();
     while !cur.is_null() {
         if core::ptr::eq(cur, target) {
@@ -328,7 +326,11 @@ impl LocalsPlus {
     /// When the frame finishes, the caller must migrate data to the heap with
     /// `materialize_localsplus()` (or drop it in place with
     /// `release_localsplus()`), then `datastack_pop()` to free the memory.
-    pub(crate) fn new_on_datastack(nlocalsplus: usize, stacksize: usize, vm: &VirtualMachine) -> Self {
+    pub(crate) fn new_on_datastack(
+        nlocalsplus: usize,
+        stacksize: usize,
+        vm: &VirtualMachine,
+    ) -> Self {
         let capacity = nlocalsplus
             .checked_add(stacksize)
             .expect("LocalsPlus capacity overflow");
@@ -962,9 +964,7 @@ impl InterpreterFrame {
             temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(self.previous.load(Relaxed)),
-            owner: atomic::AtomicI8::new(
-                self.owner.load(atomic::Ordering::Relaxed),
-            ),
+            owner: atomic::AtomicI8::new(self.owner.load(atomic::Ordering::Relaxed)),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
             escaped: atomic::AtomicBool::new(true),
@@ -985,10 +985,10 @@ impl InterpreterFrame {
         FrameObject::init_iframe_ptrs(&frame_ref);
         // Set the inner iframe's materialized pointer to self
         unsafe {
-            frame_ref.iframe_mut().materialized.store(
-                &*frame_ref as *const Py<FrameObject> as usize,
-                Relaxed,
-            );
+            frame_ref
+                .iframe_mut()
+                .materialized
+                .store(&*frame_ref as *const Py<FrameObject> as usize, Relaxed);
         }
 
         // Store the materialized pointer on this stack frame.
@@ -1399,7 +1399,9 @@ impl FrameObject {
         // Use raw access instead of iframe() to avoid panicking on cleared frames.
         let iframe_opt = unsafe { &*self.iframe.get() };
         match iframe_opt.as_ref() {
-            Some(iframe) => iframe.previous.load(atomic::Ordering::Relaxed) as *const InterpreterFrame,
+            Some(iframe) => {
+                iframe.previous.load(atomic::Ordering::Relaxed) as *const InterpreterFrame
+            }
             None => core::ptr::null(),
         }
     }
@@ -2821,7 +2823,9 @@ impl ExecutingFrame<'_> {
                             // The traceback was created with the correct lasti when exception
                             // was first raised, but frame.lasti may have changed during cleanup
                             if let Some(tb) = exception.__traceback__()
-                                && self.iframe().frame_obj().is_some_and(|fo| core::ptr::eq::<Py<FrameObject>>(&*tb.frame, fo))
+                                && self.iframe().frame_obj().is_some_and(|fo| {
+                                    core::ptr::eq::<Py<FrameObject>>(&*tb.frame, fo)
+                                })
                             {
                                 // This traceback entry is for this frame - restore its lasti
                                 // tb.lasti is in bytes (idx * 2), convert back to instruction index

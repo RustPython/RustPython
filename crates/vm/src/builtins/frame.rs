@@ -600,7 +600,11 @@ impl FrameObject {
         let mut storage = self.iframe().trace.lock();
         *storage = match value {
             PySetterValue::Assign(v) => {
-                if vm.is_none(&v) { None } else { Some(v) }
+                if vm.is_none(&v) {
+                    None
+                } else {
+                    Some(v)
+                }
             }
             PySetterValue::Delete => None,
         };
@@ -786,9 +790,8 @@ impl Py<FrameObject> {
                 let top = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
                 if !top.is_null() {
                     // Walk the iframe chain from this FrameObject's iframe
-                    let mut cur_iframe = unsafe {
-                        (*top).iframe() as *const crate::frame::InterpreterFrame
-                    };
+                    let mut cur_iframe =
+                        unsafe { (*top).iframe() as *const crate::frame::InterpreterFrame };
                     while !cur_iframe.is_null() {
                         if core::ptr::eq(cur_iframe, prev) {
                             let iframe_ref = unsafe { &*cur_iframe };
