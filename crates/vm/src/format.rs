@@ -77,6 +77,9 @@ impl IntoPyException for FormatSpecError {
             Self::AlignmentFlag => {
                 vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
             }
+            Self::StringAlignmentFlag => {
+                vm.new_value_error("'=' alignment not allowed in string format specifier")
+            }
             Self::NotImplemented(c, s) => {
                 let msg = format!("Format code '{c}' for object of type '{s}' not implemented yet");
                 vm.new_value_error(msg)
