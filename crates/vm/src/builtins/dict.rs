@@ -187,11 +187,23 @@ impl PyDict {
         self.merge_object_with_override(other, false, vm)
     }
 
-    fn add_update_sequence_note(exc: &PyBaseExceptionRef, index: usize, vm: &VirtualMachine) {
-        if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
-            let note =
-                format!("Cannot convert dictionary update sequence element #{index} to a sequence");
-            let _ = vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),));
+    fn add_update_sequence_note(
+        exc: PyBaseExceptionRef,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            return exc;
+        }
+
+        let note =
+            format!("Cannot convert dictionary update sequence element #{index} to a sequence");
+        match vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),)) {
+            Ok(_) => exc,
+            Err(note_err) => {
+                note_err.set___context__(Some(exc));
+                note_err
+            }
         }
     }
 
@@ -240,7 +252,7 @@ impl PyDict {
                 .into_iter::<PyObjectRef>(vm)?
                 .collect::<PyResult<Vec<_>>>()
         })()
-        .inspect_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
+        .map_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
 
         Self::update_sequence_pair_from_slice(&elements, index, vm)
     }
