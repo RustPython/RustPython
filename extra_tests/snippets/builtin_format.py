@@ -24,6 +24,14 @@ def test_zero_padding():
 
 test_zero_padding()
 
+try:
+    format("result", "=8s")
+except ValueError as error:
+    if str(error) != "'=' alignment not allowed in string format specifier":
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for '=8s' string format specifier")
+
 assert "{:,}".format(100) == "100"
 assert "{:,}".format(1024) == "1,024"
 assert "{:_}".format(65536) == "65_536"
