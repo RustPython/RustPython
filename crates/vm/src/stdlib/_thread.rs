@@ -1181,8 +1181,7 @@ pub(crate) mod _thread {
                 .filter_map(|(id, slot)| {
                     if *id == current_ident {
                         // Current thread: materialize from TLS chain
-                        crate::frame::current_thread_frame_materialize(vm)
-                            .map(|frame| (*id, frame))
+                        crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
                     } else {
                         // Other threads: try top_frame first (FrameObject),
                         // fall back to top_iframe (may be a stack-allocated frame).
@@ -1195,9 +1194,8 @@ pub(crate) mod _thread {
                         } else {
                             // Stack-allocated frame: materialize from top_iframe.
                             // SAFETY: world stopped -> owning thread is parked.
-                            let iframe_ptr =
-                                slot.top_iframe.load(Ordering::Relaxed)
-                                    as *const crate::frame::InterpreterFrame;
+                            let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                                as *const crate::frame::InterpreterFrame;
                             if !iframe_ptr.is_null() {
                                 let iframe = unsafe { &*iframe_ptr };
                                 let fo = iframe.materialize(vm);

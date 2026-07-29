@@ -570,8 +570,7 @@ impl Py<PyFunction> {
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
 
-        let needs_heap_frame =
-            is_gen || is_coro || is_async_gen || vm.use_tracing.get();
+        let needs_heap_frame = is_gen || is_coro || is_async_gen || vm.use_tracing.get();
 
         if needs_heap_frame {
             // Heap-allocate FrameObject for generators/coroutines (lifetime
