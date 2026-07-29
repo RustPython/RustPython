@@ -671,12 +671,8 @@ impl Initializer for PyList {
         let list_type = vm.ctx.types.list_type;
         let cls = zelf.class();
         let uses_list_new = {
-            let cls_new = cls.slots.new.load().map(crate::types::NewFunc::identity);
-            let list_new = list_type
-                .slots
-                .new
-                .load()
-                .map(crate::types::NewFunc::identity);
+            let cls_new = cls.slots.new.load().map(crate::types::fn_addr);
+            let list_new = list_type.slots.new.load().map(crate::types::fn_addr);
             cls_new == list_new
         };
         let iterable = if cls.is(list_type) || uses_list_new {
