@@ -608,12 +608,13 @@ impl Py<PyFunction> {
             ),
         };
 
-        let func_obj_ref: PyObjectRef = self.to_owned().into();
+        // Use self.as_object() as raw pointer — no refcount inc/dec.
+        // The function is alive on the caller's stack for the call duration.
         let mut iframe = crate::frame::InterpreterFrame::new(
             &self.code,
             &self.globals,
             &self.builtins,
-            Some(&*func_obj_ref),
+            Some(self.as_object()),
             localsplus,
             locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
@@ -792,12 +793,11 @@ impl Py<PyFunction> {
             )
         };
 
-        let func_obj_ref: PyObjectRef = self.to_owned().into();
         let mut iframe = crate::frame::InterpreterFrame::new(
             code,
             &self.globals,
             &self.builtins,
-            Some(&*func_obj_ref),
+            Some(self.as_object()),
             localsplus,
             locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),

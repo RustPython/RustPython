@@ -1799,17 +1799,14 @@ impl VirtualMachine {
         } else {
             None
         };
-        let old_owner = iframe.owner.swap(
+        // Stack-allocated frames are always owned by the current thread.
+        // No cross-thread clear() is possible, so skip the AcqRel swap.
+        debug_assert_eq!(
+            iframe.owner.load(core::sync::atomic::Ordering::Relaxed),
             crate::frame::FrameOwner::Thread as i8,
-            core::sync::atomic::Ordering::AcqRel,
         );
 
-        // Use raw pointer for scopeguard so we don't conflict with
-        // the mutable borrow of `iframe` in the closure `f`.
-        let owner_ptr = &iframe.owner as *const core::sync::atomic::AtomicI8;
         scopeguard::defer! {
-            // SAFETY: iframe is pinned on the stack and outlives this scope.
-            unsafe { &*owner_ptr }.store(old_owner, core::sync::atomic::Ordering::Release);
             if save_exc {
                 self.restore_exception(saved_exc);
             }
