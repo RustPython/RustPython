@@ -81,7 +81,7 @@ impl Initializer for PySuper {
         } else {
             // Access the InterpreterFrame directly — no need to materialize
             // a FrameObject just to read code/locals.
-            let iframe_ptr = vm.get_current_frame_ptr();
+            let iframe_ptr = crate::vm::thread::get_current_frame();
             if iframe_ptr.is_null() {
                 return Err(vm.new_runtime_error("super(): no current frame"));
             }

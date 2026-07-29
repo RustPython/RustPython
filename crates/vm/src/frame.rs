@@ -93,7 +93,7 @@ pub fn current_thread_iframe() -> *const InterpreterFrame {
 /// Uses `vm.current_frame` Cell for fast lookup (no TLS).
 #[must_use]
 pub fn current_thread_frame_materialize(vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    let ptr = vm.get_current_frame_ptr();
+    let ptr = crate::vm::thread::get_current_frame();
     if ptr.is_null() {
         return None;
     }
@@ -138,7 +138,7 @@ pub fn current_builtins() -> Option<PyObjectRef> {
 /// Materializes the FrameObject on demand for stack-allocated frames.
 #[must_use]
 pub fn frame_at_offset(offset: usize, vm: &VirtualMachine) -> Option<FrameObjectRef> {
-    let mut cur = vm.get_current_frame_ptr();
+    let mut cur = crate::vm::thread::get_current_frame();
     let mut remaining = offset;
     while !cur.is_null() {
         if remaining == 0 {
@@ -837,6 +837,7 @@ impl InterpreterFrame {
     /// after heap allocation; the pointers passed here are then overwritten.
     /// For stack-allocated frames (future), the pointers remain valid for the
     /// frame's lifetime on the native stack.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         code: &Py<PyCode>,
         globals: &Py<PyDict>,
@@ -1589,7 +1590,7 @@ impl FrameObject {
             return Ok(());
         }
         let self_iframe = self.iframe() as *const InterpreterFrame;
-        let mut cur = vm.get_current_frame_ptr();
+        let mut cur = crate::vm::thread::get_current_frame();
         while !cur.is_null() {
             if core::ptr::eq(cur, self_iframe) {
                 return Ok(());

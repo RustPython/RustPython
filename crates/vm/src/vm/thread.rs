@@ -679,6 +679,7 @@ pub fn pop_thread_frame() {
 /// Set the current thread's top InterpreterFrame pointer.
 /// Returns the previous pointer so it can be restored on pop.
 #[must_use]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFrame {
     // Publish the top frame for cross-thread readers (signal safety).
     #[cfg(all(unix, feature = "threading"))]
@@ -699,13 +700,13 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
     CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
 }
 
-/// Fire-and-forget version of set_current_frame for the hot path.
-/// Only writes to TLS CURRENT_FRAME. Does not update cross-thread top_frame
-/// (that's updated by set_current_frame which is called in with_frame for
-/// FrameObject-based calls, and lazily for stack frames).
+/// Lightweight version that only writes to TLS CURRENT_FRAME, returning
+/// the previous value. Does not update cross-thread top_frame (that's
+/// updated by `set_current_frame` for FrameObject-based calls).
 #[inline(always)]
-pub fn set_current_frame_nosave(frame: *const InterpreterFrame) {
-    CURRENT_FRAME.with(|c| c.store(frame as usize, Ordering::Relaxed));
+#[must_use]
+pub fn set_current_frame_nosave(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+    CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
 }
 
 /// Get the current thread's top InterpreterFrame pointer.
@@ -998,7 +999,6 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: self.callable_cache.clone(),
             audit_hooks: RefCell::new(vec![]),
-            current_frame_ptr: Cell::new(0),
         };
         ThreadedVirtualMachine { vm }
     }

@@ -590,7 +590,7 @@ impl Py<PyFunction> {
                 vm,
             );
             self.fill_locals_from_args(&frame, func_args, vm)?;
-            return self.make_generator_or_coro(frame, vm);
+            return Ok(self.make_generator_or_coro(frame, vm));
         }
 
         // Fast path: stack-allocated InterpreterFrame, no FrameObject.
@@ -635,7 +635,7 @@ impl Py<PyFunction> {
     }
 
     /// Create generator, coroutine, or async generator from a FrameObject.
-    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyResult {
+    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyObjectRef {
         let code = frame.iframe().code();
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
@@ -656,7 +656,7 @@ impl Py<PyFunction> {
             crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
         }
         frame.set_generator(&obj);
-        Ok(obj)
+        obj
     }
 
     #[inline(always)]
