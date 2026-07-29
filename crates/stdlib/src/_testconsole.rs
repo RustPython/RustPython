@@ -17,11 +17,11 @@ mod _testconsole {
         let data = &*data;
 
         // Interpret as UTF-16-LE pairs
-        if !data.len().is_multiple_of(2) {
+        let (chunks, []) = data.as_chunks::<2>() else {
             return Err(vm.new_value_error("buffer must contain UTF-16-LE data (even length)"));
-        }
-        let wchars: Vec<u16> = data
-            .chunks_exact(2)
+        };
+        let wchars: Vec<u16> = chunks
+            .iter()
             .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
             .collect();
         host_testconsole::write_console_input(fd, &wchars).map_err(|e| e.into_pyexception(vm))
