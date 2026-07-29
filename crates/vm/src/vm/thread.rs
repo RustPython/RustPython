@@ -5,11 +5,13 @@ use crate::builtins::PyBaseExceptionRef;
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
 
-#[cfg(feature = "threading")]
+#[cfg(all(unix, feature = "threading"))]
 use crate::frame::FrameObject;
 use crate::frame::InterpreterFrame;
-#[cfg(feature = "threading")]
+#[cfg(all(unix, feature = "threading"))]
 use crate::{AsObject, Py, PyObject, VirtualMachine};
+#[cfg(all(not(unix), feature = "threading"))]
+use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(not(feature = "threading"))]
 use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(all(unix, feature = "threading"))]
@@ -817,14 +819,16 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         current_frames.reverse();
         current_frames
     };
-    let top_iframe = get_current_frame();
     #[cfg(unix)]
-    let top_fo_ptr = if top_iframe.is_null() {
-        core::ptr::null_mut()
-    } else {
-        match unsafe { (*top_iframe).frame_obj() } {
-            Some(fo) => fo as *const Py<FrameObject> as *const FrameObject as *mut FrameObject,
-            None => core::ptr::null_mut(),
+    let top_fo_ptr = {
+        let top_iframe = get_current_frame();
+        if top_iframe.is_null() {
+            core::ptr::null_mut()
+        } else {
+            match unsafe { (*top_iframe).frame_obj() } {
+                Some(fo) => fo as *const Py<FrameObject> as *const FrameObject as *mut FrameObject,
+                None => core::ptr::null_mut(),
+            }
         }
     };
     let new_slot = Arc::new(ThreadSlot {
