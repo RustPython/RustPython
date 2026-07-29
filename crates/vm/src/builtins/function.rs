@@ -564,15 +564,7 @@ impl Py<PyFunction> {
             }
         }
 
-        let code: PyRef<PyCode> = (*self.code).to_owned();
-
-        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            None
-        } else if let Some(locals) = locals {
-            Some(locals)
-        } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
-        };
+        let code = &*self.code;
 
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
@@ -580,8 +572,16 @@ impl Py<PyFunction> {
 
         if is_gen || is_coro || is_async_gen {
             // Generator/coroutine: must heap-allocate, lifetime exceeds call stack.
+            let code_owned: PyRef<PyCode> = code.to_owned();
+            let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+                None
+            } else if let Some(locals) = locals {
+                Some(locals)
+            } else {
+                Some(ArgMapping::from_dict_exact(self.globals.clone()))
+            };
             let frame = FrameObject::new_ref(
-                code,
+                code_owned,
                 Scope::new(locals, self.globals.clone()),
                 self.builtins.clone(),
                 self.closure.as_ref().map_or(&[], |c| c.as_slice()),
@@ -594,19 +594,20 @@ impl Py<PyFunction> {
         }
 
         // Fast path: stack-allocated InterpreterFrame, no FrameObject.
+        // No refcount inc for code — it's alive via self.code for the call duration.
         let nlocalsplus = code.localspluskinds.len();
         let max_stackdepth = code.max_stackdepth as usize;
         let localsplus =
             crate::frame::LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm);
 
-        let locals = match locals {
-            Some(locals) => crate::frame::FrameLocals::with_locals(locals),
-            None if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) => {
-                crate::frame::FrameLocals::lazy()
-            }
-            None => crate::frame::FrameLocals::with_locals(
-                crate::function::ArgMapping::from_dict_exact(self.globals.clone()),
-            ),
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            crate::frame::FrameLocals::lazy()
+        } else if let Some(locals) = locals {
+            crate::frame::FrameLocals::with_locals(locals)
+        } else {
+            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                self.globals.clone(),
+            ))
         };
 
         // Use self.as_object() as raw pointer — no refcount inc/dec.
