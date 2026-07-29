@@ -5,6 +5,7 @@ use crate::pystate::with_vm;
 use crate::util::{CStrExt, FfiPtrExt};
 use core::ffi::{c_char, c_int};
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
+use rustpython_vm::types::c_slots::{kwargs_ptr, split_args};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 define_py_check!(fn PyCFunction_Check, types.builtin_function_or_method_type);
@@ -178,25 +179,12 @@ unsafe fn call_function_with_keywords(
         .as_ref()
         .map(|obj| obj.as_object().as_raw().cast_mut())
         .unwrap_or_default();
-    let arg_tuple = vm.ctx.new_tuple(args.args);
-    // A call without keywords passes a NULL kwargs, which is what a function
-    // that rejects keywords tests for.
-    let kwargs = if args.kwargs.is_empty() {
-        None
-    } else {
-        let dict = vm.ctx.new_dict();
-        for (k, v) in args.kwargs {
-            dict.set_item(&*k, v, vm)?;
-        }
-        Some(dict)
-    };
+    let (arg_tuple, kwargs) = split_args(vm, args)?;
     unsafe {
         f(
             slf_ptr,
             arg_tuple.as_object().as_raw().cast_mut(),
-            kwargs
-                .as_ref()
-                .map_or(core::ptr::null_mut(), |d| d.as_object().as_raw().cast_mut()),
+            kwargs_ptr(kwargs.as_ref()),
         )
         .assume_owned_or_err(vm)
     }
