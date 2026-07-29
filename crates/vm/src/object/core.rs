@@ -2191,6 +2191,7 @@ impl<T: PyPayload> Py<T> {
     /// obtained by dereferencing a `Py<T>`), and the object must outlive the
     /// returned pointer's use.
     #[inline]
+    #[cfg_attr(not(feature = "threading"), allow(dead_code))]
     pub(crate) unsafe fn from_payload_ptr(payload: *const T) -> *const Self {
         let offset = core::mem::offset_of!(PyInner<T>, payload);
         // `Py<T>` is a newtype over `PyInner<T>`, so their addresses coincide.

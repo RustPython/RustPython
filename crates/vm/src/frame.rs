@@ -907,6 +907,12 @@ impl InterpreterFrame {
         }
     }
 
+    /// Get the last instruction index.
+    #[inline(always)]
+    pub fn get_lasti(&self) -> u32 {
+        self.lasti.load(Relaxed)
+    }
+
     /// Get the previous InterpreterFrame in the chain, or null.
     #[inline(always)]
     pub fn previous(&self) -> *const Self {

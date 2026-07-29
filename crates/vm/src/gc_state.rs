@@ -633,37 +633,26 @@ impl GcState {
         // classified reachable. A running frame appearing in `unreachable`
         // would mean the reachability analysis observed its interpreter state
         // as garbage — the exact hazard the barrier exists to prevent.
+        // Verify no running frame is classified unreachable.
+        // Walk the TLS frame chain (CURRENT_FRAME) instead of top_frame,
+        // because stack-allocated frames update only CURRENT_FRAME (via
+        // set_current_frame_nosave), not top_frame.
         #[cfg(all(unix, feature = "threading", debug_assertions))]
         if stw.stopped {
             let unreachable_set: HashSet<GcPtr> = unreachable.iter().copied().collect();
-            crate::vm::thread::try_with_current_vm(|vm| {
-                let registry = vm.state.thread_frames.lock();
-                #[expect(
-                    clippy::iter_over_hash_type,
-                    reason = "assertion over every registered thread slot"
-                )]
-                for slot in registry.values() {
-                    let top: *const crate::frame::FrameObject =
-                        slot.top_frame.load(core::sync::atomic::Ordering::Relaxed);
-                    if !top.is_null() {
-                        let mut cur =
-                            unsafe { (*top).iframe() as *const crate::frame::InterpreterFrame };
-                        while !cur.is_null() {
-                            let iframe = unsafe { &*cur };
-                            if let Some(fo) = iframe.frame_obj() {
-                                let obj = fo.as_object();
-                                let ptr = GcPtr(NonNull::from(obj));
-                                debug_assert!(
-                                    !unreachable_set.contains(&ptr),
-                                    "running frame {obj:p} classified unreachable during GC"
-                                );
-                            }
-                            cur = iframe.previous.load(core::sync::atomic::Ordering::Relaxed)
-                                as *const crate::frame::InterpreterFrame;
-                        }
-                    }
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                let iframe = unsafe { &*cur };
+                if let Some(fo) = iframe.frame_obj() {
+                    let obj = fo.as_object();
+                    let ptr = GcPtr(NonNull::from(obj));
+                    debug_assert!(
+                        !unreachable_set.contains(&ptr),
+                        "running frame {obj:p} classified unreachable during GC"
+                    );
                 }
-            });
+                cur = iframe.previous();
+            }
         }
 
         if debug.contains(GcDebugFlags::STATS) {

@@ -146,11 +146,10 @@ mod decl {
     /// Dump a single InterpreterFrame's info to fd (signal-safe).
     #[cfg(any(unix, windows))]
     fn dump_iframe(fd: i32, iframe: &rustpython_vm::frame::InterpreterFrame) {
-        use rustpython_common::atomic::Radium;
         let code = iframe.code();
         let filename = code.source_path().as_str();
         let funcname = code.obj_name.as_str();
-        let lasti = iframe.lasti.load(core::sync::atomic::Ordering::Relaxed);
+        let lasti = iframe.get_lasti();
         let lineno = if lasti == 0 {
             code.first_line_number.map_or(1, |n| n.get()) as u32
         } else {
