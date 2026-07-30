@@ -870,8 +870,6 @@ impl Py<FrameObject> {
             )]
             for slot in registry.values() {
                 let frames = slot.frames.lock();
-                // SAFETY: the owning thread can't pop while we hold the Mutex,
-                // so FramePtr is valid for the duration of the lock.
                 if let Some(frame) = frames.iter().find_map(|fp| {
                     let f = unsafe { fp.as_ref() };
                     let fo_iframe = f.iframe() as *const crate::frame::InterpreterFrame;
@@ -881,6 +879,42 @@ impl Py<FrameObject> {
                     return Some(frame);
                 }
             }
+        }
+
+        // On unix, use stop-the-world to safely materialize the cross-thread
+        // frame chain.
+        #[cfg(all(unix, feature = "threading"))]
+        {
+            let prev_ref = unsafe { &*prev };
+            // Fast path: already materialized.
+            if let Some(fo) = prev_ref.frame_obj() {
+                fo.mark_escaped();
+                return Some(fo.to_owned());
+            }
+            // Slow path: materialize under STW.
+            vm.state.stop_the_world.stop_the_world(vm);
+            let result = {
+                // Materialize the entire chain from prev upward.
+                let mut cur = prev;
+                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> = None;
+                while !cur.is_null() {
+                    let iframe = unsafe { &*cur };
+                    let fo = iframe.materialize(vm).to_owned();
+                    if let Some(child) = child_fo.take() {
+                        let mut guard = child.iframe().retained_back.lock();
+                        if guard.is_none() {
+                            *guard = Some(fo.clone());
+                        }
+                    }
+                    child_fo = Some(fo);
+                    cur = unsafe { iframe.previous() };
+                }
+                let fo = prev_ref.materialize(vm);
+                fo.mark_escaped();
+                fo.to_owned()
+            };
+            vm.state.stop_the_world.start_the_world(vm);
+            return Some(result);
         }
 
         None
