@@ -415,7 +415,6 @@ class BasicSocketTests(unittest.TestCase):
                 value = getattr(ssl, name)
                 self.assertGreaterEqual(value, 0, f"ssl.{name}")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by Certificate
     def test_ssl_types(self):
         ssl_types = [
             _ssl._SSLContext,
