@@ -2165,7 +2165,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +EXPECTED_FAILURE
+            >>> with PdbTestInput([  # doctest: +ELLIPSIS
             ...     'x = await task',
             ...     'p x',
             ...     'x = await test()',
@@ -2208,6 +2208,10 @@ if not SKIP_CORO_TESTS:
             -> pass
             (Pdb) continue
             """
+
+        # TODO: RUSTPYTHON - async pdb exception callback gets None exc
+        if sys.implementation.name == "rustpython":
+            test_pdb_await_support = None
 
         def test_pdb_await_with_breakpoint():
             """Testing await support with breakpoints set in tasks

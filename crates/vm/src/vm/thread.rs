@@ -351,7 +351,6 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             let new_slot = Arc::new(ThreadSlot {
                 #[cfg(unix)]
                 top_frame: AtomicPtr::new(core::ptr::null_mut()),
-                #[cfg(unix)]
                 top_iframe: AtomicUsize::new(0),
                 #[cfg(not(unix))]
                 frames: parking_lot::Mutex::new(Vec::new()),
