@@ -877,30 +877,9 @@ impl Py<FrameObject> {
             return Some(frame);
         }
 
-        // The caller lives on another thread.
-        #[cfg(all(not(unix), feature = "threading"))]
-        {
-            let registry = vm.state.thread_frames.lock();
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for slot in registry.values() {
-                let frames = slot.frames.lock();
-                if let Some(frame) = frames.iter().find_map(|fp| {
-                    let f = unsafe { fp.as_ref() };
-                    let fo_iframe = f.iframe() as *const crate::frame::InterpreterFrame;
-                    core::ptr::eq(fo_iframe, prev).then(|| f.to_owned())
-                }) {
-                    frame.mark_escaped();
-                    return Some(frame);
-                }
-            }
-        }
-
-        // The caller lives on another thread. Use stop-the-world on unix
-        // to safely materialize the cross-thread frame chain.
-        #[cfg(all(unix, feature = "threading"))]
+        // The caller lives on another thread. Use stop-the-world to
+        // safely materialize the cross-thread frame chain.
+        #[cfg(feature = "threading")]
         {
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
