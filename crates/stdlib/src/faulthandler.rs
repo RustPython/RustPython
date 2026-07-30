@@ -3,7 +3,7 @@ pub(crate) use decl::module_def;
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]
 mod decl {
-    #[cfg(any(unix, windows))]
+    #[cfg(all(any(unix, windows), feature = "threading"))]
     use crate::vm::frame::FrameObject;
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
@@ -221,7 +221,7 @@ mod decl {
     }
 
     /// Write a frame's info to an fd using signal-safe I/O.
-    #[cfg(any(unix, windows))]
+    #[cfg(all(windows, feature = "threading"))]
     fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<FrameObject>) {
         let funcname = frame.iframe().code().obj_name.as_str();
         let filename = frame.iframe().code().source_path().as_str();
@@ -751,23 +751,13 @@ mod decl {
                                 if !top.is_null() {
                                     dump_traceback_thread_chain(fd, *tid, false, top);
                                 } else {
-                                    let iframe_ptr = slot
-                                        .top_iframe
-                                        .load(core::sync::atomic::Ordering::Relaxed)
-                                        as *const rustpython_vm::frame::InterpreterFrame;
+                                    // Stack-allocated iframe path. Walk via
+                                    // top_iframe only if the thread's STW
+                                    // attachment guarantees frame liveness.
+                                    // Since the watchdog cannot stop-the-world,
+                                    // fall back to just reporting the thread id.
                                     write_thread_id(fd, *tid, false);
-                                    if iframe_ptr.is_null() {
-                                        puts(fd, "  <no Python frame>\n");
-                                    } else {
-                                        let mut cur = iframe_ptr;
-                                        let mut depth = 0;
-                                        while !cur.is_null() && depth < 100 {
-                                            let iframe = unsafe { &*cur };
-                                            dump_iframe(fd, iframe);
-                                            depth += 1;
-                                            cur = iframe.previous();
-                                        }
-                                    }
+                                    puts(fd, "  <no Python frame>\n");
                                 }
                             }
                         }

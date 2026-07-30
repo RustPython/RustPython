@@ -11,9 +11,9 @@ use crate::{
     types::Representable,
 };
 use core::sync::atomic::Ordering::Relaxed;
+use num_traits::Zero;
 #[allow(unused_imports)]
 use rustpython_common::atomic::Radium;
-use num_traits::Zero;
 use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
 
@@ -451,15 +451,14 @@ impl FrameObject {
     /// if this FrameObject has no live source (already returned or not
     /// currently executing on this thread).
     pub(crate) fn find_live_source_iframe(&self) -> *const crate::frame::InterpreterFrame {
-        let self_py_ptr =
-            unsafe { Py::<Self>::from_payload_ptr(self) } as *const Py<Self> as usize;
+        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as usize;
         let mut cur = crate::vm::thread::get_current_frame();
         while !cur.is_null() {
             let materialized = unsafe { (*cur).materialized.load(Relaxed) };
             if materialized == self_py_ptr {
                 return cur;
             }
-            cur = unsafe { (*cur).previous() };
+            cur = unsafe { &*cur }.previous();
         }
         core::ptr::null()
     }
@@ -499,7 +498,6 @@ impl FrameObject {
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
         // If lasti is 0, execution hasn't started yet - use first line number
-        // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
             return self
                 .iframe()
@@ -507,30 +505,25 @@ impl FrameObject {
                 .first_line_number
                 .map_or(1, |n| n.get());
         }
-        // For executing frames, use prev_line which is updated at each
-        // bytecode instruction *before* the instruction runs. This gives
-        // the correct line even when observed mid-CALL (where lasti has
-        // already advanced past the CALL instruction).
-        //
-        // If this FrameObject is a materialized copy of a stack-allocated
-        // iframe, its prev_line is a snapshot from materialize time. Find
-        // the source iframe on the TLS chain and read its live prev_line.
-        // materialized stores *const Py<FrameObject> as usize.
-        // self is &FrameObject (payload); convert to Py<FrameObject> address.
+        // For executing frames (on the TLS chain), use prev_line which is
+        // updated at each bytecode instruction *before* the instruction
+        // runs. This gives the correct line even when observed mid-CALL
+        // (where lasti has already advanced past the CALL instruction).
         let live = self.find_live_source_iframe();
-        let prev = if !live.is_null() {
+        if !live.is_null() {
             // Read live prev_line. Use read_volatile to bypass LLVM noalias
             // on the &mut InterpreterFrame borrow in with_iframe.
-            unsafe {
+            let prev = unsafe {
                 let field_ptr = core::ptr::addr_of!((*live).prev_line);
                 core::ptr::read_volatile(field_ptr as *const u32)
+            };
+            if prev > 0 {
+                return prev as usize;
             }
-        } else {
-            self.iframe().prev_line.get()
-        };
-        if prev > 0 {
-            return prev as usize;
         }
+        // For returned frames, use lasti-based location lookup. This is
+        // correct for exception tracebacks where prev_line may have been
+        // updated by cleanup instructions after the exception.
         self.current_location().line.get()
     }
 
@@ -643,17 +636,19 @@ impl FrameObject {
 
     #[pygetset]
     fn f_trace(&self, vm: &VirtualMachine) -> PyObjectRef {
-        self.iframe()
-            .trace
-            .lock()
-            .clone()
-            .unwrap_or_else(|| vm.ctx.none())
+        // Read from live source iframe if available.
+        let live = self.find_live_source_iframe();
+        let trace = if !live.is_null() {
+            unsafe { &*live }.trace.lock().clone()
+        } else {
+            self.iframe().trace.lock().clone()
+        };
+        trace.unwrap_or_else(|| vm.ctx.none())
     }
 
     #[pygetset(setter)]
     fn set_f_trace(&self, value: PySetterValue, vm: &VirtualMachine) {
-        let mut storage = self.iframe().trace.lock();
-        *storage = match value {
+        let trace = match value {
             PySetterValue::Assign(v) => {
                 if vm.is_none(&v) {
                     None
@@ -663,6 +658,15 @@ impl FrameObject {
             }
             PySetterValue::Delete => None,
         };
+        // Set on the materialized FrameObject.
+        (*self.iframe().trace.lock()).clone_from(&trace);
+        // Also propagate to the live source iframe if this is a
+        // materialized copy of a stack-allocated frame, so pdb's
+        // f_trace assignment takes effect on the executing frame.
+        let live = self.find_live_source_iframe();
+        if !live.is_null() {
+            *unsafe { &*live }.trace.lock() = trace;
+        }
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
@@ -688,8 +692,13 @@ impl FrameObject {
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
-                let mut trace_lines = zelf.iframe().trace_lines.lock();
-                *trace_lines = !value.as_bigint().is_zero();
+                let val = !value.as_bigint().is_zero();
+                *zelf.iframe().trace_lines.lock() = val;
+                // Propagate to live source iframe.
+                let live = zelf.find_live_source_iframe();
+                if !live.is_null() {
+                    *unsafe { &*live }.trace_lines.lock() = val;
+                }
 
                 Ok(())
             }
@@ -719,8 +728,13 @@ impl FrameObject {
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
-                let mut trace_opcodes = zelf.iframe().trace_opcodes.lock();
-                *trace_opcodes = !value.as_bigint().is_zero();
+                let val = !value.as_bigint().is_zero();
+                *zelf.iframe().trace_opcodes.lock() = val;
+                // Propagate to live source iframe.
+                let live = zelf.find_live_source_iframe();
+                if !live.is_null() {
+                    *unsafe { &*live }.trace_opcodes.lock() = val;
+                }
 
                 // TODO: Implement the equivalent of _PyEval_SetOpcodeTrace()
 
@@ -755,7 +769,11 @@ impl Py<FrameObject> {
                 return Err(vm.new_runtime_error("cannot clear an executing frame"));
             }
             FrameOwner::FrameObject => {
-                // Detached frame: safe to clear.
+                // Check if this materialized frame is backed by a live
+                // stack-allocated iframe — if so, the frame is executing.
+                if !self.find_live_source_iframe().is_null() {
+                    return Err(vm.new_runtime_error("cannot clear an executing frame"));
+                }
             }
         }
 
@@ -880,8 +898,8 @@ impl Py<FrameObject> {
             }
         }
 
-        // On unix, use stop-the-world to safely materialize the cross-thread
-        // frame chain.
+        // The caller lives on another thread. Use stop-the-world on unix
+        // to safely materialize the cross-thread frame chain.
         #[cfg(all(unix, feature = "threading"))]
         {
             let prev_ref = unsafe { &*prev };
@@ -892,30 +910,28 @@ impl Py<FrameObject> {
             }
             // Slow path: materialize under STW.
             vm.state.stop_the_world.stop_the_world(vm);
-            let result = {
-                // Materialize the entire chain from prev upward.
-                let mut cur = prev;
-                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> = None;
-                while !cur.is_null() {
-                    let iframe = unsafe { &*cur };
-                    let fo = iframe.materialize(vm).to_owned();
-                    if let Some(child) = child_fo.take() {
-                        let mut guard = child.iframe().retained_back.lock();
-                        if guard.is_none() {
-                            *guard = Some(fo.clone());
-                        }
+            let mut cur = prev;
+            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> = None;
+            while !cur.is_null() {
+                let iframe = unsafe { &*cur };
+                let fo = iframe.materialize(vm).to_owned();
+                if let Some(child) = child_fo.take() {
+                    let mut guard = child.iframe().retained_back.lock();
+                    if guard.is_none() {
+                        *guard = Some(fo.clone());
                     }
-                    child_fo = Some(fo);
-                    cur = unsafe { iframe.previous() };
                 }
-                let fo = prev_ref.materialize(vm);
-                fo.mark_escaped();
-                fo.to_owned()
-            };
+                child_fo = Some(fo);
+                cur = iframe.previous();
+            }
+            let fo = prev_ref.materialize(vm);
+            fo.mark_escaped();
+            let result = fo.to_owned();
             vm.state.stop_the_world.start_the_world(vm);
             return Some(result);
         }
 
+        #[allow(unreachable_code)]
         None
     }
 }

@@ -1857,13 +1857,13 @@ impl VirtualMachine {
                     fo.iframe_mut()
                         .localsplus
                         .sync_fastlocals_from(&live_iframe.localsplus);
-                    fo.iframe_mut()
-                        .prev_line
-                        .set(live_iframe.prev_line.get());
+                    fo.iframe_mut().prev_line.set(live_iframe.prev_line.get());
                     #[allow(unused_imports)]
                     use rustpython_common::atomic::Radium;
                     fo.iframe_mut().lasti.store(
-                        live_iframe.lasti.load(core::sync::atomic::Ordering::Relaxed),
+                        live_iframe
+                            .lasti
+                            .load(core::sync::atomic::Ordering::Relaxed),
                         core::sync::atomic::Ordering::Relaxed,
                     );
                 }
@@ -1874,7 +1874,7 @@ impl VirtualMachine {
                     // lightweight frame has empty localsplus; live values are
                     // read through find_live_source_iframe when needed.
                     let back_fo = prev_iframe.materialize_chain(self);
-                    *fo.iframe().retained_back.lock() = Some(back_fo.to_owned());
+                    *fo.iframe().retained_back.lock() = Some(back_fo);
                 }
                 // Set owner to FrameObject since this frame is no longer
                 // executing on a thread.

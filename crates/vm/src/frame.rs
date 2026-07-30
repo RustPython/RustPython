@@ -426,7 +426,7 @@ impl LocalsPlus {
         let source = src.fastlocals();
         for i in 0..n {
             let old = dst[i].take();
-            dst[i] = source[i].as_ref().map(|o| o.clone());
+            dst[i].clone_from(&source[i]);
             drop(old);
         }
     }
@@ -986,16 +986,17 @@ impl InterpreterFrame {
         self.materialize_slow(vm)
     }
 
-    /// Like `materialize`, but creates a lightweight FrameObject with empty
-    /// localsplus. Used for f_back chain building (retained_back) to avoid
-    /// cloning local variables and creating extra refcounts.
-    /// `find_live_source_iframe` will redirect localsplus reads to the live
-    /// source iframe when the frame is still executing.
+    /// Create a lightweight FrameObject with empty localsplus, suitable for
+    /// f_back chain building (retained_back). Unlike `materialize`, this does
+    /// NOT store into `temporary_refs` or set the `materialized` pointer, so
+    /// the returned FrameObject is only kept alive by the caller's `PyRef`.
+    /// This prevents non-GC-tracked `temporary_refs` on a stack-allocated
+    /// iframe from defeating cycle collection.
     #[cold]
     #[inline(never)]
-    pub(crate) fn materialize_chain(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+    pub(crate) fn materialize_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         if let Some(fo) = self.frame_obj() {
-            return fo;
+            return fo.to_owned();
         }
         self.materialize_slow_chain(vm)
     }
@@ -1076,6 +1077,14 @@ impl InterpreterFrame {
         // Keep the FrameObject alive by storing it in temporary_refs.
         self.temporary_refs.lock().push(frame_ref.clone().into());
 
+        // Track the new FrameObject in the GC so cycle collection can
+        // detect reference cycles involving this frame (e.g. exception
+        // traceback → frame → locals → object → exception).
+        unsafe {
+            crate::gc_state::gc_state()
+                .track_object(core::ptr::NonNull::from(frame_ref.as_object()));
+        }
+
         // SAFETY: the pointer we stored above remains valid because
         // temporary_refs holds a strong reference.
         unsafe { &*(fo_ptr as *const Py<FrameObject>) }
@@ -1083,8 +1092,10 @@ impl InterpreterFrame {
 
     /// Like `materialize_slow` but with empty localsplus to avoid extra
     /// refcounts on local variables. Only suitable for f_back chain building.
+    /// Returns an owned `PyRef` without storing into `temporary_refs` or
+    /// setting the `materialized` pointer, so GC can still detect cycles.
     #[cold]
-    fn materialize_slow_chain(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+    fn materialize_slow_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
         let code: PyRef<PyCode> = self.code().to_owned();
         let globals: PyDictRef = self.globals().to_owned();
         let builtins: PyObjectRef = self.builtins().to_owned();
@@ -1137,18 +1148,14 @@ impl InterpreterFrame {
         };
         let frame_ref = frame_obj.into_ref(&vm.ctx);
         FrameObject::init_iframe_ptrs(&frame_ref);
+
+        // Track in GC for cycle collection.
         unsafe {
-            frame_ref
-                .iframe_mut()
-                .materialized
-                .store(&*frame_ref as *const Py<FrameObject> as usize, Relaxed);
+            crate::gc_state::gc_state()
+                .track_object(core::ptr::NonNull::from(frame_ref.as_object()));
         }
 
-        let fo_ptr = &*frame_ref as *const Py<FrameObject> as usize;
-        self.materialized.store(fo_ptr, Relaxed);
-        self.temporary_refs.lock().push(frame_ref.clone().into());
-
-        unsafe { &*(fo_ptr as *const Py<FrameObject>) }
+        frame_ref
     }
 
     /// Borrowed code object.
@@ -1861,7 +1868,14 @@ impl FrameObject {
             .copied()
             .unwrap_or(0);
         // SAFETY: callers first pass through `check_locals_access`.
-        let fastlocals = unsafe { self.iframe_mut().localsplus.fastlocals_mut() };
+        // Use live source iframe if available so writes reach the
+        // executing frame's actual local variables.
+        let live = self.find_live_source_iframe();
+        let fastlocals = if !live.is_null() {
+            unsafe { &mut *live.cast_mut() }.localsplus.fastlocals_mut()
+        } else {
+            unsafe { self.iframe_mut().localsplus.fastlocals_mut() }
+        };
         if kind & (CO_FAST_CELL | CO_FAST_FREE) != 0
             && let Some(obj) = fastlocals[i].as_ref()
             && let Some(cell) = obj.downcast_ref::<PyCell>()

@@ -542,7 +542,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
                 code.instrumentation_version
                     .store(new_ver, Ordering::Release);
             }
-            cur = unsafe { iframe_ref.previous() };
+            cur = iframe_ref.previous();
         }
     }
 }

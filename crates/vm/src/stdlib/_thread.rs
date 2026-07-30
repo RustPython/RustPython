@@ -1200,21 +1200,19 @@ pub(crate) mod _thread {
                                 // Materialize the entire frame chain and link
                                 // retained_back so f_back works after STW ends.
                                 let mut cur = iframe_ptr;
-                                let mut child_fo: Option<
-                                    crate::PyRef<crate::frame::FrameObject>,
-                                > = None;
+                                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
+                                    None;
                                 while !cur.is_null() {
                                     let iframe = unsafe { &*cur };
                                     let fo = iframe.materialize(vm).to_owned();
                                     if let Some(child) = child_fo.take() {
-                                        let mut guard =
-                                            child.iframe().retained_back.lock();
+                                        let mut guard = child.iframe().retained_back.lock();
                                         if guard.is_none() {
                                             *guard = Some(fo.clone());
                                         }
                                     }
                                     child_fo = Some(fo);
-                                    cur = unsafe { iframe.previous() };
+                                    cur = iframe.previous();
                                 }
                                 let iframe = unsafe { &*iframe_ptr };
                                 let fo = iframe.materialize(vm);
