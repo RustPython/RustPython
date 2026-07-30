@@ -210,7 +210,7 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
-    #[cfg(target_env = "msvc")]
+    #[cfg(windows)]
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn get_tz_info() -> host_time::WindowsTimeZoneInfo {
         host_time::get_tz_info()

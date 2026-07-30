@@ -198,6 +198,10 @@ jobs:
           target: aarch64-unknown-linux-gnu
           dependencies:
             gcc-aarch64-linux-gnu: true
+        - os: ubuntu-latest
+          target: x86_64-pc-windows-gnu
+          dependencies:
+            gcc-mingw-w64-x86-64: true
         - os: macos-latest
           target: aarch64-apple-ios
         - os: macos-latest
@@ -216,6 +220,7 @@ jobs:
           gcc-multilib: ${{ matrix.dependencies.gcc-multilib || false }}
           musl-tools: ${{ matrix.dependencies.musl-tools || false }}
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
+          gcc-mingw-w64-x86-64: ${{ matrix.dependencies.gcc-mingw-w64-x86-64 || false }}
 
       - name: Restore cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
