@@ -3,8 +3,6 @@ pub(crate) use decl::module_def;
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]
 mod decl {
-    #[cfg(all(not(unix), any(unix, windows), feature = "threading"))]
-    use crate::vm::frame::FrameObject;
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
         function::{ArgIntoFloat, OptionalArg},
@@ -217,52 +215,6 @@ mod decl {
         puts(fd, truncated_s);
         if was_truncated {
             puts(fd, "...");
-        }
-    }
-
-    /// Write a frame's info to an fd using signal-safe I/O.
-    #[cfg(all(windows, feature = "threading"))]
-    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<FrameObject>) {
-        let funcname = frame.iframe().code().obj_name.as_str();
-        let filename = frame.iframe().code().source_path().as_str();
-        let lineno = if frame.lasti() == 0 {
-            frame
-                .iframe()
-                .code()
-                .first_line_number
-                .map_or(1, |n| n.get()) as u32
-        } else {
-            frame.current_location().line.get() as u32
-        };
-
-        puts(fd, "  File \"");
-        dump_ascii(fd, filename);
-        puts(fd, "\", line ");
-        dump_decimal(fd, lineno as usize);
-        puts(fd, " in ");
-        dump_ascii(fd, funcname);
-        puts(fd, "\n");
-    }
-
-    /// Dump traceback for a thread given its frame stack (for cross-thread dumping).
-    /// # Safety
-    /// Each `FramePtr` must point to a live frame (caller holds the Mutex).
-    #[cfg(all(windows, feature = "threading"))]
-    fn dump_traceback_thread_frames(
-        fd: i32,
-        thread_id: u64,
-        is_current: bool,
-        frames: &[rustpython_vm::vm::FramePtr],
-    ) {
-        write_thread_id(fd, thread_id, is_current);
-
-        if frames.is_empty() {
-            puts(fd, "  <no Python frame>\n");
-        } else {
-            for fp in frames.iter().rev() {
-                // SAFETY: caller holds the Mutex, so the owning thread can't pop.
-                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-            }
         }
     }
 

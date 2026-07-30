@@ -1241,15 +1241,6 @@ impl FrameObject {
         // mutated during single-threaded execution via with_exec.
         unsafe { self.iframe_ref() }
     }
-
-    /// Returns the embedded iframe if present, or `None` if GC has cleared
-    /// the frame. Signal-safe: no allocations, no panics.
-    ///
-    /// # Safety
-    /// Same as `iframe_ref` — caller must ensure no concurrent mutation.
-    pub unsafe fn try_iframe(&self) -> Option<&InterpreterFrame> {
-        unsafe { &*self.iframe.get() }.as_ref()
-    }
 }
 
 /// Out-of-line panic for the debug-only cleared-frame check, keeping the
