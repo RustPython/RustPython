@@ -1851,6 +1851,24 @@ impl VirtualMachine {
             };
             if mat_ptr != 0 {
                 let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
+                // Sync localsplus, prev_line, lasti from the live iframe to
+                // the materialized FrameObject so f_locals, f_lineno, f_lasti
+                // reflect the final state after execution.
+                unsafe {
+                    let live_iframe = &*iframe_ptr;
+                    fo.iframe_mut()
+                        .localsplus
+                        .sync_fastlocals_from(&live_iframe.localsplus);
+                    fo.iframe_mut()
+                        .prev_line
+                        .set(live_iframe.prev_line.get());
+                    #[allow(unused_imports)]
+                    use rustpython_common::atomic::Radium;
+                    fo.iframe_mut().lasti.store(
+                        live_iframe.lasti.load(core::sync::atomic::Ordering::Relaxed),
+                        core::sync::atomic::Ordering::Relaxed,
+                    );
+                }
                 if !old_chain.is_null() {
                     let prev_iframe = unsafe { &*old_chain };
                     let back_fo = prev_iframe.materialize(self);

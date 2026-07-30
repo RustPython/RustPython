@@ -446,6 +446,26 @@ impl Representable for FrameObject {
     }
 }
 
+impl FrameObject {
+    /// Find the live source InterpreterFrame on the TLS chain for a
+    /// materialized FrameObject. Returns the raw pointer if found, or null
+    /// if this FrameObject has no live source (already returned or not
+    /// currently executing on this thread).
+    pub(crate) fn find_live_source_iframe(&self) -> *const crate::frame::InterpreterFrame {
+        let self_py_ptr =
+            unsafe { Py::<Self>::from_payload_ptr(self) } as *const Py<Self> as usize;
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+            if materialized == self_py_ptr {
+                return cur;
+            }
+            cur = unsafe { (*cur).previous() };
+        }
+        core::ptr::null()
+    }
+}
+
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
 impl FrameObject {
     #[pygetset]
@@ -465,8 +485,16 @@ impl FrameObject {
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility
-        self.lasti() * 2
+        // Return byte offset (each instruction is 2 bytes) for compatibility.
+        // For materialized frames, read live lasti from the source iframe on
+        // the TLS chain so f_lasti reflects the current execution position.
+        let live = self.find_live_source_iframe();
+        let val = if !live.is_null() {
+            unsafe { (*live).lasti.load(Relaxed) }
+        } else {
+            self.lasti()
+        };
+        val * 2
     }
 
     #[pygetset]
@@ -490,20 +518,17 @@ impl FrameObject {
         // the source iframe on the TLS chain and read its live prev_line.
         // materialized stores *const Py<FrameObject> as usize.
         // self is &FrameObject (payload); convert to Py<FrameObject> address.
-        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as *const Py<Self> as usize;
-        let mut prev = self.iframe().prev_line.get();
-        {
-            let mut cur = crate::vm::thread::get_current_frame();
-            while !cur.is_null() {
-                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
-                if materialized == self_py_ptr {
-                    // Found the source iframe — read its live prev_line.
-                    prev = unsafe { (*cur).prev_line.get() };
-                    break;
-                }
-                cur = unsafe { (*cur).previous() };
+        let live = self.find_live_source_iframe();
+        let prev = if !live.is_null() {
+            // Read live prev_line. Use read_volatile to bypass LLVM noalias
+            // on the &mut InterpreterFrame borrow in with_iframe.
+            unsafe {
+                let field_ptr = core::ptr::addr_of!((*live).prev_line);
+                core::ptr::read_volatile(field_ptr as *const u32)
             }
-        }
+        } else {
+            self.iframe().prev_line.get()
+        };
         if prev > 0 {
             return prev as usize;
         }

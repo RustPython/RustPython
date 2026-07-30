@@ -414,6 +414,23 @@ impl LocalsPlus {
         }
     }
 
+    /// Update fastlocals in `self` from `src`. For each slot, drops the old
+    /// value and clones the new one. `self` must be heap-backed.
+    ///
+    /// # Safety
+    /// Both `self` and `src` must have valid backing storage, and the caller
+    /// must ensure no concurrent mutable access.
+    pub(crate) unsafe fn sync_fastlocals_from(&mut self, src: &Self) {
+        let n = core::cmp::min(self.nlocalsplus as usize, src.nlocalsplus as usize);
+        let dst = self.fastlocals_mut();
+        let source = src.fastlocals();
+        for i in 0..n {
+            let old = dst[i].take();
+            dst[i] = source[i].as_ref().map(|o| o.clone());
+            drop(old);
+        }
+    }
+
     /// Drop all contained values without freeing the backing storage.
     fn drop_values(&mut self) {
         self.stack_clear();
@@ -1528,7 +1545,15 @@ impl FrameObject {
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
         let code = self.iframe().code();
-        let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
+        // If this FrameObject has a live source iframe on the TLS chain, read
+        // its localsplus for up-to-date values (the materialized copy is a
+        // stale snapshot from materialize time).
+        let live = self.find_live_source_iframe();
+        let fastlocals = if !live.is_null() {
+            unsafe { (*live).localsplus.fastlocals() }
+        } else {
+            unsafe { self.iframe_ref().localsplus.fastlocals() }
+        };
 
         // Iterate through all localsplus slots using localspluskinds
         let nlocalsplus = code.localspluskinds.len();
@@ -1714,7 +1739,13 @@ impl FrameObject {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
         // SAFETY: callers first pass through `check_locals_access`, so the
         // frame is not executing on another thread.
-        let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
+        // Use live source iframe if available for up-to-date values.
+        let live = self.find_live_source_iframe();
+        let fastlocals = if !live.is_null() {
+            unsafe { (*live).localsplus.fastlocals() }
+        } else {
+            unsafe { self.iframe_ref().localsplus.fastlocals() }
+        };
         let obj = fastlocals.get(i)?.as_ref()?;
         let kind = self
             .iframe()
