@@ -2588,6 +2588,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let type_payload = PyType {
             base: None.into(),
             bases: PyRwLock::default(),
+            bases_tuple: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
@@ -2599,6 +2600,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let object_payload = PyType {
             base: None.into(),
             bases: PyRwLock::default(),
+            bases_tuple: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: PyRwLock::new(Default::default()),
@@ -2696,6 +2698,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     let weakref_type = PyType {
         base: Some(object_type.clone()).into(),
         bases: PyRwLock::new(vec![object_type.clone()]),
+        bases_tuple: PyRwLock::default(),
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),
         attributes: PyRwLock::default(),
