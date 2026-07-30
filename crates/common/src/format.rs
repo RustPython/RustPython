@@ -1380,8 +1380,7 @@ impl FieldName {
             FieldType::Index(index)
         } else if first
             .as_str()
-            .ok()
-            .is_some_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
+            .is_ok_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
         {
             // All-digit segment whose value overflows usize itself.
             return Err(FormatParseError::TooManyDecimalDigits);

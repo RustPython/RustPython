@@ -2092,10 +2092,7 @@ impl VirtualMachine {
         if exc.class().is(self.ctx.exceptions.attribute_error) {
             let exc = exc.as_object();
             // Check if this exception was already augmented
-            let already_set = exc
-                .get_attr("name", self)
-                .ok()
-                .is_some_and(|v| !self.is_none(&v));
+            let already_set = exc.get_attr("name", self).is_ok_and(|v| !self.is_none(&v));
             if already_set {
                 return;
             }
