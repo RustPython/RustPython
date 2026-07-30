@@ -353,9 +353,9 @@ pub(crate) mod decl {
             // typealias(name, value, *, type_params=())
             // name and value are positional-or-keyword; type_params is keyword-only.
 
-            // Reject unexpected keyword arguments
+            // Reject unexpected keyword arguments.
             for key in args.kwargs.keys() {
-                if key != "name" && key != "value" && key != "type_params" {
+                if !matches!(key.as_str(), Ok("name" | "value" | "type_params")) {
                     return Err(vm.new_type_error(format!(
                         "typealias() got an unexpected keyword argument '{key}'"
                     )));
