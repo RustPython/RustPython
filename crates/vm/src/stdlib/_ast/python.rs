@@ -230,7 +230,7 @@ pub(crate) mod _ast {
         ast_replace_set_update(&expecting, attributes.as_ref(), vm)?;
 
         for (key, _value) in &args.kwargs {
-            let key_obj: PyObjectRef = vm.ctx.new_str(key.clone()).into();
+            let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
             if !ast_replace_set_discard(&expecting, &key_obj, vm)? {
                 return Err(vm.new_type_error(format!(
                     "{}.__replace__ got an unexpected keyword argument '{}'.",
@@ -419,7 +419,7 @@ pub(crate) mod _ast {
                 ast_replace_set_discard(&remaining_fields, &name, vm)?;
             }
             for (key, value) in args.kwargs {
-                let key_obj: PyObjectRef = vm.ctx.new_str(key.clone()).into();
+                let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
                 let contains = fields_seq.contains(&key_obj, vm)?;
                 if contains {
                     if !ast_replace_set_discard(&remaining_fields, &key_obj, vm)? {
