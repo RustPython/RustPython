@@ -622,15 +622,18 @@ impl FrameObject {
             }
         }
 
-        // Store the pending unwind for the execution loop to perform.
-        // We cannot pop stack entries here because the execution loop
-        // holds the state mutex, and trying to lock it again would deadlock.
-        self.set_pending_stack_pops(pop_count as u32);
-        self.set_pending_unwind_from_stack(start_stack);
-
-        // Set lasti to best_addr. The executor will read lasti and execute
-        // the instruction at that index next.
-        self.set_lasti(best_addr as u32);
+        // Store the pending unwind and new lasti. When this frame is backed
+        // by a live stack-allocated iframe, write to the live iframe so the
+        // execution loop picks up the jump target.
+        let live = self.find_live_source_iframe();
+        let target = if !live.is_null() {
+            unsafe { &*live }
+        } else {
+            self.iframe()
+        };
+        target.pending_stack_pops.store(pop_count as u32, Relaxed);
+        target.pending_unwind_from_stack.store(start_stack, Relaxed);
+        target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }
 
@@ -881,14 +884,17 @@ impl Py<FrameObject> {
         // safely materialize the cross-thread frame chain.
         #[cfg(feature = "threading")]
         {
+            // Enter STW before dereferencing `prev` — the owning thread may
+            // return and free the stack-allocated iframe at any time.
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
             if let Some(fo) = prev_ref.frame_obj() {
                 fo.mark_escaped();
                 return Some(fo.to_owned());
             }
-            // Slow path: materialize under STW.
-            vm.state.stop_the_world.stop_the_world(vm);
+            // Slow path: materialize the entire chain and link retained_back.
             let mut cur = prev;
             let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> = None;
             while !cur.is_null() {
@@ -905,9 +911,7 @@ impl Py<FrameObject> {
             }
             let fo = prev_ref.materialize(vm);
             fo.mark_escaped();
-            let result = fo.to_owned();
-            vm.state.stop_the_world.start_the_world(vm);
-            return Some(result);
+            return Some(fo.to_owned());
         }
 
         #[allow(unreachable_code)]

@@ -1583,13 +1583,6 @@ impl FrameObject {
         self.iframe().lasti.store(val, Relaxed);
     }
 
-    pub(crate) fn set_pending_stack_pops(&self, val: u32) {
-        self.iframe().pending_stack_pops.store(val, Relaxed);
-    }
-
-    pub(crate) fn set_pending_unwind_from_stack(&self, val: i64) {
-        self.iframe().pending_unwind_from_stack.store(val, Relaxed);
-    }
 
     fn has_active_hidden_locals(&self) -> bool {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};

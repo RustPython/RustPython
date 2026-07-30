@@ -1227,7 +1227,10 @@ pub(crate) mod _thread {
         }
         #[cfg(not(unix))]
         {
+            use core::sync::atomic::Ordering;
             let current_ident = get_ident();
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
@@ -1239,7 +1242,8 @@ pub(crate) mod _thread {
                         // Other threads: use top_iframe to include
                         // stack-allocated frames. Materialize the entire
                         // chain and link retained_back so f_back works.
-                        let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                        // SAFETY: world stopped -> owning thread is parked.
+                        let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
                             as *const crate::frame::InterpreterFrame;
                         if !iframe_ptr.is_null() {
                             let mut cur = iframe_ptr;
