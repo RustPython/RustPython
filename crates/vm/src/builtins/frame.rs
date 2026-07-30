@@ -11,10 +11,9 @@ use crate::{
     types::Representable,
 };
 use core::sync::atomic::Ordering::Relaxed;
-// Radium is needed for Cell<usize>::load() in non-threading builds.
-use num_traits::Zero;
 #[allow(unused_imports)]
 use rustpython_common::atomic::Radium;
+use num_traits::Zero;
 use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
 

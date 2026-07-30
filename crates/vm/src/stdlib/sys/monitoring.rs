@@ -542,8 +542,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
                 code.instrumentation_version
                     .store(new_ver, Ordering::Release);
             }
-            cur = iframe_ref.previous.load(Ordering::Relaxed)
-                as *const crate::frame::InterpreterFrame;
+            cur = unsafe { iframe_ref.previous() };
         }
     }
 }
