@@ -1075,15 +1075,11 @@ impl InterpreterFrame {
         self.materialized.store(fo_ptr, Relaxed);
 
         // Keep the FrameObject alive by storing it in temporary_refs.
+        // GC tracking is deferred to with_iframe cleanup, where the frame
+        // is no longer executing and temporary_refs is cleared — at that
+        // point the FrameObject is self-sustaining and GC can safely
+        // traverse and collect it.
         self.temporary_refs.lock().push(frame_ref.clone().into());
-
-        // Track the new FrameObject in the GC so cycle collection can
-        // detect reference cycles involving this frame (e.g. exception
-        // traceback → frame → locals → object → exception).
-        unsafe {
-            crate::gc_state::gc_state()
-                .track_object(core::ptr::NonNull::from(frame_ref.as_object()));
-        }
 
         // SAFETY: the pointer we stored above remains valid because
         // temporary_refs holds a strong reference.
@@ -1148,12 +1144,6 @@ impl InterpreterFrame {
         };
         let frame_ref = frame_obj.into_ref(&vm.ctx);
         FrameObject::init_iframe_ptrs(&frame_ref);
-
-        // Track in GC for cycle collection.
-        unsafe {
-            crate::gc_state::gc_state()
-                .track_object(core::ptr::NonNull::from(frame_ref.as_object()));
-        }
 
         frame_ref
     }
@@ -1250,6 +1240,15 @@ impl FrameObject {
         // synchronization. Mutable fields (localsplus, prev_line) are only
         // mutated during single-threaded execution via with_exec.
         unsafe { self.iframe_ref() }
+    }
+
+    /// Returns the embedded iframe if present, or `None` if GC has cleared
+    /// the frame. Signal-safe: no allocations, no panics.
+    ///
+    /// # Safety
+    /// Same as `iframe_ref` — caller must ensure no concurrent mutation.
+    pub unsafe fn try_iframe(&self) -> Option<&InterpreterFrame> {
+        unsafe { &*self.iframe.get() }.as_ref()
     }
 }
 

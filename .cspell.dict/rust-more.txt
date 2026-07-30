@@ -50,6 +50,7 @@ modpow
 msvc
 muldiv
 nanos
+noalias
 nonoverlapping
 objclass
 peekable

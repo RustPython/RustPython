@@ -286,8 +286,13 @@ mod decl {
             puts(fd, "  <no Python frame>\n");
             return;
         }
-        // Walk the iframe chain starting from the top FrameObject's iframe
-        let mut cur = unsafe { (*top).iframe() as *const rustpython_vm::frame::InterpreterFrame };
+        // The FrameObject may have been cleared by GC cycle collection.
+        // Check that its iframe is still present before walking the chain.
+        let Some(iframe) = (unsafe { (*top).try_iframe() }) else {
+            puts(fd, "  <no Python frame>\n");
+            return;
+        };
+        let mut cur = iframe as *const rustpython_vm::frame::InterpreterFrame;
         let mut depth = 0;
         while !cur.is_null() && depth < MAX_FRAME_DEPTH {
             let iframe = unsafe { &*cur };
@@ -353,28 +358,25 @@ mod decl {
                     if tid == current_tid {
                         continue;
                     }
-                    let top = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
-                    if !top.is_null() {
-                        dump_traceback_thread_chain(fd, tid, false, top);
+                    // Under STW, all other threads are suspended so their
+                    // stack-allocated iframes are stable. Walk via top_iframe
+                    // which covers both FrameObject and stack-allocated paths.
+                    let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                        as *const rustpython_vm::frame::InterpreterFrame;
+                    write_thread_id(fd, tid, false);
+                    if iframe_ptr.is_null() {
+                        puts(fd, "  <no Python frame>\n");
                     } else {
-                        // Stack-allocated iframe path: walk via top_iframe
-                        let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
-                            as *const rustpython_vm::frame::InterpreterFrame;
-                        write_thread_id(fd, tid, false);
-                        if iframe_ptr.is_null() {
-                            puts(fd, "  <no Python frame>\n");
-                        } else {
-                            let mut cur = iframe_ptr;
-                            let mut depth = 0;
-                            while !cur.is_null() && depth < 100 {
-                                let iframe = unsafe { &*cur };
-                                dump_iframe(fd, iframe);
-                                depth += 1;
-                                cur = iframe.previous();
-                            }
-                            if depth >= 100 && !cur.is_null() {
-                                puts(fd, "  ...\n");
-                            }
+                        let mut cur = iframe_ptr;
+                        let mut depth = 0;
+                        while !cur.is_null() && depth < 100 {
+                            let iframe = unsafe { &*cur };
+                            dump_iframe(fd, iframe);
+                            depth += 1;
+                            cur = iframe.previous();
+                        }
+                        if depth >= 100 && !cur.is_null() {
+                            puts(fd, "  ...\n");
                         }
                     }
                     puts(fd, "\n");
@@ -743,21 +745,31 @@ mod decl {
                             // the VM, so it cannot stop-the-world. Walk each
                             // published top frame lock-free and best-effort, like
                             // the faulthandler watchdog thread.
+                            // Walk via top_iframe for all threads. The watchdog
+                            // cannot stop-the-world, so this is best-effort
+                            // (like CPython's _Py_DumpTracebackThreads). Stack
+                            // frames are still alive because the target thread
+                            // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
-                                let top = slot
-                                    .top_frame
+                                let iframe_ptr = slot
+                                    .top_iframe
                                     .load(core::sync::atomic::Ordering::Relaxed)
-                                    as *const FrameObject;
-                                if !top.is_null() {
-                                    dump_traceback_thread_chain(fd, *tid, false, top);
-                                } else {
-                                    // Stack-allocated iframe path. Walk via
-                                    // top_iframe only if the thread's STW
-                                    // attachment guarantees frame liveness.
-                                    // Since the watchdog cannot stop-the-world,
-                                    // fall back to just reporting the thread id.
-                                    write_thread_id(fd, *tid, false);
+                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                write_thread_id(fd, *tid, false);
+                                if iframe_ptr.is_null() {
                                     puts(fd, "  <no Python frame>\n");
+                                } else {
+                                    let mut cur = iframe_ptr;
+                                    let mut depth = 0;
+                                    while !cur.is_null() && depth < 100 {
+                                        let iframe = unsafe { &*cur };
+                                        dump_iframe(fd, iframe);
+                                        depth += 1;
+                                        cur = iframe.previous();
+                                    }
+                                    if depth >= 100 && !cur.is_null() {
+                                        puts(fd, "  ...\n");
+                                    }
                                 }
                             }
                         }

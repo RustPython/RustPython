@@ -1888,8 +1888,30 @@ impl VirtualMachine {
         if save_exc {
             self.restore_exception(saved_exc);
         }
+        // Restore the frame chain BEFORE clearing temporary_refs, so
+        // top_frame no longer points at the materialized FrameObject
+        // when its last strong reference is released.
         let _ = crate::vm::thread::set_current_frame(old_chain);
         self.recursion_depth.update(|d| d - 1);
+
+        // Now that the frame is off the chain, track the materialized
+        // FrameObject in the GC and release temporary_refs so cycle
+        // collection can detect and reclaim reference cycles.
+        {
+            let mat_ptr = unsafe {
+                let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
+                core::ptr::read_volatile(field_ptr as *const usize)
+            };
+            if mat_ptr != 0 {
+                let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
+                unsafe {
+                    crate::gc_state::gc_state()
+                        .track_object(core::ptr::NonNull::from(fo.as_object()));
+                    let live_iframe = &*iframe_ptr;
+                    live_iframe.temporary_refs.lock().clear();
+                }
+            }
+        }
 
         result
     }
