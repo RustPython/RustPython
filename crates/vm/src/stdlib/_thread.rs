@@ -1237,12 +1237,29 @@ pub(crate) mod _thread {
                         crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
                     } else {
                         // Other threads: use top_iframe to include
-                        // stack-allocated frames.
+                        // stack-allocated frames. Materialize the entire
+                        // chain and link retained_back so f_back works.
                         let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
                             as *const crate::frame::InterpreterFrame;
                         if !iframe_ptr.is_null() {
+                            let mut cur = iframe_ptr;
+                            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
+                                None;
+                            while !cur.is_null() {
+                                let iframe = unsafe { &*cur };
+                                let fo = iframe.materialize(vm).to_owned();
+                                if let Some(child) = child_fo.take() {
+                                    let mut guard = child.iframe().retained_back.lock();
+                                    if guard.is_none() {
+                                        *guard = Some(fo.clone());
+                                    }
+                                }
+                                child_fo = Some(fo);
+                                cur = iframe.previous();
+                            }
                             let iframe = unsafe { &*iframe_ptr };
-                            Some((*id, iframe.materialize(vm).to_owned()))
+                            let fo = iframe.materialize(vm);
+                            Some((*id, fo.to_owned()))
                         } else {
                             // Fall back to frames stack for FrameObject-only path
                             let frames = slot.frames.lock();
