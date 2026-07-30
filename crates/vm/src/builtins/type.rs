@@ -46,6 +46,7 @@ pub struct PyType {
     /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
     pub base: PyAtomicRef<Option<Self>>,
     pub bases: PyRwLock<Vec<PyTypeRef>>,
+    pub(crate) bases_tuple: PyRwLock<Option<PyTupleRef>>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: TypeNamespace,
@@ -242,6 +243,7 @@ unsafe impl crate::object::Traverse for PyType {
             tracer_fn(base.as_object());
         }
         self.bases.traverse(tracer_fn);
+        self.bases_tuple.traverse(tracer_fn);
         self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
         self.attributes.traverse(tracer_fn);
@@ -260,6 +262,11 @@ unsafe impl crate::object::Traverse for PyType {
             for base in guard.drain(..) {
                 out.push(base.into());
             }
+        }
+        if let Some(mut guard) = self.bases_tuple.try_write()
+            && let Some(bases) = guard.take()
+        {
+            out.push(bases.into());
         }
         if let Some(mut guard) = self.mro.try_write() {
             for typ in guard.drain(..) {
@@ -989,6 +996,7 @@ impl PyType {
             Self {
                 base: Some(base).into(),
                 bases: PyRwLock::new(bases),
+                bases_tuple: PyRwLock::default(),
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: TypeNamespace::new(attrs, ctx),
@@ -1051,6 +1059,7 @@ impl PyType {
             Self {
                 base: Some(base).into(),
                 bases,
+                bases_tuple: PyRwLock::default(),
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: attrs.into(),
@@ -1642,16 +1651,29 @@ impl Py<PyType> {
 impl PyType {
     #[pygetset]
     fn __bases__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        vm.ctx.new_tuple(
-            self.bases
-                .read()
-                .iter()
-                .map(|x| x.as_object().to_owned())
-                .collect(),
-        )
+        enum BasesSnapshot {
+            Tuple(PyTupleRef),
+            Types(Vec<PyTypeRef>),
+        }
+
+        let bases = Self::with_type_lock(vm, || {
+            self.bases_tuple.read().clone().map_or_else(
+                || BasesSnapshot::Types(self.bases.read().clone()),
+                BasesSnapshot::Tuple,
+            )
+        });
+        match bases {
+            BasesSnapshot::Tuple(tuple) => tuple,
+            BasesSnapshot::Types(types) => vm.ctx.new_tuple(
+                types
+                    .into_iter()
+                    .map(|typ| typ.as_object().to_owned())
+                    .collect(),
+            ),
+        }
     }
     #[pygetset(setter, name = "__bases__")]
-    fn set_bases(zelf: &Py<Self>, bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_bases(zelf: &Py<Self>, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
         if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
@@ -1660,12 +1682,24 @@ impl PyType {
                 zelf.name()
             )));
         }
-        if bases.is_empty() {
+        if bases_tuple.is_empty() {
             return Err(vm.new_type_error(format!(
                 "can only assign non-empty tuple to {}.__bases__, not ()",
                 zelf.name()
             )));
         }
+        let bases = bases_tuple
+            .iter()
+            .map(|base| {
+                base.clone().downcast::<Self>().map_err(|base| {
+                    vm.new_type_error(format!(
+                        "{}.__bases__ must be tuple of classes, not '{}'",
+                        zelf.name(),
+                        base.class().name()
+                    ))
+                })
+            })
+            .collect::<PyResult<Vec<_>>>()?;
 
         // TODO: check for mro cycles
 
@@ -1796,6 +1830,13 @@ impl PyType {
             zelf.update_all_slots(&vm.ctx);
 
             register_subclasses(&zelf.bases.read());
+            let old_bases_tuple = {
+                let mut bases = zelf.bases_tuple.write();
+                bases.replace(bases_tuple)
+            };
+            if let Some(bases) = old_bases_tuple {
+                retired.push(bases.into());
+            }
             Ok(())
         });
         drop(retired);
@@ -2285,6 +2326,7 @@ impl Constructor for PyType {
 
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
             args.clone().bind(vm)?;
+        let original_bases = (!bases.is_empty()).then(|| bases.clone());
 
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
@@ -2571,6 +2613,16 @@ impl Constructor for PyType {
             &vm.ctx,
         )
         .map_err(|e| vm.new_type_error(e))?;
+
+        *typ.bases_tuple.write() = Some(original_bases.unwrap_or_else(|| {
+            vm.ctx.new_tuple(
+                typ.bases
+                    .read()
+                    .iter()
+                    .map(|base| base.as_object().to_owned())
+                    .collect(),
+            )
+        }));
 
         if let Some(ref slots) = heaptype_slots {
             let class_name = typ.name().to_string();
