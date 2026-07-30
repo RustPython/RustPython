@@ -47,7 +47,7 @@ use rustpython_common::{
     lock::{OnceCell, PyMutex},
     wtf8::{Wtf8, Wtf8Buf, wtf8_concat},
 };
-use rustpython_compiler_core::SourceLocation;
+use rustpython_compiler_core::{OneIndexed, SourceLocation};
 
 pub type FrameObjectRef = PyRef<FrameObject>;
 
@@ -1535,7 +1535,18 @@ impl FrameObject {
     }
 
     pub fn current_location(&self) -> SourceLocation {
-        self.iframe().code().locations[self.lasti() as usize - 1].0
+        let lasti = self.lasti() as usize;
+        if lasti == 0 {
+            return SourceLocation {
+                line: self
+                    .iframe()
+                    .code()
+                    .first_line_number
+                    .unwrap_or(OneIndexed::MIN),
+                character_offset: OneIndexed::from_zero_indexed(0),
+            };
+        }
+        self.iframe().code().locations[lasti - 1].0
     }
 
     /// Get the previous InterpreterFrame in the chain.

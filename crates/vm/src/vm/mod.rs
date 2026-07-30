@@ -1756,16 +1756,14 @@ impl VirtualMachine {
         // reference to this FrameObject can walk the chain after return.
         if !old_chain.is_null() {
             let strong = frame.as_object().strong_count();
-            // Only set retained_back if someone else holds a reference (escaped)
-            // AND the caller has an existing FrameObject (no new materialization
-            // to avoid extra refcounts on local variables).
+            // Only set retained_back if someone else holds a reference (escaped).
             if strong > 1 {
                 let mut guard = frame.iframe().retained_back.lock();
                 if guard.is_none() {
                     let prev_iframe = unsafe { &*old_chain };
-                    if let Some(fo) = prev_iframe.frame_obj() {
-                        *guard = Some(fo.to_owned());
-                    }
+                    // Materialize the caller if needed so f_back resolves.
+                    let fo = prev_iframe.materialize(self);
+                    *guard = Some(fo.to_owned());
                 }
             }
         }
