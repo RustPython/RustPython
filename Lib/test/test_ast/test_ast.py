@@ -2055,7 +2055,6 @@ class ASTValidatorTests(unittest.TestCase):
                           kw_defaults=[None, ast.Name("x", ast.Store())]),
                           "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_funcdef(self):
         a = ast.arguments([], [], None, [], [], None, [])
         f = ast.FunctionDef("x", a, [], [], None, None, [])
@@ -2267,7 +2266,6 @@ class ASTValidatorTests(unittest.TestCase):
         u = ast.UnaryOp(ast.Not(), ast.Name("x", ast.Store()))
         self.expr(u, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_lambda(self):
         a = ast.arguments([], [], None, [], [], None, [])
         self.expr(ast.Lambda(a, ast.Name("x", ast.Store())),

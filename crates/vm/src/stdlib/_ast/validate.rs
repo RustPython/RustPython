@@ -56,7 +56,10 @@ fn validate_keywords(vm: &VirtualMachine, keywords: &[ast::Keyword]) -> PyResult
     Ok(())
 }
 
-fn validate_parameter_annotation(vm: &VirtualMachine, parameter: &ast::Parameter) -> PyResult<()> {
+pub(super) fn validate_parameter_annotation(
+    vm: &VirtualMachine,
+    parameter: &ast::Parameter,
+) -> PyResult<()> {
     if let Some(annotation) = &parameter.annotation {
         validate_expr(vm, annotation, ast::ExprContext::Load)?;
     }
