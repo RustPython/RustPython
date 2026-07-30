@@ -88,14 +88,23 @@ impl Node for ast::Parameters {
             "arguments",
         )?;
 
+        validate_parameter_annotations(
+            vm,
+            &posonlyargs,
+            &args,
+            vararg.as_deref(),
+            &kwonlyargs,
+            kwarg.as_deref(),
+        )?;
+
         let ParameterDefaults {
             runtime_defaults,
             defaults,
             _range: _,
         } = defaults;
-        let kwonlyargs = merge_keyword_parameter_defaults(vm, kwonlyargs, kw_defaults)?;
         let (posonlyargs, args) =
             merge_positional_parameter_defaults(vm, posonlyargs, args, defaults)?;
+        let kwonlyargs = merge_keyword_parameter_defaults(vm, kwonlyargs, kw_defaults)?;
 
         Ok(Self {
             node_index: Default::default(),
@@ -112,6 +121,29 @@ impl Node for ast::Parameters {
     fn is_none(&self) -> bool {
         self.is_empty()
     }
+}
+
+fn validate_parameter_annotations(
+    vm: &VirtualMachine,
+    posonlyargs: &PositionalParameters,
+    args: &PositionalParameters,
+    vararg: Option<&ast::Parameter>,
+    kwonlyargs: &KeywordParameters,
+    kwarg: Option<&ast::Parameter>,
+) -> PyResult<()> {
+    for parameter in posonlyargs.args.iter().chain(&args.args) {
+        super::validate::validate_parameter_annotation(vm, parameter)?;
+    }
+    if let Some(parameter) = vararg {
+        super::validate::validate_parameter_annotation(vm, parameter)?;
+    }
+    for parameter in &kwonlyargs.keywords {
+        super::validate::validate_parameter_annotation(vm, parameter)?;
+    }
+    if let Some(parameter) = kwarg {
+        super::validate::validate_parameter_annotation(vm, parameter)?;
+    }
+    Ok(())
 }
 
 // product
