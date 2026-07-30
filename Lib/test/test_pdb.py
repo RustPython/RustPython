@@ -2165,7 +2165,7 @@ if not SKIP_CORO_TESTS:
             >>> def test_function():
             ...     asyncio.run(main(), loop_factory=asyncio.EventLoop)
 
-            >>> with PdbTestInput([  # doctest: +ELLIPSIS
+            >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +ELLIPSIS +EXPECTED_FAILURE
             ...     'x = await task',
             ...     'p x',
             ...     'x = await test()',

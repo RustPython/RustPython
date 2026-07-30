@@ -1227,16 +1227,30 @@ pub(crate) mod _thread {
         }
         #[cfg(not(unix))]
         {
+            let current_ident = get_ident();
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
                 .filter_map(|(id, slot)| {
-                    let frames = slot.frames.lock();
-                    // SAFETY: the owning thread can't pop while we hold the Mutex,
-                    // so the FramePtr is valid for the duration of the lock.
-                    frames
-                        .last()
-                        .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                    if *id == current_ident {
+                        // Current thread: materialize from TLS chain
+                        crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
+                    } else {
+                        // Other threads: use top_iframe to include
+                        // stack-allocated frames.
+                        let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                            as *const crate::frame::InterpreterFrame;
+                        if !iframe_ptr.is_null() {
+                            let iframe = unsafe { &*iframe_ptr };
+                            Some((*id, iframe.materialize(vm).to_owned()))
+                        } else {
+                            // Fall back to frames stack for FrameObject-only path
+                            let frames = slot.frames.lock();
+                            frames
+                                .last()
+                                .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                        }
+                    }
                 })
                 .collect()
         }
