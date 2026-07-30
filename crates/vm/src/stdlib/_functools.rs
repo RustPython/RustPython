@@ -373,7 +373,7 @@ mod _functools {
 
             // Add new keywords
             for (key, value) in args.kwargs {
-                final_keywords.set_item(vm.ctx.intern_str(key.as_str()), value, vm)?;
+                final_keywords.set_item(vm.ctx.intern_str(key), value, vm)?;
             }
 
             Ok(Self {
@@ -436,10 +436,11 @@ mod _functools {
 
             // Add keywords from self.keywords
             for (key, value) in &*keywords {
+                // `expect_str()` would panic on surrogate keys; keep them as WTF-8.
                 let key_str = key
                     .downcast_ref::<crate::builtins::PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                final_kwargs.insert(key_str.expect_str().to_owned(), value);
+                final_kwargs.insert(key_str.as_wtf8().to_owned(), value);
             }
 
             // Add keywords from args.kwargs (these override self.keywords)

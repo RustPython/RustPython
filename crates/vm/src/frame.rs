@@ -7112,11 +7112,13 @@ impl ExecutingFrame<'_> {
             let func_str = Self::object_function_str(callable, vm);
 
             Self::iterate_mapping_keys(vm, &kw_obj, &func_str, |key| {
+                // `PyStr`, not `PyUtf8Str`: CPython only checks that the key is a
+                // `str`, not that it is valid UTF-8, so surrogate keys are accepted.
                 let key_str = key
-                    .downcast_ref::<PyUtf8Str>()
+                    .downcast_ref::<PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
                 let value = kw_obj.get_item(&*key, vm)?;
-                kwargs.insert(key_str.as_str().to_owned(), value);
+                kwargs.insert(key_str.as_wtf8().to_owned(), value);
                 Ok(())
             })?
         };

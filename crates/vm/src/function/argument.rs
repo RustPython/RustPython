@@ -1,6 +1,7 @@
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
+    common::wtf8::{Wtf8, Wtf8Buf},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
 };
@@ -155,10 +156,12 @@ impl FuncArgs {
                 .iter()
                 .zip(&args[nargs..nargs + names.len()])
                 .map(|(name, val)| {
+                    // `PyStr`, not `PyUtf8Str`: a surrogate key is a valid str and
+                    // must survive as WTF-8 rather than panic.
                     let key = name
-                        .downcast_ref::<crate::builtins::PyUtf8Str>()
+                        .downcast_ref::<crate::builtins::PyStr>()
                         .expect("kwnames must be strings")
-                        .as_str()
+                        .as_wtf8()
                         .to_owned();
                     (key, val.clone())
                 })
@@ -187,9 +190,9 @@ impl FuncArgs {
                 .zip(args.drain(nargs..nargs + kw_count))
                 .map(|(name, val)| {
                     let key = name
-                        .downcast_ref::<crate::builtins::PyUtf8Str>()
+                        .downcast_ref::<crate::builtins::PyStr>()
                         .expect("kwnames must be strings")
-                        .as_str()
+                        .as_wtf8()
                         .to_owned();
                     (key, val)
                 })
@@ -268,7 +271,7 @@ impl FuncArgs {
         self.kwargs.swap_remove(name)
     }
 
-    pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (String, PyObjectRef)> + '_ {
+    pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (Wtf8Buf, PyObjectRef)> + '_ {
         self.kwargs.drain(..)
     }
 
@@ -406,8 +409,12 @@ impl<T: TryFromObject> FromArgOptional for T {
 /// KwArgs is only for functions that accept arbitrary keyword arguments. For
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
+// Keys are stored as `Wtf8Buf`, not `String`, so that a lone-surrogate keyword
+// name coming through `f(**d)` is preserved instead of being rejected (see
+// issue #8228). `PyStr` is WTF-8 backed, and CPython only requires that a
+// keyword key be a `str`, not that it be valid UTF-8.
 #[derive(Clone, Debug)]
-pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
+pub struct KwArgs<T = PyObjectRef>(IndexMap<Wtf8Buf, T>);
 
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
@@ -416,7 +423,7 @@ impl<T> Default for KwArgs<T> {
 }
 
 impl<T> Deref for KwArgs<T> {
-    type Target = IndexMap<String, T>;
+    type Target = IndexMap<Wtf8Buf, T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -440,8 +447,29 @@ where
 
 impl<T> KwArgs<T> {
     #[must_use]
-    pub const fn new(map: IndexMap<String, T>) -> Self {
+    pub const fn new(map: IndexMap<Wtf8Buf, T>) -> Self {
         Self(map)
+    }
+
+    // `String` keys accepted `&str` lookups for free via `Borrow<str>`; `Wtf8Buf`
+    // borrows only as `Wtf8`, so these inherent methods restore the `&str` interface
+    // via the zero-cost `Wtf8::new` cast, keeping every call site unchanged.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&T> {
+        self.0.get(Wtf8::new(name))
+    }
+
+    #[must_use]
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.0.contains_key(Wtf8::new(name))
+    }
+
+    pub fn swap_remove(&mut self, name: &str) -> Option<T> {
+        self.0.swap_remove(Wtf8::new(name))
+    }
+
+    pub fn shift_remove(&mut self, name: &str) -> Option<T> {
+        self.0.shift_remove(Wtf8::new(name))
     }
 
     pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
@@ -449,15 +477,17 @@ impl<T> KwArgs<T> {
     }
 }
 
-impl<T> FromIterator<(String, T)> for KwArgs<T> {
-    fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
-        Self(iter.into_iter().collect())
+// Accept any key that converts into `Wtf8Buf` (notably `String`), so existing
+// call sites that build kwargs from string literals keep compiling unchanged.
+impl<K: Into<Wtf8Buf>, T> FromIterator<(K, T)> for KwArgs<T> {
+    fn from_iter<I: IntoIterator<Item = (K, T)>>(iter: I) -> Self {
+        Self(iter.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 }
 
 impl<'a, T> IntoIterator for &'a KwArgs<T> {
-    type Item = (&'a String, &'a T);
-    type IntoIter = indexmap::map::Iter<'a, String, T>;
+    type Item = (&'a Wtf8Buf, &'a T);
+    type IntoIter = indexmap::map::Iter<'a, Wtf8Buf, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.iter()
@@ -465,8 +495,8 @@ impl<'a, T> IntoIterator for &'a KwArgs<T> {
 }
 
 impl<T> IntoIterator for KwArgs<T> {
-    type Item = (String, T);
-    type IntoIter = indexmap::map::IntoIter<String, T>;
+    type Item = (Wtf8Buf, T);
+    type IntoIter = indexmap::map::IntoIter<Wtf8Buf, T>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()

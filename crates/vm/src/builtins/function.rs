@@ -337,8 +337,13 @@ impl PyFunction {
         let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
+            // Parameter names are plain identifiers, so a non-UTF-8 (surrogate) key
+            // can never match one and just falls through to **kwargs / the error path.
+            let name_str = name.as_str().ok();
             // Check if we have a parameter with this name:
-            if let Some(pos) = arg_pos(code.posonlyarg_count as usize..total_args, &name) {
+            if let Some(pos) =
+                name_str.and_then(|s| arg_pos(code.posonlyarg_count as usize..total_args, s))
+            {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
@@ -350,7 +355,9 @@ impl PyFunction {
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if arg_pos(0..code.posonlyarg_count as usize, &name).is_some() {
+            } else if name_str
+                .is_some_and(|s| arg_pos(0..code.posonlyarg_count as usize, s).is_some())
+            {
                 posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(vm.new_type_error(format!(

@@ -1,5 +1,6 @@
 use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
+use crate::common::wtf8::Wtf8Buf;
 use crate::convert::ToPyObject;
 use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
@@ -712,7 +713,7 @@ impl PyCStructure {
         self_obj: &Py<Self>,
         type_obj: &Py<PyType>,
         args: &[PyObjectRef],
-        kwargs: &indexmap::IndexMap<String, PyObjectRef>,
+        kwargs: &indexmap::IndexMap<Wtf8Buf, PyObjectRef>,
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -746,7 +747,7 @@ impl PyCStructure {
                     && let Some(name) = tuple.first()
                     && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
-                    let field_name = name_str.as_str().to_owned();
+                    let field_name = name_str.as_wtf8().to_owned();
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
                         return Err(
@@ -784,9 +785,9 @@ impl Initializer for PyCStructure {
         }
 
         // 2. Process keyword arguments
-        for (key, value) in &args.kwargs {
+        for (key, value) in args.kwargs {
             zelf.as_object()
-                .set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
+                .set_attr(vm.ctx.intern_str(key), value, vm)?;
         }
 
         Ok(())

@@ -184,6 +184,9 @@ pub(crate) fn get_jit_args<'a>(
     for (name, value) in &func_args.kwargs {
         let arg_pos =
             |args: &[&PyStrInterned], name: &str| args.iter().position(|arg| arg.as_str() == name);
+        // Parameter names are plain identifiers, so a non-UTF-8 (surrogate) key
+        // can never match one.
+        let name = name.as_str().map_err(|_| ArgsError::NotAKeywordArg)?;
         if let Some(arg_idx) = arg_pos(arg_names.args, name) {
             if jit_args.is_set(arg_idx) {
                 return Err(ArgsError::ArgPassedMultipleTimes);
