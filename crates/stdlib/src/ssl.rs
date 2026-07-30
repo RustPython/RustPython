@@ -881,6 +881,24 @@ mod _ssl {
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLContext {
+        fn warn_deprecated_tls_version(version: i32, vm: &VirtualMachine) -> PyResult<()> {
+            let version_name = match version {
+                PROTO_SSLv3 => Some("SSLv3"),
+                PROTO_TLSv1 => Some("TLSv1"),
+                PROTO_TLSv1_1 => Some("TLSv1_1"),
+                _ => None,
+            };
+            if let Some(version_name) = version_name {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.TLSVersion.{version_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
+            }
+            Ok(())
+        }
+
         // Helper method to convert DER certificate bytes to Python dict
         fn cert_der_to_dict(&self, vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
             cert::cert_der_to_dict_helper(vm, cert_der)
@@ -1024,6 +1042,8 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Convert special values to rustls actual supported versions
             // MINIMUM_SUPPORTED (-2) -> 0 (auto-negotiate)
             // MAXIMUM_SUPPORTED (-1) -> MAXIMUM_VERSION (TLSv1.3)
@@ -1055,6 +1075,8 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Convert special values to rustls actual supported versions
             // MAXIMUM_SUPPORTED (-1) -> 0 (auto-negotiate)
             // MINIMUM_SUPPORTED (-2) -> MINIMUM_VERSION (TLSv1.2)
@@ -2214,12 +2236,10 @@ mod _ssl {
         ) -> PyResult<Self> {
             let crypto_ext = CryptoExt::get_ext();
 
-            // Validate protocol
-            match protocol {
-                PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_2
-                | PROTOCOL_TLSv1_3 => {
-                    // Valid protocols
-                }
+            let deprecated_protocol = match protocol {
+                PROTOCOL_TLS => Some("PROTOCOL_TLS"),
+                PROTOCOL_TLSv1_2 => Some("PROTOCOL_TLSv1_2"),
+                PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_3 => None,
                 PROTOCOL_TLSv1 | PROTOCOL_TLSv1_1 => {
                     return Err(vm.new_value_error(
                         "TLS 1.0 and 1.1 are not supported by rustls for security reasons",
@@ -2228,6 +2248,14 @@ mod _ssl {
                 _ => {
                     return Err(vm.new_value_error(format!("invalid protocol version: {protocol}")));
                 }
+            };
+            if let Some(protocol_name) = deprecated_protocol {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.{protocol_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
             }
 
             // Set default options

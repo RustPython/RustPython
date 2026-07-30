@@ -651,7 +651,6 @@ class BasicSocketTests(unittest.TestCase):
             with test_wrap_socket(s) as ss:
                 self.assertEqual(timeout, ss.gettimeout())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_openssl111_deprecations(self):
         options = [
             ssl.OP_NO_TLSv1,
