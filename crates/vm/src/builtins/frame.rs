@@ -573,8 +573,14 @@ impl FrameObject {
         // lasti points past the current instruction (already incremented).
         // stacks[lasti - 1] gives the stack state before executing the
         // instruction that triggered this trace event, which is the current
-        // evaluation stack.
-        let current_lasti = self.lasti() as usize;
+        // evaluation stack.  Read from the live iframe when available so the
+        // value reflects the actual execution position.
+        let live = self.find_live_source_iframe();
+        let current_lasti = if !live.is_null() {
+            (unsafe { (*live).lasti.load(Relaxed) }) as usize
+        } else {
+            self.lasti() as usize
+        };
         let start_idx = current_lasti.saturating_sub(1);
         let start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
@@ -624,8 +630,7 @@ impl FrameObject {
 
         // Store the pending unwind and new lasti. When this frame is backed
         // by a live stack-allocated iframe, write to the live iframe so the
-        // execution loop picks up the jump target.
-        let live = self.find_live_source_iframe();
+        // execution loop picks up the jump target.  Reuse `live` from above.
         let target = if !live.is_null() {
             unsafe { &*live }
         } else {

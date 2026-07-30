@@ -1726,6 +1726,10 @@ impl VirtualMachine {
         }
 
         self.recursion_depth.update(|d| d + 1);
+        // Decrement on all exit paths (including panic between here and
+        // the explicit decrement at the bottom).
+        let _depth_guard =
+            scopeguard::guard((), |()| self.recursion_depth.update(|d| d.saturating_sub(1)));
 
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
@@ -1750,20 +1754,29 @@ impl VirtualMachine {
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        let result = self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()));
+        let result = if self.use_tracing.get() {
+            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
+        } else {
+            f(frame.to_owned())
+        };
 
         // Capture f_back before clearing previous so code holding a
         // reference to this FrameObject can walk the chain after return.
         if !old_chain.is_null() {
             let strong = frame.as_object().strong_count();
-            // Only set retained_back if someone else holds a reference (escaped).
+            // Only set retained_back if someone else holds a reference (escaped)
+            // AND the caller already has a FrameObject. Materializing the caller
+            // here would add refcounts on its local variables, preventing timely
+            // __del__ / ResourceWarning on dealloc. If the caller hasn't been
+            // materialized, f_back will resolve via the TLS chain while the
+            // caller is still executing, or return None after it returns.
             if strong > 1 {
                 let mut guard = frame.iframe().retained_back.lock();
                 if guard.is_none() {
                     let prev_iframe = unsafe { &*old_chain };
-                    // Materialize the caller if needed so f_back resolves.
-                    let fo = prev_iframe.materialize(self);
-                    *guard = Some(fo.to_owned());
+                    if let Some(fo) = prev_iframe.frame_obj() {
+                        *guard = Some(fo.to_owned());
+                    }
                 }
             }
         }
@@ -1788,6 +1801,8 @@ impl VirtualMachine {
         let _ = crate::vm::thread::set_current_frame(old_chain);
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::pop_thread_frame();
+        // Disarm the panic guard — normal decrement.
+        scopeguard::ScopeGuard::into_inner(_depth_guard);
         self.recursion_depth.update(|d| d - 1);
 
         result

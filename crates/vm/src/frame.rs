@@ -1594,7 +1594,6 @@ impl FrameObject {
         self.iframe().lasti.store(val, Relaxed);
     }
 
-
     fn has_active_hidden_locals(&self) -> bool {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
         let code = self.iframe().code();
