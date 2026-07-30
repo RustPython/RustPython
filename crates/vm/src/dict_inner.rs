@@ -61,7 +61,7 @@ static KEYS_VERSION: AtomicU32 = AtomicU32::new(0);
 /// unrealistic in practice.
 fn next_keys_version() -> u32 {
     KEYS_VERSION
-        .fetch_update(Relaxed, Relaxed, |v| v.checked_add(1))
+        .try_update(Relaxed, Relaxed, |v| v.checked_add(1))
         .map_or(0, |v| v + 1)
 }
 

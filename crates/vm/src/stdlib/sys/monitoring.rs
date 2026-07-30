@@ -344,7 +344,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 continue;
             }
             // Excluded: RESUME, END_FOR, CACHE (and their instrumented variants)
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
             if matches!(
                 base,
                 Instruction::Resume { .. } | Instruction::EndFor | Instruction::Cache
@@ -387,7 +387,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
             .skip(first_traceable)
         {
             let op = unit.op;
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
             if matches!(base, Instruction::ExtendedArg) {
                 continue;
             }
@@ -425,7 +425,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
         let mut instr_idx = first_traceable;
         for unit in code.code.instructions[first_traceable..len].iter().copied() {
             let (op, arg) = arg_state.get(unit);
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
 
             if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
                 instr_idx += 1;
@@ -460,7 +460,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
                 let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                let target_base = target_op.to_base().unwrap_or(target_op);
                 // Skip synthetic cleanup targets.
                 if matches!(target_base, Instruction::PopIter) {
                     instr_idx += 1;
@@ -483,7 +483,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
                 let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                let target_base = target_op.to_base().unwrap_or(target_op);
                 if !matches!(target_base, Instruction::PopIter)
                     && let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
