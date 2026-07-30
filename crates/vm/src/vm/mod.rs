@@ -1754,20 +1754,18 @@ impl VirtualMachine {
 
         // Capture f_back before clearing previous so code holding a
         // reference to this FrameObject can walk the chain after return.
-        // Only use existing FrameObjects (frame_obj) — do NOT materialize
-        // new ones here, as that would create localsplus snapshots with
-        // extra refcounts on local variables.
-        if frame
-            .iframe()
-            .escaped
-            .load(core::sync::atomic::Ordering::Relaxed)
-            && !old_chain.is_null()
-        {
-            let mut guard = frame.iframe().retained_back.lock();
-            if guard.is_none() {
-                let prev_iframe = unsafe { &*old_chain };
-                if let Some(fo) = prev_iframe.frame_obj() {
-                    *guard = Some(fo.to_owned());
+        if !old_chain.is_null() {
+            let strong = frame.as_object().strong_count();
+            // Only set retained_back if someone else holds a reference (escaped)
+            // AND the caller has an existing FrameObject (no new materialization
+            // to avoid extra refcounts on local variables).
+            if strong > 1 {
+                let mut guard = frame.iframe().retained_back.lock();
+                if guard.is_none() {
+                    let prev_iframe = unsafe { &*old_chain };
+                    if let Some(fo) = prev_iframe.frame_obj() {
+                        *guard = Some(fo.to_owned());
+                    }
                 }
             }
         }
@@ -1871,7 +1869,11 @@ impl VirtualMachine {
                 }
                 if !old_chain.is_null() {
                     let prev_iframe = unsafe { &*old_chain };
-                    let back_fo = prev_iframe.materialize(self);
+                    // Use materialize_chain to avoid cloning localsplus, which
+                    // would create extra refcounts on local variables. The
+                    // lightweight frame has empty localsplus; live values are
+                    // read through find_live_source_iframe when needed.
+                    let back_fo = prev_iframe.materialize_chain(self);
                     *fo.iframe().retained_back.lock() = Some(back_fo.to_owned());
                 }
                 // Set owner to FrameObject since this frame is no longer

@@ -986,6 +986,20 @@ impl InterpreterFrame {
         self.materialize_slow(vm)
     }
 
+    /// Like `materialize`, but creates a lightweight FrameObject with empty
+    /// localsplus. Used for f_back chain building (retained_back) to avoid
+    /// cloning local variables and creating extra refcounts.
+    /// `find_live_source_iframe` will redirect localsplus reads to the live
+    /// source iframe when the frame is still executing.
+    #[cold]
+    #[inline(never)]
+    pub(crate) fn materialize_chain(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+        if let Some(fo) = self.frame_obj() {
+            return fo;
+        }
+        self.materialize_slow_chain(vm)
+    }
+
     #[cold]
     fn materialize_slow(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
         // Create a full FrameObject with its own InterpreterFrame copy.
@@ -1064,6 +1078,76 @@ impl InterpreterFrame {
 
         // SAFETY: the pointer we stored above remains valid because
         // temporary_refs holds a strong reference.
+        unsafe { &*(fo_ptr as *const Py<FrameObject>) }
+    }
+
+    /// Like `materialize_slow` but with empty localsplus to avoid extra
+    /// refcounts on local variables. Only suitable for f_back chain building.
+    #[cold]
+    fn materialize_slow_chain(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+        let code: PyRef<PyCode> = self.code().to_owned();
+        let globals: PyDictRef = self.globals().to_owned();
+        let builtins: PyObjectRef = self.builtins().to_owned();
+        let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
+
+        // Empty localsplus — reads go through find_live_source_iframe.
+        let nlocalsplus = code.localspluskinds.len() as u32;
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::Heap(vec![0usize; nlocalsplus as usize].into_boxed_slice()),
+            nlocalsplus,
+            stack_top: 0,
+        };
+
+        let locals = match self.locals.get() {
+            Some(mapping) => FrameLocals::with_locals(mapping.clone()),
+            None => FrameLocals::lazy(),
+        };
+
+        let inner_iframe = Self {
+            code: core::ptr::null(),
+            func_obj: core::ptr::null(),
+            globals: core::ptr::null(),
+            builtins: core::ptr::null(),
+            localsplus,
+            locals,
+            lasti: Radium::new(self.lasti.load(Relaxed)),
+            prev_line: core::cell::Cell::new(self.prev_line.get()),
+            trace: PyMutex::new(None),
+            trace_lines: PyMutex::new(true),
+            trace_opcodes: PyMutex::new(false),
+            temporary_refs: PyMutex::new(vec![]),
+            generator: PyAtomicBorrow::new(),
+            previous: Radium::new(0),
+            owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            f_locals_hidden_overlay: PyMutex::new(None),
+            f_extra_locals: PyMutex::new(None),
+            escaped: atomic::AtomicBool::new(true),
+            retained_back: PyMutex::new(None),
+            pending_stack_pops: Default::default(),
+            pending_unwind_from_stack: Default::default(),
+            materialized: Radium::new(0),
+        };
+
+        let frame_obj = FrameObject {
+            owned_code: Some(code),
+            owned_globals: Some(globals),
+            owned_builtins: Some(builtins),
+            owned_func_obj: func_obj,
+            iframe: FrameUnsafeCell::new(Some(inner_iframe)),
+        };
+        let frame_ref = frame_obj.into_ref(&vm.ctx);
+        FrameObject::init_iframe_ptrs(&frame_ref);
+        unsafe {
+            frame_ref
+                .iframe_mut()
+                .materialized
+                .store(&*frame_ref as *const Py<FrameObject> as usize, Relaxed);
+        }
+
+        let fo_ptr = &*frame_ref as *const Py<FrameObject> as usize;
+        self.materialized.store(fo_ptr, Relaxed);
+        self.temporary_refs.lock().push(frame_ref.clone().into());
+
         unsafe { &*(fo_ptr as *const Py<FrameObject>) }
     }
 
