@@ -354,20 +354,37 @@ mod decl {
                         continue;
                     }
                     let top = slot.top_frame.load(Ordering::Relaxed) as *const FrameObject;
-                    dump_traceback_thread_chain(fd, tid, false, top);
+                    if !top.is_null() {
+                        dump_traceback_thread_chain(fd, tid, false, top);
+                    } else {
+                        // Stack-allocated iframe path: walk via top_iframe
+                        let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                            as *const rustpython_vm::frame::InterpreterFrame;
+                        write_thread_id(fd, tid, false);
+                        if iframe_ptr.is_null() {
+                            puts(fd, "  <no Python frame>\n");
+                        } else {
+                            let mut cur = iframe_ptr;
+                            let mut depth = 0;
+                            while !cur.is_null() && depth < 100 {
+                                let iframe = unsafe { &*cur };
+                                dump_iframe(fd, iframe);
+                                depth += 1;
+                                cur = iframe.previous();
+                            }
+                            if depth >= 100 && !cur.is_null() {
+                                puts(fd, "  ...\n");
+                            }
+                        }
+                    }
                     puts(fd, "\n");
                 }
             }
 
-            // Now dump current thread from its live frame chain.
+            // Now dump current thread from its live frame chain
+            // (includes stack-allocated iframes without FrameObject).
             write_thread_id(fd, current_tid, true);
-            if crate::vm::vm::thread::get_current_frame().is_null() {
-                puts(fd, "  <no Python frame>\n");
-            } else {
-                crate::vm::frame::for_each_current_frame(|frame| {
-                    dump_frame_from_ref(fd, frame);
-                });
-            }
+            dump_live_frames(fd);
         }
 
         #[cfg(all(not(unix), feature = "threading"))]
@@ -390,24 +407,17 @@ mod decl {
                 puts(fd, "\n");
             }
 
-            // Now dump current thread from its live frame chain.
+            // Now dump current thread from its live frame chain
+            // (includes stack-allocated iframes without FrameObject).
             write_thread_id(fd, current_tid, true);
-            if crate::vm::vm::thread::get_current_frame().is_null() {
-                puts(fd, "  <no Python frame>\n");
-            } else {
-                crate::vm::frame::for_each_current_frame(|frame| {
-                    dump_frame_from_ref(fd, frame);
-                });
-            }
+            dump_live_frames(fd);
         }
 
         #[cfg(not(feature = "threading"))]
         {
             let _ = vm;
             write_thread_id(fd, current_thread_id(), true);
-            crate::vm::frame::for_each_current_frame(|frame| {
-                dump_frame_from_ref(fd, frame);
-            });
+            dump_live_frames(fd);
         }
     }
 
@@ -738,7 +748,27 @@ mod decl {
                                     .top_frame
                                     .load(core::sync::atomic::Ordering::Relaxed)
                                     as *const FrameObject;
-                                dump_traceback_thread_chain(fd, *tid, false, top);
+                                if !top.is_null() {
+                                    dump_traceback_thread_chain(fd, *tid, false, top);
+                                } else {
+                                    let iframe_ptr = slot
+                                        .top_iframe
+                                        .load(core::sync::atomic::Ordering::Relaxed)
+                                        as *const rustpython_vm::frame::InterpreterFrame;
+                                    write_thread_id(fd, *tid, false);
+                                    if iframe_ptr.is_null() {
+                                        puts(fd, "  <no Python frame>\n");
+                                    } else {
+                                        let mut cur = iframe_ptr;
+                                        let mut depth = 0;
+                                        while !cur.is_null() && depth < 100 {
+                                            let iframe = unsafe { &*cur };
+                                            dump_iframe(fd, iframe);
+                                            depth += 1;
+                                            cur = iframe.previous();
+                                        }
+                                    }
+                                }
                             }
                         }
                         all(not(unix), feature = "threading") => {

@@ -528,16 +528,24 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // Each code object gets only the events that apply to it (global + its
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
-    crate::frame::for_each_current_frame(|frame| {
-        let code = frame.iframe().code();
-        let code_ver = code.instrumentation_version.load(Ordering::Acquire);
-        if code_ver != new_ver {
-            let code_events = state.events_for_code(code.get_id());
-            instrument_code(code, code_events);
-            code.instrumentation_version
-                .store(new_ver, Ordering::Release);
+    // Re-instrument all frames on the current thread's stack, including
+    // stack-allocated iframes (with_iframe path) that have no FrameObject.
+    {
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            let iframe_ref = unsafe { &*cur };
+            let code = iframe_ref.code();
+            let code_ver = code.instrumentation_version.load(Ordering::Acquire);
+            if code_ver != new_ver {
+                let code_events = state.events_for_code(code.get_id());
+                instrument_code(code, code_events);
+                code.instrumentation_version
+                    .store(new_ver, Ordering::Release);
+            }
+            cur = iframe_ref.previous.load(Ordering::Relaxed)
+                as *const crate::frame::InterpreterFrame;
         }
-    });
+    }
 }
 
 fn use_tool_id(tool_id: i32, name: &str, vm: &VirtualMachine) -> PyResult<()> {
