@@ -344,7 +344,7 @@ impl<T: Clone> MergeState<T> {
         match breakout {
             Some(Breakout::Succeed) => {
                 if len_b > 0 {
-                    values[dest - len_b + 1..dest + 1].clone_from_slice(&self.buf[0..len_b]);
+                    values[(dest + 1) - len_b..dest + 1].clone_from_slice(&self.buf[0..len_b]);
                 }
                 Ok(())
             }
