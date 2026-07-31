@@ -2209,10 +2209,6 @@ if not SKIP_CORO_TESTS:
             (Pdb) continue
             """
 
-        # TODO: RUSTPYTHON - async pdb exception callback gets None exc
-        if sys.implementation.name == "rustpython":
-            test_pdb_await_support = None
-
         def test_pdb_await_with_breakpoint():
             """Testing await support with breakpoints set in tasks
 
