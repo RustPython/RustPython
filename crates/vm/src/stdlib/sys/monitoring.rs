@@ -1038,18 +1038,29 @@ pub(crate) fn fire_py_throw(
     )
 }
 
+/// If `value` is already a `StopIteration`, pass it directly; otherwise wrap
+/// it in a new `StopIteration(value)` — matching `PyMonitoring_FireStopIterationEvent`.
 pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
     code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    value: &PyObjectRef,
 ) -> PyResult<()> {
+    let exc: PyObjectRef = if value.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+        value.clone()
+    } else {
+        vm.ctx
+            .exceptions
+            .stop_iteration
+            .as_object()
+            .call(vec![value.clone()], vm)?
+    };
     fire(
         vm,
         EVENT_STOP_ITERATION,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exc],
     )
 }
 
