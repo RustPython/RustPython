@@ -6,6 +6,8 @@ on:
     paths:
       - "Lib/**"
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -26,13 +28,17 @@ jobs:
           persist-credentials: false
 
       - name: Fetch PR head
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          git fetch origin ${{ github.event.pull_request.head.sha }}
+          git fetch origin "$PR_HEAD_SHA"
 
       - name: Checkout PR Lib files
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Checkout only Lib/ directory from PR head for accurate comparison
-          git checkout ${{ github.event.pull_request.head.sha }} -- Lib/
+          git checkout "$PR_HEAD_SHA" -- Lib/
 
       - name: Get target CPython version
         id: cpython-version
@@ -51,14 +57,17 @@ jobs:
 
       - name: Get changed Lib files
         id: all-changed-files
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Get the list of changed files under Lib/
           {
             echo 'changed<<EOF'
 
-            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py'
+            git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" -- 'Lib/*.py' 'Lib/**/*.py'
 
-            echo 'EOF' 
+            echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
       - name: Parse changed files
