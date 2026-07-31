@@ -1513,7 +1513,7 @@ impl PyType {
         // temporary refs so they never see a dangling pointer.
         let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
             if let Some(frame) = vm.current_frame() {
-                frame.temporary_refs.lock().push(type_ref.into());
+                frame.iframe().temporary_refs.lock().push(type_ref.into());
             } else {
                 retired.push(type_ref.into());
             }
@@ -2183,14 +2183,11 @@ impl Constructor for PyType {
             *f = PyStaticMethod::from(f.clone()).into_pyobject(vm);
         }
 
-        if let Some(current_frame) = vm.current_frame() {
+        if let Some(globals) = crate::frame::current_globals() {
             let entry = attributes.entry(identifier!(vm, __module__));
             if matches!(entry, Entry::Vacant(_)) {
-                let module_name = vm.unwrap_or_none(
-                    current_frame
-                        .globals
-                        .get_item_opt(identifier!(vm, __name__), vm)?,
-                );
+                let module_name =
+                    vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
                 entry.or_insert(module_name);
             }
         }

@@ -51,7 +51,7 @@ pub trait PyPayload: MaybeTraverse + PyThreadingConstraint + Sized + 'static {
     /// Whether `PyRef::new_ref` skips auto-tracking this type in the GC even
     /// when it would otherwise qualify (has traverse, dict, or heap type).
     /// Such objects are created untracked and must be tracked explicitly if
-    /// and when they can become part of a reference cycle. Used by `Frame`,
+    /// and when they can become part of a reference cycle. Used by `FrameObject`,
     /// which is created untracked and tracked lazily only on escape.
     const NEW_REF_UNTRACKED: bool = false;
 

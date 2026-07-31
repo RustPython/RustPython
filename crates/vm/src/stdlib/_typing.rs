@@ -417,9 +417,8 @@ pub(crate) mod decl {
             };
 
             // Get caller's module name from frame globals, like typevar.rs caller()
-            let module = vm
-                .current_frame()
-                .and_then(|f| f.globals.get_item("__name__", vm).ok());
+            let module =
+                crate::frame::current_globals().and_then(|g| g.get_item("__name__", vm).ok());
 
             Ok(Self::new_eager(name, type_params, value, module))
         }

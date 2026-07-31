@@ -401,13 +401,13 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path().as_str();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
         filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
-        tb_entry.frame.code.obj_name
+        tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]

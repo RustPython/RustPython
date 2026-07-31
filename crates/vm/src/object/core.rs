@@ -211,7 +211,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Extract child references to break circular refs (tp_clear), then drop
-    // them. Some payloads (e.g. Frame) drop children in place inside clear_fn
+    // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
     // instead of extracting them, so user code (`__del__`) may run here.
     let mut edges = Vec::new();
     if let Some(clear_fn) = vtable.clear {
@@ -2191,6 +2191,7 @@ impl<T: PyPayload> Py<T> {
     /// obtained by dereferencing a `Py<T>`), and the object must outlive the
     /// returned pointer's use.
     #[inline]
+    #[cfg_attr(not(feature = "threading"), allow(dead_code))]
     pub(crate) unsafe fn from_payload_ptr(payload: *const T) -> *const Self {
         let offset = core::mem::offset_of!(PyInner<T>, payload);
         // `Py<T>` is a newtype over `PyInner<T>`, so their addresses coincide.

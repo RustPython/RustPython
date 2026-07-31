@@ -7,7 +7,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     atomic_func,
     class::PyClassImpl,
-    frame::FrameRef,
+    frame::FrameObjectRef,
     function::{FuncArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     object::{Traverse, TraverseFn},
     protocol::{PyMappingMethods, PyNumberMethods, PySequenceMethods},
@@ -23,7 +23,7 @@ use rustpython_common::wtf8::Wtf8Buf;
 #[pyclass(module = false, name = "FrameLocalsProxy", traverse = "manual")]
 #[derive(Debug)]
 pub struct FrameLocalsProxy {
-    frame: FrameRef,
+    frame: FrameObjectRef,
 }
 
 unsafe impl Traverse for FrameLocalsProxy {
@@ -40,7 +40,7 @@ impl PyPayload for FrameLocalsProxy {
 }
 
 impl FrameLocalsProxy {
-    pub(crate) fn new(frame: FrameRef) -> Self {
+    pub(crate) fn new(frame: FrameObjectRef) -> Self {
         Self { frame }
     }
 
@@ -67,7 +67,7 @@ impl Constructor for FrameLocalsProxy {
                 args.len()
             )));
         }
-        let frame: FrameRef = args
+        let frame: FrameObjectRef = args
             .pop()
             .unwrap()
             .downcast()
