@@ -1728,8 +1728,9 @@ impl VirtualMachine {
         self.recursion_depth.update(|d| d + 1);
         // Decrement on all exit paths (including panic between here and
         // the explicit decrement at the bottom).
-        let _depth_guard =
-            scopeguard::guard((), |()| self.recursion_depth.update(|d| d.saturating_sub(1)));
+        let _depth_guard = scopeguard::guard((), |()| {
+            self.recursion_depth.update(|d| d.saturating_sub(1))
+        });
 
         #[cfg(all(not(unix), feature = "threading"))]
         crate::vm::thread::push_thread_frame(FramePtr(NonNull::from(&*frame)));
@@ -1754,11 +1755,7 @@ impl VirtualMachine {
             core::sync::atomic::Ordering::AcqRel,
         );
 
-        let result = if self.use_tracing.get() {
-            self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()))
-        } else {
-            f(frame.to_owned())
-        };
+        let result = self.dispatch_traced_frame(&frame, |frame| f(frame.to_owned()));
 
         // Capture f_back before clearing previous so code holding a
         // reference to this FrameObject can walk the chain after return.
