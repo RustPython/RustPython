@@ -134,7 +134,7 @@ impl<T: Clone> MergeState<T> {
                     breakout = Some(Breakout::Succeed);
                     break;
                 }
-                k = gallop_left(&values, is_lt, &self.buf[cursor_a], cursor_b, len_b, 0)?;
+                k = gallop_left(values, is_lt, &self.buf[cursor_a], cursor_b, len_b, 0)?;
                 b_count = k;
                 if k > 0 {
                     copy_within_clone(values, cursor_b, dest, k);
@@ -208,7 +208,7 @@ impl<T: Clone> MergeState<T> {
         len_a -= 1;
 
         if len_a == 0 {
-            values[dest - len_b + 1..dest + 1].clone_from_slice(&self.buf[0..len_b]);
+            values[(dest - len_b + 1)..=dest].clone_from_slice(&self.buf[0..len_b]);
             return Ok(());
         }
         if len_b == 1 {
@@ -272,7 +272,7 @@ impl<T: Clone> MergeState<T> {
                 }
                 self.min_gallop = min_gallop;
                 let mut k = gallop_right(
-                    &values,
+                    values,
                     is_lt,
                     &self.buf[cursor_b],
                     start_a,
@@ -303,8 +303,8 @@ impl<T: Clone> MergeState<T> {
                 k = len_b - k;
                 b_count = k;
                 if k > 0 {
-                    values[dest + 1 - k..dest + 1]
-                        .clone_from_slice(&self.buf[cursor_b + 1 - k..cursor_b + 1]);
+                    values[dest + 1 - k..=dest]
+                        .clone_from_slice(&self.buf[cursor_b + 1 - k..=cursor_b]);
                     dest -= k;
                     len_b -= k;
 
@@ -344,7 +344,7 @@ impl<T: Clone> MergeState<T> {
         match breakout {
             Some(Breakout::Succeed) => {
                 if len_b > 0 {
-                    values[(dest + 1) - len_b..dest + 1].clone_from_slice(&self.buf[0..len_b]);
+                    values[(dest + 1) - len_b..=dest].clone_from_slice(&self.buf[0..len_b]);
                 }
                 Ok(())
             }
@@ -407,7 +407,12 @@ impl<T: Clone> MergeState<T> {
         Ok(())
     }
 
-    fn found_new_run<E, F>(&mut self, new_run_len: usize, values: &mut [T], is_lt: &mut F) -> Result<(), E>
+    fn found_new_run<E, F>(
+        &mut self,
+        new_run_len: usize,
+        values: &mut [T],
+        is_lt: &mut F,
+    ) -> Result<(), E>
     where
         F: FnMut(&T, &T) -> Result<bool, E>,
     {
@@ -661,7 +666,7 @@ where
     }
 
     if n < MAX_MINRUN {
-        let (l, desc) = count_run(&values, is_lt)?;
+        let (l, desc) = count_run(values, is_lt)?;
         if desc {
             values[0..l].reverse();
         }
@@ -721,14 +726,14 @@ mod tests {
 
     #[test]
     fn test_large() {
-        let mut v: Vec<i32> = (0..1000).rev().collect(); // 999..0
+        let v: Vec<i32> = (0..1000).rev().collect(); // 999..0
         let sorted: Vec<i32> = (0..1000).collect();
         assert_eq!(sort(v), sorted);
     }
 
     #[test]
     fn test_random_ish() {
-        let mut v: Vec<i32> = (0..500).map(|i| (i * 7919) % 500).collect();
+        let v: Vec<i32> = (0..500).map(|i| (i * 7919) % 500).collect();
         let mut expected = v.clone();
         expected.sort();
         assert_eq!(sort(v), expected);
