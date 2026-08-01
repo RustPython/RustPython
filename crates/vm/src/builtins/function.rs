@@ -64,9 +64,9 @@ fn format_missing_args(
 #[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
-    code: PyAtomicRef<PyCode>,
-    globals: PyDictRef,
-    builtins: PyObjectRef,
+    pub(crate) code: PyAtomicRef<PyCode>,
+    pub(crate) globals: PyDictRef,
+    pub(crate) builtins: PyObjectRef,
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,

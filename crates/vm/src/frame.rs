@@ -544,6 +544,13 @@ impl LocalsPlus {
         Ok(())
     }
 
+    /// Push a PyObjectRef onto the evaluation stack.
+    /// Panics on overflow.
+    pub(crate) fn push_stack(&mut self, value: PyObjectRef) {
+        self.stack_try_push(Some(PyStackRef::new_owned(value)))
+            .unwrap_or_else(|_| panic!("stack overflow in push_stack"));
+    }
+
     /// Pop a value from the evaluation stack.
     #[inline(always)]
     fn stack_pop(&mut self) -> Option<PyStackRef> {
@@ -1456,6 +1463,10 @@ unsafe impl Traverse for FrameObject {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
+    /// The bytecode loop wants to tail-call into a new frame that has
+    /// already been prepared on the datastack. The trampoline reads the
+    /// pending frame pointer from `vm.pending_tailcall_frame`.
+    TailCall,
 }
 
 /// A valid execution result, or an exception
@@ -2200,6 +2211,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            tailcall_enabled: false,
         };
         f(exec)
     }
@@ -2262,6 +2274,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            tailcall_enabled: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2303,6 +2316,69 @@ pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize)
         .expect("datastack iframe total size overflow")
 }
 
+/// Handle an exception propagating into a suspended caller frame in the
+/// trampoline. Adds a traceback entry at the caller's call site, then
+/// tries the caller's exception table via `unwind_blocks`.
+///
+/// Returns:
+/// - `Ok(None)` — handler found, the caller's `run_iframe` can be re-entered
+/// - `Ok(Some(result))` — handler returned a result (break from the run loop)
+/// - `Err(exc)` — no handler, exception propagates to the next caller
+pub(crate) fn trampoline_handle_exception(
+    iframe: &mut InterpreterFrame,
+    exception: &PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> FrameResult {
+    let code: &Py<PyCode> = unsafe { &*iframe.code };
+    let globals: &Py<PyDict> = unsafe { &*iframe.globals };
+    let builtins: &PyObject = unsafe { &*iframe.builtins };
+    let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
+        None
+    } else {
+        Some(unsafe { &*iframe.func_obj })
+    };
+    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+        builtins
+            .downcast_ref_if_exact::<PyDict>(vm)
+            .map(|d| unsafe { PyExact::ref_unchecked(d) })
+    } else {
+        None
+    };
+    let iframe_ptr = iframe as *const InterpreterFrame;
+    let mut exec = ExecutingFrame {
+        code,
+        localsplus: &mut iframe.localsplus,
+        locals: &iframe.locals,
+        globals,
+        builtins,
+        builtins_dict,
+        lasti: &iframe.lasti,
+        iframe: iframe_ptr,
+        func_obj,
+        prev_line: &mut iframe.prev_line,
+        monitoring_mask: 0,
+        tailcall_enabled: false,
+    };
+
+    // lasti points past the CallPyExactArgs instruction (+ cache entries).
+    // The exception occurred at the previous instruction (the call site).
+    let idx = exec.lasti() as usize - 1;
+
+    // Add traceback entry at the call site.
+    if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
+        let next = exception.__traceback__();
+        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
+        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+    }
+
+    exec.unwind_blocks(
+        vm,
+        UnwindReason::Raising {
+            exception: exception.clone(),
+        },
+    )
+}
+
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
 ///
 /// # Safety
@@ -2341,6 +2417,7 @@ pub(crate) fn run_iframe(
         func_obj,
         prev_line: &mut iframe.prev_line,
         monitoring_mask: 0,
+        tailcall_enabled: true,
     };
     exec.run(vm)
 }
@@ -2370,6 +2447,9 @@ pub(crate) struct ExecutingFrame<'a> {
     prev_line: &'a core::cell::Cell<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
+    /// Whether TailCall is allowed. True when running under the trampoline
+    /// (`run_frame_fast`), false for FrameObject-based execution.
+    tailcall_enabled: bool,
 }
 
 #[inline]
@@ -5771,7 +5851,11 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // Stage args without a per-call Vec: [self?, arg1, ..., argN]
+                    if self.tailcall_enabled && !func.is_generator_like() {
+                        self.tailcall_prepare_frame(nargs, self_or_null_is_some, vm);
+                        return Ok(Some(ExecutionResult::TailCall));
+                    }
+                    // Recursive path: pop args and call.
                     let base = usize::from(self_or_null_is_some);
                     let mut arg_buf = CallArgBuffer::new(nargs as usize + base);
                     let args = arg_buf.slots();
@@ -10525,6 +10609,77 @@ impl ExecutingFrame<'_> {
             .saturating_add(1)
             .saturating_add(extra_frames)
             >= vm.recursion_limit.get()
+    }
+
+    /// Prepare a callee frame on the datastack for a TailCall.
+    /// Pops args, self_or_null, and callable from the caller's stack,
+    /// builds the callee InterpreterFrame, and stores its pointer in
+    /// `vm.pending_tailcall_frame`.
+    ///
+    /// The callable must be at stack position `nargs + 1` (already validated).
+    fn tailcall_prepare_frame(
+        &mut self,
+        nargs: u32,
+        self_or_null_is_some: bool,
+        vm: &VirtualMachine,
+    ) {
+        // Pop args first, then self_or_null, then callable.
+        let base = usize::from(self_or_null_is_some);
+        let effective_nargs = nargs as usize + base;
+
+        // Collect args into a small buffer.
+        let mut arg_buf = CallArgBuffer::new(effective_nargs);
+        let arg_slots = arg_buf.slots();
+        for (slot, arg) in arg_slots[base..]
+            .iter_mut()
+            .zip(self.pop_multiple(nargs as usize))
+        {
+            *slot = Some(arg);
+        }
+        let self_or_null = self.pop_value_opt();
+        debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+        if self_or_null.is_some() {
+            arg_slots[0] = self_or_null;
+        }
+        let callable = self.pop_value();
+        let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
+
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = InterpreterFrame::new_on_datastack(
+            code,
+            &func.globals,
+            &func.builtins,
+            Some(func.as_object()),
+            locals,
+            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Fill arguments from the pre-popped arg buffer into fastlocals.
+        {
+            let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+            for (dst, src) in fastlocals[..effective_nargs]
+                .iter_mut()
+                .zip(arg_slots.iter_mut())
+            {
+                *dst = src.take();
+            }
+        }
+        // Keep the callable alive — the callee iframe borrows code/globals/
+        // builtins from the PyFunction via raw pointers.
+        callee_iframe.temporary_refs.lock().push(callable);
+
+        vm.pending_tailcall_frame
+            .set(crate::vm::SendPtr(callee_iframe as *mut InterpreterFrame));
     }
 
     #[inline]
