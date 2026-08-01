@@ -254,6 +254,10 @@ def test_multichar_lineterminator():
     assert list(csv.reader(io.StringIO("a,b!@#c,d!@#"), lineterminator="!@#")) == [
         ["a", "b!@#c", "d!@#"]
     ]
+    assert list(csv.reader(io.StringIO("a,b\r\nc,d\r\n"), lineterminator="!@#")) == [
+        ["a", "b"],
+        ["c", "d"],
+    ]
 
 
 test_multichar_lineterminator()
@@ -293,6 +297,32 @@ def test_reject_non_ascii_lineterminator():
 
 if sys.implementation.name == "rustpython":
     test_reject_non_ascii_lineterminator()
+
+
+def test_empty_lineterminator():
+    class EmptyLineTerminator(csv.excel):
+        lineterminator = ""
+
+    keyword = io.StringIO()
+    csv.writer(keyword, lineterminator="").writerows([["a", "b"], ["c", "d"]])
+    assert keyword.getvalue() == "a,bc,d"
+
+    dialect = io.StringIO()
+    csv.writer(dialect, dialect=EmptyLineTerminator).writerows([["a", "b"], ["c", "d"]])
+    assert dialect.getvalue() == "a,bc,d"
+
+    source = "a,b\r\nc,d\n"
+    assert list(csv.reader(io.StringIO(source), lineterminator="")) == [
+        ["a", "b"],
+        ["c", "d"],
+    ]
+    assert list(csv.reader(io.StringIO(source), dialect=EmptyLineTerminator)) == [
+        ["a", "b"],
+        ["c", "d"],
+    ]
+
+
+test_empty_lineterminator()
 
 
 def test_quote_minimal_writer_empty_fields():
