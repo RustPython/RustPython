@@ -836,6 +836,9 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
+    /// Base pointer of the datastack allocation when this frame and its
+    /// localsplus are bump-allocated together. Null for heap-backed frames.
+    pub(crate) datastack_base: *mut u8,
     /// Persistent overlay for `frame.f_locals` when hidden locals need a
     /// snapshot separate from the backing locals mapping.
     pub(crate) f_locals_hidden_overlay: PyMutex<Option<PyDictRef>>,
@@ -941,6 +944,7 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
+            datastack_base: core::ptr::null_mut(),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
             escaped: atomic::AtomicBool::new(false),
@@ -949,6 +953,106 @@ impl InterpreterFrame {
             pending_unwind_from_stack: Default::default(),
             materialized: Radium::new(0),
         }
+    }
+
+    /// Allocate an InterpreterFrame and its LocalsPlus data together on the
+    /// thread data stack in a single bump allocation.
+    ///
+    /// Layout: `[InterpreterFrame | localsplus usize×capacity]`
+    ///
+    /// Returns a mutable reference whose lifetime is bounded by the data
+    /// stack's LIFO discipline. The caller must call
+    /// `release_datastack_frame()` (unsafe) when done, then
+    /// `vm.datastack_pop(base)`. The reference must not be used after
+    /// `release_datastack_frame` returns.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_on_datastack<'a>(
+        code: &Py<PyCode>,
+        globals: &Py<PyDict>,
+        builtins: &PyObject,
+        func_obj: Option<&PyObject>,
+        locals: FrameLocals,
+        closure: &[PyCellRef],
+        vm: &VirtualMachine,
+    ) -> &'a mut Self {
+        let nlocalsplus = code.localspluskinds.len();
+        let stacksize = code.max_stackdepth as usize;
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+
+        let total_bytes = datastack_iframe_total_bytes(nlocalsplus, stacksize);
+        let base = vm.datastack_push(total_bytes);
+
+        // InterpreterFrame lives at the start of the allocation.
+        let iframe_ptr = base as *mut Self;
+        // LocalsPlus data follows the InterpreterFrame, aligned to usize.
+        let localsplus_offset = core::mem::size_of::<Self>();
+        let localsplus_offset_aligned = (localsplus_offset + core::mem::align_of::<usize>() - 1)
+            & !(core::mem::align_of::<usize>() - 1);
+        let localsplus_data_ptr = unsafe { base.add(localsplus_offset_aligned) } as *mut usize;
+
+        // Zero-initialize localsplus data.
+        unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
+
+        let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::DataStack {
+                ptr: localsplus_data_ptr,
+                capacity,
+            },
+            nlocalsplus: nlocalsplus_u32,
+            stack_top: 0,
+        };
+
+        let mut iframe = Self::new(
+            code,
+            globals,
+            builtins,
+            func_obj,
+            localsplus,
+            locals,
+            closure,
+            FrameOwner::Thread,
+        );
+        iframe.datastack_base = base;
+
+        // Write the fully initialized InterpreterFrame into the datastack.
+        unsafe {
+            core::ptr::write(iframe_ptr, iframe);
+            &mut *iframe_ptr
+        }
+    }
+
+    /// Release this datastack-allocated frame's resources and return the
+    /// base pointer for `vm.datastack_pop()`.
+    ///
+    /// Drops all localsplus values, runs destructors for all frame fields
+    /// (trace, temporary_refs, retained_back, etc.), and detaches the
+    /// backing store.
+    /// Returns `None` if this frame is not datastack-allocated.
+    ///
+    /// After this call, the InterpreterFrame at `self` is logically dead —
+    /// the caller must not use `self` again except to pass the returned
+    /// base to `vm.datastack_pop()`.
+    pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<*mut u8> {
+        let base = self.datastack_base;
+        if base.is_null() {
+            return None;
+        }
+        self.datastack_base = core::ptr::null_mut();
+        // Drop all localsplus values while the backing store is still valid.
+        self.localsplus.drop_values();
+        // Detach from the data stack so further accesses see an empty frame.
+        self.localsplus.data = LocalsPlusData::Heap(Box::default());
+        self.localsplus.nlocalsplus = 0;
+        // Drop remaining frame fields (trace, temporary_refs, retained_back,
+        // etc.) by running destructors in place. The localsplus is already
+        // empty/heap-backed, so this only drops non-localsplus fields.
+        // SAFETY: `self` points to valid, initialized memory on the data
+        // stack. After this call the memory is logically dead.
+        unsafe { core::ptr::drop_in_place(self) };
+        Some(base)
     }
 
     /// Get the last instruction index.
@@ -1044,6 +1148,7 @@ impl InterpreterFrame {
             // If we copied Thread from the source iframe, frame.clear() would
             // reject the frame with "cannot clear an executing frame".
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            datastack_base: core::ptr::null_mut(),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
             escaped: atomic::AtomicBool::new(true),
@@ -1126,6 +1231,7 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            datastack_base: core::ptr::null_mut(),
             f_locals_hidden_overlay: PyMutex::new(None),
             f_extra_locals: PyMutex::new(None),
             escaped: atomic::AtomicBool::new(true),
@@ -2168,6 +2274,24 @@ impl Py<FrameObject> {
         }
         frame
     }
+}
+
+/// Total bytes needed to co-allocate an InterpreterFrame and its LocalsPlus
+/// data on the thread data stack.
+pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize) -> usize {
+    let iframe_size = core::mem::size_of::<InterpreterFrame>();
+    // Align the localsplus data to usize alignment after the InterpreterFrame.
+    let iframe_padded =
+        (iframe_size + core::mem::align_of::<usize>() - 1) & !(core::mem::align_of::<usize>() - 1);
+    let capacity = nlocalsplus
+        .checked_add(stacksize)
+        .expect("LocalsPlus capacity overflow");
+    let data_bytes = capacity
+        .checked_mul(core::mem::size_of::<usize>())
+        .expect("LocalsPlus byte size overflow");
+    iframe_padded
+        .checked_add(data_bytes)
+        .expect("datastack iframe total size overflow")
 }
 
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.

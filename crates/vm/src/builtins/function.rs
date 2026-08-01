@@ -617,11 +617,6 @@ impl Py<PyFunction> {
 
         // Fast path: stack-allocated InterpreterFrame, no FrameObject.
         // No refcount inc for code — it's alive via self.code for the call duration.
-        let nlocalsplus = code.localspluskinds.len();
-        let max_stackdepth = code.max_stackdepth as usize;
-        let localsplus =
-            crate::frame::LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm);
-
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             crate::frame::FrameLocals::lazy()
         } else if let Some(locals) = locals {
@@ -634,22 +629,21 @@ impl Py<PyFunction> {
 
         // Use self.as_object() as raw pointer — no refcount inc/dec.
         // The function is alive on the caller's stack for the call duration.
-        let mut iframe = crate::frame::InterpreterFrame::new(
+        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
             &self.code,
             &self.globals,
             &self.builtins,
             Some(self.as_object()),
-            localsplus,
             locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            crate::frame::FrameOwner::Thread,
+            vm,
         );
         let result = self
-            .fill_locals_from_args_iframe(&mut iframe, func_args, vm)
-            .and_then(|()| vm.run_frame_fast(&mut iframe));
+            .fill_locals_from_args_iframe(iframe, func_args, vm)
+            .and_then(|()| vm.run_frame_fast(iframe));
         // Release data stack memory — must happen on both success and error.
         unsafe {
-            if let Some(base) = iframe.localsplus.release_datastack() {
+            if let Some(base) = iframe.release_datastack_frame() {
                 vm.datastack_pop(base);
             }
         }
@@ -797,10 +791,6 @@ impl Py<PyFunction> {
         vm: &VirtualMachine,
     ) -> PyResult {
         let code = &*self.code;
-        let nlocalsplus = code.localspluskinds.len();
-        let max_stackdepth = code.max_stackdepth as usize;
-        let localsplus =
-            crate::frame::LocalsPlus::new_on_datastack(nlocalsplus, max_stackdepth, vm);
 
         let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
             crate::frame::FrameLocals::lazy()
@@ -810,15 +800,14 @@ impl Py<PyFunction> {
             ))
         };
 
-        let mut iframe = crate::frame::InterpreterFrame::new(
+        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
             code,
             &self.globals,
             &self.builtins,
             Some(self.as_object()),
-            localsplus,
             locals,
             self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            crate::frame::FrameOwner::Thread,
+            vm,
         );
 
         // Fill arguments directly into fastlocals
@@ -829,9 +818,9 @@ impl Py<PyFunction> {
             }
         }
 
-        let result = vm.run_frame_fast(&mut iframe);
+        let result = vm.run_frame_fast(iframe);
         unsafe {
-            if let Some(base) = iframe.localsplus.release_datastack() {
+            if let Some(base) = iframe.release_datastack_frame() {
                 vm.datastack_pop(base);
             }
         }
@@ -887,8 +876,10 @@ pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<u
         return None;
     }
     let nlocalsplus = code.localspluskinds.len();
-    let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
-    capacity.checked_mul(core::mem::size_of::<usize>())
+    Some(crate::frame::datastack_iframe_total_bytes(
+        nlocalsplus,
+        code.max_stackdepth as usize,
+    ))
 }
 
 impl PyPayload for PyFunction {
