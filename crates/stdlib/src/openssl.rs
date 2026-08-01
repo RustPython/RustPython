@@ -81,6 +81,7 @@ mod _ssl {
                 ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath, OptionalArg,
                 PyComparisonValue,
             },
+            stdlib::_warnings,
             types::{Comparable, Constructor, PyComparisonOp},
             utils::ToCString,
         },
@@ -914,16 +915,24 @@ mod _ssl {
         ) -> PyResult<Self> {
             let proto = SslVersion::try_from(proto_version)
                 .map_err(|_| vm.new_value_error("invalid protocol version"))?;
-            let method = match proto {
+            let (method, deprecated_protocol) = match proto {
                 // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
-                SslVersion::Tls => ssl::SslMethod::tls(),
-                SslVersion::Tls1 => ssl::SslMethod::tls(),
-                SslVersion::Tls1_1 => ssl::SslMethod::tls(),
-                SslVersion::Tls1_2 => ssl::SslMethod::tls(),
-                SslVersion::TlsClient => ssl::SslMethod::tls_client(),
-                SslVersion::TlsServer => ssl::SslMethod::tls_server(),
+                SslVersion::Tls => (ssl::SslMethod::tls(), Some("PROTOCOL_TLS")),
+                SslVersion::Tls1 => (ssl::SslMethod::tls(), Some("PROTOCOL_TLSv1")),
+                SslVersion::Tls1_1 => (ssl::SslMethod::tls(), Some("PROTOCOL_TLSv1_1")),
+                SslVersion::Tls1_2 => (ssl::SslMethod::tls(), Some("PROTOCOL_TLSv1_2")),
+                SslVersion::TlsClient => (ssl::SslMethod::tls_client(), None),
+                SslVersion::TlsServer => (ssl::SslMethod::tls_server(), None),
                 _ => return Err(vm.new_value_error("invalid protocol version")),
             };
+            if let Some(protocol_name) = deprecated_protocol {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.{protocol_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
+            }
             let mut builder =
                 SslContextBuilder::new(method).map_err(|e| convert_openssl_error(vm, e))?;
 
@@ -1012,6 +1021,24 @@ mod _ssl {
 
     #[pyclass(flags(BASETYPE, IMMUTABLETYPE), with(Constructor))]
     impl PySslContext {
+        fn warn_deprecated_tls_version(version: i32, vm: &VirtualMachine) -> PyResult<()> {
+            let version_name = match version {
+                PROTO_SSLv3 => Some("SSLv3"),
+                PROTO_TLSv1 => Some("TLSv1"),
+                PROTO_TLSv1_1 => Some("TLSv1_1"),
+                _ => None,
+            };
+            if let Some(version_name) = version_name {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.TLSVersion.{version_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
+            }
+            Ok(())
+        }
+
         fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
             self.ctx.write()
         }
@@ -1133,14 +1160,32 @@ mod _ssl {
                 return Err(vm.new_value_error("invalid options value"));
             }
             let new_opts = new_opts as core::ffi::c_ulong;
-            let mut ctx = self.builder();
-            // Get current options
-            let current = ctx.options().bits() as core::ffi::c_ulong;
+            let current = {
+                let ctx = self.ctx();
+                unsafe { sys::SSL_CTX_get_options(ctx.as_ptr()) }
+            };
 
             // Calculate options to clear and set
             let clear = current & !new_opts;
             let set = !current & new_opts;
 
+            let opt_no = sys::SSL_OP_NO_SSLv2
+                | sys::SSL_OP_NO_SSLv3
+                | sys::SSL_OP_NO_TLSv1
+                | sys::SSL_OP_NO_TLSv1_1
+                | sys::SSL_OP_NO_TLSv1_2;
+            #[cfg(ossl111)]
+            let opt_no = opt_no | sys::SSL_OP_NO_TLSv1_3;
+            if (set & opt_no) != 0 {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    "ssl.OP_NO_SSL*/ssl.OP_NO_TLS* options are deprecated".to_owned(),
+                    2,
+                    vm,
+                )?;
+            }
+
+            let mut ctx = self.builder();
             // Clear options first (using raw FFI since openssl crate doesn't expose clear_options)
             if clear != 0 {
                 unsafe {
@@ -1247,6 +1292,8 @@ mod _ssl {
         }
         #[pygetset(setter)]
         fn set_minimum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Handle special values
             let proto_version = match value {
                 -2 => {
@@ -1281,6 +1328,8 @@ mod _ssl {
         }
         #[pygetset(setter)]
         fn set_maximum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Handle special values
             let proto_version = match value {
                 -1 => {
