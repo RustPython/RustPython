@@ -265,11 +265,9 @@ cargo run --features jit
 
 ### Linux Build and Debug on macOS
 
-See the "Testing on Linux from macOS" section in [DEVELOPMENT.md](DEVELOPMENT.md#testing-on-linux-from-macos).
+See the "Testing on Linux from macOS" section in [CONTRIBUTING.md](CONTRIBUTING.md#testing-on-linux-from-macos).
 
 ### Building venvlauncher (Windows)
-
-See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
 
 **IMPORTANT**: All 4 venvlauncher binaries use the same source code. Do NOT add multiple `[[bin]]` entries to Cargo.toml. Build once and copy with different names.
 
@@ -301,7 +299,7 @@ If you modify any file under `.github/workflows/`, the change must pass a [zizmo
 ## Documentation
 
 - Check the [architecture document](/architecture/architecture.md) for a high-level overview
-- Read the [development guide](/DEVELOPMENT.md) for detailed setup instructions
+- Read the [development guide](/CONTRIBUTING.md) for detailed setup instructions
 - Generate documentation with `cargo doc --no-deps --all`
 - Online documentation is available at [docs.rs/rustpython](https://docs.rs/rustpython/)
 - [How to update test files](https://github.com/RustPython/RustPython/wiki/How-to-update-test-files#checkout-cpython-source-code-initial-setup) — guide for syncing test cases from upstream CPython into the `Lib/` directory
