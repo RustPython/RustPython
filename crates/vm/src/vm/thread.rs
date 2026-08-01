@@ -1023,7 +1023,7 @@ impl VirtualMachine {
             callable_cache: self.callable_cache.clone(),
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(super::SendPtr::null()),
-            pending_tailcall_refs: RefCell::new(Vec::with_capacity(2)),
+            pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
         };
         ThreadedVirtualMachine { vm }
     }
