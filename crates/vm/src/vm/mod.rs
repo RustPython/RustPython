@@ -777,6 +777,15 @@ pub fn process_hash_secret_seed() -> u32 {
     *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
 }
 
+/// Saved state from `enter_iframe`, needed by `exit_iframe` to restore
+/// the previous frame chain and exception state.
+pub(crate) struct IframeEntryState {
+    pub(crate) iframe_ptr: *const crate::frame::InterpreterFrame,
+    pub(crate) old_chain: *const crate::frame::InterpreterFrame,
+    pub(crate) saved_exc: Option<PyBaseExceptionRef>,
+    pub(crate) save_exc: bool,
+}
+
 impl VirtualMachine {
     fn init_callable_cache(&mut self) -> PyResult<()> {
         self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
@@ -1805,15 +1814,14 @@ impl VirtualMachine {
         result
     }
 
-    /// Execute a stack-allocated InterpreterFrame without heap-allocating
-    /// a FrameObject. This is the fast path for regular function calls.
-    /// The frame is pushed onto the chain as a `*const InterpreterFrame`.
-    #[inline(always)]
-    pub fn with_iframe<R>(
+    /// Push `iframe` onto the frame chain: recursion/C-stack check, TLS
+    /// link, exception save.  Returns the saved state needed by
+    /// `exit_iframe`.
+    #[inline]
+    pub(crate) fn enter_iframe(
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
-        f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
-    ) -> PyResult<R> {
+    ) -> PyResult<IframeEntryState> {
         self.check_recursive_call("")?;
 
         let depth = self.recursion_depth.get();
@@ -1839,29 +1847,35 @@ impl VirtualMachine {
             None
         };
 
-        let result = f(iframe);
+        Ok(IframeEntryState {
+            iframe_ptr,
+            old_chain,
+            saved_exc,
+            save_exc,
+        })
+    }
+
+    /// Pop `iframe` from the frame chain: sync materialized state, restore
+    /// exception, TLS unlink, GC tracking.
+    pub(crate) fn exit_iframe(&self, state: IframeEntryState) {
+        let IframeEntryState {
+            iframe_ptr,
+            old_chain,
+            saved_exc,
+            save_exc,
+        } = state;
 
         // If this iframe was materialized, capture f_back so that code
-        // holding a reference to the FrameObject (e.g. sys._getframe()
-        // return value, traceback frames) can walk the chain after return.
-        //
-        // Read materialized through the raw TLS pointer instead of the
-        // &mut iframe reference.  During f(iframe), bytecode can
-        // materialize the frame via the TLS chain (a raw pointer alias);
-        // the &mut borrow lets LLVM assume no aliased writes, which can
-        // cause the store to be invisible through `iframe.materialized`.
+        // holding a reference to the FrameObject can walk the chain after
+        // return.  Read materialized through read_volatile to bypass
+        // LLVM's noalias on the &mut iframe borrow.
         {
-            // Use read_volatile through the original raw pointer to bypass
-            // LLVM's noalias assumptions on the &mut iframe borrow.
             let mat_ptr = unsafe {
                 let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
                 core::ptr::read_volatile(field_ptr as *const usize)
             };
             if mat_ptr != 0 {
                 let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
-                // Sync localsplus, prev_line, lasti from the live iframe to
-                // the materialized FrameObject so f_locals, f_lineno, f_lasti
-                // reflect the final state after execution.
                 unsafe {
                     let live_iframe = &*iframe_ptr;
                     fo.iframe_mut()
@@ -1879,15 +1893,9 @@ impl VirtualMachine {
                 }
                 if !old_chain.is_null() {
                     let prev_iframe = unsafe { &*old_chain };
-                    // Use materialize_chain to avoid cloning localsplus, which
-                    // would create extra refcounts on local variables. The
-                    // lightweight frame has empty localsplus; live values are
-                    // read through find_live_source_iframe when needed.
                     let back_fo = prev_iframe.materialize_chain(self);
                     *fo.iframe().retained_back.lock() = Some(back_fo);
                 }
-                // Set owner to FrameObject since this frame is no longer
-                // executing on a thread.
                 fo.iframe().owner.store(
                     crate::frame::FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
@@ -1898,15 +1906,11 @@ impl VirtualMachine {
         if save_exc {
             self.restore_exception(saved_exc);
         }
-        // Restore the frame chain BEFORE clearing temporary_refs, so
-        // top_frame no longer points at the materialized FrameObject
-        // when its last strong reference is released.
         let _ = crate::vm::thread::set_current_frame(old_chain);
         self.recursion_depth.update(|d| d - 1);
 
-        // Now that the frame is off the chain, track the materialized
-        // FrameObject in the GC and release temporary_refs so cycle
-        // collection can detect and reclaim reference cycles.
+        // Track the materialized FrameObject in GC and release
+        // temporary_refs after the frame is off the chain.
         {
             let mat_ptr = unsafe {
                 let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
@@ -1922,7 +1926,16 @@ impl VirtualMachine {
                 }
             }
         }
+    }
 
+    pub fn with_iframe<R>(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
+    ) -> PyResult<R> {
+        let state = self.enter_iframe(iframe)?;
+        let result = f(iframe);
+        self.exit_iframe(state);
         result
     }
 
