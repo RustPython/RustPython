@@ -2,10 +2,14 @@
 const MIN_GALLOP: usize = 7;
 const MAX_MINRUN: usize = 64;
 
-enum Breakout {
+enum LoBreakout {
+    Succeed,
+    CopyB,
+}
+
+enum HiBreakout {
     Succeed,
     CopyA,
-    CopyB,
 }
 
 #[derive(Clone, Copy)]
@@ -62,14 +66,17 @@ impl<T: Clone> MergeState<T> {
         }
 
         let mut min_gallop = self.min_gallop;
-        let mut breakout: Option<Breakout> = None;
 
-        loop {
+        let breakout: Result<LoBreakout, E> = 'merging: loop {
             let mut a_count = 0;
             let mut b_count = 0;
 
             loop {
-                if is_lt(&values[cursor_b], &self.buf[cursor_a])? {
+                let b_wins = match is_lt(&values[cursor_b], &self.buf[cursor_a]) {
+                    Ok(v) => v,
+                    Err(e) => break 'merging Err(e),
+                };
+                if b_wins {
                     values[dest] = values[cursor_b].clone();
                     dest += 1;
                     cursor_b += 1;
@@ -77,8 +84,7 @@ impl<T: Clone> MergeState<T> {
                     b_count += 1;
                     a_count = 0;
                     if len_b == 0 {
-                        breakout = Some(Breakout::Succeed);
-                        break;
+                        break 'merging Ok(LoBreakout::Succeed);
                     }
                     if b_count >= min_gallop {
                         break;
@@ -91,17 +97,12 @@ impl<T: Clone> MergeState<T> {
                     a_count += 1;
                     b_count = 0;
                     if len_a == 1 {
-                        breakout = Some(Breakout::CopyB);
-                        break;
+                        break 'merging Ok(LoBreakout::CopyB);
                     }
                     if a_count >= min_gallop {
                         break;
                     }
                 }
-            }
-
-            if breakout.is_some() {
-                break;
             }
 
             min_gallop += 1;
@@ -110,7 +111,11 @@ impl<T: Clone> MergeState<T> {
                     min_gallop -= 1;
                 }
                 self.min_gallop = min_gallop;
-                let mut k = gallop_right(&self.buf, is_lt, &values[cursor_b], cursor_a, len_a, 0)?;
+                let mut k =
+                    match gallop_right(&self.buf, is_lt, &values[cursor_b], cursor_a, len_a, 0) {
+                        Ok(k) => k,
+                        Err(e) => break 'merging Err(e),
+                    };
                 a_count = k;
                 if k > 0 {
                     values[dest..dest + k].clone_from_slice(&self.buf[cursor_a..cursor_a + k]);
@@ -118,12 +123,10 @@ impl<T: Clone> MergeState<T> {
                     cursor_a += k;
                     len_a -= k;
                     if len_a == 1 {
-                        breakout = Some(Breakout::CopyB);
-                        break;
+                        break 'merging Ok(LoBreakout::CopyB);
                     }
                     if len_a == 0 {
-                        breakout = Some(Breakout::Succeed);
-                        break;
+                        break 'merging Ok(LoBreakout::Succeed);
                     }
                 }
                 values[dest] = values[cursor_b].clone();
@@ -131,10 +134,12 @@ impl<T: Clone> MergeState<T> {
                 cursor_b += 1;
                 len_b -= 1;
                 if len_b == 0 {
-                    breakout = Some(Breakout::Succeed);
-                    break;
+                    break 'merging Ok(LoBreakout::Succeed);
                 }
-                k = gallop_left(values, is_lt, &self.buf[cursor_a], cursor_b, len_b, 0)?;
+                k = match gallop_left(values, is_lt, &self.buf[cursor_a], cursor_b, len_b, 0) {
+                    Ok(k) => k,
+                    Err(e) => break 'merging Err(e),
+                };
                 b_count = k;
                 if k > 0 {
                     copy_within_clone(values, cursor_b, dest, k);
@@ -142,39 +147,34 @@ impl<T: Clone> MergeState<T> {
                     cursor_b += k;
                     len_b -= k;
                     if len_b == 0 {
-                        breakout = Some(Breakout::Succeed);
-                        break;
+                        break 'merging Ok(LoBreakout::Succeed);
                     }
                 }
                 if len_a == 1 {
-                    breakout = Some(Breakout::CopyB);
-                    break;
+                    break 'merging Ok(LoBreakout::CopyB);
                 }
                 if a_count < MIN_GALLOP && b_count < MIN_GALLOP {
                     break;
                 }
             }
-            if breakout.is_some() {
-                break;
-            }
+
             min_gallop += 1;
             self.min_gallop = min_gallop;
-        }
+        };
 
         match breakout {
-            Some(Breakout::Succeed) => {
-                if len_a > 0 {
-                    values[dest..dest + len_a]
-                        .clone_from_slice(&self.buf[cursor_a..cursor_a + len_a]);
-                }
-                Ok(())
-            }
-            Some(Breakout::CopyB) => {
+            Ok(LoBreakout::CopyB) => {
                 copy_within_clone(values, cursor_b, dest, len_b);
                 values[dest + len_b] = self.buf[cursor_a].clone();
                 Ok(())
             }
-            _ => unreachable!(),
+            other => {
+                if len_a > 0 {
+                    values[dest..dest + len_a]
+                        .clone_from_slice(&self.buf[cursor_a..cursor_a + len_a]);
+                }
+                other.map(|_| ())
+            }
         }
     }
 
@@ -220,21 +220,22 @@ impl<T: Clone> MergeState<T> {
         }
 
         let mut min_gallop = self.min_gallop;
-        let mut breakout: Option<Breakout> = None;
-
-        loop {
+        let breakout: Result<HiBreakout, E> = 'merging: loop {
             let mut a_count = 0;
             let mut b_count = 0;
 
             loop {
-                if is_lt(&self.buf[cursor_b], &values[cursor_a])? {
+                let b_wins = match is_lt(&self.buf[cursor_b], &values[cursor_a]) {
+                    Ok(v) => v,
+                    Err(e) => break 'merging Err(e),
+                };
+                if b_wins {
                     values[dest] = values[cursor_a].clone();
                     dest -= 1;
                     len_a -= 1;
 
                     if len_a == 0 {
-                        breakout = Some(Breakout::Succeed);
-                        break;
+                        break 'merging Ok(HiBreakout::Succeed);
                     }
 
                     cursor_a -= 1;
@@ -252,17 +253,12 @@ impl<T: Clone> MergeState<T> {
                     b_count += 1;
                     a_count = 0;
                     if len_b == 1 {
-                        breakout = Some(Breakout::CopyA);
-                        break;
+                        break 'merging Ok(HiBreakout::CopyA);
                     }
                     if b_count >= min_gallop {
                         break;
                     }
                 }
-            }
-
-            if breakout.is_some() {
-                break;
             }
 
             min_gallop += 1;
@@ -271,14 +267,17 @@ impl<T: Clone> MergeState<T> {
                     min_gallop -= 1;
                 }
                 self.min_gallop = min_gallop;
-                let mut k = gallop_right(
+                let mut k = match gallop_right(
                     values,
                     is_lt,
                     &self.buf[cursor_b],
                     start_a,
                     len_a,
                     len_a - 1,
-                )?;
+                ) {
+                    Ok(k) => k,
+                    Err(e) => break 'merging Err(e),
+                };
                 k = len_a - k;
                 a_count = k;
                 if k > 0 {
@@ -286,8 +285,7 @@ impl<T: Clone> MergeState<T> {
                     dest -= k;
                     len_a -= k;
                     if len_a == 0 {
-                        breakout = Some(Breakout::Succeed);
-                        break;
+                        break 'merging Ok(HiBreakout::Succeed);
                     }
                     cursor_a -= k;
                 }
@@ -296,10 +294,12 @@ impl<T: Clone> MergeState<T> {
                 cursor_b -= 1;
                 len_b -= 1;
                 if len_b == 1 {
-                    breakout = Some(Breakout::CopyA);
-                    break;
+                    break 'merging Ok(HiBreakout::CopyA);
                 }
-                k = gallop_left(&self.buf, is_lt, &values[cursor_a], 0, len_b, len_b - 1)?;
+                k = match gallop_left(&self.buf, is_lt, &values[cursor_a], 0, len_b, len_b - 1) {
+                    Ok(k) => k,
+                    Err(e) => break 'merging Err(e),
+                };
                 k = len_b - k;
                 b_count = k;
                 if k > 0 {
@@ -309,14 +309,12 @@ impl<T: Clone> MergeState<T> {
                     len_b -= k;
 
                     if len_b == 0 {
-                        breakout = Some(Breakout::Succeed);
-                        break;
+                        break 'merging Ok(HiBreakout::Succeed);
                     }
                     cursor_b -= k;
 
                     if len_b == 1 {
-                        breakout = Some(Breakout::CopyA);
-                        break;
+                        break 'merging Ok(HiBreakout::CopyA);
                     }
                 }
                 values[dest] = values[cursor_a].clone();
@@ -324,8 +322,7 @@ impl<T: Clone> MergeState<T> {
                 len_a -= 1;
 
                 if len_a == 0 {
-                    breakout = Some(Breakout::Succeed);
-                    break;
+                    break 'merging Ok(HiBreakout::Succeed);
                 }
 
                 cursor_a -= 1;
@@ -334,28 +331,24 @@ impl<T: Clone> MergeState<T> {
                     break;
                 }
             }
-            if breakout.is_some() {
-                break;
-            }
             min_gallop += 1;
             self.min_gallop = min_gallop;
-        }
+        };
 
         match breakout {
-            Some(Breakout::Succeed) => {
-                if len_b > 0 {
-                    values[(dest + 1) - len_b..=dest].clone_from_slice(&self.buf[0..len_b]);
-                }
-                Ok(())
-            }
-            Some(Breakout::CopyA) => {
+            Ok(HiBreakout::CopyA) => {
                 let src = cursor_a + 1 - len_a;
                 let dst = dest + 1 - len_a;
                 copy_within_clone(values, src, dst, len_a);
                 values[dst - 1] = self.buf[cursor_b].clone();
                 Ok(())
             }
-            _ => unreachable!(),
+            other => {
+                if len_b > 0 {
+                    values[(dest + 1) - len_b..=dest].clone_from_slice(&self.buf[0..len_b]);
+                }
+                other.map(|_| ())
+            }
         }
     }
 

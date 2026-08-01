@@ -642,7 +642,10 @@ fn do_sort(
     reverse: bool,
 ) -> PyResult<()> {
     // CPython uses __lt__ for all comparisons in sort.
-    // try_sort_by_gt expects is_gt(a, b) = true when a should come AFTER b.
+    // `timsort` expects is_lt(a, b) = true when a must be placed BEFORE b.
+    // For reverse=True, swapping the operands yields a descending order that is
+    // still stable in the original relative order, matching CPython's
+    // reverse-sort-reverse approach.
     let mut is_lt = |a: &PyObjectRef, b: &PyObjectRef| {
         if reverse {
             b.rich_compare_bool(a, PyComparisonOp::Lt, vm)
