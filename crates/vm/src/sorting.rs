@@ -706,7 +706,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basic() {
+    fn basic_examples() {
         assert_eq!(sort(vec![3, 1, 2]), vec![1, 2, 3]);
         assert_eq!(sort(Vec::<i32>::new()), Vec::<i32>::new());
         assert_eq!(sort(vec![1]), vec![1]);
@@ -714,25 +714,25 @@ mod tests {
     }
 
     #[test]
-    fn test_ordered() {
+    fn five_elements_forwards_and_backwards() {
         assert_eq!(sort(vec![1, 2, 3, 4, 5]), vec![1, 2, 3, 4, 5]);
         assert_eq!(sort(vec![5, 4, 3, 2, 1]), vec![1, 2, 3, 4, 5]);
     }
 
     #[test]
-    fn test_duplicates() {
+    fn six_elements_with_duplicates() {
         assert_eq!(sort(vec![3, 1, 3, 1, 2, 2]), vec![1, 1, 2, 2, 3, 3]);
     }
 
     #[test]
-    fn test_large() {
+    fn one_thousand_elements() {
         let v: Vec<i32> = (0..1000).rev().collect(); // 999..0
         let sorted: Vec<i32> = (0..1000).collect();
         assert_eq!(sort(v), sorted);
     }
 
     #[test]
-    fn test_random_ish() {
+    fn pseudorandom_collection() {
         let v: Vec<i32> = (0..500).map(|i| (i * 7919) % 500).collect();
         let mut expected = v.clone();
         expected.sort();
