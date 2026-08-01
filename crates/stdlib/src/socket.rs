@@ -1378,23 +1378,11 @@ mod _socket {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if socket is still open
             if zelf.sock.read().is_some() {
-                let laddr = if let Ok(sock) = zelf.sock()
-                    && let Ok(addr) = sock.local_addr()
-                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
-                {
-                    format!(", laddr={}", repr.as_wtf8())
-                } else {
-                    String::new()
-                };
-
-                let msg = format!(
-                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
-                    zelf.fileno(),
-                    zelf.family.load(),
-                    zelf.kind.load(),
-                    zelf.proto.load(),
-                    laddr
-                );
+                let repr = zelf
+                    .as_object()
+                    .repr(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<socket>"));
+                let msg = format!("unclosed {}", repr.as_wtf8());
                 let _ = crate::vm::warn::warn(
                     vm.ctx.new_str(msg).into(),
                     Some(vm.ctx.exceptions.resource_warning.to_owned()),

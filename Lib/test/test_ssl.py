@@ -754,7 +754,6 @@ class BasicSocketTests(unittest.TestCase):
         with test_wrap_socket(s, server_side=True, certfile=CERTFILE) as ss:
             self.assertIsNone(ss.get_channel_binding("tls-unique"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "<ssl.SSLSocket fd=3, family=2, type=1, proto=0, laddr=('0.0.0.0', 0)>" not found in "unclosed <socket.socket fd=3, family=2, type=1, proto=0, laddr=('0.0.0.0', 0)>"
     def test_dealloc_warn(self):
         ss = test_wrap_socket(socket.socket(socket.AF_INET))
         r = repr(ss)
