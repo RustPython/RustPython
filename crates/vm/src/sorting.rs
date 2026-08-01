@@ -150,6 +150,10 @@ impl<T: Clone> MergeState<T> {
                         break 'merging Ok(LoBreakout::Succeed);
                     }
                 }
+                values[dest] = self.buf[cursor_a].clone();
+                dest += 1;
+                cursor_a += 1;
+                len_a -= 1;
                 if len_a == 1 {
                     break 'merging Ok(LoBreakout::CopyB);
                 }
