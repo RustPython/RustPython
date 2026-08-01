@@ -488,7 +488,6 @@ class AutocommitAttribute(unittest.TestCase):
                     self.assertTrue(cx.in_transaction)
                 self.assertFalse(cx.in_transaction)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_enabled_executescript(self):
         expected = ["BEGIN", "SELECT 1"]
         with memory_database(autocommit=True) as cx:
@@ -498,7 +497,6 @@ class AutocommitAttribute(unittest.TestCase):
                 cx.executescript("SELECT 1")
                 self.assertTrue(cx.in_transaction)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit behavior differs
     def test_autocommit_disabled_executescript(self):
         expected = ["SELECT 1"]
         with memory_database(autocommit=False) as cx:
