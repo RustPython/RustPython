@@ -1761,11 +1761,11 @@ mod _sqlite3 {
 
             let db = zelf.connection.db_lock(vm)?;
 
-            // Start implicit transaction for DML statements unless in autocommit mode
+            // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
-                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
+                && *zelf.connection.autocommit.lock() == AutocommitMode::Legacy
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1855,11 +1855,11 @@ mod _sqlite3 {
 
             let db = zelf.connection.db_lock(vm)?;
 
-            // Start implicit transaction for DML statements unless in autocommit mode
+            // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
-                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
+                && *zelf.connection.autocommit.lock() == AutocommitMode::Legacy
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1909,7 +1909,9 @@ mod _sqlite3 {
 
             db.sql_limit(script.byte_len(), vm)?;
 
-            db.implicit_commit(vm)?;
+            if *zelf.connection.autocommit.lock() == AutocommitMode::Legacy {
+                db.implicit_commit(vm)?;
+            }
 
             let script = script.to_cstring(vm)?;
             let mut ptr = script.as_ptr();
