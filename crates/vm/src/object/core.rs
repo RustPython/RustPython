@@ -17,7 +17,7 @@ use super::{
 };
 use crate::object::traverse_object::PyObjVTable;
 use crate::{
-    builtins::{PyDictRef, PyType, PyTypeRef},
+    builtins::{PyDictRef, PyType, PyTypeBases, PyTypeRef},
     common::{
         atomic::{Ordering, PyAtomic, Radium},
         linked_list::{Link, Pointers},
@@ -2771,7 +2771,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let type_payload = PyType {
             base: None.into(),
             bases: PyRwLock::default(),
-            bases_tuple: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: Default::default(),
@@ -2783,7 +2782,6 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         let object_payload = PyType {
             base: None.into(),
             bases: PyRwLock::default(),
-            bases_tuple: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
             attributes: Default::default(),
@@ -2870,7 +2868,8 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             // object's mro is [object]
             (*object_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
 
-            (*type_type_ptr).payload.bases = PyRwLock::new(vec![object_type.clone()]);
+            (*type_type_ptr).payload.bases =
+                PyRwLock::new(PyTypeBases::Bootstrap(vec![object_type.clone()]));
             (*type_type_ptr).payload.base = Some(object_type.clone()).into();
 
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
@@ -2884,8 +2883,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
 
     let weakref_type = PyType {
         base: Some(object_type.clone()).into(),
-        bases: PyRwLock::new(vec![object_type.clone()]),
-        bases_tuple: PyRwLock::default(),
+        bases: PyRwLock::new(PyTypeBases::Bootstrap(vec![object_type.clone()])),
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),
         attributes: Default::default(),
