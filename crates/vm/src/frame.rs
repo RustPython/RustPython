@@ -10665,7 +10665,7 @@ impl ExecutingFrame<'_> {
         // the VM side channel, avoiding a per-frame mutex lock on
         // temporary_refs.
         let callable = self.pop_value();
-        vm.pending_tailcall_refs.borrow_mut().push(callable);
+        unsafe { &mut *vm.pending_tailcall_refs.get() }.push(callable);
 
         vm.pending_tailcall_frame
             .set(crate::vm::SendPtr(callee_iframe as *mut InterpreterFrame));
@@ -10720,7 +10720,7 @@ impl ExecutingFrame<'_> {
         fastlocals[0] = Some(bound_self);
 
         // Transfer ownership to the trampoline via the VM side channel.
-        let mut refs = vm.pending_tailcall_refs.borrow_mut();
+        let refs = unsafe { &mut *vm.pending_tailcall_refs.get() };
         refs.push(bound_function);
         refs.push(callable);
 

@@ -113,9 +113,9 @@ pub struct VirtualMachine {
     pub(crate) pending_tailcall_frame: Cell<SendPtr<crate::frame::InterpreterFrame>>,
     /// Owned references that keep callee raw pointers valid during TailCall.
     /// Set by `tailcall_prepare_frame`, drained by the trampoline into
-    /// its local `owned_refs` Vec. This avoids per-frame mutex lock on
-    /// `temporary_refs`.
-    pub(crate) pending_tailcall_refs: RefCell<Vec<PyObjectRef>>,
+    /// its local `owned_refs` Vec. Uses UnsafeCell because the VM is
+    /// per-thread and this field is only accessed on the owning thread.
+    pub(crate) pending_tailcall_refs: core::cell::UnsafeCell<Vec<PyObjectRef>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -949,7 +949,7 @@ impl VirtualMachine {
             callable_cache: CallableCache::default(),
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(SendPtr::null()),
-            pending_tailcall_refs: RefCell::new(Vec::with_capacity(2)),
+            pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1443,7 +1443,9 @@ impl VirtualMachine {
         debug_assert!(!initial_ptr.is_null());
         self.pending_tailcall_frame.set(SendPtr::null());
         // Drain the refs that keep the initial callee's raw pointers alive.
-        let initial_refs = self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+        let initial_refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+            .drain(..)
+            .collect();
         frame_stack.push(SuspendedFrame {
             iframe: iframe as *mut crate::frame::InterpreterFrame,
             entry_state,
@@ -1460,7 +1462,9 @@ impl VirtualMachine {
                     let result = crate::frame::run_iframe(callee, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
-                            let refs = self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+                            let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+                                .drain(..)
+                                .collect();
                             frame_stack.push(SuspendedFrame {
                                 iframe: callee_ptr,
                                 entry_state: callee_entry,
@@ -1509,7 +1513,9 @@ impl VirtualMachine {
                     let result = crate::frame::run_iframe(caller_iframe, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
-                            let refs = self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+                            let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+                                .drain(..)
+                                .collect();
                             drop(_caller_refs);
                             frame_stack.push(SuspendedFrame {
                                 iframe: caller_iframe_ptr,
@@ -1565,8 +1571,9 @@ impl VirtualMachine {
                             let result = crate::frame::run_iframe(caller_iframe, self);
                             match result {
                                 Ok(ExecutionResult::TailCall) => {
-                                    let refs =
-                                        self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+                                    let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+                                        .drain(..)
+                                        .collect();
                                     drop(_caller_refs);
                                     frame_stack.push(SuspendedFrame {
                                         iframe: caller_iframe_ptr,
