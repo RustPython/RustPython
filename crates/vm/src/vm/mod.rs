@@ -111,6 +111,11 @@ pub struct VirtualMachine {
     /// Wrapped in `SendPtr` for `Send` safety — the pointer is only
     /// ever read on the same thread that wrote it.
     pub(crate) pending_tailcall_frame: Cell<SendPtr<crate::frame::InterpreterFrame>>,
+    /// Owned references that keep callee raw pointers valid during TailCall.
+    /// Set by `tailcall_prepare_frame`, drained by the trampoline into
+    /// its local `owned_refs` Vec. This avoids per-frame mutex lock on
+    /// `temporary_refs`.
+    pub(crate) pending_tailcall_refs: RefCell<Vec<PyObjectRef>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -822,6 +827,11 @@ pub(crate) struct IframeEntryState {
 struct SuspendedFrame {
     iframe: *mut crate::frame::InterpreterFrame,
     entry_state: IframeEntryState,
+    /// Owned references that keep callee's raw pointers (code, globals,
+    /// builtins borrowed from PyFunction) valid. Drained from
+    /// `vm.pending_tailcall_refs` when the callee's TailCall is consumed.
+    /// Dropped when this SuspendedFrame is popped (after callee returns/errors).
+    owned_refs: Vec<PyObjectRef>,
 }
 
 impl VirtualMachine {
@@ -939,6 +949,7 @@ impl VirtualMachine {
             callable_cache: CallableCache::default(),
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(SendPtr::null()),
+            pending_tailcall_refs: RefCell::new(Vec::with_capacity(2)),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1417,10 +1428,6 @@ impl VirtualMachine {
         use crate::frame::ExecutionResult;
 
         let mut frame_stack: Vec<SuspendedFrame> = Vec::with_capacity(8);
-        frame_stack.push(SuspendedFrame {
-            iframe: iframe as *mut crate::frame::InterpreterFrame,
-            entry_state,
-        });
 
         // What we need to do next.
         enum Action {
@@ -1435,31 +1442,29 @@ impl VirtualMachine {
         let initial_ptr = self.pending_tailcall_frame.get().get();
         debug_assert!(!initial_ptr.is_null());
         self.pending_tailcall_frame.set(SendPtr::null());
+        // Drain the refs that keep the initial callee's raw pointers alive.
+        let initial_refs = self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+        frame_stack.push(SuspendedFrame {
+            iframe: iframe as *mut crate::frame::InterpreterFrame,
+            entry_state,
+            owned_refs: initial_refs,
+        });
         let mut action = Action::EnterCallee(initial_ptr);
 
         loop {
             match action {
                 Action::EnterCallee(callee_ptr) => {
                     let callee = unsafe { &mut *callee_ptr };
-                    let callee_entry = match self.enter_iframe(callee) {
-                        Ok(state) => state,
-                        Err(exc) => {
-                            unsafe {
-                                if let Some(base) = callee.release_datastack_frame() {
-                                    self.datastack_pop(base);
-                                }
-                            }
-                            action = Action::Unwind(exc);
-                            continue;
-                        }
-                    };
+                    let callee_entry = self.enter_iframe_unchecked(callee);
 
                     let result = crate::frame::run_iframe(callee, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
+                            let refs = self.pending_tailcall_refs.borrow_mut().drain(..).collect();
                             frame_stack.push(SuspendedFrame {
                                 iframe: callee_ptr,
                                 entry_state: callee_entry,
+                                owned_refs: refs,
                             });
                             let next = self.pending_tailcall_frame.get().get();
                             debug_assert!(!next.is_null());
@@ -1493,20 +1498,32 @@ impl VirtualMachine {
                         // All frames consumed — this is the final return.
                         return Ok(value);
                     };
-                    let caller_iframe = unsafe { &mut *caller.iframe };
+                    let SuspendedFrame {
+                        iframe: caller_iframe_ptr,
+                        entry_state: caller_entry,
+                        owned_refs: _caller_refs,
+                    } = caller;
+                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
                     caller_iframe.localsplus.push_stack(value);
 
                     let result = crate::frame::run_iframe(caller_iframe, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
-                            frame_stack.push(caller);
+                            let refs = self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+                            drop(_caller_refs);
+                            frame_stack.push(SuspendedFrame {
+                                iframe: caller_iframe_ptr,
+                                entry_state: caller_entry,
+                                owned_refs: refs,
+                            });
                             let next = self.pending_tailcall_frame.get().get();
                             debug_assert!(!next.is_null());
                             self.pending_tailcall_frame.set(SendPtr::null());
                             action = Action::EnterCallee(next);
                         }
                         Ok(ExecutionResult::Return(value)) => {
-                            self.exit_iframe(caller.entry_state);
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
                             unsafe {
                                 if let Some(base) = caller_iframe.release_datastack_frame() {
                                     self.datastack_pop(base);
@@ -1516,7 +1533,8 @@ impl VirtualMachine {
                         }
                         Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
                         Err(exc) => {
-                            self.exit_iframe(caller.entry_state);
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
                             unsafe {
                                 if let Some(base) = caller_iframe.release_datastack_frame() {
                                     self.datastack_pop(base);
@@ -1531,7 +1549,12 @@ impl VirtualMachine {
                     let Some(caller) = frame_stack.pop() else {
                         return Err(exc);
                     };
-                    let caller_iframe = unsafe { &mut *caller.iframe };
+                    let SuspendedFrame {
+                        iframe: caller_iframe_ptr,
+                        entry_state: caller_entry,
+                        owned_refs: _caller_refs,
+                    } = caller;
+                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
 
                     let handled =
                         crate::frame::trampoline_handle_exception(caller_iframe, &exc, self);
@@ -1542,14 +1565,22 @@ impl VirtualMachine {
                             let result = crate::frame::run_iframe(caller_iframe, self);
                             match result {
                                 Ok(ExecutionResult::TailCall) => {
-                                    frame_stack.push(caller);
+                                    let refs =
+                                        self.pending_tailcall_refs.borrow_mut().drain(..).collect();
+                                    drop(_caller_refs);
+                                    frame_stack.push(SuspendedFrame {
+                                        iframe: caller_iframe_ptr,
+                                        entry_state: caller_entry,
+                                        owned_refs: refs,
+                                    });
                                     let next = self.pending_tailcall_frame.get().get();
                                     debug_assert!(!next.is_null());
                                     self.pending_tailcall_frame.set(SendPtr::null());
                                     action = Action::EnterCallee(next);
                                 }
                                 Ok(ExecutionResult::Return(value)) => {
-                                    self.exit_iframe(caller.entry_state);
+                                    drop(_caller_refs);
+                                    self.exit_iframe(caller_entry);
                                     unsafe {
                                         if let Some(base) = caller_iframe.release_datastack_frame()
                                         {
@@ -1562,7 +1593,8 @@ impl VirtualMachine {
                                     panic!("Yield in non-generator frame")
                                 }
                                 Err(new_exc) => {
-                                    self.exit_iframe(caller.entry_state);
+                                    drop(_caller_refs);
+                                    self.exit_iframe(caller_entry);
                                     unsafe {
                                         if let Some(base) = caller_iframe.release_datastack_frame()
                                         {
@@ -1574,7 +1606,8 @@ impl VirtualMachine {
                             }
                         }
                         Ok(Some(ExecutionResult::Return(value))) => {
-                            self.exit_iframe(caller.entry_state);
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
                             unsafe {
                                 if let Some(base) = caller_iframe.release_datastack_frame() {
                                     self.datastack_pop(base);
@@ -1586,7 +1619,8 @@ impl VirtualMachine {
                             panic!("Unexpected execution result in trampoline unwind")
                         }
                         Err(new_exc) => {
-                            self.exit_iframe(caller.entry_state);
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
                             unsafe {
                                 if let Some(base) = caller_iframe.release_datastack_frame() {
                                     self.datastack_pop(base);
@@ -2079,6 +2113,17 @@ impl VirtualMachine {
             return Err(self.new_recursion_error(String::new()));
         }
 
+        Ok(self.enter_iframe_unchecked(iframe))
+    }
+
+    /// Like `enter_iframe` but skips recursion and C-stack checks.
+    /// Used by the trampoline where the caller has already verified
+    /// recursion depth and all execution stays in one Rust stack frame.
+    #[inline(always)]
+    pub(crate) fn enter_iframe_unchecked(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+    ) -> IframeEntryState {
         self.recursion_depth.update(|d| d + 1);
 
         let iframe_ptr = iframe as *const crate::frame::InterpreterFrame;
@@ -2097,12 +2142,12 @@ impl VirtualMachine {
             None
         };
 
-        Ok(IframeEntryState {
+        IframeEntryState {
             iframe_ptr,
             old_chain,
             saved_exc,
             save_exc,
-        })
+        }
     }
 
     /// Pop `iframe` from the frame chain: sync materialized state, restore
@@ -2115,42 +2160,42 @@ impl VirtualMachine {
             save_exc,
         } = state;
 
+        // Read the materialized pointer once via read_volatile (bypasses
+        // LLVM's noalias on the &mut iframe borrow).
+        let mat_ptr = unsafe {
+            let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
+            core::ptr::read_volatile(field_ptr as *const usize)
+        };
+
         // If this iframe was materialized, capture f_back so that code
         // holding a reference to the FrameObject can walk the chain after
-        // return.  Read materialized through read_volatile to bypass
-        // LLVM's noalias on the &mut iframe borrow.
-        {
-            let mat_ptr = unsafe {
-                let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
-                core::ptr::read_volatile(field_ptr as *const usize)
-            };
-            if mat_ptr != 0 {
-                let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
-                unsafe {
-                    let live_iframe = &*iframe_ptr;
-                    fo.iframe_mut()
-                        .localsplus
-                        .sync_fastlocals_from(&live_iframe.localsplus);
-                    fo.iframe_mut().prev_line.set(live_iframe.prev_line.get());
-                    #[allow(unused_imports)]
-                    use rustpython_common::atomic::Radium;
-                    fo.iframe_mut().lasti.store(
-                        live_iframe
-                            .lasti
-                            .load(core::sync::atomic::Ordering::Relaxed),
-                        core::sync::atomic::Ordering::Relaxed,
-                    );
-                }
-                if !old_chain.is_null() {
-                    let prev_iframe = unsafe { &*old_chain };
-                    let back_fo = prev_iframe.materialize_chain(self);
-                    *fo.iframe().retained_back.lock() = Some(back_fo);
-                }
-                fo.iframe().owner.store(
-                    crate::frame::FrameOwner::FrameObject as i8,
-                    core::sync::atomic::Ordering::Release,
+        // return.
+        if mat_ptr != 0 {
+            let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
+            unsafe {
+                let live_iframe = &*iframe_ptr;
+                fo.iframe_mut()
+                    .localsplus
+                    .sync_fastlocals_from(&live_iframe.localsplus);
+                fo.iframe_mut().prev_line.set(live_iframe.prev_line.get());
+                #[allow(unused_imports)]
+                use rustpython_common::atomic::Radium;
+                fo.iframe_mut().lasti.store(
+                    live_iframe
+                        .lasti
+                        .load(core::sync::atomic::Ordering::Relaxed),
+                    core::sync::atomic::Ordering::Relaxed,
                 );
             }
+            if !old_chain.is_null() {
+                let prev_iframe = unsafe { &*old_chain };
+                let back_fo = prev_iframe.materialize_chain(self);
+                *fo.iframe().retained_back.lock() = Some(back_fo);
+            }
+            fo.iframe().owner.store(
+                crate::frame::FrameOwner::FrameObject as i8,
+                core::sync::atomic::Ordering::Release,
+            );
         }
 
         if save_exc {
@@ -2161,19 +2206,12 @@ impl VirtualMachine {
 
         // Track the materialized FrameObject in GC and release
         // temporary_refs after the frame is off the chain.
-        {
-            let mat_ptr = unsafe {
-                let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
-                core::ptr::read_volatile(field_ptr as *const usize)
-            };
-            if mat_ptr != 0 {
-                let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
-                unsafe {
-                    crate::gc_state::gc_state()
-                        .track_object(core::ptr::NonNull::from(fo.as_object()));
-                    let live_iframe = &*iframe_ptr;
-                    live_iframe.temporary_refs.lock().clear();
-                }
+        if mat_ptr != 0 {
+            let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
+            unsafe {
+                crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(fo.as_object()));
+                let live_iframe = &*iframe_ptr;
+                live_iframe.temporary_refs.lock().clear();
             }
         }
     }

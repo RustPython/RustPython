@@ -947,7 +947,7 @@ impl InterpreterFrame {
             trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
+            temporary_refs: PyMutex::new(Vec::new()),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
@@ -1145,7 +1145,7 @@ impl InterpreterFrame {
             trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
+            temporary_refs: PyMutex::new(Vec::new()),
             generator: PyAtomicBorrow::new(),
             // Do NOT copy previous — it may point to stack-allocated frames
             // that become dangling after their call returns. The f_back chain
@@ -1234,7 +1234,7 @@ impl InterpreterFrame {
             trace: PyMutex::new(None),
             trace_lines: PyMutex::new(true),
             trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
+            temporary_refs: PyMutex::new(Vec::new()),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
@@ -5895,7 +5895,16 @@ impl ExecutingFrame<'_> {
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
-                        // Stage args without a per-call Vec:
+                        if self.tailcall_enabled && !func.is_generator_like() {
+                            self.tailcall_prepare_bound_method_frame(
+                                nargs,
+                                bound_function,
+                                bound_self,
+                                vm,
+                            );
+                            return Ok(Some(ExecutionResult::TailCall));
+                        }
+                        // Recursive path: stage args without a per-call Vec.
                         // [bound_self, arg1, ..., argN]
                         let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
                         let args = arg_buf.slots();
@@ -10606,25 +10615,13 @@ impl ExecutingFrame<'_> {
         self_or_null_is_some: bool,
         vm: &VirtualMachine,
     ) {
-        // Pop args first, then self_or_null, then callable.
         let base = usize::from(self_or_null_is_some);
         let effective_nargs = nargs as usize + base;
 
-        // Collect args into a small buffer.
-        let mut arg_buf = CallArgBuffer::new(effective_nargs);
-        let arg_slots = arg_buf.slots();
-        for (slot, arg) in arg_slots[base..]
-            .iter_mut()
-            .zip(self.pop_multiple(nargs as usize))
-        {
-            *slot = Some(arg);
-        }
-        let self_or_null = self.pop_value_opt();
-        debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
-        if self_or_null.is_some() {
-            arg_slots[0] = self_or_null;
-        }
-        let callable = self.pop_value();
+        // Peek at the callable (still on the stack) to build the callee
+        // frame. The callable stays on the caller's stack until we're done
+        // constructing the callee.
+        let callable = self.nth_value(nargs + 1);
         let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
 
         let code: &Py<PyCode> = &func.code;
@@ -10647,19 +10644,85 @@ impl ExecutingFrame<'_> {
             vm,
         );
 
-        // Fill arguments from the pre-popped arg buffer into fastlocals.
+        // Move args directly from the caller's stack into callee fastlocals,
+        // avoiding an intermediate buffer.
         {
             let fastlocals = callee_iframe.localsplus.fastlocals_mut();
-            for (dst, src) in fastlocals[..effective_nargs]
+            for (dst, arg) in fastlocals[base..effective_nargs]
                 .iter_mut()
-                .zip(arg_slots.iter_mut())
+                .zip(self.pop_multiple(nargs as usize))
             {
-                *dst = src.take();
+                *dst = Some(arg);
+            }
+            let self_or_null = self.pop_value_opt();
+            debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+            if self_or_null.is_some() {
+                fastlocals[0] = self_or_null;
             }
         }
-        // Keep the callable alive — the callee iframe borrows code/globals/
-        // builtins from the PyFunction via raw pointers.
-        callee_iframe.temporary_refs.lock().push(callable);
+
+        // Pop the callable and transfer ownership to the trampoline via
+        // the VM side channel, avoiding a per-frame mutex lock on
+        // temporary_refs.
+        let callable = self.pop_value();
+        vm.pending_tailcall_refs.borrow_mut().push(callable);
+
+        vm.pending_tailcall_frame
+            .set(crate::vm::SendPtr(callee_iframe as *mut InterpreterFrame));
+    }
+
+    /// Prepare a callee frame for a bound method TailCall.
+    /// Pops args, self_or_null (null), and callable from the caller's stack,
+    /// builds the callee InterpreterFrame with bound_self prepended, and
+    /// stores its pointer in `vm.pending_tailcall_frame`.
+    fn tailcall_prepare_bound_method_frame(
+        &mut self,
+        nargs: u32,
+        bound_function: PyObjectRef,
+        bound_self: PyObjectRef,
+        vm: &VirtualMachine,
+    ) {
+        let effective_nargs = nargs as usize + 1; // +1 for bound_self
+
+        let func = bound_function
+            .downcast_ref_if_exact::<PyFunction>(vm)
+            .unwrap();
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = InterpreterFrame::new_on_datastack(
+            code,
+            &func.globals,
+            &func.builtins,
+            Some(func.as_object()),
+            locals,
+            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Move args directly from the caller's stack into callee fastlocals.
+        let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+        for (dst, arg) in fastlocals[1..effective_nargs]
+            .iter_mut()
+            .zip(self.pop_multiple(nargs as usize))
+        {
+            *dst = Some(arg);
+        }
+        self.pop_value_opt(); // null (self_or_null)
+        let callable = self.pop_value(); // callable (bound method)
+        fastlocals[0] = Some(bound_self);
+
+        // Transfer ownership to the trampoline via the VM side channel.
+        let mut refs = vm.pending_tailcall_refs.borrow_mut();
+        refs.push(bound_function);
+        refs.push(callable);
 
         vm.pending_tailcall_frame
             .set(crate::vm::SendPtr(callee_iframe as *mut InterpreterFrame));
