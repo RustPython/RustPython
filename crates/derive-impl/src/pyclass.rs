@@ -1178,6 +1178,12 @@ where
                 quote_spanned! { span =>
                     slots.#slot_ident = Self::#ident().into();
                 }
+            } else if slot_name == "new" {
+                quote_spanned! { span =>
+                    slots.#slot_ident.store(Some(::rustpython_vm::types::NewFunc::Rust(
+                        Self::#ident as _
+                    )));
+                }
             } else {
                 quote_spanned! { span =>
                     slots.#slot_ident.store(Some(Self::#ident as _));
@@ -1896,7 +1902,9 @@ fn extract_impl_attrs(attr: PunctuatedNestedMeta, item: &Ident) -> Result<Extrac
                             }
                         } else if path.is_ident("Constructor") {
                             quote_spanned! { item_span =>
-                                slots.new.store(Some(<Self as ::rustpython_vm::types::Constructor>::slot_new as _));
+                                slots.new.store(Some(::rustpython_vm::types::NewFunc::Rust(
+                                    <Self as ::rustpython_vm::types::Constructor>::slot_new as _
+                                )));
                             }
                         } else {
                             quote_spanned! { item_span =>
