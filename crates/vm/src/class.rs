@@ -5,7 +5,7 @@ use crate::{
     builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, hash_not_implemented},
+    types::{HashFunc, PyTypeFlags, PyTypeSlots, SLOT_DEFS, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
@@ -28,7 +28,7 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
                 .slots
                 .hash
                 .load()
-                .is_some_and(|h| h as usize == hash_not_implemented as *const () as usize)
+                .is_some_and(|h| core::ptr::fn_addr_eq(h, hash_not_implemented as HashFunc))
         {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
             continue;
