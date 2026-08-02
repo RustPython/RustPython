@@ -305,7 +305,6 @@ textwrap = { version = "0.16.2", default-features = false }
 termios = "0.3.3"
 thiserror = "2.0"
 thin-vec = "0.2.14"
-timsort = "0.1.2"
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 icu_casemap = "2"
 icu_locale = "2"

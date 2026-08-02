@@ -3716,7 +3716,6 @@ dependencies = [
  "strum_macros",
  "thin-vec",
  "thiserror",
- "timsort",
  "wasm-bindgen",
  "widestring",
 ]
@@ -4284,12 +4283,6 @@ dependencies = [
  "num-conv",
  "time-core",
 ]
-
-[[package]]
-name = "timsort"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "639ce8ef6d2ba56be0383a94dd13b92138d58de44c62618303bb798fa92bdc00"
 
 [[package]]
 name = "tinystr"
