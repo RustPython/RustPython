@@ -10668,7 +10668,9 @@ impl ExecutingFrame<'_> {
         unsafe { &mut *vm.pending_tailcall_refs.get() }.push(callable);
 
         vm.pending_tailcall_frame
-            .set(crate::vm::SendPtr(callee_iframe as *mut InterpreterFrame));
+            .set(Some(crate::vm::SendNonNull(core::ptr::NonNull::from(
+                &mut *callee_iframe,
+            ))));
     }
 
     /// Prepare a callee frame for a bound method TailCall.
@@ -10725,7 +10727,9 @@ impl ExecutingFrame<'_> {
         refs.push(callable);
 
         vm.pending_tailcall_frame
-            .set(crate::vm::SendPtr(callee_iframe as *mut InterpreterFrame));
+            .set(Some(crate::vm::SendNonNull(core::ptr::NonNull::from(
+                &mut *callee_iframe,
+            ))));
     }
 
     #[inline]
