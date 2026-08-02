@@ -124,9 +124,10 @@ impl CompileError {
 }
 
 fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    // Python reports SyntaxError columns in Unicode code points.
     source_file
         .to_source_code()
-        .source_location(offset, PositionEncoding::Utf8)
+        .source_location(offset, PositionEncoding::Utf32)
 }
 
 fn source_locations(
@@ -136,8 +137,8 @@ fn source_locations(
 ) -> (SourceLocation, SourceLocation) {
     let source_code = source_file.to_source_code();
     (
-        source_code.source_location(start, PositionEncoding::Utf8),
-        source_code.source_location(end, PositionEncoding::Utf8),
+        source_code.source_location(start, PositionEncoding::Utf32),
+        source_code.source_location(end, PositionEncoding::Utf32),
     )
 }
 
@@ -223,6 +224,16 @@ fn cpython_parse_diagnostic_override(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
     ) {
+        // Only a backslash at the end of the source is an EOF error.
+        let terminal_backslash = source_text.len().checked_sub(1);
+        if terminal_backslash == Some(error.location.start().to_usize()) {
+            let loc = source_line_end_location(source_file, error.location.start());
+            return Some(NormalizedParseDiagnostic::new(
+                parser::ParseErrorType::OtherError("unexpected EOF while parsing".to_owned()),
+                loc,
+                loc,
+            ));
+        }
         let loc = source_location(source_file, error.location.start() + TextSize::from(1));
         return Some(NormalizedParseDiagnostic::new(
             error.error.clone(),
