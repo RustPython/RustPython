@@ -48,7 +48,7 @@ mod _ssl {
             VirtualMachine,
             builtins::{
                 PyBaseExceptionRef, PyByteArray, PyBytesRef, PyListRef, PyStrRef, PyType,
-                PyTypeRef, PyUtf8StrRef,
+                PyTypeRef, PyUtf8StrRef, PyWeak,
             },
             convert::IntoPyException,
             function::{
@@ -1920,7 +1920,12 @@ mod _ssl {
                 connection: PyMutex::new(None),
                 handshake_done: PyMutex::new(false),
                 session_was_reused: PyMutex::new(false),
-                owner: PyRwLock::new(args.owner.into_option()),
+                owner: PyRwLock::new(
+                    args.owner
+                        .into_option()
+                        .map(|o| o.downgrade(None, vm))
+                        .transpose()?,
+                ),
                 // Filter out Python None objects - only store actual SSLSession objects
                 session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
                 incoming_bio: None,
@@ -1997,7 +2002,12 @@ mod _ssl {
                 connection: PyMutex::new(None),
                 handshake_done: PyMutex::new(false),
                 session_was_reused: PyMutex::new(false),
-                owner: PyRwLock::new(args.owner.into_option()),
+                owner: PyRwLock::new(
+                    args.owner
+                        .into_option()
+                        .map(|o| o.downgrade(None, vm))
+                        .transpose()?,
+                ),
                 // Filter out Python None objects - only store actual SSLSession objects
                 session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
                 incoming_bio: Some(args.incoming),
@@ -2377,7 +2387,7 @@ mod _ssl {
         #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
         // Owner (SSLSocket instance that owns this _SSLSocket)
-        owner: PyRwLock<Option<PyObjectRef>>,
+        owner: PyRwLock<Option<PyRef<PyWeak>>>,
         // Session for resumption
         session: PyRwLock<Option<PyObjectRef>>,
         // MemoryBIO mode (optional)
@@ -2734,7 +2744,19 @@ mod _ssl {
                 return Ok(());
             };
 
-            let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
+            let ssl_sock = self
+                .owner
+                .read()
+                .as_ref()
+                .and_then(|owner| owner.upgrade())
+                .ok_or_else(|| {
+                    super::compat::SslError::create_ssl_error_with_reason(
+                        vm,
+                        Some("SSL"),
+                        "CALLBACK_FAILED",
+                        "[SSL: CALLBACK_FAILED] callback failed",
+                    )
+                })?;
             let server_name_py: PyObjectRef = match sni_name {
                 Some(name) => vm.ctx.new_str(name.to_string()).into(),
                 None => vm.ctx.none(),
@@ -3955,12 +3977,13 @@ mod _ssl {
 
         #[pygetset]
         fn owner(&self) -> Option<PyObjectRef> {
-            self.owner.read().clone()
+            self.owner.read().as_ref().and_then(|owner| owner.upgrade())
         }
 
         #[pygetset(setter)]
-        fn set_owner(&self, owner: PyObjectRef, _vm: &VirtualMachine) {
-            *self.owner.write() = Some(owner);
+        fn set_owner(&self, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            *self.owner.write() = Some(owner.downgrade(None, vm)?);
+            Ok(())
         }
 
         #[pygetset]

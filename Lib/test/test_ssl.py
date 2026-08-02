@@ -1479,7 +1479,6 @@ class ContextTests(unittest.TestCase):
         ctx.set_servername_callback(None)
         ctx.set_servername_callback(dummycallback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Expected 'mock' to not have been called. Called 1 times.
     def test_sni_callback_on_dead_references(self):
         # See https://github.com/python/cpython/issues/146080.
         c_ctx = make_test_context()
