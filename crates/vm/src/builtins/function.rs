@@ -15,7 +15,7 @@ use crate::{
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
     frame::{FrameObject, FrameObjectRef},
-    function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
@@ -1507,7 +1507,7 @@ impl Representable for PyBoundMethod {
     }
 }
 
-#[pyclass(module = false, name = "cell", traverse)]
+#[pyclass(module = false, name = "cell", unhashable = true, traverse)]
 #[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
@@ -1530,8 +1530,26 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, Representable))]
 impl PyCell {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        // compare cells by contents; empty cells come before anything else
+        match (zelf.get(), other.get()) {
+            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
+        }
+    }
+
     pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
@@ -1558,6 +1576,30 @@ impl PyCell {
             PySetterValue::Assign(value) => self.set(Some(value)),
             PySetterValue::Delete => self.set(None),
         }
+    }
+}
+
+impl Representable for PyCell {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let id = zelf.get_id();
+        Ok(match zelf.get() {
+            Some(value) => {
+                let type_name = value.class().slot_name();
+                // CPython renders the type name with "%.80s", which reads at
+                // most 80 bytes and drops a character left incomplete by the cut.
+                let mut end = type_name.len().min(80);
+                while !type_name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!(
+                    "<cell at {id:#x}: {} object at {:#x}>",
+                    &type_name[..end],
+                    value.get_id()
+                )
+            }
+            None => format!("<cell at {id:#x}: empty>"),
+        })
     }
 }
 

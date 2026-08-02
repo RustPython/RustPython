@@ -237,7 +237,6 @@ class ReprTests(unittest.TestCase):
         eq(r([[[[[[{}]]]]]]), "[[[[[[{}]]]]]]")
         eq(r([[[[[[[{}]]]]]]]), "[[[[[[[...]]]]]]]")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_cell(self):
         def get_cell():
             x = 42
