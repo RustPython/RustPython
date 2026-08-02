@@ -994,10 +994,8 @@ impl InterpreterFrame {
         // InterpreterFrame lives at the start of the allocation.
         let iframe_ptr = base as *mut Self;
         // LocalsPlus data follows the InterpreterFrame, aligned to usize.
-        let localsplus_offset = core::mem::size_of::<Self>();
-        let localsplus_offset_aligned = (localsplus_offset + core::mem::align_of::<usize>() - 1)
-            & !(core::mem::align_of::<usize>() - 1);
-        let localsplus_data_ptr = unsafe { base.add(localsplus_offset_aligned) } as *mut usize;
+        let localsplus_data_ptr =
+            unsafe { base.add(datastack_iframe_localsplus_offset()) } as *mut usize;
 
         // Zero-initialize localsplus data.
         unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
@@ -2289,13 +2287,18 @@ impl Py<FrameObject> {
     }
 }
 
+/// Byte offset from the start of a datastack allocation to the LocalsPlus data,
+/// accounting for alignment padding after the InterpreterFrame header.
+#[inline]
+fn datastack_iframe_localsplus_offset() -> usize {
+    let iframe_size = core::mem::size_of::<InterpreterFrame>();
+    (iframe_size + core::mem::align_of::<usize>() - 1) & !(core::mem::align_of::<usize>() - 1)
+}
+
 /// Total bytes needed to co-allocate an InterpreterFrame and its LocalsPlus
 /// data on the thread data stack.
 pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize) -> usize {
-    let iframe_size = core::mem::size_of::<InterpreterFrame>();
-    // Align the localsplus data to usize alignment after the InterpreterFrame.
-    let iframe_padded =
-        (iframe_size + core::mem::align_of::<usize>() - 1) & !(core::mem::align_of::<usize>() - 1);
+    let iframe_padded = datastack_iframe_localsplus_offset();
     let capacity = nlocalsplus
         .checked_add(stacksize)
         .expect("LocalsPlus capacity overflow");
@@ -2353,7 +2356,7 @@ pub(crate) fn trampoline_handle_exception(
 
     // lasti points past the CallPyExactArgs instruction (+ cache entries).
     // The exception occurred at the previous instruction (the call site).
-    let idx = exec.lasti() as usize - 1;
+    let idx = (exec.lasti() as usize).saturating_sub(1);
 
     // Add traceback entry at the call site.
     if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {

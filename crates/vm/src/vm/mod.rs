@@ -833,6 +833,11 @@ struct SuspendedFrame {
     /// `vm.pending_tailcall_refs` when the callee's TailCall is consumed.
     /// Dropped when this SuspendedFrame is popped (after callee returns/errors).
     owned_refs: Vec<PyObjectRef>,
+    /// True for the initial frame passed into the trampoline by the caller.
+    /// The caller owns the datastack allocation for the entry frame, so the
+    /// trampoline must NOT release it — only callee-allocated frames are
+    /// released here.
+    is_entry: bool,
 }
 
 impl VirtualMachine {
@@ -1469,6 +1474,7 @@ impl VirtualMachine {
             iframe: iframe as *mut crate::frame::InterpreterFrame,
             entry_state,
             owned_refs: initial_refs,
+            is_entry: true,
         });
         let mut action = Action::EnterCallee(initial_ptr);
 
@@ -1499,6 +1505,7 @@ impl VirtualMachine {
                                 iframe: callee_ptr,
                                 entry_state: callee_entry,
                                 owned_refs: refs,
+                                is_entry: false,
                             });
                             action = Action::EnterCallee(self.take_pending_tailcall());
                         }
@@ -1533,6 +1540,7 @@ impl VirtualMachine {
                         iframe: caller_iframe_ptr,
                         entry_state: caller_entry,
                         owned_refs: _caller_refs,
+                        is_entry: caller_is_entry,
                     } = caller;
                     let caller_iframe = unsafe { &mut *caller_iframe_ptr };
                     caller_iframe.localsplus.push_stack(value);
@@ -1548,15 +1556,18 @@ impl VirtualMachine {
                                 iframe: caller_iframe_ptr,
                                 entry_state: caller_entry,
                                 owned_refs: refs,
+                                is_entry: caller_is_entry,
                             });
                             action = Action::EnterCallee(self.take_pending_tailcall());
                         }
                         Ok(ExecutionResult::Return(value)) => {
                             drop(_caller_refs);
                             self.exit_iframe(caller_entry);
-                            unsafe {
-                                if let Some(base) = caller_iframe.release_datastack_frame() {
-                                    self.datastack_pop(base);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
                                 }
                             }
                             action = Action::ReturnValue(value);
@@ -1565,9 +1576,11 @@ impl VirtualMachine {
                         Err(exc) => {
                             drop(_caller_refs);
                             self.exit_iframe(caller_entry);
-                            unsafe {
-                                if let Some(base) = caller_iframe.release_datastack_frame() {
-                                    self.datastack_pop(base);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
                                 }
                             }
                             action = Action::Unwind(exc);
@@ -1583,6 +1596,7 @@ impl VirtualMachine {
                         iframe: caller_iframe_ptr,
                         entry_state: caller_entry,
                         owned_refs: _caller_refs,
+                        is_entry: caller_is_entry,
                     } = caller;
                     let caller_iframe = unsafe { &mut *caller_iframe_ptr };
 
@@ -1603,16 +1617,20 @@ impl VirtualMachine {
                                         iframe: caller_iframe_ptr,
                                         entry_state: caller_entry,
                                         owned_refs: refs,
+                                        is_entry: caller_is_entry,
                                     });
                                     action = Action::EnterCallee(self.take_pending_tailcall());
                                 }
                                 Ok(ExecutionResult::Return(value)) => {
                                     drop(_caller_refs);
                                     self.exit_iframe(caller_entry);
-                                    unsafe {
-                                        if let Some(base) = caller_iframe.release_datastack_frame()
-                                        {
-                                            self.datastack_pop(base);
+                                    if !caller_is_entry {
+                                        unsafe {
+                                            if let Some(base) =
+                                                caller_iframe.release_datastack_frame()
+                                            {
+                                                self.datastack_pop(base);
+                                            }
                                         }
                                     }
                                     action = Action::ReturnValue(value);
@@ -1623,10 +1641,13 @@ impl VirtualMachine {
                                 Err(new_exc) => {
                                     drop(_caller_refs);
                                     self.exit_iframe(caller_entry);
-                                    unsafe {
-                                        if let Some(base) = caller_iframe.release_datastack_frame()
-                                        {
-                                            self.datastack_pop(base);
+                                    if !caller_is_entry {
+                                        unsafe {
+                                            if let Some(base) =
+                                                caller_iframe.release_datastack_frame()
+                                            {
+                                                self.datastack_pop(base);
+                                            }
                                         }
                                     }
                                     action = Action::Unwind(new_exc);
@@ -1636,9 +1657,11 @@ impl VirtualMachine {
                         Ok(Some(ExecutionResult::Return(value))) => {
                             drop(_caller_refs);
                             self.exit_iframe(caller_entry);
-                            unsafe {
-                                if let Some(base) = caller_iframe.release_datastack_frame() {
-                                    self.datastack_pop(base);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
                                 }
                             }
                             action = Action::ReturnValue(value);
@@ -1649,9 +1672,11 @@ impl VirtualMachine {
                         Err(new_exc) => {
                             drop(_caller_refs);
                             self.exit_iframe(caller_entry);
-                            unsafe {
-                                if let Some(base) = caller_iframe.release_datastack_frame() {
-                                    self.datastack_pop(base);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
                                 }
                             }
                             action = Action::Unwind(new_exc);
@@ -2235,6 +2260,17 @@ impl VirtualMachine {
         if save_exc {
             self.restore_exception(saved_exc);
         }
+        // Clear previous before popping — it may point to a stack-allocated
+        // iframe that will be freed when the caller's with_iframe exits.
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            unsafe {
+                (*iframe_ptr)
+                    .previous
+                    .store(0, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
         let _ = crate::vm::thread::set_current_frame(old_chain);
         self.recursion_depth.update(|d| d - 1);
 
@@ -2256,7 +2292,10 @@ impl VirtualMachine {
         f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
     ) -> PyResult<R> {
         let state = self.enter_iframe(iframe)?;
+        // Ensure exit_iframe runs even if f(iframe) panics.
+        let guard = scopeguard::guard(state, |s| self.exit_iframe(s));
         let result = f(iframe);
+        let state = scopeguard::ScopeGuard::into_inner(guard);
         self.exit_iframe(state);
         result
     }
