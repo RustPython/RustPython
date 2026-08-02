@@ -50,9 +50,13 @@ pub enum CompileError {
 
 impl CompileError {
     #[must_use]
-    pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
+    pub fn from_ruff_parse_error(
+        error: parser::ParseError,
+        source_file: &SourceFile,
+        mode: Mode,
+    ) -> Self {
         let raw_location = error.location;
-        let diagnostic = match cpython_parse_diagnostic_override(&error, source_file) {
+        let diagnostic = match cpython_parse_diagnostic_override(&error, source_file, mode) {
             Some(diagnostic) => diagnostic,
             None => default_parse_diagnostic(error, source_file),
         };
@@ -124,7 +128,12 @@ impl CompileError {
 }
 
 fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
-    // Python reports SyntaxError columns in Unicode code points.
+    source_file
+        .to_source_code()
+        .source_location(offset, PositionEncoding::Utf8)
+}
+
+fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
     source_file
         .to_source_code()
         .source_location(offset, PositionEncoding::Utf32)
@@ -137,8 +146,8 @@ fn source_locations(
 ) -> (SourceLocation, SourceLocation) {
     let source_code = source_file.to_source_code();
     (
-        source_code.source_location(start, PositionEncoding::Utf32),
-        source_code.source_location(end, PositionEncoding::Utf32),
+        source_code.source_location(start, PositionEncoding::Utf8),
+        source_code.source_location(end, PositionEncoding::Utf8),
     )
 }
 
@@ -176,6 +185,21 @@ impl NormalizedParseDiagnostic {
         )
     }
 
+    fn other_in_code_points(
+        source_file: &SourceFile,
+        message: String,
+        start: usize,
+        end: usize,
+    ) -> Self {
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        Self::new(
+            parser::ParseErrorType::OtherError(message),
+            source_location_in_code_points(source_file, start),
+            source_location_in_code_points(source_file, end),
+        )
+    }
+
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
         self.is_unclosed_bracket = is_unclosed_bracket;
         self
@@ -185,6 +209,7 @@ impl NormalizedParseDiagnostic {
 fn cpython_parse_diagnostic_override(
     error: &parser::ParseError,
     source_file: &SourceFile,
+    mode: Mode,
 ) -> Option<NormalizedParseDiagnostic> {
     let source_text = source_file.source_text();
 
@@ -226,7 +251,9 @@ fn cpython_parse_diagnostic_override(
     ) {
         // Only a backslash at the end of the source is an EOF error.
         let terminal_backslash = source_text.len().checked_sub(1);
-        if terminal_backslash == Some(error.location.start().to_usize()) {
+        if !matches!(mode, Mode::Eval)
+            && terminal_backslash == Some(error.location.start().to_usize())
+        {
             let loc = source_line_end_location(source_file, error.location.start());
             return Some(NormalizedParseDiagnostic::new(
                 parser::ParseErrorType::OtherError("unexpected EOF while parsing".to_owned()),
@@ -242,7 +269,15 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
-    source_error!(unterminated_string_error(source_text));
+    if let Some((message, start, end)) = unterminated_string_error(source_text) {
+        // The scanner reports quote positions, which are UTF-8 character boundaries.
+        return Some(NormalizedParseDiagnostic::other_in_code_points(
+            source_file,
+            message,
+            start,
+            end,
+        ));
+    }
     source_error!(expected_indented_block_error(error, source_text));
 
     if matches!(
@@ -5224,7 +5259,7 @@ fn _compile_with_syntax_warning_handler<'a>(
     };
     let parser_options = parser::ParseOptions::from(parser_mode);
     let parsed = parser::parse(source_file.source_text(), parser_options)
-        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file))?;
+        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
@@ -5283,7 +5318,7 @@ pub fn _compile_symtable(
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             let ast = ruff_python_parser::parse_module(source_file.source_text())
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
+                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
             if let Some(error) = post_parse_source_error(&source_file, &CompileOpts::default()) {
                 return Err(error);
             }
@@ -5300,7 +5335,7 @@ pub fn _compile_symtable(
                 source_file.source_text(),
                 parser::Mode::Expression.into(),
             )
-            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
+            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
             if let Some(error) = post_parse_source_error(&source_file, &CompileOpts::default()) {
                 return Err(error);
             }
