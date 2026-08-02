@@ -2114,7 +2114,7 @@ impl VirtualMachine {
             // materialized, f_back will resolve via the TLS chain while the
             // caller is still executing, or return None after it returns.
             if strong > 1 {
-                let mut guard = frame.iframe().retained_back.lock();
+                let mut guard = frame.iframe().cold().retained_back.lock();
                 if guard.is_none() {
                     let prev_iframe = unsafe { &*old_chain };
                     if let Some(fo) = prev_iframe.frame_obj() {
@@ -2249,7 +2249,7 @@ impl VirtualMachine {
             if !old_chain.is_null() {
                 let prev_iframe = unsafe { &*old_chain };
                 let back_fo = prev_iframe.materialize_chain(self);
-                *fo.iframe().retained_back.lock() = Some(back_fo);
+                *fo.iframe().cold().retained_back.lock() = Some(back_fo);
             }
             fo.iframe().owner.store(
                 crate::frame::FrameOwner::FrameObject as i8,
@@ -2281,7 +2281,7 @@ impl VirtualMachine {
             unsafe {
                 crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(fo.as_object()));
                 let live_iframe = &*iframe_ptr;
-                live_iframe.temporary_refs.lock().clear();
+                live_iframe.cold().temporary_refs.lock().clear();
             }
         }
     }
@@ -2376,7 +2376,7 @@ impl VirtualMachine {
         // Fire 'call' trace event. current_frame() now returns the callee.
         let trace_result = self.trace_event(TraceEvent::Call, None)?;
         if let Some(local_trace) = trace_result {
-            *frame.iframe().trace.lock() = Some(local_trace);
+            *frame.iframe().cold().trace.lock() = Some(local_trace);
         }
 
         let result = f(frame);
@@ -2385,7 +2385,7 @@ impl VirtualMachine {
         // PY_UNWIND fires PyTrace_RETURN with arg=None — so we fire for
         // both Ok and Err, matching `call_trace_protected` behavior.
         if self.use_tracing.get()
-            && (frame.iframe().trace.lock().is_some() || !self.is_none(&self.profile_func.borrow()))
+            && (frame.iframe().cold().trace.lock().is_some() || !self.is_none(&self.profile_func.borrow()))
         {
             let ret_result = self.trace_event(TraceEvent::Return, None);
             // call_trace_protected: if trace function raises, its error

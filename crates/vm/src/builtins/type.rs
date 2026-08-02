@@ -1513,7 +1513,7 @@ impl PyType {
         // temporary refs so they never see a dangling pointer.
         let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
             if let Some(frame) = vm.current_frame() {
-                frame.iframe().temporary_refs.lock().push(type_ref.into());
+                frame.iframe().cold().temporary_refs.lock().push(type_ref.into());
             } else {
                 retired.push(type_ref.into());
             }

@@ -636,8 +636,8 @@ impl FrameObject {
         } else {
             self.iframe()
         };
-        target.pending_stack_pops.store(pop_count as u32, Relaxed);
-        target.pending_unwind_from_stack.store(start_stack, Relaxed);
+        target.cold().pending_stack_pops.store(pop_count as u32, Relaxed);
+        target.cold().pending_unwind_from_stack.store(start_stack, Relaxed);
         target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }
@@ -647,9 +647,9 @@ impl FrameObject {
         // Read from live source iframe if available.
         let live = self.find_live_source_iframe();
         let trace = if !live.is_null() {
-            unsafe { &*live }.trace.lock().clone()
+            unsafe { &*live }.cold().trace.lock().clone()
         } else {
-            self.iframe().trace.lock().clone()
+            self.iframe().cold().trace.lock().clone()
         };
         trace.unwrap_or_else(|| vm.ctx.none())
     }
@@ -667,13 +667,13 @@ impl FrameObject {
             PySetterValue::Delete => None,
         };
         // Set on the materialized FrameObject.
-        (*self.iframe().trace.lock()).clone_from(&trace);
+        (*self.iframe().cold().trace.lock()).clone_from(&trace);
         // Also propagate to the live source iframe if this is a
         // materialized copy of a stack-allocated frame, so pdb's
         // f_trace assignment takes effect on the executing frame.
         let live = self.find_live_source_iframe();
         if !live.is_null() {
-            *unsafe { &*live }.trace.lock() = trace;
+            *unsafe { &*live }.cold().trace.lock() = trace;
         }
     }
 
@@ -682,7 +682,7 @@ impl FrameObject {
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
-        let boxed = zelf.iframe().trace_lines.lock();
+        let boxed = zelf.iframe().cold().trace_lines.lock();
         Ok(vm.ctx.new_bool(*boxed).into())
     }
 
@@ -701,11 +701,11 @@ impl FrameObject {
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
                 let val = !value.as_bigint().is_zero();
-                *zelf.iframe().trace_lines.lock() = val;
+                *zelf.iframe().cold().trace_lines.lock() = val;
                 // Propagate to live source iframe.
                 let live = zelf.find_live_source_iframe();
                 if !live.is_null() {
-                    *unsafe { &*live }.trace_lines.lock() = val;
+                    *unsafe { &*live }.cold().trace_lines.lock() = val;
                 }
 
                 Ok(())
@@ -718,7 +718,7 @@ impl FrameObject {
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
         let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let trace_opcodes = zelf.iframe().trace_opcodes.lock();
+        let trace_opcodes = zelf.iframe().cold().trace_opcodes.lock();
         Ok(vm.ctx.new_bool(*trace_opcodes).into())
     }
 
@@ -737,11 +737,11 @@ impl FrameObject {
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
                 let val = !value.as_bigint().is_zero();
-                *zelf.iframe().trace_opcodes.lock() = val;
+                *zelf.iframe().cold().trace_opcodes.lock() = val;
                 // Propagate to live source iframe.
                 let live = zelf.find_live_source_iframe();
                 if !live.is_null() {
-                    *unsafe { &*live }.trace_opcodes.lock() = val;
+                    *unsafe { &*live }.cold().trace_opcodes.lock() = val;
                 }
 
                 // TODO: Implement the equivalent of _PyEval_SetOpcodeTrace()
@@ -798,10 +798,10 @@ impl Py<FrameObject> {
         self.clear_stack_and_cells();
 
         // Clear temporary refs
-        self.iframe().temporary_refs.lock().clear();
-        self.iframe().f_locals_hidden_overlay.lock().take();
-        self.iframe().f_extra_locals.lock().take();
-        self.iframe().retained_back.lock().take();
+        self.iframe().cold().temporary_refs.lock().clear();
+        self.iframe().cold().f_locals_hidden_overlay.lock().take();
+        self.iframe().cold().f_extra_locals.lock().take();
+        self.iframe().cold().retained_back.lock().take();
 
         Ok(())
     }
@@ -853,7 +853,7 @@ impl Py<FrameObject> {
             }
             if prev.is_null() {
                 // Check retained_back for frames whose callers have returned
-                let retained = self.iframe().retained_back.lock().clone();
+                let retained = self.iframe().cold().retained_back.lock().clone();
                 if let Some(frame) = retained {
                     frame.mark_escaped();
                     return Some(frame);
@@ -879,7 +879,7 @@ impl Py<FrameObject> {
         }
 
         // The caller already returned — check retained_back
-        let retained = self.iframe().retained_back.lock().clone();
+        let retained = self.iframe().cold().retained_back.lock().clone();
         if let Some(frame) = retained {
             frame.mark_escaped();
             return Some(frame);
@@ -906,7 +906,7 @@ impl Py<FrameObject> {
                 let iframe = unsafe { &*cur };
                 let fo = iframe.materialize(vm).to_owned();
                 if let Some(child) = child_fo.take() {
-                    let mut guard = child.iframe().retained_back.lock();
+                    let mut guard = child.iframe().cold().retained_back.lock();
                     if guard.is_none() {
                         *guard = Some(fo.clone());
                     }
