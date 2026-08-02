@@ -133,6 +133,7 @@ fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation
         .source_location(offset, PositionEncoding::Utf8)
 }
 
+// Call only with UTF-8 character boundaries for Python-facing offsets.
 fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
     source_file
         .to_source_code()
