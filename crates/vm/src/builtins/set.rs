@@ -960,7 +960,11 @@ impl Constructor for PyFrozenSet {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let is_exact_frozenset = cls.is(vm.ctx.types.frozenset_type);
         let is_frozenset_init = {
-            let cls_init = cls.slots.init.load().map(|init| init as usize);
+            let cls_init = cls
+                .slots
+                .init
+                .load()
+                .map(|init| crate::types::fn_addr(init));
             let frozenset_init = vm
                 .ctx
                 .types
@@ -968,7 +972,7 @@ impl Constructor for PyFrozenSet {
                 .slots
                 .init
                 .load()
-                .map(|init| init as usize);
+                .map(|init| crate::types::fn_addr(init));
             cls_init == frozenset_init
         };
 

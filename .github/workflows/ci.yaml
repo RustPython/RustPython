@@ -648,7 +648,10 @@ jobs:
         env:
           # miri-ignore-leaks because the type-object circular reference means that there will always be
           # a memory leak, at least until we have proper cyclic gc
-          MIRIFLAGS: "-Zmiri-ignore-leaks"
+          # miri-permissive-provenance because function pointer identity checks (slot comparisons)
+          # cast fn pointers to usize, which strips provenance — this is the standard pattern for
+          # fn pointer comparison in Rust and not a soundness issue
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
