@@ -108,7 +108,8 @@ pub struct VirtualMachine {
     pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
-    pub(crate) pending_tailcall_frame: Cell<Option<SendNonNull<crate::frame::InterpreterFrame>>>,
+    /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
+    pending_tailcall_frame: Cell<Option<PendingFrame>>,
     /// Owned references that keep callee raw pointers valid during TailCall.
     /// Set by `tailcall_prepare_frame`, drained by the trampoline into
     /// its local `owned_refs` Vec. Uses UnsafeCell because the VM is
@@ -786,22 +787,33 @@ pub fn process_hash_secret_seed() -> u32 {
 }
 
 /// A `NonNull<T>` wrapper that implements `Send + Sync`.
-/// Only valid when the pointer is exclusively used by one thread at a time
-/// (the VirtualMachine is per-thread).
+///
+/// # Safety contract
+///
+/// This type bypasses Rust's `Send`/`Sync` bounds on `NonNull`. It is
+/// sound **only** when the pointer is exclusively accessed by one thread
+/// at a time. In this codebase, that invariant is upheld because
+/// `VirtualMachine` is per-thread.
+///
+/// **Do not use this type outside `pending_tailcall_frame`.** It exists
+/// solely to let a `Cell<Option<PendingFrame>>` field on the per-thread
+/// VM satisfy `Send + Sync`. If you need a `Send`-able pointer
+/// elsewhere, justify and document the safety invariant at that site.
 #[repr(transparent)]
-pub(crate) struct SendNonNull<T>(pub(crate) core::ptr::NonNull<T>);
+struct PendingFrame(core::ptr::NonNull<crate::frame::InterpreterFrame>);
 
-impl<T> Copy for SendNonNull<T> {}
-impl<T> Clone for SendNonNull<T> {
+impl Copy for PendingFrame {}
+impl Clone for PendingFrame {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-// SAFETY: The VirtualMachine is per-thread; the pointer is only ever
-// accessed on the thread that wrote it.
-unsafe impl<T> Send for SendNonNull<T> {}
-unsafe impl<T> Sync for SendNonNull<T> {}
+// SAFETY: VirtualMachine is per-thread; the pointer is only ever
+// accessed on the thread that wrote it. The pointed-to InterpreterFrame
+// lives on that thread's datastack and is valid from set to take.
+unsafe impl Send for PendingFrame {}
+unsafe impl Sync for PendingFrame {}
 
 /// Saved state from `enter_iframe`, needed by `exit_iframe` to restore
 /// the previous frame chain and exception state.
@@ -1377,6 +1389,16 @@ impl VirtualMachine {
         if let Some(ref stderr) = stderr {
             let _ = self.call_method(stderr, "flush", ());
         }
+    }
+
+    /// Store a callee frame pointer for the trampoline to pick up after
+    /// `TailCall` is returned. The pointed-to InterpreterFrame must live
+    /// on the current thread's datastack and remain valid until the
+    /// trampoline calls `take_pending_tailcall`.
+    #[inline(always)]
+    pub(crate) fn set_pending_tailcall(&self, iframe: &mut crate::frame::InterpreterFrame) {
+        self.pending_tailcall_frame
+            .set(Some(PendingFrame(core::ptr::NonNull::from(iframe))));
     }
 
     /// Take the pending tailcall frame pointer, resetting the side channel.
