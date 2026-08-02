@@ -997,8 +997,8 @@ pub(crate) mod _thread {
                 .slots
                 .init
                 .load()
-                .map(|init| init as usize);
-            (Some(cls_init as usize) != object_init).then_some(cls_init)
+                .map(|init| crate::types::fn_addr(init));
+            (Some(crate::types::fn_addr(cls_init)) != object_init).then_some(cls_init)
         }
 
         fn create_dict(&self, vm: &VirtualMachine) -> (PyDictRef, bool) {
