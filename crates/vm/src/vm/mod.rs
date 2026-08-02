@@ -1476,7 +1476,18 @@ impl VirtualMachine {
             match action {
                 Action::EnterCallee(callee_ptr) => {
                     let callee = unsafe { &mut *callee_ptr };
-                    let callee_entry = self.enter_iframe_unchecked(callee);
+                    let callee_entry = match self.enter_iframe_unchecked(callee) {
+                        Ok(state) => state,
+                        Err(exc) => {
+                            unsafe {
+                                if let Some(base) = callee.release_datastack_frame() {
+                                    self.datastack_pop(base);
+                                }
+                            }
+                            action = Action::Unwind(exc);
+                            continue;
+                        }
+                    };
 
                     let result = crate::frame::run_iframe(callee, self);
                     match result {
@@ -2130,17 +2141,23 @@ impl VirtualMachine {
             return Err(self.new_recursion_error(String::new()));
         }
 
-        Ok(self.enter_iframe_unchecked(iframe))
+        self.enter_iframe_unchecked(iframe)
     }
 
-    /// Like `enter_iframe` but skips recursion and C-stack checks.
-    /// Used by the trampoline where the caller has already verified
-    /// recursion depth and all execution stays in one Rust stack frame.
+    /// Like `enter_iframe` but skips the Python recursion depth check
+    /// (already verified by `specialization_call_recursion_guard`).
+    /// Still checks C-stack overflow since each `run_iframe` call
+    /// consumes Rust stack space.
     #[inline(always)]
     pub(crate) fn enter_iframe_unchecked(
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
-    ) -> IframeEntryState {
+    ) -> PyResult<IframeEntryState> {
+        let depth = self.recursion_depth.get();
+        if depth & 7 == 0 && self.check_c_stack_overflow() {
+            return Err(self.new_recursion_error(String::new()));
+        }
+
         self.recursion_depth.update(|d| d + 1);
 
         let iframe_ptr = iframe as *const crate::frame::InterpreterFrame;
@@ -2159,12 +2176,12 @@ impl VirtualMachine {
             None
         };
 
-        IframeEntryState {
+        Ok(IframeEntryState {
             iframe_ptr,
             old_chain,
             saved_exc,
             save_exc,
-        }
+        })
     }
 
     /// Pop `iframe` from the frame chain: sync materialized state, restore
