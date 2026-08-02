@@ -1022,7 +1022,7 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: self.callable_cache.clone(),
             audit_hooks: RefCell::new(vec![]),
-            pending_tailcall_frame: Cell::new(super::SendPtr::null()),
+            pending_tailcall_frame: Cell::new(None),
             pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
         };
         ThreadedVirtualMachine { vm }

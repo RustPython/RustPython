@@ -108,9 +108,7 @@ pub struct VirtualMachine {
     pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
     /// Side channel for TailCall: the bytecode loop stores the new frame
     /// pointer here before returning `ExecutionResult::TailCall`.
-    /// Wrapped in `SendPtr` for `Send` safety — the pointer is only
-    /// ever read on the same thread that wrote it.
-    pub(crate) pending_tailcall_frame: Cell<SendPtr<crate::frame::InterpreterFrame>>,
+    pub(crate) pending_tailcall_frame: Cell<Option<SendNonNull<crate::frame::InterpreterFrame>>>,
     /// Owned references that keep callee raw pointers valid during TailCall.
     /// Set by `tailcall_prepare_frame`, drained by the trampoline into
     /// its local `owned_refs` Vec. Uses UnsafeCell because the VM is
@@ -787,32 +785,23 @@ pub fn process_hash_secret_seed() -> u32 {
     *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
 }
 
-/// A `*mut T` wrapper that implements `Send`.
-/// Only valid when the pointer is exclusively used by one thread at a time.
+/// A `NonNull<T>` wrapper that implements `Send + Sync`.
+/// Only valid when the pointer is exclusively used by one thread at a time
+/// (the VirtualMachine is per-thread).
 #[repr(transparent)]
-pub(crate) struct SendPtr<T>(pub(crate) *mut T);
+pub(crate) struct SendNonNull<T>(pub(crate) core::ptr::NonNull<T>);
 
-impl<T> Copy for SendPtr<T> {}
-impl<T> Clone for SendPtr<T> {
+impl<T> Copy for SendNonNull<T> {}
+impl<T> Clone for SendNonNull<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-// SAFETY: `pending_tailcall_frame` is per-thread (set by the bytecode loop,
-// read by the trampoline on the same thread). The VirtualMachine is per-thread.
-unsafe impl<T> Send for SendPtr<T> {}
-// SAFETY: The pointer is never accessed from multiple threads concurrently.
-unsafe impl<T> Sync for SendPtr<T> {}
-
-impl<T> SendPtr<T> {
-    const fn null() -> Self {
-        Self(core::ptr::null_mut())
-    }
-    fn get(self) -> *mut T {
-        self.0
-    }
-}
+// SAFETY: The VirtualMachine is per-thread; the pointer is only ever
+// accessed on the thread that wrote it.
+unsafe impl<T> Send for SendNonNull<T> {}
+unsafe impl<T> Sync for SendNonNull<T> {}
 
 /// Saved state from `enter_iframe`, needed by `exit_iframe` to restore
 /// the previous frame chain and exception state.
@@ -948,7 +937,7 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
             audit_hooks: RefCell::new(vec![]),
-            pending_tailcall_frame: Cell::new(SendPtr::null()),
+            pending_tailcall_frame: Cell::new(None),
             pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
         };
 
@@ -1390,6 +1379,16 @@ impl VirtualMachine {
         }
     }
 
+    /// Take the pending tailcall frame pointer, resetting the side channel.
+    #[inline(always)]
+    fn take_pending_tailcall(&self) -> *mut crate::frame::InterpreterFrame {
+        self.pending_tailcall_frame
+            .take()
+            .expect("TailCall without pending frame")
+            .0
+            .as_ptr()
+    }
+
     #[inline(always)]
     /// Run a stack-allocated InterpreterFrame without heap allocation.
     /// Uses a trampoline loop to flatten Python-to-Python calls: when the
@@ -1439,9 +1438,7 @@ impl VirtualMachine {
             Unwind(PyBaseExceptionRef),
         }
 
-        let initial_ptr = self.pending_tailcall_frame.get().get();
-        debug_assert!(!initial_ptr.is_null());
-        self.pending_tailcall_frame.set(SendPtr::null());
+        let initial_ptr = self.take_pending_tailcall();
         // Drain the refs that keep the initial callee's raw pointers alive.
         let initial_refs = unsafe { &mut *self.pending_tailcall_refs.get() }
             .drain(..)
@@ -1470,10 +1467,7 @@ impl VirtualMachine {
                                 entry_state: callee_entry,
                                 owned_refs: refs,
                             });
-                            let next = self.pending_tailcall_frame.get().get();
-                            debug_assert!(!next.is_null());
-                            self.pending_tailcall_frame.set(SendPtr::null());
-                            action = Action::EnterCallee(next);
+                            action = Action::EnterCallee(self.take_pending_tailcall());
                         }
                         Ok(ExecutionResult::Return(value)) => {
                             self.exit_iframe(callee_entry);
@@ -1522,10 +1516,7 @@ impl VirtualMachine {
                                 entry_state: caller_entry,
                                 owned_refs: refs,
                             });
-                            let next = self.pending_tailcall_frame.get().get();
-                            debug_assert!(!next.is_null());
-                            self.pending_tailcall_frame.set(SendPtr::null());
-                            action = Action::EnterCallee(next);
+                            action = Action::EnterCallee(self.take_pending_tailcall());
                         }
                         Ok(ExecutionResult::Return(value)) => {
                             drop(_caller_refs);
@@ -1580,10 +1571,7 @@ impl VirtualMachine {
                                         entry_state: caller_entry,
                                         owned_refs: refs,
                                     });
-                                    let next = self.pending_tailcall_frame.get().get();
-                                    debug_assert!(!next.is_null());
-                                    self.pending_tailcall_frame.set(SendPtr::null());
-                                    action = Action::EnterCallee(next);
+                                    action = Action::EnterCallee(self.take_pending_tailcall());
                                 }
                                 Ok(ExecutionResult::Return(value)) => {
                                     drop(_caller_refs);
