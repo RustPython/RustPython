@@ -8932,11 +8932,10 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if getattro is the default (PyBaseObject::getattro)
-        let is_default_getattro = cls
-            .slots
-            .getattro
-            .load()
-            .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
+        let is_default_getattro = cls.slots.getattro.load().is_some_and(|f| {
+            crate::types::fn_addr(f)
+                == crate::types::fn_addr(PyBaseObject::getattro as crate::types::GetattroFunc)
+        });
         if !is_default_getattro {
             let getattribute = cls.get_attr(identifier!(_vm, __getattribute__));
             if !oparg.is_method()
@@ -9953,8 +9952,8 @@ impl ExecutingFrame<'_> {
                 let cls_alloc = cls.slots.alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
-                    && cls_new_fn as usize == obj_new_fn as usize
-                    && cls_alloc_fn as usize == obj_alloc_fn as usize
+                    && crate::types::fn_addr(cls_new_fn) == crate::types::fn_addr(obj_new_fn)
+                    && crate::types::fn_addr(cls_alloc_fn) == crate::types::fn_addr(obj_alloc_fn)
                 {
                     if type_version == 0 {
                         unsafe {
@@ -10614,11 +10613,10 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if setattr is the default (generic_setattr)
-        let is_default_setattr = cls
-            .slots
-            .setattro
-            .load()
-            .is_some_and(|f| f as usize == PyBaseObject::slot_setattro as *const () as usize);
+        let is_default_setattr = cls.slots.setattro.load().is_some_and(|f| {
+            crate::types::fn_addr(f)
+                == crate::types::fn_addr(PyBaseObject::slot_setattro as crate::types::SetattroFunc)
+        });
         if !is_default_setattr {
             unsafe {
                 self.code.instructions.write_adaptive_counter(

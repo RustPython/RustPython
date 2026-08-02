@@ -122,8 +122,12 @@ impl Initializer for PyBaseObject {
         let typ = zelf.class();
         let object_type = &vm.ctx.types.object_type;
 
-        let typ_init = typ.slots.init.load().map(|f| f as usize);
-        let object_init = object_type.slots.init.load().map(|f| f as usize);
+        let typ_init = typ.slots.init.load().map(|f| crate::types::fn_addr(f));
+        let object_init = object_type
+            .slots
+            .init
+            .load()
+            .map(|f| crate::types::fn_addr(f));
 
         // if (type->tp_init != object_init) → first error
         if typ_init != object_init {

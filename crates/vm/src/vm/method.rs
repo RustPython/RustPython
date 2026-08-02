@@ -6,7 +6,7 @@ use crate::{
     builtins::{PyBaseObject, PyStr, PyStrInterned, descriptor::PyMethodDescriptor},
     function::{IntoFuncArgs, PyMethodFlags},
     object::{AsObject, Py, PyObject, PyObjectRef, PyResult},
-    types::PyTypeFlags,
+    types::{GetattroFunc, PyTypeFlags, fn_addr},
 };
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ impl PyMethod {
     pub(crate) fn get(obj: PyObjectRef, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult<Self> {
         let cls = obj.class();
         let getattro = cls.slots.getattro.load().unwrap();
-        if getattro as usize != PyBaseObject::getattro as *const () as usize {
+        if fn_addr(getattro) != fn_addr(PyBaseObject::getattro as GetattroFunc) {
             return obj.get_attr(name, vm).map(Self::Attribute);
         }
 

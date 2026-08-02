@@ -180,13 +180,13 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
-        let slot_a_addr = slot_a.map(|x| x as usize);
+        let slot_a_addr = slot_a.map(|x| crate::types::fn_addr(x));
         let mut slot_b = None;
         let left_b_addr = if class_a.is(class_b) {
             slot_a_addr
         } else {
             let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
-            if slot_bb.map(|x| x as usize) != slot_a_addr {
+            if slot_bb.map(|x| crate::types::fn_addr(x)) != slot_a_addr {
                 slot_b = slot_bb;
             }
 
@@ -194,7 +194,7 @@ impl VirtualMachine {
                 .slots
                 .as_number
                 .left_binary_op(op_slot)
-                .map(|x| x as usize)
+                .map(|x| crate::types::fn_addr(x))
         };
 
         if let Some(slot_a) = slot_a {
@@ -302,13 +302,13 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
-        let slot_a_addr = slot_a.map(|x| x as usize);
+        let slot_a_addr = slot_a.map(|x| crate::types::fn_addr(x));
         let mut slot_b = None;
         let left_b_addr = if class_a.is(class_b) {
             slot_a_addr
         } else {
             let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
-            if slot_bb.map(|x| x as usize) != slot_a_addr {
+            if slot_bb.map(|x| crate::types::fn_addr(x)) != slot_a_addr {
                 slot_b = slot_bb;
             }
 
@@ -316,7 +316,7 @@ impl VirtualMachine {
                 .slots
                 .as_number
                 .left_ternary_op(op_slot)
-                .map(|x| x as usize)
+                .map(|x| crate::types::fn_addr(x))
         };
 
         if let Some(slot_a) = slot_a {
