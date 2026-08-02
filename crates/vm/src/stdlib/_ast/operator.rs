@@ -16,17 +16,18 @@ impl Node for ast::BoolOp {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let cls = object.class();
-        Ok(if cls.is(pyast::NodeBoolOpAnd::static_type()) {
-            Self::And
-        } else if cls.is(pyast::NodeBoolOpOr::static_type()) {
-            Self::Or
-        } else {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of boolop, but got {}",
-                object.repr(vm)?
-            )));
-        })
+        Ok(
+            if is_node_instance(vm, &object, pyast::NodeBoolOpAnd::static_type())? {
+                Self::And
+            } else if is_node_instance(vm, &object, pyast::NodeBoolOpOr::static_type())? {
+                Self::Or
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "expected some sort of boolop, but got {}",
+                    object.repr(vm)?
+                )));
+            },
+        )
     }
 }
 
@@ -56,39 +57,40 @@ impl Node for ast::Operator {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let cls = object.class();
-        Ok(if cls.is(pyast::NodeOperatorAdd::static_type()) {
-            Self::Add
-        } else if cls.is(pyast::NodeOperatorSub::static_type()) {
-            Self::Sub
-        } else if cls.is(pyast::NodeOperatorMult::static_type()) {
-            Self::Mult
-        } else if cls.is(pyast::NodeOperatorMatMult::static_type()) {
-            Self::MatMult
-        } else if cls.is(pyast::NodeOperatorDiv::static_type()) {
-            Self::Div
-        } else if cls.is(pyast::NodeOperatorMod::static_type()) {
-            Self::Mod
-        } else if cls.is(pyast::NodeOperatorPow::static_type()) {
-            Self::Pow
-        } else if cls.is(pyast::NodeOperatorLShift::static_type()) {
-            Self::LShift
-        } else if cls.is(pyast::NodeOperatorRShift::static_type()) {
-            Self::RShift
-        } else if cls.is(pyast::NodeOperatorBitOr::static_type()) {
-            Self::BitOr
-        } else if cls.is(pyast::NodeOperatorBitXor::static_type()) {
-            Self::BitXor
-        } else if cls.is(pyast::NodeOperatorBitAnd::static_type()) {
-            Self::BitAnd
-        } else if cls.is(pyast::NodeOperatorFloorDiv::static_type()) {
-            Self::FloorDiv
-        } else {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of operator, but got {}",
-                object.repr(vm)?
-            )));
-        })
+        Ok(
+            if is_node_instance(vm, &object, pyast::NodeOperatorAdd::static_type())? {
+                Self::Add
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorSub::static_type())? {
+                Self::Sub
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorMult::static_type())? {
+                Self::Mult
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorMatMult::static_type())? {
+                Self::MatMult
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorDiv::static_type())? {
+                Self::Div
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorMod::static_type())? {
+                Self::Mod
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorPow::static_type())? {
+                Self::Pow
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorLShift::static_type())? {
+                Self::LShift
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorRShift::static_type())? {
+                Self::RShift
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitOr::static_type())? {
+                Self::BitOr
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitXor::static_type())? {
+                Self::BitXor
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorBitAnd::static_type())? {
+                Self::BitAnd
+            } else if is_node_instance(vm, &object, pyast::NodeOperatorFloorDiv::static_type())? {
+                Self::FloorDiv
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "expected some sort of operator, but got {}",
+                    object.repr(vm)?
+                )));
+            },
+        )
     }
 }
 
@@ -109,21 +111,22 @@ impl Node for ast::UnaryOp {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let cls = object.class();
-        Ok(if cls.is(pyast::NodeUnaryOpInvert::static_type()) {
-            Self::Invert
-        } else if cls.is(pyast::NodeUnaryOpNot::static_type()) {
-            Self::Not
-        } else if cls.is(pyast::NodeUnaryOpUAdd::static_type()) {
-            Self::UAdd
-        } else if cls.is(pyast::NodeUnaryOpUSub::static_type()) {
-            Self::USub
-        } else {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of unaryop, but got {}",
-                object.repr(vm)?
-            )));
-        })
+        Ok(
+            if is_node_instance(vm, &object, pyast::NodeUnaryOpInvert::static_type())? {
+                Self::Invert
+            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpNot::static_type())? {
+                Self::Not
+            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpUAdd::static_type())? {
+                Self::UAdd
+            } else if is_node_instance(vm, &object, pyast::NodeUnaryOpUSub::static_type())? {
+                Self::USub
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "expected some sort of unaryop, but got {}",
+                    object.repr(vm)?
+                )));
+            },
+        )
     }
 }
 
@@ -150,32 +153,33 @@ impl Node for ast::CmpOp {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let cls = object.class();
-        Ok(if cls.is(pyast::NodeCmpOpEq::static_type()) {
-            Self::Eq
-        } else if cls.is(pyast::NodeCmpOpNotEq::static_type()) {
-            Self::NotEq
-        } else if cls.is(pyast::NodeCmpOpLt::static_type()) {
-            Self::Lt
-        } else if cls.is(pyast::NodeCmpOpLtE::static_type()) {
-            Self::LtE
-        } else if cls.is(pyast::NodeCmpOpGt::static_type()) {
-            Self::Gt
-        } else if cls.is(pyast::NodeCmpOpGtE::static_type()) {
-            Self::GtE
-        } else if cls.is(pyast::NodeCmpOpIs::static_type()) {
-            Self::Is
-        } else if cls.is(pyast::NodeCmpOpIsNot::static_type()) {
-            Self::IsNot
-        } else if cls.is(pyast::NodeCmpOpIn::static_type()) {
-            Self::In
-        } else if cls.is(pyast::NodeCmpOpNotIn::static_type()) {
-            Self::NotIn
-        } else {
-            return Err(vm.new_type_error(format!(
-                "expected some sort of cmpop, but got {}",
-                object.repr(vm)?
-            )));
-        })
+        Ok(
+            if is_node_instance(vm, &object, pyast::NodeCmpOpEq::static_type())? {
+                Self::Eq
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpNotEq::static_type())? {
+                Self::NotEq
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpLt::static_type())? {
+                Self::Lt
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpLtE::static_type())? {
+                Self::LtE
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpGt::static_type())? {
+                Self::Gt
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpGtE::static_type())? {
+                Self::GtE
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIs::static_type())? {
+                Self::Is
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIsNot::static_type())? {
+                Self::IsNot
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpIn::static_type())? {
+                Self::In
+            } else if is_node_instance(vm, &object, pyast::NodeCmpOpNotIn::static_type())? {
+                Self::NotIn
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "expected some sort of cmpop, but got {}",
+                    object.repr(vm)?
+                )));
+            },
+        )
     }
 }

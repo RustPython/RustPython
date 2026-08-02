@@ -170,9 +170,11 @@ impl PyClassMethod {
 
     #[pygetset]
     fn __isabstractmethod__(&self, vm: &VirtualMachine) -> PyObjectRef {
-        match vm.get_attribute_opt(self.callable.lock().clone(), "__isabstractmethod__") {
-            Ok(Some(is_abstract)) => is_abstract,
-            _ => vm.ctx.new_bool(false).into(),
+        let callable = self.callable.lock().clone();
+        if let Ok(Some(is_abstract)) = vm.get_attribute_opt(callable, "__isabstractmethod__") {
+            is_abstract
+        } else {
+            vm.ctx.new_bool(false).into()
         }
     }
 
@@ -193,7 +195,7 @@ impl PyClassMethod {
 impl Representable for PyClassMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.lock().repr(vm).unwrap();
+        let callable = zelf.callable.lock().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         let repr = match (

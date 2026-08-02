@@ -24,6 +24,7 @@ updates:
           - "sha1"
           - "sha2"
           - "sha3"
+          - "shake"
           - "blake2"
           - "hmac"
           - "pbkdf2"
@@ -88,6 +89,7 @@ updates:
           - "getrandom"
           - "mt19937"
           - "rand*"
+          - "chacha20"
       rayon:
         patterns:
           - "rayon*"

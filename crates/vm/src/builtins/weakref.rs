@@ -49,7 +49,7 @@ impl Constructor for PyWeak {
         let referent = positional
             .next()
             .ok_or_else(|| vm.new_type_error("__new__ expected at least 1 argument, got 0"))?;
-        let callback = positional.next();
+        let callback = positional.next().filter(|callback| !vm.is_none(callback));
         if let Some(_extra) = positional.next() {
             let got = positional.count() + 3;
             return Err(

@@ -1,14 +1,15 @@
 use crate::{AsObject, PyObject, VirtualMachine};
 
+/// A guard to protect repr methods from recursion into itself.
 pub struct ReprGuard<'vm> {
     vm: &'vm VirtualMachine,
     id: usize,
 }
 
-/// A guard to protect repr methods from recursion into itself,
 impl<'vm> ReprGuard<'vm> {
-    /// Returns None if the guard against 'obj' is still held otherwise returns the guard. The guard
-    /// which is released if dropped.
+    /// Returns None if the guard against 'obj' is still held otherwise returns the guard.
+    ///
+    /// The guard which is released if dropped.
     pub fn enter(vm: &'vm VirtualMachine, obj: &PyObject) -> Option<Self> {
         let mut guards = vm.repr_guards.borrow_mut();
 
@@ -18,8 +19,9 @@ impl<'vm> ReprGuard<'vm> {
         if guards.contains(&id) {
             return None;
         }
+
         guards.insert(id);
-        Some(ReprGuard { vm, id })
+        Some(Self { vm, id })
     }
 }
 

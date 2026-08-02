@@ -9,7 +9,12 @@ use core::alloc::Layout;
 use core::ptr;
 
 /// Minimum chunk size in bytes (`_PY_DATA_STACK_CHUNK_SIZE`).
-const MIN_CHUNK_SIZE: usize = 16 * 1024;
+/// Smaller on WASM (4 KB) to reduce initial memory footprint; 16 KB otherwise.
+const MIN_CHUNK_SIZE: usize = if cfg!(target_arch = "wasm32") {
+    4 * 1024
+} else {
+    16 * 1024
+};
 
 /// Extra headroom (in bytes) to avoid allocating a new chunk for the next
 /// frame right after growing.
@@ -18,8 +23,9 @@ const MINIMUM_OVERHEAD: usize = 1000 * core::mem::size_of::<usize>();
 /// Alignment for all data stack allocations.
 const ALIGN: usize = 16;
 
-/// Header for a data stack chunk.  The usable data region starts right after
-/// this header (aligned to `ALIGN`).
+/// Header for a data stack chunk.
+///
+/// The usable data region starts right after this header (aligned to [`ALIGN`]).
 #[repr(C)]
 struct DataStackChunk {
     /// Previous chunk in the linked list (NULL for the root chunk).

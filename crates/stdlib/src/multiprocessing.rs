@@ -175,9 +175,8 @@ mod _multiprocessing {
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
             if self.kind == RECURSIVE_MUTEX {
                 if !ismine!(self) {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.assertion_error.to_owned(),
-                        "attempt to release recursive lock not owned by thread".into(),
+                    return Err(vm.new_assertion_error(
+                        "attempt to release recursive lock not owned by thread",
                     ));
                 }
                 if self.count.load(Ordering::Acquire) > 1 {
@@ -334,7 +333,7 @@ mod _multiprocessing {
     }
 
     #[pyfunction]
-    fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<libc::c_int> {
+    fn send(socket: usize, buf: ArgBytesLike, vm: &VirtualMachine) -> PyResult<core::ffi::c_int> {
         buf.with_ref(|b| {
             host_multiprocessing::send_socket(socket as host_multiprocessing::RawSocket, b)
         })
@@ -356,10 +355,11 @@ mod _multiprocessing {
     };
     use core::sync::atomic::{AtomicI32, AtomicU64, Ordering};
     #[cfg(target_vendor = "apple")]
-    use libc::sem_t;
+    use rustpython_host_env::multiprocessing::sem_t;
     use rustpython_host_env::multiprocessing::{
         self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
     };
+    use rustpython_vm::exceptions;
 
     /// Error type for sem_timedwait operations
     #[cfg(target_vendor = "apple")]
@@ -374,7 +374,7 @@ mod _multiprocessing {
     #[cfg(target_vendor = "apple")]
     fn sem_timedwait_polled(
         sem: *mut sem_t,
-        deadline: &libc::timespec,
+        deadline: &host_multiprocessing::timespec,
         vm: &VirtualMachine,
     ) -> Result<(), SemWaitError> {
         let mut delay: u64 = 0;
@@ -497,7 +497,7 @@ mod _multiprocessing {
                 let timeout: f64 = timeout_obj.try_float(vm)?.to_f64();
                 Some(
                     host_multiprocessing::deadline_from_timeout(timeout)
-                        .map_err(|_| vm.new_os_error("gettimeofday failed".to_string()))?,
+                        .map_err(|_| vm.new_os_error("gettimeofday failed"))?,
                 )
             } else {
                 None
@@ -597,9 +597,8 @@ mod _multiprocessing {
             if self.kind == RECURSIVE_MUTEX {
                 // if (!ISMINE(self))
                 if !ismine!(self) {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.assertion_error.to_owned(),
-                        "attempt to release recursive lock not owned by thread".into(),
+                    return Err(vm.new_assertion_error(
+                        "attempt to release recursive lock not owned by thread",
                     ));
                 }
                 // if (self->count > 1) { --self->count; Py_RETURN_NONE; }
@@ -812,8 +811,8 @@ mod _multiprocessing {
             let value = args.value as u32;
             let (handle, name) =
                 SemHandle::create(&args.name, value, args.unlink).map_err(|err| {
-                    if err == SemError::InvalidInput && args.name.contains('\0') {
-                        vm.new_value_error("embedded null character")
+                    if err == SemError::InteriorNul {
+                        exceptions::nul_char_error(vm)
                     } else {
                         os_error(vm, err)
                     }
@@ -836,8 +835,8 @@ mod _multiprocessing {
     #[pyfunction]
     fn sem_unlink(name: String, vm: &VirtualMachine) -> PyResult<()> {
         host_multiprocessing::sem_unlink(&name).map_err(|err| {
-            if err == SemError::InvalidInput && name.contains('\0') {
-                vm.new_value_error("embedded null character")
+            if err == SemError::InteriorNul {
+                exceptions::nul_char_error(vm)
             } else {
                 os_error(vm, err)
             }

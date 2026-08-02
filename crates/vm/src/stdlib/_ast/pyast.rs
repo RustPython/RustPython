@@ -3,7 +3,6 @@ use crate::builtins::{PyGenericAlias, PyTuple, PyTupleRef, PyTypeRef, make_union
 use crate::common::ascii;
 use crate::convert::ToPyObject;
 use crate::function::FuncArgs;
-use crate::types::Initializer;
 
 macro_rules! impl_node {
     (
@@ -61,6 +60,12 @@ macro_rules! impl_node {
 macro_rules! impl_base_node {
     // Base node without fields/attributes (e.g. NodeMod, NodeExpr)
     ($name:ident) => {
+        impl_base_node!($name, attributes: []);
+    };
+    ($name:ident, attributes: [$($attr:expr),* $(,)?]) => {
+        impl_base_node!($name, attributes: [$($attr),*], optional_end_location: false);
+    };
+    ($name:ident, attributes: [$($attr:expr),* $(,)?], optional_end_location: $optional_end_location:expr) => {
         #[pyclass(flags(HAS_DICT, BASETYPE))]
         impl $name {
             #[pymethod]
@@ -83,9 +88,24 @@ macro_rules! impl_base_node {
                     (*flags).remove(crate::types::PyTypeFlags::IMMUTABLETYPE);
                 }
                 class.set_attr(
-                    identifier!(ctx, _attributes),
+                    identifier!(ctx, _fields),
                     ctx.empty_tuple.clone().into(),
                 );
+                class.set_str_attr("__match_args__", ctx.empty_tuple.clone(), ctx);
+                class.set_attr(
+                    identifier!(ctx, _attributes),
+                    ctx.new_tuple(vec![
+                        $(
+                            ctx.new_str(ascii!($attr)).into()
+                        ),*
+                    ])
+                    .into(),
+                );
+                if $optional_end_location {
+                    let none = ctx.none();
+                    class.set_str_attr("end_lineno", none.clone(), ctx);
+                    class.set_str_attr("end_col_offset", none, ctx);
+                }
             }
         }
     };
@@ -179,7 +199,11 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeStmt(NodeAst);
 
-impl_base_node!(NodeStmt);
+impl_base_node!(
+    NodeStmt,
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
+    optional_end_location: true
+);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "FunctionType", base = NodeMod)]
@@ -378,7 +402,11 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeExpr(NodeAst);
 
-impl_base_node!(NodeExpr);
+impl_base_node!(
+    NodeExpr,
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
+    optional_end_location: true
+);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "Continue", base = NodeStmt)]
@@ -533,12 +561,11 @@ impl_node!(
     attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
 );
 
-// NodeExprConstant needs custom Initializer to default kind to None
 #[pyclass(module = "_ast", name = "Constant", base = NodeExpr)]
 #[repr(transparent)]
 pub(crate) struct NodeExprConstant(NodeExpr);
 
-#[pyclass(flags(HAS_DICT, BASETYPE), with(Initializer))]
+#[pyclass(flags(HAS_DICT, BASETYPE))]
 impl NodeExprConstant {
     #[extend_class]
     fn extend_class_with_fields(ctx: &Context, class: &'static Py<PyType>) {
@@ -577,24 +604,6 @@ impl NodeExprConstant {
             ])
             .into(),
         );
-    }
-}
-
-impl Initializer for NodeExprConstant {
-    type Args = FuncArgs;
-
-    fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        <NodeAst as Initializer>::slot_init(zelf.clone(), args, vm)?;
-        // kind defaults to None if not provided
-        let dict = zelf.as_object().dict().unwrap();
-        if !dict.contains_key("kind", vm) {
-            dict.set_item("kind", vm.ctx.none(), vm)?;
-        }
-        Ok(())
-    }
-
-    fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
-        unreachable!("slot_init is defined")
     }
 }
 
@@ -841,7 +850,11 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeExceptHandler(NodeAst);
 
-impl_base_node!(NodeExceptHandler);
+impl_base_node!(
+    NodeExceptHandler,
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"],
+    optional_end_location: true
+);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "comprehension", base = NodeAst)]
@@ -893,7 +906,10 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodePattern(NodeAst);
 
-impl_base_node!(NodePattern);
+impl_base_node!(
+    NodePattern,
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"]
+);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "match_case", base = NodeAst)]
@@ -967,7 +983,10 @@ impl_node!(
 #[repr(transparent)]
 pub(crate) struct NodeTypeParam(NodeAst);
 
-impl_base_node!(NodeTypeParam);
+impl_base_node!(
+    NodeTypeParam,
+    attributes: ["lineno", "col_offset", "end_lineno", "end_col_offset"]
+);
 
 impl_node!(
     #[pyclass(module = "_ast", name = "TypeIgnore", base = NodeTypeIgnore)]
@@ -1681,7 +1700,6 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
 
     let field_types_attr = vm.ctx.intern_str("_field_types");
     let annotations_attr = vm.ctx.intern_str("__annotations__");
-    let empty_dict: PyObjectRef = vm.ctx.new_dict().into();
 
     for &(class_name, fields) in FIELD_TYPES {
         if fields.is_empty() {
@@ -1750,36 +1768,6 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
         };
         if let Some(field_types) = type_obj.get_attr(field_types_attr) {
             type_obj.set_attr(annotations_attr, field_types);
-        }
-    }
-
-    // Base AST classes (e.g., expr, stmt) should still expose __annotations__.
-    const BASE_AST_TYPES: &[&str] = &[
-        "mod",
-        "stmt",
-        "expr",
-        "expr_context",
-        "boolop",
-        "operator",
-        "unaryop",
-        "cmpop",
-        "excepthandler",
-        "pattern",
-        "type_ignore",
-        "type_param",
-    ];
-    for &class_name in BASE_AST_TYPES {
-        let class = module
-            .get_attr(class_name, vm)
-            .unwrap_or_else(|_| panic!("AST class '{class_name}' not found in module"));
-        let Some(type_obj) = class.downcast_ref::<PyType>() else {
-            continue;
-        };
-        if type_obj.get_attr(field_types_attr).is_none() {
-            type_obj.set_attr(field_types_attr, empty_dict.clone());
-        }
-        if type_obj.get_attr(annotations_attr).is_none() {
-            type_obj.set_attr(annotations_attr, empty_dict.clone());
         }
     }
 }

@@ -1,5 +1,6 @@
-use crate::{PyObjectRef, PyResult, VirtualMachine};
+use crate::{PyObjectRef, PyResult, VirtualMachine, builtins::PyList};
 use rustpython_compiler_core::SourceFile;
+use thin_vec::ThinVec;
 
 pub(crate) trait Node: Sized {
     fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef;
@@ -31,14 +32,52 @@ impl<T: Node> Node for Vec<T> {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        // Recursion guard for each element: prevents stack overflow when a
-        // sequence element transitively references the sequence itself
-        // (e.g. `l = ast.List(...); l.elts = [l]`). See issue #4862.
-        vm.extract_elements_with(&object, |obj| {
-            vm.with_recursion("while traversing AST node", || {
-                Node::ast_from_object(vm, source_file, obj)
-            })
-        })
+        let list = object.downcast_ref::<PyList>().ok_or_else(|| {
+            vm.new_type_error(format!(
+                "AST list field must be a list, not a {}",
+                object.class().name()
+            ))
+        })?;
+        let len = list.borrow_vec().len();
+        let mut result = Self::with_capacity(len);
+        for i in 0..len {
+            let item = {
+                let items = list.borrow_vec();
+                if items.len() != len {
+                    return Err(
+                        vm.new_runtime_error("AST list field changed size during iteration")
+                    );
+                }
+                items[i].clone()
+            };
+            result.push(vm.with_recursion("while traversing AST node", || {
+                Node::ast_from_object(vm, source_file, item)
+            })?);
+            if list.borrow_vec().len() != len {
+                return Err(vm.new_runtime_error("AST list field changed size during iteration"));
+            }
+        }
+        Ok(result)
+    }
+}
+
+impl<T: Node> Node for ThinVec<T> {
+    fn ast_to_object(self, vm: &VirtualMachine, source_file: &SourceFile) -> PyObjectRef {
+        vm.ctx
+            .new_list(
+                self.into_iter()
+                    .map(|node| node.ast_to_object(vm, source_file))
+                    .collect(),
+            )
+            .into()
+    }
+
+    fn ast_from_object(
+        vm: &VirtualMachine,
+        source_file: &SourceFile,
+        object: PyObjectRef,
+    ) -> PyResult<Self> {
+        Vec::<T>::ast_from_object(vm, source_file, object).map(Into::into)
     }
 }
 
@@ -52,10 +91,6 @@ impl<T: Node> Node for Box<T> {
         source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        // Recursion guard: every descent through a Box<AstNode> increments the
-        // VM's recursion depth so cyclic or pathologically deep ASTs raise
-        // RecursionError instead of overflowing the native stack.
-        // See issue #4862.
         vm.with_recursion("while traversing AST node", || {
             T::ast_from_object(vm, source_file, object).map(Self::new)
         })

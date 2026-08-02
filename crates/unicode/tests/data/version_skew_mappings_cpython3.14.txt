@@ -1,0 +1,5 @@
+# Code points whose simple case mapping differs between CPython 3.14
+# (Unicode 16.0.0) and the icu4x build used here (a later Unicode release
+# assigns the pair). Regenerate with RUSTPYTHON_UNICODE_REGEN_SKEW=1.
+# Format: `mapping start:end,...` with inclusive hex ranges.
+tolower A7CE:A7CE,A7D2:A7D2,A7D4:A7D4,16EA0:16EB8

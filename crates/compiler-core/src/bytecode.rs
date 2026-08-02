@@ -17,6 +17,7 @@ use core::{
 use itertools::Itertools;
 use malachite_bigint::BigInt;
 use num_complex::Complex64;
+use num_traits::Zero;
 use rustpython_wtf8::{Wtf8, Wtf8Buf};
 
 pub use crate::bytecode::{
@@ -293,21 +294,19 @@ impl Constant for ConstantData {
     type Name = String;
 
     fn borrow_constant(&self) -> BorrowedConstant<'_, Self> {
-        use BorrowedConstant::*;
-
         match self {
-            Self::Integer { value } => Integer { value },
-            Self::Float { value } => Float { value: *value },
-            Self::Complex { value } => Complex { value: *value },
-            Self::Boolean { value } => Boolean { value: *value },
-            Self::Str { value } => Str { value },
-            Self::Bytes { value } => Bytes { value },
-            Self::Code { code } => Code { code },
-            Self::Tuple { elements } => Tuple { elements },
-            Self::Slice { elements } => Slice { elements },
-            Self::Frozenset { elements } => Frozenset { elements },
-            Self::None => None,
-            Self::Ellipsis => Ellipsis,
+            Self::Integer { value } => BorrowedConstant::Integer { value },
+            Self::Float { value } => BorrowedConstant::Float { value: *value },
+            Self::Complex { value } => BorrowedConstant::Complex { value: *value },
+            Self::Boolean { value } => BorrowedConstant::Boolean { value: *value },
+            Self::Str { value } => BorrowedConstant::Str { value },
+            Self::Bytes { value } => BorrowedConstant::Bytes { value },
+            Self::Code { code } => BorrowedConstant::Code { code },
+            Self::Tuple { elements } => BorrowedConstant::Tuple { elements },
+            Self::Slice { elements } => BorrowedConstant::Slice { elements },
+            Self::Frozenset { elements } => BorrowedConstant::Frozenset { elements },
+            Self::None => BorrowedConstant::None,
+            Self::Ellipsis => BorrowedConstant::Ellipsis,
         }
     }
 }
@@ -469,6 +468,13 @@ bitflags! {
         const COROUTINE = 0x0080;
         const ITERABLE_COROUTINE = 0x0100;
         const ASYNC_GENERATOR = 0x0200;
+        const FUTURE_DIVISION = 0x20000;
+        const FUTURE_ABSOLUTE_IMPORT = 0x40000;
+        const FUTURE_WITH_STATEMENT = 0x80000;
+        const FUTURE_PRINT_FUNCTION = 0x100000;
+        const FUTURE_UNICODE_LITERALS = 0x200000;
+        const FUTURE_BARRY_AS_BDFL = 0x400000;
+        const FUTURE_GENERATOR_STOP = 0x800000;
         const FUTURE_ANNOTATIONS = 0x1000000;
         /// If a code object represents a function and has a docstring,
         /// this bit is set and the first item in co_consts is the docstring.
@@ -551,6 +557,14 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
+impl TryFrom<[u8; 2]> for CodeUnit {
+    type Error = MarshalError;
+
+    fn try_from(value: [u8; 2]) -> Result<Self, Self::Error> {
+        Ok(Self::new(value[0].try_into()?, value[1].into()))
+    }
+}
+
 pub struct CodeUnits {
     units: UnsafeCell<Box<[CodeUnit]>>,
     adaptive_counters: Box<[AtomicU16]>,
@@ -604,12 +618,13 @@ impl TryFrom<&[u8]> for CodeUnits {
     type Error = MarshalError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if !value.len().is_multiple_of(2) {
+        let (chunks, []) = value.as_chunks::<2>() else {
             return Err(Self::Error::InvalidBytecode);
-        }
+        };
 
-        let units = value
-            .chunks_exact(2)
+        let units = chunks
+            .iter()
+            .copied()
             .map(CodeUnit::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(units.into())
@@ -770,12 +785,15 @@ impl CodeUnits {
     /// Store a pointer-sized value atomically in the pointer cache at `index`.
     ///
     /// Uses a single `AtomicUsize` store to prevent torn writes when
-    /// multiple threads specialize the same instruction concurrently.
+    /// multiple threads specialize the same instruction concurrently. The
+    /// tear-free width also makes this the right slot for non-pointer guard
+    /// values (e.g. dict keys-version stamps) that must never be observed
+    /// half-written.
     ///
     /// # Safety
     /// - `index` must be in bounds.
-    /// - `value` must be `0` or a valid `*const PyObject` encoded as `usize`.
-    /// - Callers must follow the cache invalidation/upgrade protocol:
+    /// - When the slot holds a `*const PyObject` encoded as `usize` (or `0`),
+    ///   callers must follow the cache invalidation/upgrade protocol:
     ///   invalidate the version guard before writing and publish the new
     ///   version after writing.
     pub unsafe fn write_cache_ptr(&self, index: usize, value: usize) {
@@ -911,25 +929,50 @@ pub enum ConstantData {
     Ellipsis,
 }
 
+impl ConstantData {
+    /// Whether or not python would return True/False for the given constant data.
+    ///
+    /// ```py
+    /// bool(0) # False
+    /// bool(1) # True
+    /// bool([]) # False
+    /// bool(...) # True
+    /// ```
+    #[must_use]
+    pub fn truthiness(&self) -> bool {
+        match self {
+            Self::Tuple { elements } | Self::Frozenset { elements } => !elements.is_empty(),
+            Self::Integer { value } => !value.is_zero(),
+            Self::Float { value } => *value != 0.0,
+            Self::Complex { value } => value.re != 0.0 || value.im != 0.0,
+            Self::Boolean { value } => *value,
+            Self::Str { value } => !value.is_empty(),
+            Self::Bytes { value } => !value.is_empty(),
+            Self::Code { .. } | Self::Slice { .. } | Self::Ellipsis => true,
+            Self::None => false,
+        }
+    }
+}
+
 impl PartialEq for ConstantData {
     fn eq(&self, other: &Self) -> bool {
-        use ConstantData::*;
-
         match (self, other) {
-            (Integer { value: a }, Integer { value: b }) => a == b,
-            (Float { value: a }, Float { value: b }) => a.to_bits() == b.to_bits(),
-            (Complex { value: a }, Complex { value: b }) => {
+            (Self::Integer { value: a }, Self::Integer { value: b }) => a == b,
+            (Self::Float { value: a }, Self::Float { value: b }) => a.to_bits() == b.to_bits(),
+            (Self::Complex { value: a }, Self::Complex { value: b }) => {
                 a.re.to_bits() == b.re.to_bits() && a.im.to_bits() == b.im.to_bits()
             }
-            (Boolean { value: a }, Boolean { value: b }) => a == b,
-            (Str { value: a }, Str { value: b }) => a == b,
-            (Bytes { value: a }, Bytes { value: b }) => a == b,
-            (Code { code: a }, Code { code: b }) => core::ptr::eq(a.as_ref(), b.as_ref()),
-            (Tuple { elements: a }, Tuple { elements: b }) => a == b,
-            (Slice { elements: a }, Slice { elements: b }) => a == b,
-            (Frozenset { elements: a }, Frozenset { elements: b }) => a == b,
-            (None, None) => true,
-            (Ellipsis, Ellipsis) => true,
+            (Self::Boolean { value: a }, Self::Boolean { value: b }) => a == b,
+            (Self::Str { value: a }, Self::Str { value: b }) => a == b,
+            (Self::Bytes { value: a }, Self::Bytes { value: b }) => a == b,
+            (Self::Code { code: a }, Self::Code { code: b }) => {
+                core::ptr::eq(a.as_ref(), b.as_ref())
+            }
+            (Self::Tuple { elements: a }, Self::Tuple { elements: b }) => a == b,
+            (Self::Slice { elements: a }, Self::Slice { elements: b }) => a == b,
+            (Self::Frozenset { elements: a }, Self::Frozenset { elements: b }) => a == b,
+            (Self::None, Self::None) => true,
+            (Self::Ellipsis, Self::Ellipsis) => true,
             _ => false,
         }
     }
@@ -939,25 +982,24 @@ impl Eq for ConstantData {}
 
 impl hash::Hash for ConstantData {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
-        use ConstantData::*;
-
         mem::discriminant(self).hash(state);
+
         match self {
-            Integer { value } => value.hash(state),
-            Float { value } => value.to_bits().hash(state),
-            Complex { value } => {
+            Self::Integer { value } => value.hash(state),
+            Self::Float { value } => value.to_bits().hash(state),
+            Self::Complex { value } => {
                 value.re.to_bits().hash(state);
                 value.im.to_bits().hash(state);
             }
-            Boolean { value } => value.hash(state),
-            Str { value } => value.hash(state),
-            Bytes { value } => value.hash(state),
-            Code { code } => core::ptr::hash(code.as_ref(), state),
-            Tuple { elements } => elements.hash(state),
-            Slice { elements } => elements.hash(state),
-            Frozenset { elements } => elements.hash(state),
-            None => {}
-            Ellipsis => {}
+            Self::Boolean { value } => value.hash(state),
+            Self::Str { value } => value.hash(state),
+            Self::Bytes { value } => value.hash(state),
+            Self::Code { code } => core::ptr::hash(code.as_ref(), state),
+            Self::Tuple { elements } => elements.hash(state),
+            Self::Slice { elements } => elements.hash(state),
+            Self::Frozenset { elements } => elements.hash(state),
+            Self::None => {}
+            Self::Ellipsis => {}
         }
     }
 }
@@ -1040,41 +1082,39 @@ impl<C: Constant> BorrowedConstant<'_, C> {
 
     #[must_use]
     pub fn to_owned(self) -> ConstantData {
-        use ConstantData::*;
-
         match self {
-            BorrowedConstant::Integer { value } => Integer {
+            BorrowedConstant::Integer { value } => ConstantData::Integer {
                 value: value.clone(),
             },
-            BorrowedConstant::Float { value } => Float { value },
-            BorrowedConstant::Complex { value } => Complex { value },
-            BorrowedConstant::Boolean { value } => Boolean { value },
-            BorrowedConstant::Str { value } => Str {
+            BorrowedConstant::Float { value } => ConstantData::Float { value },
+            BorrowedConstant::Complex { value } => ConstantData::Complex { value },
+            BorrowedConstant::Boolean { value } => ConstantData::Boolean { value },
+            BorrowedConstant::Str { value } => ConstantData::Str {
                 value: value.to_owned(),
             },
-            BorrowedConstant::Bytes { value } => Bytes {
+            BorrowedConstant::Bytes { value } => ConstantData::Bytes {
                 value: value.to_owned(),
             },
-            BorrowedConstant::Code { code } => Code {
+            BorrowedConstant::Code { code } => ConstantData::Code {
                 code: Box::new(code.map_clone_bag(&BasicBag)),
             },
-            BorrowedConstant::Tuple { elements } => Tuple {
+            BorrowedConstant::Tuple { elements } => ConstantData::Tuple {
                 elements: elements
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
             },
-            BorrowedConstant::Slice { elements } => Slice {
+            BorrowedConstant::Slice { elements } => ConstantData::Slice {
                 elements: Box::new(elements.each_ref().map(|c| c.borrow_constant().to_owned())),
             },
-            BorrowedConstant::Frozenset { elements } => Frozenset {
+            BorrowedConstant::Frozenset { elements } => ConstantData::Frozenset {
                 elements: elements
                     .iter()
                     .map(|c| c.borrow_constant().to_owned())
                     .collect(),
             },
-            BorrowedConstant::None => None,
-            BorrowedConstant::Ellipsis => Ellipsis,
+            BorrowedConstant::None => ConstantData::None,
+            BorrowedConstant::Ellipsis => ConstantData::Ellipsis,
         }
     }
 }

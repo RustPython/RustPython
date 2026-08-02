@@ -1,7 +1,8 @@
 use crate::PyObject;
 use core::convert::Infallible;
-use core::ffi::{c_char, c_double, c_int, c_long, c_ulonglong, c_void};
-use rustpython_vm::{PyObjectRef, PyRef, PyResult, VirtualMachine};
+use core::ffi::{CStr, c_char, c_double, c_int, c_long, c_ulong, c_void};
+use core::ptr::NonNull;
+use rustpython_vm::{Py, PyObjectRef, PyRef, PyResult, VirtualMachine};
 
 pub(crate) trait FfiResult<Output = Self> {
     const ERR_VALUE: Output;
@@ -33,6 +34,17 @@ where
 
     fn into_output(self, _vm: &VirtualMachine) -> *mut PyObject {
         self.into().into_raw().as_ptr()
+    }
+}
+
+impl<T> FfiResult<*mut Py<T>> for PyRef<T>
+where
+    Self: Into<PyObjectRef>,
+{
+    const ERR_VALUE: *mut Py<T> = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *mut Py<T> {
+        self.into().into_raw().as_ptr().cast()
     }
 }
 
@@ -76,11 +88,27 @@ impl FfiResult<*mut c_char> for *const u8 {
     }
 }
 
+impl FfiResult<*mut c_char> for *mut u8 {
+    const ERR_VALUE: *mut c_char = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *mut c_char {
+        self.cast()
+    }
+}
+
 impl FfiResult for *const c_char {
     const ERR_VALUE: *const c_char = core::ptr::null_mut();
 
     fn into_output(self, _vm: &VirtualMachine) -> *const c_char {
         self
+    }
+}
+
+impl FfiResult<*const c_char> for &CStr {
+    const ERR_VALUE: *const c_char = core::ptr::null_mut();
+
+    fn into_output(self, _vm: &VirtualMachine) -> *const c_char {
+        self.as_ptr()
     }
 }
 
@@ -93,6 +121,31 @@ impl FfiResult<isize> for usize {
     }
 }
 
+impl FfiResult for isize {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+#[cfg(not(windows))]
+impl FfiResult for c_int {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+impl FfiResult for usize {
+    const ERR_VALUE: Self = Self::MAX;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
 impl FfiResult for c_long {
     const ERR_VALUE: Self = -1;
 
@@ -101,7 +154,25 @@ impl FfiResult for c_long {
     }
 }
 
-impl FfiResult for c_ulonglong {
+impl FfiResult for c_ulong {
+    const ERR_VALUE: Self = Self::MAX;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+#[cfg(windows)]
+impl FfiResult for core::ffi::c_longlong {
+    const ERR_VALUE: Self = -1;
+
+    fn into_output(self, _vm: &VirtualMachine) -> Self {
+        self
+    }
+}
+
+#[cfg(windows)]
+impl FfiResult for core::ffi::c_ulonglong {
     const ERR_VALUE: Self = Self::MAX;
 
     fn into_output(self, _vm: &VirtualMachine) -> Self {
@@ -149,5 +220,70 @@ where
             },
             |obj| obj.into_output(vm),
         )
+    }
+}
+
+pub(crate) trait CStrExt<'a> {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str>;
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>>;
+}
+
+impl<'a> CStrExt<'a> for *mut c_char {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { self.try_as_str_opt(vm) }?
+            .ok_or_else(|| vm.new_system_error("argument must not be null"))
+    }
+
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        NonNull::new(self)
+            .map(|ptr| unsafe { CStr::from_ptr(ptr.as_ptr()) }.to_str())
+            .transpose()
+            .map_err(|_| vm.new_system_error("argument must be valid UTF-8"))
+    }
+}
+
+impl<'a> CStrExt<'a> for *const c_char {
+    unsafe fn try_as_str(self, vm: &VirtualMachine) -> PyResult<&'a str> {
+        unsafe { self.cast_mut().try_as_str(vm) }
+    }
+
+    unsafe fn try_as_str_opt(self, vm: &VirtualMachine) -> PyResult<Option<&'a str>> {
+        unsafe { self.cast_mut().try_as_str_opt(vm) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::any::type_name;
+    use core::ffi::{c_longlong, c_ulonglong};
+    use core::fmt::Debug;
+
+    #[test]
+    fn ffi_result_err_value() {
+        fn assert_error_value<T, Output>(value: Output)
+        where
+            T: FfiResult<Output> + 'static,
+            Output: PartialEq + Debug,
+        {
+            assert_eq!(value, T::ERR_VALUE, "{}", type_name::<T>(),);
+        }
+
+        assert_error_value::<(), _>(());
+        assert_error_value::<(), c_int>(-1);
+
+        assert_error_value::<isize, _>(-1);
+        assert_error_value::<usize, _>(usize::MAX);
+        assert_error_value::<usize, isize>(-1);
+        assert_error_value::<c_int, _>(-1); // i32
+        assert_error_value::<c_long, _>(-1); //Windows i32, unix i64
+        assert_error_value::<c_ulong, _>(c_ulong::MAX); // Windows u32, unix u64
+        assert_error_value::<c_longlong, _>(-1); // i64
+        assert_error_value::<c_ulonglong, _>(c_ulonglong::MAX); // u64
+        assert_error_value::<c_double, _>(-1.0);
+        assert_error_value::<bool, _>(-1);
+
+        assert_error_value::<PyResult<c_int>, _>(-1);
+        assert_error_value::<PyResult<usize>, _>(usize::MAX);
     }
 }

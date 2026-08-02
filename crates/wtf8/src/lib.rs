@@ -31,7 +31,7 @@
 //! to match CPython's behavior.
 //!
 //! [WTF-8]: https://simonsapin.github.io/wtf-8
-//! [`OsStr`]: std::ffi::OsStr
+//! [`OsStr`]: https://doc.rust-lang.org/std/ffi/struct.OsStr.html
 
 #![no_std]
 #![allow(clippy::precedence, clippy::match_overlapping_arm)]
@@ -1345,6 +1345,13 @@ pub const unsafe fn slice_unchecked(s: &Wtf8, begin: usize, end: usize) -> &Wtf8
 pub fn slice_error_fail(s: &Wtf8, begin: usize, end: usize) -> ! {
     assert!(begin <= end);
     panic!("index {begin} and/or {end} in `{s:?}` do not lie on character boundary");
+}
+
+/// True for the ASCII bytes Python treats as whitespace in numeric parsing
+/// (`\t \n \x0b \x0c \r` and space).
+#[must_use]
+pub const fn is_py_ascii_whitespace(b: u8) -> bool {
+    matches!(b, b'\t' | b'\n' | b'\x0b' | b'\x0c' | b'\r' | b' ')
 }
 
 /// Iterator for the code points of a WTF-8 string.

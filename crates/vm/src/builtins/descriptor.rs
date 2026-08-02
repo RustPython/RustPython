@@ -79,7 +79,10 @@ impl GetDescriptor for PyMethodDescriptor {
         let bound = match obj {
             Some(obj) => {
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
-                    if cls.is_some_and(|c| c.fast_isinstance(vm.ctx.types.type_type)) {
+                    if cls
+                        .as_ref()
+                        .is_none_or(|c| c.fast_isinstance(vm.ctx.types.type_type))
+                    {
                         obj
                     } else {
                         return Err(vm.new_type_error(format!(
@@ -127,7 +130,7 @@ impl PyMethodDescriptor {
 
     #[pygetset]
     fn __qualname__(&self) -> String {
-        format!("{}.{}", self.common.typ.name(), &self.common.name)
+        format!("{}.{}", self.common.typ.name(), self.common.name)
     }
 
     #[pygetset]
@@ -164,7 +167,7 @@ impl Representable for PyMethodDescriptor {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         Ok(format!(
             "<method '{}' of '{}' objects>",
-            &zelf.method.name,
+            zelf.method.name,
             zelf.common.typ.name()
         ))
     }

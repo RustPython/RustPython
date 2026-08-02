@@ -47,20 +47,17 @@ pub(crate) mod typevar {
     ///
     /// Note: CPython's implementation (in typevarobject.c) gets the module from the
     /// frame's function object using PyFunction_GetModule(f->f_funcobj). However,
-    /// RustPython's Frame doesn't store a reference to the function object, so we
+    /// RustPython's FrameObject doesn't store a reference to the function object, so we
     /// get the module name from the frame's globals dictionary instead.
     fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let frame = vm.current_frame()?;
-
-        // In RustPython, we get the module name from frame's globals
-        // This is similar to CPython's sys._getframe().f_globals.get('__name__')
-        frame.globals.get_item("__name__", vm).ok()
+        let globals = crate::frame::current_globals()?;
+        globals.get_item("__name__", vm).ok()
     }
 
     /// Set __module__ attribute for an object based on the caller's module.
     /// This follows CPython's behavior for TypeVar and similar objects.
     fn set_module_from_caller(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
+        // Note: CPython gets module from frame->f_funcobj, but RustPython's FrameObject
         // architecture is different - we use globals['__name__'] instead
         let module_value: PyObjectRef = if let Some(module_name) = caller(vm) {
             // Special handling for certain module names
@@ -81,7 +78,6 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "TypeVar", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct TypeVar {
         name: PyObjectRef, // TODO PyStrRef?
         bound: PyMutex<PyObjectRef>,
@@ -94,6 +90,7 @@ pub(crate) mod typevar {
         contravariant: bool,
         infer_variance: bool,
     }
+
     #[pyclass(
         flags(HAS_DICT, HAS_WEAKREF),
         with(AsNumber, Constructor, Representable)
@@ -267,7 +264,7 @@ pub(crate) mod typevar {
                 // Check if we have enough arguments
                 if args_tuple.len() <= index && zelf.has_default(vm) {
                     // Need to add default value
-                    let mut new_args: Vec<PyObjectRef> = args_tuple.iter().cloned().collect();
+                    let mut new_args = args_tuple.iter().cloned().collect::<Vec<PyObjectRef>>();
 
                     // Add default value at the correct position
                     while new_args.len() <= index {
@@ -367,7 +364,7 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if !kwargs.is_empty() {
-                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
                 return Err(vm.new_type_error(format!(
                     "TypeVar() got unexpected keyword argument(s): {}",
                     unexpected_keys.join(", ")
@@ -459,7 +456,6 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "ParamSpec", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct ParamSpec {
         name: PyObjectRef,
         bound: Option<PyObjectRef>,
@@ -651,7 +647,7 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if !kwargs.is_empty() {
-                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
                 return Err(vm.new_type_error(format!(
                     "ParamSpec() got unexpected keyword argument(s): {}",
                     unexpected_keys.join(", ")
@@ -721,12 +717,12 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "TypeVarTuple", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct TypeVarTuple {
         name: PyObjectRef,
         default_value: PyMutex<PyObjectRef>,
         evaluate_default: PyMutex<PyObjectRef>,
     }
+
     #[pyclass(
         flags(HAS_DICT, HAS_WEAKREF),
         with(Constructor, Representable, Iterable)
@@ -845,7 +841,7 @@ pub(crate) mod typevar {
 
             // Check for unexpected keyword arguments
             if !kwargs.is_empty() {
-                let unexpected_keys: Vec<String> = kwargs.keys().map(|s| s.to_string()).collect();
+                let unexpected_keys = kwargs.keys().map(|s| s.to_string()).collect::<Vec<_>>();
                 return Err(vm.new_type_error(format!(
                     "TypeVarTuple() got unexpected keyword argument(s): {}",
                     unexpected_keys.join(", ")
@@ -898,10 +894,10 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "ParamSpecArgs", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct ParamSpecArgs {
         __origin__: PyObjectRef,
     }
+
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecArgs {
         #[pymethod]
@@ -961,10 +957,10 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "ParamSpecKwargs", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct ParamSpecKwargs {
         __origin__: PyObjectRef,
     }
+
     #[pyclass(with(Constructor, Representable, Comparable), flags(HAS_WEAKREF))]
     impl ParamSpecKwargs {
         #[pymethod]
@@ -1048,7 +1044,6 @@ pub(crate) mod typevar {
     #[pyattr]
     #[pyclass(name = "Generic", module = "typing")]
     #[derive(Debug, PyPayload)]
-    #[allow(dead_code)]
     pub struct Generic;
 
     #[pyclass(flags(BASETYPE, HEAPTYPE))]

@@ -1984,7 +1984,6 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_method_call_error(self):
         nonopt_func, nonopt_expected = self._super_method_call_error(optimized=False)
         opt_func, opt_expected = self._super_method_call_error(optimized=True)
@@ -2022,7 +2021,6 @@ class TestLoadSuperAttr(CheckEvents):
         ]
         return d["f"], expected
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; line number differences in multi-line super() calls
     def test_attr(self):
         nonopt_func, nonopt_expected = self._super_attr(optimized=False)
         opt_func, opt_expected = self._super_attr(optimized=True)

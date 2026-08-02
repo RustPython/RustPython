@@ -7,18 +7,19 @@ mod _collections {
         atomic_func,
         builtins::{
             IterStatus::{Active, Exhausted},
-            PositionIterInternal, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
+            PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
-        function::{KwArgs, OptionalArg, PyComparisonValue},
+        convert::ToPyObject,
+        function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
-        protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
+        protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
         sliceable::SequenceIndexOp,
         types::{
-            AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor, Initializer,
-            IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
+            AsMapping, AsNumber, AsSequence, Comparable, Constructor, DefaultConstructor,
+            Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
     };
@@ -365,7 +366,7 @@ mod _collections {
                 })
             } else {
                 Err(vm.new_type_error(format!(
-                    "can only concatenate deque (not \"{}\") to deque",
+                    r#"can only concatenate deque (not "{}") to deque"#,
                     other.class().name()
                 )))
             }
@@ -503,11 +504,13 @@ mod _collections {
                         .concat(other, vm)
                         .map(|x| x.into_ref(&vm.ctx).into())
                 }),
+
                 repeat: atomic_func!(|seq, n, vm| {
                     PyDeque::sequence_downcast(seq)
                         .__mul__(n, vm)
                         .map(|x| x.into_ref(&vm.ctx).into())
                 }),
+
                 item: atomic_func!(|seq, i, vm| PyDeque::sequence_downcast(seq).__getitem__(i, vm)),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
@@ -517,14 +520,17 @@ mod _collections {
                         zelf.__delitem__(i, vm)
                     }
                 }),
+
                 contains: atomic_func!(
                     |seq, needle, vm| PyDeque::sequence_downcast(seq)._contains(needle, vm)
                 ),
+
                 inplace_concat: atomic_func!(|seq, other, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     zelf._extend(other, vm)?;
                     Ok(zelf.to_owned().into())
                 }),
+
                 inplace_repeat: atomic_func!(|seq, n, vm| {
                     let zelf = PyDeque::sequence_downcast(seq);
                     PyDeque::__imul__(zelf.to_owned(), n, vm).map(|x| x.into())
@@ -545,6 +551,7 @@ mod _collections {
             if let Some(res) = op.identical_optimization(zelf, other) {
                 return Ok(res.into());
             }
+
             let other = class_or_notimplemented!(Self, other);
             let lhs = zelf.borrow_deque();
             let rhs = other.borrow_deque();
@@ -573,6 +580,7 @@ mod _collections {
             if zelf.__len__() == 0 {
                 return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));
             }
+
             if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
                 Ok(vm.ctx.new_str(collection_repr(
                     Some(&class_name),
@@ -737,6 +745,196 @@ mod _collections {
                     .cloned();
                 Ok(PyIterReturn::from_result(r.ok_or(None)))
             })
+        }
+    }
+
+    #[pyattr]
+    #[pyclass(
+        module = "collections",
+        name = "defaultdict",
+        base = PyDict,
+        unhashable = true
+    )]
+    #[derive(Debug, Default)]
+    struct PyDefaultDict {
+        dict: PyDict,
+        default_factory: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    #[pyclass(
+        with(AsMapping, AsNumber, Constructor, Initializer, Representable),
+        flags(BASETYPE, MAPPING, HAS_DICT)
+    )]
+    impl PyDefaultDict {
+        #[pygetset]
+        fn default_factory(&self) -> Option<PyObjectRef> {
+            self.default_factory.read().clone()
+        }
+
+        #[pygetset(name = "default_factory", setter)]
+        fn default_factory_setter(&self, value: PyObjectRef, vm: &VirtualMachine) {
+            *self.default_factory.write() = if value.is(&vm.ctx.none()) {
+                None
+            } else {
+                Some(value)
+            };
+        }
+
+        #[pymethod]
+        fn __missing__(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let factory = self.default_factory();
+
+            if let Some(f) = factory {
+                let value = f.call((), vm)?;
+                self.dict.setdefault(key, value.into(), vm)
+            } else {
+                Err(vm.new_key_error(key))
+            }
+        }
+
+        #[pymethod]
+        #[pymethod(name = "__copy__")]
+        fn copy(&self) -> Self {
+            let default_factory = self.default_factory();
+
+            Self {
+                dict: self.dict.copy(),
+                default_factory: PyRwLock::new(default_factory),
+            }
+        }
+
+        #[pymethod]
+        fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
+            let cls = zelf.class().to_owned();
+
+            let default_factory = zelf.default_factory();
+            let factory_tuple_elements =
+                default_factory.map_or_else(Vec::new, |factory| vec![factory]);
+            let factory_tuple = vm.ctx.new_tuple(factory_tuple_elements);
+
+            let items_fn = zelf.as_object().get_attr("items", vm)?;
+            let items_iter = items_fn.call((), vm)?;
+            let iter = items_iter.get_iter(vm)?;
+            let none = vm.ctx.none();
+
+            Ok(vm
+                .ctx
+                .new_tuple(vec![
+                    cls.into(),
+                    factory_tuple.into(),
+                    none.clone(),
+                    none,
+                    iter.into(),
+                ])
+                .into())
+        }
+    }
+
+    impl PyDefaultDict {
+        fn __or__(lhs: PyObjectRef, rhs: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let not_implemented = || Ok(vm.ctx.not_implemented.clone().into());
+
+            let (default_factory, dict) = if let Some(zelf) = lhs.downcast_ref::<Self>() {
+                if !rhs.fast_isinstance(vm.ctx.types.dict_type) {
+                    return not_implemented();
+                }
+
+                (zelf.default_factory(), zelf.dict.copy())
+            } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
+                let Some(dict) = lhs.downcast_ref::<PyDict>() else {
+                    return not_implemented();
+                };
+
+                (zelf.default_factory(), dict.copy())
+            } else {
+                return Err(vm.new_type_error(format!(
+                    "unsupported operand type(s) for |: '{}' and '{}'",
+                    lhs.class().name(),
+                    rhs.class().name()
+                )));
+            };
+
+            dict.update(rhs.into(), KwArgs::default(), vm)?;
+
+            Ok(Self {
+                dict,
+                default_factory: PyRwLock::new(default_factory),
+            }
+            .to_pyobject(vm))
+        }
+    }
+
+    impl DefaultConstructor for PyDefaultDict {}
+
+    impl Initializer for PyDefaultDict {
+        type Args = FuncArgs;
+
+        fn init(zelf: PyRef<Self>, mut args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+            let default_factory = args.take_positional().map_or(Ok(None), |factory| {
+                let is_none = factory.is(&vm.ctx.none());
+
+                if !is_none && !factory.is_callable() {
+                    Err(vm.new_type_error("first argument must be callable or None"))
+                } else if is_none {
+                    Ok(None)
+                } else {
+                    Ok(Some(factory))
+                }
+            })?;
+
+            *zelf.default_factory.write() = default_factory;
+
+            zelf.dict.update(
+                OptionalArg::from_option(args.take_positional()),
+                args.kwargs,
+                vm,
+            )?;
+
+            Ok(())
+        }
+    }
+
+    impl Representable for PyDefaultDict {
+        fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
+            let default_factory = zelf.default_factory.read();
+
+            let factory_repr = match default_factory.as_ref() {
+                Some(factory) => {
+                    if let Some(_guard) = ReprGuard::enter(vm, factory) {
+                        factory.repr(vm)?.to_string()
+                    } else {
+                        String::from("...")
+                    }
+                }
+                None => String::from("None"),
+            };
+
+            let dict_repr = Representable::repr(&zelf.dict.copy().into_ref(&vm.ctx), vm)?;
+
+            Ok(format!(
+                "{}({}, {})",
+                zelf.class().name(),
+                factory_repr,
+                dict_repr
+            ))
+        }
+    }
+
+    impl AsMapping for PyDefaultDict {
+        fn as_mapping() -> &'static PyMappingMethods {
+            PyDict::as_mapping()
+        }
+    }
+
+    impl AsNumber for PyDefaultDict {
+        fn as_number() -> &'static PyNumberMethods {
+            static AS_NUMBER: PyNumberMethods = PyNumberMethods {
+                or: Some(|a, b, vm| {
+                    PyDefaultDict::__or__(a.to_pyobject(vm), b.to_pyobject(vm), vm)
+                }),
+                ..PyNumberMethods::NOT_IMPLEMENTED
+            };
+            &AS_NUMBER
         }
     }
 }

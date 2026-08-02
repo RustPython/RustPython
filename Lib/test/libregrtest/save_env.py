@@ -227,9 +227,7 @@ class saved_test_environment:
     # to track reference leaks.
     def get_threading__dangling(self):
         # This copies the weakrefs without making any strong reference
-        # XXX: RUSTPYTHON - filter out dead threads since gc doesn't clean WeakSet. Revert this line when we have a GC
-        # return threading._dangling.copy()
-        return {t for t in threading._dangling if t.is_alive()}
+        return threading._dangling.copy()
     def restore_threading__dangling(self, saved):
         threading._dangling.clear()
         threading._dangling.update(saved)
@@ -240,9 +238,7 @@ class saved_test_environment:
         # Unjoined process objects can survive after process exits
         multiprocessing_process._cleanup()
         # This copies the weakrefs without making any strong reference
-        # TODO: RUSTPYTHON - filter out dead processes since gc doesn't clean WeakSet. Revert this line when we have a GC
-        # return multiprocessing_process._dangling.copy()
-        return {p for p in multiprocessing_process._dangling if p.is_alive()}
+        return multiprocessing_process._dangling.copy()
     def restore_multiprocessing_process__dangling(self, saved):
         multiprocessing_process = self.get_module('multiprocessing.process')
         multiprocessing_process._dangling.clear()

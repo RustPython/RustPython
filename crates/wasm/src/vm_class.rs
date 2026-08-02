@@ -6,9 +6,14 @@ use crate::{
 use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
 use js_sys::{Object, TypeError};
+use ruff_text_size::Ranged;
 use rustpython_vm::{
-    Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine, builtins::PyWeak,
-    compiler::Mode, function::ArgMapping, scope::Scope,
+    Interpreter, PyObjectRef, PyRef, PyResult, Settings, VirtualMachine,
+    builtins::PyWeak,
+    compiler::{self, Mode},
+    function::ArgMapping,
+    scope::Scope,
+    vm::VmCompileError,
 };
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
@@ -19,6 +24,25 @@ pub(crate) struct StoredVirtualMachine {
     /// you can put a Rc in here, keep it as a Weak, and it'll be held only for
     /// as long as the StoredVM is alive
     held_objects: RefCell<Vec<PyObjectRef>>,
+}
+
+fn compile_err_to_js(vm: &VirtualMachine, err: VmCompileError) -> JsValue {
+    match err {
+        VmCompileError::Compile(err) => convert::syntax_err(err).into(),
+        err => convert::py_err_to_js_err(vm, &err.into_pyexception(vm, None)),
+    }
+}
+
+fn statement_chunks(source: &str) -> Option<Vec<&str>> {
+    let module = compiler::parser::parse_module(source).ok()?.into_syntax();
+    module
+        .body
+        .iter()
+        .map(|stmt| {
+            let range = stmt.range();
+            source.get(range.start().to_usize()..range.end().to_usize())
+        })
+        .collect()
 }
 
 #[pymodule]
@@ -225,31 +249,59 @@ impl WASMVirtualMachine {
 
     #[wasm_bindgen(js_name = setStdout)]
     pub fn set_stdout(&self, stdout: JsValue) -> Result<(), JsValue> {
+        self.set_stdstream(
+            "stdout",
+            "JSStdout",
+            stdout,
+            wasm_builtins::sys_stdout_write_console,
+        )
+    }
+
+    #[wasm_bindgen(js_name = setStderr)]
+    pub fn set_stderr(&self, stderr: JsValue) -> Result<(), JsValue> {
+        self.set_stdstream(
+            "stderr",
+            "JSStderr",
+            stderr,
+            wasm_builtins::sys_stderr_write_console,
+        )
+    }
+
+    fn set_stdstream(
+        &self,
+        attr: &'static str,
+        class_name: &'static str,
+        stream: JsValue,
+        console_write: fn(&str, &VirtualMachine) -> PyResult<()>,
+    ) -> Result<(), JsValue> {
         self.with_vm(|vm, _| {
-            fn error() -> JsValue {
-                TypeError::new("Unknown stdout option, please pass a function or 'console'").into()
+            fn error(attr: &str) -> JsValue {
+                TypeError::new(&format!(
+                    "Unknown {attr} option, please pass a function or 'console'"
+                ))
+                .into()
             }
-            use wasm_builtins::make_stdout_object;
-            let stdout: PyObjectRef = if let Some(s) = stdout.as_string() {
+            use wasm_builtins::make_stdstream_object;
+            let stream: PyObjectRef = if let Some(s) = stream.as_string() {
                 match s.as_str() {
-                    "console" => make_stdout_object(vm, wasm_builtins::sys_stdout_write_console),
-                    _ => return Err(error()),
+                    "console" => make_stdstream_object(vm, class_name, console_write),
+                    _ => return Err(error(attr)),
                 }
-            } else if stdout.is_function() {
-                let func = js_sys::Function::from(stdout);
-                make_stdout_object(vm, move |data, vm| {
+            } else if stream.is_function() {
+                let func = js_sys::Function::from(stream);
+                make_stdstream_object(vm, class_name, move |data, vm| {
                     func.call1(&JsValue::UNDEFINED, &data.into())
                         .map_err(|err| convert::js_py_typeerror(vm, err))?;
                     Ok(())
                 })
-            } else if stdout.is_null() {
-                make_stdout_object(vm, |_, _| Ok(()))
-            } else if stdout.is_undefined() {
-                make_stdout_object(vm, wasm_builtins::sys_stdout_write_console)
+            } else if stream.is_null() {
+                make_stdstream_object(vm, class_name, |_, _| Ok(()))
+            } else if stream.is_undefined() {
+                make_stdstream_object(vm, class_name, console_write)
             } else {
-                return Err(error());
+                return Err(error(attr));
             };
-            vm.sys_module.set_attr("stdout", stdout, vm).unwrap();
+            vm.sys_module.set_attr(attr, stream, vm).unwrap();
             Ok(())
         })?
     }
@@ -263,8 +315,8 @@ impl WASMVirtualMachine {
     ) -> Result<(), JsValue> {
         self.with_vm(|vm, _| {
             let code = vm
-                .compile(source, Mode::Exec, name.clone())
-                .map_err(convert::syntax_err)?;
+                .compile(source, Mode::Exec, name.as_str())
+                .map_err(|err| compile_err_to_js(vm, err))?;
             let attrs = vm.ctx.new_dict();
             attrs
                 .set_item("__name__", vm.new_pyobj(name.as_str()), vm)
@@ -327,10 +379,43 @@ impl WASMVirtualMachine {
     ) -> Result<JsValue, JsValue> {
         self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
             let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
-            let code = vm.compile(source, mode, source_path);
-            let code = code.map_err(convert::syntax_err)?;
+            let code = vm.compile(source, mode, source_path.as_str());
+            let code = code.map_err(|err| compile_err_to_js(vm, err))?;
             let result = vm.run_code_obj(code, scope.clone());
             convert::pyresult_to_js_result(vm, result)
+        })?
+    }
+
+    pub(crate) fn run_single(
+        &self,
+        source: &str,
+        source_path: Option<String>,
+    ) -> Result<JsValue, JsValue> {
+        self.with_vm(|vm, StoredVirtualMachine { scope, .. }| {
+            let source_path = source_path.unwrap_or_else(|| "<wasm>".to_owned());
+            let Some(chunks) = statement_chunks(source) else {
+                let code = vm.compile(source, Mode::Single, source_path.as_str());
+                let code = code.map_err(|err| compile_err_to_js(vm, err))?;
+                let result = vm.run_code_obj(code, scope.clone());
+                return convert::pyresult_to_js_result(vm, result);
+            };
+
+            if chunks.is_empty() {
+                return Ok(convert::py_to_js(vm, vm.ctx.none()));
+            }
+
+            let displayhook = vm
+                .sys_module
+                .get_attr("displayhook", vm)
+                .map_err(|_| TypeError::new("lost sys.displayhook"))?;
+            let mut result = vm.ctx.none();
+            for chunk in chunks {
+                let code = vm.compile(chunk, Mode::BlockExpr, source_path.as_str());
+                let code = code.map_err(|err| compile_err_to_js(vm, err))?;
+                result = vm.run_code_obj(code, scope.clone()).into_js(vm)?;
+                displayhook.call((result.clone(),), vm).into_js(vm)?;
+            }
+            Ok(convert::py_to_js(vm, result))
         })?
     }
 
@@ -348,6 +433,6 @@ impl WASMVirtualMachine {
         source: &str,
         source_path: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        self.run(source, Mode::Single, source_path)
+        self.run_single(source, source_path)
     }
 }

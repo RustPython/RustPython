@@ -157,7 +157,7 @@ impl PyNativeFunction {
                 // m_self is an instance: use Py_TYPE(m_self).__qualname__
                 bound.class().name().to_string()
             };
-            vm.ctx.new_str(format!("{}.{}", prefix, &zelf.value.name))
+            vm.ctx.new_str(format!("{}.{}", prefix, zelf.value.name))
         } else {
             vm.ctx.intern_str(zelf.value.name).to_owned()
         };
@@ -220,7 +220,7 @@ impl fmt::Debug for PyNativeMethod {
             f,
             "builtin method of {:?} with {:?}",
             &*self.class.name(),
-            &self.func
+            self.func
         )
     }
 }

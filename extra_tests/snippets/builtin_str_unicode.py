@@ -21,6 +21,13 @@ assert unicodedata.lookup("LATIN SMALL LETTER A") == "a"
 assert unicodedata.bidirectional("a") == "L"
 assert unicodedata.east_asian_width("\u231a") == "W"
 assert unicodedata.normalize("NFC", "bla") == "bla"
+square_aruhua = "<square> 30A2 30EB 30D5 30A1"
+assert unicodedata.decomposition("\u3301") == square_aruhua
+assert unicodedata.ucd_3_2_0.decomposition("\u3301") == square_aruhua
+
+# These are from NormalizationCorrections.txt
+assert unicodedata.decomposition("\uf951") == "964B"
+assert unicodedata.ucd_3_2_0.decomposition("\uf951") == "964B"
 
 # testing unicodedata.ucd_3_2_0 for idna
 assert "abcСĤ".encode("idna") == b"xn--abc-7sa390b"
@@ -36,9 +43,8 @@ assert b"python.org.".decode("idna") == "python.org."
 assert b"xn--pythn-mua.org".decode("idna") == "pyth\xf6n.org"
 assert b"xn--pythn-mua.org.".decode("idna") == "pyth\xf6n.org."
 
-# TODO: add east_asian_width and mirrored
-# assert unicodedata.ucd_3_2_0.east_asian_width('\u231a') == 'N'
-# assert not unicodedata.ucd_3_2_0.mirrored("\u0f3a")
+assert unicodedata.ucd_3_2_0.east_asian_width("\u231a") == "N"
+assert not unicodedata.ucd_3_2_0.mirrored("\u0f3a")
 
 # U+0345 COMBINING GREEK YPOGEGRAMMENI (category Mn) should not be alphanumeric.
 # CPython's isalpha/isalnum use Unicode letter categories (Lu/Ll/Lt/Lm/Lo),

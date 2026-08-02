@@ -9,7 +9,7 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-ascii = { workspace = true }
-bstr = { workspace = true }
+ascii = { workspace = true, features = ["alloc"] }
+bstr = { workspace = true, features = ["alloc"] }
 itertools = { workspace = true }
 memchr = { workspace = true }

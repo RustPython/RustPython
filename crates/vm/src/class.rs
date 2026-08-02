@@ -66,16 +66,19 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
 pub trait StaticType {
     // Ideally, saving PyType is better than PyTypeRef
     fn static_cell() -> &'static static_cell::StaticCell<PyTypeRef>;
+
     #[inline]
     #[must_use]
     fn static_metaclass() -> &'static Py<PyType> {
         PyType::static_type()
     }
+
     #[inline]
     #[must_use]
     fn static_baseclass() -> &'static Py<PyType> {
         PyBaseObject::static_type()
     }
+
     #[inline]
     #[must_use]
     fn static_type() -> &'static Py<PyType> {
@@ -87,6 +90,7 @@ pub trait StaticType {
         }
         Self::static_cell().get().unwrap_or_else(|| fail())
     }
+
     #[must_use]
     fn init_manually(typ: PyTypeRef) -> &'static Py<PyType> {
         let cell = Self::static_cell();
@@ -94,6 +98,7 @@ pub trait StaticType {
             .unwrap_or_else(|_| panic!("double initialization from init_manually"));
         cell.get().unwrap()
     }
+
     #[must_use]
     fn init_builtin_type() -> &'static Py<PyType>
     where
@@ -105,6 +110,7 @@ pub trait StaticType {
             .unwrap_or_else(|_| panic!("double initialization of {}", Self::NAME));
         cell.get().unwrap()
     }
+
     #[must_use]
     fn create_static_type() -> PyTypeRef
     where
@@ -137,14 +143,19 @@ pub trait PyClassDef {
 pub trait PyClassImpl: PyClassDef {
     const TP_FLAGS: PyTypeFlags = PyTypeFlags::DEFAULT;
 
+    const METHOD_DEFS: &'static [PyMethodDef];
+
+    fn impl_extend_class(ctx: &'static Context, class: &'static Py<PyType>);
+
+    fn extend_slots(slots: &mut PyTypeSlots);
+
     fn extend_class(ctx: &'static Context, class: &'static Py<PyType>)
     where
         Self: Sized,
     {
+        // NOTE: `is_created_with_flags` if only available when debug_assertions is true
         #[cfg(debug_assertions)]
-        {
-            assert!(class.slots.flags.is_created_with_flags());
-        }
+        debug_assert!(class.slots.flags.is_created_with_flags());
 
         let _ = ctx.intern_str(Self::NAME); // intern type name
 
@@ -161,7 +172,9 @@ pub trait PyClassImpl: PyClassDef {
                 .into(),
             );
         }
+
         Self::impl_extend_class(ctx, class);
+
         if let Some(doc) = Self::DOC {
             // Only set __doc__ if it doesn't already exist (e.g., as a member descriptor)
             // This matches CPython's behavior in type_dict_set_doc
@@ -170,6 +183,7 @@ pub trait PyClassImpl: PyClassDef {
                 class.set_attr(doc_attr_name, ctx.new_str(doc).into());
             }
         }
+
         if let Some(module_name) = Self::MODULE_NAME {
             let module_key = identifier!(ctx, __module__);
             // Don't overwrite a getset descriptor for __module__ (e.g. TypeAliasType
@@ -229,10 +243,6 @@ pub trait PyClassImpl: PyClassDef {
         }))
         .to_owned()
     }
-
-    fn impl_extend_class(ctx: &'static Context, class: &'static Py<PyType>);
-    const METHOD_DEFS: &'static [PyMethodDef];
-    fn extend_slots(slots: &mut PyTypeSlots);
 
     fn make_slots() -> PyTypeSlots {
         let mut slots = PyTypeSlots {

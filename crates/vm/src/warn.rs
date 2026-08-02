@@ -138,7 +138,7 @@ fn get_warnings_attr(
     module.get_attr(attr_name, vm).ok()
 }
 
-/// Get the warnings filters list from sys.modules['warnings'].filters,
+/// Get the warnings filters list from `sys.modules['warnings'].filters`,
 /// falling back to vm.state.warnings.filters.
 fn get_warnings_filters(vm: &VirtualMachine) -> PyListRef {
     if let Some(filters_obj) = get_warnings_attr(vm, identifier!(&vm.ctx, filters), false)
@@ -149,7 +149,7 @@ fn get_warnings_filters(vm: &VirtualMachine) -> PyListRef {
     vm.state.warnings.filters.clone()
 }
 
-/// Get the default action from sys.modules['warnings']._defaultaction,
+/// Get the default action from `sys.modules['warnings']._defaultaction`,
 /// falling back to vm.state.warnings.default_action.
 fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     if let Some(action) = get_warnings_attr(vm, identifier!(&vm.ctx, defaultaction), false) {
@@ -164,7 +164,7 @@ fn get_default_action(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     Ok(vm.state.warnings.default_action.clone().into())
 }
 
-/// Get the once registry from sys.modules['warnings']._onceregistry,
+/// Get the once registry from `sys.modules['warnings']._onceregistry`,
 /// falling back to vm.state.warnings.once_registry.
 fn get_once_registry(vm: &VirtualMachine) -> PyResult<PyObjectRef> {
     if let Some(registry) = get_warnings_attr(vm, identifier!(&vm.ctx, onceregistry), false) {
@@ -329,7 +329,7 @@ pub fn warn_with_skip(
 
 /// Core warning logic matching `warn_explicit()` in `_warnings.c`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn warn_explicit(
+pub fn warn_explicit(
     category: Option<PyTypeRef>,
     message: PyObjectRef,
     filename: PyStrRef,
@@ -513,7 +513,7 @@ fn show_warning(
 }
 
 /// Check if a frame's filename starts with any of the given prefixes.
-fn is_filename_to_skip(frame: &crate::frame::Frame, prefixes: &PyTupleRef) -> bool {
+fn is_filename_to_skip(frame: &crate::frame::FrameObject, prefixes: &PyTupleRef) -> bool {
     let filename = frame.f_code().co_filename();
     let filename_bytes = filename.as_bytes();
     prefixes.iter().any(|prefix| {
@@ -523,15 +523,15 @@ fn is_filename_to_skip(frame: &crate::frame::Frame, prefixes: &PyTupleRef) -> bo
     })
 }
 
-/// Like Frame::next_external_frame but also skips frames matching prefixes.
+/// Like FrameObject::next_external_frame but also skips frames matching prefixes.
 fn next_external_frame_with_skip(
-    frame: &crate::frame::FrameRef,
+    frame: &crate::frame::FrameObjectRef,
     skip_file_prefixes: Option<&PyTupleRef>,
     vm: &VirtualMachine,
-) -> Option<crate::frame::FrameRef> {
+) -> Option<crate::frame::FrameObjectRef> {
     let mut f = frame.f_back(vm);
     loop {
-        let current: crate::frame::FrameRef = f.take()?;
+        let current: crate::frame::FrameObjectRef = f.take()?;
         if current.is_internal_frame()
             || skip_file_prefixes.is_some_and(|p| is_filename_to_skip(&current, p))
         {
@@ -549,7 +549,9 @@ fn setup_context(
     skip_file_prefixes: Option<&PyTupleRef>,
     vm: &VirtualMachine,
 ) -> PyResult<(PyStrRef, usize, Option<PyObjectRef>, PyObjectRef)> {
-    let mut f = vm.current_frame();
+    // Materialize the topmost frame (including light frames) so stack
+    // level counting is correct across the full Python frame chain.
+    let mut f = crate::frame::current_thread_frame_materialize(vm);
 
     // Stack level comparisons to Python code is off by one as there is no
     // warnings-related stack level to avoid.
@@ -576,10 +578,18 @@ fn setup_context(
     }
 
     let (globals, filename, lineno) = if let Some(f) = f {
-        (f.globals.clone(), f.code.source_path(), f.f_lineno())
+        (
+            f.iframe().globals().to_owned(),
+            f.iframe().code().source_path(),
+            f.f_lineno(),
+        )
     } else if let Some(frame) = vm.current_frame() {
         // We have a frame but it wasn't found during stack walking
-        (frame.globals.clone(), vm.ctx.intern_str("<sys>"), 1)
+        (
+            frame.iframe().globals().to_owned(),
+            vm.ctx.intern_str("<sys>"),
+            1,
+        )
     } else {
         // No frames on the stack - use sys.__dict__ (interp->sysdict)
         let globals = vm

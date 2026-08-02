@@ -3,10 +3,13 @@ use crate::{
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
+    exceptions,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
-use alloc::fmt;
-use core::{iter::Peekable, mem};
+
+use rustpython_common::wtf8::Wtf8Buf;
+
+use core::{fmt, iter::Peekable, mem};
 use half::f16;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -83,6 +86,7 @@ pub(crate) enum FormatType {
     UByte = b'B',
     Char = b'c',
     WideChar = b'u',
+    Ucs4Char = b'w',
     Str = b's',
     Pascal = b'p',
     Short = b'h',
@@ -112,7 +116,6 @@ impl fmt::Debug for FormatType {
 
 impl FormatType {
     fn info(self, e: Endianness) -> &'static FormatInfo {
-        use FormatType::*;
         use mem::{align_of, size_of};
 
         macro_rules! native_info {
@@ -140,71 +143,72 @@ impl FormatType {
         macro_rules! match_nonnative {
             ($zelf:expr, $end:ty) => {{
                 match $zelf {
-                    Pad | Str | Pascal => &FormatInfo {
+                    Self::Pad | Self::Str | Self::Pascal => &FormatInfo {
                         size: size_of::<u8>(),
                         align: 0,
                         pack: None,
                         unpack: None,
                     },
-                    SByte => nonnative_info!(i8, $end),
-                    UByte => nonnative_info!(u8, $end),
-                    Char => &FormatInfo {
+                    Self::SByte => nonnative_info!(i8, $end),
+                    Self::UByte => nonnative_info!(u8, $end),
+                    Self::Char => &FormatInfo {
                         size: size_of::<u8>(),
                         align: 0,
                         pack: Some(pack_char),
                         unpack: Some(unpack_char),
                     },
-                    Short => nonnative_info!(i16, $end),
-                    UShort => nonnative_info!(u16, $end),
-                    Int | Long => nonnative_info!(i32, $end),
-                    UInt | ULong => nonnative_info!(u32, $end),
-                    LongLong => nonnative_info!(i64, $end),
-                    ULongLong => nonnative_info!(u64, $end),
-                    Bool => nonnative_info!(bool, $end),
-                    Half => nonnative_info!(f16, $end),
-                    Float => nonnative_info!(f32, $end),
-                    Double => nonnative_info!(f64, $end),
-                    LongDouble => nonnative_info!(f64, $end), // long double same as double
-                    PyObject => nonnative_info!(usize, $end), // pointer size
-                    _ => unreachable!(),                      // size_t or void*
+                    Self::Short => nonnative_info!(i16, $end),
+                    Self::UShort => nonnative_info!(u16, $end),
+                    Self::Int | Self::Long => nonnative_info!(i32, $end),
+                    Self::UInt | Self::ULong => nonnative_info!(u32, $end),
+                    Self::LongLong => nonnative_info!(i64, $end),
+                    Self::ULongLong => nonnative_info!(u64, $end),
+                    Self::Bool => nonnative_info!(bool, $end),
+                    Self::Half => nonnative_info!(f16, $end),
+                    Self::Float => nonnative_info!(f32, $end),
+                    Self::Double => nonnative_info!(f64, $end),
+                    Self::LongDouble => nonnative_info!(f64, $end), // long double same as double
+                    Self::PyObject => nonnative_info!(usize, $end), // pointer size
+                    _ => unreachable!(),                            // size_t or void*
                 }
             }};
         }
 
         match e {
             Endianness::Native => match self {
-                Pad | Str | Pascal => &FormatInfo {
+                Self::Pad | Self::Str | Self::Pascal => &FormatInfo {
                     size: size_of::<raw::c_char>(),
                     align: 0,
                     pack: None,
                     unpack: None,
                 },
-                SByte => native_info!(raw::c_schar),
-                UByte => native_info!(raw::c_uchar),
-                Char => &FormatInfo {
+                Self::SByte => native_info!(raw::c_schar),
+                Self::UByte => native_info!(raw::c_uchar),
+                Self::Char => &FormatInfo {
                     size: size_of::<raw::c_char>(),
                     align: 0,
                     pack: Some(pack_char),
                     unpack: Some(unpack_char),
                 },
-                WideChar => native_info!(wchar_t),
-                Short => native_info!(raw::c_short),
-                UShort => native_info!(raw::c_ushort),
-                Int => native_info!(raw::c_int),
-                UInt => native_info!(raw::c_uint),
-                Long => native_info!(raw::c_long),
-                ULong => native_info!(raw::c_ulong),
-                SSizeT => native_info!(isize), // ssize_t == isize
-                SizeT => native_info!(usize),  //  size_t == usize
-                LongLong => native_info!(raw::c_longlong),
-                ULongLong => native_info!(raw::c_ulonglong),
-                Bool => native_info!(bool),
-                Half => native_info!(f16),
-                Float => native_info!(raw::c_float),
-                Double => native_info!(raw::c_double),
-                LongDouble => native_info!(raw::c_double), // long double same as double for now
-                VoidP => native_info!(*mut raw::c_void),
-                PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
+                Self::WideChar => native_info!(wchar_t),
+                Self::Ucs4Char => native_info!(u32),
+                Self::Short => native_info!(raw::c_short),
+                Self::UShort => native_info!(raw::c_ushort),
+                Self::Int => native_info!(raw::c_int),
+                Self::UInt => native_info!(raw::c_uint),
+                Self::Long => native_info!(raw::c_long),
+                Self::ULong => native_info!(raw::c_ulong),
+                Self::SSizeT => native_info!(isize), // ssize_t == isize
+                Self::SizeT => native_info!(usize),  //  size_t == usize
+                Self::LongLong => native_info!(raw::c_longlong),
+                Self::ULongLong => native_info!(raw::c_ulonglong),
+                Self::Bool => native_info!(bool),
+                Self::Half => native_info!(f16),
+                Self::Float => native_info!(raw::c_float),
+                Self::Double => native_info!(raw::c_double),
+                Self::LongDouble => native_info!(raw::c_double), // long double same as double for now
+                Self::VoidP => native_info!(*mut raw::c_void),
+                Self::PyObject => native_info!(*mut raw::c_void), // pointer to PyObject
             },
             Endianness::Big => match_nonnative!(self, BigEndian),
             Endianness::Little => match_nonnative!(self, LittleEndian),
@@ -279,7 +283,7 @@ impl FormatCode {
 
             // Check for embedded null character
             if c == 0 {
-                return Err("embedded null character".to_owned());
+                return Err(exceptions::NulError.to_string());
             }
 
             // PEP3118: Handle extended format specifiers
@@ -343,9 +347,10 @@ impl FormatCode {
             let code = FormatType::try_from(c)
                 .ok()
                 .filter(|c| match c {
-                    FormatType::SSizeT | FormatType::SizeT | FormatType::VoidP => {
-                        endianness == Endianness::Native
-                    }
+                    FormatType::SSizeT
+                    | FormatType::SizeT
+                    | FormatType::VoidP
+                    | FormatType::Ucs4Char => endianness == Endianness::Native,
                     _ => true,
                 })
                 .ok_or_else(|| "bad char in struct format".to_owned())?;
@@ -611,14 +616,22 @@ make_pack_prim_int!(usize);
 make_pack_prim_int!(isize);
 
 macro_rules! make_pack_float {
-    ($T:ty) => {
+    ($T:ty, $fmt:literal) => {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> PyResult<()> {
-                let f = ArgIntoFloat::try_from_object(vm, arg)?.into_float() as $T;
+                let f_64 = ArgIntoFloat::try_from_object(vm, arg)?.into_float();
+                let f = f_64 as $T;
+                if f.is_infinite() != f_64.is_infinite() {
+                    return Err(vm.new_overflow_error(concat!(
+                        "float too large to pack with ",
+                        $fmt,
+                        " format"
+                    )));
+                }
                 f.to_bits().pack_int::<E>(data);
                 Ok(())
             }
@@ -631,8 +644,8 @@ macro_rules! make_pack_float {
     };
 }
 
-make_pack_float!(f32);
-make_pack_float!(f64);
+make_pack_float!(f32, "f");
+make_pack_float!(f64, "d");
 
 impl Packable for f16 {
     fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
@@ -737,9 +750,8 @@ pub fn struct_error_type(vm: &VirtualMachine) -> &'static PyTypeRef {
     INSTANCE.get_or_init(|| vm.ctx.new_exception_type("struct", "error", None))
 }
 
-pub fn new_struct_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {
+pub fn new_struct_error<T: Into<Wtf8Buf>>(vm: &VirtualMachine, msg: T) -> PyBaseExceptionRef {
     // can't just STRUCT_ERROR.get().unwrap() cause this could be called before from buffer
     // machinery, independent of whether _struct was ever imported
-    let msg: String = msg.into();
     vm.new_exception_msg(struct_error_type(vm).clone(), msg.into())
 }

@@ -20,6 +20,7 @@ no-start-func = []
 rustpython-common = { workspace = true }
 rustpython-pylib = { workspace = true, optional = true }
 rustpython-stdlib = { workspace = true, default-features = false, optional = true }
+ruff_text_size = { workspace = true }
 # make sure no threading! otherwise wasm build will fail
 rustpython-vm = { workspace = true, features = ["compiler", "encodings", "serde", "wasmbind"] }
 

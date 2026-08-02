@@ -16,7 +16,7 @@ mod resource {
     #[cfg_attr(target_os = "android", expect(deprecated))]
     const RLIM_NLIMITS: i32 = cfg_select! {
         target_os = "android" => {
-            libc::RLIM_NLIMITS
+            host_resource::RLIM_NLIMITS
         }
         _ => {
             // This constant isn't abi-stable across os versions, so we just
@@ -28,18 +28,18 @@ mod resource {
 
     // TODO: RLIMIT_OFILE,
     #[pyattr]
-    use libc::{
+    use host_resource::{
         RLIM_INFINITY, RLIMIT_AS, RLIMIT_CORE, RLIMIT_CPU, RLIMIT_DATA, RLIMIT_FSIZE,
         RLIMIT_MEMLOCK, RLIMIT_NOFILE, RLIMIT_NPROC, RLIMIT_RSS, RLIMIT_STACK,
     };
 
     #[cfg(any(target_os = "linux", target_os = "android", target_os = "emscripten"))]
     #[pyattr]
-    use libc::{RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_RTPRIO, RLIMIT_SIGPENDING};
+    use host_resource::{RLIMIT_MSGQUEUE, RLIMIT_NICE, RLIMIT_RTPRIO, RLIMIT_SIGPENDING};
     // TODO: I think this is supposed to be defined for all linux_like?
     #[cfg(target_os = "linux")]
     #[pyattr]
-    use libc::RLIMIT_RTTIME;
+    use host_resource::RLIMIT_RTTIME;
 
     #[cfg(any(
         target_os = "freebsd",
@@ -48,41 +48,41 @@ mod resource {
         target_os = "illumos"
     ))]
     #[pyattr]
-    use libc::RLIMIT_SBSIZE;
+    use host_resource::RLIMIT_SBSIZE;
 
     #[cfg(any(target_os = "freebsd", target_os = "solaris", target_os = "illumos"))]
     #[pyattr]
-    use libc::{RLIMIT_NPTS, RLIMIT_SWAP};
+    use host_resource::{RLIMIT_NPTS, RLIMIT_SWAP};
 
     #[cfg(any(target_os = "solaris", target_os = "illumos"))]
     #[pyattr]
-    use libc::RLIMIT_VMEM;
+    use host_resource::RLIMIT_VMEM;
 
     #[cfg(any(target_os = "linux", target_os = "emscripten", target_os = "freebsd"))]
     #[pyattr]
-    use libc::RUSAGE_THREAD;
+    use host_resource::RUSAGE_THREAD;
     #[cfg(not(any(target_os = "windows", target_os = "redox")))]
     #[pyattr]
-    use libc::{RUSAGE_CHILDREN, RUSAGE_SELF};
+    use host_resource::{RUSAGE_CHILDREN, RUSAGE_SELF};
 
     #[pystruct_sequence_data]
     struct RUsageData {
         ru_utime: f64,
         ru_stime: f64,
-        ru_maxrss: libc::c_long,
-        ru_ixrss: libc::c_long,
-        ru_idrss: libc::c_long,
-        ru_isrss: libc::c_long,
-        ru_minflt: libc::c_long,
-        ru_majflt: libc::c_long,
-        ru_nswap: libc::c_long,
-        ru_inblock: libc::c_long,
-        ru_oublock: libc::c_long,
-        ru_msgsnd: libc::c_long,
-        ru_msgrcv: libc::c_long,
-        ru_nsignals: libc::c_long,
-        ru_nvcsw: libc::c_long,
-        ru_nivcsw: libc::c_long,
+        ru_maxrss: host_resource::c_long,
+        ru_ixrss: host_resource::c_long,
+        ru_idrss: host_resource::c_long,
+        ru_isrss: host_resource::c_long,
+        ru_minflt: host_resource::c_long,
+        ru_majflt: host_resource::c_long,
+        ru_nswap: host_resource::c_long,
+        ru_inblock: host_resource::c_long,
+        ru_oublock: host_resource::c_long,
+        ru_msgsnd: host_resource::c_long,
+        ru_msgrcv: host_resource::c_long,
+        ru_nsignals: host_resource::c_long,
+        ru_nvcsw: host_resource::c_long,
+        ru_nivcsw: host_resource::c_long,
     }
 
     #[pyattr]
@@ -94,7 +94,8 @@ mod resource {
 
     impl From<host_resource::RUsage> for RUsageData {
         fn from(rusage: host_resource::RUsage) -> Self {
-            let tv = |tv: libc::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
+            let tv =
+                |tv: host_resource::timeval| tv.tv_sec as f64 + (tv.tv_usec as f64 / 1_000_000.0);
             Self {
                 ru_utime: tv(rusage.ru_utime),
                 ru_stime: tv(rusage.ru_stime),
@@ -128,13 +129,13 @@ mod resource {
         })
     }
 
-    struct Limits(libc::rlimit);
+    struct Limits(host_resource::rlimit);
 
     impl<'a> TryFromBorrowedObject<'a> for Limits {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            let seq: Vec<libc::rlim_t> = obj.try_to_value(vm)?;
+            let seq: Vec<host_resource::rlim_t> = obj.try_to_value(vm)?;
             match *seq {
-                [cur, max] => Ok(Self(libc::rlimit {
+                [cur, max] => Ok(Self(host_resource::rlimit {
                     rlim_cur: cur & RLIM_INFINITY,
                     rlim_max: max & RLIM_INFINITY,
                 })),
@@ -149,14 +150,14 @@ mod resource {
         }
     }
 
-    fn py2rlim(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<libc::rlim_t> {
+    fn py2rlim(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
         let value = obj.try_to_primitive::<isize>(vm)?;
 
         if value.is_negative() {
             return Err(vm.new_value_error("Cannot convert negative int"));
         }
 
-        libc::rlim_t::try_from(value)
+        host_resource::rlim_t::try_from(value)
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
     }
 
@@ -164,7 +165,7 @@ mod resource {
     fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
         let resource = py2rlim(resource, vm)?;
 
-        if resource >= RLIM_NLIMITS as libc::rlim_t {
+        if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
         }
 
@@ -176,7 +177,7 @@ mod resource {
     fn setrlimit(resource: PyIntRef, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
         let resource = py2rlim(resource, vm)?;
 
-        if resource >= RLIM_NLIMITS as libc::rlim_t {
+        if resource >= RLIM_NLIMITS as host_resource::rlim_t {
             return Err(vm.new_value_error("invalid resource specified"));
         }
 

@@ -556,7 +556,6 @@ class PydocDocTest(unittest.TestCase):
         self.assertEqual(stripid("<type 'exceptions.Exception'>"),
                          "<type 'exceptions.Exception'>")
 
-    @unittest.skip("TODO: RUSTPYTHON; Panic")
     def test_builtin_with_more_than_four_children(self):
         """Tests help on builtin object which have more than four child classes.
 
@@ -933,7 +932,6 @@ class PydocDocTest(unittest.TestCase):
             synopsis = pydoc.synopsis(TESTFN, {})
             self.assertEqual(synopsis, 'line 1: h\xe9')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_source_synopsis(self):
         def check(source, expected, encoding=None):
             if isinstance(source, str):
@@ -1710,7 +1708,6 @@ class TestDescriptions(unittest.TestCase):
             "classmeth(a, b=<x>) class method of "
             "_testcapi.DocStringUnrepresentableSignatureTest")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_overridden_text_signature(self):
         class C:
             def meth(*args, **kwargs):
@@ -1799,7 +1796,6 @@ cm(x) class method of test.test_pydoc.test_pydoc.X
         self.assertEqual(self._get_summary_line(Exception.args), "args")
         self.assertEqual(self._get_summary_line(memoryview.obj), "obj")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @requires_docstrings
     def test_member_descriptor(self):
         # Currently these attributes are implemented as member descriptors

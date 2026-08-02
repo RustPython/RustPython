@@ -1,8 +1,3 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "build scripts cannot use rustpython-host_env"
-)]
-
 // spell-checker:ignore ossl osslconf
 
 fn main() {

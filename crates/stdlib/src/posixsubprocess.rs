@@ -26,7 +26,7 @@ mod _posixsubprocess {
     use crate::vm::{PyResult, VirtualMachine, convert::IntoPyException};
 
     #[pyfunction]
-    fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
+    fn fork_exec(args: ForkExecArgs<'_>, vm: &VirtualMachine) -> PyResult<host_posix::pid_t> {
         // Check for interpreter shutdown when preexec_fn is used
         if args.preexec_fn.is_some()
             && vm
@@ -85,7 +85,7 @@ impl AsRef<CStr> for CStrPathLike {
 
 #[derive(Default)]
 struct CharPtrVec<'a> {
-    vec: Vec<*const libc::c_char>,
+    vec: Vec<*const host_posix::c_char>,
     marker: PhantomData<Vec<&'a CStr>>,
 }
 
@@ -107,7 +107,7 @@ impl<'a> Deref for CharPtrVec<'a> {
     type Target = CharPtrSlice<'a>;
     fn deref(&self) -> &Self::Target {
         unsafe {
-            &*(self.vec.as_slice() as *const [*const libc::c_char] as *const CharPtrSlice<'a>)
+            &*(self.vec.as_slice() as *const [*const host_posix::c_char] as *const CharPtrSlice<'a>)
         }
     }
 }
@@ -115,11 +115,11 @@ impl<'a> Deref for CharPtrVec<'a> {
 #[repr(transparent)]
 struct CharPtrSlice<'a> {
     marker: PhantomData<[&'a CStr]>,
-    slice: [*const libc::c_char],
+    slice: [*const host_posix::c_char],
 }
 
 impl CharPtrSlice<'_> {
-    const fn as_ptr(&self) -> *const *const libc::c_char {
+    const fn as_ptr(&self) -> *const *const host_posix::c_char {
         self.slice.as_ptr()
     }
 }
@@ -254,7 +254,7 @@ gen_args! {
     errpipe_write: Fd,
     restore_signals: bool,
     call_setsid: bool,
-    pgid_to_set: libc::pid_t,
+    pgid_to_set: host_posix::pid_t,
     gid: Option<RawGid>,
     groups_list: Option<PyListRef>,
     uid: Option<RawUid>,

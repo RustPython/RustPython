@@ -9,7 +9,12 @@ high memory limit to regrtest, with the -M option.
 """
 
 from test import support
-from test.support import bigmemtest, _1G, _2G, _4G
+from test.support import bigmemtest, _1G, _2G, _4G, import_helper
+# _testcapi = import_helper.import_module('_testcapi')
+try:  # TODO: RUSTPYTHON
+    import _testcapi
+except ImportError:
+    _testcapi = None
 
 import unittest
 import operator
@@ -784,17 +789,14 @@ class BytesTest(unittest.TestCase, BaseStrTest):
     def test_swapcase(self, size):
         self._test_swapcase(size)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_isspace(self, size):
-        super().test_isspace(size)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_isspace(self):
+        return super().test_isspace()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_istitle(self, size):
-        super().test_istitle(size)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_istitle(self):
+        return super().test_istitle()
+
 
 class BytearrayTest(unittest.TestCase, BaseStrTest):
 
@@ -821,17 +823,13 @@ class BytearrayTest(unittest.TestCase, BaseStrTest):
     test_hash = None
     test_split_large = None
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_isspace(self, size):
-        super().test_isspace(size)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_isspace(self):
+        return super().test_isspace()
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
-    @bigmemtest(size=_2G, memuse=2)
-    def test_istitle(self, size):
-        super().test_istitle(size)
+    @unittest.expectedFailure  # TODO: RUSTPYTHON
+    def test_istitle(self):
+        return super().test_istitle()
 
 class TupleTest(unittest.TestCase):
 
@@ -1278,6 +1276,27 @@ class DictTest(unittest.TestCase):
         # https://github.com/python/cpython/issues/102701
         d = dict.fromkeys(range(size))
         d[size] = 1
+
+
+class ImmortalityTest(unittest.TestCase):
+
+    @bigmemtest(size=_2G, memuse=pointer_size * 9/8)
+    def test_stickiness(self, size):
+        """Check that immortality is "sticky", so that
+           once an object is immortal it remains so."""
+        if size < _2G:
+            # Not enough memory to cause immortality on overflow
+            return
+        o1 = o2 = o3 = o4 = o5 = o6 = o7 = o8 = object()
+        l = [o1] * (size-20)
+        self.assertFalse(_testcapi.is_immortal(o1))
+        for _ in range(30):
+            l.append(l[0])
+        self.assertTrue(_testcapi.is_immortal(o1))
+        del o2, o3, o4, o5, o6, o7, o8
+        self.assertTrue(_testcapi.is_immortal(o1))
+        del l
+        self.assertTrue(_testcapi.is_immortal(o1))
 
 
 if __name__ == '__main__':

@@ -3812,7 +3812,6 @@ Do you like this message?
 -Me
 """)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pushCR_LF(self):
         '''FeedParser BufferedSubFile.push() assumed it received complete
            line endings.  A CR ending one push() followed by a LF starting
@@ -3843,7 +3842,6 @@ Do you like this message?
         self.assertEqual(len(om), nt)
         self.assertEqual(''.join([il for il, n in imt]), ''.join(om))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_push_random(self):
         from email.feedparser import BufferedSubFile, NeedMoreData
 
@@ -3877,7 +3875,6 @@ class TestFeedParsers(TestEmailBase):
         self.assertEqual(msg['First'], 'val')
         self.assertEqual(msg['Second'], 'val')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Feedparser.feed -> Feedparser._input.push, Feedparser._call_parse -> Feedparser._parse does not keep _input state between calls
     def test_newlines(self):
         m = self.parse(['a:\nb:\rc:\r\nd:\n'])
         self.assertEqual(m.keys(), ['a', 'b', 'c', 'd'])
@@ -3896,7 +3893,6 @@ class TestFeedParsers(TestEmailBase):
         m = self.parse(['a:\r', 'b:\x85', 'c:\n'])
         self.assertEqual(m.items(), [('a', ''), ('b', '\x85c:')])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_long_lines(self):
         # Expected peak memory use on 32-bit platform: 6*N*M bytes.
         M, N = 1000, 20000
@@ -4988,6 +4984,7 @@ class TestCharset(unittest.TestCase):
         c = Charset('utf-8')
         eq(c.header_encode(s), '=?utf-8?b?wqTCosKkwqTCpMKmwqTCqMKkwqo=?=')
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: iso_2022_jp
     def test_body_encode(self):
         eq = self.assertEqual
         # Try a charset with QP body encoding
@@ -5002,15 +4999,8 @@ class TestCharset(unittest.TestCase):
         # Try the convert argument, where input codec != output codec
         c = Charset('euc-jp')
         # With apologies to Tokio Kikuchi ;)
-        # XXX FIXME
-##         try:
-##             eq('\x1b$B5FCO;~IW\x1b(B',
-##                c.body_encode('\xb5\xc6\xc3\xcf\xbb\xfe\xc9\xd7'))
-##             eq('\xb5\xc6\xc3\xcf\xbb\xfe\xc9\xd7',
-##                c.body_encode('\xb5\xc6\xc3\xcf\xbb\xfe\xc9\xd7', False))
-##         except LookupError:
-##             # We probably don't have the Japanese codecs installed
-##             pass
+        eq('\x1b$B5FCO;~IW\x1b(B',
+           c.body_encode('\u83ca\u5730\u6642\u592b'))
         # Testing SF bug #625509, which we have to fake, since there are no
         # built-in encodings where the header encoding is QP but the body
         # encoding is not.

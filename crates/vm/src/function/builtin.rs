@@ -11,8 +11,9 @@ pub trait PyNativeFn:
     Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static
 {
 }
-impl<F: Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static> PyNativeFn
-    for F
+
+impl<F> PyNativeFn for F where
+    F: Fn(&VirtualMachine, FuncArgs) -> PyResult + PyThreadingConstraint + 'static
 {
 }
 
@@ -56,9 +57,10 @@ const fn zst_ref_out_of_thin_air<T: 'static>(x: T) -> &'static T {
     // operation. if T isn't zero-sized, we don't have to worry about it because we'll fail to compile.
     core::mem::forget(x);
     const {
-        if core::mem::size_of::<T>() != 0 {
-            panic!("can't use a non-zero-sized type here")
-        }
+        assert!(
+            core::mem::size_of::<T>() == 0,
+            "can't use a non-zero-sized type here"
+        );
         // SAFETY: we just confirmed that T is zero-sized, so we can
         //         pull a value of it out of thin air.
         unsafe { core::ptr::NonNull::<T>::dangling().as_ref() }
@@ -103,8 +105,10 @@ use sealed::PyNativeFnInternal;
 
 #[doc(hidden)]
 pub struct OwnedParam<T>(PhantomData<T>);
+
 #[doc(hidden)]
 pub struct BorrowedParam<T>(PhantomData<T>);
+
 #[doc(hidden)]
 pub struct RefParam<T>(PhantomData<T>);
 

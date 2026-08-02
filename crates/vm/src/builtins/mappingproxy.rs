@@ -63,18 +63,7 @@ impl Constructor for PyMappingProxy {
     type Args = PyObjectRef;
 
     fn py_new(_cls: &Py<PyType>, mapping: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        if mapping.mapping_unchecked().check()
-            && !mapping.downcastable::<PyList>()
-            && !mapping.downcastable::<PyTuple>()
-        {
-            return Ok(Self {
-                mapping: MappingProxyInner::Mapping(ArgMapping::new(mapping)),
-            });
-        }
-        Err(vm.new_type_error(format!(
-            "mappingproxy() argument must be a mapping, not {}",
-            mapping.class()
-        )))
+        Self::from_object(mapping, vm)
     }
 }
 
@@ -89,6 +78,21 @@ impl Constructor for PyMappingProxy {
     Representable
 ))]
 impl PyMappingProxy {
+    pub fn from_object(mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        if mapping.mapping_unchecked().check()
+            && !mapping.downcastable::<PyList>()
+            && !mapping.downcastable::<PyTuple>()
+        {
+            return Ok(Self {
+                mapping: MappingProxyInner::Mapping(ArgMapping::new(mapping)),
+            });
+        }
+        Err(vm.new_type_error(format!(
+            "mappingproxy() argument must be a mapping, not {}",
+            mapping.class()
+        )))
+    }
+
     fn get_inner(&self, key: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         match &self.mapping {
             MappingProxyInner::Class(class) => Ok(key

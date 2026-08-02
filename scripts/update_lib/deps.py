@@ -724,6 +724,12 @@ DEPENDENCIES = {
             "curses_tests.py",
         ],
     },
+    "signal": {
+        "test": [
+            "signalinterproctester.py",
+            "test_signal.py",
+        ]
+    },
 }
 
 

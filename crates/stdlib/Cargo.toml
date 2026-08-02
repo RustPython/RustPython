@@ -32,6 +32,7 @@ rustpython-derive = { workspace = true }
 rustpython-vm = { workspace = true, default-features = false, features = ["compiler"]}
 rustpython-common = { workspace = true }
 rustpython-host_env = { workspace = true }
+rustpython-unicode = { workspace = true }
 
 ruff_python_parser = { workspace = true }
 ruff_python_ast = { workspace = true }
@@ -52,6 +53,7 @@ num_enum = { workspace = true }
 parking_lot = { workspace = true }
 phf = { workspace = true, default-features = true, features = ["macros"] }
 rapidhash = { workspace = true }
+scopeguard = { workspace = true }
 
 memchr = { workspace = true }
 base64 = { workspace = true }
@@ -61,27 +63,20 @@ pymath = { workspace = true }
 xml = { workspace = true }
 
 # random
-rand_core = { workspace = true }
+rand = { workspace = true }
 mt19937 = { workspace = true }
 
 # Crypto:
 digest = { workspace = true }
 md-5 = { workspace = true }
-sha-1 = { workspace = true }
+sha1 = { workspace = true }
 sha2 = { workspace = true }
 sha3 = { workspace = true }
+shake = { workspace = true }
 blake2 = { workspace = true }
 hmac = { workspace = true }
 pbkdf2 = { workspace = true, features = ["hmac"] }
 constant_time_eq = { workspace = true }
-
-## unicode stuff
-unicode_names2 = { workspace = true }
-# update version all at the same time
-icu_properties = { workspace = true }
-icu_normalizer = { workspace = true }
-unic-ucd-age       = { workspace = true }
-ucd = { workspace = true }
 
 # compression
 adler32 = { workspace = true }
@@ -98,14 +93,10 @@ chrono.workspace = true
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]
-mac_address = { workspace = true }
 uuid = { workspace = true, features = ["v1"] }
 
 # mmap + socket dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-gethostname = { workspace = true }
-socket2 = { workspace = true, features = ["all"] }
-dns-lookup = { workspace = true }
 
 # OpenSSL dependencies (optional, for ssl-openssl feature)
 openssl = { workspace = true, optional = true }
@@ -128,20 +119,16 @@ pkcs8 = { workspace = true, features = ["encryption", "pkcs5", "pem"], optional 
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libsqlite3-sys = { workspace = true, features = ["bundled"], optional = true }
-liblzma = { workspace = true }
-liblzma-sys = { workspace = true }
+xz = { workspace = true }
+xz-sys = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 paste = { workspace = true }
 widestring = { workspace = true }
 
-[target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = { workspace = true }
-
 [dev-dependencies]
 insta = { workspace = true }
 rustpython-pylib = { workspace = true, features = [ "freeze-stdlib" ] }
-
 
 [lints]
 workspace = true

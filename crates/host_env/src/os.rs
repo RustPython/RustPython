@@ -1,10 +1,13 @@
 // spell-checker:disable
 // TODO: we can move more os-specific bindings/interfaces from stdlib::{os, posix, nt} to here
 
-#[cfg(any(unix, windows, target_os = "wasi"))]
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
+#[cfg(windows)]
+pub use crate::posix::rename;
+#[cfg(any(unix, target_os = "wasi"))]
+pub use crate::posix_unix_like::rename;
 #[cfg(any(unix, windows))]
 use core::ffi::CStr;
 use core::str::Utf8Error;
@@ -28,6 +31,23 @@ use {
         System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
 };
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn rename(
+    from: impl AsRef<std::path::Path>,
+    from_fd: Option<crt_fd::Borrowed<'_>>,
+    to: impl AsRef<std::path::Path>,
+    to_fd: Option<crt_fd::Borrowed<'_>>,
+) -> io::Result<()> {
+    if from_fd.is_none() && to_fd.is_none() {
+        std::fs::rename(from, to)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "renameat is not available on this platform",
+        ))
+    }
+}
 
 /// Convert exit code to std::process::ExitCode
 ///
@@ -256,37 +276,14 @@ pub fn system(command: &CStr) -> libc::c_int {
 #[cfg(target_os = "linux")]
 pub fn copy_file_range(
     src: crt_fd::Borrowed<'_>,
-    offset_src: Option<&mut crt_fd::Offset>,
+    offset_src: Option<&mut u64>,
     dst: crt_fd::Borrowed<'_>,
-    offset_dst: Option<&mut crt_fd::Offset>,
+    offset_dst: Option<&mut u64>,
     count: usize,
-) -> io::Result<usize> {
-    #[allow(clippy::unnecessary_option_map_or_else)]
-    let p_offset_src = offset_src.map_or_else(core::ptr::null_mut, |x| x as *mut _);
-    #[allow(clippy::unnecessary_option_map_or_else)]
-    let p_offset_dst = offset_dst.map_or_else(core::ptr::null_mut, |x| x as *mut _);
-
-    // Why not use `libc::copy_file_range`: On musl, the libc wrapper may be missing.
-    let ret = unsafe {
-        libc::syscall(
-            libc::SYS_copy_file_range,
-            src.as_raw(),
-            p_offset_src,
-            dst.as_raw(),
-            p_offset_dst,
-            count,
-            0u32,
-        )
-    };
-
-    usize::try_from(ret).map_err(|_| io::Error::last_os_error())
-}
-
-pub fn rename(
-    from: impl AsRef<std::path::Path>,
-    to: impl AsRef<std::path::Path>,
-) -> io::Result<()> {
-    std::fs::rename(from, to)
+) -> rustix::io::Result<usize> {
+    // `copy_file_range` isn't wrapped in every libc (i.e. musl).
+    // However, Rustix is a safe wrapper around the syscall that bypasses libc.
+    rustix::fs::copy_file_range(src, offset_src, dst, offset_dst, count)
 }
 
 #[cfg(windows)]
@@ -364,8 +361,57 @@ impl ErrorExt for io::Error {
     }
     #[cfg(windows)]
     fn posix_errno(&self) -> i32 {
+        // A C runtime error carries its exact errno as the payload; report it
+        // directly instead of round-tripping through a Win32 error code.
+        if let Some(crt) = self.get_ref().and_then(|e| e.downcast_ref::<CrtErrno>()) {
+            return crt.0;
+        }
         let winerror = self.raw_os_error().unwrap_or(0);
         winerror_to_errno(winerror)
+    }
+}
+
+/// Wraps a raw C runtime `errno` inside an [`io::Error`].
+///
+/// CRT functions (`open`, `read`, `dup`, ...) report failures through `errno`,
+/// not `GetLastError`. Translating that `errno` into a Win32 error code is
+/// lossy — any value missing from [`errno_to_winerror`] collapses to `EINVAL` —
+/// and also attaches a spurious `winerror` to the resulting `OSError`. Carrying
+/// the `errno` as the error payload lets [`ErrorExt::posix_errno`] recover it
+/// exactly while leaving `raw_os_error()` empty, so no `winerror` is reported.
+#[cfg(windows)]
+#[derive(Debug)]
+struct CrtErrno(i32);
+
+#[cfg(windows)]
+impl core::fmt::Display for CrtErrno {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match crate::errno::strerror_string(self.0) {
+            Some(msg) => f.write_str(&msg),
+            None => write!(f, "os error {}", self.0),
+        }
+    }
+}
+
+#[cfg(windows)]
+impl core::error::Error for CrtErrno {}
+
+/// Build an [`io::Error`] that preserves a raw C runtime `errno`.
+///
+/// The [`io::ErrorKind`] is derived from the closest Win32 mapping so callers
+/// matching on `kind()` keep working, while the exact `errno` is preserved for
+/// [`ErrorExt::posix_errno`].
+#[cfg(windows)]
+#[must_use]
+pub fn io_error_from_errno(errno: i32) -> io::Error {
+    let kind = io::Error::from_raw_os_error(errno_to_winerror(errno)).kind();
+    io::Error::new(kind, CrtErrno(errno))
+}
+
+#[cfg(all(not(windows), not(target_arch = "wasm32")))]
+impl ErrorExt for rustix::io::Errno {
+    fn posix_errno(&self) -> i32 {
+        self.raw_os_error()
     }
 }
 
@@ -374,9 +420,7 @@ impl ErrorExt for io::Error {
 #[cfg(windows)]
 #[must_use]
 pub fn errno_io_error() -> io::Error {
-    let errno: i32 = get_errno();
-    let winerror = errno_to_winerror(errno);
-    io::Error::from_raw_os_error(winerror)
+    io_error_from_errno(get_errno())
 }
 
 #[cfg(not(windows))]

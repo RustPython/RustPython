@@ -892,7 +892,7 @@ unsafe extern "system" fn post_to_queue_callback(
     unsafe {
         let _ = windows_sys::Win32::System::IO::PostQueuedCompletionStatus(
             data.completion_port,
-            if timer_or_wait_fired { 1 } else { 0 },
+            u32::from(timer_or_wait_fired),
             0,
             data.overlapped,
         );

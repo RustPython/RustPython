@@ -9,12 +9,12 @@ use crate::{
     common::{float_ops, format::FormatSpec, hash, wtf8::Wtf8Buf},
     convert::{IntoPyException, ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue::*,
-        PyComparisonValue,
+        ArgBytesLike, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue, PyComparisonValue,
     },
     protocol::PyNumberMethods,
     types::{AsNumber, Callable, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+
 use core::cell::Cell;
 use core::ptr::NonNull;
 use malachite_bigint::{BigInt, ToBigInt};
@@ -84,6 +84,7 @@ impl ToPyObject for f64 {
         vm.ctx.new_float(self).into()
     }
 }
+
 impl ToPyObject for f32 {
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         vm.ctx.new_float(f64::from(self)).into()
@@ -156,8 +157,7 @@ fn inner_divmod(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult<(f64, f64)> {
 
 pub(crate) fn float_pow(v1: f64, v2: f64, vm: &VirtualMachine) -> PyResult {
     if v1.is_zero() && v2.is_sign_negative() {
-        let msg = "zero to a negative power";
-        Err(vm.new_zero_division_error(msg.to_owned()))
+        Err(vm.new_zero_division_error("zero to a negative power"))
     } else if v1.is_sign_negative() && (v2.floor() - v2).abs() > f64::EPSILON {
         let v1 = Complex64::new(v1, 0.);
         let v2 = Complex64::new(v2, 0.);
@@ -205,7 +205,7 @@ impl Constructor for PyFloat {
     }
 }
 
-fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
+pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
         use crate::common::str::PyKindStr;
@@ -254,6 +254,10 @@ fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     })
 }
 
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "Needs to comply with a signature"
+)]
 #[pyclass(
     flags(BASETYPE, _MATCH_SELF),
     with(Comparable, Hashable, Constructor, AsNumber, Representable)
@@ -395,8 +399,16 @@ impl PyFloat {
 
     #[pyclassmethod]
     fn fromhex(cls: PyTypeRef, string: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult {
-        let result = crate::literal::float::from_hex(string.as_str().trim())
-            .ok_or_else(|| vm.new_value_error("invalid hexadecimal floating-point string"))?;
+        use float_ops::HexFloatError;
+        let result = float_ops::from_hex(string.as_str()).map_err(|e| match e {
+            HexFloatError::Overflow => {
+                vm.new_overflow_error("hexadecimal value too large to represent as a float")
+            }
+            HexFloatError::TooLong => vm.new_value_error("hexadecimal string too long to convert"),
+            HexFloatError::Invalid => {
+                vm.new_value_error("invalid hexadecimal floating-point string")
+            }
+        })?;
         PyType::call(&cls, vec![vm.ctx.new_float(result).into()].into(), vm)
     }
 
@@ -446,9 +458,9 @@ impl Comparable for PyFloat {
                 PyComparisonOp::Gt => float_ops::gt_int(a, b),
             }
         } else {
-            return Ok(NotImplemented);
+            return Ok(PyArithmeticValue::NotImplemented);
         };
-        Ok(Implemented(ret))
+        Ok(PyArithmeticValue::Implemented(ret))
     }
 }
 

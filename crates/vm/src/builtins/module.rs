@@ -180,7 +180,7 @@ impl Py<PyModule> {
             .flatten()
             .filter(|s| !vm.is_none(s));
 
-        let origin = get_spec_file_origin(&spec, vm);
+        let origin = get_spec_file_origin(spec.as_ref(), vm);
 
         let is_possibly_shadowing = origin
             .as_ref()
@@ -231,7 +231,7 @@ impl Py<PyModule> {
             } else {
                 // Check for uninitialized submodule
                 let submodule_initializing =
-                    is_uninitialized_submodule(mod_name_str.as_ref(), name, vm);
+                    is_uninitialized_submodule(mod_name_str.as_deref(), name, vm);
                 if submodule_initializing {
                     Err(vm.new_attribute_error(format!(
                         "cannot access submodule '{name}' of module '{mod_display}' \
@@ -303,6 +303,10 @@ impl PyModule {
         let dict = dict_attr
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("<module>.__dict__ is not a dictionary"))?;
+        // PEP 562: honor a module-level __dir__ if one is defined
+        if let Some(dir_func) = dict.get_item_opt(identifier!(vm, __dir__), vm)? {
+            return dir_func.call((), vm)?.try_to_value(vm);
+        }
         let attrs = dict.into_iter().map(|(k, _v)| k).collect();
         Ok(attrs)
     }
@@ -461,29 +465,29 @@ pub(crate) fn init(context: &'static Context) {
 
 /// Check if {module_name}.{name} is an uninitialized submodule in sys.modules.
 fn is_uninitialized_submodule(
-    module_name: Option<&String>,
+    module_name: Option<&str>,
     name: &Py<PyStr>,
     vm: &VirtualMachine,
 ) -> bool {
-    let mod_name = match module_name {
-        Some(n) => n.as_str(),
-        None => return false,
+    let Some(mod_name) = module_name else {
+        return false;
     };
+
+    let Ok(sys_modules) = vm.sys_module.get_attr("modules", vm) else {
+        return false;
+    };
+
     let full_name = format!("{mod_name}.{name}");
-    let sys_modules = match vm.sys_module.get_attr("modules", vm).ok() {
-        Some(m) => m,
-        None => return false,
+    let Ok(sub_mod) = sys_modules.get_item(&full_name, vm) else {
+        return false;
     };
-    let sub_mod = match sys_modules.get_item(&full_name, vm).ok() {
-        Some(m) => m,
-        None => return false,
-    };
-    let spec = match sub_mod.get_attr("__spec__", vm).ok() {
-        Some(s) if !vm.is_none(&s) => s,
+
+    let spec = match sub_mod.get_attr("__spec__", vm) {
+        Ok(s) if !vm.is_none(&s) => s,
         _ => return false,
     };
+
     spec.get_attr("_initializing", vm)
-        .ok()
-        .and_then(|v| v.try_to_bool(vm).ok())
+        .and_then(|v| v.try_to_bool(vm))
         .unwrap_or(false)
 }

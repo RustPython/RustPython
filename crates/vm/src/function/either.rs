@@ -8,7 +8,11 @@ pub enum Either<A, B> {
     B(B),
 }
 
-impl<A: Borrow<PyObject>, B: Borrow<PyObject>> Borrow<PyObject> for Either<A, B> {
+impl<A, B> Borrow<PyObject> for Either<A, B>
+where
+    A: Borrow<PyObject>,
+    B: Borrow<PyObject>,
+{
     #[inline(always)]
     fn borrow(&self) -> &PyObject {
         match self {
@@ -18,7 +22,11 @@ impl<A: Borrow<PyObject>, B: Borrow<PyObject>> Borrow<PyObject> for Either<A, B>
     }
 }
 
-impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
+impl<A, B> AsRef<PyObject> for Either<A, B>
+where
+    A: AsRef<PyObject>,
+    B: AsRef<PyObject>,
+{
     #[inline(always)]
     fn as_ref(&self) -> &PyObject {
         match self {
@@ -28,7 +36,11 @@ impl<A: AsRef<PyObject>, B: AsRef<PyObject>> AsRef<PyObject> for Either<A, B> {
     }
 }
 
-impl<A: Into<Self>, B: Into<Self>> From<Either<A, B>> for PyObjectRef {
+impl<A, B> From<Either<A, B>> for PyObjectRef
+where
+    A: Into<Self>,
+    B: Into<Self>,
+{
     #[inline(always)]
     fn from(value: Either<A, B>) -> Self {
         match value {
@@ -38,7 +50,11 @@ impl<A: Into<Self>, B: Into<Self>> From<Either<A, B>> for PyObjectRef {
     }
 }
 
-impl<A: ToPyObject, B: ToPyObject> ToPyObject for Either<A, B> {
+impl<A, B> ToPyObject for Either<A, B>
+where
+    A: ToPyObject,
+    B: ToPyObject,
+{
     #[inline(always)]
     fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
         match self {

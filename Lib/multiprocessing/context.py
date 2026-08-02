@@ -145,7 +145,13 @@ class BaseContext(object):
         '''Check whether this is a fake forked process in a frozen executable.
         If so then run code specified by commandline and exit.
         '''
-        if self.get_start_method() == 'spawn' and getattr(sys, 'frozen', False):
+        # gh-140814: allow_none=True avoids locking in the default start
+        # method, which would cause a later set_start_method() to fail.
+        # None is safe to pass through: spawn.freeze_support()
+        # independently detects whether this process is a spawned
+        # child, so the start method check here is only an optimization.
+        if (getattr(sys, 'frozen', False)
+                and self.get_start_method(allow_none=True) in ('spawn', None)):
             from .spawn import freeze_support
             freeze_support()
 
@@ -167,7 +173,7 @@ class BaseContext(object):
         '''
         # This is undocumented.  In previous versions of multiprocessing
         # its only effect was to make socket objects inheritable on Windows.
-        from . import connection
+        from . import connection  # noqa: F401
 
     def set_executable(self, executable):
         '''Sets the path to a python.exe or pythonw.exe binary used to run
@@ -259,13 +265,12 @@ class DefaultContext(BaseContext):
 
     def get_all_start_methods(self):
         """Returns a list of the supported start methods, default first."""
-        if sys.platform == 'win32':
-            return ['spawn']
-        else:
-            methods = ['spawn', 'fork'] if sys.platform == 'darwin' else ['fork', 'spawn']
-            if reduction.HAVE_SEND_HANDLE:
-                methods.append('forkserver')
-            return methods
+        default = self._default_context.get_start_method()
+        start_method_names = [default]
+        start_method_names.extend(
+            name for name in _concrete_contexts if name != default
+        )
+        return start_method_names
 
 
 #
@@ -320,14 +325,15 @@ if sys.platform != 'win32':
         'spawn': SpawnContext(),
         'forkserver': ForkServerContext(),
     }
-    if sys.platform == 'darwin':
-        # bpo-33725: running arbitrary code after fork() is no longer reliable
-        # on macOS since macOS 10.14 (Mojave). Use spawn by default instead.
-        _default_context = DefaultContext(_concrete_contexts['spawn'])
+    # bpo-33725: running arbitrary code after fork() is no longer reliable
+    # on macOS since macOS 10.14 (Mojave). Use spawn by default instead.
+    # gh-84559: We changed everyones default to a thread safeish one in 3.14.
+    if reduction.HAVE_SEND_HANDLE and sys.platform != 'darwin':
+        _default_context = DefaultContext(_concrete_contexts['forkserver'])
     else:
-        _default_context = DefaultContext(_concrete_contexts['fork'])
+        _default_context = DefaultContext(_concrete_contexts['spawn'])
 
-else:
+else:  # Windows
 
     class SpawnProcess(process.BaseProcess):
         _start_method = 'spawn'

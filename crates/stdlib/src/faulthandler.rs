@@ -3,8 +3,6 @@ pub(crate) use decl::module_def;
 #[allow(static_mut_refs)] // TODO: group code only with static mut refs
 #[pymodule(name = "faulthandler")]
 mod decl {
-    #[cfg(any(unix, windows))]
-    use crate::vm::frame::Frame;
     use crate::vm::{
         PyObjectRef, PyResult, VirtualMachine,
         function::{ArgIntoFloat, OptionalArg},
@@ -119,43 +117,45 @@ mod decl {
     }
 
     /// Dump the current thread's live frame chain to fd (signal-safe).
-    /// Walks the `Frame.previous` pointer chain starting from the
-    /// thread-local current frame pointer.
+    /// Walks the InterpreterFrame chain directly.
     #[cfg(any(unix, windows))]
     fn dump_live_frames(fd: i32) {
         const MAX_FRAME_DEPTH: usize = 100;
 
-        let mut frame_ptr = crate::vm::vm::thread::get_current_frame();
-        if frame_ptr.is_null() {
+        let mut cur = crate::vm::vm::thread::get_current_frame();
+        if cur.is_null() {
             puts(fd, "  <no Python frame>\n");
             return;
         }
         let mut depth = 0;
-        while !frame_ptr.is_null() && depth < MAX_FRAME_DEPTH {
-            let frame = unsafe { &*frame_ptr };
-            dump_frame_from_raw(fd, frame);
-            frame_ptr = frame.previous_frame();
+        while !cur.is_null() && depth < MAX_FRAME_DEPTH {
+            let iframe = unsafe { &*cur };
+            dump_iframe(fd, iframe);
             depth += 1;
+            cur = iframe.previous();
         }
-        if depth >= MAX_FRAME_DEPTH && !frame_ptr.is_null() {
+        if depth == 0 {
+            puts(fd, "  <no Python frame>\n");
+        } else if depth >= MAX_FRAME_DEPTH && !cur.is_null() {
             puts(fd, "  ...\n");
         }
     }
 
-    /// Dump a single frame's info to fd (signal-safe), reading live data.
+    /// Dump a single InterpreterFrame's info to fd (signal-safe).
     #[cfg(any(unix, windows))]
-    fn dump_frame_from_raw(fd: i32, frame: &Frame) {
-        let filename = frame.code.source_path().as_str();
-        let funcname = frame.code.obj_name.as_str();
-        let lasti = frame.lasti();
+    fn dump_iframe(fd: i32, iframe: &rustpython_vm::frame::InterpreterFrame) {
+        let code = iframe.code();
+        let filename = code.source_path().as_str();
+        let funcname = code.obj_name.as_str();
+        let lasti = iframe.get_lasti();
         let lineno = if lasti == 0 {
-            frame.code.first_line_number.map_or(1, |n| n.get()) as u32
+            code.first_line_number.map_or(1, |n| n.get()) as u32
         } else {
             let idx = (lasti as usize).saturating_sub(1);
-            if idx < frame.code.locations.len() {
-                frame.code.locations[idx].0.line.get() as u32
+            if idx < code.locations.len() {
+                code.locations[idx].0.line.get() as u32
             } else {
-                frame.code.first_line_number.map_or(0, |n| n.get()) as u32
+                code.first_line_number.map_or(0, |n| n.get()) as u32
             }
         };
 
@@ -218,48 +218,6 @@ mod decl {
         }
     }
 
-    /// Write a frame's info to an fd using signal-safe I/O.
-    #[cfg(any(unix, windows))]
-    fn dump_frame_from_ref(fd: i32, frame: &crate::vm::Py<Frame>) {
-        let funcname = frame.code.obj_name.as_str();
-        let filename = frame.code.source_path().as_str();
-        let lineno = if frame.lasti() == 0 {
-            frame.code.first_line_number.map_or(1, |n| n.get()) as u32
-        } else {
-            frame.current_location().line.get() as u32
-        };
-
-        puts(fd, "  File \"");
-        dump_ascii(fd, filename);
-        puts(fd, "\", line ");
-        dump_decimal(fd, lineno as usize);
-        puts(fd, " in ");
-        dump_ascii(fd, funcname);
-        puts(fd, "\n");
-    }
-
-    /// Dump traceback for a thread given its frame stack (for cross-thread dumping).
-    /// # Safety
-    /// Each `FramePtr` must point to a live frame (caller holds the Mutex).
-    #[cfg(all(any(unix, windows), feature = "threading"))]
-    fn dump_traceback_thread_frames(
-        fd: i32,
-        thread_id: u64,
-        is_current: bool,
-        frames: &[rustpython_vm::vm::FramePtr],
-    ) {
-        write_thread_id(fd, thread_id, is_current);
-
-        if frames.is_empty() {
-            puts(fd, "  <no Python frame>\n");
-        } else {
-            for fp in frames.iter().rev() {
-                // SAFETY: caller holds the Mutex, so the owning thread can't pop.
-                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-            }
-        }
-    }
-
     #[derive(FromArgs)]
     struct DumpTracebackArgs {
         #[pyarg(any, default)]
@@ -278,11 +236,7 @@ mod decl {
                 dump_all_threads(fd, vm);
             } else {
                 puts(fd, "Stack (most recent call first):\n");
-                let frames = vm.frames.borrow();
-                for fp in frames.iter().rev() {
-                    // SAFETY: the frame is alive while it's in the Vec
-                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-                }
+                dump_live_frames(fd);
             }
         }
 
@@ -298,40 +252,104 @@ mod decl {
     #[cfg(any(unix, windows))]
     fn dump_all_threads(fd: i32, vm: &VirtualMachine) {
         // Get all threads' frame stacks from the shared registry
-        #[cfg(feature = "threading")]
+        // unix: stop-the-world so every other thread is parked at a safepoint
+        // and its frame chain is quiescent and alive while we walk it (matches
+        // faulthandler.dump_traceback running with the GIL held).
+        #[cfg(all(unix, feature = "threading"))]
+        {
+            use core::sync::atomic::Ordering;
+            let current_tid = rustpython_vm::stdlib::_thread::get_ident();
+            {
+                vm.state.stop_the_world.stop_the_world(vm);
+                scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+                let registry = vm.state.thread_frames.lock();
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "Iteration order doesn't matter here"
+                )]
+                for (&tid, slot) in registry.iter() {
+                    if tid == current_tid {
+                        continue;
+                    }
+                    // Under STW, all other threads are suspended so their
+                    // stack-allocated iframes are stable. Walk via top_iframe
+                    // which covers both FrameObject and stack-allocated paths.
+                    let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                        as *const rustpython_vm::frame::InterpreterFrame;
+                    write_thread_id(fd, tid, false);
+                    if iframe_ptr.is_null() {
+                        puts(fd, "  <no Python frame>\n");
+                    } else {
+                        let mut cur = iframe_ptr;
+                        let mut depth = 0;
+                        while !cur.is_null() && depth < 100 {
+                            let iframe = unsafe { &*cur };
+                            dump_iframe(fd, iframe);
+                            depth += 1;
+                            cur = iframe.previous();
+                        }
+                        if depth >= 100 && !cur.is_null() {
+                            puts(fd, "  ...\n");
+                        }
+                    }
+                    puts(fd, "\n");
+                }
+            }
+
+            // Now dump current thread from its live frame chain
+            // (includes stack-allocated iframes without FrameObject).
+            write_thread_id(fd, current_tid, true);
+            dump_live_frames(fd);
+        }
+
+        #[cfg(all(not(unix), feature = "threading"))]
         {
             let current_tid = rustpython_vm::stdlib::_thread::get_ident();
             let registry = vm.state.thread_frames.lock();
 
-            // First dump non-current threads, then current thread last
+            // Dump non-current threads using top_iframe, which includes
+            // both FrameObject and stack-allocated frames.
+            #[expect(
+                clippy::iter_over_hash_type,
+                reason = "Iteration order doesn't matter here"
+            )]
             for (&tid, slot) in registry.iter() {
                 if tid == current_tid {
                     continue;
                 }
-                let frames_guard = slot.frames.lock();
-                dump_traceback_thread_frames(fd, tid, false, &frames_guard);
+
+                let iframe_ptr = slot.top_iframe.load(core::sync::atomic::Ordering::Relaxed)
+                    as *const rustpython_vm::frame::InterpreterFrame;
+                write_thread_id(fd, tid, false);
+                if iframe_ptr.is_null() {
+                    puts(fd, "  <no Python frame>\n");
+                } else {
+                    let mut cur = iframe_ptr;
+                    let mut depth = 0;
+                    while !cur.is_null() && depth < 100 {
+                        let iframe = unsafe { &*cur };
+                        dump_iframe(fd, iframe);
+                        depth += 1;
+                        cur = iframe.previous();
+                    }
+                    if depth >= 100 && !cur.is_null() {
+                        puts(fd, "  ...\n");
+                    }
+                }
                 puts(fd, "\n");
             }
 
-            // Now dump current thread (use vm.frames for most up-to-date data)
+            // Now dump current thread from its live frame chain
+            // (includes stack-allocated iframes without FrameObject).
             write_thread_id(fd, current_tid, true);
-            let frames = vm.frames.borrow();
-            if frames.is_empty() {
-                puts(fd, "  <no Python frame>\n");
-            } else {
-                for fp in frames.iter().rev() {
-                    dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-                }
-            }
+            dump_live_frames(fd);
         }
 
         #[cfg(not(feature = "threading"))]
         {
+            let _ = vm;
             write_thread_id(fd, current_thread_id(), true);
-            let frames = vm.frames.borrow();
-            for fp in frames.iter().rev() {
-                dump_frame_from_ref(fd, unsafe { fp.as_ref() });
-            }
+            dump_live_frames(fd);
         }
     }
 
@@ -368,7 +386,7 @@ mod decl {
 
     // faulthandler_fatal_error
     #[cfg(unix)]
-    extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+    extern "C" fn faulthandler_fatal_error(signum: core::ffi::c_int) {
         let save_errno = get_errno();
 
         if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
@@ -405,7 +423,7 @@ mod decl {
 
     // faulthandler_fatal_error for Windows
     #[cfg(windows)]
-    extern "C" fn faulthandler_fatal_error(signum: libc::c_int) {
+    extern "C" fn faulthandler_fatal_error(signum: core::ffi::c_int) {
         let save_errno = get_errno();
 
         if !FATAL_ERROR.enabled.load(Ordering::Relaxed) {
@@ -474,7 +492,7 @@ mod decl {
 
         // Disable SIGSEGV handler for access violations to avoid double output
         if host_faulthandler::is_access_violation(code) {
-            host_faulthandler::disable_fatal_signal(libc::SIGSEGV);
+            host_faulthandler::disable_fatal_signal(host_faulthandler::SIGSEGV);
         }
 
         let all_threads = FATAL_ERROR.all_threads.load(Ordering::Relaxed);
@@ -490,7 +508,10 @@ mod decl {
             return true;
         }
 
-        if !host_faulthandler::enable_fatal_handlers(faulthandler_fatal_error, libc::SA_NODEFER) {
+        if !host_faulthandler::enable_fatal_handlers(
+            faulthandler_fatal_error,
+            host_faulthandler::SA_NODEFER,
+        ) {
             return false;
         }
 
@@ -649,10 +670,61 @@ mod decl {
                     // Use thread frame slots when threading is enabled (includes all threads).
                     // Fall back to live frame walking for non-threaded builds.
                     cfg_select! {
-                        feature = "threading" => {
+                        all(unix, feature = "threading") => {
+                            // The watchdog is a plain OS thread, not attached to
+                            // the VM, so it cannot stop-the-world. Walk each
+                            // published top frame lock-free and best-effort, like
+                            // the faulthandler watchdog thread.
+                            // Walk via top_iframe for all threads. The watchdog
+                            // cannot stop-the-world, so this is best-effort
+                            // (like CPython's _Py_DumpTracebackThreads). Stack
+                            // frames are still alive because the target thread
+                            // is executing (inside a blocking call).
                             for (tid, slot) in &thread_frame_slots {
-                                let frames = slot.frames.lock();
-                                dump_traceback_thread_frames(fd, *tid, false, &frames);
+                                let iframe_ptr = slot
+                                    .top_iframe
+                                    .load(core::sync::atomic::Ordering::Relaxed)
+                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                write_thread_id(fd, *tid, false);
+                                if iframe_ptr.is_null() {
+                                    puts(fd, "  <no Python frame>\n");
+                                } else {
+                                    let mut cur = iframe_ptr;
+                                    let mut depth = 0;
+                                    while !cur.is_null() && depth < 100 {
+                                        let iframe = unsafe { &*cur };
+                                        dump_iframe(fd, iframe);
+                                        depth += 1;
+                                        cur = iframe.previous();
+                                    }
+                                    if depth >= 100 && !cur.is_null() {
+                                        puts(fd, "  ...\n");
+                                    }
+                                }
+                            }
+                        }
+                        all(not(unix), feature = "threading") => {
+                            for (tid, slot) in &thread_frame_slots {
+                                let iframe_ptr = slot
+                                    .top_iframe
+                                    .load(core::sync::atomic::Ordering::Relaxed)
+                                    as *const rustpython_vm::frame::InterpreterFrame;
+                                write_thread_id(fd, *tid, false);
+                                if iframe_ptr.is_null() {
+                                    puts(fd, "  <no Python frame>\n");
+                                } else {
+                                    let mut cur = iframe_ptr;
+                                    let mut depth = 0;
+                                    while !cur.is_null() && depth < 100 {
+                                        let iframe = unsafe { &*cur };
+                                        dump_iframe(fd, iframe);
+                                        depth += 1;
+                                        cur = iframe.previous();
+                                    }
+                                    if depth >= 100 && !cur.is_null() {
+                                        puts(fd, "  ...\n");
+                                    }
+                                }
                             }
                         }
                         _ => {
@@ -764,7 +836,7 @@ mod decl {
     }
 
     #[cfg(unix)]
-    extern "C" fn faulthandler_user_signal(signum: libc::c_int) {
+    extern "C" fn faulthandler_user_signal(signum: core::ffi::c_int) {
         let save_errno = get_errno();
 
         let user = match host_faulthandler::get_user_signal(signum as usize) {
@@ -895,7 +967,7 @@ mod decl {
         #[cfg(not(target_arch = "wasm32"))]
         {
             suppress_crash_report();
-            host_faulthandler::raise_signal(libc::SIGFPE);
+            host_faulthandler::raise_signal(host_faulthandler::SIGFPE);
         }
     }
 

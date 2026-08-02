@@ -109,12 +109,11 @@ mod decl {
                     }
                 }
             };
-            match next {
-                Err(_) | Ok(PyIterReturn::StopIteration(_)) => {
-                    *zelf.source.write() = None;
-                }
-                _ => {}
+
+            if matches!(next, Err(_) | Ok(PyIterReturn::StopIteration(_))) {
+                *zelf.source.write() = None;
             };
+
             next
         }
     }
@@ -226,7 +225,9 @@ mod decl {
             let step = &zelf.step;
             let mut result = Wtf8Buf::from("count(");
             result.push_wtf8(cur_repr.as_wtf8());
-            if !vm.bool_eq(step, vm.ctx.new_int(1).as_object())? {
+            let step_is_int_one = step.fast_isinstance(vm.ctx.types.int_type)
+                && vm.bool_eq(step, vm.ctx.new_int(1).as_object())?;
+            if !step_is_int_one {
                 result.push_str(", ");
                 result.push_wtf8(step.repr(vm)?.as_wtf8());
             }

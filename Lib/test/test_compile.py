@@ -209,7 +209,6 @@ class TestSpecifics(unittest.TestCase):
         self.assertEqual(eval("0o777"), 511)
         self.assertEqual(eval("-0o0000010"), -8)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_int_literals_too_long(self):
         n = 3000
         source = f"a = 1\nb = 2\nc = {'3'*n}\nd = 4"
@@ -283,7 +282,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertRaises(SyntaxError, compile, stmt, 'tmp', 'single')
             self.assertRaises(SyntaxError, compile, stmt, 'tmp', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile
     def test_import(self):
         succeed = [
             'import sys',
@@ -348,7 +346,6 @@ class TestSpecifics(unittest.TestCase):
         l = lambda: "this is the only const"
         self.assertEqual(l.__code__.co_consts, ("this is the only const",))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile
     def test_encoding(self):
         code = b'# -*- coding: badencoding -*-\npass\n'
         self.assertRaises(SyntaxError, compile, code, 'tmp', 'exec')
@@ -465,7 +462,6 @@ class TestSpecifics(unittest.TestCase):
         # See gh-113054
         compile('if (5 if 5 else T): 0', '<eval>', 'exec')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_condition_expression_with_redundant_comparisons_compiles(self):
         # See gh-113054, gh-114083
         exprs = [
@@ -580,7 +576,6 @@ class TestSpecifics(unittest.TestCase):
 
         compile(ast.fix_missing_locations(tree), "<file>", "exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <code object <module> at 0xb77555080 file "<assign>1", line 1> != <code object <module> at 0xb77554f00 file "<assign>3", line 1>
     def test_compile_ast(self):
         fname = __file__
         if fname.lower().endswith('pyc'):
@@ -696,7 +691,6 @@ class TestSpecifics(unittest.TestCase):
         self.compile_single("class T:\n   pass")
         self.compile_single("c = '''\na=1\nb=2\nc=3\n'''")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised by compile_single
     def test_bad_single_statement(self):
         self.assertInvalidSingle('1\n2')
         self.assertInvalidSingle('def f(): pass')
@@ -708,7 +702,6 @@ class TestSpecifics(unittest.TestCase):
         self.assertInvalidSingle('x = 5 # comment\nx = 6\n')
         self.assertInvalidSingle("c = '''\nd=1\n'''\na = 1\n\nb = 2\n")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'source code cannot contain null bytes' not found in b'OSError: stream did not contain valid UTF-8\n'
     def test_particularly_evil_undecodable(self):
         # Issue 24022
         src = b'0000\x00\n00000000000\n\x00\n\x9e\n'
@@ -719,7 +712,6 @@ class TestSpecifics(unittest.TestCase):
             res = script_helper.run_python_until_end(fn)[0]
         self.assertIn(b"source code cannot contain null bytes", res.err)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'source code cannot contain null bytes' not found in b'OSError: stream did not contain valid UTF-8\n'
     def test_yet_more_evil_still_undecodable(self):
         # Issue #25388
         src = b"#\x00\n#\xfd\n"
@@ -756,7 +748,6 @@ class TestSpecifics(unittest.TestCase):
         # check_limit("a", " if a else a")
         # check_limit("if a: pass", "\nelif a: pass", mode="exec")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "cannot contain null" does not match "invalid syntax (<dummy>, line 1)"
     def test_null_terminated(self):
         # The source code is null-terminated internally, but bytes-like
         # objects are accepted, which could be not terminated.
@@ -1673,7 +1664,6 @@ class TestSpecifics(unittest.TestCase):
 
         self.assertRaises(NameError, ns['foo'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [3, 5, 3, 5]
     def test_compile_warnings(self):
         # Each invocation of compile() emits compiler warnings, even if they
         # have the same message and line number.
@@ -1691,7 +1681,6 @@ class TestSpecifics(unittest.TestCase):
 
         self.assertEqual([wm.lineno for wm in caught], [3, 5] * 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + [5, 9]
     def test_compile_warning_in_finally(self):
         # Ensure that warnings inside finally blocks are
         # only emitted once despite the block being
@@ -1742,7 +1731,6 @@ class TestSpecifics(unittest.TestCase):
             self.assertEqual(wm.category, SyntaxWarning)
             self.assertIn("\"is\" with 'int' literal", str(wm.message))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @support.subTests('src', [
         textwrap.dedent("""
             def f():

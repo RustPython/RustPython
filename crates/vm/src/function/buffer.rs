@@ -13,11 +13,10 @@ use crate::{
 pub struct ArgBytesLike(PyBuffer);
 
 impl PyObject {
-    pub fn try_bytes_like<R>(
-        &self,
-        vm: &VirtualMachine,
-        f: impl FnOnce(&[u8]) -> R,
-    ) -> PyResult<R> {
+    pub fn try_bytes_like<F, R>(&self, vm: &VirtualMachine, f: F) -> PyResult<R>
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
         let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
         buffer
             .as_contiguous()
@@ -25,11 +24,10 @@ impl PyObject {
             .ok_or_else(|| vm.new_buffer_error("non-contiguous buffer is not a bytes-like object"))
     }
 
-    pub fn try_rw_bytes_like<R>(
-        &self,
-        vm: &VirtualMachine,
-        f: impl FnOnce(&mut [u8]) -> R,
-    ) -> PyResult<R> {
+    pub fn try_rw_bytes_like<F, R>(&self, vm: &VirtualMachine, f: F) -> PyResult<R>
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
         let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
         buffer
             .as_contiguous_mut()
@@ -207,7 +205,10 @@ impl ArgAsciiBuffer {
     }
 
     #[inline]
-    pub fn with_ref<R>(&self, f: impl FnOnce(&[u8]) -> R) -> R {
+    pub fn with_ref<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce(&[u8]) -> R,
+    {
         match self {
             Self::String(s) => f(s.as_bytes()),
             Self::Buffer(buffer) => buffer.with_ref(f),

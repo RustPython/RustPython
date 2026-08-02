@@ -1,6 +1,7 @@
 mod core;
 mod ext;
 mod payload;
+pub(crate) mod qsbr;
 mod traverse;
 mod traverse_object;
 

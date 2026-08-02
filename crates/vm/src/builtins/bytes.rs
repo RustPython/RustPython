@@ -9,8 +9,8 @@ use crate::{
     anystr::{self, AnyStr},
     atomic_func,
     bytes_inner::{
-        ByteInnerFindOptions, ByteInnerNewOptions, ByteInnerPaddingOptions, ByteInnerSplitOptions,
-        ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
+        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
     },
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
@@ -31,6 +31,7 @@ use crate::{
 };
 use bstr::ByteSlice;
 use core::{mem::size_of, ops::Deref};
+use memchr::memchr;
 
 #[pyclass(module = false, name = "bytes")]
 #[derive(Clone, Debug)]
@@ -169,6 +170,13 @@ impl PyBytes {
                 .map(|x| vm.ctx.new_bytes(x).into()),
         }
     }
+
+    /// Check bytes for interior NULs.
+    #[inline]
+    #[must_use]
+    pub fn contains_nuls(&self) -> bool {
+        memchr(b'\0', self.as_bytes()).is_some()
+    }
 }
 
 impl PyRef<PyBytes> {
@@ -218,7 +226,7 @@ impl PyBytes {
 
     #[inline]
     #[must_use]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub const fn as_bytes(&self) -> &[u8] {
         self.inner.as_bytes()
     }
 
@@ -318,10 +326,10 @@ impl PyBytes {
     #[pymethod]
     pub(crate) fn hex(
         &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
+        options: ByteInnerHexOptions,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
+        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.inner.hex(sep, bytes_per_sep, vm)
     }
 

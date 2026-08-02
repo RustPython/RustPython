@@ -227,7 +227,7 @@ impl PyCompileArgs {
         let mut source: Option<CompilationSource> = None;
         let mut crate_name = None;
 
-        fn assert_source_empty(source: &Option<CompilationSource>) -> Result<(), syn::Error> {
+        fn assert_source_empty(source: Option<&CompilationSource>) -> Result<(), syn::Error> {
             if let Some(source) = source {
                 Err(syn::Error::new(
                     source.span.0,
@@ -263,14 +263,14 @@ impl PyCompileArgs {
             } else if ident == "module_name" {
                 module_name = Some(check_str()?.value())
             } else if ident == "source" {
-                assert_source_empty(&source)?;
+                assert_source_empty(source.as_ref())?;
                 let code = check_str()?.value();
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::SourceCode(code),
                     span: (ident.span(), meta.input.cursor().span()),
                 });
             } else if ident == "file" {
-                assert_source_empty(&source)?;
+                assert_source_empty(source.as_ref())?;
                 let (base, rel_path) = str_path()?;
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::File { base, rel_path },
@@ -281,7 +281,7 @@ impl PyCompileArgs {
                     bail_span!(ident, "py_compile doesn't accept dir")
                 }
 
-                assert_source_empty(&source)?;
+                assert_source_empty(source.as_ref())?;
                 let (base, rel_path) = str_path()?;
                 source = Some(CompilationSource {
                     kind: CompilationSourceKind::Dir { base, rel_path },

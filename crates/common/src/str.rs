@@ -25,11 +25,10 @@ impl core::ops::BitOr for StrKind {
     type Output = Self;
 
     fn bitor(self, other: Self) -> Self {
-        use StrKind::*;
         match (self, other) {
-            (Wtf8, _) | (_, Wtf8) => Wtf8,
-            (Utf8, _) | (_, Utf8) => Utf8,
-            (Ascii, Ascii) => Ascii,
+            (Self::Wtf8, _) | (_, Self::Wtf8) => Self::Wtf8,
+            (Self::Utf8, _) | (_, Self::Utf8) => Self::Utf8,
+            (Self::Ascii, Self::Ascii) => Self::Ascii,
         }
     }
 }

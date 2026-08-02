@@ -15,7 +15,6 @@ on:
 
 env:
   CARGO_ARGS: --no-default-features --features stdlib,importlib,stdio,encodings,ssl-rustls-aws-lc,jit,host_env
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true' # TODO: Remove on 2026/06/02
 
 jobs:
   # codecov collects code coverage data from the rust tests, python snippets and python test suite.
@@ -25,18 +24,20 @@ jobs:
     runs-on: ubuntu-latest
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
+    env:
+      INSTA_WORKSPACE_ROOT: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: taiki-e/install-action@b550161ef8a7bc4f2a671c0b03a18ac9ccedea1e # v2.79.1
+      - uses: taiki-e/install-action@a6b2e2dcd845ddd7f509ce4f3ed3d922b80cc5d9 # v2.84.0
         with:
           tool: cargo-llvm-cov
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - run: sudo apt-get update && sudo apt-get -y install lcov
 
@@ -56,7 +57,7 @@ jobs:
 
       - name: Upload to Codecov
         if: ${{ github.event_name != 'pull_request' }}
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./codecov.lcov
 
@@ -66,7 +67,7 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: true
 
@@ -84,7 +85,6 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           echo "$SSHKEY" >~/github_key
           chmod 600 ~/github_key
@@ -94,7 +94,7 @@ jobs:
           cd website
           cp ../extra_tests/cpython_tests_results.json ./_data/regrtests_results.json
           git add ./_data/regrtests_results.json
-          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results" --author="$GITHUB_ACTOR"; then
+          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update regression test results"; then
             git push
           fi
 
@@ -104,13 +104,13 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: true
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - name: build rustpython
         run: cargo build --release --verbose
@@ -126,7 +126,6 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
-          GITHUB_ACTOR: ${{ github.actor }}
         run: |
           echo "$SSHKEY" >~/github_key
           chmod 600 ~/github_key
@@ -157,7 +156,7 @@ jobs:
           }
           EOF
           git add -A
-          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results" --author="$GITHUB_ACTOR"; then
+          if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update what is left results"; then
             git push
           fi
 
@@ -167,13 +166,13 @@ jobs:
     # Disable this scheduled job when running on a fork.
     if: ${{ github.repository == 'RustPython/RustPython' || github.event_name != 'schedule' }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: true
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - run: cargo install cargo-criterion
 
@@ -203,6 +202,8 @@ jobs:
         if: ${{ github.event_name != 'pull_request' }}
         env:
           SSHKEY: ${{ secrets.ACTIONS_TESTS_DATA_DEPLOY_KEY }}
+          COMMIT_SHA: ${{ github.sha }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           echo "$SSHKEY" >~/github_key
           chmod 600 ~/github_key
@@ -214,8 +215,8 @@ jobs:
           cp -r ../target/criterion ./assets/criterion
           printf '{\n  "generated_at": "%s",\n  "rustpython_commit": "%s",\n  "rustpython_ref": "%s"\n}\n' \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            "${{ github.sha }}" \
-            "${{ github.ref_name }}" > ./_data/criterion-metadata.json
+            "$COMMIT_SHA" \
+            "$REF_NAME" > ./_data/criterion-metadata.json
           git add ./assets/criterion ./_data/criterion-metadata.json
           if git -c user.name="Github Actions" -c user.email="actions@github.com" commit -m "Update benchmark results"; then
             git push

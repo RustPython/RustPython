@@ -11,14 +11,12 @@ impl Node for ast::ConversionFlag {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        // Python's AST uses ASCII codes: 's', 'r', 'a', -1=None
-        // Note: 255 is -1i8 as u8 (ruff's ConversionFlag::None)
-        match i32::try_from_object(vm, object)? {
-            -1 | 255 => Ok(Self::None),
+        match node_object_to_i32(vm, object)? {
+            -1 => Ok(Self::None),
             x if x == b's' as i32 => Ok(Self::Str),
             x if x == b'r' as i32 => Ok(Self::Repr),
             x if x == b'a' as i32 => Ok(Self::Ascii),
-            _ => Err(vm.new_value_error("invalid conversion flag")),
+            x => Err(vm.new_system_error(format!("Unrecognized conversion character {x}"))),
         }
     }
 }
@@ -34,10 +32,13 @@ impl Node for ast::name::Name {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        match object.downcast::<PyStr>() {
-            Ok(name) => Ok(Self::new(name)),
-            Err(_) => Err(vm.new_value_error("expected str for name")),
+        if !object.class().is(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error("AST identifier must be of type str"));
         }
+        object
+            .downcast::<PyStr>()
+            .map(Self::new)
+            .map_err(|_| vm.new_type_error("AST identifier must be of type str"))
     }
 }
 
@@ -89,11 +90,7 @@ impl Node for ast::Alias {
     ) -> PyResult<Self> {
         Ok(Self {
             node_index: Default::default(),
-            name: Node::ast_from_object(
-                vm,
-                source_file,
-                get_node_field_required(vm, &object, "name", "alias")?,
-            )?,
+            name: get_required_identifier_field(vm, source_file, &object, "name", "alias")?,
             asname: get_node_field_opt(vm, &object, "asname")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))
                 .transpose()?,
@@ -137,10 +134,12 @@ impl Node for ast::WithItem {
     ) -> PyResult<Self> {
         Ok(Self {
             node_index: Default::default(),
-            context_expr: Node::ast_from_object(
+            context_expr: get_required_node_field(
                 vm,
                 source_file,
-                get_node_field_required(vm, &object, "context_expr", "withitem")?,
+                &object,
+                "context_expr",
+                "withitem",
             )?,
             optional_vars: get_node_field_opt(vm, &object, "optional_vars")?
                 .map(|obj| Node::ast_from_object(vm, source_file, obj))

@@ -683,7 +683,6 @@ class TypeParamsClassScopeTest(unittest.TestCase):
         self.assertIs(X.foo.__type_params__[0].__bound__, float)
         self.assertIs(X.Alias.__value__, float)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + global
     def test_binding_uses_global(self):
         ns = run_code("""
             x = "global"
@@ -1076,7 +1075,6 @@ class TypeParamsTypeVarTest(unittest.TestCase):
 
 
 class TypeParamsTypeVarTupleTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "cannot use bound with TypeVarTuple" does not match "invalid syntax (<test string>, line 1)"
     def test_typevartuple_01(self):
         code = """def func1[*A: str](): pass"""
         check_syntax_error(self, code, "cannot use bound with TypeVarTuple")
@@ -1100,7 +1098,6 @@ class TypeParamsTypeVarTupleTest(unittest.TestCase):
 
 
 class TypeParamsTypeVarParamSpecTest(unittest.TestCase):
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "cannot use bound with ParamSpec" does not match "invalid syntax (<test string>, line 1)"
     def test_paramspec_01(self):
         code = """def func1[**A: str](): pass"""
         check_syntax_error(self, code, "cannot use bound with ParamSpec")

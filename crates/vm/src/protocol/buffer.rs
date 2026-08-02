@@ -44,11 +44,10 @@ pub struct PyBuffer {
 impl PyBuffer {
     #[must_use]
     pub fn new(obj: PyObjectRef, desc: BufferDescriptor, methods: &'static BufferMethods) -> Self {
-        let zelf = Self {
-            obj,
-            desc: desc.validate(),
-            methods,
-        };
+        #[cfg(debug_assertions)]
+        let desc = desc.validate();
+
+        let zelf = Self { obj, desc, methods };
         zelf.retain();
         zelf
     }
@@ -216,27 +215,22 @@ impl BufferDescriptor {
         if self.ndim() == 0 {
             // Empty structures (len=0) can have itemsize=0
             if self.len > 0 {
-                assert!(self.itemsize != 0);
+                debug_assert_ne!(self.itemsize, 0);
             }
-            assert!(self.itemsize == self.len);
+            debug_assert_eq!(self.itemsize, self.len);
         } else {
             let mut shape_product = 1;
             let has_zero_dim = self.dim_desc.iter().any(|(s, _, _)| *s == 0);
             for (shape, stride, suboffset) in self.dim_desc.iter().copied() {
                 shape_product *= shape;
-                assert!(suboffset >= 0);
+                debug_assert!(suboffset >= 0);
                 // For empty arrays (any dimension is 0), strides can be 0
                 if !has_zero_dim {
-                    assert!(stride != 0);
+                    debug_assert_ne!(stride, 0);
                 }
             }
-            assert!(shape_product * self.itemsize == self.len);
+            debug_assert_eq!(shape_product * self.itemsize, self.len);
         }
-        self
-    }
-
-    #[cfg(not(debug_assertions))]
-    pub fn validate(self) -> Self {
         self
     }
 
@@ -396,6 +390,7 @@ impl BufferDescriptor {
         }
     }
 
+    #[must_use]
     fn is_last_dim_contiguous(&self) -> bool {
         let (_, stride, suboffset) = self.dim_desc[self.ndim() - 1];
         suboffset == 0 && stride == self.itemsize as isize

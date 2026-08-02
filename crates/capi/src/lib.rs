@@ -1,7 +1,8 @@
 #![allow(clippy::missing_safety_doc)]
 
 use crate::pyerrors::init_exception_statics;
-use crate::pylifecycle::MAIN_INTERP;
+use crate::pylifecycle::{MAIN_INTERP, MAIN_INTERP_PTR};
+use core::sync::atomic::Ordering;
 pub use rustpython_vm::PyObject;
 use rustpython_vm::{Context, Interpreter};
 use std::sync::MutexGuard;
@@ -10,25 +11,41 @@ extern crate alloc;
 
 pub mod abstract_;
 pub mod boolobject;
+pub mod bytearrayobject;
 pub mod bytesobject;
 pub mod ceval;
+pub mod codecs;
 pub mod complexobject;
+pub mod critical_section;
+pub mod descrobject;
 pub mod dictobject;
 pub mod floatobject;
+pub mod genericaliasobject;
 pub mod import;
 pub mod listobject;
 pub mod longobject;
+pub mod memoryobject;
 pub mod methodobject;
+pub mod moduleobject;
 pub mod object;
+pub mod objimpl;
+pub mod osmodule;
 pub mod pycapsule;
 pub mod pyerrors;
+pub mod pyframe;
 pub mod pylifecycle;
+pub mod pymem;
 pub mod pystate;
+pub mod pystrcmp;
 pub mod refcount;
+pub mod setobject;
+pub mod sliceobject;
 pub mod traceback;
 pub mod tupleobject;
 pub mod unicodeobject;
 mod util;
+pub mod warnings;
+pub mod weakrefobject;
 
 /// Get main interpreter of this process. Will be None if it has not been initialized yet.
 pub fn get_main_interpreter() -> MutexGuard<'static, Option<Interpreter>> {
@@ -45,4 +62,8 @@ pub fn init_main_interpreter(interpreter: Interpreter) {
     // Safety: Interpreter was not initialized before, so we can safely assume the statics are not used
     unsafe { init_exception_statics(&Context::genesis().exceptions) };
     *interp = Some(interpreter);
+    MAIN_INTERP_PTR.store(
+        interp.as_ref().unwrap() as *const _ as *mut _,
+        Ordering::Release,
+    );
 }

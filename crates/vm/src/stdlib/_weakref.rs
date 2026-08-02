@@ -17,18 +17,22 @@ mod _weakref {
     fn ref_(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakref_type.to_owned()
     }
+
     #[pyattr]
     fn proxy(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakproxy_type.to_owned()
     }
+
     #[pyattr(name = "ReferenceType")]
     fn reference_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakref_type.to_owned()
     }
+
     #[pyattr(name = "ProxyType")]
     fn proxy_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakproxy_type.to_owned()
     }
+
     #[pyattr(name = "CallableProxyType")]
     fn callable_proxy_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.types.weakproxy_type.to_owned()
@@ -41,10 +45,8 @@ mod _weakref {
 
     #[pyfunction]
     fn getweakrefs(obj: PyObjectRef) -> Vec<PyObjectRef> {
-        match obj.get_weak_references() {
-            Some(v) => v.into_iter().map(Into::into).collect(),
-            None => vec![],
-        }
+        obj.get_weak_references()
+            .map_or_else(Vec::new, |v| v.into_iter().map(Into::into).collect())
     }
 
     #[pyfunction]

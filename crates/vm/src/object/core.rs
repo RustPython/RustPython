@@ -95,9 +95,23 @@ mod trashcan {
     type DeallocFn = unsafe fn(*mut super::PyObject);
     type DeallocQueue = Vec<(*mut super::PyObject, DeallocFn)>;
 
+    /// Per-thread trashcan state. Depth and deferral queue live in one
+    /// thread-local so a single access reaches both fields (one `_tlv_get_addr`
+    /// on platforms where thread-local access is a function call). Both fields
+    /// are `Cell`-based so reentrant deallocation (nested `begin`/`end` triggered
+    /// by draining deferred objects) never holds an outstanding borrow.
+    struct Trashcan {
+        depth: Cell<usize>,
+        queue: Cell<DeallocQueue>,
+    }
+
     thread_local! {
-        static DEALLOC_DEPTH: Cell<usize> = const { Cell::new(0) };
-        static DEALLOC_QUEUE: Cell<DeallocQueue> = const { Cell::new(Vec::new()) };
+        static TRASHCAN: Trashcan = const {
+            Trashcan {
+                depth: Cell::new(0),
+                queue: Cell::new(Vec::new()),
+            }
+        };
     }
 
     /// Try to begin deallocation. Returns true if we should proceed,
@@ -107,18 +121,16 @@ mod trashcan {
         obj: *mut super::PyObject,
         dealloc: unsafe fn(*mut super::PyObject),
     ) -> bool {
-        DEALLOC_DEPTH.with(|d| {
-            let depth = d.get();
+        TRASHCAN.with(|t| {
+            let depth = t.depth.get();
             if depth >= TRASHCAN_LIMIT {
                 // Depth exceeded: defer this deallocation
-                DEALLOC_QUEUE.with(|q| {
-                    let mut queue = q.take();
-                    queue.push((obj, dealloc));
-                    q.set(queue);
-                });
+                let mut queue = t.queue.take();
+                queue.push((obj, dealloc));
+                t.queue.set(queue);
                 false
             } else {
-                d.set(depth + 1);
+                t.depth.set(depth + 1);
                 true
             }
         })
@@ -127,29 +139,30 @@ mod trashcan {
     /// End deallocation and process any deferred objects if at outermost level.
     #[inline]
     pub(super) unsafe fn end() {
-        let depth = DEALLOC_DEPTH.with(|d| {
-            let depth = d.get();
+        TRASHCAN.with(|t| {
+            let depth = t.depth.get();
             debug_assert!(depth > 0, "trashcan::end called without matching begin");
             let depth = depth - 1;
-            d.set(depth);
-            depth
-        });
-        if depth == 0 {
-            // Process deferred deallocations iteratively
+            t.depth.set(depth);
+            if depth != 0 {
+                return;
+            }
+            // Process deferred deallocations iteratively. The queue is set back
+            // before each `dealloc` call so a reentrant `begin` can push freely.
             loop {
-                let next = DEALLOC_QUEUE.with(|q| {
-                    let mut queue = q.take();
+                let next = {
+                    let mut queue = t.queue.take();
                     let item = queue.pop();
-                    q.set(queue);
+                    t.queue.set(queue);
                     item
-                });
+                };
                 if let Some((obj, dealloc)) = next {
                     unsafe { dealloc(obj) };
                 } else {
                     break;
                 }
             }
-        }
+        })
     }
 }
 
@@ -161,8 +174,17 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         return; // resurrected by __del__
     }
 
+    // Only tracked objects take the trashcan recursion guard and untrack path.
+    // Untracked objects either own no children (int, float, str, ...) or, like
+    // non-escaped frames, are released at interpreter depth with at most one
+    // unguarded link before their tracked children (dicts, functions, code)
+    // re-enter guarded deallocation, so recursion stays bounded. A frame stored
+    // in an object graph is forced to escape, becoming tracked and guarded here.
+    // Read once and reuse for both gates below.
+    let tracked = obj_ref.is_gc_tracked();
+
     // Trashcan: limit recursive deallocation depth to prevent stack overflow
-    if !unsafe { trashcan::begin(obj, default_dealloc::<T>) } {
+    if tracked && !unsafe { trashcan::begin(obj, default_dealloc::<T>) } {
         return; // deferred to queue
     }
 
@@ -171,7 +193,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     // Untrack from GC BEFORE deallocation.
     // Must happen before memory is freed because intrusive list removal
     // reads the object's gc_pointers (prev/next).
-    if obj_ref.is_gc_tracked() {
+    if tracked {
         let ptr = unsafe { NonNull::new_unchecked(obj) };
         unsafe {
             crate::gc_state::gc_state().untrack_object(ptr);
@@ -188,36 +210,49 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         );
     }
 
-    // Try to store in freelist for reuse BEFORE tp_clear, so that
-    // size-based freelists (e.g. PyTuple) can read the payload directly.
+    // Extract child references to break circular refs (tp_clear), then drop
+    // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
+    // instead of extracting them, so user code (`__del__`) may run here.
+    let mut edges = Vec::new();
+    if let Some(clear_fn) = vtable.clear {
+        unsafe { clear_fn(obj, &mut edges) };
+    }
+    // Drop extracted child references - may trigger recursive destruction.
+    drop(edges);
+
+    // Try to store in freelist for reuse. This must happen AFTER clear_fn and
+    // after the extracted-children drop: both can run user code (`__del__`)
+    // that allocates, and `PyRef::new_ref` pops from the same thread-local
+    // freelist. If the husk were already in the freelist, a reentrant
+    // allocation could pop it and write a fresh payload into it while clear_fn
+    // still holds a `&mut` borrow of that payload (aliasing UB). Pushing only
+    // once no borrows into the payload can be live closes that window.
     // Only exact base types (not heaptype or structseq subtypes) go into the freelist.
+    // Published objects (e.g. a tuple stored as a type attribute) must skip the
+    // freelist: `PyRef::new_ref` would reuse the slot and overwrite the refcount
+    // word with a non-atomic write, racing a reader's atomic try-incref. Route
+    // them through `PyInner::dealloc` instead, whose QSBR hook defers the actual
+    // memory free until readers can no longer observe it.
     let typ = obj_ref.class();
     let pushed = if T::HAS_FREELIST
         && typ.heaptype_ext.is_none()
         && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
+        && !obj_ref.0.ref_count.is_published()
     {
         unsafe { T::freelist_push(obj) }
     } else {
         false
     };
 
-    // Extract child references to break circular refs (tp_clear).
-    // This runs regardless of freelist push — the object's children must be released.
-    let mut edges = Vec::new();
-    if let Some(clear_fn) = vtable.clear {
-        unsafe { clear_fn(obj, &mut edges) };
-    }
-
     if !pushed {
         // Deallocate the object memory (handles ObjExt prefix if present)
         unsafe { PyInner::dealloc(obj as *mut PyInner<T>) };
     }
 
-    // Drop child references - may trigger recursive destruction.
-    drop(edges);
-
     // Trashcan: decrement depth and process deferred objects at outermost level
-    unsafe { trashcan::end() };
+    if tracked {
+        unsafe { trashcan::end() };
+    }
 }
 pub(super) unsafe fn debug_obj<T: PyPayload + core::fmt::Debug>(
     x: &PyObject,
@@ -419,7 +454,7 @@ impl<T> PyInner<T> {
 
 impl<T: fmt::Debug> fmt::Debug for PyInner<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[PyObject {:?}]", &self.payload)
+        write!(f, "[PyObject {:?}]", self.payload)
     }
 }
 
@@ -547,6 +582,18 @@ unsafe fn unlink_weakref(wrl: &WeakRefList, node: NonNull<Py<PyWeak>>) {
     }
 }
 
+// try_reuse_basic_ref
+unsafe fn try_reuse_weakref(ptr: *mut Py<PyWeak>) -> Option<PyRef<PyWeak>> {
+    if ptr.is_null() {
+        return None;
+    }
+    let node = unsafe { &*ptr };
+    node.0
+        .ref_count
+        .safe_inc()
+        .then(|| unsafe { PyRef::from_raw(ptr) })
+}
+
 impl WeakRefList {
     pub(super) fn new() -> Self {
         Self {
@@ -561,22 +608,25 @@ impl WeakRefList {
         obj: &PyObject,
         cls: PyTypeRef,
         cls_is_weakref: bool,
+        cls_is_weakproxy: bool,
         callback: Option<PyObjectRef>,
         dict: Option<PyDictRef>,
     ) -> PyRef<PyWeak> {
         let is_generic = cls_is_weakref && callback.is_none();
+        let is_generic_proxy = cls_is_weakproxy && callback.is_none();
 
         // Try reuse under lock first (fast path, no allocation)
         {
             let _lock = weakref_lock::lock(obj as *const PyObject as usize);
-            if is_generic {
-                let generic_ptr = self.generic.load(Ordering::Relaxed);
-                if !generic_ptr.is_null() {
-                    let generic = unsafe { &*generic_ptr };
-                    if generic.0.ref_count.safe_inc() {
-                        return unsafe { PyRef::from_raw(generic_ptr) };
-                    }
-                }
+            let existing = if is_generic {
+                unsafe { try_reuse_weakref(self.generic.load(Ordering::Relaxed)) }
+            } else if is_generic_proxy {
+                unsafe { try_reuse_weakref(self.find_generic_proxy_ptr()) }
+            } else {
+                None
+            };
+            if let Some(existing) = existing {
+                return existing;
             }
         }
 
@@ -594,64 +644,98 @@ impl WeakRefList {
         // Re-acquire lock for linked list insertion
         let _lock = weakref_lock::lock(obj as *const PyObject as usize);
 
-        // Re-check: another thread may have inserted a generic ref while we
-        // were allocating outside the lock. If so, reuse it and drop ours.
-        if is_generic {
-            let generic_ptr = self.generic.load(Ordering::Relaxed);
-            if !generic_ptr.is_null() {
-                let generic = unsafe { &*generic_ptr };
-                if generic.0.ref_count.safe_inc() {
-                    // Nullify wr_object so drop_inner won't unlink an
-                    // un-inserted node (which would corrupt the list head).
-                    weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
-                    return unsafe { PyRef::from_raw(generic_ptr) };
-                }
-            }
+        // Re-check: another thread may have inserted a generic ref/proxy
+        // while we were allocating outside the lock. If so, reuse it and
+        // drop ours.
+        let existing = if is_generic {
+            unsafe { try_reuse_weakref(self.generic.load(Ordering::Relaxed)) }
+        } else if is_generic_proxy {
+            unsafe { try_reuse_weakref(self.find_generic_proxy_ptr()) }
+        } else {
+            None
+        };
+        if let Some(existing) = existing {
+            // Nullify wr_object so drop_inner won't unlink an
+            // un-inserted node (which would corrupt the list head).
+            weak.wr_object.store(ptr::null_mut(), Ordering::Relaxed);
+            return existing;
         }
 
         // Insert into linked list under stripe lock
+        // (insert_weakref: generic ref at head, generic proxy right after it)
         let node_ptr = NonNull::from(&*weak);
-        unsafe {
-            let mut ptrs = WeakLink::pointers(node_ptr);
-            if is_generic {
-                // Generic ref goes to head (insert_head for basic ref)
-                let old_head = self.head.load(Ordering::Relaxed);
-                ptrs.as_mut().set_next(NonNull::new(old_head));
-                ptrs.as_mut().set_prev(None);
-                if let Some(old_head) = NonNull::new(old_head) {
-                    WeakLink::pointers(old_head)
-                        .as_mut()
-                        .set_prev(Some(node_ptr));
-                }
-                self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
-                self.generic.store(node_ptr.as_ptr(), Ordering::Relaxed);
-            } else {
-                // Non-generic refs go after generic ref (insert_after)
-                let generic_ptr = self.generic.load(Ordering::Relaxed);
-                if let Some(after) = NonNull::new(generic_ptr) {
-                    let after_next = WeakLink::pointers(after).as_ref().get_next();
-                    ptrs.as_mut().set_prev(Some(after));
-                    ptrs.as_mut().set_next(after_next);
-                    WeakLink::pointers(after).as_mut().set_next(Some(node_ptr));
-                    if let Some(next) = after_next {
-                        WeakLink::pointers(next).as_mut().set_prev(Some(node_ptr));
-                    }
-                } else {
-                    // No generic ref; insert at head
-                    let old_head = self.head.load(Ordering::Relaxed);
-                    ptrs.as_mut().set_next(NonNull::new(old_head));
-                    ptrs.as_mut().set_prev(None);
-                    if let Some(old_head) = NonNull::new(old_head) {
-                        WeakLink::pointers(old_head)
-                            .as_mut()
-                            .set_prev(Some(node_ptr));
-                    }
-                    self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
-                }
-            }
+        let after = if is_generic {
+            None
+        } else if is_generic_proxy {
+            NonNull::new(self.generic.load(Ordering::Relaxed))
+        } else {
+            NonNull::new(self.find_generic_proxy_ptr())
+                .or_else(|| NonNull::new(self.generic.load(Ordering::Relaxed)))
+        };
+        match after {
+            Some(after) => unsafe { self.insert_after(after, node_ptr) },
+            None => unsafe { self.insert_at_head(node_ptr) },
+        }
+        if is_generic {
+            self.generic.store(node_ptr.as_ptr(), Ordering::Relaxed);
         }
 
         weak
+    }
+
+    unsafe fn insert_at_head(&self, node_ptr: NonNull<Py<PyWeak>>) {
+        unsafe {
+            let mut ptrs = WeakLink::pointers(node_ptr);
+            let old_head = self.head.load(Ordering::Relaxed);
+            ptrs.as_mut().set_next(NonNull::new(old_head));
+            ptrs.as_mut().set_prev(None);
+            if let Some(old_head) = NonNull::new(old_head) {
+                WeakLink::pointers(old_head)
+                    .as_mut()
+                    .set_prev(Some(node_ptr));
+            }
+            self.head.store(node_ptr.as_ptr(), Ordering::Relaxed);
+        }
+    }
+
+    unsafe fn insert_after(&self, after: NonNull<Py<PyWeak>>, node_ptr: NonNull<Py<PyWeak>>) {
+        unsafe {
+            let mut ptrs = WeakLink::pointers(node_ptr);
+            let after_next = WeakLink::pointers(after).as_ref().get_next();
+            ptrs.as_mut().set_prev(Some(after));
+            ptrs.as_mut().set_next(after_next);
+            WeakLink::pointers(after).as_mut().set_next(Some(node_ptr));
+            if let Some(next) = after_next {
+                WeakLink::pointers(next).as_mut().set_prev(Some(node_ptr));
+            }
+        }
+    }
+
+    // get_basic_refs
+    fn find_generic_proxy_ptr(&self) -> *mut Py<PyWeak> {
+        let generic_ptr = self.generic.load(Ordering::Relaxed);
+        let candidate_ptr = if let Some(generic_node) = NonNull::new(generic_ptr) {
+            unsafe { WeakLink::pointers(generic_node).as_ref().get_next() }
+                .map_or(ptr::null_mut(), |n| n.as_ptr())
+        } else {
+            self.head.load(Ordering::Relaxed)
+        };
+        match NonNull::new(candidate_ptr) {
+            Some(candidate) => {
+                let node = unsafe { candidate.as_ref() };
+                let has_callback = unsafe { (&*node.0.payload.callback.get()).is_some() };
+                // PyWeakref_CheckProxy: the basic-proxy slot is reserved for
+                // the canonical proxy type; subclasses and callback-less ref
+                // subclasses must not be mistaken for it.
+                let is_proxy = node.class().is(crate::builtins::PyWeakProxy::static_type());
+                if has_callback || !is_proxy {
+                    ptr::null_mut()
+                } else {
+                    candidate_ptr
+                }
+            }
+            None => ptr::null_mut(),
+        }
     }
 
     /// Clear all weakrefs and call their callbacks.
@@ -1005,6 +1089,9 @@ impl<T: PyPayload> PyInner<T> {
             let has_ext =
                 flags.has_feature(crate::types::PyTypeFlags::HAS_DICT) || member_count > 0;
             let has_weakref = flags.has_feature(crate::types::PyTypeFlags::HAS_WEAKREF);
+            // Objects published to lock-free caches keep their memory mapped
+            // until a QSBR grace period passes; destructors still run now.
+            let published = (*ptr).ref_count.is_published();
 
             if has_ext || has_weakref {
                 // Reconstruct the same layout used in new()
@@ -1037,7 +1124,15 @@ impl<T: PyPayload> PyInner<T> {
                 }
                 // WeakRefList has no Drop (just raw pointers), no drop_in_place needed
 
-                alloc::alloc::dealloc(alloc_ptr, combined);
+                if published {
+                    crate::object::qsbr::free_delayed(alloc_ptr, combined);
+                } else {
+                    alloc::alloc::dealloc(alloc_ptr, combined);
+                }
+            } else if published {
+                let layout = core::alloc::Layout::new::<Self>();
+                core::ptr::drop_in_place(ptr);
+                crate::object::qsbr::free_delayed(ptr as *mut u8, layout);
             } else {
                 drop(Box::from_raw(ptr));
             }
@@ -1139,11 +1234,6 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
             }))
         }
     }
-}
-
-/// Returns the allocation layout for `PyInner<T>`, for use in freelist Drop impls.
-pub(crate) const fn pyinner_layout<T: PyPayload>() -> core::alloc::Layout {
-    core::alloc::Layout::new::<PyInner<T>>()
 }
 
 /// Thread-local freelist storage for reusing object allocations.
@@ -1287,6 +1377,13 @@ impl PyObject {
             None
         }
     }
+
+    /// Mark this object as published to a lock-free cache. Its memory
+    /// reclamation is deferred through QSBR (see `object::qsbr`) so that
+    /// concurrent try-incref readers never touch freed memory.
+    pub(crate) fn mark_cache_published(&self) {
+        self.0.ref_count.mark_published();
+    }
 }
 
 impl PyObjectRef {
@@ -1397,7 +1494,7 @@ impl PyObject {
         typ: PyTypeRef,
     ) -> Option<PyRef<PyWeak>> {
         self.weak_ref_list()
-            .map(|wrl| wrl.add(self, typ, true, callback, None))
+            .map(|wrl| wrl.add(self, typ, true, false, callback, None))
     }
 
     pub(crate) fn downgrade_with_typ(
@@ -1428,13 +1525,14 @@ impl PyObject {
             None
         };
         let cls_is_weakref = typ.is(vm.ctx.types.weakref_type);
+        let cls_is_weakproxy = typ.is(vm.ctx.types.weakproxy_type);
         let wrl = self.weak_ref_list().ok_or_else(|| {
             vm.new_type_error(format!(
                 "cannot create weak reference to '{}' object",
                 self.class().name()
             ))
         })?;
-        Ok(wrl.add(self, typ, cls_is_weakref, callback, dict))
+        Ok(wrl.add(self, typ, cls_is_weakref, cls_is_weakproxy, callback, dict))
     }
 
     pub fn downgrade(
@@ -1443,6 +1541,12 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<PyWeak>> {
         self.downgrade_with_typ(callback, vm.ctx.types.weakref_type.to_owned(), vm)
+    }
+
+    pub fn clear_weak_refs(&self) {
+        if let Some(wrl) = self.weak_ref_list() {
+            wrl.clear(self);
+        }
     }
 
     pub fn get_weak_references(&self) -> Option<Vec<PyRef<PyWeak>>> {
@@ -1483,7 +1587,7 @@ impl PyObject {
 
     #[inline(always)]
     pub fn class(&self) -> &Py<PyType> {
-        self.0.typ.deref()
+        &self.0.typ
     }
 
     pub fn set_class(&self, typ: PyTypeRef, vm: &VirtualMachine) {
@@ -1600,7 +1704,7 @@ impl PyObject {
     /// Check if the object has been finalized (__del__ already called).
     /// _PyGC_FINALIZED in Py_GIL_DISABLED mode.
     #[inline]
-    pub(crate) fn gc_finalized(&self) -> bool {
+    pub fn gc_finalized(&self) -> bool {
         GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed)).contains(GcBits::FINALIZED)
     }
 
@@ -1829,7 +1933,8 @@ impl PyObject {
                 result.push(dict_ref.into());
             }
             for slot in &ext.slots {
-                if let Some(val) = slot.write().take() {
+                let value = slot.write().take();
+                if let Some(val) = value {
                     result.push(val);
                 }
             }
@@ -2078,6 +2183,20 @@ impl<T: PyPayload> Py<T> {
     pub fn payload(&self) -> &T {
         &self.0.payload
     }
+
+    /// Recover the object pointer from a pointer to its `payload` field.
+    ///
+    /// # Safety
+    /// `payload` must point to the `payload` of a live `Py<T>` (e.g. a `&T`
+    /// obtained by dereferencing a `Py<T>`), and the object must outlive the
+    /// returned pointer's use.
+    #[inline]
+    #[cfg_attr(not(feature = "threading"), allow(dead_code))]
+    pub(crate) unsafe fn from_payload_ptr(payload: *const T) -> *const Self {
+        let offset = core::mem::offset_of!(PyInner<T>, payload);
+        // `Py<T>` is a newtype over `PyInner<T>`, so their addresses coincide.
+        unsafe { (payload as *const u8).sub(offset) as *const Self }
+    }
 }
 
 impl<T> ToOwned for Py<T> {
@@ -2124,7 +2243,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
+        self.deref().eq(&**other)
     }
 }
 
@@ -2268,7 +2387,11 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         // - HAS_TRAVERSE is true (Rust payload implements Traverse), OR
         // - has instance dict (user-defined class instances), OR
         // - heap type (all heap type instances are GC-tracked, like Py_TPFLAGS_HAVE_GC)
-        if <T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype {
+        // unless the payload opts out via NEW_REF_UNTRACKED (e.g. call frames,
+        // which are tracked lazily only on escape).
+        if (<T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype)
+            && !T::NEW_REF_UNTRACKED
+        {
             let gc = crate::gc_state::gc_state();
             unsafe {
                 gc.track_object(ptr.cast());
@@ -2401,7 +2524,7 @@ where
 {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.deref().eq(other.deref())
+        self.deref().eq(&**other)
     }
 }
 
@@ -2464,7 +2587,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
 
         let type_payload = PyType {
-            base: None,
+            base: None.into(),
             bases: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
@@ -2472,9 +2595,10 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             slots: PyType::make_slots(),
             heaptype_ext: None,
             tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+            abc_tpflags: core::sync::atomic::AtomicU64::new(0),
         };
         let object_payload = PyType {
-            base: None,
+            base: None.into(),
             bases: PyRwLock::default(),
             mro: PyRwLock::default(),
             subclasses: PyRwLock::default(),
@@ -2482,6 +2606,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             slots: object::PyBaseObject::make_slots(),
             heaptype_ext: None,
             tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+            abc_tpflags: core::sync::atomic::AtomicU64::new(0),
         };
         // Both type_type and object_type are instances of `type`, which has
         // HAS_DICT and HAS_WEAKREF, so they need both ObjExt and WeakRefList prefixes.
@@ -2558,7 +2683,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
             (*object_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
 
             (*type_type_ptr).payload.bases = PyRwLock::new(vec![object_type.clone()]);
-            (*type_type_ptr).payload.base = Some(object_type.clone());
+            (*type_type_ptr).payload.base = Some(object_type.clone()).into();
 
             let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
             // type's mro is [type, object]
@@ -2570,7 +2695,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     };
 
     let weakref_type = PyType {
-        base: Some(object_type.clone()),
+        base: Some(object_type.clone()).into(),
         bases: PyRwLock::new(vec![object_type.clone()]),
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),
@@ -2578,6 +2703,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         slots: PyWeak::make_slots(),
         heaptype_ext: None,
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
     let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)

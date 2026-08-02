@@ -39,7 +39,7 @@ pub(crate) mod ssl_cert {
             let buflen = buflen as usize;
             let mut buf = Vec::<u8>::with_capacity(buflen + 1);
             let ret = sys::OBJ_obj2txt(
-                buf.as_mut_ptr() as *mut libc::c_char,
+                buf.as_mut_ptr() as *mut core::ffi::c_char,
                 buf.capacity() as _,
                 ptr,
                 no_name,
@@ -67,7 +67,10 @@ pub(crate) mod ssl_cert {
         }
     }
 
-    #[pyclass(with(Comparable, Hashable, Representable))]
+    #[pyclass(
+        flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
+        with(Comparable, Hashable, Representable)
+    )]
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(

@@ -145,7 +145,7 @@ def regrtest_runner(result: TestResult, test_func, runtests: RunTests) -> None:
 
 
 # Storage of uncollectable GC objects (gc.garbage)
-GC_GARBAGE = []
+GC_GARBAGE: list[object] = []
 
 
 def _load_run_test(result: TestResult, runtests: RunTests) -> None:
@@ -172,16 +172,15 @@ def _load_run_test(result: TestResult, runtests: RunTests) -> None:
 
         remove_testfn(test_name, runtests.verbose)
 
-    # XXX: RUSTPYTHON, build a functional garbage collector into the interpreter
-    # if gc.garbage:
-    #     support.environment_altered = True
-    #     print_warning(f"{test_name} created {len(gc.garbage)} "
-    #                   f"uncollectable object(s)")
+    if gc.garbage:
+        support.environment_altered = True
+        print_warning(f"{test_name} created {len(gc.garbage)} "
+                      f"uncollectable object(s)")
 
-    #     # move the uncollectable objects somewhere,
-    #     # so we don't see them again
-    #     GC_GARBAGE.extend(gc.garbage)
-    #     gc.garbage.clear()
+        # move the uncollectable objects somewhere,
+        # so we don't see them again
+        GC_GARBAGE.extend(gc.garbage)
+        gc.garbage.clear()
 
     support.reap_children()
 

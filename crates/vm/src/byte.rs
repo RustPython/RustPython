@@ -1,7 +1,8 @@
 //! byte operation APIs
-use crate::object::AsObject;
-use crate::{PyObject, PyResult, VirtualMachine};
+
 use num_traits::ToPrimitive;
+
+use crate::{AsObject, PyObject, PyResult, VirtualMachine};
 
 pub fn bytes_from_object(vm: &VirtualMachine, obj: &PyObject) -> PyResult<Vec<u8>> {
     if let Ok(elements) = obj.try_bytes_like(vm, |bytes| bytes.to_vec()) {

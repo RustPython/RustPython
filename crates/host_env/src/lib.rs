@@ -30,6 +30,7 @@ pub mod fileutils;
 pub mod fs;
 #[cfg(any(unix, windows))]
 pub mod locale;
+pub mod readline;
 
 #[cfg(windows)]
 pub mod windows;
@@ -52,6 +53,11 @@ pub mod posix;
 #[cfg(target_os = "wasi")]
 #[path = "posix_wasi.rs"]
 pub mod posix;
+#[cfg(windows)]
+#[path = "posix_windows.rs"]
+pub mod posix;
+#[cfg(any(unix, target_os = "wasi"))]
+pub mod posix_unix_like;
 #[cfg(unix)]
 pub mod pwd;
 #[cfg(unix)]
@@ -64,6 +70,10 @@ pub mod time;
 
 #[cfg(windows)]
 pub mod cert_store;
+#[cfg(target_os = "macos")]
+pub mod system_configuration {
+    pub use ::system_configuration::*;
+}
 #[cfg(any(unix, windows))]
 pub mod faulthandler;
 #[cfg(any(unix, windows))]

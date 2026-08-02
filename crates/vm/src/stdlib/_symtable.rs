@@ -9,78 +9,67 @@ mod _symtable {
         types::Representable,
     };
     use alloc::fmt;
-    use rustpython_codegen::symboltable::{
-        CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable,
-    };
+    use rustpython_codegen::symboltable::{CompilerScope, SymbolFlags, SymbolScope, SymbolTable};
+
+    /// [CPython's `SCOPE_OFFSET`](https://github.com/python/cpython/blob/v3.14.6/Include/internal/pycore_symtable.h#L176)
+    const SCOPE_OFFSET: i32 = 12;
 
     // Consts as defined at
     // https://github.com/python/cpython/blob/6cb20a219a860eaf687b2d968b41c480c7461909/Include/internal/pycore_symtable.h#L156
 
     #[pyattr]
-    pub(super) const DEF_GLOBAL: i32 = 1;
+    pub(super) const DEF_GLOBAL: i32 = SymbolFlags::DEF_GLOBAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_LOCAL: i32 = 2;
+    pub(super) const DEF_LOCAL: i32 = SymbolFlags::DEF_LOCAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_PARAM: i32 = 2 << 1;
+    pub(super) const DEF_PARAM: i32 = SymbolFlags::DEF_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_NONLOCAL: i32 = 2 << 2;
+    pub(super) const DEF_NONLOCAL: i32 = SymbolFlags::DEF_NONLOCAL.bits() as i32;
 
     #[pyattr]
-    pub(super) const USE: i32 = 2 << 3;
+    pub(super) const USE: i32 = SymbolFlags::USE.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE: i32 = 2 << 4;
+    pub(super) const DEF_FREE_CLASS: i32 = SymbolFlags::DEF_FREE_CLASS.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_FREE_CLASS: i32 = 2 << 5;
+    pub(super) const DEF_IMPORT: i32 = SymbolFlags::DEF_IMPORT.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_IMPORT: i32 = 2 << 6;
+    pub(super) const DEF_ANNOT: i32 = SymbolFlags::DEF_ANNOT.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_ANNOT: i32 = 2 << 7;
+    pub(super) const DEF_COMP_ITER: i32 = SymbolFlags::DEF_COMP_ITER.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_ITER: i32 = 2 << 8;
+    pub(super) const DEF_TYPE_PARAM: i32 = SymbolFlags::DEF_TYPE_PARAM.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_TYPE_PARAM: i32 = 2 << 9;
+    pub(super) const DEF_COMP_CELL: i32 = SymbolFlags::DEF_COMP_CELL.bits() as i32;
 
     #[pyattr]
-    pub(super) const DEF_COMP_CELL: i32 = 2 << 10;
-
-    #[pyattr]
-    pub(super) const DEF_BOUND: i32 = DEF_LOCAL | DEF_PARAM | DEF_IMPORT;
-
-    #[pyattr]
-    pub(super) const SCOPE_OFFSET: i32 = 12;
+    pub(super) const DEF_BOUND: i32 = SymbolFlags::DEF_BOUND.bits() as i32;
 
     #[pyattr]
     pub(super) const SCOPE_MASK: i32 = DEF_GLOBAL | DEF_LOCAL | DEF_PARAM | DEF_NONLOCAL;
 
     #[pyattr]
-    pub(super) const LOCAL: i32 = 1;
+    pub(super) const LOCAL: i32 = SymbolScope::Local.as_i32();
 
     #[pyattr]
-    pub(super) const GLOBAL_EXPLICIT: i32 = 2;
+    pub(super) const GLOBAL_EXPLICIT: i32 = SymbolScope::GlobalExplicit.as_i32();
 
     #[pyattr]
-    pub(super) const GLOBAL_IMPLICIT: i32 = 3;
+    pub(super) const GLOBAL_IMPLICIT: i32 = SymbolScope::GlobalImplicit.as_i32();
 
     #[pyattr]
-    pub(super) const FREE: i32 = 4;
+    pub(super) const FREE: i32 = SymbolScope::Free.as_i32();
 
     #[pyattr]
-    pub(super) const CELL: i32 = 5;
-
-    #[pyattr]
-    pub(super) const GENERATOR: i32 = 1;
-
-    #[pyattr]
-    pub(super) const GENERATOR_EXPRESSION: i32 = 2;
+    pub(super) const CELL: i32 = SymbolScope::Cell.as_i32();
 
     #[pyattr]
     pub(super) const SCOPE_OFF: i32 = SCOPE_OFFSET;
@@ -98,16 +87,13 @@ mod _symtable {
     pub(super) const TYPE_ANNOTATION: i32 = 3;
 
     #[pyattr]
-    pub(super) const TYPE_TYPE_VAR_BOUND: i32 = 4;
+    pub(super) const TYPE_TYPE_ALIAS: i32 = 4;
 
     #[pyattr]
-    pub(super) const TYPE_TYPE_ALIAS: i32 = 5;
+    pub(super) const TYPE_TYPE_PARAMETERS: i32 = 5;
 
     #[pyattr]
-    pub(super) const TYPE_TYPE_PARAMETERS: i32 = 6;
-
-    #[pyattr]
-    pub(super) const TYPE_TYPE_VARIABLE: i32 = 7;
+    pub(super) const TYPE_TYPE_VARIABLE: i32 = 6;
 
     #[pyfunction]
     fn symtable(
@@ -162,7 +148,9 @@ mod _symtable {
                 CompilerScope::Class => TYPE_CLASS,
                 CompilerScope::Module => TYPE_MODULE,
                 CompilerScope::Annotation => TYPE_ANNOTATION,
+                CompilerScope::TypeAlias => TYPE_TYPE_ALIAS,
                 CompilerScope::TypeParams => TYPE_TYPE_PARAMETERS,
+                CompilerScope::TypeVariable => TYPE_TYPE_VARIABLE,
             }
         }
 
@@ -194,15 +182,6 @@ mod _symtable {
         }
 
         #[pygetset]
-        fn identifiers(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-            self.symtable
-                .symbols
-                .keys()
-                .map(|s| vm.ctx.new_str(s.as_str()).into())
-                .collect()
-        }
-
-        #[pygetset]
         fn symbols(&self, vm: &VirtualMachine) -> PyDictRef {
             let dict = vm.ctx.new_dict();
             for (name, symbol) in &self.symtable.symbols {
@@ -228,108 +207,6 @@ mod _symtable {
                 zelf.id(),
                 zelf.symtable.line_number
             ))
-        }
-    }
-
-    #[pyattr]
-    #[pyclass(name = "Symbol")]
-    #[derive(PyPayload)]
-    struct PySymbol {
-        symbol: Symbol,
-        namespaces: Vec<SymbolTable>,
-        is_top_scope: bool,
-    }
-
-    impl fmt::Debug for PySymbol {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            write!(f, "Symbol()")
-        }
-    }
-
-    #[pyclass]
-    impl PySymbol {
-        #[pymethod]
-        fn get_name(&self) -> String {
-            self.symbol.name.clone()
-        }
-
-        #[pymethod]
-        const fn is_global(&self) -> bool {
-            self.symbol.is_global() || (self.is_top_scope && self.symbol.is_bound())
-        }
-
-        #[pymethod]
-        const fn is_declared_global(&self) -> bool {
-            matches!(self.symbol.scope, SymbolScope::GlobalExplicit)
-        }
-
-        #[pymethod]
-        const fn is_local(&self) -> bool {
-            self.symbol.is_local() || (self.is_top_scope && self.symbol.is_bound())
-        }
-
-        #[pymethod]
-        const fn is_imported(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::IMPORTED)
-        }
-
-        #[pymethod]
-        const fn is_nested(&self) -> bool {
-            // TODO
-            false
-        }
-
-        #[pymethod]
-        const fn is_nonlocal(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::NONLOCAL)
-        }
-
-        #[pymethod]
-        const fn is_referenced(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::REFERENCED)
-        }
-
-        #[pymethod]
-        const fn is_assigned(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::ASSIGNED)
-        }
-
-        #[pymethod]
-        const fn is_parameter(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::PARAMETER)
-        }
-
-        #[pymethod]
-        const fn is_free(&self) -> bool {
-            matches!(self.symbol.scope, SymbolScope::Free)
-        }
-
-        #[pymethod]
-        const fn is_namespace(&self) -> bool {
-            !self.namespaces.is_empty()
-        }
-
-        #[pymethod]
-        const fn is_annotated(&self) -> bool {
-            self.symbol.flags.contains(SymbolFlags::ANNOTATED)
-        }
-
-        #[pymethod]
-        fn get_namespaces(&self, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-            self.namespaces
-                .iter()
-                .map(|table| to_py_symbol_table(table.clone()).into_pyobject(vm))
-                .collect()
-        }
-
-        #[pymethod]
-        fn get_namespace(&self, vm: &VirtualMachine) -> PyResult {
-            if self.namespaces.len() != 1 {
-                return Err(vm.new_value_error("namespace is bound to multiple namespaces"));
-            }
-            Ok(to_py_symbol_table(self.namespaces.first().unwrap().clone())
-                .into_ref(&vm.ctx)
-                .into())
         }
     }
 }

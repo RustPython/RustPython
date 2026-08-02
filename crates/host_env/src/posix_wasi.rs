@@ -1,18 +1,11 @@
 use alloc::ffi::CString;
 use core::{ffi::CStr, time::Duration};
-use std::{ffi::OsStr, io};
+use rustix::fd::AsFd;
+use std::{ffi::OsStr, io, path::Path};
 
-use crate::os::CheckLibcResult;
+pub use super::posix_unix_like::*;
 
-pub fn make_dir(path: &CStr, mode: u32) -> io::Result<()> {
-    unsafe { libc::mkdir(path.as_ptr(), mode as _) }.check_libc_neg()?;
-    Ok(())
-}
-
-pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> io::Result<()> {
-    unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) }.check_libc_neg()?;
-    Ok(())
-}
+use crate::{crt_fd, os::CheckLibcResult};
 
 pub fn remove_dir_at(dir_fd: i32, path: &CStr) -> io::Result<()> {
     unsafe { libc::unlinkat(dir_fd, path.as_ptr(), libc::AT_REMOVEDIR) }.check_libc_neg()?;

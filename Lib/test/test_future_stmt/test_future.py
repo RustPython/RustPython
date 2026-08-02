@@ -81,7 +81,6 @@ class FutureTest(unittest.TestCase):
         ):
             from test.test_future_stmt import test_future_multiple_features  # noqa: F401
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 24
     def test_unknown_future_flag(self):
         code = """
             from __future__ import nested_scopes
@@ -135,14 +134,12 @@ class FutureTest(unittest.TestCase):
         """
         self.assertSyntaxError(code, offset=54)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 1 != 24
     def test_future_import_star(self):
         code = """
             from __future__ import *
         """
         self.assertSyntaxError(code, message='future feature * is not defined', offset=24)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_import_braces(self):
         code = """
             from __future__ import braces
@@ -180,7 +177,6 @@ class FutureTest(unittest.TestCase):
         exec("from __future__ import unicode_literals; x = ''", {}, scope)
         self.assertIsInstance(scope["x"], str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; barry_as_FLUFL (<> operator) not supported
     def test_syntactical_future_repl(self):
         p = spawn_python('-i')
         p.stdin.write(b"from __future__ import barry_as_FLUFL\n")
@@ -188,7 +184,6 @@ class FutureTest(unittest.TestCase):
         out = kill_python(p)
         self.assertNotIn(b'SyntaxError: invalid syntax', out)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_future_dotted_import(self):
         with self.assertRaises(ImportError):
             exec("from .__future__ import spam")
@@ -480,7 +475,6 @@ class AnnotationsFutureTestCase(unittest.TestCase):
         self.assertEqual(foo.__code__.co_cellvars, ())
         self.assertEqual(foo().__code__.co_freevars, ())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: SyntaxError not raised
     def test_annotations_forbidden(self):
         with self.assertRaises(SyntaxError):
             self._exec_future("test: (yield)")

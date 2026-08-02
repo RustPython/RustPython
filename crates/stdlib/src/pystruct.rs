@@ -51,9 +51,8 @@ pub(crate) mod _struct {
                     s
                 }
                 b @ PyBytes => {
-                    let ascii_str = ascii::AsciiStr::from_ascii(&b).map_err(|_| {
-                        new_struct_error(vm, "bad char in struct format".to_owned())
-                    })?;
+                    let ascii_str = ascii::AsciiStr::from_ascii(&b)
+                        .map_err(|_| new_struct_error(vm, "bad char in struct format"))?;
                     vm.ctx.new_str(ascii_str)
                 }
                 other =>
@@ -192,7 +191,7 @@ pub(crate) mod _struct {
             if format_spec.size == 0 {
                 Err(new_struct_error(
                     vm,
-                    "cannot iteratively unpack with a struct of length 0".to_owned(),
+                    "cannot iteratively unpack with a struct of length 0",
                 ))
             } else if !buffer.len().is_multiple_of(format_spec.size) {
                 Err(new_struct_error(

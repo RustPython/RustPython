@@ -122,7 +122,11 @@ fn parse_args() -> Result<(CliArgs, RunMode, Vec<String>), lexopt::Error> {
             Short('B') => args.dont_write_bytecode = true,
             Short('c') => {
                 let cmd = parser.value()?.string()?;
-                return Ok((args, RunMode::Command(cmd), argv("-c".to_owned(), parser)?));
+                return Ok((
+                    args,
+                    RunMode::Command(dedent(&cmd)),
+                    argv("-c".to_owned(), parser)?,
+                ));
             }
             Short('d') => args.debug += 1,
             Short('E') => args.ignore_environment = true,
@@ -464,4 +468,71 @@ pub(crate) fn split_paths<T: AsRef<std::ffi::OsStr> + ?Sized>(
             .to_owned()
             .into()
     })
+}
+
+/// Remove common whitespace prefix from all lines in a string.
+///
+/// This is like textwrap.dedent, and is used to process -c's code
+/// argument.  It's different from ruff's dedent, which does not
+/// distinguish between tab and space characters when dedenting.
+fn dedent(input: &str) -> String {
+    let mut prefix: Option<String> = None;
+    let isspace = |c| c == ' ' || c == '\t';
+
+    // All-whitespace lines become empty.
+    let deblanked: Vec<&str> = input
+        .lines()
+        .map(|line| if line.chars().all(isspace) { "" } else { line })
+        .collect();
+
+    // Find maximum common whitespace prefix, if any.
+    for line in deblanked.iter() {
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(ref mut pstr) = prefix {
+            for (i, (c, pc)) in line.chars().zip(pstr.chars()).enumerate() {
+                // It's okay if `line` is shorter than `pstr`.  At
+                // least one char in `line` must be non-whitespace,
+                // and if `line` is shorter than `pstr`, this
+                // non-whitespace char will be compared to a
+                // whitespace char, and loop will terminate.
+                if c != pc {
+                    pstr.truncate(i);
+                    break;
+                }
+            }
+        } else {
+            let mut pstr = String::new();
+            for c in line.chars() {
+                if isspace(c) {
+                    pstr.push(c);
+                } else {
+                    break;
+                }
+            }
+            prefix = Some(pstr);
+            continue;
+        }
+    }
+
+    if let Some(pstr) = prefix {
+        // Strip common prefix.
+        deblanked
+            .iter()
+            .map(|line| {
+                if line.is_empty() {
+                    String::from("")
+                } else {
+                    // All non-empty lines start with pstr, must be at
+                    // least pstr.len() long.
+                    String::from(line.get(pstr.len()..).unwrap())
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    } else {
+        // No prefix found: all lines blank.
+        deblanked.join("\n")
+    }
 }

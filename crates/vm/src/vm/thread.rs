@@ -1,15 +1,25 @@
-#[cfg(feature = "threading")]
+#[cfg(all(not(unix), feature = "threading"))]
 use super::FramePtr;
 #[cfg(feature = "threading")]
 use crate::builtins::PyBaseExceptionRef;
-use crate::frame::Frame;
-use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
+
+#[cfg(all(unix, feature = "threading"))]
+use crate::frame::FrameObject;
+use crate::frame::InterpreterFrame;
+#[cfg(all(unix, feature = "threading"))]
+use crate::{AsObject, Py, PyObject, VirtualMachine};
+#[cfg(all(not(unix), feature = "threading"))]
+use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(not(feature = "threading"))]
+use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(all(unix, feature = "threading"))]
+use core::sync::atomic::AtomicPtr;
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use itertools::Itertools;
 use std::thread_local;
@@ -18,30 +28,44 @@ use std::thread_local;
 //   DETACHED: not executing Python bytecode (in native code, or idle)
 //   ATTACHED: actively executing Python bytecode
 //   SUSPENDED: parked by a stop-the-world request
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub const THREAD_DETACHED: i32 = 0;
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub const THREAD_ATTACHED: i32 = 1;
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub const THREAD_SUSPENDED: i32 = 2;
 
 /// Per-thread shared state for sys._current_frames() and sys._current_exceptions().
 /// The exception field uses atomic operations for lock-free cross-thread reads.
 #[cfg(feature = "threading")]
 pub struct ThreadSlot {
+    /// Top of the owning thread's Python call stack, published for
+    /// cross-thread readers (`sys._current_frames`, cross-thread `f_back`).
+    /// The rest of the stack is reachable via each frame's `previous` pointer.
+    /// Written lock-free on the hot push/pop path with relaxed ordering; every
+    /// cross-thread read runs under stop-the-world, which parks the owning
+    /// thread at a safepoint and supplies the happens-before edge, so the
+    /// pointer and the frames it reaches are quiescent and alive at read time.
+    #[cfg(unix)]
+    pub top_frame: AtomicPtr<FrameObject>,
+    /// Raw InterpreterFrame pointer, published alongside top_frame so
+    /// cross-thread readers (sys._current_frames) can materialize
+    /// stack-allocated frames that have no FrameObject.
+    pub top_iframe: AtomicUsize,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
-    /// Readers must hold the Mutex and convert to FrameRef inside the lock.
+    /// Readers must hold the Mutex and convert to FrameObjectRef inside the lock.
+    /// Used on non-unix threading builds, which have no stop-the-world.
+    #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
     /// Thread state for stop-the-world: DETACHED / ATTACHED / SUSPENDED
-    #[cfg(unix)]
     pub state: core::sync::atomic::AtomicI32,
     /// Per-thread stop request bit (eval breaker equivalent).
-    #[cfg(unix)]
     pub stop_requested: core::sync::atomic::AtomicBool,
     /// Handle for waking this thread from park in stop-the-world paths.
-    #[cfg(unix)]
     pub thread: std::thread::Thread,
+    /// QSBR state for deferred memory reclamation.
+    pub(crate) qsbr: Arc<crate::object::qsbr::QsbrSlot>,
 }
 
 #[cfg(feature = "threading")]
@@ -71,12 +95,20 @@ thread_local! {
     static CURRENT_THREAD_SLOT: RefCell<Option<CurrentFrameSlot>> = const { RefCell::new(None) };
 
     /// Current top frame for signal-safe traceback walking.
-    /// Mirrors `PyThreadState.current_frame`. Read by faulthandler's signal
-    /// handler to dump tracebacks without accessing RefCell or locks.
-    /// Uses AtomicPtr for async-signal-safety (signal handlers may read this
-    /// while the owning thread is writing).
-    pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
-        const { AtomicPtr::new(core::ptr::null_mut()) };
+    /// Stores a `*const InterpreterFrame` as `usize`.
+    /// Read by faulthandler's signal handler to dump tracebacks without
+    /// accessing RefCell or locks. Uses AtomicUsize for async-signal-safety.
+    pub(crate) static CURRENT_FRAME: AtomicUsize =
+        const { AtomicUsize::new(0) };
+
+    /// Cached pointer to this thread's `ThreadSlot::top_frame`, so the hot
+    /// push/pop path can publish the top frame with a single relaxed store and
+    /// no `CURRENT_THREAD_SLOT` RefCell borrow. Null until the slot is
+    /// initialized; the `Arc<ThreadSlot>` in `CURRENT_THREAD_SLOT` keeps the
+    /// pointee alive until `cleanup_current_thread_frames` clears this.
+    #[cfg(all(unix, feature = "threading"))]
+    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<FrameObject>> =
+        const { Cell::new(core::ptr::null()) };
 
 }
 
@@ -108,28 +140,93 @@ fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     })
 }
 
+pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
+    VM_STACK.with(|vms| {
+        let vm = vms.borrow().last().copied()?;
+        // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+        // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+        Some(f(unsafe { vm.as_ref() }))
+    })
+}
+
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     // Outermost enter_vm: transition DETACHED → ATTACHED
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "threading")]
     let was_outermost = !current_vm_is_set();
 
     // Initialize thread slot for this thread if not already done
     #[cfg(feature = "threading")]
     init_thread_slot_if_needed(vm);
 
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "threading")]
     if was_outermost {
         attach_thread(vm);
     }
 
     scopeguard::defer! {
         // Outermost exit: transition ATTACHED → DETACHED
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         if was_outermost {
             detach_thread();
         }
     }
+
     set_current_vm(vm, f)
+}
+
+/// RAII counterpart to `enter_vm`, for code that runs Python bytecode across
+/// several statements interspersed with `&mut VirtualMachine` calls
+/// (`VirtualMachine::initialize`), where a single closure-based `enter_vm`
+/// scope cannot be expressed because the borrow checker won't let a closure
+/// hold `&mut VirtualMachine` at the same time `enter_vm` reborrows it as
+/// `&VirtualMachine`. Construction only needs a transient `&VirtualMachine`
+/// borrow, so it can be dropped before subsequent `&mut` use.
+///
+/// Without this, code that runs Python bytecode before any `enter_vm` scope
+/// exists would leave the thread not ATTACHED, making lock-free type cache
+/// reads unsound.
+#[must_use]
+pub(crate) struct VmBootstrapGuard {
+    #[cfg(feature = "threading")]
+    was_outermost: bool,
+}
+
+impl VmBootstrapGuard {
+    pub(crate) fn new(vm: &VirtualMachine) -> Self {
+        // Outermost: transition DETACHED → ATTACHED
+        #[cfg(feature = "threading")]
+        let was_outermost = !current_vm_is_set();
+
+        // Initialize thread slot for this thread if not already done
+        #[cfg(feature = "threading")]
+        init_thread_slot_if_needed(vm);
+
+        #[cfg(feature = "threading")]
+        if was_outermost {
+            attach_thread(vm);
+        }
+
+        VM_STACK.with(|vms| vms.borrow_mut().push(vm.into()));
+
+        Self {
+            #[cfg(feature = "threading")]
+            was_outermost,
+        }
+    }
+}
+
+impl Drop for VmBootstrapGuard {
+    fn drop(&mut self) {
+        VM_STACK.with(|vms| {
+            vms.borrow_mut().pop();
+        });
+
+        // Outermost exit: transition ATTACHED → DETACHED
+        #[cfg(feature = "threading")]
+        if self.was_outermost {
+            detach_thread();
+        }
+    }
 }
 
 #[cfg(feature = "threading")]
@@ -137,6 +234,61 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 pub enum CurrentVmAttachState {
     AlreadyAttached,
     Attached,
+}
+
+/// State preserved while the current native thread is detached from its VM.
+#[cfg(feature = "threading")]
+pub struct SavedThreadState {
+    vm_stack: Vec<NonNull<VirtualMachine>>,
+    gilstate_vm: Option<Box<ThreadedVirtualMachine>>,
+}
+
+/// Detach the current native thread and preserve its VM context for restoration.
+#[cfg(feature = "threading")]
+#[must_use = "the saved thread state must be restored"]
+pub fn save_current_thread() -> SavedThreadState {
+    let vm_stack = VM_STACK.with(|vms| core::mem::take(&mut *vms.borrow_mut()));
+    assert!(
+        !vm_stack.is_empty(),
+        "save_current_thread() called without an attached VM"
+    );
+    let gilstate_vm = GILSTATE_VM.with(|gilstate_vm| gilstate_vm.borrow_mut().take());
+    detach_thread();
+    SavedThreadState {
+        vm_stack,
+        gilstate_vm,
+    }
+}
+
+/// Restore a VM context previously returned by [`save_current_thread`].
+#[cfg(feature = "threading")]
+pub fn restore_current_thread(state: SavedThreadState) {
+    assert!(
+        !current_vm_is_set(),
+        "restore_current_thread() called with an attached VM"
+    );
+    let SavedThreadState {
+        vm_stack,
+        gilstate_vm,
+    } = state;
+    let vm = vm_stack
+        .last()
+        .copied()
+        .expect("saved thread state has no VM");
+
+    GILSTATE_VM.with(|current| {
+        let mut current = current.borrow_mut();
+        assert!(
+            current.is_none(),
+            "restore_current_thread() called with a GILState VM"
+        );
+        *current = gilstate_vm;
+    });
+
+    // SAFETY: borrowed VMs remain alive for the dynamic save/restore scope,
+    // while an owned GILState VM was restored above before this dereference.
+    attach_thread(unsafe { vm.as_ref() });
+    VM_STACK.with(|vms| *vms.borrow_mut() = vm_stack);
 }
 
 /// Attach the current native thread to a RustPython VM until
@@ -159,7 +311,6 @@ pub fn attach_current_thread(
 
         init_thread_slot_if_needed(vm);
 
-        #[cfg(unix)]
         attach_thread(vm);
 
         VM_STACK.with(|vms| {
@@ -186,7 +337,6 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
             .expect("release_current_thread() called without an attached VM");
     });
 
-    #[cfg(unix)]
     detach_thread();
 }
 
@@ -199,9 +349,12 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             let thread_id = crate::stdlib::_thread::get_ident();
             let mut registry = vm.state.thread_frames.lock();
             let new_slot = Arc::new(ThreadSlot {
+                #[cfg(unix)]
+                top_frame: AtomicPtr::new(core::ptr::null_mut()),
+                top_iframe: AtomicUsize::new(0),
+                #[cfg(not(unix))]
                 frames: parking_lot::Mutex::new(Vec::new()),
                 exception: crate::PyAtomicRef::from(None::<PyBaseExceptionRef>),
-                #[cfg(unix)]
                 state: core::sync::atomic::AtomicI32::new(
                     if vm.state.stop_the_world.requested.load(Ordering::Acquire) {
                         // Match init_threadstate(): new thread-state starts
@@ -211,13 +364,14 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
                         THREAD_DETACHED
                     },
                 ),
-                #[cfg(unix)]
                 stop_requested: core::sync::atomic::AtomicBool::new(false),
-                #[cfg(unix)]
                 thread: std::thread::current(),
+                qsbr: crate::object::qsbr::QSBR.register(),
             });
             registry.insert(thread_id, new_slot.clone());
             drop(registry);
+            #[cfg(all(unix, feature = "threading"))]
+            CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&new_slot.top_frame));
             *slot.borrow_mut() = Some(new_slot);
         }
     });
@@ -225,7 +379,7 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
 
 /// Transition DETACHED → ATTACHED. Blocks if the thread was SUSPENDED by
 /// a stop-the-world request (like `_PyThreadState_Attach` + `tstate_wait_attach`).
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
     let mut wait_yields = 0u64;
     while slot.state.load(Ordering::Acquire) == THREAD_SUSPENDED {
@@ -235,7 +389,7 @@ fn wait_while_suspended(slot: &ThreadSlot) -> u64 {
     wait_yields
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 fn attach_thread(vm: &VirtualMachine) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -248,6 +402,7 @@ fn attach_thread(vm: &VirtualMachine) {
                     Ordering::Relaxed,
                 ) {
                     Ok(_) => {
+                        crate::object::qsbr::QSBR.online(&s.qsbr);
                         super::stw_trace(format_args!("attach DETACHED->ATTACHED"));
                         break;
                     }
@@ -266,10 +421,18 @@ fn attach_thread(vm: &VirtualMachine) {
             }
         }
     });
+    // A stop-the-world may have been requested while this thread was detached.
+    // Honoring it here (rather than only at the next bytecode safepoint) keeps
+    // a thread doing rapid allow_threads calls from re-attaching and running
+    // past the requester forever, which would stall stop-the-world. Done
+    // outside the CURRENT_THREAD_SLOT borrow above because suspend re-borrows
+    // it. Safe against a concurrent start_the_world: suspend_if_needed only
+    // parks while the request is still live and self-recovers otherwise.
+    suspend_if_needed(&vm.state.stop_the_world);
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 fn detach_thread() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -279,7 +442,9 @@ fn detach_thread() {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => {}
+                Ok(_) => {
+                    crate::object::qsbr::QSBR.offline(&s.qsbr);
+                }
                 Err(THREAD_DETACHED) => {
                     debug_assert!(false, "detach called while already DETACHED");
                     return;
@@ -299,7 +464,7 @@ fn detach_thread() {
 /// to park this thread during blocking operations.
 ///
 /// `Py_BEGIN_ALLOW_THREADS` / `Py_END_ALLOW_THREADS` equivalent.
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     // Preserve save/restore semantics:
     // only detach if this call observed ATTACHED at entry, and always restore
@@ -320,8 +485,8 @@ pub fn allow_threads<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     result
 }
 
-/// No-op on non-unix or non-threading builds.
-#[cfg(not(all(unix, feature = "threading")))]
+/// No-op on non-threading builds.
+#[cfg(not(feature = "threading"))]
 pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     f()
 }
@@ -329,7 +494,7 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// Called from check_signals when stop-the-world is requested.
 /// Transitions ATTACHED → SUSPENDED and waits until released
 /// (like `_PyThreadState_Suspend` + `_PyThreadState_Attach`).
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 pub fn suspend_if_needed(stw: &super::StopTheWorldState) {
     let should_suspend = CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
@@ -352,7 +517,7 @@ pub fn suspend_if_needed(stw: &super::StopTheWorldState) {
     do_suspend(stw);
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 #[cold]
 fn do_suspend(stw: &super::StopTheWorldState) {
     CURRENT_THREAD_SLOT.with(|slot| {
@@ -429,7 +594,7 @@ fn do_suspend(stw: &super::StopTheWorldState) {
     });
 }
 
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 #[inline]
 #[must_use]
 pub fn stop_requested_for_current_thread() -> bool {
@@ -440,9 +605,55 @@ pub fn stop_requested_for_current_thread() -> bool {
     })
 }
 
+/// Whether the QSBR subsystem asked this thread to pass a checkpoint.
+/// A missed or racing read of this flag is harmless: the pending
+/// retirement is still processed at the next checkpoint or by the GC
+/// backstop.
+#[cfg(feature = "threading")]
+pub(crate) fn qsbr_break_requested() -> bool {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| s.qsbr.requested.load(Ordering::Relaxed))
+    })
+}
+
+/// Pass a QSBR checkpoint: the calling thread holds no borrowed cache
+/// pointers here (instruction boundary), so mark it quiescent and try to
+/// free retired allocations.
+#[cfg(feature = "threading")]
+pub(crate) fn qsbr_checkpoint() {
+    use crate::object::qsbr::QSBR;
+    CURRENT_THREAD_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            s.qsbr.requested.store(false, Ordering::Relaxed);
+            QSBR.quiescent_state(&s.qsbr);
+        }
+    });
+    QSBR.process();
+}
+
+/// Debug check: lock-free type-cache reads are only sound on threads that
+/// are registered with QSBR and currently ATTACHED.
+#[cfg(all(feature = "threading", debug_assertions))]
+pub(crate) fn debug_assert_current_thread_attached() {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        if let Some(s) = slot.borrow().as_ref() {
+            debug_assert_eq!(
+                s.state.load(Ordering::Relaxed),
+                THREAD_ATTACHED,
+                "type cache read while thread not ATTACHED"
+            );
+        }
+    });
+}
+
 /// Push a frame pointer onto the current thread's shared frame stack.
 /// The pointed-to frame must remain alive until the matching pop.
-#[cfg(feature = "threading")]
+///
+/// Only used on non-unix threading builds; unix builds publish the top frame
+/// through `set_current_frame` writing `ThreadSlot::top_frame`.
+#[cfg(all(not(unix), feature = "threading"))]
 pub fn push_thread_frame(fp: FramePtr) {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -458,7 +669,7 @@ pub fn push_thread_frame(fp: FramePtr) {
 
 /// Pop a frame from the current thread's shared frame stack.
 /// Called when a frame is exited.
-#[cfg(feature = "threading")]
+#[cfg(all(not(unix), feature = "threading"))]
 pub fn pop_thread_frame() {
     CURRENT_THREAD_SLOT.with(|slot| {
         if let Some(s) = slot.borrow().as_ref() {
@@ -472,17 +683,56 @@ pub fn pop_thread_frame() {
     });
 }
 
-/// Set the current thread's top frame pointer for signal-safe traceback walking.
-/// Returns the previous frame pointer so it can be restored on pop.
-pub fn set_current_frame(frame: *const Frame) -> *const Frame {
-    CURRENT_FRAME.with(|c| c.swap(frame as *mut Frame, Ordering::Relaxed) as *const Frame)
+/// Set the current thread's top InterpreterFrame pointer.
+/// Returns the previous pointer so it can be restored on pop.
+#[must_use]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+    // Publish the top frame for cross-thread readers (faulthandler,
+    // sys._current_frames).
+    #[cfg(feature = "threading")]
+    {
+        CURRENT_THREAD_SLOT.with(|slot| {
+            if let Some(s) = slot.borrow().as_ref() {
+                if !frame.is_null() {
+                    #[cfg(unix)]
+                    {
+                        let frame_obj = unsafe { (*frame).frame_obj() };
+                        let fo_ptr = match frame_obj {
+                            Some(py) => {
+                                py as *const Py<FrameObject> as *const FrameObject
+                                    as *mut FrameObject
+                            }
+                            None => core::ptr::null_mut(),
+                        };
+                        s.top_frame.store(fo_ptr, Ordering::Relaxed);
+                    }
+                    s.top_iframe.store(frame as usize, Ordering::Relaxed);
+                } else {
+                    #[cfg(unix)]
+                    s.top_frame.store(core::ptr::null_mut(), Ordering::Relaxed);
+                    s.top_iframe.store(0, Ordering::Relaxed);
+                }
+            }
+        });
+    }
+    CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
 }
 
-/// Get the current thread's top frame pointer.
+/// Lightweight version that only writes to TLS CURRENT_FRAME, returning
+/// the previous value. Does not update cross-thread top_frame (that's
+/// updated by `set_current_frame` for FrameObject-based calls).
+#[inline(always)]
+#[must_use]
+pub fn set_current_frame_nosave(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+    CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
+}
+
+/// Get the current thread's top InterpreterFrame pointer.
 /// Used by faulthandler's signal handler to start traceback walking.
 #[must_use]
-pub fn get_current_frame() -> *const Frame {
-    CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
+pub fn get_current_frame() -> *const InterpreterFrame {
+    CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed)) as *const InterpreterFrame
 }
 
 /// Update the current thread's exception slot atomically (no locks).
@@ -517,7 +767,7 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
     // A dying thread should not remain logically ATTACHED while its
     // thread-state slot is being removed.
-    #[cfg(all(unix, feature = "threading"))]
+    #[cfg(feature = "threading")]
     if let Some(slot) = &current_slot {
         let _ = slot.state.compare_exchange(
             THREAD_ATTACHED,
@@ -538,7 +788,8 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
     } else {
         None
     };
-    #[cfg(all(unix, feature = "threading"))]
+
+    #[cfg(feature = "threading")]
     if let Some(slot) = &_removed
         && vm.state.stop_the_world.requested.load(Ordering::Acquire)
         && thread_id != vm.state.stop_the_world.requester_ident()
@@ -548,6 +799,10 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
         // Unblock requester countdown progress.
         vm.state.stop_the_world.notify_thread_gone();
     }
+    // Clear the cached top-frame pointer before dropping the slot Arc so no
+    // later `set_current_frame` dereferences freed slot memory.
+    #[cfg(all(unix, feature = "threading"))]
+    CURRENT_TOP_FRAME_SLOT.with(|c| c.set(core::ptr::null()));
     CURRENT_THREAD_SLOT.with(|s| {
         *s.borrow_mut() = None;
     });
@@ -555,24 +810,61 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
 
 /// Reinitialize thread slot after fork. Called in child process.
 /// Creates a fresh slot and registers it for the current thread,
-/// preserving the current thread's frames from `vm.frames`.
+/// preserving the current thread's frames from the signal-safe frame chain.
 ///
 /// Precondition: `reinit_locks_after_fork()` has already reset all
 /// VmState locks to unlocked.
 #[cfg(feature = "threading")]
 pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     let current_ident = crate::stdlib::_thread::get_ident();
-    let current_frames: Vec<FramePtr> = vm.frames.borrow().clone();
+    // On non-unix, rebuild the shared frame stack (bottom-to-top) from the
+    // current thread's frame chain, which walks top-to-bottom via `previous`.
+    #[cfg(not(unix))]
+    let current_frames: Vec<FramePtr> = {
+        let mut current_frames = Vec::new();
+        let mut cur = get_current_frame();
+        while !cur.is_null() {
+            // SAFETY: the forking thread's chain frames are alive.
+            let iframe = unsafe { &*cur };
+            if let Some(fo) = iframe.frame_obj() {
+                current_frames.push(FramePtr(unsafe {
+                    NonNull::new_unchecked(fo as *const _ as *mut _)
+                }));
+            }
+            cur = iframe.previous.load(Ordering::Relaxed) as *const InterpreterFrame;
+        }
+        current_frames.reverse();
+        current_frames
+    };
+    #[cfg(unix)]
+    let top_fo_ptr = {
+        let top_iframe = get_current_frame();
+        if top_iframe.is_null() {
+            core::ptr::null_mut()
+        } else {
+            match unsafe { (*top_iframe).frame_obj() } {
+                Some(fo) => fo as *const Py<FrameObject> as *const FrameObject as *mut FrameObject,
+                None => core::ptr::null_mut(),
+            }
+        }
+    };
+    let top_iframe_ptr = get_current_frame() as usize;
     let new_slot = Arc::new(ThreadSlot {
+        // The surviving child thread keeps executing its current frame chain.
+        // Only publish heavy frames for signal safety.
+        #[cfg(unix)]
+        top_frame: AtomicPtr::new(top_fo_ptr),
+        top_iframe: AtomicUsize::new(top_iframe_ptr),
+        #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
-        #[cfg(unix)]
         state: core::sync::atomic::AtomicI32::new(THREAD_ATTACHED),
-        #[cfg(unix)]
         stop_requested: core::sync::atomic::AtomicBool::new(false),
-        #[cfg(unix)]
         thread: std::thread::current(),
+        qsbr: crate::object::qsbr::QSBR.register(),
     });
+    #[cfg(all(unix, feature = "threading"))]
+    CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&new_slot.top_frame));
 
     // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
     let mut registry = vm.state.thread_frames.lock();
@@ -668,8 +960,7 @@ impl VirtualMachine {
     #[cfg(feature = "threading")]
     pub fn start_thread<F, R>(&self, f: F) -> std::thread::JoinHandle<R>
     where
-        F: FnOnce(&Self) -> R,
-        F: Send + 'static,
+        F: Send + 'static + FnOnce(&Self) -> R,
         R: Send + 'static,
     {
         let func = self.new_thread().make_spawn_func(f);
@@ -708,7 +999,6 @@ impl VirtualMachine {
             builtins: self.builtins.clone(),
             sys_module: self.sys_module.clone(),
             ctx: self.ctx.clone(),
-            frames: RefCell::new(vec![]),
             datastack: core::cell::UnsafeCell::new(crate::datastack::DataStack::new()),
             wasm_id: self.wasm_id.clone(),
             exceptions: RefCell::default(),
@@ -717,6 +1007,7 @@ impl VirtualMachine {
             profile_func: RefCell::new(global_profile.unwrap_or_else(|| self.ctx.none())),
             trace_func: RefCell::new(global_trace.unwrap_or_else(|| self.ctx.none())),
             use_tracing: Cell::new(use_tracing),
+            tracing_depth: Cell::new(0),
             recursion_limit: self.recursion_limit.clone(),
             signal_handlers: core::cell::OnceCell::new(),
             signal_rx: None,

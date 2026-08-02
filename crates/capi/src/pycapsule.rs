@@ -1,5 +1,6 @@
 use crate::PyObject;
 use crate::pystate::with_vm;
+use crate::util::CStrExt;
 use core::ffi::{CStr, c_char, c_int, c_void};
 use core::ptr::NonNull;
 use rustpython_vm::builtins::PyCapsule;
@@ -47,6 +48,11 @@ pub unsafe extern "C" fn PyCapsule_GetContext(capsule: *mut PyObject) -> *mut c_
         let capsule = unsafe { &*capsule }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
+
+        if capsule.pointer().is_null() {
+            return Err(vm.new_value_error("Capsule has null pointer"));
+        }
+
         Ok(capsule.context())
     })
 }
@@ -93,9 +99,7 @@ pub unsafe extern "C" fn PyCapsule_IsValid(capsule: *mut PyObject, name: *const 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyCapsule_Import(name: *const c_char, _no_block: c_int) -> *mut c_void {
     with_vm(|vm| {
-        let capsule_name = unsafe { CStr::from_ptr(name) }
-            .to_str()
-            .map_err(|_| vm.new_system_error("capsule name is not valid UTF-8"))?;
+        let capsule_name = unsafe { name.try_as_str(vm) }?;
         let (module_name, attrs_path) = capsule_name.split_once('.').ok_or_else(|| {
             vm.new_import_error(
                 "capsule name is missing attribute path",
@@ -142,13 +146,14 @@ fn checked_capsule<'a>(
     Ok(capsule)
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
+    use pyo3::ffi;
     use pyo3::prelude::*;
     use pyo3::types::PyCapsule;
 
     #[test]
-    fn test_capsule_new() {
+    fn capsule_new() {
         Python::attach(|py| {
             let value = String::from("Some data");
             let capsule = PyCapsule::new_with_value(py, value, c"my_capsule").unwrap();
@@ -156,5 +161,22 @@ mod tests {
             let ptr = capsule.pointer_checked(Some(c"my_capsule")).unwrap();
             assert_eq!(unsafe { ptr.cast::<String>().as_ref() }, "Some data");
         })
+    }
+
+    #[test]
+    fn capsule_context_on_invalid_capsule() {
+        Python::attach(|py| {
+            let cap = PyCapsule::new_with_value(py, 123u32, c"name").unwrap();
+
+            // Invalidate the capsule
+            // SAFETY: intentionally breaking the capsule for testing
+            unsafe {
+                ffi::PyCapsule_SetPointer(cap.as_ptr(), core::ptr::null_mut());
+            }
+
+            // context() on invalid capsule should fail
+            let result = cap.context();
+            assert!(result.is_err());
+        });
     }
 }

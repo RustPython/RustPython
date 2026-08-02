@@ -134,7 +134,6 @@ class FinalizationTest(unittest.TestCase):
         self.assertEqual(len(resurrected), 1)
         self.assertIsInstance(resurrected[0].gi_code, types.CodeType)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: <frame object at 0xb4000073269f09e0> is not None
     def test_exhausted_generator_frame_cycle(self):
         def g():
             yield
@@ -762,7 +761,6 @@ class GeneratorDeallocTest(unittest.TestCase):
                 self.assertIn('a', frame_locals)
                 self.assertEqual(frame_locals['a'], 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; frame locals don't survive generator deallocation
     def test_frame_locals_outlive_generator(self):
         frame_locals1 = None
 

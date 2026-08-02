@@ -1,6 +1,4 @@
-/*! Python `attribute` descriptor class. (PyGetSet)
-
-*/
+//! Python `attribute` descriptor class. (PyGetSet)
 use crate::{
     Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     convert::ToPyResult,

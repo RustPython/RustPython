@@ -190,7 +190,6 @@ class ParseTest(unittest.TestCase):
             with self.assertRaises(SAXException):
                 self.check_parse(f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_parse_path_object(self):
         make_xml_file(self.data, 'utf-8', None)
         self.check_parse(FakePath(TESTFN))
@@ -1018,7 +1017,6 @@ class ExpatReaderTest(XmlTestBase):
             resolver.entities, [(None, 'unsupported://non-existing')]
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_external_dtd_default(self):
         parser = create_parser()
         resolver = self.TestEntityRecorder()
@@ -1084,7 +1082,6 @@ class ExpatReaderTest(XmlTestBase):
         def startElementNS(self, name, qname, attrs):
             self._attrs = attrs
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_attrs_empty(self):
         parser = create_parser()
         gather = self.AttrGatherer()
@@ -1095,7 +1092,6 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_empty_attrs(gather._attrs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_attrs_wattr(self):
         parser = create_parser()
         gather = self.AttrGatherer()
@@ -1106,7 +1102,6 @@ class ExpatReaderTest(XmlTestBase):
 
         self.verify_attrs_wattr(gather._attrs)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_nsattrs_empty(self):
         parser = create_parser(1)
         gather = self.AttrGatherer()
@@ -1300,7 +1295,6 @@ class ExpatReaderTest(XmlTestBase):
 
     # ===== Locator support
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_locator_noinfo(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1315,7 +1309,6 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(parser.getPublicId(), None)
         self.assertEqual(parser.getLineNumber(), 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     def test_expat_locator_withinfo(self):
         result = BytesIO()
         xmlgen = XMLGenerator(result)
@@ -1326,7 +1319,6 @@ class ExpatReaderTest(XmlTestBase):
         self.assertEqual(parser.getSystemId(), TEST_XMLFILE)
         self.assertEqual(parser.getPublicId(), None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'xmlparser' object has no attribute 'SetParamEntityParsing'
     @requires_nonascii_filenames
     def test_expat_locator_withinfo_nonascii(self):
         fname = os_helper.TESTFN_UNICODE
