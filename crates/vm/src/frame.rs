@@ -10684,10 +10684,7 @@ impl ExecutingFrame<'_> {
         let callable = self.pop_value();
         unsafe { &mut *vm.pending_tailcall_refs.get() }.push(callable);
 
-        vm.pending_tailcall_frame
-            .set(Some(crate::vm::SendNonNull(core::ptr::NonNull::from(
-                &mut *callee_iframe,
-            ))));
+        vm.set_pending_tailcall(callee_iframe);
     }
 
     /// Prepare a callee frame for a bound method TailCall.
@@ -10743,10 +10740,7 @@ impl ExecutingFrame<'_> {
         refs.push(bound_function);
         refs.push(callable);
 
-        vm.pending_tailcall_frame
-            .set(Some(crate::vm::SendNonNull(core::ptr::NonNull::from(
-                &mut *callee_iframe,
-            ))));
+        vm.set_pending_tailcall(callee_iframe);
     }
 
     #[inline]
