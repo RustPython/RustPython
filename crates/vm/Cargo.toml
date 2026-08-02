@@ -80,7 +80,6 @@ half = { workspace = true }
 psm = { workspace = true }
 optional = { workspace = true }
 result-like = { workspace = true }
-timsort = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 exitcode = { workspace = true }
