@@ -10,6 +10,10 @@ use std::os::fd::FromRawFd;
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd, IntoRawFd, OwnedFd};
 use std::path::Path;
 
+pub use super::posix_unix_like::*;
+
+pub use libc::{c_char, pid_t};
+
 pub struct UnameInfo {
     pub sysname: String,
     pub nodename: String,
@@ -174,26 +178,6 @@ pub fn fcopyfile(in_fd: i32, out_fd: i32, flags: u32) -> std::io::Result<()> {
     }
 }
 
-#[cfg(not(windows))]
-pub fn make_dir(path: &CStr, mode: u32) -> std::io::Result<()> {
-    let ret = unsafe { libc::mkdir(path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
-#[cfg(all(not(windows), not(target_os = "redox")))]
-pub fn make_dir_at(dir_fd: i32, path: &CStr, mode: u32) -> std::io::Result<()> {
-    let ret = unsafe { libc::mkdirat(dir_fd, path.as_ptr(), mode as _) };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(unix)]
 pub fn link_paths(src: &CStr, dst: &CStr, follow_symlinks: bool) -> std::io::Result<()> {
     let flags = if follow_symlinks {
@@ -321,6 +305,10 @@ pub fn fchown(fd: BorrowedFd<'_>, uid: Option<u32>, gid: Option<u32>) -> std::io
 }
 
 #[cfg(not(windows))]
+#[expect(
+    clippy::std_instead_of_core,
+    reason = "false positive: core::io::ErrorKind is unstable (core_io)"
+)]
 pub fn stat_path(
     path: &OsStr,
     dir_fd: Option<i32>,
@@ -1436,8 +1424,9 @@ fn build_posix_spawn_attrs(
             target_os = "hurd",
         ))]
         {
+            #[allow(clippy::useless_conversion)]
             flags.insert(nix::spawn::PosixSpawnFlags::from_bits_retain(
-                libc::POSIX_SPAWN_SETSID,
+                libc::POSIX_SPAWN_SETSID.into(),
             ));
         }
         #[cfg(not(any(
@@ -1447,6 +1436,10 @@ fn build_posix_spawn_attrs(
             target_os = "illumos",
             target_os = "hurd",
         )))]
+        #[expect(
+            clippy::std_instead_of_core,
+            reason = "false positive: core::io::ErrorKind is unstable (core_io); expect is co-gated with the usage so it is not left unfulfilled on platforms where this block is compiled out"
+        )]
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,

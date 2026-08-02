@@ -4473,7 +4473,6 @@ class MiscIOTest(unittest.TestCase):
             self.assertRaises(ValueError, f.writelines, [])
             self.assertRaises(ValueError, next, f)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; cyclic gc
     def test_blockingioerror(self):
         # Various BlockingIOError issues
         class C(str):

@@ -45,8 +45,8 @@ mod _socket {
         time::Duration,
     };
     use crossbeam_utils::atomic::AtomicCell;
+    use host_socket::raw::Socket;
     use num_traits::ToPrimitive;
-    use socket2::Socket;
     use std::{
         ffi,
         io::{self, Read, Write},
@@ -885,9 +885,9 @@ mod _socket {
 
     fn get_raw_sock(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<RawSocket> {
         #[cfg(unix)]
-        type CastFrom = libc::c_long;
+        type CastFrom = core::ffi::c_long;
         #[cfg(windows)]
-        type CastFrom = libc::c_longlong;
+        type CastFrom = core::ffi::c_longlong;
 
         // should really just be to_index() but test_socket tests the error messages explicitly
         if obj.fast_isinstance(vm.ctx.types.float_type) {
@@ -1085,7 +1085,7 @@ mod _socket {
             loop {
                 if deadline.is_some() || matches!(wait_kind, SockWaitKind::Connect) {
                     let sock = self.sock()?;
-                    sock_wait_deadline(&sock, wait_kind, &deadline, vm)?;
+                    sock_wait_deadline(&sock, wait_kind, deadline.as_ref(), vm)?;
                 }
 
                 let err = loop {
@@ -1109,7 +1109,7 @@ mod _socket {
             addr: PyObjectRef,
             caller: &str,
             vm: &VirtualMachine,
-        ) -> Result<socket2::SockAddr, IoOrPyException> {
+        ) -> Result<host_socket::raw::SockAddr, IoOrPyException> {
             let family = self.family.load();
             match family {
                 #[cfg(unix)]
@@ -1122,8 +1122,8 @@ mod _socket {
                         ArgStrOrBytesLike::Buf(_) => ffi::OsStr::from_bytes(bytes).into(),
                         ArgStrOrBytesLike::Str(s) => vm.fsencode(s)?,
                     };
-                    socket2::SockAddr::unix(path)
-                        .map_err(|_| vm.new_os_error("AF_UNIX path too long".to_owned()).into())
+                    host_socket::raw::SockAddr::unix(path)
+                        .map_err(|_| vm.new_os_error("AF_UNIX path too long").into())
                 }
                 c::AF_INET => {
                     let tuple: PyTupleRef = addr.downcast().map_err(|obj| {
@@ -1206,29 +1206,26 @@ mod _socket {
                     } else {
                         // Check interface name length (IFNAMSIZ is typically 16)
                         if ifname.len() >= 16 {
-                            return Err(vm
-                                .new_os_error("interface name too long".to_owned())
-                                .into());
+                            return Err(vm.new_os_error("interface name too long").into());
                         }
                         let cstr = alloc::ffi::CString::new(ifname)
-                            .map_err(|_| vm.new_os_error("invalid interface name".to_owned()))?;
+                            .map_err(|_| vm.new_os_error("invalid interface name"))?;
                         host_socket::if_nametoindex_checked(cstr.as_c_str())? as i32
                     };
 
                     // Create sockaddr_can
-                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-                    let can_addr =
-                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_can;
+                    let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
+                    let can_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_can;
                     unsafe {
-                        (*can_addr).can_family = libc::AF_CAN as libc::sa_family_t;
+                        (*can_addr).can_family = c::AF_CAN as c::sa_family_t;
                         (*can_addr).can_ifindex = ifindex;
                     }
-                    let storage: socket2::SockAddrStorage =
+                    let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
-                        socket2::SockAddr::new(
+                        host_socket::raw::SockAddr::new(
                             storage,
-                            core::mem::size_of::<libc::sockaddr_can>() as libc::socklen_t,
+                            core::mem::size_of::<c::sockaddr_can>() as c::socklen_t,
                         )
                     })
                 }
@@ -1275,11 +1272,10 @@ mod _socket {
                     }
 
                     // Create sockaddr_alg
-                    let mut storage: libc::sockaddr_storage = unsafe { core::mem::zeroed() };
-                    let alg_addr =
-                        &mut storage as *mut libc::sockaddr_storage as *mut libc::sockaddr_alg;
+                    let mut storage: c::sockaddr_storage = unsafe { core::mem::zeroed() };
+                    let alg_addr = &mut storage as *mut c::sockaddr_storage as *mut c::sockaddr_alg;
                     unsafe {
-                        (*alg_addr).salg_family = libc::AF_ALG as libc::sa_family_t;
+                        (*alg_addr).salg_family = c::AF_ALG as c::sa_family_t;
                         // Copy type string
                         for (i, b) in type_str.bytes().enumerate() {
                             (*alg_addr).salg_type[i] = b;
@@ -1289,12 +1285,12 @@ mod _socket {
                             (*alg_addr).salg_name[i] = b;
                         }
                     }
-                    let storage: socket2::SockAddrStorage =
+                    let storage: host_socket::raw::SockAddrStorage =
                         unsafe { core::mem::transmute(storage) };
                     Ok(unsafe {
-                        socket2::SockAddr::new(
+                        host_socket::raw::SockAddr::new(
                             storage,
-                            core::mem::size_of::<libc::sockaddr_alg>() as libc::socklen_t,
+                            core::mem::size_of::<c::sockaddr_alg>() as c::socklen_t,
                         )
                     })
                 }
@@ -1382,23 +1378,11 @@ mod _socket {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if socket is still open
             if zelf.sock.read().is_some() {
-                let laddr = if let Ok(sock) = zelf.sock()
-                    && let Ok(addr) = sock.local_addr()
-                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
-                {
-                    format!(", laddr={}", repr.as_wtf8())
-                } else {
-                    String::new()
-                };
-
-                let msg = format!(
-                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
-                    zelf.fileno(),
-                    zelf.family.load(),
-                    zelf.kind.load(),
-                    zelf.proto.load(),
-                    laddr
-                );
+                let repr = zelf
+                    .as_object()
+                    .repr(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<socket>"));
+                let msg = format!("unclosed {}", repr.as_wtf8());
                 let _ = crate::vm::warn::warn(
                     vm.ctx.new_str(msg).into(),
                     Some(vm.ctx.exceptions.resource_warning.to_owned()),
@@ -1775,7 +1759,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
             let flags = flags.unwrap_or(0);
-            let mut msg = socket2::MsgHdr::new();
+            let mut msg = host_socket::raw::MsgHdr::new();
 
             let sockaddr;
             if let Some(addr) = addr.flatten() {
@@ -1898,9 +1882,9 @@ mod _socket {
 
             // Build address tuple
             let address = if let Some(address) = msg.address {
-                let storage: socket2::SockAddrStorage =
+                let storage: host_socket::raw::SockAddrStorage =
                     unsafe { core::mem::transmute(address.storage) };
-                let addr = unsafe { socket2::SockAddr::new(storage, address.len as _) };
+                let addr = unsafe { host_socket::raw::SockAddr::new(storage, address.len as _) };
                 get_addr_tuple(&addr, vm)
             } else {
                 vm.ctx.none()
@@ -2052,9 +2036,7 @@ mod _socket {
                 Ok(vm.ctx.new_int(flag).into())
             } else {
                 if buflen <= 0 || buflen > 1024 {
-                    return Err(vm
-                        .new_os_error("getsockopt buflen out of range".to_owned())
-                        .into());
+                    return Err(vm.new_os_error("getsockopt buflen out of range").into());
                 }
                 let buf = host_socket::getsockopt_bytes(fd as _, level, name, buflen as usize)?;
                 Ok(vm.ctx.new_bytes(buf).into())
@@ -2236,7 +2218,7 @@ mod _socket {
             let addr = Self::from_tuple(tuple, vm)?;
             let flowinfo = tuple
                 .get(2)
-                .map(|obj| u32::try_from_borrowed_object(vm, obj))
+                .map(|obj| obj.clone().try_index(vm)?.try_to_primitive_raw(vm))
                 .transpose()?
                 .unwrap_or(0);
             let scopeid = tuple
@@ -2264,7 +2246,7 @@ mod _socket {
         }
     }
 
-    fn get_addr_tuple(addr: &socket2::SockAddr, vm: &VirtualMachine) -> PyObjectRef {
+    fn get_addr_tuple(addr: &host_socket::raw::SockAddr, vm: &VirtualMachine) -> PyObjectRef {
         if let Some(addr) = addr.as_socket() {
             return get_ip_addr_tuple(&addr, vm);
         }
@@ -2284,9 +2266,9 @@ mod _socket {
         #[cfg(target_os = "linux")]
         {
             let family = addr.family();
-            if family == libc::AF_CAN as libc::sa_family_t {
+            if family == c::AF_CAN as c::sa_family_t {
                 // AF_CAN address: (interface_name,) or (interface_name, can_id)
-                let can_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_can) };
+                let can_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_can) };
                 let ifindex = can_addr.can_ifindex;
                 let ifname = if ifindex == 0 {
                     String::new()
@@ -2295,9 +2277,9 @@ mod _socket {
                 };
                 return vm.ctx.new_tuple(vec![vm.ctx.new_str(ifname).into()]).into();
             }
-            if family == libc::AF_ALG as libc::sa_family_t {
+            if family == c::AF_ALG as c::sa_family_t {
                 // AF_ALG address: (type, name)
-                let alg_addr = unsafe { &*(addr.as_ptr() as *const libc::sockaddr_alg) };
+                let alg_addr = unsafe { &*(addr.as_ptr() as *const c::sockaddr_alg) };
                 let type_bytes = &alg_addr.salg_type;
                 let name_bytes = &alg_addr.salg_name;
                 let type_nul = memchr::memchr(b'\0', type_bytes).unwrap_or(type_bytes.len());
@@ -2323,7 +2305,7 @@ mod _socket {
             audit.call((vm.ctx.new_str("socket.gethostname"),), vm)?;
         }
 
-        gethostname::gethostname()
+        rustpython_host_env::socket::hostname()
             .into_string()
             .map(|hostname| vm.ctx.new_str(hostname))
             .map_err(|err| vm.new_os_error(err.into_string().unwrap()))
@@ -2341,20 +2323,18 @@ mod _socket {
             .as_str()
             .parse::<Ipv4Addr>()
             .map(|ip_addr| Vec::<u8>::from(ip_addr.octets()))
-            .map_err(|_| {
-                vm.new_os_error("illegal IP address string passed to inet_aton".to_owned())
-            })
+            .map_err(|_| vm.new_os_error("illegal IP address string passed to inet_aton"))
     }
 
     #[pyfunction]
     fn inet_ntoa(packed_ip: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         let packed_ip = packed_ip.borrow_buf();
         let packed_ip = <&[u8; 4]>::try_from(&*packed_ip)
-            .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa".to_owned()))?;
+            .map_err(|_| vm.new_os_error("packed IP wrong length for inet_ntoa"))?;
         Ok(vm.ctx.new_str(Ipv4Addr::from(*packed_ip).to_string()))
     }
 
-    fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const libc::c_char {
+    fn cstr_opt_as_ptr(x: &OptionalArg<ffi::CString>) -> *const core::ffi::c_char {
         x.as_ref().map_or_else(core::ptr::null, |s| s.as_ptr())
     }
 
@@ -2372,7 +2352,7 @@ mod _socket {
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
         let serv = unsafe { c::getservbyname(cstr_name.as_ptr() as _, cstr_proto as _) };
         if serv.is_null() {
-            return Err(vm.new_os_error("service/proto not found".to_owned()));
+            return Err(vm.new_os_error("service/proto not found"));
         }
         let port = unsafe { (*serv).s_port };
         Ok(u16::from_be(port as u16))
@@ -2394,7 +2374,7 @@ mod _socket {
         let cstr_proto = cstr_opt_as_ptr(&cstr_proto);
         let serv = unsafe { c::getservbyport(port.to_be() as _, cstr_proto as _) };
         if serv.is_null() {
-            return Err(vm.new_os_error("port/proto not found".to_owned()));
+            return Err(vm.new_os_error("port/proto not found"));
         }
         let s = unsafe { ffi::CStr::from_ptr((*serv).s_name as _) };
         Ok(s.to_string_lossy().into_owned())
@@ -2452,13 +2432,14 @@ mod _socket {
     }
 
     /// returns Ok(true) on timeout
+    #[cfg(feature = "ssl")]
     pub(crate) fn sock_wait(
         sock: &Socket,
         wait_kind: SockWaitKind,
         timeout: Option<Duration>,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        match sock_wait_deadline(sock, wait_kind, &timeout.map(Deadline::new), vm) {
+        match sock_wait_deadline(sock, wait_kind, timeout.map(Deadline::new).as_ref(), vm) {
             Ok(()) => Ok(false),
             Err(IoOrPyException::Timeout) => Ok(true),
             Err(e) => Err(e.into_pyexception(vm)),
@@ -2469,7 +2450,7 @@ mod _socket {
     fn sock_wait_deadline(
         sock: &Socket,
         wait_kind: SockWaitKind,
-        deadline: &Option<Deadline>,
+        deadline: Option<&Deadline>,
         vm: &VirtualMachine,
     ) -> Result<(), IoOrPyException> {
         #[cfg(unix)]
@@ -2599,7 +2580,7 @@ mod _socket {
         opts: GAIOptions,
         vm: &VirtualMachine,
     ) -> Result<Vec<PyObjectRef>, IoOrPyException> {
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             socktype: opts.ty,
             protocol: opts.proto,
             address: opts.family,
@@ -2619,8 +2600,15 @@ mod _socket {
             }
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes)
-                    .map_err(|_| vm.new_unicode_decode_error("host bytes is not utf8"))?;
+                let host_str = core::str::from_utf8(&bytes).map_err(|e| {
+                    vm.new_unicode_decode_error_real(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        e.valid_up_to(),
+                        e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                        vm.ctx.new_str("host bytes is not utf8"),
+                    )
+                })?;
                 Some(host_str.to_owned())
             }
             None => None,
@@ -2634,14 +2622,35 @@ mod _socket {
                     ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
-                            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed"))?
+                            .ok_or_else(|| {
+                                let start = s
+                                    .as_wtf8()
+                                    .code_points()
+                                    .position(|c| c.to_char().is_none())
+                                    .unwrap();
+                                vm.new_unicode_encode_error_real(
+                                    vm.ctx.new_str("utf-8"),
+                                    (*s).clone(),
+                                    start,
+                                    start + 1,
+                                    vm.ctx.new_str("surrogates not allowed"),
+                                )
+                            })?
                             .to_owned()
                     }
                     ArgStrOrBytesLike::Buf(b) => {
                         // For bytes, check if it's valid UTF-8
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
-                            .map_err(|_| vm.new_unicode_decode_error("port is not utf8"))?
+                            .map_err(|e| {
+                                vm.new_unicode_decode_error_real(
+                                    vm.ctx.new_str("utf-8"),
+                                    vm.ctx.new_bytes(bytes.to_vec()),
+                                    e.valid_up_to(),
+                                    e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                                    vm.ctx.new_str("port is not utf8"),
+                                )
+                            })?
                             .to_owned()
                     }
                 };
@@ -2652,7 +2661,7 @@ mod _socket {
         };
         let port = port_encoded.as_deref();
 
-        let addrs = dns_lookup::getaddrinfo(host, port, Some(hints))
+        let addrs = host_socket::dns::getaddrinfo(host, port, Some(hints))
             .map_err(|err| convert_socket_error(vm, err, SocketError::GaiError))?;
 
         let list = addrs
@@ -2678,7 +2687,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, addr, c::AF_UNSPEC)?;
-        let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        let (hostname, _) = host_socket::dns::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
             hostname,
@@ -2703,7 +2712,7 @@ mod _socket {
         vm: &VirtualMachine,
     ) -> Result<(String, PyListRef, PyListRef), IoOrPyException> {
         let addr = get_addr(vm, name, c::AF_INET)?;
-        let (hostname, _) = dns_lookup::getnameinfo(&addr, 0)
+        let (hostname, _) = host_socket::dns::getnameinfo(&addr, 0)
             .map_err(|e| convert_socket_error(vm, e, SocketError::HError))?;
         Ok((
             hostname,
@@ -2729,7 +2738,7 @@ mod _socket {
                 .map_err(|_| vm.new_os_error(ERROR_MSG.to_owned()))?
                 .octets()
                 .to_vec(),
-            _ => return Err(vm.new_os_error("Address family not supported by protocol".to_owned())),
+            _ => return Err(vm.new_os_error("Address family not supported by protocol")),
         };
         Ok(ip_addr)
     }
@@ -2759,7 +2768,7 @@ mod _socket {
         let cstr = name.to_cstring(vm)?;
         let proto = unsafe { c::getprotobyname(cstr.as_ptr() as _) };
         if proto.is_null() {
-            return Err(vm.new_os_error("protocol not found".to_owned()));
+            return Err(vm.new_os_error("protocol not found"));
         }
         let num = unsafe { (*proto).p_proto };
         Ok(vm.ctx.new_int(num).into())
@@ -2778,7 +2787,7 @@ mod _socket {
             }
         }
         let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             address: c::AF_UNSPEC,
             socktype: c::SOCK_DGRAM,
             flags: c::AI_NUMERICHOST,
@@ -2786,21 +2795,19 @@ mod _socket {
         };
         let service = addr.port.to_string();
         let host_str = addr.host.as_str();
-        let mut res = dns_lookup::getaddrinfo(Some(host_str), Some(&service), Some(hints))
+        let mut res = host_socket::dns::getaddrinfo(Some(host_str), Some(&service), Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
             .filter_map(Result::ok);
         let mut ainfo = res.next().unwrap();
         if res.next().is_some() {
             return Err(vm
-                .new_os_error("sockaddr resolved to multiple addresses".to_owned())
+                .new_os_error("sockaddr resolved to multiple addresses")
                 .into());
         }
         match &mut ainfo.sockaddr {
             SocketAddr::V4(_) => {
                 if address.len() != 2 {
-                    return Err(vm
-                        .new_os_error("IPv4 sockaddr must be 2 tuple".to_owned())
-                        .into());
+                    return Err(vm.new_os_error("IPv4 sockaddr must be 2 tuple").into());
                 }
             }
             SocketAddr::V6(addr) => {
@@ -2808,7 +2815,7 @@ mod _socket {
                 addr.set_scope_id(scopeid);
             }
         }
-        dns_lookup::getnameinfo(&ainfo.sockaddr, flags)
+        host_socket::dns::getnameinfo(&ainfo.sockaddr, flags)
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))
     }
 
@@ -2819,8 +2826,8 @@ mod _socket {
         socket_kind: OptionalArg<i32>,
         proto: OptionalArg<i32>,
     ) -> Result<(PySocket, PySocket), IoOrPyException> {
-        let family = family.unwrap_or(libc::AF_UNIX);
-        let socket_kind = socket_kind.unwrap_or(libc::SOCK_STREAM);
+        let family = family.unwrap_or(c::AF_UNIX);
+        let socket_kind = socket_kind.unwrap_or(c::SOCK_STREAM);
         let proto = proto.unwrap_or(0);
         let (a, b) = Socket::pair(family.into(), socket_kind.into(), Some(proto.into()))?;
         let py_a = PySocket::default();
@@ -2847,7 +2854,7 @@ mod _socket {
         {
             let name = name.to_cstring(vm)?;
             // in case 'if_nametoindex' does not set errno
-            rustpython_host_env::os::set_errno(libc::ENODEV);
+            rustpython_host_env::os::set_errno(c::ENODEV);
             let ret = unsafe { c::if_nametoindex(name.as_ptr() as _) };
             if ret == 0 {
                 Err(vm.new_last_errno_error())
@@ -2868,7 +2875,7 @@ mod _socket {
         {
             let mut buf = [0; c::IF_NAMESIZE + 1];
             // in case 'if_indextoname' does not set errno
-            rustpython_host_env::os::set_errno(libc::ENXIO);
+            rustpython_host_env::os::set_errno(c::ENXIO);
             let ret = unsafe { c::if_indextoname(index, buf.as_mut_ptr()) };
             if ret.is_null() {
                 Err(vm.new_last_errno_error())
@@ -2920,18 +2927,18 @@ mod _socket {
     ) -> Result<SocketAddr, IoOrPyException> {
         let name = pyname.as_str();
         if name.is_empty() {
-            let hints = dns_lookup::AddrInfoHints {
+            let hints = host_socket::dns::AddrInfoHints {
                 address: af,
                 socktype: c::SOCK_DGRAM,
                 flags: c::AI_PASSIVE,
                 protocol: 0,
             };
-            let mut res = dns_lookup::getaddrinfo(None, Some("0"), Some(hints))
+            let mut res = host_socket::dns::getaddrinfo(None, Some("0"), Some(hints))
                 .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
             let ainfo = res.next().unwrap()?;
             if res.next().is_some() {
                 return Err(vm
-                    .new_os_error("wildcard resolved to multiple address".to_owned())
+                    .new_os_error("wildcard resolved to multiple address")
                     .into());
             }
             return Ok(ainfo.sockaddr);
@@ -2940,9 +2947,7 @@ mod _socket {
             match af {
                 c::AF_INET | c::AF_UNSPEC => {}
                 _ => {
-                    return Err(vm
-                        .new_os_error("address family mismatched".to_owned())
-                        .into());
+                    return Err(vm.new_os_error("address family mismatched").into());
                 }
             }
             return Ok(SocketAddr::V4(net::SocketAddrV4::new(
@@ -2961,7 +2966,7 @@ mod _socket {
         {
             return Ok(SocketAddr::V6(net::SocketAddrV6::new(addr, 0, 0, 0)));
         }
-        let hints = dns_lookup::AddrInfoHints {
+        let hints = host_socket::dns::AddrInfoHints {
             address: af,
             ..Default::default()
         };
@@ -2971,7 +2976,7 @@ mod _socket {
             .encode_text(pyname.into_wtf8(), "idna", None, vm)?;
         let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-        let mut res = dns_lookup::getaddrinfo(Some(name), None, Some(hints))
+        let mut res = host_socket::dns::getaddrinfo(Some(name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
     }
@@ -3037,10 +3042,10 @@ mod _socket {
 
     fn convert_socket_error(
         vm: &VirtualMachine,
-        err: dns_lookup::LookupError,
+        err: host_socket::dns::LookupError,
         err_kind: SocketError,
     ) -> IoOrPyException {
-        if let dns_lookup::LookupErrorKind::System = err.kind() {
+        if let host_socket::dns::LookupErrorKind::System = err.kind() {
             return io::Error::from(err).into();
         }
         let strerr = {
@@ -3153,14 +3158,16 @@ mod _socket {
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_LEN")]
-    fn cmsg_len(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
+    fn cmsg_len(length: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let length = length.try_index(vm)?.try_to_primitive_raw(vm)?;
         host_socket::checked_cmsg_len(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_LEN() argument out of range"))
     }
 
     #[cfg(all(unix, not(target_os = "redox")))]
     #[pyfunction(name = "CMSG_SPACE")]
-    fn cmsg_space(length: usize, vm: &VirtualMachine) -> PyResult<usize> {
+    fn cmsg_space(length: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
+        let length = length.try_index(vm)?.try_to_primitive_raw(vm)?;
         host_socket::checked_cmsg_space(length)
             .ok_or_else(|| vm.new_overflow_error("CMSG_SPACE() argument out of range"))
     }

@@ -190,6 +190,10 @@ class c_char_p(_SimpleCData):
 
 _check_size(c_char_p, "P")
 
+char_pointer = c_char_p(b"1.3.6.1.5.5.7.3.1")
+char_pointer_array = (c_char_p * 1)(char_pointer)
+assert char_pointer_array[0] == b"1.3.6.1.5.5.7.3.1"
+
 
 class c_void_p(_SimpleCData):
     _type_ = "P"
@@ -344,7 +348,9 @@ if _os.name == "posix":
         # print(libc.srand(i))
         # print(test_byte_array)
 else:
+    import ctypes
     import os
+    from ctypes import wintypes
 
     libc = cdll.msvcrt
     libc.rand()
@@ -356,6 +362,29 @@ else:
     # print("start printf")
     # libc.printf(test_byte_array)
 
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_current_process = kernel32.GetCurrentProcess
+    get_current_process.argtypes = ()
+    get_current_process.restype = ctypes.c_void_p
+
+    def preserve_result(_result, _func, args):
+        return args
+
+    get_current_process.errcheck = preserve_result
+    process_handle = get_current_process()
+    assert isinstance(process_handle, int)
+
+    get_process_id = kernel32.GetProcessId
+    get_process_id.argtypes = (ctypes.c_void_p,)
+    get_process_id.restype = wintypes.DWORD
+    assert get_process_id(process_handle) == os.getpid()
+
+    def replace_result(_result, _func, _args):
+        return "replacement"
+
+    get_current_process.errcheck = replace_result
+    assert get_current_process() == "replacement"
+
     # windows pip support
 
     def get_win_folder_via_ctypes(csidl_name: str) -> str:
@@ -363,8 +392,6 @@ else:
         # There is no 'CSIDL_DOWNLOADS'.
         # Use 'CSIDL_PROFILE' (40) and append the default folder 'Downloads' instead.
         # https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid
-
-        import ctypes  # noqa: PLC0415
 
         csidl_const = {
             "CSIDL_APPDATA": 26,

@@ -936,7 +936,6 @@ class BZ2DecompressorTest(BaseTest):
             with self.assertRaises(TypeError):
                 pickle.dumps(BZ2Decompressor(), proto)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 100
     def testDecompressorChunksMaxsize(self):
         bzd = BZ2Decompressor()
         max_length = 100
@@ -1032,6 +1031,22 @@ class BZ2DecompressorTest(BaseTest):
         self.assertRaises(Exception, bzd.decompress, self.BAD_DATA * 30)
         # Previously, a second call could crash due to internal inconsistency
         self.assertRaises(Exception, bzd.decompress, self.BAD_DATA * 30)
+
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
+    def test_decompress_after_data_error(self):
+        data = bytes.fromhex(
+            "425a6839314159265359000000000000007fffff000000000000000000000000"
+            "00000000000000000000000000000000000000e0370000000000000000000000"
+            "000000000000000000000000000000000000000000000000000083f3"
+        )
+        bzd = BZ2Decompressor()
+        with self.assertRaisesRegex(OSError, "Invalid data stream"):
+            bzd.decompress(data)
+        # Previously, a second call could crash due to internal inconsistency
+        self.assertFalse(bzd.needs_input)
+        self.assertFalse(bzd.eof)
+        with self.assertRaisesRegex(ValueError, "previous error"):
+            bzd.decompress(b'\x00' * 18)
 
     @support.refcount_test
     def test_refleaks_in___init__(self):

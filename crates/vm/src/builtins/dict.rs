@@ -7,17 +7,11 @@ use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
-    builtins::{
-        PyTuple,
-        iter::{builtins_iter, builtins_reversed},
-        type_::PyAttributes,
-    },
+    builtins::{PyList, PyTuple, iter::builtins_iter, type_::PyAttributes},
     class::{PyClassDef, PyClassImpl},
     common::ascii,
     dict_inner::{self, DictKey},
-    function::{
-        ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue::*, PyComparisonValue,
-    },
+    function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -143,11 +137,17 @@ impl PyDict {
         self.entries.items()
     }
 
-    // Used in update and ior.
-    pub(crate) fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn merge_object_with_override(
+        &self,
+        other: PyObjectRef,
+        override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let casted: Result<PyRefExact<Self>, _> = other.downcast_exact(vm);
         let other = match casted {
-            Ok(dict_other) => return self.merge_dict(dict_other.into_pyref(), vm),
+            Ok(dict_other) => {
+                return self.merge_dict(dict_other.into_pyref(), override_existing, vm);
+            }
             Err(other) => other,
         };
         let dict = &self.entries;
@@ -157,6 +157,9 @@ impl PyDict {
             Ok(keys_method) => {
                 let keys = keys_method.call((), vm)?.get_iter(vm)?;
                 while let PyIterReturn::Return(key) = keys.next(vm)? {
+                    if !override_existing && dict.contains(vm, &*key)? {
+                        continue;
+                    }
                     let val = other.get_item(&*key, vm)?;
                     dict.insert(vm, &*key, val)?;
                 }
@@ -166,31 +169,122 @@ impl PyDict {
             Err(e) => return Err(e),
         };
         if !has_keys {
-            let iter = other.get_iter(vm)?;
-            loop {
-                fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                    vm.new_value_error("Iterator must have exactly two elements")
-                }
-                let element = match iter.next(vm)? {
-                    PyIterReturn::Return(obj) => obj,
-                    PyIterReturn::StopIteration(_) => break,
-                };
-                let elem_iter = element.get_iter(vm)?;
-                let key = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-                let value = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-                if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
-                    return Err(err(vm));
-                }
-                dict.insert(vm, &*key, value)?;
-            }
+            return self.merge_from_seq2(other, override_existing, vm);
         }
         Ok(())
     }
 
-    fn merge_dict(&self, dict_other: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
+    // Used in update and ior.
+    pub fn merge_object(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.merge_object_with_override(other, true, vm)
+    }
+
+    pub fn merge_object_if_missing(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.merge_object_with_override(other, false, vm)
+    }
+
+    fn add_update_sequence_note(
+        exc: PyBaseExceptionRef,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            return exc;
+        }
+
+        let note =
+            format!("Cannot convert dictionary update sequence element #{index} to a sequence");
+        match vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),)) {
+            Ok(_) => exc,
+            Err(note_err) => {
+                note_err.set___context__(Some(exc));
+                note_err
+            }
+        }
+    }
+
+    fn update_sequence_pair_from_slice(
+        elements: &[PyObjectRef],
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        let [key, value] = elements else {
+            return Err(vm.new_value_error(format!(
+                "dictionary update sequence element #{index} has length {}; 2 is required",
+                elements.len()
+            )));
+        };
+        Ok((key.clone(), value.clone()))
+    }
+
+    fn update_sequence_pair(
+        element: PyObjectRef,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        let element = match element.downcast_exact::<PyList>(vm) {
+            Ok(list) => {
+                let elements = list.borrow_vec();
+                return Self::update_sequence_pair_from_slice(&elements, index, vm);
+            }
+            Err(element) => element,
+        };
+        let element = match element.downcast_exact::<PyTuple>(vm) {
+            Ok(tuple) => {
+                return Self::update_sequence_pair_from_slice(tuple.as_slice(), index, vm);
+            }
+            Err(element) => element,
+        };
+
+        let elements = (|| {
+            let elem_iter = element.get_iter(vm).map_err(|exc| {
+                if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    vm.new_type_error("object is not iterable")
+                } else {
+                    exc
+                }
+            })?;
+            elem_iter
+                .into_iter::<PyObjectRef>(vm)?
+                .collect::<PyResult<Vec<_>>>()
+        })()
+        .map_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
+
+        Self::update_sequence_pair_from_slice(&elements, index, vm)
+    }
+
+    pub fn merge_from_seq2(
+        &self,
+        seq2: PyObjectRef,
+        override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let iter = seq2.get_iter(vm)?;
+        let dict = &self.entries;
+
+        for (index, element) in iter.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+            let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
+
+            if !override_existing && dict.contains(vm, &*key)? {
+                continue;
+            }
+            dict.insert(vm, &*key, value)?;
+        }
+        Ok(())
+    }
+
+    fn merge_dict(
+        &self,
+        dict_other: PyDictRef,
+        override_existing: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
         let dict = &self.entries;
         let dict_size = &dict_other.size();
         for (key, value) in &dict_other {
+            if !override_existing && dict.contains(vm, &*key)? {
+                continue;
+            }
             dict.insert(vm, &*key, value)?;
         }
         if dict_other.entries.has_changed_size(dict_size) {
@@ -342,14 +436,14 @@ impl PyDict {
         default: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        match self.entries.get(vm, &*key)? {
-            Some(value) => Ok(value),
-            None => Ok(default.unwrap_or_none(vm)),
-        }
+        Ok(self
+            .entries
+            .get(vm, &*key)?
+            .unwrap_or_else(|| default.unwrap_or_none(vm)))
     }
 
     #[pymethod]
-    fn setdefault(
+    pub(crate) fn setdefault(
         &self,
         key: PyObjectRef,
         default: OptionalArg<PyObjectRef>,
@@ -360,6 +454,7 @@ impl PyDict {
     }
 
     #[pymethod]
+    #[must_use]
     pub fn copy(&self) -> Self {
         Self {
             entries: self.entries.clone(),
@@ -367,7 +462,7 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn update(
+    pub(crate) fn update(
         &self,
         dict_obj: OptionalArg<PyObjectRef>,
         kwargs: KwArgs,
@@ -386,7 +481,7 @@ impl PyDict {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
             let self_cp = self.copy();
-            self_cp.merge_dict(other, vm)?;
+            self_cp.merge_dict(other, true, vm)?;
             return Ok(self_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -437,7 +532,7 @@ impl Py<PyDict> {
                 .map(|x| x.map(|eq| !eq));
         }
         if !op.eval_ord(self.__len__().cmp(&other.__len__())) {
-            return Ok(Implemented(false));
+            return Ok(PyArithmeticValue::Implemented(false));
         }
         let (superset, subset) = if self.__len__() < other.__len__() {
             (other, self)
@@ -451,15 +546,15 @@ impl Py<PyDict> {
                         continue;
                     }
                     if item && !vm.bool_eq(&v1, &v2)? {
-                        return Ok(Implemented(false));
+                        return Ok(PyArithmeticValue::Implemented(false));
                     }
                 }
                 None => {
-                    return Ok(Implemented(false));
+                    return Ok(PyArithmeticValue::Implemented(false));
                 }
             }
         }
-        Ok(Implemented(true))
+        Ok(PyArithmeticValue::Implemented(true))
     }
 
     #[cfg_attr(feature = "flame-it", flame("PyDictRef"))]
@@ -499,7 +594,7 @@ impl PyRef<PyDict> {
         let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
             let other_cp = other.copy();
-            other_cp.merge_dict(self, vm)?;
+            other_cp.merge_dict(self, true, vm)?;
             return Ok(other_cp.into_pyobject(vm));
         }
         Ok(vm.ctx.not_implemented())
@@ -714,6 +809,63 @@ impl Py<PyDict> {
         }
     }
 
+    /// Lookup trying a cached entry index hint first.
+    ///
+    /// When the hint misses but the key is present, also returns a refreshed
+    /// hint (`None` when the hint hit or no hint is representable).
+    pub(crate) fn get_item_opt_refresh_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<(PyObjectRef, Option<u16>)>> {
+        if self.exact_dict(vm) {
+            if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
+                return Ok(Some((value, None)));
+            }
+            self.entries.get_with_hint(vm, key)
+        } else {
+            Ok(self.get_item_opt(key, vm)?.map(|value| (value, None)))
+        }
+    }
+
+    /// Store using a cached entry index hint for the value-replace fast path.
+    ///
+    /// On a hint miss, returns a refreshed hint for the key (`None` when the
+    /// hint hit or no hint is representable).
+    pub(crate) fn set_item_with_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<u16>> {
+        if self.exact_dict(vm) {
+            self.entries
+                .insert_with_hint(vm, key, usize::from(hint), value)
+        } else {
+            self.as_object().set_item(key, value, vm)?;
+            Ok(None)
+        }
+    }
+
+    /// Current keys-version stamp of the underlying storage (0 if unset).
+    pub(crate) fn keys_version(&self) -> u32 {
+        self.entries.keys_version()
+    }
+
+    /// Current keys-version stamp, assigning one if none is set.
+    ///
+    /// Returns 0 for dict subclasses: their lookup can be overridden, so a
+    /// key-set attestation on the raw storage must never be cached for them.
+    pub(crate) fn assign_keys_version(&self, vm: &VirtualMachine) -> u32 {
+        if self.exact_dict(vm) {
+            self.entries.assign_keys_version()
+        } else {
+            0
+        }
+    }
+
     pub fn get_item<K: DictKey + ?Sized>(&self, key: &K, vm: &VirtualMachine) -> PyResult {
         if self.exact_dict(vm) {
             self.inner_getitem(key, vm)
@@ -855,6 +1007,7 @@ impl Iterator for DictIntoIter {
         (l, Some(l))
     }
 }
+
 impl ExactSizeIterator for DictIntoIter {
     fn len(&self) -> usize {
         self.dict.entries.len_from_entry_index(self.position)
@@ -886,6 +1039,7 @@ impl Iterator for DictIter<'_> {
         (l, Some(l))
     }
 }
+
 impl ExactSizeIterator for DictIter<'_> {
     fn len(&self) -> usize {
         self.dict.entries.len_from_entry_index(self.position)
@@ -1020,10 +1174,17 @@ macro_rules! dict_view {
                 let iter = builtins_iter(vm);
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
-                    IterStatus::Active(dict) => dict
-                        .into_iter()
-                        .map(|(key, value)| ($result_fn)(vm, key, value))
-                        .collect::<Vec<_>>(),
+                    IterStatus::Active(dict) => {
+                        let mut position = internal.position;
+                        let mut entries = Vec::new();
+                        while let Some((next_position, key, value)) =
+                            dict.entries.next_entry(position)
+                        {
+                            entries.push(($result_fn)(vm, key, value));
+                            position = next_position;
+                        }
+                        entries
+                    }
                     IterStatus::Exhausted => vec![],
                 };
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
@@ -1086,14 +1247,23 @@ macro_rules! dict_view {
 
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_reversed(vm);
+                let iter = builtins_iter(vm);
                 let internal = self.internal.lock();
-                // TODO: entries must be reversed too
                 let entries = match &internal.status {
-                    IterStatus::Active(dict) => dict
-                        .into_iter()
-                        .map(|(key, value)| ($result_fn)(vm, key, value))
-                        .collect::<Vec<_>>(),
+                    IterStatus::Active(dict) => {
+                        let mut position = internal.position;
+                        let mut entries = Vec::new();
+                        while let Some((found_index, key, value)) =
+                            dict.entries.prev_entry(position)
+                        {
+                            entries.push(($result_fn)(vm, key, value));
+                            if found_index == 0 {
+                                break;
+                            }
+                            position = found_index - 1;
+                        }
+                        entries
+                    }
                     IterStatus::Exhausted => vec![],
                 };
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
@@ -1120,11 +1290,11 @@ macro_rules! dict_view {
                         );
                     }
                     match dict.entries.prev_entry(internal.position) {
-                        Some((position, key, value)) => {
-                            if internal.position == position {
+                        Some((found_index, key, value)) => {
+                            if found_index == 0 {
                                 internal.status = IterStatus::Exhausted;
                             } else {
-                                internal.position = position;
+                                internal.position = found_index - 1;
                             }
                             PyIterReturn::Return(($result_fn)(vm, key, value))
                         }
@@ -1246,7 +1416,7 @@ trait ViewSetOps: DictView {
             ref _dictitems @ PyDictItems => {}
             ref _dictkeys @ PyDictKeys => {}
             _ => {
-                return Ok(NotImplemented);
+                return Ok(PyArithmeticValue::NotImplemented);
             }
         });
         let lhs: Vec<PyObjectRef> = zelf.as_object().to_owned().try_into_value(vm)?;
@@ -1266,6 +1436,7 @@ trait ViewSetOps: DictView {
 }
 
 impl ViewSetOps for PyDictKeys {}
+
 #[pyclass(
     flags(DISALLOW_INSTANTIATION),
     with(

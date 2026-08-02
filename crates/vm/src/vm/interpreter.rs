@@ -1,4 +1,4 @@
-#[cfg(all(unix, feature = "threading"))]
+#[cfg(feature = "threading")]
 use super::StopTheWorldState;
 use super::{Context, PyConfig, PyGlobalState, VirtualMachine, setting::Settings, thread};
 use crate::{
@@ -122,6 +122,7 @@ where
         switch_interval: AtomicCell::new(0.005),
         global_trace_func: PyMutex::default(),
         global_profile_func: PyMutex::default(),
+        type_mutex: PyMutex::default(),
         #[cfg(feature = "threading")]
         main_thread_ident: AtomicCell::new(0),
         #[cfg(feature = "threading")]
@@ -133,7 +134,7 @@ where
         monitoring: PyMutex::default(),
         monitoring_events: AtomicCell::new(0),
         instrumentation_version: AtomicU64::new(0),
-        #[cfg(all(unix, feature = "threading"))]
+        #[cfg(feature = "threading")]
         stop_the_world: StopTheWorldState::new(),
     });
 
@@ -149,7 +150,12 @@ where
     // Call custom init function (can mutate vm.state)
     init(&mut vm);
 
+    // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
+    // and `encodings`) before any `enter_vm` scope exists, so attach this
+    // thread for the duration so type cache reads see it as ATTACHED.
+    let vm_guard = thread::VmBootstrapGuard::new(&vm);
     vm.initialize();
+    drop(vm_guard);
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
@@ -229,6 +235,7 @@ impl InterpreterBuilder {
     ///     })
     ///     .build();
     /// ```
+    #[must_use]
     pub fn init_hook<F>(mut self, init: F) -> Self
     where
         F: FnOnce(&mut VirtualMachine) + 'static,
@@ -250,6 +257,7 @@ impl InterpreterBuilder {
     ///     // In practice: .add_frozen_modules(rustpython_pylib::FROZEN_STDLIB)
     ///     .build();
     /// ```
+    #[must_use]
     pub fn add_frozen_modules<I>(mut self, frozen: I) -> Self
     where
         I: IntoIterator<Item = (&'static str, FrozenModule)>,
@@ -300,8 +308,8 @@ impl Default for InterpreterBuilder {
 ///     let code_obj = vm.compile(
 ///             source,
 ///             Mode::Exec,
-///             "<embedded>".to_owned(),
-///     ).map_err(|err| vm.new_syntax_error(&err, Some(source))).unwrap();
+///             "<embedded>",
+///     ).map_err(|err| err.into_pyexception(vm, Some(source))).unwrap();
 ///     vm.run_code_obj(code_obj, scope).unwrap();
 /// });
 /// ```
@@ -459,11 +467,18 @@ impl Interpreter {
             }
 
             // Match CPython: if exit_code is 0 and stdout flush failed, exit 120
-            if exit_code == 0 && flush_status < 0 {
+            let exit_code = if exit_code == 0 && flush_status < 0 {
                 EXITCODE_FLUSH_FAILURE
             } else {
                 exit_code
-            }
+            };
+
+            // Daemon threads may still exist, so use the safe `process()`,
+            // not `drain_all()`.
+            #[cfg(feature = "threading")]
+            crate::object::qsbr::QSBR.process();
+
+            exit_code
         })
     }
 }

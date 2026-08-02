@@ -31,6 +31,8 @@ mod decl {
         naive::{NaiveDate, NaiveDateTime, NaiveTime},
     };
     use core::time::Duration;
+    #[cfg(target_os = "wasi")]
+    use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
     use rustpython_host_env::time::asctime_from_tm;
     use rustpython_host_env::time::{self as host_time};
@@ -60,14 +62,27 @@ mod decl {
     #[pyattr]
     pub const _STRUCT_TM_ITEMS: usize = 11;
 
-    // TODO: implement proper monotonic time for wasm/wasi.
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(target_os = "wasi")]
+    fn get_clock_time(id: ClockId, vm: &VirtualMachine) -> PyResult<Duration> {
+        host_time::clock_gettime(id).map_err(|err| vm.new_os_error(err.to_string()))
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(target_os = "wasi")]
+    fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
+        get_clock_time(ClockId::CLOCK_MONOTONIC, vm)
+    }
+
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_monotonic_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
 
-    // TODO: implement proper perf time for wasm/wasi.
-    #[cfg(not(any(unix, windows)))]
+    #[cfg(not(any(unix, windows, target_os = "wasi")))]
     fn get_perf_time(vm: &VirtualMachine) -> PyResult<Duration> {
         duration_since_system_now(vm)
     }
@@ -195,7 +210,7 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
-    #[cfg(target_env = "msvc")]
+    #[cfg(windows)]
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn get_tz_info() -> host_time::WindowsTimeZoneInfo {
         host_time::get_tz_info()
@@ -210,8 +225,7 @@ mod decl {
     #[cfg(not(target_arch = "wasm32"))]
     #[pyattr]
     fn altzone(_vm: &VirtualMachine) -> core::ffi::c_long {
-        // TODO: RUSTPYTHON; Add support for using the C altzone
-        crate::host_env::time::tz::timezone() - 3600
+        crate::host_env::time::tz::altzone()
     }
 
     #[cfg(target_env = "msvc")]
@@ -571,8 +585,8 @@ mod decl {
         for codepoint in format.as_wtf8().code_points() {
             if codepoint.to_u32() == 0 {
                 if !ascii.is_empty() {
-                    let part = host_time::strftime_ascii(&ascii, &tm)
-                        .map_err(|_| vm.new_value_error("embedded null character"))?;
+                    let part =
+                        host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
                     out.extend(part.chars());
                     ascii.clear();
                 }
@@ -587,16 +601,15 @@ mod decl {
             }
 
             if !ascii.is_empty() {
-                let part = host_time::strftime_ascii(&ascii, &tm)
-                    .map_err(|_| vm.new_value_error("embedded null character"))?;
+                let part =
+                    host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
                 out.extend(part.chars());
                 ascii.clear();
             }
             out.push(codepoint);
         }
         if !ascii.is_empty() {
-            let part = host_time::strftime_ascii(&ascii, &tm)
-                .map_err(|_| vm.new_value_error("embedded null character"))?;
+            let part = host_time::strftime_ascii(&ascii, &tm).map_err(|e| e.to_pyexception(vm))?;
             out.extend(part.chars());
         }
         Ok(out.to_pyobject(vm))
@@ -685,8 +698,8 @@ mod decl {
 
     #[cfg(all(target_arch = "wasm32", target_os = "emscripten"))]
     fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
-        let times = host_time::process_times()
-            .map_err(|_| vm.new_os_error("Failed to get clock time".to_owned()))?;
+        let times =
+            host_time::process_times().map_err(|_| vm.new_os_error("Failed to get clock time"))?;
         Ok(Duration::from_secs_f64(times.user + times.system))
     }
 
@@ -1336,13 +1349,13 @@ mod platform {
 
     pub(super) fn get_thread_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let total = host_time::get_thread_time_100ns()
-            .ok_or_else(|| vm.new_os_error("Failed to get clock time".to_owned()))?;
+            .ok_or_else(|| vm.new_os_error("Failed to get clock time"))?;
         Ok(Duration::from_nanos(total * 100))
     }
 
     pub(super) fn get_process_time(vm: &VirtualMachine) -> PyResult<Duration> {
         let total = host_time::get_process_time_100ns()
-            .ok_or_else(|| vm.new_os_error("Failed to get clock time".to_owned()))?;
+            .ok_or_else(|| vm.new_os_error("Failed to get clock time"))?;
         Ok(Duration::from_nanos(total * 100))
     }
 }

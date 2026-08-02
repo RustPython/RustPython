@@ -4,6 +4,7 @@ argdefs
 argtypes
 asdl
 asname
+ASNATIVEBYTES
 atopen
 atext
 attro
@@ -139,6 +140,8 @@ metavars
 miscompiles
 mult
 multibytecodec
+mystricmp
+mystrnicmp
 nameobj
 nameop
 nargsf
@@ -169,6 +172,7 @@ nvars
 opname
 opnames
 orelse
+osmodule
 outparam
 outparm
 paramfunc
@@ -189,11 +193,14 @@ pycore
 pyinner
 pydecimal
 pyerrors
+pyframe
 Pyfunc
 pylifecycle
 pymain
+pymem
 pyrepl
 pystate
+pystrcmp
 PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw

@@ -3,7 +3,7 @@ use crate::{
     builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, Frame, FrameOwner, FrameRef},
+    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -29,7 +29,7 @@ impl ExecutionResult {
 
 #[derive(Debug)]
 pub struct Coro {
-    frame: FrameRef,
+    frame: FrameObjectRef,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
     // code
@@ -62,7 +62,7 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             frame,
             closed: AtomicCell::new(false),
@@ -73,6 +73,20 @@ impl Coro {
         }
     }
 
+    /// Free the finished frame's locals and stack, unless a frame object has
+    /// escaped (e.g. through an `f_locals` proxy or `sys._getframe`). An
+    /// escaped frame husk owns its heap-resident locals and must keep them
+    /// readable after the generator closes.
+    fn clear_frame_locals_on_close(&self) {
+        // Keep locals alive if a durable frame reference escaped (e.g. through
+        // an `f_locals` proxy or `sys._getframe`): that reference now owns the
+        // heap-resident locals and must keep them readable after close,
+        // matching `take_ownership`.
+        if !self.frame.has_escaped() {
+            self.frame.clear_locals_and_stack();
+        }
+    }
+
     fn maybe_close(&self, res: &PyResult<ExecutionResult>, entered_frame: bool) {
         if !entered_frame {
             return;
@@ -80,14 +94,14 @@ impl Coro {
         match res {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
                 self.closed.store(true);
-                // Frame is no longer suspended; allow frame.clear() to succeed.
-                self.frame.owner.store(
+                // FrameObject is no longer suspended; allow frame.clear() to succeed.
+                self.frame.iframe().owner.store(
                     FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
                 );
                 // Completed generators/coroutines should not keep their locals
                 // alive while the wrapper object itself remains referenced.
-                self.frame.clear_locals_and_stack();
+                self.clear_frame_locals_on_close();
             }
             Ok(ExecutionResult::Yield(_)) => {}
         }
@@ -100,7 +114,7 @@ impl Coro {
         func: F,
     ) -> (PyResult<ExecutionResult>, bool)
     where
-        F: FnOnce(&Py<Frame>) -> PyResult<ExecutionResult>,
+        F: FnOnce(&Py<FrameObject>) -> PyResult<ExecutionResult>,
     {
         if self.running.compare_exchange(false, true).is_err() {
             return (
@@ -169,10 +183,7 @@ impl Coro {
         } else {
             None
         };
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
-            self.frame.locals_to_fast(vm)?;
-            f.resume(value, vm)
-        });
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| f.resume(value, vm));
         self.finalize_send_result(result, entered_frame, jen, vm)
     }
 
@@ -198,10 +209,7 @@ impl Coro {
         } else {
             None
         };
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
-            self.frame.locals_to_fast(vm)?;
-            f.resume(value, vm)
-        });
+        let (result, entered_frame) = self.run_with_context(jen, vm, |f| f.resume(value, vm));
         self.finalize_send_result(result, entered_frame, jen, vm)
     }
 
@@ -259,7 +267,7 @@ impl Coro {
         self.closed.store(true);
         // Release frame locals and stack to free references held by the
         // closed generator, matching gen_send_ex2 with close_on_completion.
-        self.frame.clear_locals_and_stack();
+        self.clear_frame_locals_on_close();
         match result {
             Ok(ExecutionResult::Yield(_)) => {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
@@ -282,7 +290,7 @@ impl Coro {
         self.closed.load()
     }
 
-    pub fn frame(&self) -> FrameRef {
+    pub fn frame(&self) -> FrameObjectRef {
         self.frame.clone()
     }
 
@@ -329,7 +337,8 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
         || obj.downcast_ref::<PyGenerator>().is_some_and(|g| {
             g.as_coro()
                 .frame()
-                .code
+                .iframe()
+                .code()
                 .flags
                 .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
         })
@@ -344,7 +353,8 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
             || result.downcast_ref::<PyGenerator>().is_some_and(|g| {
                 g.as_coro()
                     .frame()
-                    .code
+                    .iframe()
+                    .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })

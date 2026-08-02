@@ -796,8 +796,15 @@ pub(crate) fn impl_pyexception(attr: PunctuatedNestedMeta, item: &Item) -> Resul
         quote! {}
     };
 
+    // Forward a `traverse` option to the generated `#[pyclass]` so exception
+    // payloads with a manual `Traverse` impl are GC-tracked and traversed.
+    let traverse_attr = match class_meta.inner()._optional_str("traverse").ok().flatten() {
+        Some(value) => quote! { , traverse = #value },
+        None => quote! {},
+    };
+
     let ret = quote! {
-        #[pyclass(module = false, name = #class_name, base = #base_class_name)]
+        #[pyclass(module = false, name = #class_name, base = #base_class_name #traverse_attr)]
         #item
         #impl_pyclass
     };
@@ -1433,6 +1440,11 @@ impl GetSetNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for ((name, _cfgs), (getter, setter)) in &self.map {
             if getter.is_none() {
                 errors.push(err_span!(
@@ -1442,6 +1454,7 @@ impl GetSetNursery {
                 ));
             };
         }
+
         errors.into_result()?;
         self.validated = true;
         Ok(())
@@ -1525,6 +1538,11 @@ impl MemberNursery {
 
     fn validate(&mut self) -> Result<()> {
         let mut errors = Vec::new();
+
+        #[expect(
+            clippy::iter_over_hash_type,
+            reason = "Iteration order doesn't matter here"
+        )]
         for (name, entry) in &self.map {
             if entry.getter.is_none() {
                 errors.push(err_span!(
@@ -1534,6 +1552,7 @@ impl MemberNursery {
                 ));
             };
         }
+
         errors.into_result()?;
         self.validated = true;
         Ok(())
@@ -1671,11 +1690,14 @@ impl ItemMeta for SlotItemMeta {
         I: core::iter::Iterator<Item = NestedMeta>,
     {
         let meta_map = if let Some(nested_meta) = nested.next() {
-            match nested_meta {
-                NestedMeta::Meta(meta) => {
-                    Some([("name".to_owned(), (0, meta))].iter().cloned().collect())
-                }
-                _ => None,
+            if let NestedMeta::Meta(meta) = nested_meta {
+                Some(
+                    core::iter::once(&("name".to_owned(), (0, meta)))
+                        .cloned()
+                        .collect(),
+                )
+            } else {
+                None
             }
         } else {
             Some(HashMap::default())
@@ -1946,24 +1968,25 @@ fn impl_item_new<Item>(
 where
     Item: ItemLike + ToTokens + GetIdent,
 {
-    use AttrName::*;
     match attr_name {
-        attr_name @ (Method | ClassMethod | StaticMethod) => Box::new(MethodItem {
+        attr_name @ (AttrName::Method | AttrName::ClassMethod | AttrName::StaticMethod) => {
+            Box::new(MethodItem {
+                inner: ContentItemInner { index, attr_name },
+            })
+        }
+        AttrName::GetSet => Box::new(GetSetItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        GetSet => Box::new(GetSetItem {
+        AttrName::Slot => Box::new(SlotItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        Slot => Box::new(SlotItem {
+        AttrName::Attr => Box::new(AttributeItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        Attr => Box::new(AttributeItem {
+        AttrName::ExtendClass => Box::new(ExtendClassItem {
             inner: ContentItemInner { index, attr_name },
         }),
-        ExtendClass => Box::new(ExtendClassItem {
-            inner: ContentItemInner { index, attr_name },
-        }),
-        Member => Box::new(MemberItem {
+        AttrName::Member => Box::new(MemberItem {
             inner: ContentItemInner { index, attr_name },
         }),
     }

@@ -373,7 +373,8 @@ impl PyCPointer {
         zelf.0.keep_ref(1, value.clone(), vm)?;
 
         // KeepRef: store GetKeepedObjects(dst) at index 0
-        if let Some(kept) = cdata.objects.read().clone() {
+        let objects = cdata.objects.read().clone();
+        if let Some(kept) = objects {
             zelf.0.keep_ref(0, kept, vm)?;
         }
 
@@ -523,13 +524,12 @@ impl PyCPointer {
 
         // c_wchar → str
         if type_code.as_deref() == Some("u") {
-            if len == 0 {
-                return Ok(vm.ctx.new_str("").into());
+            if len > 0
+                && let Some(s) = unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) }
+            {
+                return Ok(vm.ctx.new_str(s).into());
             }
-            return Ok(vm
-                .ctx
-                .new_str(unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) })
-                .into());
+            return Ok(vm.ctx.new_str("").into());
         }
 
         // other types → list with Pointer_item for each

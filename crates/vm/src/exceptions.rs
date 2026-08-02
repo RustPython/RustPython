@@ -15,6 +15,7 @@ use crate::{
     suggestion::offer_suggestions,
     types::{Callable, Constructor, Initializer, Representable},
 };
+use core::fmt::{self, Display, Formatter};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 #[cfg(feature = "host_env")]
@@ -134,7 +135,9 @@ impl VirtualMachine {
         exc: &Py<PyBaseException>,
     ) -> Result<(), W::Error> {
         let vm = self;
-        if let Some(tb) = exc.traceback.read().clone() {
+
+        let traceback = exc.traceback.read().clone();
+        if let Some(tb) = traceback {
             writeln!(output, "Traceback (most recent call last):")?;
             for tb in tb.iter() {
                 write_traceback_entry(output, &tb)?;
@@ -162,9 +165,10 @@ impl VirtualMachine {
             ),
         }?;
 
-        match offer_suggestions(exc, vm) {
-            Some(suggestions) => writeln!(output, ". Did you mean: '{suggestions}'?"),
-            None => writeln!(output),
+        if let Some(suggestions) = offer_suggestions(exc, vm) {
+            writeln!(output, ". Did you mean: '{suggestions}'?")
+        } else {
+            writeln!(output)
         }
     }
 
@@ -350,11 +354,11 @@ impl VirtualMachine {
 
     pub fn invoke_exception(
         &self,
-        cls: PyTypeRef,
+        cls: &Py<PyType>,
         args: Vec<PyObjectRef>,
     ) -> PyResult<PyBaseExceptionRef> {
         // TODO: fast-path built-in exceptions by directly instantiating them? Is that really worth it?
-        let res = PyType::call(&cls, args.into_args(self), self)?;
+        let res = PyType::call(cls, args.into_args(self), self)?;
         res.downcast::<PyBaseException>().map_err(|obj| {
             self.new_type_error(format!(
                 "calling {} should have returned an instance of BaseException, not {}",
@@ -397,13 +401,13 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path().as_str();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
         filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
-        tb_entry.frame.code.obj_name
+        tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]
@@ -441,7 +445,7 @@ impl TryFromObject for ExceptionCtor {
 impl ExceptionCtor {
     pub fn instantiate(self, vm: &VirtualMachine) -> PyResult<PyBaseExceptionRef> {
         match self {
-            Self::Class(cls) => vm.invoke_exception(cls, vec![]),
+            Self::Class(cls) => vm.invoke_exception(&cls, vec![]),
             Self::Instance(exc) => Ok(exc),
         }
     }
@@ -469,7 +473,7 @@ impl ExceptionCtor {
                     exc @ PyBaseException => exc.args().to_vec(),
                     obj => vec![obj],
                 });
-                vm.invoke_exception(cls, args)
+                vm.invoke_exception(&cls, args)
             }
         }
     }
@@ -687,10 +691,8 @@ impl PyRef<PyBaseException> {
 
     #[pymethod]
     fn add_note(self, note: PyStrRef, vm: &VirtualMachine) -> PyResult<()> {
-        let dict = self
-            .as_object()
-            .dict()
-            .ok_or_else(|| vm.new_attribute_error("Exception object has no __dict__"))?;
+        let dict = crate::builtins::object::object_get_dict(self.as_object().to_owned(), vm)
+            .map_err(|_| vm.new_attribute_error("Exception object has no __dict__"))?;
 
         let notes = if let Ok(notes) = dict.get_item("__notes__", vm) {
             notes
@@ -702,7 +704,7 @@ impl PyRef<PyBaseException> {
 
         let notes = notes
             .downcast::<PyList>()
-            .map_err(|_| vm.new_type_error("__notes__ must be a list"))?;
+            .map_err(|_| vm.new_type_error("Cannot add note: __notes__ is not a list"))?;
 
         notes.borrow_vec_mut().push(note.into());
         Ok(())
@@ -744,7 +746,7 @@ impl Constructor for PyBaseException {
             return Err(vm.new_type_error("BaseException() takes no keyword arguments"));
         }
         Self::new(args.args, vm)
-            .into_ref_with_type(vm, cls)
+            .into_ref_with_type_lazy_dict(vm, cls)
             .map(Into::into)
     }
 
@@ -958,17 +960,13 @@ impl ExceptionZoo {
             "exceptions" => ctx.new_readonly_getset("exceptions", excs.base_exception_group, make_arg_getter(1)),
         });
 
-        extend_exception!(PySystemExit, ctx, excs.system_exit, {
-            "code" => ctx.new_readonly_getset("code", excs.system_exit, system_exit_code),
-        });
+        extend_exception!(PySystemExit, ctx, excs.system_exit);
         extend_exception!(PyKeyboardInterrupt, ctx, excs.keyboard_interrupt);
         extend_exception!(PyGeneratorExit, ctx, excs.generator_exit);
 
         extend_exception!(PyException, ctx, excs.exception_type);
 
-        extend_exception!(PyStopIteration, ctx, excs.stop_iteration, {
-            "value" => ctx.none(),
-        });
+        extend_exception!(PyStopIteration, ctx, excs.stop_iteration);
         extend_exception!(PyStopAsyncIteration, ctx, excs.stop_async_iteration);
 
         extend_exception!(PyArithmeticError, ctx, excs.arithmetic_error);
@@ -1099,19 +1097,6 @@ fn syntax_error_set_msg(exc: PyBaseExceptionRef, value: PySetterValue, vm: &Virt
     *args = PyTuple::new_ref(new_args, &vm.ctx);
 }
 
-fn system_exit_code(exc: PyBaseExceptionRef) -> Option<PyObjectRef> {
-    // SystemExit.code based on args length:
-    // - size == 0: code is None
-    // - size == 1: code is args[0]
-    // - size > 1: code is args (the whole tuple)
-    let args = exc.args.read();
-    Some(match args.len() {
-        0 => return None,
-        1 => args.first().unwrap().clone(),
-        _ => args.as_object().to_owned(),
-    })
-}
-
 #[cfg(feature = "serde")]
 pub struct SerializeException<'vm, 's> {
     vm: &'vm VirtualMachine,
@@ -1204,20 +1189,62 @@ impl serde::Serialize for SerializeException<'_, '_> {
     }
 }
 
-pub fn cstring_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+#[derive(Debug)]
+pub struct NulError;
+
+impl Display for NulError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "embedded null character")
+    }
+}
+
+pub fn nul_char_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
     vm.new_value_error("embedded null character")
+}
+
+pub fn nul_char_type_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_type_error("embedded null character")
+}
+
+pub fn nul_byte_error(vm: &VirtualMachine) -> PyBaseExceptionRef {
+    vm.new_value_error("embedded null byte")
 }
 
 impl ToPyException for alloc::ffi::NulError {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        cstring_error(vm)
+        nul_char_error(vm)
+    }
+}
+
+impl ToPyException for alloc::ffi::FromVecWithNulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
+    }
+}
+
+impl ToPyException for core::ffi::FromBytesWithNulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
+    }
+}
+
+impl ToPyException for NulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
     }
 }
 
 #[cfg(windows)]
 impl<C> ToPyException for widestring::error::ContainsNul<C> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        cstring_error(vm)
+        nul_char_error(vm)
+    }
+}
+
+#[cfg(windows)]
+impl ToPyException for widestring::error::MissingNulTerminator {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        vm.new_value_error(self.to_string())
     }
 }
 
@@ -1361,7 +1388,7 @@ impl OSErrorBuilder {
         let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
             .expect("new_os_error usage error");
         let os_error = payload
-            .into_ref_with_type(vm, exc_type)
+            .into_ref_with_type_lazy_dict(vm, exc_type)
             .expect("new_os_error usage error");
         PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
             .expect("new_os_error usage error");
@@ -1582,7 +1609,7 @@ impl ToPyException for rustpython_host_env::multiprocessing::SemError {
 
 pub(super) mod types {
     use crate::common::lock::PyRwLock;
-    use crate::object::{MaybeTraverse, Traverse, TraverseFn};
+    use crate::object::{Traverse, TraverseFn};
     #[cfg_attr(target_arch = "wasm32", allow(unused_imports))]
     use crate::{
         AsObject, Py, PyAtomicRef, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
@@ -1592,7 +1619,8 @@ pub(super) mod types {
             tuple::IntoPyTuple,
         },
         convert::ToPyResult,
-        function::{ArgBytesLike, FuncArgs, KwArgs},
+        function::{ArgBytesLike, FuncArgs, KwArgs, PySetterValue},
+        set_attrs,
         types::{Constructor, Initializer},
     };
     use crossbeam_utils::atomic::AtomicCell;
@@ -1622,26 +1650,81 @@ pub(super) mod types {
         pub(super) args: PyRwLock<PyTupleRef>,
     }
 
-    #[pyexception(name, base = PyBaseException, ctx = "system_exit")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PySystemExit(PyBaseException);
+    #[pyexception(name, base = PyBaseException, ctx = "system_exit", traverse = "manual")]
+    #[repr(C)]
+    pub struct PySystemExit {
+        base: PyBaseException,
+        code: PyAtomicRef<Option<PyObject>>,
+    }
 
-    // SystemExit_init: has its own __init__ that sets the code attribute
-    #[pyexception(with(Initializer))]
-    impl PySystemExit {}
+    impl crate::class::PySubclass for PySystemExit {
+        type Base = PyBaseException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    unsafe impl Traverse for PySystemExit {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.traverse(tracer_fn);
+            if let Some(obj) = self.code.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
+
+    impl core::fmt::Debug for PySystemExit {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PySystemExit").finish_non_exhaustive()
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
+    impl PySystemExit {
+        #[pygetset]
+        fn code(&self) -> Option<PyObjectRef> {
+            self.code.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_code(&self, value: PySetterValue, vm: &VirtualMachine) {
+            let code = match value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.code.swap_to_temporary_refs(code, vm);
+        }
+    }
 
     impl Initializer for PySystemExit {
         type Args = FuncArgs;
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             // Call BaseException_init first (handles args)
-            PyBaseException::slot_init(zelf, args, vm)
-            // Note: code is computed dynamically via system_exit_code getter
-            // so we don't need to set it here explicitly
+            let code = match args.args.len() {
+                0 => vm.ctx.none(),
+                1 => args.args[0].clone(),
+                _ => vm.ctx.new_tuple(args.args.clone()).into(),
+            };
+            PyBaseException::slot_init(zelf.clone(), args, vm)?;
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
+            exc.code.swap_to_temporary_refs(Some(code), vm);
+            Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is defined")
+        }
+    }
+
+    impl Constructor for PySystemExit {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let base_exception = PyBaseException::new(args.args, vm);
+            Ok(Self {
+                base: base_exception,
+                code: None.into(),
+            })
         }
     }
 
@@ -1660,23 +1743,79 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyException(PyBaseException);
 
-    #[pyexception(name, base = PyException, ctx = "stop_iteration")]
-    #[derive(Debug)]
-    #[repr(transparent)]
-    pub struct PyStopIteration(PyException);
+    #[pyexception(name, base = PyException, ctx = "stop_iteration", traverse = "manual")]
+    #[repr(C)]
+    pub struct PyStopIteration {
+        base: PyException,
+        value: PyAtomicRef<Option<PyObject>>,
+    }
 
-    #[pyexception(with(Initializer))]
-    impl PyStopIteration {}
+    impl crate::class::PySubclass for PyStopIteration {
+        type Base = PyException;
+        fn as_base(&self) -> &Self::Base {
+            &self.base
+        }
+    }
+
+    impl core::fmt::Debug for PyStopIteration {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.debug_struct("PyStopIteration").finish_non_exhaustive()
+        }
+    }
+
+    unsafe impl Traverse for PyStopIteration {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.base.0.traverse(tracer_fn);
+            if let Some(obj) = self.value.deref() {
+                tracer_fn(obj);
+            }
+        }
+    }
+
+    impl Constructor for PyStopIteration {
+        type Args = FuncArgs;
+
+        fn py_new(_cls: &Py<PyType>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+            let base_exception = PyBaseException::new(args.args, vm);
+            Ok(Self {
+                base: PyException(base_exception),
+                value: None.into(),
+            })
+        }
+    }
 
     impl Initializer for PyStopIteration {
         type Args = FuncArgs;
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.set_attr("value", vm.unwrap_or_none(args.args.first().cloned()), vm)?;
+            let value = match args.args.len() {
+                0 => vm.ctx.none(),
+                _ => args.args[0].clone(),
+            };
+            PyBaseException::slot_init(zelf.clone(), args, vm)?;
+            let exc: &Py<Self> = zelf.downcast_ref::<Self>().unwrap();
+            exc.value.swap_to_temporary_refs(Some(value), vm);
             Ok(())
         }
 
         fn init(_zelf: PyRef<Self>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<()> {
             unreachable!("slot_init is defined")
+        }
+    }
+
+    #[pyexception(with(Constructor, Initializer))]
+    impl PyStopIteration {
+        #[pygetset]
+        fn value(&self) -> Option<PyObjectRef> {
+            self.value.to_owned()
+        }
+
+        #[pygetset(setter)]
+        fn set_value(&self, setter_value: PySetterValue, vm: &VirtualMachine) {
+            let value = match setter_value {
+                PySetterValue::Assign(v) => Some(v),
+                PySetterValue::Delete => None,
+            };
+            self.value.swap_to_temporary_refs(value, vm);
         }
     }
 
@@ -1694,6 +1833,7 @@ pub(super) mod types {
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyFloatingPointError(PyArithmeticError);
+
     #[pyexception(name, base = PyArithmeticError, ctx = "overflow_error", impl)]
     #[derive(Debug)]
     #[repr(transparent)]
@@ -1738,8 +1878,10 @@ pub(super) mod types {
             PyBaseException::slot_init(zelf.clone(), base_args, vm)?;
 
             // Set attributes
-            zelf.set_attr("name", vm.unwrap_or_none(name), vm)?;
-            zelf.set_attr("obj", vm.unwrap_or_none(obj), vm)?;
+            set_attrs!(zelf, vm,
+                "name" => vm.unwrap_or_none(name),
+                "obj" => vm.unwrap_or_none(obj),
+            );
             Ok(())
         }
 
@@ -1798,7 +1940,7 @@ pub(super) mod types {
                 )));
             }
 
-            let dict = zelf.dict().unwrap();
+            let dict = crate::builtins::object::object_get_dict(zelf.clone(), vm)?;
             dict.set_item("name", vm.unwrap_or_none(name), vm)?;
             dict.set_item("path", vm.unwrap_or_none(path), vm)?;
             dict.set_item("name_from", vm.unwrap_or_none(name_from), vm)?;
@@ -1895,7 +2037,7 @@ pub(super) mod types {
     #[repr(transparent)]
     pub struct PyUnboundLocalError(PyNameError);
 
-    #[pyexception(name, base = PyException, ctx = "os_error")]
+    #[pyexception(name, base = PyException, ctx = "os_error", traverse = "manual")]
     #[repr(C)]
     pub struct PyOSError {
         base: PyException,
@@ -1925,7 +2067,10 @@ pub(super) mod types {
 
     unsafe impl Traverse for PyOSError {
         fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-            self.base.try_traverse(tracer_fn);
+            // `self.base` is a `PyException` newtype whose `MaybeTraverse` is a
+            // no-op; reach the underlying `PyBaseException` so its traceback,
+            // cause, context and args are visited by the collector.
+            self.base.0.traverse(tracer_fn);
             if let Some(obj) = self.errno.deref() {
                 tracer_fn(obj);
             }
@@ -1999,14 +2144,16 @@ pub(super) mod types {
                         .downcast_ref::<PyInt>()
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                        .and_then(|typ| vm.invoke_exception(typ.to_owned(), args_vec).ok())
+                        .and_then(|typ| vm.invoke_exception(typ, args_vec).ok())
                     {
                         return error.to_pyresult(vm);
                     }
                 }
             }
             let payload = Self::py_new(&cls, args, vm)?;
-            payload.into_ref_with_type(vm, cls).map(Into::into)
+            payload
+                .into_ref_with_type_lazy_dict(vm, cls)
+                .map(Into::into)
         }
     }
 
@@ -2473,12 +2620,18 @@ pub(super) mod types {
             let maybe_lineno = zelf
                 .as_object()
                 .get_attr("lineno", vm)
-                .and_then(|obj| obj.str_utf8(vm))
-                .ok();
-            let maybe_filename = zelf.as_object().get_attr("filename", vm).ok().map(|obj| {
-                obj.str(vm)
-                    .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
-            });
+                .ok()
+                .filter(|obj| !vm.is_none(obj))
+                .and_then(|obj| obj.str_utf8(vm).ok());
+            let maybe_filename = zelf
+                .as_object()
+                .get_attr("filename", vm)
+                .ok()
+                .filter(|obj| !vm.is_none(obj))
+                .map(|obj| {
+                    obj.str(vm)
+                        .unwrap_or_else(|_| vm.ctx.new_str("<filename str() failed>"))
+                });
 
             let msg = match zelf.as_object().get_attr("msg", vm) {
                 Ok(obj) => obj
@@ -2532,7 +2685,7 @@ pub(super) mod types {
                     4 | 6 => {}
                     5 => {
                         return Err(vm.new_type_error(
-                            "end_offset must be provided when end_lineno is provided".to_owned(),
+                            "end_offset must be provided when end_lineno is provided",
                         ));
                     }
                     _ => {
@@ -2636,7 +2789,7 @@ pub(super) mod types {
             Ok(vm.ctx.new_str(if start < object.len() && end <= object.len() && end == start + 1 {
                 let b = object.borrow_buf()[start];
                 format!(
-                    "'{encoding}' codec can't decode byte {b:#02x} in position {start}: {reason}"
+                    "'{encoding}' codec can't decode byte {b:#04x} in position {start}: {reason}"
                 )
             } else {
                 format!(
@@ -2653,12 +2806,13 @@ pub(super) mod types {
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, ArgBytesLike, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("encoding", encoding, vm)?;
-            let object_as_bytes = vm.ctx.new_bytes(object.borrow_buf().to_vec());
-            zelf.set_attr("object", object_as_bytes, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
+            set_attrs!(zelf, vm,
+                "encoding" => encoding,
+                "object" => vm.ctx.new_bytes(object.borrow_buf().to_vec()),
+                "start" => vm.ctx.new_int(start),
+                "end" => vm.ctx.new_int(end),
+                "reason" => reason,
+            );
             Ok(())
         }
 
@@ -2711,11 +2865,13 @@ pub(super) mod types {
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, PyStrRef, isize, isize, PyStrRef);
             let (encoding, object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("encoding", encoding, vm)?;
-            zelf.set_attr("object", object, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
+            set_attrs!(zelf, vm,
+                "encoding" => encoding,
+                "object" => object,
+                "start" => vm.ctx.new_int(start),
+                "end" => vm.ctx.new_int(end),
+                "reason" => reason,
+            );
             Ok(())
         }
 
@@ -2766,10 +2922,12 @@ pub(super) mod types {
         fn slot_init(zelf: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
             type Args = (PyStrRef, isize, isize, PyStrRef);
             let (object, start, end, reason): Args = args.bind(vm)?;
-            zelf.set_attr("object", object, vm)?;
-            zelf.set_attr("start", vm.ctx.new_int(start), vm)?;
-            zelf.set_attr("end", vm.ctx.new_int(end), vm)?;
-            zelf.set_attr("reason", reason, vm)?;
+            set_attrs!(zelf, vm,
+                "object" => object,
+                "start" => vm.ctx.new_int(start),
+                "end" => vm.ctx.new_int(end),
+                "reason" => reason,
+            );
             Ok(())
         }
 

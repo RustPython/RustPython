@@ -8,6 +8,7 @@ mod termios {
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytes, PyInt, PyListRef, PyTypeRef},
         convert::ToPyObject,
+        stdlib::_io::Fildes,
     };
     use rustpython_host_env::{os::ErrorExt, termios as host_termios};
 
@@ -98,6 +99,41 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::{CBAUD, CIBAUD, IUCLC, OLCUC, XCASE};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use host_termios::{CSTART, CSTOP, CSWTCH};
+    #[cfg(any(
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use host_termios::{FIOASYNC, TIOCGETD, TIOCSETD};
+    #[pyattr]
+    use host_termios::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    #[pyattr]
+    use host_termios::{
+        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
+        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
+        TIOCMSET, TIOCNXCL, TIOCSCTTY,
+    };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use host_termios::{
+        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
+        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
+    };
     #[cfg(any(
         target_os = "android",
         target_os = "freebsd",
@@ -108,47 +144,6 @@ mod termios {
     ))]
     #[pyattr]
     use host_termios::{TAB0, TABDLY};
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use host_termios::{VSWTC, VSWTC as VSWTCH};
-    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
-    #[pyattr]
-    use host_termios::{VSWTCH, VSWTCH as VSWTC};
-    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
-    #[pyattr]
-    use libc::{CSTART, CSTOP, CSWTCH};
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::{FIOASYNC, TIOCGETD, TIOCSETD};
-    #[pyattr]
-    use libc::{FIOCLEX, FIONBIO, TIOCGWINSZ, TIOCSWINSZ};
-    #[cfg(any(
-        target_os = "android",
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "netbsd",
-        target_os = "openbsd"
-    ))]
-    #[pyattr]
-    use libc::{
-        FIONCLEX, FIONREAD, TIOCEXCL, TIOCM_CAR, TIOCM_CD, TIOCM_CTS, TIOCM_DSR, TIOCM_DTR,
-        TIOCM_LE, TIOCM_RI, TIOCM_RNG, TIOCM_RTS, TIOCM_SR, TIOCM_ST, TIOCMBIC, TIOCMBIS, TIOCMGET,
-        TIOCMSET, TIOCNXCL, TIOCSCTTY,
-    };
-    #[cfg(any(target_os = "android", target_os = "linux"))]
-    #[pyattr]
-    use libc::{
-        IBSHIFT, TCFLSH, TCGETA, TCGETS, TCSBRK, TCSETA, TCSETAF, TCSETAW, TCSETS, TCSETSF,
-        TCSETSW, TCXONC, TIOCGSERIAL, TIOCGSOFTCAR, TIOCINQ, TIOCLINUX, TIOCSSOFTCAR, XTABS,
-    };
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -157,16 +152,23 @@ mod termios {
         target_os = "macos"
     ))]
     #[pyattr]
-    use libc::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
+    use host_termios::{TIOCCONS, TIOCGPGRP, TIOCOUTQ, TIOCSPGRP, TIOCSTI};
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "macos"))]
     #[pyattr]
-    use libc::{
+    use host_termios::{
         TIOCNOTTY, TIOCPKT, TIOCPKT_DATA, TIOCPKT_DOSTOP, TIOCPKT_FLUSHREAD, TIOCPKT_FLUSHWRITE,
         TIOCPKT_NOSTOP, TIOCPKT_START, TIOCPKT_STOP,
     };
+    #[cfg(any(target_os = "android", target_os = "linux"))]
+    #[pyattr]
+    use host_termios::{VSWTC, VSWTC as VSWTCH};
+    #[cfg(any(target_os = "illumos", target_os = "solaris"))]
+    #[pyattr]
+    use host_termios::{VSWTCH, VSWTCH as VSWTC};
 
     #[pyfunction]
-    fn tcgetattr(fd: i32, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn tcgetattr(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         let termios = host_termios::tcgetattr(fd).map_err(|e| termios_error(e, vm))?;
         let noncanon = (termios.c_lflag & host_termios::ICANON) == 0;
         let cc = termios
@@ -191,7 +193,13 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcsetattr(fd: i32, when: i32, attributes: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcsetattr(
+        fd: PyObjectRef,
+        when: i32,
+        attributes: PyListRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         let [iflag, oflag, cflag, lflag, ispeed, ospeed, cc] =
             <&[PyObjectRef; 7]>::try_from(&*attributes.borrow_vec())
                 .map_err(|_| vm.new_type_error("tcsetattr, arg 3: must be 7 element list"))?
@@ -233,26 +241,52 @@ mod termios {
     }
 
     #[pyfunction]
-    fn tcsendbreak(fd: i32, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcsendbreak(fd: PyObjectRef, duration: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcsendbreak(fd, duration).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcdrain(fd: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcdrain(fd: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcdrain(fd).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcflush(fd: i32, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcflush(fd: PyObjectRef, queue: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcflush(fd, queue).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 
     #[pyfunction]
-    fn tcflow(fd: i32, action: i32, vm: &VirtualMachine) -> PyResult<()> {
+    fn tcflow(fd: PyObjectRef, action: i32, vm: &VirtualMachine) -> PyResult<()> {
+        let fd = Fildes::try_from_object(vm, fd).map(Into::into)?;
         host_termios::tcflow(fd, action).map_err(|e| termios_error(e, vm))?;
+        Ok(())
+    }
+
+    #[pyfunction]
+    fn tcgetwinsize(Fildes(fd): Fildes, vm: &VirtualMachine) -> PyResult<(u16, u16)> {
+        let size = host_termios::tcgetwinsize(fd).map_err(|e| termios_error(e, vm))?;
+        Ok(size)
+    }
+
+    #[pyfunction]
+    fn tcsetwinsize(Fildes(fd): Fildes, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let seq = size.try_sequence(vm)?;
+        if seq.length(vm)? != 2 {
+            return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));
+        }
+        let row = seq.get_item(0, vm)?;
+        let col = seq.get_item(1, vm)?;
+
+        let row: u16 = row.try_index(vm)?.try_to_primitive(vm)?;
+        let col: u16 = col.try_index(vm)?.try_to_primitive(vm)?;
+
+        host_termios::tcsetwinsize(fd, row, col).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 

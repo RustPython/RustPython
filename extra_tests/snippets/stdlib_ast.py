@@ -1,4 +1,5 @@
 import ast
+import copy
 
 print(ast)
 
@@ -37,6 +38,25 @@ assert i.level == 3
 assert i.module is None
 assert i.names[0].name == "a"
 assert i.names[0].asname is None
+
+
+# Regression: parsed AST identifier fields are interned, matching CPython.
+name_literal = "x"
+name = ast.parse("x").body[0].value
+assert name.id is name_literal
+
+name.extra = object()
+replacement = copy.replace(name)
+assert replacement.id is name.id
+assert replacement.ctx is name.ctx
+assert not hasattr(replacement, "extra")
+
+function_name = "f"
+function = ast.parse("def f(): pass").body[0]
+assert function.name is function_name
+
+async_function = ast.parse("async def f(): pass").body[0]
+assert async_function.name is function_name
 
 
 # Regression test for issue #4862:

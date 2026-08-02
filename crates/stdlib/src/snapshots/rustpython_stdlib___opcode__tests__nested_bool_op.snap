@@ -1,6 +1,7 @@
 ---
 source: crates/stdlib/src/_opcode.rs
-expression: x = Test() and False or False
+assertion_line: 272
+expression: "dis(r#\"\nx = Test() and False or False\n\"#)"
 ---
   0           RESUME                   0
 

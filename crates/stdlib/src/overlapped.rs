@@ -309,8 +309,9 @@ mod _overlapped {
                 return Err(vm.new_value_error("operation failed to start"));
             }
 
-            let result =
-                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait);
+            let result = vm.allow_threads(|| {
+                host_overlapped::get_overlapped_result(inner.handle, &inner.overlapped, wait)
+            });
             let transferred = result.transferred;
             let err = result.error;
             inner.error = err;
@@ -1162,7 +1163,8 @@ mod _overlapped {
 
     #[pyfunction]
     fn GetQueuedCompletionStatus(port: isize, msecs: u32, vm: &VirtualMachine) -> PyResult {
-        match host_overlapped::get_queued_completion_status(port, msecs)
+        match vm
+            .allow_threads(|| host_overlapped::get_queued_completion_status(port, msecs))
             .map_err(|err| set_from_windows_err(err.raw_os_error().unwrap_or(0) as u32, vm))?
         {
             host_overlapped::WaitResult::Timeout => Ok(vm.ctx.none()),

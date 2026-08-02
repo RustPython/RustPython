@@ -4,14 +4,22 @@ use num_traits::{Signed, ToPrimitive};
 
 #[must_use]
 pub const fn decompose_float(value: f64) -> (f64, i32) {
-    if 0.0 == value {
-        (0.0, 0i32)
-    } else {
-        let bits = value.to_bits();
-        let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022;
-        let mantissa_bits = bits & (0x000f_ffff_ffff_ffff) | (1022 << 52);
-        (f64::from_bits(mantissa_bits), exponent)
+    if value == 0.0 {
+        return (0.0, 0);
     }
+    let bits = value.to_bits();
+    // Subnormals carry a biased exponent of 0 and no implicit leading mantissa
+    // bit, so the normal decomposition below would misread them. Scale them up
+    // into the normal range first (exact, since it is a power-of-two shift) and
+    // fold the scale back into the returned exponent.
+    let (bits, exponent_adjust) = if (bits >> 52) & 0x7ff == 0 {
+        ((value * (1u64 << 54) as f64).to_bits(), -54)
+    } else {
+        (bits, 0)
+    };
+    let exponent: i32 = ((bits >> 52) & 0x7ff) as i32 - 1022 + exponent_adjust;
+    let mantissa_bits = bits & (0x000f_ffff_ffff_ffff) | (1022 << 52);
+    (f64::from_bits(mantissa_bits), exponent)
 }
 
 /// Equate an integer to a float.
@@ -269,4 +277,528 @@ pub fn round_float_digits(x: f64, ndigits: i32) -> Option<f64> {
         return None;
     }
     Some(result)
+}
+
+/// Error from [`from_hex`], mapping to the exception the caller should raise.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HexFloatError {
+    /// ValueError "invalid hexadecimal floating-point string"
+    Invalid,
+    /// ValueError "hexadecimal string too long to convert"
+    TooLong,
+    /// OverflowError "hexadecimal value too large to represent as a float"
+    Overflow,
+}
+
+const DBL_MANT_DIG: i64 = 53;
+const DBL_MIN_EXP: i64 = -1021;
+const DBL_MAX_EXP: i64 = 1024;
+
+/// Read byte at `i`, returning `None` past the end so that digit/sign/space
+/// scans stop at the string boundary.
+#[inline]
+fn byte_at(bytes: &[u8], i: usize) -> Option<u8> {
+    bytes.get(i).copied()
+}
+
+/// '0'-'9' -> 0..9, 'a'-'f'/'A'-'F' -> 10..15, else `None`.
+#[inline]
+const fn hex_from_char(c: u8) -> Option<u8> {
+    match c {
+        b'0'..=b'9' => Some(c - b'0'),
+        b'a'..=b'f' => Some(c - b'a' + 10),
+        b'A'..=b'F' => Some(c - b'A' + 10),
+        _ => None,
+    }
+}
+
+/// Peek at byte `i` and decode it as a hex digit, or `None` if it is out of
+/// range or not a hex digit.
+#[inline]
+fn hex_digit_at(bytes: &[u8], i: usize) -> Option<u8> {
+    byte_at(bytes, i).and_then(hex_from_char)
+}
+
+/// `t` must be an ASCII-lowercase literal. Returns true if every byte of `t`
+/// matched case-insensitively starting at `s`.
+fn case_insensitive_match(bytes: &[u8], s: usize, t: &[u8]) -> bool {
+    let mut si = s;
+    let mut ti = 0;
+    while ti < t.len() && byte_at(bytes, si).is_some_and(|b| b.to_ascii_lowercase() == t[ti]) {
+        si += 1;
+        ti += 1;
+    }
+    ti == t.len()
+}
+
+/// Returns `Some((value, endptr))` when the text at `p` parses as inf/nan,
+/// otherwise `None`.
+fn parse_inf_or_nan(bytes: &[u8], p: usize) -> Option<(f64, usize)> {
+    let mut s = p;
+    let mut negate = false;
+    if byte_at(bytes, s) == Some(b'-') {
+        negate = true;
+        s += 1;
+    } else if byte_at(bytes, s) == Some(b'+') {
+        s += 1;
+    }
+    if case_insensitive_match(bytes, s, b"inf") {
+        s += 3;
+        if case_insensitive_match(bytes, s, b"inity") {
+            s += 5;
+        }
+        let value = if negate {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+        Some((value, s))
+    } else if case_insensitive_match(bytes, s, b"nan") {
+        s += 3;
+        let value = if negate {
+            f64::from_bits(0xfff8_0000_0000_0000)
+        } else {
+            f64::from_bits(0x7ff8_0000_0000_0000)
+        };
+        Some((value, s))
+    } else {
+        None
+    }
+}
+
+/// Correctly-rounded scalbn. Every call site scales an already-representable
+/// value, so the result is exact.
+const fn ldexp(x: f64, mut n: i32) -> f64 {
+    let x1p1023 = f64::from_bits(0x7fe0000000000000);
+    let x1p53 = f64::from_bits(0x4340000000000000);
+    let x1p_1022 = f64::from_bits(0x0010000000000000);
+    let mut y = x;
+    if n > 1023 {
+        y *= x1p1023;
+        n -= 1023;
+        if n > 1023 {
+            y *= x1p1023;
+            n -= 1023;
+            if n > 1023 {
+                n = 1023;
+            }
+        }
+    } else if n < -1022 {
+        y *= x1p_1022 * x1p53;
+        n += 1022 - 53;
+        if n < -1022 {
+            y *= x1p_1022 * x1p53;
+            n += 1022 - 53;
+            if n < -1022 {
+                n = -1022;
+            }
+        }
+    }
+    y * f64::from_bits(((0x3ff + n) as u64) << 52)
+}
+
+/// Parse the already-validated `[+-]?[0-9]+` slice `bytes[start..end]` as base-10
+/// signed, saturating to i64::MIN/MAX on overflow like strtol.
+fn strtol_saturating(bytes: &[u8], start: usize, end: usize) -> i64 {
+    let mut i = start;
+    let mut neg = false;
+    if i < end && (bytes[i] == b'+' || bytes[i] == b'-') {
+        neg = bytes[i] == b'-';
+        i += 1;
+    }
+    let mut val: i64 = 0;
+    let mut overflowed = false;
+    while i < end {
+        let d = (bytes[i] - b'0') as i64;
+        match val.checked_mul(10).and_then(|v| v.checked_add(d)) {
+            Some(v) => val = v,
+            None => {
+                overflowed = true;
+                break;
+            }
+        }
+        i += 1;
+    }
+    if overflowed {
+        if neg { i64::MIN } else { i64::MAX }
+    } else if neg {
+        -val
+    } else {
+        val
+    }
+}
+
+/// Parse a hexadecimal floating-point string (the `float.fromhex` grammar).
+///
+/// The raw string is consumed as-is: leading and trailing whitespace are handled
+/// internally using the ASCII space set, so callers must not trim first.
+pub fn from_hex(s: &str) -> Result<f64, HexFloatError> {
+    let bytes = s.as_bytes();
+    let s_end = bytes.len();
+
+    let mut negate = false;
+    let mut idx = 0usize;
+    let mut x;
+
+    // leading whitespace
+    while byte_at(bytes, idx).is_some_and(rustpython_wtf8::is_py_ascii_whitespace) {
+        idx += 1;
+    }
+
+    // infinities and nans
+    if let Some((value, end)) = parse_inf_or_nan(bytes, idx) {
+        idx = end;
+        return finish_hex(bytes, s_end, idx, negate, value);
+    }
+
+    // optional sign
+    if byte_at(bytes, idx) == Some(b'-') {
+        idx += 1;
+        negate = true;
+    } else if byte_at(bytes, idx) == Some(b'+') {
+        idx += 1;
+    }
+
+    // [0x]
+    let s_store = idx;
+    if byte_at(bytes, idx) == Some(b'0') {
+        idx += 1;
+        if matches!(byte_at(bytes, idx), Some(b'x' | b'X')) {
+            idx += 1;
+        } else {
+            idx = s_store;
+        }
+    }
+
+    // coefficient: <integer> [. <fraction>]
+    let coeff_start = idx;
+    while hex_digit_at(bytes, idx).is_some() {
+        idx += 1;
+    }
+    let s_store = idx;
+    let coeff_end = if byte_at(bytes, idx) == Some(b'.') {
+        idx += 1;
+        while hex_digit_at(bytes, idx).is_some() {
+            idx += 1;
+        }
+        idx - 1
+    } else {
+        idx
+    };
+
+    // ndigits = total # of hex digits; fdigits = # after point
+    let ndigits_total = (coeff_end - coeff_start) as i64;
+    let fdigits = (coeff_end - s_store) as i64;
+    if ndigits_total == 0 {
+        return Err(HexFloatError::Invalid);
+    }
+    let insane_bound = core::cmp::min(
+        DBL_MIN_EXP - DBL_MANT_DIG - i64::MIN / 2,
+        i64::MAX / 2 + 1 - DBL_MAX_EXP,
+    ) / 4;
+    if ndigits_total > insane_bound {
+        return Err(HexFloatError::TooLong);
+    }
+
+    // [p <exponent>]
+    let exp = if matches!(byte_at(bytes, idx), Some(b'p' | b'P')) {
+        idx += 1;
+        let exp_start = idx;
+        if matches!(byte_at(bytes, idx), Some(b'-' | b'+')) {
+            idx += 1;
+        }
+        if !matches!(byte_at(bytes, idx), Some(b'0'..=b'9')) {
+            return Err(HexFloatError::Invalid);
+        }
+        idx += 1;
+        while matches!(byte_at(bytes, idx), Some(b'0'..=b'9')) {
+            idx += 1;
+        }
+        strtol_saturating(bytes, exp_start, idx)
+    } else {
+        0
+    };
+
+    // HEX_DIGIT(j): jth hex digit counting from the least significant.
+    let hex_digit = |j: i64| -> i32 {
+        let byte_idx = if j < fdigits {
+            coeff_end as i64 - j
+        } else {
+            coeff_end as i64 - 1 - j
+        };
+        hex_digit_at(bytes, byte_idx as usize).expect("hex digit within coefficient") as i32
+    };
+
+    // Discard leading zeros, and catch extreme overflow and underflow.
+    let mut ndigits = ndigits_total;
+    while ndigits > 0 && hex_digit(ndigits - 1) == 0 {
+        ndigits -= 1;
+    }
+    if ndigits == 0 || exp < i64::MIN / 2 {
+        x = 0.0;
+        return finish_hex(bytes, s_end, idx, negate, x);
+    }
+    if exp > i64::MAX / 2 {
+        return Err(HexFloatError::Overflow);
+    }
+
+    // Adjust exponent for fractional part.
+    let exp = exp - 4 * fdigits;
+
+    // top_exp = 1 more than exponent of most significant bit of coefficient.
+    let mut top_exp = exp + 4 * (ndigits - 1);
+    let mut digit = hex_digit(ndigits - 1);
+    while digit != 0 {
+        top_exp += 1;
+        digit /= 2;
+    }
+
+    // catch almost all nonextreme cases of overflow and underflow here
+    if top_exp < DBL_MIN_EXP - DBL_MANT_DIG {
+        x = 0.0;
+        return finish_hex(bytes, s_end, idx, negate, x);
+    }
+    if top_exp > DBL_MAX_EXP {
+        return Err(HexFloatError::Overflow);
+    }
+
+    // lsb = exponent of least significant bit of the rounded value.
+    let lsb = core::cmp::max(top_exp, DBL_MIN_EXP) - DBL_MANT_DIG;
+
+    x = 0.0;
+    if exp >= lsb {
+        // no rounding required
+        let mut i = ndigits - 1;
+        while i >= 0 {
+            x = 16.0 * x + hex_digit(i) as f64;
+            i -= 1;
+        }
+        x = ldexp(x, exp as i32);
+        return finish_hex(bytes, s_end, idx, negate, x);
+    }
+
+    // rounding required. key_digit is the index of the hex digit
+    // containing the first bit to be rounded away.
+    let half_eps: i32 = 1 << ((lsb - exp - 1) % 4) as i32;
+    let key_digit = (lsb - exp - 1) / 4;
+    let mut i = ndigits - 1;
+    while i > key_digit {
+        x = 16.0 * x + hex_digit(i) as f64;
+        i -= 1;
+    }
+    let digit = hex_digit(key_digit);
+    x = 16.0 * x + (digit & (16 - 2 * half_eps)) as f64;
+
+    // round-half-even
+    if (digit & half_eps) != 0 {
+        let round_up = if (digit & (3 * half_eps - 1)) != 0
+            || (half_eps == 8 && key_digit + 1 < ndigits && (hex_digit(key_digit + 1) & 1) != 0)
+        {
+            true
+        } else {
+            let mut r = false;
+            let mut i = key_digit - 1;
+            while i >= 0 {
+                if hex_digit(i) != 0 {
+                    r = true;
+                    break;
+                }
+                i -= 1;
+            }
+            r
+        };
+        if round_up {
+            x += (2 * half_eps) as f64;
+            if top_exp == DBL_MAX_EXP && x == ldexp((2 * half_eps) as f64, DBL_MANT_DIG as i32) {
+                // overflow corner case
+                return Err(HexFloatError::Overflow);
+            }
+        }
+    }
+    x = ldexp(x, (exp + 4 * key_digit) as i32);
+
+    finish_hex(bytes, s_end, idx, negate, x)
+}
+
+/// Skip trailing whitespace, require the whole string was consumed, and apply
+/// the sign.
+fn finish_hex(
+    bytes: &[u8],
+    s_end: usize,
+    mut idx: usize,
+    negate: bool,
+    x: f64,
+) -> Result<f64, HexFloatError> {
+    while byte_at(bytes, idx).is_some_and(rustpython_wtf8::is_py_ascii_whitespace) {
+        idx += 1;
+    }
+    if idx != s_end {
+        return Err(HexFloatError::Invalid);
+    }
+    Ok(if negate { -x } else { x })
+}
+
+#[cfg(test)]
+mod from_hex_tests {
+    use super::{HexFloatError, from_hex};
+
+    fn bits(s: &str) -> u64 {
+        from_hex(s).unwrap().to_bits()
+    }
+
+    #[test]
+    fn from_hex_exact_bits() {
+        assert_eq!(bits("0x1p-1074"), 0x0000000000000001);
+        assert_eq!(bits("0x1.fffffffffffffp+1023"), 0x7fefffffffffffff);
+        // round-half-even ties
+        assert_eq!(bits("0x1.00000000000008p0"), 0x3ff0000000000000);
+        assert_eq!(bits("0x1.00000000000018p0"), 0x3ff0000000000002);
+        assert_eq!(bits("-0x1p0"), 0xbff0000000000000);
+        assert_eq!(bits("0x0p0"), 0x0000000000000000);
+        assert_eq!(bits("-0x0p0"), 0x8000000000000000);
+    }
+
+    #[test]
+    fn from_hex_inf_nan() {
+        assert_eq!(bits("inf"), 0x7ff0000000000000);
+        assert_eq!(bits("-inf"), 0xfff0000000000000);
+        assert_eq!(bits("Infinity"), 0x7ff0000000000000);
+
+        let n = from_hex("nan").unwrap();
+        assert!(n.is_nan());
+        assert_eq!(n.to_bits(), 0x7ff8000000000000);
+        let neg = from_hex("-nan").unwrap();
+        assert!(neg.is_nan());
+        assert_eq!(neg.to_bits(), 0xfff8000000000000);
+    }
+
+    #[test]
+    fn from_hex_whitespace() {
+        assert_eq!(bits("  0x1p0  "), 0x3ff0000000000000);
+        assert_eq!(bits("\t0x1p0\n"), 0x3ff0000000000000);
+    }
+
+    #[test]
+    fn from_hex_errors() {
+        assert_eq!(from_hex("0x1p1024"), Err(HexFloatError::Overflow));
+        assert_eq!(from_hex("0x1z"), Err(HexFloatError::Invalid));
+        assert_eq!(from_hex(""), Err(HexFloatError::Invalid));
+        assert_eq!(from_hex("0x1 p0"), Err(HexFloatError::Invalid));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hash::hash_float;
+
+    /// Exact `2**e` for `e` in `[-1074, 1023]`, built from bits so extreme
+    /// exponents don't overflow through an intermediate `2**|e|`.
+    fn pow2(e: i32) -> f64 {
+        if e >= -1022 {
+            f64::from_bits(((e + 1023) as u64) << 52)
+        } else {
+            f64::from_bits(1u64 << (e + 1074))
+        }
+    }
+
+    /// `decompose_float` is a frexp returning the *magnitude* mantissa: for a
+    /// nonzero `value`, `m` lies in `[0.5, 1)` and `m * 2**e == value.abs()`,
+    /// including for subnormals which have no implicit leading mantissa bit.
+    /// (Its sole caller reintroduces the sign via `value.signum()`.)
+    #[test]
+    fn decompose_float_frexp_contract() {
+        let mut values = alloc::vec![
+            0.0,
+            f64::from_bits(1), // smallest subnormal
+            f64::from_bits(2),
+            f64::from_bits(0x000f_ffff_ffff_ffff), // largest subnormal
+            f64::MIN_POSITIVE,                     // DBL_MIN, smallest normal
+            f64::from_bits(f64::MIN_POSITIVE.to_bits() - 1), // predecessor
+            1.0,
+            1.5,
+            0.1,
+            core::f64::consts::PI,
+        ];
+        for e in -1074..=1023 {
+            values.push(pow2(e));
+            values.push(-pow2(e));
+        }
+        for &v in &values {
+            let (m, e) = decompose_float(v);
+            if v == 0.0 {
+                assert_eq!((m, e), (0.0, 0));
+                continue;
+            }
+            assert!(
+                (0.5..1.0).contains(&m),
+                "mantissa {m} out of [0.5, 1) for value {v:e}"
+            );
+            // Reconstruct: m * 2**e must round-trip to the magnitude. Fold one
+            // power of two into the mantissa so `e` stays within `pow2`'s range
+            // (frexp yields e up to 1024 for 2**1023).
+            let reconstructed = (m * 2.0) * pow2(e - 1);
+            assert_eq!(
+                reconstructed.to_bits(),
+                v.abs().to_bits(),
+                "reconstruction failed for {v:e}: m={m}, e={e}"
+            );
+        }
+    }
+
+    /// Subnormal frexp regression: hash of the smallest positive subnormal.
+    #[test]
+    fn hash_float_smallest_subnormal() {
+        // hash(5e-324) == 16777216 (CPython 3.14 ground truth). The pre-fix
+        // bit-twiddling frexp returned 8404992 here.
+        assert_eq!(hash_float(f64::from_bits(1)), Some(16777216));
+    }
+
+    /// Differential float-hash table captured from CPython 3.14.5, spanning
+    /// subnormal boundaries, powers of two across the whole exponent range, and
+    /// a spread of normals.
+    #[test]
+    fn hash_float_matches_cpython() {
+        const HASH_CASES: &[(u64, i64)] = &[
+            (0x0000000000000001, 16777216),            // smallest subnormal 5e-324
+            (0x0000000000000002, 33554432),            // subnormal
+            (0x00000000deadbeef, 62678480394911744),   // subnormal midrange
+            (0x0008000000000000, 16384),               // subnormal high bit
+            (0x000fffffffffffff, 2305843009196949503), // largest subnormal
+            (0x0010000000000000, 32768),               // DBL_MIN smallest normal
+            (0x8000000000000001, -16777216),           // negative smallest subnormal
+            (0x0020000000000000, 65536),               // 2**-1021
+            (0x0170000000000000, 137438953472),        // 2**-1000
+            (0x39b0000000000000, 4194304),             // 2**-100
+            (0x3f50000000000000, 2251799813685248),    // 2**-10
+            (0x3fe0000000000000, 1152921504606846976), // 2**-1
+            (0x3ff0000000000000, 1),                   // 2**0
+            (0x4000000000000000, 2),                   // 2**1
+            (0x4090000000000000, 1024),                // 2**10
+            (0x4630000000000000, 549755813888),        // 2**100
+            (0x7e70000000000000, 16777216),            // 2**1000
+            (0x7fe0000000000000, 140737488355328),     // 2**1023
+            (0xffe0000000000000, -140737488355328),    // -2**1023
+            (0x3ff8000000000000, 1152921504606846977), // 1.5
+            (0x400921fb54442d18, 326490430436040707),  // 3.141592653589793
+            (0x7e37e43c8800759c, 1224995262755759164), // 1e+300
+            (0x01a56e1fc2f8f359, 482449582752280463),  // 1e-300
+            (0x40c81cd6c8b43958, 1563361560246628409), // 12345.678
+            (0x3fb999999999999a, 230584300921369408),  // 0.1
+            (0x4005666666666666, 1556444031219243010), // 2.675
+            (0x4132d68700000000, 1234567),             // 1234567.0
+            (0x44dfe154f457ea13, 1428027733287631914), // 6.022e+23
+            (0x3c07a42f549647fb, 851769299698974080),  // 1.602e-19
+            (0xbff0000000000000, -2),                  // -1.0
+            (0xbfb999999999999a, -230584300921369408), // -0.1
+        ];
+        for &(bits, expected) in HASH_CASES {
+            let v = f64::from_bits(bits);
+            assert_eq!(
+                hash_float(v),
+                Some(expected),
+                "hash mismatch for {v:e} (bits {bits:#018x})"
+            );
+        }
+    }
 }

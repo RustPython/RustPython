@@ -10,7 +10,7 @@ use rustpython_compiler_core::SourceLocation;
 use rustpython_compiler::{CompileError, ParseError};
 
 use crate::{
-    AsObject, Py, PyObject, PyObjectRef, PyRef, PyResult,
+    AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
         PyType, PyTypeRef,
@@ -22,6 +22,7 @@ use crate::{
     exceptions::OSErrorBuilder,
     function::{IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
+    set_attrs,
     vm::VirtualMachine,
 };
 
@@ -53,19 +54,10 @@ impl SyntaxErrorInfo {
         Self { msg, narrow_caret }
     }
 
-    fn with_msg(&mut self, msg: &str) {
-        self.msg = msg.into();
-    }
-
-    #[cfg(feature = "parser")]
-    const fn with_narrow_caret(&mut self, narrow_caret: bool) {
-        self.narrow_caret = narrow_caret;
-    }
-
     #[cfg(feature = "parser")]
     #[must_use]
-    const fn handle_expected_token(expected: &TokenKind, found: &TokenKind) -> &'static str {
-        match (*expected, *found) {
+    const fn handle_expected_token(expected: TokenKind, found: TokenKind) -> &'static str {
+        match (expected, found) {
             (TokenKind::Colon, TokenKind::Newline) => "expected ':'",
 
             (TokenKind::Lpar, _) => "expected '('",
@@ -109,11 +101,11 @@ impl SyntaxErrorInfo {
             ParseErrorType::UnexpectedExpressionToken => format!("invalid syntax: {}", self.msg),
 
             ParseErrorType::ExpectedToken { expected, found } => {
-                Self::handle_expected_token(expected, found).into()
+                Self::handle_expected_token(*expected, *found).into()
             }
 
             ParseErrorType::InvalidStarredExpressionUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "invalid syntax".into()
             }
 
@@ -133,7 +125,7 @@ impl SyntaxErrorInfo {
             ParseErrorType::EmptyTypeParams => "Type parameter list cannot be empty".into(),
 
             ParseErrorType::InvalidStarPatternUsage => {
-                self.with_narrow_caret(true);
+                self.narrow_caret = true;
                 "cannot use starred expression here".into()
             }
 
@@ -178,9 +170,19 @@ impl SyntaxErrorInfo {
             | ParseErrorType::SimpleAndCompoundStatementOnSameLine
             | ParseErrorType::ExpectedExpression => "invalid syntax".into(),
 
+            ParseErrorType::OtherError(s) if s.starts_with("Expected an identifier") => {
+                "invalid syntax".into()
+            }
+
             ParseErrorType::OtherError(s)
-                if s.starts_with("Expected an identifier, but found a keyword") =>
+                if s.eq_ignore_ascii_case(
+                    "Expected a type parameter or the end of the type parameter list",
+                ) =>
             {
+                "invalid syntax".into()
+            }
+
+            ParseErrorType::OtherError(s) if s.eq_ignore_ascii_case("Expected a statement") => {
                 "invalid syntax".into()
             }
 
@@ -261,7 +263,7 @@ impl SyntaxErrorInfo {
             _ => return,
         };
 
-        self.with_msg(&msg);
+        self.msg = msg;
     }
 }
 
@@ -346,11 +348,9 @@ impl VirtualMachine {
             exc_type.name()
         );
 
-        PyRef::new_ref(
-            PyBaseException::new(args, self),
-            exc_type,
-            Some(self.ctx.new_dict()),
-        )
+        PyBaseException::new(args, self)
+            .into_ref_with_type_lazy_dict(self, exc_type)
+            .expect("vm.new_exception() called with an invalid exception type")
     }
 
     pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
@@ -425,7 +425,11 @@ impl VirtualMachine {
     pub fn new_name_error(&self, msg: impl Into<Wtf8Buf>, name: PyStrRef) -> PyBaseExceptionRef {
         let name_error_type = self.ctx.exceptions.name_error.to_owned();
         let name_error = self.new_exception_msg(name_error_type, msg.into());
-        name_error.as_object().set_attr("name", name, self).unwrap();
+        set_attrs!(
+            name_error.as_object(), self, unwrap,
+            "name" => name,
+        );
+
         name_error
     }
 
@@ -512,13 +516,16 @@ impl VirtualMachine {
                 reason.clone().into(),
             ],
         );
-        exc.as_object()
-            .set_attr("encoding", encoding, self)
-            .unwrap();
-        exc.as_object().set_attr("object", object, self).unwrap();
-        exc.as_object().set_attr("start", start, self).unwrap();
-        exc.as_object().set_attr("end", end, self).unwrap();
-        exc.as_object().set_attr("reason", reason, self).unwrap();
+
+        set_attrs!(
+            exc.as_object(), self, unwrap,
+            "encoding" => encoding,
+            "object" => object,
+            "start" => start,
+            "end" => end,
+            "reason" => reason,
+        );
+
         exc
     }
 
@@ -542,13 +549,16 @@ impl VirtualMachine {
                 reason.clone().into(),
             ],
         );
-        exc.as_object()
-            .set_attr("encoding", encoding, self)
-            .unwrap();
-        exc.as_object().set_attr("object", object, self).unwrap();
-        exc.as_object().set_attr("start", start, self).unwrap();
-        exc.as_object().set_attr("end", end, self).unwrap();
-        exc.as_object().set_attr("reason", reason, self).unwrap();
+
+        set_attrs!(
+            exc.as_object(), self, unwrap,
+            "encoding" => encoding,
+            "object" => object,
+            "start" => start,
+            "end" => end,
+            "reason" => reason,
+        );
+
         exc
     }
 
@@ -565,6 +575,16 @@ impl VirtualMachine {
         source: Option<&str>,
         allow_incomplete: bool,
     ) -> PyBaseExceptionRef {
+        if matches!(
+            error,
+            crate::compiler::CompileError::Codegen(crate::compiler::codegen::error::CodegenError {
+                error: crate::compiler::codegen::error::CodegenErrorType::RecursionError,
+                ..
+            })
+        ) {
+            return self.new_recursion_error(error.to_string());
+        }
+
         let incomplete_or_syntax = |allow| -> &'static Py<crate::builtins::PyType> {
             if allow {
                 self.ctx.exceptions.incomplete_input_error
@@ -676,7 +696,9 @@ impl VirtualMachine {
                 raw_location,
                 ..
             }) => {
-                if s.starts_with("Expected an indented block after") {
+                if s.starts_with("Expected an indented block after")
+                    || s.starts_with("expected an indented block after")
+                {
                     if allow_incomplete {
                         // Check that all chars in the error are whitespace, if so, the source is
                         // incomplete. Otherwise, we've found code that might violates
@@ -706,6 +728,12 @@ impl VirtualMachine {
                     } else {
                         self.ctx.exceptions.indentation_error
                     }
+                } else if allow_incomplete
+                    && source.is_some_and(|source| {
+                        raw_location.end().to_usize() >= source.len() && !source.ends_with('\n')
+                    })
+                {
+                    self.ctx.exceptions.incomplete_input_error
                 } else {
                     self.ctx.exceptions.syntax_error
                 }
@@ -727,7 +755,29 @@ impl VirtualMachine {
         let statement = source.and_then(|src| get_statement(src, error.location()));
 
         let mut msg = error.to_string();
-        if let Some(msg) = msg.get_mut(..1) {
+        if !msg.starts_with("Exceeds the limit ")
+            && !msg.starts_with("Did you mean ")
+            && !msg.starts_with("Invalid star expression")
+            && !msg.starts_with("Function parameters cannot be parenthesized")
+            && !msg.starts_with("Lambda expression parameters cannot be parenthesized")
+            && !msg.starts_with("Cannot have two type comments on def")
+            && !msg.starts_with("Variable annotation syntax is")
+            && !msg.starts_with("The '@' operator is")
+            && !msg.starts_with("Async functions are")
+            && !msg.starts_with("Async comprehensions are")
+            && !msg.starts_with("Async for loops are")
+            && !msg.starts_with("Async with statements are")
+            && !msg.starts_with("Exception groups are")
+            && !msg.starts_with("Positional-only parameters are")
+            && !msg.starts_with("Pattern matching is")
+            && !msg.starts_with("Type statement is")
+            && !msg.starts_with("Type parameter lists are")
+            && !msg.starts_with("Type parameter defaults are")
+            && !msg.starts_with("Assignment expressions are")
+            && !msg.starts_with("Await expressions are")
+            && !msg.starts_with("Underscores in numeric literals are")
+            && let Some(msg) = msg.get_mut(..1)
+        {
             msg.make_ascii_lowercase();
         }
 
@@ -742,53 +792,63 @@ impl VirtualMachine {
         };
 
         if syntax_error_type.is(self.ctx.exceptions.tab_error) {
-            syntax_error_info.with_msg("inconsistent use of tabs and spaces in indentation");
+            syntax_error_info.msg =
+                String::from("inconsistent use of tabs and spaces in indentation");
+        } else if syntax_error_type.is(self.ctx.exceptions.incomplete_input_error) {
+            syntax_error_info.msg = String::from("incomplete input");
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
+        let check_version_suite_error = msg.starts_with("Async functions are")
+            || msg.starts_with("Async for loops are")
+            || msg.starts_with("Async with statements are")
+            || msg.starts_with("Exception groups are")
+            || msg.starts_with("except expressions without parentheses are")
+            || msg.starts_with("Pattern matching is");
+        let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
-        let (lineno, offset) = error.python_location();
-        let lineno = self.ctx.new_int(lineno);
-        let offset = self.ctx.new_int(offset);
-        syntax_error
-            .as_object()
-            .set_attr("lineno", lineno, self)
-            .unwrap();
-        syntax_error
-            .as_object()
-            .set_attr("offset", offset, self)
-            .unwrap();
+        let (lineno_raw, offset_raw) = error.python_location();
+        let lineno = self.ctx.new_int(lineno_raw);
+        let offset = self.ctx.new_int(offset_raw);
+        set_attrs!(
+            syntax_error.as_object(), self, unwrap,
+            "lineno" => lineno,
+            "offset" => offset,
+        );
 
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
-            let (end_lineno, end_offset) = if narrow_caret {
+            let (end_lineno, end_offset) = if check_version_suite_error
+                && statement
+                    .as_deref()
+                    .and_then(|line| line.chars().next())
+                    .is_some_and(|ch| ch.is_ascii_whitespace())
+            {
+                (end_lineno, -1)
+            } else if line_end_binary_operator_error && end_offset == offset_raw {
+                (end_lineno, (end_offset + 1) as isize)
+            } else if narrow_caret {
                 let (l, o) = error.python_location();
-                (l, o + 1)
+                (l, (o + 1) as isize)
             } else {
-                (end_lineno, end_offset)
+                (end_lineno, end_offset as isize)
             };
             let end_lineno = self.ctx.new_int(end_lineno);
             let end_offset = self.ctx.new_int(end_offset);
-            syntax_error
-                .as_object()
-                .set_attr("end_lineno", end_lineno, self)
-                .unwrap();
-            syntax_error
-                .as_object()
-                .set_attr("end_offset", end_offset, self)
-                .unwrap();
+            set_attrs!(
+                syntax_error.as_object(), self, unwrap,
+                "end_lineno" => end_lineno,
+                "end_offset" => end_offset,
+            );
         }
 
-        syntax_error
-            .as_object()
-            .set_attr("text", statement.to_pyobject(self), self)
-            .unwrap();
-        syntax_error
-            .as_object()
-            .set_attr("filename", self.ctx.new_str(error.source_path()), self)
-            .unwrap();
+        set_attrs!(
+            syntax_error.as_object(), self, unwrap,
+            "text" => statement.to_pyobject(self),
+            "filename" => self.ctx.new_str(error.source_path())
+        );
 
         // Set _metadata for keyword typo suggestions in traceback module.
         // Format: (start_line, col_offset, source_code)
@@ -800,10 +860,10 @@ impl VirtualMachine {
                 self.ctx.new_int(0).into(),
                 self.ctx.new_str(source).into(),
             ]);
-            syntax_error
-                .as_object()
-                .set_attr("_metadata", metadata, self)
-                .unwrap();
+            set_attrs!(
+                syntax_error.as_object(), self, unwrap,
+                "_metadata" => metadata,
+            );
         }
 
         syntax_error
@@ -825,26 +885,24 @@ impl VirtualMachine {
     ) -> PyBaseExceptionRef {
         let import_error = self.ctx.exceptions.import_error.to_owned();
         let exc = self.new_exception_msg(import_error, msg.into());
-        exc.as_object().set_attr("name", name.into(), self).unwrap();
+        set_attrs!(
+            exc.as_object(), self, unwrap,
+            "name" => name.into(),
+        );
+
         exc
     }
 
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
-        let dict = self.ctx.new_dict();
+        let stop_iteration_error = self.ctx.exceptions.stop_iteration;
         let args = if let Some(value) = value {
-            // manually set `value` attribute like StopIteration.__init__
-            dict.set_item("value", value.clone(), self)
-                .expect("dict.__setitem__ never fails");
             vec![value]
         } else {
             Vec::new()
         };
+        let exc = self.invoke_exception(stop_iteration_error, args);
 
-        PyRef::new_ref(
-            PyBaseException::new(args, self),
-            self.ctx.exceptions.stop_iteration.to_owned(),
-            Some(dict),
-        )
+        exc.expect("StopIteration is a BaseException Subclass.")
     }
 
     fn new_downcast_error(
@@ -922,4 +980,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_runtime_error, runtime_error, RuntimeError);
     define_exception_fn!(fn new_python_finalization_error, python_finalization_error, PythonFinalizationError);
     define_exception_fn!(fn new_memory_error, memory_error, MemoryError);
+    define_exception_fn!(fn new_assertion_error, assertion_error, AssertionError);
+    define_exception_fn!(fn new_unbound_local_error, unbound_local_error, UnboundLocalError);
 }

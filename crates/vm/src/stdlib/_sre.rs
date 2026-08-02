@@ -23,7 +23,7 @@ mod _sre {
     use num_traits::ToPrimitive;
     use rustpython_sre_engine::{
         Request, SearchIter, SreFlag, State, StrDrive,
-        string::{lower_ascii, lower_unicode, upper_unicode},
+        string::{lower_ascii, lower_unicode},
     };
 
     #[pyattr]
@@ -41,8 +41,7 @@ mod _sre {
 
     #[pyfunction]
     fn unicode_iscased(ch: i32) -> bool {
-        let ch = ch as u32;
-        ch != lower_unicode(ch) || ch != upper_unicode(ch)
+        char::from_u32(ch as u32).is_some_and(rustpython_unicode::case::is_cased)
     }
 
     #[pyfunction]
@@ -147,11 +146,9 @@ mod _sre {
         let mut items = Vec::with_capacity(1);
         let v = template.borrow_vec();
         let literal = v.first().ok_or_else(err)?.clone();
-        let trunks = v[1..].chunks_exact(2);
-
-        if !trunks.remainder().is_empty() {
+        let (trunks, []) = v[1..].as_chunks::<2>() else {
             return Err(err());
-        }
+        };
 
         for trunk in trunks {
             let index: usize = trunk[0]
@@ -472,15 +469,7 @@ mod _sre {
                         }
                         FilterType::Template(template) => {
                             let m = Match::new(&mut iter.state, zelf.clone(), string.clone());
-                            // template.expand(m)?
-                            // let mut list = vec![template.literal.clone()];
-                            sub_list.push(template.literal.clone());
-                            for (index, literal) in template.items.iter().cloned() {
-                                if let Some(item) = m.get_slice(index, s, vm) {
-                                    sub_list.push(item);
-                                }
-                                sub_list.push(literal);
-                            }
+                            m.expand_template(template, s, &mut sub_list, vm);
                         }
                     };
 
@@ -703,10 +692,19 @@ mod _sre {
         }
 
         #[pymethod]
-        fn expand(zelf: PyRef<Self>, template: PyStrRef, vm: &VirtualMachine) -> PyResult {
-            let re = vm.import("re", 0)?;
-            let func = re.get_attr("_expand", vm)?;
-            func.call((zelf.pattern.clone(), zelf, template), vm)
+        fn expand(zelf: PyRef<Self>, template: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+            let template = Template::compile(zelf.pattern.clone(), template, vm)?;
+            with_sre_str!(zelf.pattern, &zelf.string, vm, |s| {
+                let mut list: Vec<PyObjectRef> = Vec::new();
+                zelf.expand_template(&template, s, &mut list, vm);
+
+                let join_type: PyObjectRef = if zelf.pattern.isbytes {
+                    vm.ctx.new_bytes(vec![]).into()
+                } else {
+                    vm.ctx.new_str(ascii!("")).into()
+                };
+                vm.call_method(&join_type, "join", (PyList::from(list).into_pyobject(vm),))
+            })
         }
 
         #[pymethod]
@@ -819,6 +817,26 @@ mod _sre {
                 return None;
             }
             Some(str_drive.slice(start as usize, end as usize, vm))
+        }
+
+        /// Expand an already-compiled template against this match, appending the
+        /// resulting literal/group segments to `list`. Shared by `expand` and
+        /// `Pattern.sub` so the template-filling logic lives in one place; the
+        /// caller is responsible for compiling the template (once) beforehand.
+        fn expand_template<S: SreStr>(
+            &self,
+            template: &Template,
+            str_drive: S,
+            list: &mut Vec<PyObjectRef>,
+            vm: &VirtualMachine,
+        ) {
+            list.push(template.literal.clone());
+            for (index, literal) in template.items.iter().cloned() {
+                if let Some(item) = self.get_slice(index, str_drive, vm) {
+                    list.push(item);
+                }
+                list.push(literal);
+            }
         }
 
         #[pyclassmethod]

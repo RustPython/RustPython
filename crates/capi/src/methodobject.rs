@@ -2,7 +2,8 @@ use crate::PyObject;
 use crate::object::PyTypeObject;
 use crate::object::define_py_check;
 use crate::pystate::with_vm;
-use core::ffi::{CStr, c_char, c_int};
+use crate::util::CStrExt;
+use core::ffi::{c_char, c_int};
 use core::ptr::NonNull;
 use rustpython_vm::function::{FuncArgs, HeapMethodDef, PosArgs, PyMethodFlags};
 use rustpython_vm::{AsObject, PyObjectRef, PyRef, PyResult, VirtualMachine};
@@ -46,20 +47,13 @@ pub(crate) fn build_method_def(
     ml: &PyMethodDef,
     has_self: bool,
 ) -> PyResult<PyRef<HeapMethodDef>> {
-    let name = unsafe { CStr::from_ptr(ml.ml_name) }
-        .to_str()
-        .map_err(|_| vm.new_system_error("Method name was not valid UTF-8"))?;
+    let name = unsafe { ml.ml_name.try_as_str(vm) }?;
 
-    let doc = NonNull::new(ml.ml_doc.cast_mut())
-        .map(|doc| {
-            unsafe { CStr::from_ptr(doc.as_ptr()) }
-                .to_str()
-                .map_err(|_| vm.new_system_error("Method doc was not valid UTF-8"))
-        })
-        .transpose()?;
+    let doc = unsafe { ml.ml_doc.try_as_str_opt(vm) }?;
 
     let flags = PyMethodFlags::from_bits(ml.ml_flags as u32)
         .ok_or_else(|| vm.new_system_error("PyMethodDef contains unknown flags"))?;
+    let has_self = has_self && !flags.contains(PyMethodFlags::STATIC);
 
     let method = ml.ml_meth;
 
@@ -306,7 +300,7 @@ pub unsafe extern "C" fn PyCFunction_NewEx(
     unsafe { PyCMethod_New(ml, slf, module, core::ptr::null_mut()) }
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::exceptions::PyException;
     use pyo3::ffi::{PyLong_FromLong, PyObject};
@@ -314,7 +308,7 @@ mod tests {
     use pyo3::types::{PyCFunction, PyInt, PyString};
 
     #[test]
-    fn test_closure_function() {
+    fn closure_function() {
         Python::attach(|py| {
             let f = PyCFunction::new_closure(py, None, None, |_args, _kwargs| "Hello from Rust!")
                 .unwrap();
@@ -327,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn test_function_no_args() {
+    fn function_no_args() {
         Python::attach(|py| {
             unsafe extern "C" fn c_fn(_self: *mut PyObject, _args: *mut PyObject) -> *mut PyObject {
                 assert!(_self.is_null());
@@ -352,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn test_closure_function_error() {
+    fn closure_function_error() {
         Python::attach(|py| {
             let f = PyCFunction::new_closure(py, None, None, |_args, _kwargs| {
                 Err::<(), _>(PyException::new_err("Something went wrong"))
@@ -365,5 +359,18 @@ mod tests {
                 "Exception('Something went wrong')"
             );
         })
+    }
+
+    #[test]
+    fn wrap_static_no_args_function() {
+        #[pyfunction()]
+        fn f() {}
+
+        Python::attach(|py| {
+            let module = PyModule::new(py, "test_wrap_pyfunction_forms").unwrap();
+
+            let func = wrap_pyfunction!(f, &module).unwrap();
+            func.call0().unwrap();
+        });
     }
 }

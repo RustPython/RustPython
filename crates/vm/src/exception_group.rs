@@ -71,11 +71,8 @@ pub(super) mod types {
             vm: &VirtualMachine,
         ) -> PyResult {
             let message = zelf.get_arg(0).unwrap_or_else(|| vm.ctx.new_str("").into());
-            vm.invoke_exception(
-                vm.ctx.exceptions.base_exception_group.to_owned(),
-                vec![message, excs],
-            )
-            .map(|e| e.into())
+            vm.invoke_exception(vm.ctx.exceptions.base_exception_group, vec![message, excs])
+                .map(|e| e.into())
         }
 
         #[pymethod]
@@ -334,7 +331,7 @@ pub(super) mod types {
             let exceptions_tuple = vm.ctx.new_tuple(exceptions);
             let init_args = vec![message, exceptions_tuple.into()];
             PyBaseException::new(init_args, vm)
-                .into_ref_with_type(vm, actual_cls)
+                .into_ref_with_type_lazy_dict(vm, actual_cls)
                 .map(Into::into)
         }
 

@@ -94,11 +94,15 @@ pub mod windows {
 
     // _Py_fstat_noraise in cpython
     pub fn fstat(fd: crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-        let h = crt_fd::as_handle(fd);
-        if h.is_err() {
-            unsafe { SetLastError(ERROR_INVALID_HANDLE) };
-        }
-        let h = h?;
+        let h = match crt_fd::as_handle(fd) {
+            Ok(h) => h,
+            Err(_) => {
+                // An invalid fd is reported as a Win32 handle error so the
+                // OSError carries winerror = ERROR_INVALID_HANDLE.
+                unsafe { SetLastError(ERROR_INVALID_HANDLE) };
+                return Err(std::io::Error::last_os_error());
+            }
+        };
         let h = h.as_raw_handle();
         // reset stat?
 
@@ -165,8 +169,8 @@ pub mod windows {
         (time_out, nsec_out as _)
     }
 
-    fn file_time_to_time_t_nsec(in_ptr: &FILETIME) -> (libc::time_t, libc::c_int) {
-        let in_val: i64 = unsafe { core::mem::transmute_copy(in_ptr) };
+    fn file_time_to_time_t_nsec(in_ptr: FILETIME) -> (libc::time_t, libc::c_int) {
+        let in_val: i64 = unsafe { core::mem::transmute_copy(&in_ptr) };
         let nsec_out = (in_val % 10_000_000) * 100; // FILETIME is in units of 100 nsec.
         let time_out = (in_val / 10_000_000) - SECS_BETWEEN_EPOCHS;
         (time_out, nsec_out as _)
@@ -196,10 +200,10 @@ pub mod windows {
             )
         } else {
             (
-                file_time_to_time_t_nsec(&info.ftCreationTime),
+                file_time_to_time_t_nsec(info.ftCreationTime),
                 (0, 0),
-                file_time_to_time_t_nsec(&info.ftLastWriteTime),
-                file_time_to_time_t_nsec(&info.ftLastAccessTime),
+                file_time_to_time_t_nsec(info.ftLastWriteTime),
+                file_time_to_time_t_nsec(info.ftLastAccessTime),
             )
         };
         let st_nlink = info.nNumberOfLinks as i32;
@@ -442,10 +446,26 @@ pub mod windows {
     }
 }
 
+/// C `FILE *` handle as returned by [`fopen`] and consumed by [`fclose`].
+pub type CFile = libc::FILE;
+
+/// Close a file opened with [`fopen`].
+///
+/// # Safety
+/// `fp` must be a non-null pointer returned by [`fopen`] and must not have been
+/// closed already.
+pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
+    unsafe { libc::fclose(fp) }
+}
+
 // _Py_fopen_obj in cpython (Python/fileutils.c:1757-1835)
 // Open a file using std::fs::File and convert to FILE*
 // Automatically handles path encoding and EINTR retries
-pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut libc::FILE> {
+#[expect(
+    clippy::std_instead_of_core,
+    reason = "false positive: core::io::ErrorKind is unstable (core_io)"
+)]
+pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
     use alloc::ffi::CString;
     use std::fs::File;
 

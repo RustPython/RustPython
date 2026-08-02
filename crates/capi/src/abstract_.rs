@@ -1,9 +1,19 @@
+use crate::util::CStrExt;
 use crate::{PyObject, pystate::with_vm};
 use alloc::slice;
-use core::ffi::c_int;
+use core::ffi::{c_char, c_int};
+pub use iter::*;
+pub use mapping::*;
+pub use number::*;
 use rustpython_vm::builtins::{PyDict, PyStr, PyTuple};
 use rustpython_vm::function::{FuncArgs, KwArgs, PosArgs};
 use rustpython_vm::{AsObject, Py, PyObjectRef, PyResult, VirtualMachine};
+pub use sequence::*;
+
+mod iter;
+mod mapping;
+mod number;
+mod sequence;
 
 const PY_VECTORCALL_ARGUMENTS_OFFSET: usize = 1usize << (usize::BITS as usize - 1);
 
@@ -15,9 +25,11 @@ fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
     dict.items_vec()
         .into_iter()
         .map(|(key, value)| {
+            // `to_string()` would replace lone surrogates with U+FFFD; keep the
+            // raw WTF-8 so surrogate keys round-trip (issue #8228).
             let key = key
                 .downcast_ref::<PyStr>()
-                .map(|s| s.to_string())
+                .map(|s| s.as_wtf8().to_owned())
                 .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
             Ok((key, value))
         })
@@ -46,6 +58,21 @@ pub unsafe extern "C" fn PyObject_Call(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_CallNoArgs(callable: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| unsafe { &*callable }.call((), vm))
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_CallObject(
+    callable: *mut PyObject,
+    args: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let callable = unsafe { &*callable };
+        if let Some(args) = unsafe { args.as_ref() } {
+            callable.call(tuple_to_args(args.try_downcast_ref::<PyTuple>(vm)?), vm)
+        } else {
+            callable.call((), vm)
+        }
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -91,9 +118,7 @@ pub unsafe extern "C" fn PyObject_VectorcallMethod(
         let args_len = nargsf & !PY_VECTORCALL_ARGUMENTS_OFFSET;
 
         if args_len == 0 {
-            return Err(
-                vm.new_system_error("PyObject_VectorcallMethod called with no receiver".to_owned())
-            );
+            return Err(vm.new_system_error("PyObject_VectorcallMethod called with no receiver"));
         }
 
         let (receiver, args) = unsafe { slice::from_raw_parts(args, args_len) }
@@ -111,6 +136,42 @@ pub unsafe extern "C" fn PyObject_VectorcallMethod(
                 kwnames,
             )
         })
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyVectorcall_Call(
+    callable: *mut PyObject,
+    tuple: *mut PyObject,
+    kwargs: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let callable = unsafe { &*callable };
+        let tuple = unsafe { &*tuple }.try_downcast_ref::<PyTuple>(vm)?;
+
+        let mut args = tuple.iter().cloned().collect::<Vec<_>>();
+        let num_positional_args = args.len();
+
+        let mut kwnames = Vec::new();
+        if let Some(kwargs) = unsafe { kwargs.as_ref() } {
+            let kwargs = kwargs.try_downcast_ref::<PyDict>(vm)?;
+            for (key, value) in kwargs.items_vec() {
+                let key = key
+                    .downcast_ref::<PyStr>()
+                    .map(ToOwned::to_owned)
+                    .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
+                kwnames.push(key.into());
+                args.push(value);
+            }
+        }
+
+        let kwnames = if kwnames.is_empty() {
+            None
+        } else {
+            Some(kwnames.as_slice())
+        };
+
+        callable.vectorcall(args, num_positional_args, kwnames, vm)
     })
 }
 
@@ -147,6 +208,30 @@ pub unsafe extern "C" fn PyObject_DelItem(obj: *mut PyObject, key: *mut PyObject
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_DelItemString(obj: *mut PyObject, key: *const c_char) -> c_int {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let key = unsafe { key.try_as_str(vm) }?;
+        obj.del_item(key, vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Format(
+    obj: *mut PyObject,
+    format_spec: *mut PyObject,
+) -> *mut PyObject {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        let spec = unsafe { format_spec.as_ref() }
+            .map(|spec| spec.try_downcast_ref::<PyStr>(vm))
+            .transpose()?
+            .unwrap_or_else(|| vm.ctx.empty_str);
+        vm.format(obj, spec.to_owned())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn PyObject_IsSubclass(derived: *mut PyObject, cls: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let derived = unsafe { &*derived };
@@ -162,4 +247,59 @@ pub unsafe extern "C" fn PyObject_IsInstance(inst: *mut PyObject, cls: *mut PyOb
         let cls = unsafe { &*cls };
         inst.is_instance(cls, vm)
     })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Size(obj: *mut PyObject) -> isize {
+    with_vm(|vm| {
+        let obj = unsafe { &*obj };
+        obj.length(vm)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Length(obj: *mut PyObject) -> isize {
+    unsafe { PyObject_Size(obj) }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn PyObject_Type(obj: *mut PyObject) -> *mut PyObject {
+    with_vm(|_vm| unsafe { &*obj }.obj_type())
+}
+
+#[cfg(test)]
+mod tests {
+    use pyo3::prelude::*;
+    use pyo3::types::{PyDict, PyString};
+
+    #[test]
+    fn call_method1() {
+        Python::attach(|py| {
+            let string = PyString::new(py, "Hello, World!");
+            assert!(
+                string
+                    .call_method1("endswith", ("!",))
+                    .unwrap()
+                    .is_truthy()
+                    .unwrap()
+            );
+        })
+    }
+
+    #[test]
+    fn object_set_get_del_item() {
+        Python::attach(|py| {
+            let obj = PyDict::new(py).into_any();
+            obj.set_item("key", "value").unwrap();
+            assert_eq!(
+                obj.get_item("key")
+                    .unwrap()
+                    .cast_into::<PyString>()
+                    .unwrap(),
+                "value"
+            );
+            obj.del_item("key").unwrap();
+            assert!(obj.get_item("key").is_err());
+        })
+    }
 }

@@ -15,10 +15,10 @@ import sys
 import tempfile
 import types
 
-try:
-    _testsinglephase = import_helper.import_module("_testsinglephase")
+try: # TODO: RUSTPYTHON
+    import_helper.import_module("_testmultiphase")
 except unittest.SkipTest:
-    _testsinglephase = None  # TODO: RUSTPYTHON
+    _testmultiphase = None
 
 
 BUILTINS = types.SimpleNamespace()

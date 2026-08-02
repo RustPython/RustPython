@@ -1,4 +1,5 @@
 use super::*;
+use crate::builtins::PyIntRef;
 use rustpython_codegen::compile::ruff_int_to_bigint;
 use rustpython_compiler_core::SourceFile;
 
@@ -13,7 +14,11 @@ impl Node for ast::Identifier {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        let py_str = PyUtf8StrRef::try_from_object(vm, object)?;
+        if !object.class().is(vm.ctx.types.str_type) {
+            return Err(vm.new_type_error("AST identifier must be of type str"));
+        }
+        let py_str = PyUtf8StrRef::try_from_object(vm, object)
+            .map_err(|_| vm.new_type_error("AST identifier must be of type str"))?;
         Ok(Self::new(py_str.as_str(), TextRange::default()))
     }
 }
@@ -28,7 +33,6 @@ impl Node for ast::Int {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        // FIXME: performance
         let value: PyIntRef = object.try_into_value(vm)?;
         let value = value.as_bigint().to_string();
         Ok(value.parse().unwrap())
@@ -45,6 +49,6 @@ impl Node for bool {
         _source_file: &SourceFile,
         object: PyObjectRef,
     ) -> PyResult<Self> {
-        i32::try_from_object(vm, object).map(|i| i != 0)
+        node_object_to_i32(vm, object).map(|i| i != 0)
     }
 }

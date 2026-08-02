@@ -10,6 +10,7 @@ mod grp {
         exceptions,
         types::PyStructSequence,
     };
+    use core::hint::cold_path;
     use rustpython_host_env::grp as host_grp;
 
     #[pystruct_sequence_data]
@@ -43,7 +44,7 @@ mod grp {
     #[pyfunction]
     fn getgrgid(gid: PyIntRef, vm: &VirtualMachine) -> PyResult<GroupData> {
         let gr_gid = gid.as_bigint();
-        let gid = libc::gid_t::try_from(gr_gid).ok();
+        let gid = host_grp::gid_t::try_from(gr_gid).ok();
         let group = gid
             .map(host_grp::getgrgid)
             .transpose()
@@ -61,10 +62,11 @@ mod grp {
 
     #[pyfunction]
     fn getgrnam(name: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<GroupData> {
-        let gr_name = name.as_str();
-        if gr_name.contains('\0') {
-            return Err(exceptions::cstring_error(vm));
+        if name.as_pystr().contains_nuls() {
+            cold_path();
+            return Err(exceptions::nul_char_error(vm));
         }
+        let gr_name = name.as_str();
         let group = host_grp::getgrnam(gr_name).map_err(|err| err.into_pyexception(vm))?;
         let group = group.ok_or_else(|| {
             vm.new_key_error(

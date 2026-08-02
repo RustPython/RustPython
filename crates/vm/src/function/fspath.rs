@@ -6,6 +6,7 @@ use crate::{
     protocol::PyBuffer,
 };
 use alloc::borrow::Cow;
+use core::hint::cold_path;
 use std::{ffi::OsStr, path::PathBuf};
 
 /// Helper to implement os.fspath()
@@ -36,21 +37,20 @@ impl FsPath {
         msg: &'static str,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
-        let check_nul = |b: &[u8]| {
-            if !check_for_nul || memchr::memchr(b'\0', b).is_none() {
-                Ok(())
-            } else {
-                Err(crate::exceptions::cstring_error(vm))
-            }
-        };
         let match1 = |obj: PyObjectRef| {
             let pathlike = match_class!(match obj {
                 s @ PyStr => {
-                    check_nul(s.as_bytes())?;
+                    if check_for_nul && s.contains_nuls() {
+                        cold_path();
+                        return Err(crate::exceptions::nul_char_error(vm));
+                    }
                     Self::Str(s)
                 }
                 b @ PyBytes => {
-                    check_nul(&b)?;
+                    if check_for_nul && b.contains_nuls() {
+                        cold_path();
+                        return Err(crate::exceptions::nul_char_error(vm));
+                    }
                     Self::Bytes(b)
                 }
                 obj => return Ok(Err(obj)),
@@ -125,8 +125,15 @@ impl FsPath {
     }
 
     pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
-        rustpython_host_env::os::bytes_as_os_str(b)
-            .map_err(|_| vm.new_unicode_decode_error("can't decode path for utf-8"))
+        rustpython_host_env::os::bytes_as_os_str(b).map_err(|e| {
+            vm.new_unicode_decode_error_real(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(b.to_vec()),
+                e.valid_up_to(),
+                e.error_len().map_or(b.len(), |n| e.valid_up_to() + n),
+                vm.ctx.new_str("can't decode path for utf-8"),
+            )
+        })
     }
 }
 

@@ -6,7 +6,7 @@ mod _operator {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyInt, PyIntRef, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
         common::wtf8::{Wtf8, Wtf8Buf},
-        function::{ArgBytesLike, Either, FuncArgs, KwArgs, OptionalArg},
+        function::{ArgBytesLike, Either, FuncArgs, OptionalArg},
         protocol::PyIter,
         recursion::ReprGuard,
         types::{Callable, Constructor, PyComparisonOp, Representable},
@@ -564,7 +564,7 @@ mod _operator {
                 let partial = vm.import("functools", 0)?.get_attr("partial", vm)?;
                 let args = FuncArgs::new(
                     vec![zelf.class().to_owned().into(), zelf.name.clone().into()],
-                    KwArgs::new(zelf.args.kwargs.clone()),
+                    zelf.args.kwargs.clone(),
                 );
                 let callable = partial.call(args, vm)?;
                 Ok(vm.new_tuple((callable, vm.ctx.new_tuple(zelf.args.args.clone()))))
@@ -610,7 +610,7 @@ mod _operator {
                 }
                 for (key, value) in kwargs {
                     result.push_str(", ");
-                    result.push_str(key);
+                    result.push_wtf8(key);
                     result.push_char('=');
                     result.push_wtf8(value.repr(vm)?.as_wtf8());
                 }

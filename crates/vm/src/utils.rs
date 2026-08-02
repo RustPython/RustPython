@@ -1,12 +1,9 @@
-use core::fmt;
-
 use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 
 use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
-    exceptions::cstring_error,
 };
 
 pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
@@ -25,13 +22,6 @@ impl ToPyObject for core::convert::Infallible {
 pub trait ToCString: AsRef<Wtf8> {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
         alloc::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
-    }
-    fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.as_ref().as_bytes().contains(&b'\0') {
-            Err(cstring_error(vm))
-        } else {
-            Ok(())
-        }
     }
 }
 
@@ -73,17 +63,4 @@ where
     }
 
     Ok(repr)
-}
-
-/// Wrapper around a bytes vector that implements [`fmt::Write`].
-///
-/// # Safety
-/// Don't assume the contents of the internal vector are valid UTF-8/WTF-8.
-pub(crate) struct VecFmtWriter(pub Vec<u8>);
-
-impl fmt::Write for VecFmtWriter {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        self.0.extend(s.bytes());
-        Ok(())
-    }
 }

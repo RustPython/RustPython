@@ -13,6 +13,9 @@
 //!
 //! Warning: This library contains AI-generated code and comments. Do not trust any code or comment without verification. Please have a qualified expert review the code and remove this notice after review.
 
+// false positive: core::io::{Cursor, ErrorKind} are unstable (core_io), unusable on stable
+#![expect(clippy::std_instead_of_core)]
+
 // OID (Object Identifier) management module
 mod oid;
 
@@ -64,9 +67,12 @@ mod _ssl {
     use alloc::sync::Arc;
     use core::{
         hash::{Hash, Hasher},
+        hint::cold_path,
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
+    use memchr::memchr;
+    use rustpython_vm::exceptions;
     use std::{
         collections::{HashMap, hash_map::DefaultHasher},
         io::BufRead,
@@ -388,8 +394,9 @@ mod _ssl {
         // IP addresses are allowed as server_hostname
         // SNI will not be sent for IP addresses
 
-        if hostname.contains('\0') {
-            return Err(vm.new_type_error("embedded null character"));
+        if memchr(b'\0', hostname.as_bytes()).is_some() {
+            cold_path();
+            return Err(exceptions::nul_char_type_error(vm));
         }
 
         if hostname.len() > 253 {
@@ -461,7 +468,7 @@ mod _ssl {
 
     // Generate a synthetic session ID from server name and timestamp
     // NOTE: This is NOT the actual TLS session ID, just a unique identifier
-    fn generate_session_id_from_metadata(server_name: &str, time: &SystemTime) -> Vec<u8> {
+    fn generate_session_id_from_metadata(server_name: &str, time: SystemTime) -> Vec<u8> {
         let mut hasher = Sha256::new();
         hasher.update(server_name.as_bytes());
         hasher.update(
@@ -507,7 +514,7 @@ mod _ssl {
                 _server_name: server_name_str.as_ref().to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
-                    &creation_time,
+                    creation_time,
                 ),
                 creation_time,
                 lifetime: 7200, // TLS 1.2 default session lifetime
@@ -551,7 +558,7 @@ mod _ssl {
                 _server_name: server_name_str.to_string(),
                 session_id: generate_session_id_from_metadata(
                     server_name_str.as_ref(),
-                    &creation_time,
+                    creation_time,
                 ),
                 creation_time,
                 lifetime: 7200, // Default TLS 1.3 ticket lifetime (Rustls uses this)
@@ -874,6 +881,24 @@ mod _ssl {
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLContext {
+        fn warn_deprecated_tls_version(version: i32, vm: &VirtualMachine) -> PyResult<()> {
+            let version_name = match version {
+                PROTO_SSLv3 => Some("SSLv3"),
+                PROTO_TLSv1 => Some("TLSv1"),
+                PROTO_TLSv1_1 => Some("TLSv1_1"),
+                _ => None,
+            };
+            if let Some(version_name) = version_name {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.TLSVersion.{version_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
+            }
+            Ok(())
+        }
+
         // Helper method to convert DER certificate bytes to Python dict
         fn cert_der_to_dict(&self, vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
             cert::cert_der_to_dict_helper(vm, cert_der)
@@ -1017,6 +1042,8 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Convert special values to rustls actual supported versions
             // MINIMUM_SUPPORTED (-2) -> 0 (auto-negotiate)
             // MAXIMUM_SUPPORTED (-1) -> MAXIMUM_VERSION (TLSv1.3)
@@ -1048,6 +1075,8 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Convert special values to rustls actual supported versions
             // MAXIMUM_SUPPORTED (-1) -> 0 (auto-negotiate)
             // MINIMUM_SUPPORTED (-2) -> MINIMUM_VERSION (TLSv1.2)
@@ -1850,25 +1879,7 @@ mod _ssl {
             let hostname = match args.server_hostname.into_option().flatten() {
                 Some(hostname_str) => {
                     let hostname = hostname_str.as_str();
-
-                    // Validate hostname
-                    if hostname.is_empty() {
-                        return Err(vm.new_value_error("server_hostname cannot be an empty string"));
-                    }
-
-                    // Check if it starts with a dot
-                    if hostname.starts_with('.') {
-                        return Err(vm.new_value_error("server_hostname cannot start with a dot"));
-                    }
-
-                    // IP addresses are allowed
-                    // SNI will not be sent for IP addresses
-
-                    // Check for NULL bytes
-                    if hostname.contains('\0') {
-                        return Err(vm.new_type_error("embedded null character"));
-                    }
-
+                    validate_hostname(hostname, vm)?;
                     Some(hostname.to_string())
                 }
                 None => None,
@@ -2225,12 +2236,10 @@ mod _ssl {
         ) -> PyResult<Self> {
             let crypto_ext = CryptoExt::get_ext();
 
-            // Validate protocol
-            match protocol {
-                PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_2
-                | PROTOCOL_TLSv1_3 => {
-                    // Valid protocols
-                }
+            let deprecated_protocol = match protocol {
+                PROTOCOL_TLS => Some("PROTOCOL_TLS"),
+                PROTOCOL_TLSv1_2 => Some("PROTOCOL_TLSv1_2"),
+                PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_3 => None,
                 PROTOCOL_TLSv1 | PROTOCOL_TLSv1_1 => {
                     return Err(vm.new_value_error(
                         "TLS 1.0 and 1.1 are not supported by rustls for security reasons",
@@ -2239,6 +2248,14 @@ mod _ssl {
                 _ => {
                     return Err(vm.new_value_error(format!("invalid protocol version: {protocol}")));
                 }
+            };
+            if let Some(protocol_name) = deprecated_protocol {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.{protocol_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
             }
 
             // Set default options
@@ -2501,7 +2518,7 @@ mod _ssl {
                 } else {
                     // Create new session ID if not in cache
                     let time = std::time::SystemTime::now();
-                    (generate_session_id_from_metadata(name, &time), time, 7200)
+                    (generate_session_id_from_metadata(name, time), time, 7200)
                 }
             } else {
                 // No server name, use defaults
@@ -2709,13 +2726,13 @@ mod _ssl {
             sni_name: Option<&str>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let callback = self
-                .context
-                .read()
-                .sni_callback
-                .read()
-                .clone()
-                .ok_or_else(|| vm.new_value_error("SNI callback not set"))?;
+            // The callback may have been cleared (sni_callback = None) between the
+            // handshake deciding to invoke it and this point. A concurrent removal
+            // is not an error: there is simply nothing to run.
+            let callback = self.context.read().sni_callback.read().clone();
+            let Some(callback) = callback else {
+                return Ok(());
+            };
 
             let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
             let server_name_py: PyObjectRef = match sni_name {
@@ -2824,7 +2841,7 @@ mod _ssl {
         ) -> PyResult<PyBytesRef> {
             let obj_to_bytes = |bytes_obj| {
                 PyBytesRef::try_from_object(vm, bytes_obj)
-                    .map_err(|_| vm.new_os_error("Expected bytes from recv".to_string()))
+                    .map_err(|_| vm.new_os_error("Expected bytes from recv"))
             };
 
             let tls_record_header_buf = self
@@ -3413,7 +3430,8 @@ mod _ssl {
             // Initialize connection if not already done
             if conn_guard.is_none() {
                 // Check for pending context change (from SNI callback)
-                if let Some(new_ctx) = self.pending_context.write().take() {
+                let pending_context = self.pending_context.write().take();
+                if let Some(new_ctx) = pending_context {
                     *self.context.write() = new_ctx;
                 }
 
@@ -3495,7 +3513,7 @@ mod _ssl {
                         // When server_hostname=None, use an IP address to suppress SNI
                         // no hostname = no SNI extension
                         ServerName::IpAddress(
-                            core::net::IpAddr::V4(core::net::Ipv4Addr::new(127, 0, 0, 1)).into(),
+                            core::net::IpAddr::V4(core::net::Ipv4Addr::LOCALHOST).into(),
                         )
                     };
 
@@ -4657,10 +4675,7 @@ mod _ssl {
                 // It's a memoryview, check if contiguous
                 let is_contiguous: bool = mem_view.try_to_bool(vm)?;
                 if !is_contiguous {
-                    return Err(vm.new_exception_msg(
-                        vm.ctx.exceptions.buffer_error.to_owned(),
-                        "non-contiguous buffer is not supported".into(),
-                    ));
+                    return Err(vm.new_buffer_error("non-contiguous buffer is not supported"));
                 }
             }
 
@@ -5053,7 +5068,10 @@ mod _ssl {
         }
     }
 
-    #[pyclass(with(Comparable, Hashable, Representable))]
+    #[pyclass(
+        flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
+        with(Comparable, Hashable, Representable)
+    )]
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(

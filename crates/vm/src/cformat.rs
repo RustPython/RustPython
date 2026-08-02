@@ -3,8 +3,9 @@
 //! Implementation of Printf-Style string formatting
 //! as per the [Python Docs](https://docs.python.org/3/library/stdtypes.html#printf-style-string-formatting).
 
-use crate::common::cformat::*;
-use crate::common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+use itertools::Itertools;
+use num_traits::cast::ToPrimitive;
+
 use crate::{
     AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
     VirtualMachine,
@@ -12,12 +13,18 @@ use crate::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyFloat, PyInt, PyStr,
         int::check_int_to_str_digits, try_f64_to_bigint, tuple,
     },
+    common::{
+        cformat::{
+            CCharacterType, CConversionFlags, CFormatBytes, CFormatConversion, CFormatPart,
+            CFormatPrecision, CFormatQuantity, CFormatSpec, CFormatSpecKeyed, CFormatType,
+            CFormatWtf8, CNumberType,
+        },
+        wtf8::{CodePoint, Wtf8, Wtf8Buf},
+    },
     function::ArgIntoFloat,
     protocol::PyBuffer,
     stdlib::builtins,
 };
-use itertools::Itertools;
-use num_traits::cast::ToPrimitive;
 
 fn spec_format_bytes(
     vm: &VirtualMachine,
@@ -39,11 +46,12 @@ fn spec_format_bytes(
                     let bytes = vm
                         .get_special_method(&obj, identifier!(vm, __bytes__))?
                         .ok_or_else(|| {
-                            vm.new_type_error(format!(
+                            let msg = format!(
                                 "%b requires a bytes-like object, or an object that \
                                     implements __bytes__, not '{}'",
                                 obj.class().name()
-                            ))
+                            );
+                            vm.new_type_error(msg)
                         })?
                         .invoke((), vm)?;
                     let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
@@ -71,6 +79,7 @@ fn spec_format_bytes(
                             check_int_to_str_digits(i.as_bigint(), vm)?;
                             return Ok(spec.format_number(i.as_bigint()).into_bytes());
                         }
+
                         if let Some(method) = vm.get_method(obj.clone(), identifier!(vm, __int__)) {
                             let result = method?.call((), vm)?;
                             if let Some(i) = result.downcast_ref::<PyInt>() {
@@ -78,6 +87,7 @@ fn spec_format_bytes(
                                 return Ok(spec.format_number(i.as_bigint()).into_bytes());
                             }
                         }
+
                         Err(vm.new_type_error(format!(
                             "%{} format: a real number is required, not {}",
                             spec.format_type.to_char(),
@@ -301,6 +311,7 @@ fn try_update_quantity_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     let Some(CFormatQuantity::FromValuesTuple) = q else {
         return Ok(());
     };
+
     let element = elements.next();
     f.insert(try_conversion_flag_from_tuple(
         vm,
@@ -319,6 +330,7 @@ fn try_update_precision_from_tuple<'a, I: Iterator<Item = &'a PyObjectRef>>(
     let Some(CFormatPrecision::Quantity(CFormatQuantity::FromValuesTuple)) = p else {
         return Ok(());
     };
+
     let quantity = try_update_quantity_from_element(vm, elements.next().map(|v| v.as_ref()))?;
     *p = Some(CFormatPrecision::Quantity(quantity));
     Ok(())
@@ -347,42 +359,45 @@ pub(crate) fn cformat_bytes(
         && !values_obj.fast_isinstance(vm.ctx.types.bytearray_type);
 
     if num_specifiers == 0 {
-        // literal only
-        return if is_mapping
-            || values_obj
+        if !is_mapping
+            && values_obj
                 .downcast_ref::<tuple::PyTuple>()
-                .is_some_and(|e| e.is_empty())
+                .is_none_or(|e| !e.is_empty())
         {
-            for (_, part) in format.iter_mut() {
-                match part {
-                    CFormatPart::Literal(literal) => result.append(literal),
-                    CFormatPart::Spec(_) => unreachable!(),
-                }
+            return Err(vm.new_type_error("not all arguments converted during bytes formatting"));
+        }
+
+        // literal only
+        for (_, part) in format.iter_mut() {
+            if let CFormatPart::Literal(literal) = part {
+                result.append(literal)
+            } else {
+                unreachable!()
             }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error("not all arguments converted during bytes formatting"))
-        };
+        }
+
+        return Ok(result);
     }
 
     if mapping_required {
+        if !is_mapping {
+            return Err(vm.new_type_error("format requires a mapping"));
+        }
+
         // dict
-        return if is_mapping {
-            for (_, part) in format {
-                match part {
-                    CFormatPart::Literal(literal) => result.extend(literal),
-                    CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
-                        let key = mapping_key.unwrap();
-                        let value = values_obj.get_item(&key, vm)?;
-                        let part_result = spec_format_bytes(vm, &spec, value)?;
-                        result.extend(part_result);
-                    }
+        for (_, part) in format {
+            match part {
+                CFormatPart::Literal(literal) => result.extend(literal),
+                CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
+                    let key = mapping_key.unwrap();
+                    let value = values_obj.get_item(&key, vm)?;
+                    let part_result = spec_format_bytes(vm, &spec, value)?;
+                    result.extend(part_result);
                 }
             }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error("format requires a mapping"))
-        };
+        }
+
+        return Ok(result);
     }
 
     // tuple
@@ -405,18 +420,18 @@ pub(crate) fn cformat_bytes(
                 )?;
                 try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
-                let value = match value_iter.next() {
-                    Some(obj) => Ok(obj.clone()),
-                    None => Err(vm.new_type_error("not enough arguments for format string")),
-                }?;
-                let part_result = spec_format_bytes(vm, &spec, value)?;
+                let Some(value) = value_iter.next() else {
+                    return Err(vm.new_type_error("not enough arguments for format string"));
+                };
+
+                let part_result = spec_format_bytes(vm, &spec, value.clone())?;
                 result.extend(part_result);
             }
         }
     }
 
     // check that all arguments were converted
-    if value_iter.next().is_some() && !is_mapping {
+    if !is_mapping && value_iter.next().is_some() {
         Err(vm.new_type_error("not all arguments converted during bytes formatting"))
     } else {
         Ok(result)
@@ -441,41 +456,44 @@ pub(crate) fn cformat_string(
         && !values_obj.fast_isinstance(vm.ctx.types.str_type);
 
     if num_specifiers == 0 {
-        // literal only
-        return if is_mapping
-            || values_obj
+        if !is_mapping
+            && values_obj
                 .downcast_ref::<tuple::PyTuple>()
-                .is_some_and(|e| e.is_empty())
+                .is_none_or(|e| !e.is_empty())
         {
-            for (_, part) in format.iter() {
-                match part {
-                    CFormatPart::Literal(literal) => result.push_wtf8(literal),
-                    CFormatPart::Spec(_) => unreachable!(),
-                }
+            return Err(vm.new_type_error("not all arguments converted during string formatting"));
+        }
+
+        // literal only
+        for (_, part) in format.iter() {
+            if let CFormatPart::Literal(literal) = part {
+                result.push_wtf8(literal)
+            } else {
+                unreachable!()
             }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error("not all arguments converted during string formatting"))
-        };
+        }
+
+        return Ok(result);
     }
 
     if mapping_required {
+        if !is_mapping {
+            return Err(vm.new_type_error("format requires a mapping"));
+        }
+
         // dict
-        return if is_mapping {
-            for (idx, part) in format {
-                match part {
-                    CFormatPart::Literal(literal) => result.push_wtf8(&literal),
-                    CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
-                        let value = values_obj.get_item(&mapping_key.unwrap(), vm)?;
-                        let part_result = spec_format_string(vm, &spec, value, idx)?;
-                        result.push_wtf8(&part_result);
-                    }
+        for (idx, part) in format {
+            match part {
+                CFormatPart::Literal(literal) => result.push_wtf8(&literal),
+                CFormatPart::Spec(CFormatSpecKeyed { mapping_key, spec }) => {
+                    let value = values_obj.get_item(&mapping_key.unwrap(), vm)?;
+                    let part_result = spec_format_string(vm, &spec, value, idx)?;
+                    result.push_wtf8(&part_result);
                 }
             }
-            Ok(result)
-        } else {
-            Err(vm.new_type_error("format requires a mapping"))
-        };
+        }
+
+        return Ok(result);
     }
 
     // tuple
@@ -484,6 +502,7 @@ pub(crate) fn cformat_string(
     } else {
         core::slice::from_ref(&values_obj)
     };
+
     let mut value_iter = values.iter();
 
     for (idx, part) in format {
@@ -498,18 +517,18 @@ pub(crate) fn cformat_string(
                 )?;
                 try_update_precision_from_tuple(vm, &mut value_iter, &mut spec.precision)?;
 
-                let value = match value_iter.next() {
-                    Some(obj) => Ok(obj.clone()),
-                    None => Err(vm.new_type_error("not enough arguments for format string")),
-                }?;
-                let part_result = spec_format_string(vm, &spec, value, idx)?;
+                let Some(value) = value_iter.next() else {
+                    return Err(vm.new_type_error("not enough arguments for format string"));
+                };
+
+                let part_result = spec_format_string(vm, &spec, value.clone(), idx)?;
                 result.push_wtf8(&part_result);
             }
         }
     }
 
     // check that all arguments were converted
-    if value_iter.next().is_some() && !is_mapping {
+    if !is_mapping && value_iter.next().is_some() {
         Err(vm.new_type_error("not all arguments converted during string formatting"))
     } else {
         Ok(result)

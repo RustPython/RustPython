@@ -1,45 +1,42 @@
+#[cfg(all(not(feature = "compiler"), feature = "parser", feature = "codegen",))]
+compile_error!("Use --features=compiler to enable both parser and codegen");
+
 #[cfg(feature = "codegen")]
 pub use rustpython_codegen::CompileOpts;
 
-#[cfg(feature = "compiler")]
-pub use rustpython_compiler::*;
-
-#[cfg(not(feature = "compiler"))]
-pub use rustpython_compiler_core::Mode;
-
-#[cfg(not(feature = "compiler"))]
-pub use rustpython_compiler_core as core;
-
-#[cfg(not(feature = "compiler"))]
-pub use ruff_python_parser as parser;
-
-#[cfg(not(feature = "compiler"))]
-mod error {
-    #[cfg(all(feature = "parser", feature = "codegen"))]
-    panic!("Use --features=compiler to enable both parser and codegen");
-
-    #[derive(Debug, thiserror::Error)]
-    pub enum CompileErrorType {
-        #[cfg(feature = "codegen")]
-        #[error(transparent)]
-        Codegen(#[from] super::codegen::error::CodegenErrorType),
-        #[cfg(feature = "parser")]
-        #[error(transparent)]
-        Parse(#[from] super::parser::ParseErrorType),
+cfg_select! {
+    feature = "compiler" => {
+        pub use rustpython_compiler::*;
     }
+    _ => {
+        pub use ruff_python_parser as parser;
 
-    #[derive(Debug, thiserror::Error)]
-    pub enum CompileError {
-        #[cfg(feature = "codegen")]
-        #[error(transparent)]
-        Codegen(#[from] super::codegen::error::CodegenError),
-        #[cfg(feature = "parser")]
-        #[error(transparent)]
-        Parse(#[from] super::parser::ParseError),
+        pub use rustpython_compiler_core::Mode;
+        pub use rustpython_compiler_core as core;
     }
 }
+
 #[cfg(not(feature = "compiler"))]
-pub use error::{CompileError, CompileErrorType};
+#[derive(Debug, thiserror::Error)]
+pub enum CompileErrorType {
+    #[cfg(feature = "codegen")]
+    #[error(transparent)]
+    Codegen(#[from] super::codegen::error::CodegenErrorType),
+    #[cfg(feature = "parser")]
+    #[error(transparent)]
+    Parse(#[from] super::parser::ParseErrorType),
+}
+
+#[cfg(not(feature = "compiler"))]
+#[derive(Debug, thiserror::Error)]
+pub enum CompileError {
+    #[cfg(feature = "codegen")]
+    #[error(transparent)]
+    Codegen(#[from] super::codegen::error::CodegenError),
+    #[cfg(feature = "parser")]
+    #[error(transparent)]
+    Parse(#[from] super::parser::ParseError),
+}
 
 #[cfg(any(feature = "parser", feature = "codegen"))]
 impl crate::convert::ToPyException for (CompileError, Option<&str>) {

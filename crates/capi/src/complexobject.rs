@@ -36,13 +36,13 @@ pub unsafe extern "C" fn PyComplex_ImagAsDouble(obj: *mut PyObject) -> c_double 
     with_vm(|vm| try_to_complex(vm, unsafe { &*obj }).map(|complex| complex.im))
 }
 
-#[cfg(false)]
+#[cfg(test)]
 mod tests {
     use pyo3::prelude::*;
     use pyo3::types::PyComplex;
 
     #[test]
-    fn test_py_int() {
+    fn py_int() {
         Python::attach(|py| {
             let number = PyComplex::from_doubles(py, 1.0, 2.0);
             assert_eq!(number.real(), 1.0);

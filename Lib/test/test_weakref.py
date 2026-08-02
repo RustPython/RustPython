@@ -289,7 +289,6 @@ class ReferencesTestCase(TestBase):
         self.assertEqual(weakref.getweakrefcount(o), 1,
                      "wrong weak ref count for object after deleting proxy")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_proxy_reuse(self):
         o = C()
         proxy1 = weakref.proxy(o)
@@ -380,11 +379,9 @@ class ReferencesTestCase(TestBase):
     # was not honored, and was broken in different ways for
     # PyWeakref_NewRef() and PyWeakref_NewProxy().  (Two tests.)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_shared_ref_without_callback(self):
         self.check_shared_without_callback(weakref.ref)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_shared_proxy_without_callback(self):
         self.check_shared_without_callback(weakref.proxy)
 

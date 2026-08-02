@@ -131,7 +131,7 @@ pub fn import_builtin(vm: &VirtualMachine, module_name: &str) -> PyResult {
 pub fn import_file(
     vm: &VirtualMachine,
     module_name: &str,
-    file_path: String,
+    file_path: &str,
     content: &str,
 ) -> PyResult {
     let code = vm
@@ -141,7 +141,7 @@ pub fn import_file(
             file_path,
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
+        .map_err(|err| err.into_pyexception(vm, Some(content)))?;
     import_code_obj(vm, module_name, code, true)
 }
 
@@ -151,10 +151,10 @@ pub fn import_source(vm: &VirtualMachine, module_name: &str, content: &str) -> P
         .compile_with_opts(
             content,
             crate::compiler::Mode::Exec,
-            "<source>".to_owned(),
+            "<source>",
             vm.compile_opts(),
         )
-        .map_err(|err| vm.new_syntax_error(&err, Some(content)))?;
+        .map_err(|err| err.into_pyexception(vm, Some(content)))?;
     import_code_obj(vm, module_name, code, false)
 }
 
@@ -221,12 +221,12 @@ fn remove_importlib_frames_inner(
         return (None, false);
     };
 
-    let file_name = traceback.frame.code.source_path().as_str();
+    let file_name = traceback.frame.iframe().code().source_path().as_str();
 
     let (inner_tb, mut now_in_importlib) =
         remove_importlib_frames_inner(vm, traceback.next.lock().clone(), always_trim);
     if file_name == "_frozen_importlib" || file_name == "_frozen_importlib_external" {
-        if traceback.frame.code.obj_name.as_str() == "_call_with_frames_removed" {
+        if traceback.frame.iframe().code().obj_name.as_str() == "_call_with_frames_removed" {
             now_in_importlib = true;
         }
         if always_trim || now_in_importlib {
@@ -267,10 +267,11 @@ pub fn remove_importlib_frames(vm: &VirtualMachine, exc: &Py<PyBaseException>) {
 
 /// Get origin path from a module spec, checking has_location first.
 pub(crate) fn get_spec_file_origin(
-    spec: &Option<PyObjectRef>,
+    spec: Option<&PyObjectRef>,
     vm: &VirtualMachine,
 ) -> Option<String> {
-    let spec = spec.as_ref()?;
+    let spec = spec?;
+
     let has_location = spec
         .get_attr("has_location", vm)
         .ok()

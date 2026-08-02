@@ -19,6 +19,7 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
+  # Keep feature list in sync with CI's release build in .github/workflows/ci.yaml.
   CARGO_ARGS: --workspace --no-default-features --features stdlib,importlib,stdio,encodings,sqlite,ssl-rustls-aws-lc,host_env,threading,jit --exclude rustpython_wasm --exclude rustpython-compiler-source --exclude rustpython-venvlauncher
 
 jobs:
@@ -39,14 +40,14 @@ jobs:
             target: ""
     steps:
       - name: Checkout RustPython main branch
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: RustPython/RustPython
           ref: main
           persist-credentials: false
 
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain }}
           target: ${{ matrix.target }}
@@ -66,7 +67,7 @@ jobs:
         run: cargo build --profile release ${{ env.CARGO_ARGS }}
 
       - name: Save cache
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/

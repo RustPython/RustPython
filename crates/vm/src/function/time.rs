@@ -29,7 +29,7 @@ impl TryFromObject for TimeoutSeconds {
             super::Either::B(i) => i as f64,
         };
         if value.is_nan() {
-            return Err(vm.new_value_error("Invalid value NaN (not a number)".to_owned()));
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
         }
         Ok(Self { value })
     }

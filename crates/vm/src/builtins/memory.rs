@@ -1,13 +1,13 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
     buffer::FormatSpec,
-    bytes_inner::bytes_to_hex,
+    bytes_inner::{ByteInnerHexOptions, bytes_to_hex},
     class::PyClassImpl,
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
@@ -117,7 +117,8 @@ impl PyMemoryView {
         Ok(zelf)
     }
 
-    /// this should be the only way to create a memoryview from another memoryview
+    /// this should be the only way to create a memoryview from another memoryview.
+    #[must_use]
     pub fn new_view(&self) -> Self {
         let zelf = Self {
             buffer: self.buffer.clone(),
@@ -197,7 +198,7 @@ impl PyMemoryView {
         let data = self.format_spec.pack(vec![value], vm).map_err(|_| {
             vm.new_type_error(format!(
                 "memoryview: invalid type for format '{}'",
-                &self.desc.format
+                self.desc.format
             ))
         })?;
         bytes[pos..pos + self.desc.itemsize].copy_from_slice(&data);
@@ -738,12 +739,8 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn hex(
-        &self,
-        sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
-        bytes_per_sep: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
+        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.try_not_released(vm)?;
         self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep, vm))
     }

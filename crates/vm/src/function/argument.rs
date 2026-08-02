@@ -1,10 +1,11 @@
 use crate::{
     AsObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyTupleRef, PyTypeRef},
+    common::wtf8::{Wtf8, Wtf8Buf},
     convert::ToPyObject,
     object::{Traverse, TraverseFn},
 };
-use core::ops::RangeInclusive;
+use core::ops::{Deref, DerefMut, RangeInclusive};
 use indexmap::IndexMap;
 use itertools::Itertools;
 
@@ -12,7 +13,11 @@ pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
     fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
         let mut args = self.into_args(vm);
-        args.prepend_arg(obj);
+        // Build the final vec once instead of prepending (realloc + memmove).
+        let mut with_obj = Vec::with_capacity(args.args.len() + 1);
+        with_obj.push(obj);
+        with_obj.append(&mut args.args);
+        args.args = with_obj;
         args
     }
 }
@@ -60,20 +65,14 @@ into_func_args_from_tuple!((v1, T1), (v2, T2), (v3, T3), (v4, T4), (v5, T5), (v6
 // The number of limitation came from:
 // https://rust-lang.github.io/rust-clippy/master/index.html#too_many_arguments
 
-/// The `FuncArgs` struct is one of the most used structs then creating
+/// The `FuncArgs` struct is one of the most used structs when creating
 /// a rust function that can be called from python. It holds both positional
 /// arguments, as well as keyword arguments passed to the function.
 #[derive(Debug, Default, Clone, Traverse)]
 pub struct FuncArgs {
     pub args: Vec<PyObjectRef>,
     // sorted map, according to https://www.python.org/dev/peps/pep-0468/
-    pub kwargs: IndexMap<String, PyObjectRef>,
-}
-
-unsafe impl Traverse for IndexMap<String, PyObjectRef> {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.values().for_each(|v| v.traverse(tracer_fn));
-    }
+    pub kwargs: KwArgs,
 }
 
 /// Conversion from vector of python objects to function arguments.
@@ -84,7 +83,7 @@ where
     fn from(args: A) -> Self {
         Self {
             args: args.into().into_vec(),
-            kwargs: IndexMap::new(),
+            ..Default::default()
         }
     }
 }
@@ -92,8 +91,8 @@ where
 impl From<KwArgs> for FuncArgs {
     fn from(kwargs: KwArgs) -> Self {
         Self {
-            args: Vec::new(),
-            kwargs: kwargs.0,
+            kwargs,
+            ..Default::default()
         }
     }
 }
@@ -111,8 +110,10 @@ impl FuncArgs {
         K: Into<KwArgs>,
     {
         let PosArgs(args) = args.into();
-        let KwArgs(kwargs) = kwargs.into();
-        Self { args, kwargs }
+        Self {
+            args,
+            kwargs: kwargs.into(),
+        }
     }
 
     pub fn with_kwargs_names<A, KW>(mut args: A, kwarg_names: KW) -> Self
@@ -127,7 +128,7 @@ impl FuncArgs {
 
         let pos_args = args.by_ref().take(pos_arg_count).collect();
 
-        let kwargs = kwarg_names.zip_eq(args).collect::<IndexMap<_, _>>();
+        let kwargs = kwarg_names.zip_eq(args).collect();
 
         Self {
             args: pos_args,
@@ -147,23 +148,26 @@ impl FuncArgs {
     ) -> Self {
         debug_assert!(nargs <= args.len());
         debug_assert!(kwnames.is_none_or(|kw| nargs + kw.len() <= args.len()));
+
         let pos_args = args[..nargs].to_vec();
-        let kwargs = if let Some(names) = kwnames {
+
+        let kwargs = kwnames.map_or_else(KwArgs::default, |names| {
             names
                 .iter()
                 .zip(&args[nargs..nargs + names.len()])
                 .map(|(name, val)| {
+                    // `PyStr`, not `PyUtf8Str`: a surrogate key is a valid str and
+                    // must survive as WTF-8 rather than panic.
                     let key = name
-                        .downcast_ref::<crate::builtins::PyUtf8Str>()
+                        .downcast_ref::<crate::builtins::PyStr>()
                         .expect("kwnames must be strings")
-                        .as_str()
+                        .as_wtf8()
                         .to_owned();
                     (key, val.clone())
                 })
                 .collect()
-        } else {
-            IndexMap::new()
-        };
+        });
+
         Self {
             args: pos_args,
             kwargs,
@@ -179,23 +183,22 @@ impl FuncArgs {
     ) -> Self {
         debug_assert!(nargs <= args.len());
         debug_assert!(kwnames.is_none_or(|kw| nargs + kw.len() <= args.len()));
-        let kwargs = if let Some(names) = kwnames {
+        let kwargs = kwnames.map_or_else(KwArgs::default, |names| {
             let kw_count = names.len();
             names
                 .iter()
                 .zip(args.drain(nargs..nargs + kw_count))
                 .map(|(name, val)| {
                     let key = name
-                        .downcast_ref::<crate::builtins::PyUtf8Str>()
+                        .downcast_ref::<crate::builtins::PyStr>()
                         .expect("kwnames must be strings")
-                        .as_str()
+                        .as_wtf8()
                         .to_owned();
                     (key, val)
                 })
                 .collect()
-        } else {
-            IndexMap::new()
-        };
+        });
+
         args.truncate(nargs);
         Self { args, kwargs }
     }
@@ -206,7 +209,9 @@ impl FuncArgs {
     }
 
     pub fn prepend_arg(&mut self, item: PyObjectRef) {
-        self.args.reserve_exact(1);
+        // reserve (not reserve_exact): incoming vectors are usually built with
+        // exact capacity, so exact growth would realloc on every prepend.
+        self.args.reserve(1);
         self.args.insert(0, item)
     }
 
@@ -266,7 +271,7 @@ impl FuncArgs {
         self.kwargs.swap_remove(name)
     }
 
-    pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (String, PyObjectRef)> + '_ {
+    pub fn remaining_keywords(&mut self) -> impl Iterator<Item = (Wtf8Buf, PyObjectRef)> + '_ {
         self.kwargs.drain(..)
     }
 
@@ -404,43 +409,97 @@ impl<T: TryFromObject> FromArgOptional for T {
 /// KwArgs is only for functions that accept arbitrary keyword arguments. For
 /// functions that accept only *specific* named arguments, a rust struct with
 /// an appropriate FromArgs implementation must be created.
-#[derive(Clone)]
-pub struct KwArgs<T = PyObjectRef>(IndexMap<String, T>);
+// Keys are stored as `Wtf8Buf`, not `String`, so that a lone-surrogate keyword
+// name coming through `f(**d)` is preserved instead of being rejected (see
+// issue #8228). `PyStr` is WTF-8 backed, and CPython only requires that a
+// keyword key be a `str`, not that it be valid UTF-8.
+#[derive(Clone, Debug)]
+pub struct KwArgs<T = PyObjectRef>(IndexMap<Wtf8Buf, T>);
+
+impl<T> Default for KwArgs<T> {
+    fn default() -> Self {
+        Self(IndexMap::new())
+    }
+}
+
+impl<T> Deref for KwArgs<T> {
+    type Target = IndexMap<Wtf8Buf, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T> DerefMut for KwArgs<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 unsafe impl<T> Traverse for KwArgs<T>
 where
     T: Traverse,
 {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.iter().map(|(_, v)| v.traverse(tracer_fn)).count();
+        self.values().for_each(|v| v.traverse(tracer_fn));
     }
 }
 
 impl<T> KwArgs<T> {
     #[must_use]
-    pub const fn new(map: IndexMap<String, T>) -> Self {
+    pub const fn new(map: IndexMap<Wtf8Buf, T>) -> Self {
         Self(map)
     }
 
-    pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
-        self.0.swap_remove(name)
+    // `String` keys accepted `&str` lookups for free via `Borrow<str>`; `Wtf8Buf`
+    // borrows only as `Wtf8`, so these inherent methods restore the `&str` interface
+    // via the zero-cost `Wtf8::new` cast, keeping every call site unchanged.
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<&T> {
+        self.0.get(Wtf8::new(name))
     }
 
     #[must_use]
-    pub fn is_empty(self) -> bool {
-        self.0.is_empty()
+    pub fn contains_key(&self, name: &str) -> bool {
+        self.0.contains_key(Wtf8::new(name))
+    }
+
+    pub fn swap_remove(&mut self, name: &str) -> Option<T> {
+        self.0.swap_remove(Wtf8::new(name))
+    }
+
+    pub fn shift_remove(&mut self, name: &str) -> Option<T> {
+        self.0.shift_remove(Wtf8::new(name))
+    }
+
+    pub fn pop_kwarg(&mut self, name: &str) -> Option<T> {
+        self.swap_remove(name)
     }
 }
 
-impl<T> FromIterator<(String, T)> for KwArgs<T> {
-    fn from_iter<I: IntoIterator<Item = (String, T)>>(iter: I) -> Self {
-        Self(iter.into_iter().collect())
+// Accept any key that converts into `Wtf8Buf` (notably `String`), so existing
+// call sites that build kwargs from string literals keep compiling unchanged.
+impl<K: Into<Wtf8Buf>, T> FromIterator<(K, T)> for KwArgs<T> {
+    fn from_iter<I: IntoIterator<Item = (K, T)>>(iter: I) -> Self {
+        Self(iter.into_iter().map(|(k, v)| (k.into(), v)).collect())
     }
 }
 
-impl<T> Default for KwArgs<T> {
-    fn default() -> Self {
-        Self(IndexMap::new())
+impl<'a, T> IntoIterator for &'a KwArgs<T> {
+    type Item = (&'a Wtf8Buf, &'a T);
+    type IntoIter = indexmap::map::Iter<'a, Wtf8Buf, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
+
+impl<T> IntoIterator for KwArgs<T> {
+    type Item = (Wtf8Buf, T);
+    type IntoIter = indexmap::map::IntoIter<Wtf8Buf, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
 }
 
@@ -454,15 +513,6 @@ where
             kwargs.insert(name, value.try_into_value(vm)?);
         }
         Ok(Self(kwargs))
-    }
-}
-
-impl<T> IntoIterator for KwArgs<T> {
-    type Item = (String, T);
-    type IntoIter = indexmap::map::IntoIter<String, T>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
     }
 }
 

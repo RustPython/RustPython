@@ -1,5 +1,6 @@
 use super::base::{CDATA_BUFFER_METHODS, PyCData, PyCField, StgInfo, StgInfoFlags};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
+use crate::common::wtf8::Wtf8Buf;
 use crate::convert::ToPyObject;
 use crate::function::{FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer, PyNumberMethods};
@@ -269,14 +270,14 @@ impl PyCStructType {
         // Determine byte order for format string
         let big_endian = super::base::is_big_endian(is_swapped);
 
-        // Initialize offset, alignment, type flags, and ffi_field_types from base class
+        // Initialize offset, alignment, type flags, and field_layouts from base class
         let (
             mut offset,
             mut max_align,
             mut has_pointer,
             mut has_union,
             mut has_bitfield,
-            mut ffi_field_types,
+            mut field_layouts,
         ) = {
             let bases = cls.bases.read();
             if let Some(base) = bases.first()
@@ -288,7 +289,7 @@ impl PyCStructType {
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASPOINTER),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASUNION),
                     baseinfo.flags.contains(StgInfoFlags::TYPEFLAG_HASBITFIELD),
-                    baseinfo.ffi_field_types.clone(),
+                    baseinfo.field_layouts.clone(),
                 )
             } else {
                 (0, forced_alignment, false, false, false, Vec::new())
@@ -366,8 +367,8 @@ impl PyCStructType {
                 if field_stg.flags.contains(StgInfoFlags::TYPEFLAG_HASBITFIELD) {
                     has_bitfield = true;
                 }
-                // Collect FFI type for this field
-                ffi_field_types.push(field_stg.to_ffi_type());
+                // Collect the call layout for this field
+                field_layouts.push(super::base::type_layout(type_obj, &field_stg, vm));
             }
 
             // Mark field type as finalized (using type as field finalizes it)
@@ -552,8 +553,8 @@ impl PyCStructType {
         stg_info.paramfunc = super::base::ParamFunc::Structure;
         // Set byte order: swap if _swappedbytes_ is defined
         stg_info.big_endian = super::base::is_big_endian(is_swapped);
-        // Store FFI field types for structure passing
-        stg_info.ffi_field_types = ffi_field_types;
+        // Store field call layouts for by-value structure passing
+        stg_info.field_layouts = field_layouts;
         super::base::set_or_init_stginfo(cls, stg_info);
 
         // Process _anonymous_ fields
@@ -712,7 +713,7 @@ impl PyCStructure {
         self_obj: &Py<Self>,
         type_obj: &Py<PyType>,
         args: &[PyObjectRef],
-        kwargs: &indexmap::IndexMap<String, PyObjectRef>,
+        kwargs: &indexmap::IndexMap<Wtf8Buf, PyObjectRef>,
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -746,7 +747,7 @@ impl PyCStructure {
                     && let Some(name) = tuple.first()
                     && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
-                    let field_name = name_str.as_str().to_owned();
+                    let field_name = name_str.as_wtf8().to_owned();
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
                         return Err(
@@ -784,9 +785,9 @@ impl Initializer for PyCStructure {
         }
 
         // 2. Process keyword arguments
-        for (key, value) in &args.kwargs {
+        for (key, value) in args.kwargs {
             zelf.as_object()
-                .set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
+                .set_attr(vm.ctx.intern_str(key), value, vm)?;
         }
 
         Ok(())

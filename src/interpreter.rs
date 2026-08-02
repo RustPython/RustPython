@@ -57,7 +57,23 @@ fn setup_dynamic_stdlib(vm: &mut crate::VirtualMachine) {
     use rustpython_vm::common::rc::PyRc;
 
     let state = PyRc::get_mut(&mut vm.state).unwrap();
-    let paths = collect_stdlib_paths();
+    let paths: Vec<String> = collect_stdlib_paths()
+        .into_iter()
+        .map(|p| {
+            std::fs::canonicalize(&p)
+                .map(|canonical| {
+                    let s = canonical.to_string_lossy();
+                    #[cfg(windows)]
+                    {
+                        if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                            return stripped.to_owned();
+                        }
+                    }
+                    s.into_owned()
+                })
+                .unwrap_or(p)
+        })
+        .collect();
 
     // Set stdlib_dir to the first stdlib path if available
     if let Some(first_path) = paths.first() {

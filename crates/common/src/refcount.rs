@@ -1,10 +1,14 @@
 use crate::atomic::{Ordering, PyAtomic, Radium};
 
 // State layout (usize):
-//   [1 bit: destructed] [1 bit: reserved] [1 bit: leaked] [N bits: weak_count] [M bits: strong_count]
+//   [1 bit: destructed] [1 bit: published] [1 bit: leaked] [N bits: weak_count] [M bits: strong_count]
 // 64-bit: N=30, M=31.  32-bit: N=14, M=15.
 const FLAG_BITS: u32 = 3;
 const DESTRUCTED: usize = 1 << (usize::BITS - 1);
+/// Object was published to a lock-free cache; memory reclamation is
+/// deferred through QSBR so concurrent try-incref readers never touch
+/// freed memory. Sticky once set.
+const PUBLISHED: usize = 1 << (usize::BITS - 2);
 const LEAKED: usize = 1 << (usize::BITS - 3);
 const TOTAL_COUNT_WIDTH: u32 = usize::BITS - FLAG_BITS;
 const WEAK_WIDTH: u32 = TOTAL_COUNT_WIDTH / 2;
@@ -72,8 +76,8 @@ impl State {
 /// Reference count using state layout with LEAKED support.
 ///
 /// State layout (usize):
-/// 64-bit: [1 bit: destructed] [1 bit: reserved] [1 bit: leaked] [30 bits: weak_count] [31 bits: strong_count]
-/// 32-bit: [1 bit: destructed] [1 bit: reserved] [1 bit: leaked] [14 bits: weak_count] [15 bits: strong_count]
+/// 64-bit: [1 bit: destructed] [1 bit: published] [1 bit: leaked] [30 bits: weak_count] [31 bits: strong_count]
+/// 32-bit: [1 bit: destructed] [1 bit: published] [1 bit: leaked] [14 bits: weak_count] [15 bits: strong_count]
 pub struct RefCount {
     state: PyAtomic<usize>,
 }
@@ -187,6 +191,17 @@ impl RefCount {
     pub fn is_leaked(&self) -> bool {
         State::from_raw(self.state.load(Ordering::Acquire)).leaked()
     }
+
+    /// Mark the object as published to a lock-free cache (sticky).
+    #[inline]
+    pub fn mark_published(&self) {
+        self.state.fetch_or(PUBLISHED, Ordering::Release);
+    }
+
+    #[inline]
+    pub fn is_published(&self) -> bool {
+        (self.state.load(Ordering::Acquire) & PUBLISHED) != 0
+    }
 }
 
 // Deferred Drop Infrastructure
@@ -278,4 +293,25 @@ pub fn flush_deferred_drops() {
             op();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn published_bit_survives_refcount_traffic() {
+        let rc = RefCount::new(); // strong = 1
+        assert!(!rc.is_published());
+        rc.mark_published();
+        assert!(rc.is_published());
+        rc.inc(); // strong = 2
+        assert!(rc.is_published());
+        assert!(!rc.dec()); // strong = 1
+        assert!(rc.is_published());
+        assert!(rc.safe_inc()); // strong = 2
+        assert!(!rc.dec()); // strong = 1
+        assert!(rc.dec()); // strong = 0 -> true
+        assert!(rc.is_published());
+    }
 }

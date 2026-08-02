@@ -623,7 +623,7 @@ pub mod module {
         run_at_forkers(before_forkers, true, vm);
 
         #[cfg(feature = "threading")]
-        crate::stdlib::_imp::acquire_imp_lock_for_fork();
+        crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
         vm.state.stop_the_world.stop_the_world(vm);
@@ -655,6 +655,17 @@ pub mod module {
         #[cfg(feature = "threading")]
         crate::object::reset_weakref_locks_after_fork();
 
+        // Repair any type-cache entries left mid-update at fork time.
+        unsafe { crate::builtins::type_::type_cache_after_fork() };
+
+        // Reset QSBR: dead parent threads' slots would stall reclamation
+        // forever, and retired memory can be freed immediately in the
+        // single-threaded child.
+        #[cfg(feature = "threading")]
+        unsafe {
+            crate::object::qsbr::QSBR.reset_after_fork()
+        };
+
         // Phase 3: Clean up thread state. Locks are now reinit'd so we can
         // acquire them normally instead of using try_lock().
         #[cfg(feature = "threading")]
@@ -670,7 +681,7 @@ pub mod module {
         // Initialize signal handlers for the child's main thread.
         // When forked from a worker thread, the OnceCell is empty.
         vm.signal_handlers
-            .get_or_init(crate::signal::new_signal_handlers);
+            .get_or_init(crate::signal::SignalHandlers::default);
 
         // Phase 4: Run Python-level at-fork callbacks.
         let after_forkers_child: Vec<PyObjectRef> = vm.state.after_forkers_child.lock().clone();
@@ -694,6 +705,7 @@ pub mod module {
             reinit_mutex_after_fork(&vm.state.atexit_funcs);
             reinit_mutex_after_fork(&vm.state.global_trace_func);
             reinit_mutex_after_fork(&vm.state.global_profile_func);
+            reinit_mutex_after_fork(&vm.state.type_mutex);
             reinit_mutex_after_fork(&vm.state.monitoring);
 
             // PyGlobalState parking_lot::Mutex locks
@@ -1719,10 +1731,16 @@ pub mod module {
         let Some(login) = rustpython_host_env::posix::getlogin() else {
             return Err(vm.new_os_error("unable to determine login name"));
         };
-        login
-            .to_str()
-            .map(|s| s.to_owned())
-            .map_err(|e| vm.new_unicode_decode_error(format!("unable to decode login name: {e}")))
+        login.to_str().map(|s| s.to_owned()).map_err(|e| {
+            vm.new_unicode_decode_error_real(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(login.as_bytes().to_vec()),
+                e.valid_up_to(),
+                e.error_len()
+                    .map_or(login.as_bytes().len(), |n| e.valid_up_to() + n),
+                vm.ctx.new_str("unable to decode login name"),
+            )
+        })
     }
 
     // cfg from nix
@@ -2311,6 +2329,12 @@ pub mod module {
         __module_exec(vm, module);
         super::super::os::module_exec(vm, module)?;
         Ok(())
+    }
+
+    #[pyfunction]
+    fn _is_inputhook_installed() -> bool {
+        // TODO: Implement the actual logic here
+        false
     }
 }
 

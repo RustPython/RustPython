@@ -5,7 +5,7 @@ use alloc::fmt;
 use core::cmp;
 use std::{ffi, io};
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 use std::os::fd::AsFd;
 #[cfg(not(windows))]
 use std::os::fd::{AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
@@ -112,7 +112,7 @@ mod win {
         }
 
         #[inline]
-        pub(super) fn as_raw_fd(&self) -> Raw {
+        pub(super) fn as_raw_fd(self) -> Raw {
             self.fd
         }
     }
@@ -140,12 +140,13 @@ pub struct Borrowed<'fd> {
     inner: BorrowedInner<'fd>,
 }
 
-impl<'fd> PartialEq for Borrowed<'fd> {
+impl PartialEq for Borrowed<'_> {
     fn eq(&self, other: &Self) -> bool {
         self.as_raw() == other.as_raw()
     }
 }
-impl<'fd> Eq for Borrowed<'fd> {}
+
+impl Eq for Borrowed<'_> {}
 
 impl fmt::Debug for Borrowed<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -208,49 +209,49 @@ impl Owned {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl From<Owned> for OwnedFd {
     fn from(fd: Owned) -> Self {
         fd.inner
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl From<OwnedFd> for Owned {
     fn from(fd: OwnedFd) -> Self {
         Self { inner: fd }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsFd for Owned {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.inner.as_fd()
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsRawFd for Owned {
     fn as_raw_fd(&self) -> RawFd {
         self.as_raw()
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl FromRawFd for Owned {
     unsafe fn from_raw_fd(fd: RawFd) -> Self {
         unsafe { Self::from_raw(fd) }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl IntoRawFd for Owned {
     fn into_raw_fd(self) -> RawFd {
         self.into_raw()
     }
 }
 
-impl<'fd> Borrowed<'fd> {
+impl Borrowed<'_> {
     /// Create a `crt_fd::Borrowed` from a raw file descriptor.
     ///
     /// # Safety
@@ -286,28 +287,28 @@ impl<'fd> Borrowed<'fd> {
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl<'fd> From<Borrowed<'fd>> for BorrowedFd<'fd> {
     fn from(fd: Borrowed<'fd>) -> Self {
         fd.inner
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl<'fd> From<BorrowedFd<'fd>> for Borrowed<'fd> {
     fn from(fd: BorrowedFd<'fd>) -> Self {
         Self { inner: fd }
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsFd for Borrowed<'_> {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.inner.as_fd()
     }
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl AsRawFd for Borrowed<'_> {
     fn as_raw_fd(&self) -> RawFd {
         self.as_raw()
@@ -354,9 +355,8 @@ pub fn ftruncate(fd: Borrowed<'_>, len: Offset) -> io::Result<()> {
     cfg_select! {
         windows => {
             if ret != 0 {
-                // _chsize_s returns errno directly, convert to Windows error code
-                let winerror = crate::os::errno_to_winerror(ret);
-                return Err(io::Error::from_raw_os_error(winerror));
+                // _chsize_s returns errno directly; preserve it exactly.
+                return Err(crate::os::io_error_from_errno(ret));
             }
         }
         _ => cvt(ret)?,

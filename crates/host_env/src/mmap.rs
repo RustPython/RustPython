@@ -5,6 +5,62 @@
 
 use std::io;
 
+#[cfg(unix)]
+pub use libc::{
+    MADV_DONTNEED, MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MAP_ANON,
+    MAP_ANONYMOUS, MAP_PRIVATE, MAP_SHARED, PROT_EXEC, PROT_READ, PROT_WRITE,
+};
+
+#[cfg(target_os = "macos")]
+pub use libc::{MADV_FREE_REUSABLE, MADV_FREE_REUSE};
+
+#[cfg(any(
+    target_os = "android",
+    target_os = "dragonfly",
+    target_os = "fuchsia",
+    target_os = "freebsd",
+    target_os = "linux",
+    target_os = "netbsd",
+    target_os = "openbsd",
+    target_vendor = "apple"
+))]
+pub use libc::MADV_FREE;
+
+#[cfg(target_os = "linux")]
+pub use libc::{
+    MADV_DODUMP, MADV_DOFORK, MADV_DONTDUMP, MADV_DONTFORK, MADV_HUGEPAGE, MADV_HWPOISON,
+    MADV_MERGEABLE, MADV_NOHUGEPAGE, MADV_REMOVE, MADV_UNMERGEABLE,
+};
+
+#[cfg(any(
+    target_os = "android",
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "aarch64",
+            target_arch = "arm",
+            target_arch = "powerpc",
+            target_arch = "powerpc64",
+            target_arch = "s390x",
+            target_arch = "x86",
+            target_arch = "x86_64",
+            target_arch = "sparc64"
+        )
+    )
+))]
+pub use libc::MADV_SOFT_OFFLINE;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64", target_env = "gnu"))]
+pub use libc::{MAP_DENYWRITE, MAP_EXECUTABLE, MAP_POPULATE};
+
+#[cfg(any(target_os = "linux", target_os = "openbsd", target_os = "netbsd"))]
+pub use libc::MAP_STACK;
+
+#[cfg(target_os = "freebsd")]
+pub use libc::{MADV_AUTOSYNC, MADV_CORE, MADV_NOCORE, MADV_NOSYNC, MADV_PROTECT};
+
+pub use libc::EOVERFLOW;
+
 #[cfg(windows)]
 use crate::windows::{CheckWin32Bool, HandleToOwned};
 #[cfg(unix)]

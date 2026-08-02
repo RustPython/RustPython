@@ -4,6 +4,7 @@ use crate::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, convert
 
 #[cfg(all(not(feature = "host_env"), feature = "stdio"))]
 pub(crate) use sys::SandboxStdio;
+pub use sys::{COPYRIGHT, PLATFORM};
 pub(crate) use sys::{DOC, MAXSIZE, RUST_MULTIARCH, UnraisableHookArgsData, module_def, multiarch};
 
 #[pymodule(name = "_jit")]
@@ -43,13 +44,14 @@ pub mod sys {
             hash::{PyHash, PyUHash},
         },
         convert::ToPyObject,
-        frame::{Frame, FrameRef},
+        frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
         stdlib::{_warnings::warn, builtins},
         types::PyStructSequence,
         version,
         vm::{Settings, VirtualMachine},
     };
+    use core::ffi::CStr;
     use core::sync::atomic::Ordering;
     use num_traits::ToPrimitive;
     use std::{
@@ -103,7 +105,7 @@ pub mod sys {
         #[pymethod]
         fn write(&self, s: PyStrRef, vm: &VirtualMachine) -> PyResult<usize> {
             if self.fd == 0 {
-                return Err(vm.new_os_error("not writable".to_owned()));
+                return Err(vm.new_os_error("not writable"));
             }
             let bytes = s.as_bytes();
             if self.fd == 2 {
@@ -121,7 +123,7 @@ pub mod sys {
         #[pymethod]
         fn readline(&self, size: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<String> {
             if self.fd != 0 {
-                return Err(vm.new_os_error("not readable".to_owned()));
+                return Err(vm.new_os_error("not readable"));
             }
             let size = size.unwrap_or(-1);
             if size == 0 {
@@ -222,7 +224,7 @@ pub mod sys {
     #[pyattr(name = "api_version")]
     const API_VERSION: u32 = 0x0; // what C api?
     #[pyattr(name = "copyright")]
-    const COPYRIGHT: &str = "Copyright (c) 2019 RustPython Team";
+    pub const COPYRIGHT: &CStr = c"Copyright (c) 2019 RustPython Team";
     #[pyattr(name = "float_repr_style")]
     const FLOAT_REPR_STYLE: &str = "short";
     #[pyattr(name = "_framework")]
@@ -235,14 +237,14 @@ pub mod sys {
     const MAXUNICODE: u32 = core::char::MAX as u32;
 
     #[pyattr(name = "platform")]
-    pub const PLATFORM: &str = cfg_select! {
-        target_os = "linux" => "linux",
-        target_os = "android" => "android",
-        target_os = "macos" => "darwin",
-        target_os = "ios" => "ios",
-        windows => "win32",
-        target_os = "wasi" => "wasi",
-        _ => "unknown"
+    pub const PLATFORM: &CStr = cfg_select! {
+        target_os = "linux" => c"linux",
+        target_os = "android" => c"android",
+        target_os = "macos" => c"darwin",
+        target_os = "ios" => c"ios",
+        windows => c"win32",
+        target_os = "wasi" => c"wasi",
+        _ => c"unknown"
     };
 
     #[pyattr(name = "ps1")]
@@ -750,8 +752,8 @@ pub mod sys {
         handle
             .read_to_string(&mut source)
             .map_err(|e| vm.new_os_error(format!("Error reading from stdin: {e}")))?;
-        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>".to_owned())
-            .map_err(|e| vm.new_os_error(format!("Error running stdin: {e}")))?;
+        vm.compile(&source, crate::compiler::Mode::Single, "<stdin>")
+            .map_err(|e| e.into_pyexception(vm, Some(&source)))?;
         Ok(())
     }
 
@@ -774,7 +776,7 @@ pub mod sys {
         } else {
             vec![status]
         };
-        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit.to_owned(), args)?;
+        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit, args)?;
         Err(exc)
     }
 
@@ -966,19 +968,11 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
+    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
         let offset = offset.into_option().unwrap_or(0);
-        let frame_ref = {
-            let frames = vm.frames.borrow();
-            if offset >= frames.len() {
-                return Err(vm.new_value_error("call stack is not deep enough"));
-            }
-
-            let idx = frames.len() - offset - 1;
-            // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
-            let py: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
-            py.to_owned()
-        };
+        let frame_ref = crate::frame::frame_at_offset(offset, vm)
+            .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
+        frame_ref.mark_escaped();
 
         if let Ok(audit) = vm.sys_module.get_attr("audit", vm) {
             audit.call((vm.ctx.new_str("sys._getframe"), frame_ref.to_owned()), vm)?;
@@ -998,15 +992,9 @@ pub mod sys {
         }
 
         // Get the frame at the specified depth
-        let func_obj = {
-            let frames = vm.frames.borrow();
-            if depth >= frames.len() {
-                return Ok(vm.ctx.none());
-            }
-            let idx = frames.len() - depth - 1;
-            // SAFETY: the FrameRef is alive on the call stack while it's in the Vec
-            let frame: &crate::Py<Frame> = unsafe { frames[idx].as_ref() };
-            frame.func_obj.clone()
+        let func_obj = match crate::frame::frame_at_offset(depth, vm) {
+            Some(frame) => frame.iframe().func_obj().map(|o| o.to_owned()),
+            None => return Ok(vm.ctx.none()),
         };
 
         // If the frame has a function object, return its __module__ attribute
@@ -1129,7 +1117,7 @@ pub mod sys {
             let tb_module = vm.import("traceback", 0)?;
             let print_tb = tb_module.get_attr("print_tb", vm)?;
             let stderr_obj = super::get_stderr(vm)?;
-            let kwargs: KwArgs = [("file".to_string(), stderr_obj)].into_iter().collect();
+            let kwargs: KwArgs = core::iter::once(("file".to_string(), stderr_obj)).collect();
             let _ = print_tb.call(
                 FuncArgs::new(vec![unraisable.exc_traceback.clone()], kwargs),
                 vm,
@@ -1228,7 +1216,7 @@ pub mod sys {
             vm.state.int_max_str_digits.store(maxdigits);
             Ok(())
         } else {
-            let error = format!("maxdigits must be 0 or larger than {threshold:?}");
+            let error = format!("maxdigits must be 0 or larger than {threshold}");
             Err(vm.new_value_error(error))
         }
     }
@@ -1744,10 +1732,52 @@ pub mod sys {
         }
 
         for hook in hooks {
-            hook.call((event.clone(), args.clone()), vm)?;
+            call_audit_hook(&hook, event.clone().into(), args, vm)?;
         }
 
         Ok(())
+    }
+
+    fn audit_hook_can_trace(hook: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        match hook.get_attr("__cantrace__", vm) {
+            Ok(can_trace) => can_trace.try_to_bool(vm),
+            Err(exc)
+                if exc
+                    .class()
+                    .fast_issubclass(vm.ctx.exceptions.attribute_error) =>
+            {
+                Ok(false)
+            }
+            Err(exc) => Err(exc),
+        }
+    }
+
+    fn call_audit_hook(
+        hook: &PyObjectRef,
+        event: PyObjectRef,
+        args: &PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // Tracing is suppressed while dispatching Python audit hooks,
+        // except for hooks that explicitly opt in with __cantrace__.
+        vm.enter_tracing();
+        let can_trace = audit_hook_can_trace(hook, vm);
+        let result = match can_trace {
+            Ok(can_trace) => {
+                if can_trace {
+                    vm.leave_tracing();
+                }
+                let result = hook.call((event, args.clone()), vm).map(|_| ());
+                if can_trace {
+                    vm.enter_tracing();
+                }
+                result
+            }
+            Err(exc) => Err(exc),
+        };
+
+        vm.leave_tracing();
+        result
     }
 
     #[pyfunction]
@@ -1773,10 +1803,13 @@ pub mod sys {
         let event: PyObjectRef = vm.ctx.new_str("sys.addaudithook").into();
 
         for existing_hook in hooks {
-            let Err(exc) = existing_hook.call((event.clone(), args.clone()), vm) else {
+            let Err(exc) = call_audit_hook(&existing_hook, event.clone(), &args, vm) else {
                 continue;
             };
-            if exc.class().fast_issubclass(vm.ctx.exceptions.runtime_error) {
+            if exc
+                .class()
+                .fast_issubclass(vm.ctx.exceptions.exception_type)
+            {
                 return Ok(());
             }
             return Err(exc);
@@ -1866,7 +1899,7 @@ pub(crate) fn sysconfigdata_name() -> String {
     format!(
         "_sysconfigdata_{}_{}_{}",
         sys::ABIFLAGS,
-        sys::PLATFORM,
+        sys::PLATFORM.to_string_lossy(),
         sys::multiarch()
     )
 }

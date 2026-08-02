@@ -353,9 +353,9 @@ pub(crate) mod decl {
             // typealias(name, value, *, type_params=())
             // name and value are positional-or-keyword; type_params is keyword-only.
 
-            // Reject unexpected keyword arguments
+            // Reject unexpected keyword arguments.
             for key in args.kwargs.keys() {
-                if key != "name" && key != "value" && key != "type_params" {
+                if !matches!(key.as_str(), Ok("name" | "value" | "type_params")) {
                     return Err(vm.new_type_error(format!(
                         "typealias() got an unexpected keyword argument '{key}'"
                     )));
@@ -417,9 +417,8 @@ pub(crate) mod decl {
             };
 
             // Get caller's module name from frame globals, like typevar.rs caller()
-            let module = vm
-                .current_frame()
-                .and_then(|f| f.globals.get_item("__name__", vm).ok());
+            let module =
+                crate::frame::current_globals().and_then(|g| g.get_item("__name__", vm).ok());
 
             Ok(Self::new_eager(name, type_params, value, module))
         }

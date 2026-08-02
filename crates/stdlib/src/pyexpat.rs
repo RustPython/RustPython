@@ -1,5 +1,8 @@
 //! Pyexpat builtin module
 
+// false positive: core::io::Cursor is unstable (core_io), unusable on stable
+#![expect(clippy::std_instead_of_core)]
+
 // spell-checker: ignore libexpat
 
 pub(crate) use _pyexpat::module_def;
@@ -40,10 +43,11 @@ macro_rules! create_bool_property {
 #[pymodule(name = "pyexpat")]
 mod _pyexpat {
     use crate::vm::{
-        Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+        VirtualMachine,
         builtins::{PyBytesRef, PyException, PyModule, PyStr, PyStrRef, PyType, PyUtf8StrRef},
         extend_module,
-        function::{ArgBytesLike, Either, IntoFuncArgs, OptionalArg},
+        function::{ArgBytesLike, ArgPrimitiveIndex, Either, IntoFuncArgs, OptionalArg},
         types::Constructor,
     };
     use rustpython_common::lock::PyRwLock;
@@ -71,12 +75,21 @@ mod _pyexpat {
     pub(super) const VERSION_INFO: (u32, u32, u32) = (2, 7, 1);
 
     #[pyattr]
+    const XML_PARAM_ENTITY_PARSING_NEVER: i32 = 0;
+    #[pyattr]
+    const XML_PARAM_ENTITY_PARSING_UNLESS_STANDALONE: i32 = 1;
+    #[pyattr]
+    const XML_PARAM_ENTITY_PARSING_ALWAYS: i32 = 2;
+
+    #[pyattr]
     #[pyattr(name = "XMLParserType")]
     #[pyclass(name = "xmlparser", module = false, traverse)]
     #[derive(Debug, PyPayload)]
     pub(super) struct PyExpatLikeXmlParser {
         #[pytraverse(skip)]
         namespace_separator: Option<String>,
+        #[pytraverse(skip)]
+        base: PyRwLock<Option<String>>,
         start_element: MutableObject,
         end_element: MutableObject,
         character_data: MutableObject,
@@ -128,6 +141,7 @@ mod _pyexpat {
             let intern_dict = intern.unwrap_or_else(|| vm.ctx.new_dict().into());
             Self {
                 namespace_separator,
+                base: PyRwLock::new(None),
                 start_element: MutableObject::new(vm.ctx.none()),
                 end_element: MutableObject::new(vm.ctx.none()),
                 character_data: MutableObject::new(vm.ctx.none()),
@@ -292,9 +306,33 @@ mod _pyexpat {
 
         fn create_config(&self) -> xml::ParserConfig {
             xml::ParserConfig::new()
-                .cdata_to_characters(true)
+                .cdata_to_characters(false)
                 .coalesce_characters(false)
+                .ignore_comments(false)
                 .whitespace_to_characters(true)
+        }
+
+        #[pymethod(name = "SetParamEntityParsing")]
+        fn set_param_entity_parsing(&self, _flag: ArgPrimitiveIndex<i32>) -> i32 {
+            // Compatibility shim: xml.sax requires this setup API, but xml-rs
+            // does not expose Expat parameter entity parsing configuration.
+            1
+        }
+
+        #[pymethod(name = "SetBase")]
+        fn set_base(&self, base: PyStrRef) {
+            // Store-only compatibility state for xml.sax locator APIs. The
+            // xml-rs backend still does not perform Expat-style base URI
+            // resolution for external entities.
+            *self.base.write() = Some(AsRef::<str>::as_ref(&base).to_owned());
+        }
+
+        #[pymethod(name = "GetBase")]
+        fn get_base(&self, vm: &VirtualMachine) -> PyObjectRef {
+            self.base.read().as_ref().map_or_else(
+                || vm.ctx.none(),
+                |base| vm.ctx.new_str(base.as_str()).into(),
+            )
         }
 
         /// Construct element name with namespace if separator is set
@@ -314,33 +352,58 @@ mod _pyexpat {
             T: std::io::Read,
         {
             for e in parser {
-                match e {
-                    Ok(XmlEvent::StartElement {
+                match e? {
+                    XmlEvent::StartElement {
                         name, attributes, ..
-                    }) => {
-                        let dict = vm.ctx.new_dict();
-                        for attribute in attributes {
-                            let attr_name = self.make_name(&attribute.name);
-                            dict.set_item(
-                                attr_name.as_str(),
-                                vm.ctx.new_str(attribute.value).into(),
-                                vm,
-                            )
-                            .unwrap();
-                        }
+                    } => {
+                        let ordered = self.ordered_attributes.read().is(&vm.ctx.true_value);
+                        // Build the container.
+                        let attrs: PyObjectRef = if ordered {
+                            let mut items = Vec::with_capacity(attributes.len() * 2);
+                            for attribute in attributes {
+                                items.push(vm.ctx.new_str(self.make_name(&attribute.name)).into());
+                                items.push(vm.ctx.new_str(attribute.value).into());
+                            }
+                            vm.ctx.new_list(items).into()
+                        } else {
+                            let dict = vm.ctx.new_dict();
+                            for attribute in attributes {
+                                dict.set_item(
+                                    self.make_name(&attribute.name).as_str(),
+                                    vm.ctx.new_str(attribute.value).into(),
+                                    vm,
+                                )
+                                .unwrap();
+                            }
+                            dict.into()
+                        };
 
                         let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
-                        invoke_handler(vm, &self.start_element, (name_str, dict));
+                        invoke_handler(vm, &self.start_element, (name_str, attrs));
                     }
-                    Ok(XmlEvent::EndElement { name, .. }) => {
+                    XmlEvent::EndElement { name, .. } => {
                         let name_str = PyStr::from(self.make_name(&name)).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.end_element, (name_str,));
                     }
-                    Ok(XmlEvent::Characters(chars)) => {
+                    XmlEvent::Characters(chars) => {
                         let str = PyStr::from(chars).into_ref(&vm.ctx);
                         invoke_handler(vm, &self.character_data, (str,));
                     }
-                    Err(e) => return Err(e),
+                    XmlEvent::ProcessingInstruction { name, data } => {
+                        let name = PyStr::from(name).into_ref(&vm.ctx);
+                        let data = PyStr::from(data.unwrap_or_default()).into_ref(&vm.ctx);
+                        invoke_handler(vm, &self.processing_instruction, (name, data));
+                    }
+                    XmlEvent::Comment(comment) => {
+                        let comment = PyStr::from(comment).into_ref(&vm.ctx);
+                        invoke_handler(vm, &self.comment, (comment,));
+                    }
+                    XmlEvent::CData(chars) => {
+                        invoke_handler(vm, &self.start_cdata_section, ());
+                        let str = PyStr::from(chars).into_ref(&vm.ctx);
+                        invoke_handler(vm, &self.character_data, (str,));
+                        invoke_handler(vm, &self.end_cdata_section, ());
+                    }
                     _ => {}
                 }
             }

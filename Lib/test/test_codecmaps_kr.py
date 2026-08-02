@@ -11,7 +11,7 @@ class TestCP949Map(multibytecodec_support.TestBase_Mapping,
     encoding = 'cp949'
     mapfileurl = 'http://www.pythontest.net/unicode/CP949.TXT'
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp949
+    @unittest.expectedFailureIf(__import__("sys").platform in ("android", "darwin", "linux"), "TODO: RUSTPYTHON; LookupError: unknown encoding: cp949")
     def test_mapping_file(self):
         return super().test_mapping_file()
 

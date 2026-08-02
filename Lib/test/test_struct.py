@@ -365,7 +365,6 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
             (got,) = struct.unpack(code, got)
             self.assertEqual(got, expectedback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_705836(self):
         # SF bug 705836.  "<f" and ">f" had a severe rounding bug, where a carry
         # from the low-order discarded bits could propagate into the exponent

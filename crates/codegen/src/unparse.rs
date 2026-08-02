@@ -58,6 +58,63 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         self.f.write_fmt(f)
     }
 
+    fn unparse_float(&mut self, value: f64) -> fmt::Result {
+        #[allow(clippy::correctness, clippy::assertions_on_constants)]
+        const {
+            assert!(f64::MAX_10_EXP == 308)
+        };
+
+        if value.is_infinite() {
+            self.p("1e309")
+        } else {
+            self.p(&rustpython_literal::float::to_string(value))
+        }
+    }
+
+    fn unparse_complex(&mut self, real: f64, imag: f64) -> fmt::Result {
+        self.p(&rustpython_literal::complex::to_string(real, imag).replace("inf", "1e309"))
+    }
+
+    fn unparse_constant_value(&mut self, value: &ast::ConstantValue) -> fmt::Result {
+        match value {
+            ast::ConstantValue::None => self.p("None"),
+            ast::ConstantValue::Boolean(value) => self.p(if *value { "True" } else { "False" }),
+            ast::ConstantValue::Str(value) => UnicodeEscape::new_repr(value.as_ref().into())
+                .str_repr()
+                .fmt(self.f),
+            ast::ConstantValue::Bytes(value) => AsciiEscape::new_repr(value.as_ref())
+                .bytes_repr()
+                .fmt(self.f),
+            ast::ConstantValue::Integer(value) => self.p(value.as_ref()),
+            ast::ConstantValue::Tuple(elements) => {
+                self.p("(")?;
+                let mut first = true;
+                for element in elements {
+                    self.p_delim(&mut first, ", ")?;
+                    self.unparse_constant_value(element)?;
+                }
+                self.p_if(elements.len() == 1, ",")?;
+                self.p(")")
+            }
+            ast::ConstantValue::Frozenset(elements) => {
+                if elements.is_empty() {
+                    self.p("frozenset()")
+                } else {
+                    self.p("frozenset({")?;
+                    let mut first = true;
+                    for element in elements {
+                        self.p_delim(&mut first, ", ")?;
+                        self.unparse_constant_value(element)?;
+                    }
+                    self.p("})")
+                }
+            }
+            ast::ConstantValue::Float(value) => self.unparse_float(*value),
+            ast::ConstantValue::Complex { real, imag } => self.unparse_complex(*real, *imag),
+            ast::ConstantValue::Ellipsis => self.p("..."),
+        }
+    }
+
     fn unparse_expr(&mut self, ast: &ast::Expr, level: u8) -> fmt::Result {
         macro_rules! op_prec {
             ($op_ty:ident, $x:expr, $enu:path, $($var:ident($op:literal, $prec:ident)),*$(,)?) => {
@@ -87,6 +144,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 values,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 let (op, prec) = op_prec!(bin, op, ast::BoolOp, And("and", AND), Or("or", OR));
                 group_if!(prec, {
@@ -102,6 +160,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::TUPLE, {
                     self.unparse_expr(target, precedence::ATOM)?;
@@ -115,6 +174,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 right,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 let right_associative = matches!(op, ast::Operator::Pow);
                 let (op, prec) = op_prec!(
@@ -146,6 +206,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 operand,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 let (op, prec) = op_prec!(
                     un,
@@ -166,6 +227,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 body,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::TEST, {
                     if let Some(parameters) = parameters {
@@ -183,6 +245,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 orelse,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::TEST, {
                     self.unparse_expr(body, precedence::TEST + 1)?;
@@ -196,6 +259,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 items,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 let mut first = true;
@@ -214,6 +278,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 elts,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 let mut first = true;
@@ -228,6 +293,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("[")?;
                 self.unparse_expr(elt, precedence::TEST)?;
@@ -239,6 +305,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 self.unparse_expr(elt, precedence::TEST)?;
@@ -251,6 +318,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("{")?;
                 self.unparse_expr(key, precedence::TEST)?;
@@ -265,6 +333,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 generators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.p("(")?;
                 self.unparse_expr(elt, precedence::TEST)?;
@@ -275,6 +344,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::AWAIT, {
                     self.p("await ")?;
@@ -285,6 +355,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 if let Some(value) = value {
                     write!(self, "(yield {})", UnparseExpr::new(value, self.source))?;
@@ -296,6 +367,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 value,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 write!(
                     self,
@@ -309,6 +381,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 comparators,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 group_if!(precedence::CMP, {
                     let new_lvl = precedence::CMP + 1;
@@ -326,6 +399,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 arguments: ast::Arguments { args, keywords, .. },
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 self.unparse_expr(func, precedence::ATOM)?;
                 self.p("(")?;
@@ -379,26 +453,13 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                     .bytes_repr()
                     .fmt(self.f)?
             }
-            ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => {
-                #[allow(clippy::correctness, clippy::assertions_on_constants)]
-                const {
-                    assert!(f64::MAX_10_EXP == 308)
-                };
-
-                let inf_str = "1e309";
-                match value {
-                    ast::Number::Int(int) => int.fmt(self.f)?,
-                    &ast::Number::Float(fp) => {
-                        if fp.is_infinite() {
-                            self.p(inf_str)?
-                        } else {
-                            self.p(&rustpython_literal::float::to_string(fp))?
-                        }
-                    }
-                    &ast::Number::Complex { real, imag } => self
-                        .p(&rustpython_literal::complex::to_string(real, imag)
-                            .replace("inf", inf_str))?,
-                }
+            ast::Expr::NumberLiteral(ast::ExprNumberLiteral { value, .. }) => match value {
+                ast::Number::Int(int) => int.fmt(self.f)?,
+                &ast::Number::Float(fp) => self.unparse_float(fp)?,
+                &ast::Number::Complex { real, imag } => self.unparse_complex(real, imag)?,
+            },
+            ast::Expr::Constant(ast::ExprConstant { value, .. }) => {
+                self.unparse_constant_value(value)?
             }
             ast::Expr::BooleanLiteral(ast::ExprBooleanLiteral { value, .. }) => {
                 self.p(if *value { "True" } else { "False" })?
@@ -460,6 +521,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
                 step,
                 node_index: _,
                 range: _range,
+                ..
             }) => {
                 if let Some(lower) = lower {
                     self.unparse_expr(lower, precedence::TEST)?;
@@ -554,7 +616,9 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         let buffered =
             fmt::from_fn(|f| Unparser::new(f, self.source).unparse_expr(val, precedence::TEST + 1))
                 .to_string();
-        if let Some(ast::DebugText { leading, trailing }) = debug_text {
+        if let Some(debug_text) = debug_text {
+            let leading = debug_text.leading.as_str();
+            let trailing = debug_text.trailing.as_str();
             self.p(leading)?;
             self.p(self.source.slice(val.range()))?;
             self.p(trailing)?;

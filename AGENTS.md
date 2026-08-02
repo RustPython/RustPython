@@ -1,6 +1,6 @@
-# GitHub Copilot Instructions for RustPython
+# AI Agent Instructions for RustPython
 
-This document provides guidelines for working with GitHub Copilot when contributing to the RustPython project.
+This document provides guidelines for AI coding agents (GitHub Copilot, Claude Code, Gemini, etc.) contributing to the RustPython project.
 
 ## Project Overview
 
@@ -13,22 +13,7 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0
 
 ## Repository Structure
 
-- `src/` - Top-level code for the RustPython binary
-- `vm/` - The Python virtual machine implementation
-  - `builtins/` - Python built-in types and functions
-  - `stdlib/` - Essential standard library modules implemented in Rust, required to run the Python core
-- `compiler/` - Python compiler components
-  - `parser/` - Parser for converting Python source to AST
-  - `core/` - Bytecode representation in Rust structures
-  - `codegen/` - AST to bytecode compiler
-- `Lib/` - CPython's standard library in Python (copied from CPython). **IMPORTANT**: Do not edit this directory directly; The only allowed operation is copying files from CPython.
-- `derive/` - Rust macros for RustPython
-- `common/` - Common utilities
-- `extra_tests/` - Integration tests and snippets
-- `stdlib/` - Non-essential Python standard library modules implemented in Rust (useful but not required for core functionality)
-- `wasm/` - WebAssembly support
-- `jit/` - Experimental JIT compiler implementation
-- `pylib/` - Python standard library packaging (do not modify this directory directly - its contents are generated automatically)
+See the "Code organization" section in [CONTRIBUTING.md](CONTRIBUTING.md#code-organization) for the current directory layout.
 
 ## AI Agent Rules
 
@@ -265,11 +250,9 @@ cargo run --features jit
 
 ### Linux Build and Debug on macOS
 
-See the "Testing on Linux from macOS" section in [DEVELOPMENT.md](DEVELOPMENT.md#testing-on-linux-from-macos).
+See the "Testing on Linux from macOS" section in [CONTRIBUTING.md](CONTRIBUTING.md#testing-on-linux-from-macos).
 
 ### Building venvlauncher (Windows)
-
-See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
 
 **IMPORTANT**: All 4 venvlauncher binaries use the same source code. Do NOT add multiple `[[bin]]` entries to Cargo.toml. Build once and copy with different names.
 
@@ -301,7 +284,7 @@ If you modify any file under `.github/workflows/`, the change must pass a [zizmo
 ## Documentation
 
 - Check the [architecture document](/architecture/architecture.md) for a high-level overview
-- Read the [development guide](/DEVELOPMENT.md) for detailed setup instructions
+- Read the [development guide](/CONTRIBUTING.md) for detailed setup instructions
 - Generate documentation with `cargo doc --no-deps --all`
 - Online documentation is available at [docs.rs/rustpython](https://docs.rs/rustpython/)
 - [How to update test files](https://github.com/RustPython/RustPython/wiki/How-to-update-test-files#checkout-cpython-source-code-initial-setup) — guide for syncing test cases from upstream CPython into the `Lib/` directory

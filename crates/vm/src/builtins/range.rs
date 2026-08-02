@@ -406,12 +406,7 @@ impl Py<PyRange> {
     #[pymethod]
     fn count(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         if let Ok(int) = item.clone().downcast::<PyInt>() {
-            let count = if self.index_of(int.as_bigint()).is_some() {
-                1
-            } else {
-                0
-            };
-            Ok(count)
+            Ok(usize::from(self.index_of(int.as_bigint()).is_some()))
         } else {
             // Dealing with classes who might compare equal with ints in their
             // __eq__, slow search.

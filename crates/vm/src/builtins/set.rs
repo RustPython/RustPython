@@ -5,12 +5,17 @@ use super::{
     IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
     PyTypeRef, builtins_iter,
 };
-use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     atomic_func,
     class::PyClassImpl,
-    common::{ascii, hash::PyHash, lock::PyMutex, rc::PyRc, wtf8::Wtf8Buf},
+    common::{
+        ascii,
+        hash::PyHash,
+        lock::{LazyLock, PyMutex},
+        rc::PyRc,
+        wtf8::Wtf8Buf,
+    },
     convert::ToPyResult,
     dict_inner::{self, DictSize},
     function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
@@ -24,9 +29,7 @@ use crate::{
     utils::collection_repr,
     vm::VirtualMachine,
 };
-use alloc::fmt;
-use core::borrow::Borrow;
-use core::ops::Deref;
+use core::{borrow::Borrow, fmt};
 use rustpython_common::{
     atomic::{Ordering, PyAtomic, Radium},
     hash,
@@ -220,7 +223,9 @@ impl PySetInner {
     }
 
     fn contains(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle))
+        let result = self
+            .retry_op_with_frozenset(needle, vm, |needle, vm| self.content.contains(vm, needle));
+        Self::wrap_unhashable_error(result, needle, vm)
     }
 
     fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
@@ -324,15 +329,20 @@ impl PySetInner {
     }
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.content.insert(vm, &*item, ())
+        let result = self.content.insert(vm, &*item, ());
+        Self::wrap_unhashable_error(result, &item, vm)
     }
 
     fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item))
+        let result =
+            self.retry_op_with_frozenset(&item, vm, |item, vm| self.content.delete(vm, item));
+        Self::wrap_unhashable_error(result, &item, vm)
     }
 
     fn discard(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
-        self.retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item))
+        let result = self
+            .retry_op_with_frozenset(item, vm, |item, vm| self.content.delete_if_exists(vm, item));
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
     fn clear(&self) {
@@ -439,28 +449,14 @@ impl PySetInner {
     }
 
     fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
-        // Work to increase the bit dispersion for closely spaced hash values.
-        // This is important because some use cases have many combinations of a
-        // small number of elements with nearby hashes so that many distinct
-        // combinations collapse to only a handful of distinct hash values.
-        const fn _shuffle_bits(h: u64) -> u64 {
-            ((h ^ 89869747) ^ (h.wrapping_shl(16))).wrapping_mul(3644798167)
-        }
-        // Factor in the number of active entries
-        let mut hash: u64 = (self.len() as u64 + 1).wrapping_mul(1927868237);
-        // Xor-in shuffled bits from every entry's hash field because xor is
-        // commutative and a frozenset hash should be independent of order.
-        hash = self.content.try_fold_keys(hash, |h, element| {
-            Ok(h ^ _shuffle_bits(element.hash(vm)? as u64))
-        })?;
-        // Disperse patterns arising in nested frozen-sets
-        hash ^= (hash >> 11) ^ (hash >> 25);
-        hash = hash.wrapping_mul(69069).wrapping_add(907133923);
-        // -1 is reserved as an error code
-        if hash == u64::MAX {
-            hash = 590923713;
-        }
-        Ok(hash as PyHash)
+        let hasher = self.content.try_fold_keys(
+            hash::FrozenSetHash::new(self.len()),
+            |mut hasher, element| {
+                hasher.add(element.hash(vm)?);
+                Ok(hasher)
+            },
+        )?;
+        Ok(hasher.finish())
     }
 
     // Run operation, on failure, if item is a set/set subclass, convert it
@@ -498,6 +494,25 @@ impl PySetInner {
                     })
                 })
         })
+    }
+
+    fn wrap_unhashable_error<T>(
+        result: PyResult<T>,
+        item: &PyObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<T> {
+        match result {
+            Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
+                let message = cause.as_object().str(vm)?;
+                let err = vm.new_type_error(format!(
+                    "cannot use '{}' as a set element ({message})",
+                    item.class().name()
+                ));
+                err.set___cause__(Some(cause));
+                Err(err)
+            }
+            result => result,
+        }
     }
 }
 
@@ -537,7 +552,7 @@ impl PySet {
         self.inner.len()
     }
 
-    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
     }
 
@@ -679,17 +694,17 @@ impl PySet {
     }
 
     #[pymethod]
-    fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    pub fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.discard(&item, vm).map(|_| ())
     }
 
     #[pymethod]
-    fn clear(&self) {
+    pub fn clear(&self) {
         self.inner.clear()
     }
 
     #[pymethod]
-    fn pop(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn pop(&self, vm: &VirtualMachine) -> PyResult {
         self.inner.pop(vm)
     }
 
@@ -924,10 +939,12 @@ impl Representable for PySet {
     fn repr_wtf8(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         let class = zelf.class();
         let borrowed_name = class.name();
-        let class_name = borrowed_name.deref();
+        let class_name = &*borrowed_name;
+
         if zelf.inner.len() == 0 {
             return Ok(Wtf8Buf::from(format!("{class_name}()")));
         }
+
         if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
             let name = (class_name != "set").then_some(class_name);
             zelf.inner.repr(name, vm)
@@ -941,31 +958,54 @@ impl Constructor for PyFrozenSet {
     type Args = Vec<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+        let is_exact_frozenset = cls.is(vm.ctx.types.frozenset_type);
+        let is_frozenset_init = {
+            let cls_init = cls.slots.init.load().map(|init| init as usize);
+            let frozenset_init = vm
+                .ctx
+                .types
+                .frozenset_type
+                .slots
+                .init
+                .load()
+                .map(|init| init as usize);
+            cls_init == frozenset_init
+        };
 
         // Optimizations for exact frozenset type
-        if cls.is(vm.ctx.types.frozenset_type) {
+        let iterable_opt = if is_exact_frozenset || is_frozenset_init {
+            let iterable: OptionalArg<PyObjectRef> = args.bind(vm)?;
+
             // Return exact frozenset as-is
-            if let OptionalArg::Present(ref input) = iterable
-                && let Ok(fs) = input.clone().downcast_exact::<Self>(vm)
+            if is_exact_frozenset
+                && let OptionalArg::Present(input) = &iterable
+                && input.class().is(vm.ctx.types.frozenset_type)
             {
-                return Ok(fs.into_pyref().into());
+                return Ok(input.clone());
             }
 
-            // Return empty frozenset singleton
-            if iterable.is_missing() {
-                return Ok(vm.ctx.empty_frozenset.clone().into());
+            iterable.into_option()
+        } else {
+            match &args.args[..] {
+                [] => None,
+                [iterable] => Some(iterable.clone()),
+                slice => {
+                    return Err(vm.new_type_error(format!(
+                        "frozenset expected at most 1 argument, got {}",
+                        slice.len()
+                    )));
+                }
             }
-        }
+        };
 
-        let elements: Vec<PyObjectRef> = if let OptionalArg::Present(iterable) = iterable {
+        let elements = if let Some(iterable) = iterable_opt {
             iterable.try_to_value(vm)?
         } else {
             vec![]
         };
 
-        // Return empty frozenset singleton for exact frozenset types (when iterable was empty)
-        if elements.is_empty() && cls.is(vm.ctx.types.frozenset_type) {
+        // Return empty frozenset singleton
+        if is_exact_frozenset && elements.is_empty() {
             return Ok(vm.ctx.empty_frozenset.clone().into());
         }
 
@@ -995,7 +1035,7 @@ impl PyFrozenSet {
         self.inner.len()
     }
 
-    fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn __contains__(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
         self.inner.contains(needle, vm)
     }
 

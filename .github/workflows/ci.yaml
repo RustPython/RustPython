@@ -33,8 +33,8 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_RELEASE_DEBUG: 0
   CARGO_TERM_COLOR: always
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # TODO: Remove on 2026/06/02
   CI: true
+  FORCE_COLOR: 1
 
 jobs:
   determine_changes:
@@ -44,7 +44,7 @@ jobs:
       # Flag that is raised when any rust code is changed.
       rust_code: ${{ steps.check_rust_code.outputs.changed }}
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -88,14 +88,14 @@ jobs:
         os: [macos-latest, ubuntu-latest, windows-2025]
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -198,13 +198,17 @@ jobs:
           target: aarch64-unknown-linux-gnu
           dependencies:
             gcc-aarch64-linux-gnu: true
+        - os: ubuntu-latest
+          target: x86_64-pc-windows-gnu
+          dependencies:
+            gcc-mingw-w64-x86-64: true
         - os: macos-latest
           target: aarch64-apple-ios
         - os: macos-latest
           target: x86_64-apple-darwin
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -216,9 +220,10 @@ jobs:
           gcc-multilib: ${{ matrix.dependencies.gcc-multilib || false }}
           musl-tools: ${{ matrix.dependencies.musl-tools || false }}
           gcc-aarch64-linux-gnu: ${{ matrix.dependencies.gcc-aarch64-linux-gnu || false }}
+          gcc-mingw-w64-x86-64: ${{ matrix.dependencies.gcc-mingw-w64-x86-64 || false }}
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -295,6 +300,8 @@ jobs:
         - os: macos-latest
           extra_test_args:
             - '-u all'
+            - '--timeout 600'
+            - '--dont-add-python-opts'
           env_polluting_tests:
             - test_set
           skips: []
@@ -302,30 +309,31 @@ jobs:
         - os: ubuntu-latest
           extra_test_args:
             - '-u all'
+            - '--timeout 600'
+            - '--dont-add-python-opts'
           env_polluting_tests:
             - test_set
           skips: []
           timeout: 60
         - os: windows-2025
-          extra_test_args: [] # TODO: Enable '-u all'
+          extra_test_args:
+            - '-u all'
+            - '--timeout 600'
+            - '--dont-add-python-opts'
           env_polluting_tests:
             - test_set
-          skips:
-            - test_rlcompleter
-            - test_pathlib # panic by surrogate chars
-            - test_posixpath # OSError: (22, 'The filename, directory name, or volume label syntax is incorrect. (os error 123)')
-            - test_venv # couple of failing tests
+          skips: []
           timeout: 50
       fail-fast: false
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -340,13 +348,14 @@ jobs:
         # Windows runners randomly crashes, https://github.com/actions/cache/issues/1754
         continue-on-error: true
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - name: Install macOS dependencies
         uses: ./.github/actions/install-macos-deps
         with:
           openssl: true
 
+      # Keep features in sync with update-caches.yml CARGO_ARGS.
       - name: build rustpython
         run: cargo build --release --verbose --features=threading,jit ${{ env.CARGO_ARGS }}
 
@@ -363,7 +372,7 @@ jobs:
 
       - name: Run CPython tests
         run: |
-          target/release/rustpython -m test -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.skips, ' ') }}
+          target/release/rustpython -u -m test --slow-ci -j ${{ steps.cores.outputs.cores }} ${{ join(matrix.extra_test_args, ' ') }} -x ${{ env.FLAKY_MP_TESTS }} ${{ join(matrix.skips, ' ') }}
         timeout-minutes: ${{ matrix.timeout }}
         env:
           RUSTPYTHON_SKIP_ENV_POLLUTERS: true
@@ -374,7 +383,7 @@ jobs:
             echo "::group::Attempt ${attempt}"
 
             set +e
-            target/release/rustpython -m test -j 1 ${{ join(matrix.extra_test_args, ' ') }} --slowest --fail-env-changed --timeout 600 -v ${{ env.FLAKY_MP_TESTS }}
+            target/release/rustpython -u -m test --slow-ci -j 1 ${{ join(matrix.extra_test_args, ' ') }} ${{ env.FLAKY_MP_TESTS }}
             status=$?
             set -e
 
@@ -399,7 +408,7 @@ jobs:
           for thing in "${target_array[@]}"; do
             for i in $(seq 1 10); do
               set +e
-              target/release/rustpython -m test -j 1 --slowest --fail-env-changed --timeout 600 -v "${thing}"
+              target/release/rustpython -u -m test --slow-ci -u all -j 1 --timeout 600 --dont-add-python-opts "${thing}"
               exit_code=$?
               set -e
               if [ "${exit_code}" -eq 3 ]; then
@@ -434,6 +443,17 @@ jobs:
           target/release/rustpython -m ensurepip
           target/release/rustpython -c "import pip"
 
+      - if: runner.os == 'Windows'
+        name: Check pip HTTPS with the Windows trust store
+        run: >-
+          target/release/rustpython -m pip download
+          --disable-pip-version-check
+          --no-cache-dir
+          --no-deps
+          --only-binary=:all:
+          --dest "$env:RUNNER_TEMP\rustpython-pip-smoke"
+          six
+
       - if: runner.os != 'Windows'
         name: Check if pip inside venv is functional
         run: |
@@ -462,7 +482,7 @@ jobs:
           - ubuntu-latest
           - windows-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -471,7 +491,7 @@ jobs:
           components: clippy
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -500,13 +520,13 @@ jobs:
       needs.determine_changes.outputs.rust_code == 'true' ||
       github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
+      - uses: cargo-bins/cargo-binstall@ead08b90bd7b2e6d81963fb9cf0b7239f66d5db4 # v1.21.0
 
       - name: cargo shear
         run: |
@@ -523,11 +543,11 @@ jobs:
       pull-requests: write
       security-events: write # for zizmor
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -537,23 +557,17 @@ jobs:
         uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@5f14fd08f7cf1cb1609c1e344975f152c7ee938d # v0.5.6
+        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
 
       - name: restore prek cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
 
-      # TODO: Remove on 2026/06/02 when node24 is the default
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
-        with:
-          package-manager-cache: false
-          node-version: "24"
-
       - name: install prek
         id: prek
-        uses: j178/prek-action@bdca6f102f98e2b4c7029491a53dfd366469e33d # v2.0.4
+        uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2.0.5
         with:
           cache: false
           show-verbose-logs: false
@@ -569,7 +583,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Clone CPython
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: python/cpython
           path: cpython
@@ -583,7 +597,7 @@ jobs:
 
       - name: save prek cache
         if: ${{ github.ref == 'refs/heads/main' }} # only save on main
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           key: prek-${{ hashFiles('.pre-commit-config.yaml') }}
           path: ~/.cache/prek
@@ -594,7 +608,7 @@ jobs:
 
       - name: reviewdog
         if: ${{ !cancelled() }}
-        uses: reviewdog/action-suggester@aa38384ceb608d00f84b4690cacc83a5aba307ff # v1.24.0
+        uses: reviewdog/action-suggester@2558ba17e65a9039e73764a73009fc05fef28a46 # v1.24.3
         with:
           level: warning
           fail_level: error
@@ -607,7 +621,7 @@ jobs:
     env:
       NIGHTLY_CHANNEL: nightly
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -617,7 +631,7 @@ jobs:
           components: miri
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -642,7 +656,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -651,7 +665,7 @@ jobs:
           components: clippy
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -676,12 +690,12 @@ jobs:
           mkdir geckodriver
           tar -xzf geckodriver-v0.36.0-linux64.tar.gz -C geckodriver
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - run: python -m pip install -r requirements.txt
         working-directory: ./wasm/tests
 
-      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           package-manager-cache: false
 
@@ -691,7 +705,7 @@ jobs:
         run: echo "dir=$(npm config get cache)" >> "$GITHUB_OUTPUT"
 
       - name: Restore npm cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         # don't restore on main or release
         if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/release'
         with:
@@ -746,7 +760,7 @@ jobs:
       - name: Save npm cache
         # Save only on main or release
         if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.npm-cache-dir.outputs.dir }}
           key: node-${{ runner.os }}-wasm-demo-${{ hashFiles('wasm/demo/package-lock.json') }}
@@ -757,7 +771,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -766,7 +780,7 @@ jobs:
           target: wasm32-wasip1
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/
@@ -790,11 +804,13 @@ jobs:
           clang: true
 
       - name: build rustpython
-        run: cargo build --release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
+        run: cargo build --profile wasm-release --target wasm32-wasip1 --no-default-features --features freeze-stdlib,stdlib,stdio,importlib,host_env --verbose
       - name: run snippets
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+        run: |
+          wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_random.py"
+          wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/extra_tests/snippets/stdlib_time.py"
       - name: run cpython unittest
-        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
+        run: wasmer run --dir "$(pwd)" target/wasm32-wasip1/wasm-release/rustpython.wasm -- "$(pwd)/Lib/test/test_int.py"
 
   cargo_doc:
     needs:
@@ -809,14 +825,14 @@ jobs:
     name: cargo doc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Restore cache
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/bin/

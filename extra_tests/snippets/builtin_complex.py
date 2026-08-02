@@ -168,6 +168,15 @@ assert complex("-2j") == -2j
 assert_raises(TypeError, lambda: complex("5+2j", 1))
 assert_raises(ValueError, lambda: complex("abc"))
 
+# whitespace is allowed around the string and the optional parentheses,
+# but not inside the numeric token
+assert complex("  1+2j  ") == 1 + 2j
+assert complex("(1+2j)") == 1 + 2j
+assert complex(" ( 1+2j ) ") == 1 + 2j
+assert_raises(ValueError, lambda: complex("1 +2j"))
+assert_raises(ValueError, lambda: complex("1+ 2j"))
+assert_raises(ValueError, lambda: complex("1 + 2j"))
+
 assert complex("1+10j") == 1 + 10j
 assert complex(10) == 10 + 0j
 assert complex(10.0) == 10 + 0j
@@ -268,3 +277,10 @@ assert repr(float("inf") + 1j) == "(inf+1j)"
 assert repr(float("-inf") + 1j) == "(-inf+1j)"
 assert repr(complex(1, float("nan"))) == "(1+nanj)"
 assert repr(complex(1, float("inf"))) == "(1+infj)"
+
+# Round-half-to-even ties: Rust's shortest formatter can land on the
+# odd-digit neighbour where repr()'s tie-breaking picks the even one.
+assert repr(161852602146008.12 + 1j) == "(161852602146008.12+1j)"
+assert repr(-788830060729777.2 + 2j) == "(-788830060729777.2+2j)"
+assert repr(complex(0.0, 1959276370239205.2)) == "1959276370239205.2j"
+assert repr(complex(-1818262230632059.2, 0.0)) == "(-1818262230632059.2+0j)"

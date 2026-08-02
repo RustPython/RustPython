@@ -28,6 +28,8 @@ pub use filter::PyFilter;
 pub(crate) mod float;
 pub use float::PyFloat;
 pub(crate) mod frame;
+pub(crate) mod frame_locals_proxy;
+pub use frame_locals_proxy::FrameLocalsProxy;
 pub(crate) mod function;
 pub use function::{PyBoundMethod, PyFunction};
 pub(crate) mod generator;
@@ -56,6 +58,7 @@ pub(crate) mod namespace;
 pub use namespace::PyNamespace;
 pub(crate) mod object;
 pub use object::PyBaseObject;
+pub use object::{object_generic_set_dict, object_get_dict};
 pub(crate) mod property;
 pub use property::PyProperty;
 #[path = "bool.rs"]
@@ -96,7 +99,12 @@ pub use zip::PyZip;
 pub(crate) mod union_;
 pub use union_::{PyUnion, make_union};
 pub(crate) mod descriptor;
+pub use descriptor::{
+    MemberGetter, MemberKind, MemberSetter, PyDescriptorOwned, PyMemberDef as DescriptorMemberDef,
+    PyMemberDescriptor,
+};
 
+pub use float::float_from_string as parse_float_from_string;
 pub use float::try_to_bigint as try_f64_to_bigint;
 pub use int::try_to_float as try_bigint_to_f64;
 

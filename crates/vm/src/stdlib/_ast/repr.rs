@@ -1,7 +1,8 @@
 use crate::{
     AsObject, PyObjectRef, PyResult, VirtualMachine,
-    builtins::{PyList, PyTuple},
+    builtins::{PyList, PyStr, PyTuple},
     class::PyClassImpl,
+    recursion::ReprGuard,
     stdlib::_ast::NodeAst,
 };
 use rustpython_common::wtf8::Wtf8Buf;
@@ -33,9 +34,7 @@ fn repr_ast_list(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) -> 
         rendered.push_wtf8(&parts[0]);
     }
     if items.len() > 2 {
-        if !parts[0].is_empty() {
-            rendered.push_wtf8(", ...".as_ref());
-        }
+        rendered.push_wtf8(", ...".as_ref());
         if parts.len() > 1 {
             rendered.push_wtf8(", ".as_ref());
             rendered.push_wtf8(&parts[1]);
@@ -75,9 +74,7 @@ fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) ->
         rendered.push_wtf8(&parts[0]);
     }
     if items.len() > 2 {
-        if !parts[0].is_empty() {
-            rendered.push_wtf8(", ...".as_ref());
-        }
+        rendered.push_wtf8(", ...".as_ref());
         if parts.len() > 1 {
             rendered.push_wtf8(", ".as_ref());
             rendered.push_wtf8(&parts[1]);
@@ -85,9 +82,6 @@ fn repr_ast_tuple(vm: &VirtualMachine, items: Vec<PyObjectRef>, depth: usize) ->
     } else if parts.len() > 1 {
         rendered.push_wtf8(", ".as_ref());
         rendered.push_wtf8(&parts[1]);
-    }
-    if items.len() == 1 {
-        rendered.push_wtf8(",".as_ref());
     }
     rendered.push_wtf8(")".as_ref());
     Ok(rendered)
@@ -104,18 +98,24 @@ pub(crate) fn repr_ast_node(
         s.push_wtf8("(...)".as_ref());
         return Ok(s);
     }
+    let Some(_guard) = ReprGuard::enter(vm, obj.as_object()) else {
+        let mut s = Wtf8Buf::from(&*cls.name());
+        s.push_wtf8("(...)".as_ref());
+        return Ok(s);
+    };
 
-    let fields = cls.get_attr(vm.ctx.intern_str("_fields"));
-    let fields = match fields {
-        Some(fields) => fields.try_to_value::<Vec<crate::builtins::PyStrRef>>(vm)?,
+    let fields = match cls.get_attr(vm.ctx.intern_str("_fields")) {
+        Some(fields) => fields,
         None => {
             let mut s = Wtf8Buf::from(&*cls.name());
             s.push_wtf8("(...)".as_ref());
             return Ok(s);
         }
     };
+    let fields = fields.sequence_unchecked();
+    let numfields = fields.length(vm)?;
 
-    if fields.is_empty() {
+    if numfields == 0 {
         let mut s = Wtf8Buf::from(&*cls.name());
         s.push_wtf8("()".as_ref());
         return Ok(s);
@@ -124,8 +124,12 @@ pub(crate) fn repr_ast_node(
     let mut rendered = Wtf8Buf::from(&*cls.name());
     rendered.push_wtf8("(".as_ref());
 
-    for (idx, field) in fields.iter().enumerate() {
-        let value = obj.get_attr(field, vm)?;
+    for idx in 0..numfields {
+        let field = fields.get_item(idx as isize, vm)?;
+        let field = field
+            .downcast::<PyStr>()
+            .map_err(|_| vm.new_type_error("attribute name must be string"))?;
+        let value = obj.get_attr(&field, vm)?;
         let value_repr = if value.fast_isinstance(vm.ctx.types.list_type) {
             let list = value
                 .downcast::<PyList>()

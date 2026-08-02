@@ -27,7 +27,7 @@ class TestCP950Map(multibytecodec_support.TestBase_Mapping,
         (b"\xFFxy", "replace",  "\ufffdxy"),
     )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; LookupError: unknown encoding: cp950
+    @unittest.expectedFailureIf(__import__("sys").platform in ("android", "darwin", "linux"), "TODO: RUSTPYTHON; LookupError: unknown encoding: cp950")
     def test_errorhandle(self):
         return super().test_errorhandle()
 

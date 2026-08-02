@@ -47,8 +47,7 @@ impl VirtualMachine {
     /// Returns true if the file object's `closed` attribute is truthy.
     fn file_is_closed(&self, file: &PyObject) -> bool {
         file.get_attr("closed", self)
-            .ok()
-            .is_some_and(|v| v.try_to_bool(self).unwrap_or(false))
+            .is_ok_and(|v| v.try_to_bool(self).unwrap_or_default())
     }
 
     pub(crate) fn flush_std(&self) -> i32 {

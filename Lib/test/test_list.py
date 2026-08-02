@@ -106,7 +106,6 @@ class ListTest(list_tests.CommonTest):
         x[:] = x
         self.assertEqual(x, [])
 
-    @unittest.skip("TODO: RUSTPYTHON; crash")
     def test_list_resize_overflow(self):
         # gh-97616: test new_allocated * sizeof(PyObject*) overflow
         # check in list_resize()

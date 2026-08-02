@@ -13,27 +13,34 @@ pub(crate) use _thread::{
 
 #[pymodule]
 pub(crate) mod _thread {
-    use crate::{
-        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef},
-        common::wtf8::Wtf8Buf,
-        frame::FrameRef,
-        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
-        types::{Constructor, GetAttr, Representable, SetAttr},
-    };
-    use alloc::{
-        fmt,
-        sync::{Arc, Weak},
-    };
-    use core::{cell::RefCell, time::Duration};
     use parking_lot::{
         RawMutex, RawThreadId,
         lock_api::{RawMutex as RawMutexT, RawMutexTimed, RawReentrantMutex},
     };
+
+    use crate::{
+        AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
+        builtins::{
+            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
+            PyUtf8StrRef,
+        },
+        common::{lock::PyMutex, wtf8::Wtf8Buf},
+        frame::FrameObjectRef,
+        function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
+        object::{Traverse, TraverseFn},
+        types::{Constructor, GetAttr, Representable, SetAttr},
+    };
+
+    use alloc::sync::{Arc, Weak};
+    use core::{cell::RefCell, fmt, time::Duration};
+    use std::thread;
+
     use rustpython_common::str::levenshtein::{MOVE_COST, levenshtein_distance};
     #[cfg(any(unix, windows))]
     use rustpython_host_env::thread as host_thread;
-    use std::thread;
+
+    #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
+    use crate::signal::SignalNum;
 
     // PYTHREAD_NAME: show current thread name
     pub(crate) const PYTHREAD_NAME: Option<&str> = cfg_select! {
@@ -43,16 +50,36 @@ pub(crate) mod _thread {
         _ => None,
     };
 
-    // TIMEOUT_MAX_IN_MICROSECONDS is a value in microseconds
-    #[cfg(not(target_os = "windows"))]
-    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = i64::MAX / 1_000;
+    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = if cfg!(target_os = "windows") {
+        0xffffffff * 1_000
+    } else {
+        i64::MAX / 1_000
+    };
 
-    #[cfg(target_os = "windows")]
-    const TIMEOUT_MAX_IN_MICROSECONDS: i64 = 0xffffffff * 1_000;
+    /// [CPython `SYSTEM_PAGE_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_obmalloc.h#L170)
+    const SYSTEM_PAGE_SIZE: usize = 4 * 1024;
+
+    // TODO: Check for sanitize once https://github.com/rust-lang/rust/issues/39699 is closed
+    /// [CPython `_PyOS_LOG2_STACK_MARGIN`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L41-L47)
+    const PY_OS_LOG2_STACK_MARGIN: u32 = cfg_select! {
+        debug_assertions => 12,
+        _ => 11,
+    };
+
+    /// [CPython `_PyOS_STACK_MARGIN`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L48)
+    const PY_OS_STACK_MARGIN: usize = 1 << PY_OS_LOG2_STACK_MARGIN;
+
+    /// [CPython `_PyOS_STACK_MARGIN_BYTES`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L49)
+    const PY_OS_STACK_MARGIN_BYTES: usize = PY_OS_STACK_MARGIN * size_of::<*const ()>();
+
+    // TODO: Check for sanitize once https://github.com/rust-lang/rust/issues/39699 is closed
+    /// [CPython `_PyOS_MIN_STACK_SIZE`](https://github.com/python/cpython/blob/v3.14.5/Include/internal/pycore_pythonrun.h#L57-L61)
+    const PY_OS_MIN_STACK_SIZE: usize = PY_OS_STACK_MARGIN_BYTES * 3;
 
     // this is a value in seconds
     #[pyattr]
     const TIMEOUT_MAX: f64 = (TIMEOUT_MAX_IN_MICROSECONDS / 1_000_000) as f64;
+
     #[pyattr]
     fn error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.exceptions.runtime_error.to_owned()
@@ -76,22 +103,23 @@ pub(crate) mod _thread {
                     Ok(true)
                 }
                 true if timeout < 0.0 => {
-                    Err(vm
-                        .new_value_error("timeout value must be a non-negative number".to_owned()))
+                    Err(vm.new_value_error("timeout value must be a non-negative number"))
                 }
                 true => {
                     if timeout > TIMEOUT_MAX {
-                        return Err(vm.new_overflow_error("timeout value is too large".to_owned()));
+                        return Err(vm.new_overflow_error("timeout value is too large"));
                     }
 
                     Ok(vm.allow_threads(|| mu.try_lock_for(Duration::from_secs_f64(timeout))))
                 }
-                false if timeout != -1.0 => Err(vm
-                    .new_value_error("can't specify a timeout for a non-blocking call".to_owned())),
+                false if timeout != -1.0 => {
+                    Err(vm.new_value_error("can't specify a timeout for a non-blocking call"))
+                }
                 false => Ok(mu.try_lock()),
             }
         }};
     }
+
     macro_rules! repr_lock_impl {
         ($zelf:expr) => {{
             let status = if $zelf.mu.is_locked() {
@@ -130,6 +158,7 @@ pub(crate) mod _thread {
         fn acquire(&self, args: AcquireArgs, vm: &VirtualMachine) -> PyResult<bool> {
             acquire_lock_impl!(&self.mu, args, vm)
         }
+
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -218,6 +247,7 @@ pub(crate) mod _thread {
             }
             Ok(result)
         }
+
         #[pymethod]
         #[pymethod(name = "release_lock")]
         fn release(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -391,34 +421,36 @@ pub(crate) mod _thread {
 
     /// Get OS-level thread ID (pthread_self on Unix)
     /// This is important for fork compatibility - the ID must remain stable after fork
-    #[cfg(unix)]
     fn current_thread_id() -> u64 {
-        host_thread::current_thread_id()
-    }
-
-    #[cfg(not(unix))]
-    fn current_thread_id() -> u64 {
-        thread_to_rust_id(&thread::current())
+        cfg_select! {
+            unix => host_thread::current_thread_id(),
+            _ => thread_to_rust_id(&thread::current()),
+        }
     }
 
     /// Convert Rust thread to ID (used for non-unix platforms)
     #[cfg(not(unix))]
     fn thread_to_rust_id(t: &thread::Thread) -> u64 {
         use core::hash::{Hash, Hasher};
+
         struct U64Hash {
             v: Option<u64>,
         }
+
         impl Hasher for U64Hash {
             fn write(&mut self, _: &[u8]) {
                 unreachable!()
             }
+
             fn write_u64(&mut self, i: u64) {
                 self.v = Some(i);
             }
+
             fn finish(&self) -> u64 {
                 self.v.expect("should have written a u64")
             }
         }
+
         let mut h = U64Hash { v: None };
         t.id().hash(&mut h);
         h.finish()
@@ -450,12 +482,14 @@ pub(crate) mod _thread {
         if !f_args.kwargs.is_empty() {
             return Err(vm.new_type_error("start_new_thread() takes no keyword arguments"));
         }
+
         let given = f_args.args.len();
         if given < 2 {
             return Err(vm.new_type_error(format!(
                 "start_new_thread expected at least 2 arguments, got {given}"
             )));
         }
+
         if given > 3 {
             return Err(vm.new_type_error(format!(
                 "start_new_thread expected at most 3 arguments, got {given}"
@@ -469,9 +503,11 @@ pub(crate) mod _thread {
         if func_obj.to_callable().is_none() {
             return Err(vm.new_type_error("first arg must be callable"));
         }
+
         if !args_obj.fast_isinstance(vm.ctx.types.tuple_type) {
             return Err(vm.new_type_error("2nd arg must be a tuple"));
         }
+
         if kwargs_obj
             .as_ref()
             .is_some_and(|obj| !obj.fast_isinstance(vm.ctx.types.dict_type))
@@ -526,6 +562,19 @@ pub(crate) mod _thread {
             .map_err(|_err| vm.new_runtime_error("can't start new thread"))
     }
 
+    fn report_unraisable_thread_exception(
+        exc: PyBaseExceptionRef,
+        func: &ArgCallable,
+        vm: &VirtualMachine,
+    ) {
+        let msg = func
+            .as_ref()
+            .repr(vm)
+            .ok()
+            .map(|repr| format!("Exception ignored in thread started by {}", repr.as_wtf8()));
+        vm.run_unraisable(exc, msg, vm.ctx.none());
+    }
+
     fn run_thread(func: ArgCallable, args: FuncArgs, vm: &VirtualMachine) {
         // Increment thread count when thread actually starts executing
         vm.state.thread_count.fetch_add(1);
@@ -540,11 +589,7 @@ pub(crate) mod _thread {
             if let Err(exc) = func.invoke(args, vm)
                 && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
             {
-                vm.run_unraisable(
-                    exc,
-                    Some("Exception ignored in thread started by".to_owned()),
-                    func.into(),
-                );
+                report_unraisable_thread_exception(exc, &func, vm);
             }
         }
         for lock in SENTINELS.take() {
@@ -575,22 +620,22 @@ pub(crate) mod _thread {
     /// Clean up thread-local data for the current thread.
     /// This triggers __del__ on objects stored in thread-local variables.
     fn cleanup_thread_local_data() {
-        // Take all guards - this will trigger LocalGuard::drop for each,
-        // which removes the thread's dict from each Local instance
-        LOCAL_GUARDS.with(|guards| {
-            guards.borrow_mut().clear();
-        });
+        // Move all guards out before dropping them. A local dict's __del__ may
+        // re-enter thread-local access and borrow LOCAL_GUARDS again.
+        let guards = LOCAL_GUARDS.take();
+        drop(guards);
     }
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "host_env"))]
     #[pyfunction]
-    fn interrupt_main(signum: OptionalArg<i32>, vm: &VirtualMachine) -> PyResult<()> {
-        crate::signal::set_interrupt_ex(signum.unwrap_or(libc::SIGINT), vm)
+    fn interrupt_main(signum: OptionalArg<SignalNum>) -> PyResult<()> {
+        let sig = signum.unwrap_or(SignalNum::SIGINT);
+        crate::signal::set_interrupt_ex(sig)
     }
 
     #[pyfunction]
     fn exit(vm: &VirtualMachine) -> PyResult {
-        Err(vm.new_exception_empty(vm.ctx.exceptions.system_exit.to_owned()))
+        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![])?)
     }
 
     thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) });
@@ -603,10 +648,18 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn stack_size(size: OptionalArg<usize>, vm: &VirtualMachine) -> usize {
-        let size = size.unwrap_or(0);
-        // TODO: do validation on this to make sure it's not too small
-        vm.state.stacksize.swap(size)
+    fn stack_size(size: OptionalArg<PyIntRef>, vm: &VirtualMachine) -> PyResult<usize> {
+        const MIN_SIZE: usize = PY_OS_MIN_STACK_SIZE + SYSTEM_PAGE_SIZE;
+
+        let Ok(size) = size.map_or(Ok(0), |v| v.try_to_primitive(vm)) else {
+            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
+        };
+
+        if size != 0 && size < MIN_SIZE {
+            return Err(vm.new_value_error(format!("size must be at least {MIN_SIZE} bytes")));
+        }
+
+        Ok(vm.state.stacksize.swap(size))
     }
 
     #[pyfunction]
@@ -876,15 +929,36 @@ pub(crate) mod _thread {
             if let Some(local_data) = self.local.upgrade() {
                 // Remove from map while holding the lock, but drop the value
                 // outside the lock to prevent deadlock if __del__ accesses _local
-                let removed = local_data.data.lock().remove(&self.thread_id);
+                let removed = local_data.state.lock().dicts.remove(&self.thread_id);
                 drop(removed);
             }
         }
     }
 
+    struct LocalState {
+        init_args: FuncArgs,
+        dicts: std::collections::HashMap<u64, PyDictRef>,
+    }
+
+    unsafe impl Traverse for LocalState {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.init_args.traverse(tracer_fn);
+            #[allow(clippy::iter_over_hash_type)]
+            for dict in self.dicts.values() {
+                dict.traverse(tracer_fn);
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+            out.append(&mut self.init_args.args);
+            out.extend(self.init_args.kwargs.drain(..).map(|(_, value)| value));
+            out.extend(self.dicts.drain().map(|(_, dict)| dict.into()));
+        }
+    }
+
     // Shared data structure for Local
     struct LocalData {
-        data: parking_lot::Mutex<std::collections::HashMap<u64, PyDictRef>>,
+        state: PyMutex<LocalState>,
     }
 
     impl fmt::Debug for LocalData {
@@ -894,36 +968,62 @@ pub(crate) mod _thread {
     }
 
     #[pyattr]
-    #[pyclass(module = "_thread", name = "_local")]
+    #[pyclass(module = "_thread", name = "_local", traverse = "manual")]
     #[derive(Debug, PyPayload)]
     struct Local {
         inner: Arc<LocalData>,
     }
 
+    unsafe impl Traverse for Local {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.inner.state.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<crate::PyObjectRef>) {
+            if let Some(mut state) = self.inner.state.try_lock() {
+                state.clear(out);
+            }
+        }
+    }
+
     #[pyclass(with(GetAttr, SetAttr), flags(BASETYPE))]
     impl Local {
-        fn l_dict(&self, vm: &VirtualMachine) -> PyDictRef {
+        fn custom_init(cls: &Py<PyType>, vm: &VirtualMachine) -> Option<crate::types::InitFunc> {
+            let cls_init = cls.slots.init.load()?;
+            let object_init = vm
+                .ctx
+                .types
+                .object_type
+                .slots
+                .init
+                .load()
+                .map(|init| init as usize);
+            (Some(cls_init as usize) != object_init).then_some(cls_init)
+        }
+
+        fn create_dict(&self, vm: &VirtualMachine) -> (PyDictRef, bool) {
             let thread_id = current_thread_id();
 
             // Fast path: check if dict exists under lock
-            if let Some(dict) = self.inner.data.lock().get(&thread_id).cloned() {
-                return dict;
+            let value = self.inner.state.lock().dicts.get(&thread_id).cloned();
+            if let Some(dict) = value {
+                return (dict, false);
             }
 
             // Slow path: allocate dict outside lock to reduce lock hold time
             let new_dict = vm.ctx.new_dict();
 
             // Insert with double-check to handle races
-            let mut data = self.inner.data.lock();
+            let mut state = self.inner.state.lock();
             use std::collections::hash_map::Entry;
-            let (dict, need_guard) = match data.entry(thread_id) {
+            let (dict, need_guard) = match state.dicts.entry(thread_id) {
                 Entry::Occupied(e) => (e.get().clone(), false),
                 Entry::Vacant(e) => {
                     e.insert(new_dict.clone());
                     (new_dict, true)
                 }
             };
-            drop(data); // Release lock before TLS access
+            drop(state); // Release lock before TLS access
 
             // Register cleanup guard only if we inserted a new entry
             if need_guard {
@@ -936,29 +1036,80 @@ pub(crate) mod _thread {
                 });
             }
 
-            dict
+            (dict, need_guard)
+        }
+
+        fn remove_current_dict(&self) {
+            let thread_id = current_thread_id();
+            let guard = LOCAL_GUARDS.with(|guards| {
+                let mut guards = guards.borrow_mut();
+                guards
+                    .iter()
+                    .rposition(|guard| {
+                        guard.thread_id == thread_id
+                            && guard.local.as_ptr() == Arc::as_ptr(&self.inner)
+                    })
+                    .map(|position| guards.remove(position))
+            });
+
+            if let Some(guard) = guard {
+                drop(guard);
+            } else {
+                let removed = self.inner.state.lock().dicts.remove(&thread_id);
+                drop(removed);
+            }
+        }
+
+        fn l_dict(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            let (dict, created) = zelf.create_dict(vm);
+            if !created {
+                return Ok(dict);
+            }
+
+            let Some(init) = Self::custom_init(zelf.class(), vm) else {
+                return Ok(dict);
+            };
+            let init_args = zelf.inner.state.lock().init_args.clone();
+            if let Err(err) = init(zelf.as_object().to_owned(), init_args, vm) {
+                zelf.remove_current_dict();
+                return Err(err);
+            }
+
+            Ok(dict)
         }
 
         #[pygetset(name = "__dict__")]
-        fn dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyDictRef {
-            zelf.l_dict(vm)
+        fn dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult<PyDictRef> {
+            Self::l_dict(&zelf, vm)
         }
 
         #[pyslot]
-        fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            Self {
+        fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+            if !args.is_empty() && Self::custom_init(&cls, vm).is_none() {
+                return Err(vm.new_type_error("Initialization arguments are not supported"));
+            }
+
+            let zelf = Self {
                 inner: Arc::new(LocalData {
-                    data: parking_lot::Mutex::new(std::collections::HashMap::new()),
+                    state: PyMutex::new(LocalState {
+                        init_args: args,
+                        dicts: std::collections::HashMap::new(),
+                    }),
                 }),
             }
-            .into_ref_with_type(vm, cls)
-            .map(Into::into)
+            .into_ref_with_type(vm, cls)?;
+
+            // type.__call__ invokes __init__ after __new__. Create this thread's
+            // dict first so assignments made by __init__ cannot recursively
+            // initialize the same local object.
+            zelf.create_dict(vm);
+            Ok(zelf.into())
         }
     }
 
     impl GetAttr for Local {
         fn getattro(zelf: &Py<Self>, attr: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
-            let l_dict = zelf.l_dict(vm);
+            let l_dict = Self::l_dict(zelf, vm)?;
             if attr.as_bytes() == b"__dict__" {
                 Ok(l_dict.into())
             } else {
@@ -988,7 +1139,7 @@ pub(crate) mod _thread {
                     zelf.class().name()
                 )))
             } else {
-                let dict = zelf.l_dict(vm);
+                let dict = Self::l_dict(zelf, vm)?;
                 if let PySetterValue::Assign(value) = value {
                     dict.set_item(attr, value, vm)?;
                 } else {
@@ -1010,19 +1161,120 @@ pub(crate) mod _thread {
     pub(crate) use crate::vm::thread::CurrentFrameSlot;
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
-    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
-        let registry = vm.state.thread_frames.lock();
-        registry
-            .iter()
-            .filter_map(|(id, slot)| {
-                let frames = slot.frames.lock();
-                // SAFETY: the owning thread can't pop while we hold the Mutex,
-                // so the FramePtr is valid for the duration of the lock.
-                frames
-                    .last()
-                    .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
-            })
-            .collect()
+    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameObjectRef)> {
+        // unix: read each thread's published top frame under stop-the-world so
+        // the owning thread is parked at a safepoint and cannot pop or free the
+        // frame while we take a strong reference. Request stop-the-world before
+        // the registry lock to avoid deadlocking a thread parking mid-registry.
+        //
+        // For the current thread, use TLS CURRENT_FRAME directly because
+        // stack-allocated frames only update TLS (not top_frame).
+        #[cfg(unix)]
+        {
+            use core::sync::atomic::Ordering;
+            let current_ident = get_ident();
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .filter_map(|(id, slot)| {
+                    if *id == current_ident {
+                        // Current thread: materialize from TLS chain
+                        crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
+                    } else {
+                        // Other threads: try top_frame first (FrameObject),
+                        // fall back to top_iframe (may be a stack-allocated frame).
+                        let top = slot.top_frame.load(Ordering::Relaxed);
+                        if let Some(p) = core::ptr::NonNull::new(top) {
+                            let py = unsafe {
+                                &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
+                            };
+                            Some((*id, py.to_owned()))
+                        } else {
+                            // Stack-allocated frame: materialize from top_iframe.
+                            // SAFETY: world stopped -> owning thread is parked.
+                            let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                                as *const crate::frame::InterpreterFrame;
+                            if !iframe_ptr.is_null() {
+                                // Materialize the entire frame chain and link
+                                // retained_back so f_back works after STW ends.
+                                let mut cur = iframe_ptr;
+                                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
+                                    None;
+                                while !cur.is_null() {
+                                    let iframe = unsafe { &*cur };
+                                    let fo = iframe.materialize(vm).to_owned();
+                                    if let Some(child) = child_fo.take() {
+                                        let mut guard = child.iframe().retained_back.lock();
+                                        if guard.is_none() {
+                                            *guard = Some(fo.clone());
+                                        }
+                                    }
+                                    child_fo = Some(fo);
+                                    cur = iframe.previous();
+                                }
+                                let iframe = unsafe { &*iframe_ptr };
+                                let fo = iframe.materialize(vm);
+                                Some((*id, fo.to_owned()))
+                            } else {
+                                None
+                            }
+                        }
+                    }
+                })
+                .collect()
+        }
+        #[cfg(not(unix))]
+        {
+            use core::sync::atomic::Ordering;
+            let current_ident = get_ident();
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            let registry = vm.state.thread_frames.lock();
+            registry
+                .iter()
+                .filter_map(|(id, slot)| {
+                    if *id == current_ident {
+                        // Current thread: materialize from TLS chain
+                        crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
+                    } else {
+                        // Other threads: use top_iframe to include
+                        // stack-allocated frames. Materialize the entire
+                        // chain and link retained_back so f_back works.
+                        // SAFETY: world stopped -> owning thread is parked.
+                        let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                            as *const crate::frame::InterpreterFrame;
+                        if !iframe_ptr.is_null() {
+                            let mut cur = iframe_ptr;
+                            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
+                                None;
+                            while !cur.is_null() {
+                                let iframe = unsafe { &*cur };
+                                let fo = iframe.materialize(vm).to_owned();
+                                if let Some(child) = child_fo.take() {
+                                    let mut guard = child.iframe().retained_back.lock();
+                                    if guard.is_none() {
+                                        *guard = Some(fo.clone());
+                                    }
+                                }
+                                child_fo = Some(fo);
+                                cur = iframe.previous();
+                            }
+                            let iframe = unsafe { &*iframe_ptr };
+                            let fo = iframe.materialize(vm);
+                            Some((*id, fo.to_owned()))
+                        } else {
+                            // Fall back to frames stack for FrameObject-only path
+                            let frames = slot.frames.lock();
+                            frames
+                                .last()
+                                .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                        }
+                    }
+                })
+                .collect()
+        }
     }
 
     /// Called after fork() in child process to mark all other threads as done.
@@ -1507,13 +1759,12 @@ pub(crate) mod _thread {
                 })
                 .min_by_key(|(distance, _)| *distance)
                 .map(|(_, candidate)| candidate);
-            let msg = if let Some(suggestion) = suggestion {
-                format!(
-                    "start_joinable_thread() got an unexpected keyword argument '{unexpected}'. Did you mean '{suggestion}'?"
-                )
-            } else {
-                format!("start_joinable_thread() got an unexpected keyword argument '{unexpected}'")
-            };
+
+            let msg_suffix =
+                suggestion.map_or_else(String::new, |s| format!(". Did you mean '{s}'?"));
+            let msg = format!(
+                "start_joinable_thread() got an unexpected keyword argument '{unexpected}'{msg_suffix}"
+            );
             return Err(vm.new_type_error(msg));
         }
 
@@ -1618,17 +1869,22 @@ pub(crate) mod _thread {
                     started_cvar.notify_all();
                 }
                 // Don't execute the target function until parent marks the
-                // handle as running.
+                // handle as running. Detach while blocked so a concurrent
+                // stop-the-world (e.g. a GC on another thread) can park this
+                // thread instead of stalling waiting for it to reach a
+                // safepoint it will not reach until released.
                 {
                     let (ready_lock, ready_cvar) = &*handle_ready_event_clone;
-                    let mut ready = ready_lock.lock().unwrap();
-                    while !*ready {
-                        // Short timeout so we stay responsive to STW requests.
-                        let (guard, _) = ready_cvar
-                            .wait_timeout(ready, core::time::Duration::from_millis(1))
-                            .unwrap();
-                        ready = guard;
-                    }
+                    vm.allow_threads(|| {
+                        let mut ready = ready_lock.lock().unwrap();
+                        while !*ready {
+                            // Short timeout so we stay responsive to STW requests.
+                            let (guard, _) = ready_cvar
+                                .wait_timeout(ready, core::time::Duration::from_millis(1))
+                                .unwrap();
+                            ready = guard;
+                        }
+                    });
                 }
 
                 // Ensure cleanup happens even if the function panics
@@ -1681,11 +1937,7 @@ pub(crate) mod _thread {
                     if let Err(exc) = func.invoke((), vm)
                         && !exc.fast_isinstance(vm.ctx.exceptions.system_exit)
                     {
-                        vm.run_unraisable(
-                            exc,
-                            Some("Exception ignored in thread started by".to_owned()),
-                            func.into(),
-                        );
+                        report_unraisable_thread_exception(exc, &func, vm);
                     }
                 }
             }))
@@ -1709,16 +1961,22 @@ pub(crate) mod _thread {
                 vm.new_runtime_error("can't start new thread")
             })?;
 
-        // Wait until the new thread has reported its ident.
+        // Wait until the new thread has reported its ident. Detach while
+        // waiting so a concurrent stop-the-world (e.g. a GC on another thread)
+        // can park this thread instead of stalling on it: the child may park
+        // itself at startup while the world is stopped and cannot report until
+        // released, so the waiter must be parkable too.
         {
             let (started_lock, started_cvar) = &*started_event;
-            let mut started = started_lock.lock().unwrap();
-            while !*started {
-                let (guard, _) = started_cvar
-                    .wait_timeout(started, core::time::Duration::from_millis(1))
-                    .unwrap();
-                started = guard;
-            }
+            vm.allow_threads(|| {
+                let mut started = started_lock.lock().unwrap();
+                while !*started {
+                    let (guard, _) = started_cvar
+                        .wait_timeout(started, core::time::Duration::from_millis(1))
+                        .unwrap();
+                    started = guard;
+                }
+            });
         }
 
         // Mark the handle running in the parent thread (like CPython's

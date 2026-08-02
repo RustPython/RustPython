@@ -42,6 +42,7 @@ ruff_text_size = { workspace = true, optional = true }
 rustpython-compiler-core = { workspace = true }
 rustpython-literal = { workspace = true }
 rustpython-sre_engine = { workspace = true }
+rustpython-unicode = { workspace = true }
 
 ascii = { workspace = true }
 bitflags = { workspace = true }
@@ -53,6 +54,7 @@ flame = { workspace = true, optional = true }
 hex = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
+itoa = { workspace = true }
 is-macro = { workspace = true }
 libc = { workspace = true }
 log = { workspace = true }
@@ -70,6 +72,7 @@ static_assertions = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
 thiserror = { workspace = true }
+thin-vec = { workspace = true }
 memchr = { workspace = true }
 
 flamer = { workspace = true, optional = true }
@@ -77,20 +80,11 @@ half = { workspace = true }
 psm = { workspace = true }
 optional = { workspace = true }
 result-like = { workspace = true }
-timsort = { workspace = true }
-
-## unicode stuff
-icu_casemap = { workspace = true }
-icu_locale = { workspace = true }
-icu_properties = { workspace = true }
-writeable = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 exitcode = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rustyline = { workspace = true }
-which = { workspace = true }
 widestring = { workspace = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]

@@ -2,6 +2,16 @@ use core::mem::MaybeUninit;
 use std::io;
 
 #[cfg(unix)]
+pub use libc::{EINTR, FD_SETSIZE, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI};
+
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "redox"))]
+pub use libc::{
+    EPOLL_CLOEXEC, EPOLLERR, EPOLLET, EPOLLEXCLUSIVE, EPOLLHUP, EPOLLIN, EPOLLMSG, EPOLLONESHOT,
+    EPOLLOUT, EPOLLPRI, EPOLLRDBAND, EPOLLRDHUP, EPOLLRDNORM, EPOLLWAKEUP, EPOLLWRBAND,
+    EPOLLWRNORM,
+};
+
+#[cfg(unix)]
 pub mod platform {
     pub use libc::pollfd;
     pub use libc::{FD_ISSET, FD_SET, FD_SETSIZE, FD_ZERO, fd_set, select, timeval};

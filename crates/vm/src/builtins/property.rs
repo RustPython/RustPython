@@ -54,9 +54,12 @@ impl GetDescriptor for PyProperty {
     ) -> PyResult {
         let (zelf, obj) = Self::_unwrap(&zelf_obj, obj, vm)?;
         if vm.is_none(&obj) {
-            Ok(zelf_obj)
-        } else if let Some(getter) = zelf.getter.read().clone() {
-            // Clone and release lock before calling Python code to prevent deadlock
+            return Ok(zelf_obj);
+        }
+
+        // Clone and release lock before calling Python code to prevent deadlock
+        let value = zelf.getter.read().clone();
+        if let Some(getter) = value {
             getter.call((obj,), vm)
         } else {
             let error_msg = zelf.format_property_error(&obj, "getter", vm)?;
@@ -74,7 +77,8 @@ impl PyProperty {
     // Returns the name if available, None if not found, or propagates errors
     fn get_property_name(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
         // First check if name was set via __set_name__
-        if let Some(name) = self.name.read().clone() {
+        let value = self.name.read().clone();
+        if let Some(name) = value {
             return Ok(Some(name));
         }
 
@@ -110,7 +114,8 @@ impl PyProperty {
         match value {
             PySetterValue::Assign(value) => {
                 // Clone and release lock before calling Python code to prevent deadlock
-                if let Some(setter) = zelf.setter.read().clone() {
+                let set = zelf.setter.read().clone();
+                if let Some(setter) = set {
                     setter.call((obj, value), vm).map(drop)
                 } else {
                     let error_msg = zelf.format_property_error(&obj, "setter", vm)?;
@@ -119,7 +124,8 @@ impl PyProperty {
             }
             PySetterValue::Delete => {
                 // Clone and release lock before calling Python code to prevent deadlock
-                if let Some(deleter) = zelf.deleter.read().clone() {
+                let del = zelf.deleter.read().clone();
+                if let Some(deleter) = del {
                     deleter.call((obj,), vm).map(drop)
                 } else {
                     let error_msg = zelf.format_property_error(&obj, "deleter", vm)?;
@@ -224,7 +230,8 @@ impl PyProperty {
         Self::init(new_prop_ref.clone(), args, vm)?;
 
         // Copy the name if it exists
-        if let Some(name) = zelf.name.read().clone() {
+        let value = zelf.name.read().clone();
+        if let Some(name) = value {
             *new_prop_ref.name.write() = Some(name);
         }
 
@@ -296,7 +303,8 @@ impl PyProperty {
     #[pygetset(setter)]
     fn set___isabstractmethod__(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Clone and release lock before calling Python code to prevent deadlock
-        if let Some(getter) = self.getter.read().clone() {
+        let maybe_getter = self.getter.read().clone();
+        if let Some(getter) = maybe_getter {
             getter.set_attr("__isabstractmethod__", value, vm)?;
         }
         Ok(())

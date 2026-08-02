@@ -15,8 +15,14 @@ mod lock {
     static IMP_LOCK: RawRMutex = RawRMutex::INIT;
 
     #[pyfunction]
-    fn acquire_lock(_vm: &VirtualMachine) {
-        acquire_lock_for_fork()
+    fn acquire_lock(vm: &VirtualMachine) {
+        // Detach while blocking on IMP_LOCK. The import lock is held across
+        // bytecode by the importlib bootstrap, so its holder can be parked at a
+        // safepoint mid-hold. Blocking here while attached would keep this
+        // thread from honoring a stop-the-world request, so a requester could
+        // wait for this thread while this thread waits for the parked holder.
+        // Detaching makes the wait park-friendly.
+        vm.allow_threads(acquire_lock_for_fork);
     }
 
     #[pyfunction]
@@ -76,9 +82,14 @@ mod lock {
 }
 
 /// Re-export for fork safety code in posix.rs
+///
+/// Runs pre-fork on a normal attached VM thread. Detach while blocking so the
+/// wait honors a concurrent stop-the-world request instead of pinning this
+/// thread attached on IMP_LOCK; re-attach completes before `stop_the_world`, so
+/// the fork requester protocol is unaffected.
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
-pub(crate) fn acquire_imp_lock_for_fork() {
-    lock::acquire_lock_for_fork();
+pub(crate) fn acquire_imp_lock_for_fork(vm: &VirtualMachine) {
+    vm.allow_threads(lock::acquire_lock_for_fork);
 }
 
 #[cfg(all(unix, feature = "threading", feature = "host_env"))]
@@ -123,14 +134,13 @@ enum FrozenError {
 
 impl FrozenError {
     fn to_pyexception(&self, mod_name: &str, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        use FrozenError::*;
         let msg = match self {
-            BadName | NotFound => format!("No such frozen object named {mod_name}"),
-            Disabled => format!(
+            Self::BadName | Self::NotFound => format!("No such frozen object named {mod_name}"),
+            Self::Disabled => format!(
                 "Frozen modules are disabled and the frozen object named {mod_name} is not essential"
             ),
-            Excluded => format!("Excluded frozen object named {mod_name}"),
-            Invalid => format!("Frozen object named {mod_name} is invalid"),
+            Self::Excluded => format!("Excluded frozen object named {mod_name}"),
+            Self::Invalid => format!("Frozen object named {mod_name} is invalid"),
         };
         vm.new_import_error(msg, vm.ctx.new_utf8_str(mod_name))
     }
@@ -172,6 +182,8 @@ mod _imp {
         function::OptionalArg,
         import, version,
     };
+
+    use super::FrozenError;
 
     #[pyattr]
     fn check_hash_based_pycs(vm: &VirtualMachine) -> PyStrRef {
@@ -312,8 +324,6 @@ mod _imp {
         withdata: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
-        use super::FrozenError::*;
-
         if withdata.into_option().is_some() {
             // this is keyword-only argument in CPython
             unimplemented!();
@@ -322,7 +332,9 @@ mod _imp {
         let name_str = name.as_str();
         let info = match super::find_frozen(name_str, vm) {
             Ok(info) => info,
-            Err(NotFound | Disabled | BadName) => return Ok(None),
+            Err(FrozenError::NotFound | FrozenError::Disabled | FrozenError::BadName) => {
+                return Ok(None);
+            }
             Err(e) => return Err(e.to_pyexception(name_str, vm)),
         };
 

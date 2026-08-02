@@ -279,7 +279,6 @@ class CodeopTests(unittest.TestCase):
         self.assertNotEqual(compile_command("a = 1\n", "abc").co_filename,
                             compile("a = 1\n", "def", 'single').co_filename)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 0 != 2
     def test_warning(self):
         # Test that the warning is only returned once.
         with warnings_helper.check_warnings(

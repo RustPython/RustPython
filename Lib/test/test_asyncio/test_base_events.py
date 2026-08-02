@@ -1019,7 +1019,6 @@ class BaseEventLoopTests(test_utils.TestCase):
         asyncio.create_task(iter_one())
         return status
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - GC doesn't finalize async generators
     def test_asyncgen_finalization_by_gc(self):
         # Async generators should be finalized when garbage collected.
         self.loop._process_events = mock.Mock()
@@ -1035,7 +1034,6 @@ class BaseEventLoopTests(test_utils.TestCase):
             test_utils.run_briefly(self.loop)
             self.assertTrue(status['finalized'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - GC doesn't finalize async generators
     def test_asyncgen_finalization_by_gc_in_other_thread(self):
         # Python issue 34769: If garbage collector runs in another
         # thread, async generators will not finalize in debug
