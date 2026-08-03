@@ -791,7 +791,7 @@ impl Py<PyFunction> {
         frame
     }
 
-    fn invoke_prepared_exact_args(
+    pub(crate) fn invoke_prepared_exact_args(
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
