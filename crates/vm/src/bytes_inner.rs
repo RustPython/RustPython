@@ -397,44 +397,40 @@ impl PyBytesInner {
         self.elements.py_isupper()
     }
 
+    // _Py_bytes_isspace
     pub fn isspace(&self) -> bool {
+        // is_ascii_whitespace excludes vertical tab, while Py_ISSPACE accepts it
         !self.elements.is_empty()
             && self
                 .elements
                 .iter()
-                .all(|x| char::from(*x).is_ascii_whitespace())
+                .all(|x| x.is_ascii_whitespace() || *x == b'\x0b')
     }
 
+    // _Py_bytes_istitle
     pub fn istitle(&self) -> bool {
-        if self.elements.is_empty() {
-            return false;
-        }
+        let mut cased = false;
+        let mut previous_is_cased = false;
 
-        let mut iter = self.elements.iter().peekable();
-        let mut prev_cased = false;
-
-        while let Some(c) = iter.next() {
-            let current = char::from(*c);
-            let next = if let Some(k) = iter.peek() {
-                char::from(**k)
-            } else if current.is_uppercase() {
-                return !prev_cased;
+        for byte in &self.elements {
+            if byte.is_ascii_uppercase() {
+                if previous_is_cased {
+                    return false;
+                }
+                previous_is_cased = true;
+                cased = true;
+            } else if byte.is_ascii_lowercase() {
+                if !previous_is_cased {
+                    return false;
+                }
+                previous_is_cased = true;
+                cased = true;
             } else {
-                return prev_cased;
-            };
-
-            let is_cased = current.to_uppercase().next().unwrap() != current
-                || current.to_lowercase().next().unwrap() != current;
-            if (is_cased && next.is_uppercase() && !prev_cased)
-                || (!is_cased && next.is_lowercase())
-            {
-                return false;
+                previous_is_cased = false;
             }
-
-            prev_cased = is_cased;
         }
 
-        true
+        cased
     }
 
     pub fn lower(&self) -> Vec<u8> {
