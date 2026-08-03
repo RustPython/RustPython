@@ -2325,8 +2325,8 @@ mod _socket {
 
     #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
-    fn sethostname(hostname: PyUtf8StrRef) -> std::io::Result<()> {
-        host_socket::sethostname(hostname.as_str())
+    fn sethostname(hostname: FsPath) -> std::io::Result<()> {
+        host_socket::sethostname(hostname.as_bytes())
     }
 
     #[pyfunction]
