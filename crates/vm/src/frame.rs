@@ -2673,10 +2673,7 @@ impl ExecutingFrame<'_> {
             .iter_mut()
             .map(|slot| slot.take().expect("arg slot must be filled"));
 
-        let init_frame = init_func.prepare_exact_args_frame(taken, vm);
-        let init_result = vm.run_frame(init_frame.clone());
-        release_datastack_frame(&init_frame, vm);
-        let init_result = init_result?;
+        let init_result = init_func.invoke_prepared_exact_args(taken, vm)?;
 
         if !vm.is_none(&init_result) {
             return Err(vm.new_type_error(format!(
