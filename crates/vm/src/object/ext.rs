@@ -333,7 +333,7 @@ impl<T: PyPayload> PyAtomicRef<T> {
     pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
         let old = unsafe { self.swap(pyref) };
         if let Some(frame) = vm.current_frame() {
-            frame.iframe().temporary_refs.lock().push(old.into());
+            frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
     }
 }
@@ -409,7 +409,7 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
             return;
         };
         if let Some(frame) = vm.current_frame() {
-            frame.iframe().temporary_refs.lock().push(old.into());
+            frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
     }
 }
@@ -452,7 +452,7 @@ impl PyAtomicRef<PyObject> {
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
         let old = unsafe { self.swap(obj) };
         if let Some(frame) = vm.current_frame() {
-            frame.iframe().temporary_refs.lock().push(old);
+            frame.iframe().cold().temporary_refs.lock().push(old);
         }
     }
 }
@@ -499,7 +499,7 @@ impl PyAtomicRef<Option<PyObject>> {
             return;
         };
         if let Some(frame) = vm.current_frame() {
-            frame.iframe().temporary_refs.lock().push(old);
+            frame.iframe().cold().temporary_refs.lock().push(old);
         }
     }
 }
