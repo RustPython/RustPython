@@ -1206,7 +1206,7 @@ pub(crate) mod _thread {
                                     let iframe = unsafe { &*cur };
                                     let fo = iframe.materialize(vm).to_owned();
                                     if let Some(child) = child_fo.take() {
-                                        let mut guard = child.iframe().retained_back.lock();
+                                        let mut guard = child.iframe().cold().retained_back.lock();
                                         if guard.is_none() {
                                             *guard = Some(fo.clone());
                                         }
@@ -1253,7 +1253,7 @@ pub(crate) mod _thread {
                                 let iframe = unsafe { &*cur };
                                 let fo = iframe.materialize(vm).to_owned();
                                 if let Some(child) = child_fo.take() {
-                                    let mut guard = child.iframe().retained_back.lock();
+                                    let mut guard = child.iframe().cold().retained_back.lock();
                                     if guard.is_none() {
                                         *guard = Some(fo.clone());
                                     }
