@@ -10,7 +10,7 @@ mod builtins {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
-            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+            PyByteArray, PyBytes, PyDictRef, PyStr, PyStrRef, PySystemExit, PyTuple, PyTupleRef, PyType,
             PyUtf8StrRef,
             enumerate::PyReverseSequenceIterator,
             function::{PyCell, PyCellRef, PyFunction},
@@ -1041,7 +1041,8 @@ mod builtins {
     #[pyfunction]
     pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
-        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![code])?)
+        Err(vm.new_payload_exception::<PySystemExit>(
+            vm.ctx.exceptions.system_exit.to_owned(), vec![code].into())?.upcast())
     }
 
     #[derive(Debug, Default, FromArgs)]
