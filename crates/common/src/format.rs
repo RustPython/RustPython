@@ -505,6 +505,14 @@ impl FormatSpec {
         Ok(())
     }
 
+    fn validate_complex_padding_and_alignment(&self) -> Result<(), FormatSpecError> {
+        match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
+            Some('0') => Err(FormatSpecError::ZeroPadding),
+            _ if self.align == Some(FormatAlign::AfterSign) => Err(FormatSpecError::AlignmentFlag),
+            _ => Ok(()),
+        }
+    }
+
     const fn get_separator_interval(&self) -> usize {
         match self.format_type {
             Some(FormatType::Binary | FormatType::Octal | FormatType::Hex(_)) => 4,
@@ -784,6 +792,7 @@ impl FormatSpec {
         // No parentheses for 'n' format (CPython: add_parens=0)
         let magnitude_str = format!("{grouped_re}{grouped_im}");
 
+        self.validate_complex_padding_and_alignment()?;
         Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
@@ -1057,17 +1066,8 @@ impl FormatSpec {
         } else {
             format!("{formatted_re}{formatted_im}")
         };
-        if let Some(FormatAlign::AfterSign) = &self.align {
-            return Err(FormatSpecError::AlignmentFlag);
-        }
-        match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
-            Some('0') => Err(FormatSpecError::ZeroPadding),
-            _ => Ok(self.format_sign_and_align(
-                &AsciiStr::new(&magnitude_str),
-                "",
-                FormatAlign::Right,
-            )),
-        }
+        self.validate_complex_padding_and_alignment()?;
+        Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
     fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
@@ -1727,12 +1727,55 @@ mod tests {
     }
 
     #[test]
+    fn format_complex_rejects_zero_padding_before_after_sign_alignment() {
+        for text in [
+            "08.1f", "=08.1f", "0=8.1f", "#08.1f", "0>8.1f", "0<8.1f", "0^8.1f",
+        ] {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(
+                spec.format_complex(&Complex64::new(1.0, 2.0)),
+                Err(FormatSpecError::ZeroPadding),
+                "{text}"
+            );
+        }
+
+        let spec = FormatSpec::parse("=8.1f").unwrap();
+        assert_eq!(
+            spec.format_complex(&Complex64::new(1.0, 2.0)),
+            Err(FormatSpecError::AlignmentFlag)
+        );
+    }
+
+    #[test]
     fn format_int_zero_padding_stays_after_sign() {
         let spec = FormatSpec::parse("08").unwrap();
 
         assert_eq!(
             spec.format_int(&BigInt::from(-42)),
             Ok("-0000042".to_owned())
+        );
+    }
+
+    #[test]
+    fn format_complex_locale_rejects_zero_padding_before_after_sign_alignment() {
+        let locale = LocaleInfo {
+            thousands_sep: String::new(),
+            decimal_point: ".".to_owned(),
+            grouping: vec![],
+        };
+        for text in ["08n", "=08n", "0=8n", "#08n", "0>8n", "0<8n", "0^8n"] {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(
+                spec.format_complex_locale(&Complex64::new(1.0, 2.0), &locale),
+                Err(FormatSpecError::ZeroPadding),
+                "{text}"
+            );
+        }
+
+        let spec = FormatSpec::parse("=8n").unwrap();
+        assert_eq!(
+            spec.format_complex_locale(&Complex64::new(1.0, 2.0), &locale),
+            Err(FormatSpecError::AlignmentFlag)
         );
     }
 
