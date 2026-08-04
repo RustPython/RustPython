@@ -312,16 +312,8 @@ bitflags! {
             Self::DEF_LOCAL.bits()
             | Self::DEF_PARAM.bits()
             | Self::DEF_IMPORT.bits()
-            | Self::ITER.bits()
             | Self::DEF_TYPE_PARAM.bits()
         );
-
-
-        // TODO: Remove these, RustPython specific
-
-        // indicates that the symbol is used a bound iterator variable. We distinguish this case
-        // from normal assignment to detect disallowed re-assignment to iterator variables.
-        const ITER = 2 << 12;
     }
 }
 
@@ -3012,7 +3004,11 @@ impl SymbolTableBuilder {
                 if self.tables[table_idx]
                     .symbols
                     .get(mangled.as_str())
-                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::ITER))
+                    .is_some_and(|symbol| {
+                        symbol
+                            .flags
+                            .contains(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_COMP_ITER)
+                    })
                 {
                     return Err(SymbolTableError {
                         error: format!(
@@ -3327,14 +3323,7 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::USE);
             }
             SymbolUsage::Iter => {
-                // CPython symtable_add_def_helper() records an inlined
-                // comprehension target as a local definition as well as a
-                // comprehension iterator.  Keep ITER as the internal
-                // re-assignment check marker; DEF_LOCAL is part of the public
-                // ste_symbols flags exposed by _symtable.
-                flags.insert(
-                    SymbolFlags::DEF_LOCAL | SymbolFlags::ITER | SymbolFlags::DEF_COMP_ITER,
-                );
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_COMP_ITER);
             }
             SymbolUsage::TypeParam => {
                 flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_TYPE_PARAM);
