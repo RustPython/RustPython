@@ -2139,7 +2139,7 @@ pub(super) mod types {
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
                         .and_then(|typ| {
-                            vm.new_payload_exception::<PyOSError>(typ.to_owned(), args_vec.into())
+                            vm.new_payload_exception::<Self>(typ.to_owned(), args_vec.into())
                                 .ok()
                         })
                     {
