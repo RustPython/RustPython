@@ -1045,7 +1045,8 @@ mod builtins {
             .new_payload_exception::<PySystemExit>(
                 vm.ctx.exceptions.system_exit.to_owned(),
                 vec![code].into(),
-            )?
+            )
+            .expect("SystemExit is a BaseException Subclass.")
             .upcast())
     }
 

@@ -776,10 +776,12 @@ pub mod sys {
         } else {
             vec![status]
         };
-        let exc = vm.new_payload_exception::<PySystemExit>(
-            vm.ctx.exceptions.system_exit.to_owned(),
-            args.into(),
-        )?;
+        let exc = vm
+            .new_payload_exception::<PySystemExit>(
+                vm.ctx.exceptions.system_exit.to_owned(),
+                args.into(),
+            )
+            .expect("SystemExit is a BaseException Subclass.");
         Err(exc.upcast())
     }
 

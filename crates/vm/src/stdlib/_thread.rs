@@ -639,7 +639,8 @@ pub(crate) mod _thread {
             .new_payload_exception::<PySystemExit>(
                 vm.ctx.exceptions.system_exit.to_owned(),
                 vec![].into(),
-            )?
+            )
+            .expect("SystemExit is a BaseException Subclass.")
             .upcast())
     }
 

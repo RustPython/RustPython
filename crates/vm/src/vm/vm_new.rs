@@ -361,6 +361,13 @@ impl VirtualMachine {
     where
         T: Constructor<Args = FuncArgs> + Initializer,
     {
+        debug_assert_eq!(
+            cls.slots.basicsize,
+            size_of::<T>(),
+            "vm.new_payload_exception::<{}>() called with mismatched type '{}'",
+            core::any::type_name::<T>(),
+            cls.name()
+        );
         let payload = T::py_new(&cls, args.clone(), self)?;
         let exc = payload.into_ref_with_type_lazy_dict(self, cls)?;
         T::slot_init(exc.as_object().to_owned(), args, self)?;

@@ -2173,7 +2173,8 @@ impl VirtualMachine {
                 .new_payload_exception::<PySystemExit>(
                     self.ctx.exceptions.system_exit.to_owned(),
                     vec![].into(),
-                )?
+                )
+                .expect("SystemExit is a BaseException Subclass.")
                 .upcast());
         }
 
