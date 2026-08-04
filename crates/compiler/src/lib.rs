@@ -1,4 +1,4 @@
-pub use ruff_python_ast::token::TokenKind;
+pub use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::ParseErrorType;
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
 use ruff_text_size::{Ranged, TextSize, TextSlice};
@@ -4752,97 +4752,45 @@ fn invalid_legacy_statement_error(source: &str) -> Option<(String, usize, usize)
     None
 }
 
-fn long_decimal_integer_literal_error(
-    source: &str,
+/// Return the syntax error for a decimal integer literal exceeding the configured limit.
+///
+/// The parser has already distinguished integer literals from strings, comments, floats, and
+/// complex numbers. Inspecting its tokens keeps the limit consistent for every source parsing
+/// entry point without reimplementing Python's lexer here.
+#[must_use]
+pub fn long_decimal_integer_literal_error(
+    source_file: &SourceFile,
+    tokens: &Tokens,
     max_str_digits: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CompileError> {
     if max_str_digits == 0 {
         return None;
     }
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            byte if byte >= 0x80 || byte == b'_' || byte.is_ascii_alphabetic() => {
-                index += 1;
-                while index < bytes.len()
-                    && (bytes[index] >= 0x80 || is_ascii_identifier_char(bytes[index]))
-                {
-                    index += 1;
-                }
-            }
-            b'.' => {
-                if bytes
-                    .get(index + 1)
-                    .is_some_and(|byte| byte.is_ascii_digit())
-                {
-                    let (_, end) = number_literal_end(bytes, index)?;
-                    index = end.max(index + 1);
-                } else {
-                    index += 1;
-                }
-            }
-            b'0'..=b'9' => {
-                if bytes.get(index) == Some(&b'0')
-                    && matches!(
-                        bytes.get(index + 1),
-                        Some(b'x' | b'X' | b'o' | b'O' | b'b' | b'B')
-                    )
-                {
-                    let Some((_, end)) = number_literal_end(bytes, index) else {
-                        index += 1;
-                        continue;
-                    };
-                    index = end.max(index + 1);
-                    continue;
-                }
-
-                let start = index;
-                let mut digits = 0usize;
-                while index < bytes.len() {
-                    match bytes[index] {
-                        b'0'..=b'9' => {
-                            digits += 1;
-                            index += 1;
-                        }
-                        b'_' if bytes
-                            .get(index + 1)
-                            .is_some_and(|byte| byte.is_ascii_digit()) =>
-                        {
-                            index += 1;
-                        }
-                        _ => break,
-                    }
-                }
-                if matches!(bytes.get(index), Some(b'.' | b'e' | b'E' | b'j' | b'J')) {
-                    let Some((_, end)) = number_literal_end(bytes, start) else {
-                        continue;
-                    };
-                    index = end.max(index + 1);
-                    continue;
-                }
-                if digits > max_str_digits {
-                    return Some((
-                        format!(
-                            "Exceeds the limit ({max_str_digits} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."
-                        ),
-                        start,
-                        start,
-                    ));
-                }
-            }
-            _ => index += 1,
+    tokens.iter().find_map(|token| {
+        if token.kind() != TokenKind::Int {
+            return None;
         }
-    }
-    None
+        let literal = source_file.source_text().slice(token.range());
+        if literal
+            .as_bytes()
+            .get(..2)
+            .is_some_and(|prefix| matches!(prefix, b"0x" | b"0X" | b"0o" | b"0O" | b"0b" | b"0B"))
+        {
+            return None;
+        }
+        let digits = literal.bytes().filter(u8::is_ascii_digit).count();
+        (digits > max_str_digits).then(|| {
+            let start = token.range().start().to_usize();
+            CompileError::from_source_error(
+                source_file,
+                format!(
+                    "Exceeds the limit ({max_str_digits} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."
+                ),
+                start,
+                start,
+            )
+        })
+    })
 }
 
 fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usize, usize)> {
@@ -4951,12 +4899,27 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(Stri
     None
 }
 
-fn post_parse_source_error(source_file: &SourceFile, opts: &CompileOpts) -> Option<CompileError> {
-    too_many_nested_parentheses_error(source_file.source_text())
-        .or_else(|| {
-            long_decimal_integer_literal_error(source_file.source_text(), opts.int_max_str_digits)
-        })
-        .or_else(|| invalid_call_argument_error(source_file.source_text()))
+fn post_parse_source_error(
+    source_file: &SourceFile,
+    tokens: &Tokens,
+    opts: &CompileOpts,
+) -> Option<CompileError> {
+    if let Some((message, start, end)) =
+        too_many_nested_parentheses_error(source_file.source_text())
+    {
+        return Some(CompileError::from_source_error(
+            source_file,
+            message,
+            start,
+            end,
+        ));
+    }
+    if let Some(error) =
+        long_decimal_integer_literal_error(source_file, tokens, opts.int_max_str_digits)
+    {
+        return Some(error);
+    }
+    invalid_call_argument_error(source_file.source_text())
         .or_else(|| invalid_match_mapping_rest_wildcard_error(source_file.source_text()))
         .or_else(|| invalid_match_as_target_error(source_file.source_text()))
         .or_else(|| invalid_unparenthesized_yield_after_comma_error(source_file.source_text()))
@@ -5220,7 +5183,7 @@ fn _compile_with_syntax_warning_handler<'a>(
     {
         return Err(error);
     }
-    if let Some(error) = post_parse_source_error(&source_file, &opts) {
+    if let Some(error) = post_parse_source_error(&source_file, parsed.tokens(), &opts) {
         return Err(error);
     }
     let ast = parsed.into_syntax();
@@ -5273,7 +5236,9 @@ pub fn _compile_symtable(
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             let ast = ruff_python_parser::parse_module(source_file.source_text())
                 .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
-            if let Some(error) = post_parse_source_error(&source_file, &CompileOpts::default()) {
+            if let Some(error) =
+                post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
+            {
                 return Err(error);
             }
             let ast = ast.into_syntax();
@@ -5290,7 +5255,9 @@ pub fn _compile_symtable(
                 parser::Mode::Expression.into(),
             )
             .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
-            if let Some(error) = post_parse_source_error(&source_file, &CompileOpts::default()) {
+            if let Some(error) =
+                post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
+            {
                 return Err(error);
             }
             symboltable::SymbolTable::scan_expr(
