@@ -42,7 +42,7 @@ repos:
 
       - id: generate-rs-opcode-metadata
         name: generate rust opcode metadata
-        entry: python tools/opcode_metadata/generate_rs_opcode_metadata.py
+        entry: python3 tools/opcode_metadata/generate_rs_opcode_metadata.py
         files: '^(crates/compiler-core/src/bytecode/instruction\.rs|tools/opcode_metadata/*)$'
         pass_filenames: false
         language: system
@@ -53,7 +53,7 @@ repos:
 
       - id: generate-py-opcode-metadata
         name: generate python opcode metadata
-        entry: python tools/opcode_metadata/generate_py_opcode_metadata.py
+        entry: python3 tools/opcode_metadata/generate_py_opcode_metadata.py
         files: '^(crates/compiler-core/src/bytecode/instruction\.rs|tools/opcode_metadata/*)$'
         pass_filenames: false
         language: system
