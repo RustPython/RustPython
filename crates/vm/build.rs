@@ -3,9 +3,8 @@
     reason = "build scripts cannot use rustpython-host_env"
 )]
 
-use chrono::{Local, prelude::DateTime};
-use core::time::Duration;
 use itertools::Itertools;
+use jiff::{Timestamp, Zoned, tz::TimeZone};
 use std::{
     env,
     io::{self, prelude::*},
@@ -123,24 +122,27 @@ fn git_identifier() -> String {
     }
 }
 
-fn get_git_timestamp_datetime() -> DateTime<Local> {
-    let timestamp = git_timestamp().parse::<u64>().unwrap_or_default();
-    let datetime = UNIX_EPOCH + Duration::from_secs(timestamp);
-    datetime.into()
+fn get_git_timestamp_raw() -> Option<Timestamp> {
+    let git_timestamp = git_timestamp().parse::<i64>().ok()?;
+    Timestamp::from_second(git_timestamp).ok()
+}
+
+fn get_git_timestamp_datetime() -> Zoned {
+    get_git_timestamp_raw().map_or_else(Zoned::now, |timestamp| {
+        Zoned::new(timestamp, TimeZone::system())
+    })
 }
 
 #[must_use]
 fn get_git_date() -> String {
     let datetime = get_git_timestamp_datetime();
-
-    datetime.format("%b %e %Y").to_string()
+    datetime.strftime("%b %e %Y").to_string()
 }
 
 #[must_use]
 fn get_git_time() -> String {
     let datetime = get_git_timestamp_datetime();
-
-    datetime.format("%H:%M:%S").to_string()
+    datetime.strftime("%H:%M:%S").to_string()
 }
 
 fn rustc_version() -> String {
