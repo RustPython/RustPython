@@ -554,10 +554,10 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
+        uses: reviewdog/action-actionlint@50842263c20a7c46bd0065b9e624d3c569db061e # v1.73.0
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        uses: zizmorcore/zizmor-action@6fc4b006235f201fdab3722e17240ab420d580e5 # v0.6.1
 
       - name: restore prek cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -567,7 +567,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2.0.5
+        uses: j178/prek-action@5337cb91e0fa35a7ff31b9ca345126d8bbbcdf16 # v2.0.6
         with:
           cache: false
           show-verbose-logs: false
@@ -648,7 +648,10 @@ jobs:
         env:
           # miri-ignore-leaks because the type-object circular reference means that there will always be
           # a memory leak, at least until we have proper cyclic gc
-          MIRIFLAGS: "-Zmiri-ignore-leaks"
+          # miri-permissive-provenance because function pointer identity checks (slot comparisons)
+          # cast fn pointers to usize, which strips provenance — this is the standard pattern for
+          # fn pointer comparison in Rust and not a soundness issue
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}

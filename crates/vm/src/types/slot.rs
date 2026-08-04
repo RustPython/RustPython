@@ -877,8 +877,8 @@ impl PyType {
                         .iter()
                         .find(|cls| cls.attributes.read().contains_key(name))
                         .is_some_and(|cls| {
-                            cls.slots.new.load().map(|f| f as usize)
-                                == Some(new_wrapper as NewFunc as usize)
+                            cls.slots.new.load().map(|f| fn_addr(f))
+                                == Some(fn_addr(new_wrapper as NewFunc))
                         })
                 };
                 if needs_wrapper {
@@ -953,7 +953,7 @@ impl PyType {
                         self.slots.setattro.store(Some(setattro_wrapper));
                     }
                     (NativeSlot(set), NativeSlot(del)) => {
-                        let func = if set as usize == del as usize {
+                        let func = if fn_addr(set) == fn_addr(del) {
                             set
                         } else {
                             setattro_wrapper
@@ -988,7 +988,7 @@ impl PyType {
                         self.slots.descr_set.store(Some(descr_set_wrapper));
                     }
                     (NativeSlot(set), NativeSlot(delete)) => {
-                        let func = if set as usize == delete as usize {
+                        let func = if fn_addr(set) == fn_addr(delete) {
                             set
                         } else {
                             descr_set_wrapper
@@ -2170,4 +2170,25 @@ where
         let prev = slots.iter.swap(Some(self_iter));
         debug_assert!(prev.is_some()); // slot_iter would be set
     }
+}
+
+/// Extract the raw address of a function pointer as `usize` without
+/// triggering miri's "pointer not dereferenceable" UB.
+///
+/// The standard `fn_ptr as usize` cast goes through `FnPtr::addr()`
+/// which attempts to dereference the function pointer's provenance —
+/// miri considers this UB for function items. `transmute_copy` bypasses
+/// that path and reads the address as plain integer bytes.
+///
+/// The result is suitable for identity comparison only: two function
+/// pointers with the same address are the same function. The converse
+/// is not always guaranteed (the compiler may merge identical function
+/// bodies), but this matches CPython's slot comparison semantics.
+#[inline(always)]
+pub(crate) fn fn_addr<T: Copy>(f: T) -> usize {
+    assert!(
+        core::mem::size_of::<T>() == core::mem::size_of::<usize>(),
+        "fn_addr: T must be pointer-sized"
+    );
+    unsafe { core::mem::transmute_copy::<T, usize>(&f) }
 }

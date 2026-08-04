@@ -1513,7 +1513,12 @@ impl PyType {
         // temporary refs so they never see a dangling pointer.
         let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
             if let Some(frame) = vm.current_frame() {
-                frame.iframe().temporary_refs.lock().push(type_ref.into());
+                frame
+                    .iframe()
+                    .cold()
+                    .temporary_refs
+                    .lock()
+                    .push(type_ref.into());
             } else {
                 retired.push(type_ref.into());
             }
@@ -2829,7 +2834,8 @@ impl Callable for PyType {
             // path incorrectly.
             if zelf.slots.init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
-                && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize
+                && crate::types::fn_addr(slot_new)
+                    != crate::types::fn_addr(crate::types::new_wrapper as crate::types::NewFunc)
             {
                 return slot_new(zelf.to_owned(), args, vm);
             }
@@ -3066,7 +3072,8 @@ pub(crate) fn call_slot_new(
     // Check if staticbase's tp_new differs from typ's tp_new
     let typ_new = typ.slots.new.load();
     let staticbase_new = staticbase.slots.new.load();
-    if typ_new.map(|f| f as usize) != staticbase_new.map(|f| f as usize) {
+    if typ_new.map(|f| crate::types::fn_addr(f)) != staticbase_new.map(|f| crate::types::fn_addr(f))
+    {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
             typ.slot_name(),

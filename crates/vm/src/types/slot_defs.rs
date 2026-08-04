@@ -2,7 +2,7 @@
 //!
 //! This module provides a centralized array of all slot definitions,
 
-use super::{PyComparisonOp, PyTypeSlots};
+use super::{PyComparisonOp, PyTypeSlots, fn_addr};
 use crate::builtins::descriptor::SlotFunc;
 
 /// Slot operation type
@@ -609,7 +609,7 @@ impl SlotAccessor {
                     && let Some(base_val) = base.slots.init.load()
                 {
                     let slot_defined = base.base.deref().is_none_or(|bb| {
-                        bb.slots.init.load().map(|v| v as usize) != Some(base_val as usize)
+                        bb.slots.init.load().map(|v| fn_addr(v)) != Some(fn_addr(base_val))
                     });
                     if slot_defined {
                         typ.slots.init.store(Some(base_val));
