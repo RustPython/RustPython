@@ -566,7 +566,7 @@ pub(crate) mod _asyncio {
                 let args = if let Some(ctx) = context {
                     FuncArgs::new(
                         vec![callback, future_arg],
-                        KwArgs::new(core::iter::once(("context".to_owned(), ctx)).collect()),
+                        KwArgs::new(core::iter::once((Wtf8Buf::from("context"), ctx)).collect()),
                     )
                 } else {
                     FuncArgs::new(vec![callback, future_arg], KwArgs::default())
@@ -1498,7 +1498,7 @@ pub(crate) mod _asyncio {
                 let args = if let Some(ctx) = context {
                     FuncArgs::new(
                         vec![callback, task_arg],
-                        KwArgs::new(core::iter::once(("context".to_owned(), ctx)).collect()),
+                        KwArgs::new(core::iter::once((Wtf8Buf::from("context"), ctx)).collect()),
                     )
                 } else {
                     FuncArgs::new(vec![callback, task_arg], KwArgs::default())
@@ -1527,7 +1527,7 @@ pub(crate) mod _asyncio {
                 let cancel_args = if let Some(ref m) = msg_value {
                     FuncArgs::new(
                         vec![],
-                        KwArgs::new(core::iter::once(("msg".to_owned(), m.clone())).collect()),
+                        KwArgs::new(core::iter::once((Wtf8Buf::from("msg"), m.clone())).collect()),
                     )
                 } else {
                     FuncArgs::new(vec![], KwArgs::default())
@@ -2213,7 +2213,7 @@ pub(crate) mod _asyncio {
                 let cancel_args = if let Some(ref m) = cancel_msg {
                     FuncArgs::new(
                         vec![],
-                        KwArgs::new(core::iter::once(("msg".to_owned(), m.clone())).collect()),
+                        KwArgs::new(core::iter::once((Wtf8Buf::from("msg"), m.clone())).collect()),
                     )
                 } else {
                     FuncArgs::new(vec![], KwArgs::default())

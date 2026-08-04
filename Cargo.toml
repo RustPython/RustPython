@@ -200,7 +200,6 @@ bitflags = "2.11.0"
 bitflagset = "0.0.3"
 bstr = { version = "1", default-features = false, features = ["unicode"] }
 bzip2 = "0.6"
-chrono = { version = "0.4.44", default-features = false, features = ["clock", "std"] }
 console_error_panic_hook = "0.1"
 constant_time_eq = "0.5"
 cranelift = "0.132.0"
@@ -231,6 +230,7 @@ insta = "1.47"
 itertools = { version = "0.15.0", default-features = false, features = ["use_alloc"] }
 itoa = "1"
 is-macro = "0.3.7"
+jiff = "0.2"
 js-sys = "0.3"
 junction = "2.0.0"
 lexical-parse-float = "1.0.6"
@@ -305,7 +305,6 @@ textwrap = { version = "0.16.2", default-features = false }
 termios = "0.3.3"
 thiserror = "2.0"
 thin-vec = "0.2.14"
-timsort = "0.1.2"
 tk-sys = { git = "https://github.com/arihant2math/tkinter.git", tag = "v0.2.0" }
 icu_casemap = "2"
 icu_locale = "2"

@@ -25,12 +25,9 @@ mod decl {
         common::wtf8::Wtf8Buf,
         convert::{ToPyException, ToPyObject},
     };
-    #[cfg(not(any(unix, windows)))]
-    use chrono::{
-        DateTime, Datelike, TimeZone, Timelike,
-        naive::{NaiveDate, NaiveDateTime, NaiveTime},
-    };
     use core::time::Duration;
+    #[cfg(not(any(unix, windows)))]
+    use jiff::{Timestamp, Zoned, civil::DateTime, tz::TimeZone};
     #[cfg(target_os = "wasi")]
     use rustpython_host_env::time::ClockId;
     #[cfg(any(unix, windows))]
@@ -210,7 +207,7 @@ mod decl {
         Ok(get_perf_time(vm)?.as_nanos())
     }
 
-    #[cfg(target_env = "msvc")]
+    #[cfg(windows)]
     #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn get_tz_info() -> host_time::WindowsTimeZoneInfo {
         host_time::get_tz_info()
@@ -289,10 +286,7 @@ mod decl {
     }
 
     #[cfg(not(any(unix, windows)))]
-    fn pyobj_to_date_time(
-        value: Either<f64, i64>,
-        vm: &VirtualMachine,
-    ) -> PyResult<DateTime<chrono::offset::Utc>> {
+    fn pyobj_to_timestamp(value: Either<f64, i64>, vm: &VirtualMachine) -> PyResult<Timestamp> {
         let secs = match value {
             Either::A(float) => {
                 if !float.is_finite() {
@@ -302,19 +296,19 @@ mod decl {
             }
             Either::B(int) => int,
         };
-        DateTime::<chrono::offset::Utc>::from_timestamp(secs, 0)
-            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for platform time_t"))
+        Timestamp::from_second(secs)
+            .map_err(|_| vm.new_overflow_error("timestamp out of range for platform time_t"))
     }
 
     #[cfg(not(any(unix, windows)))]
     impl OptionalArg<Option<Either<f64, i64>>> {
         /// Construct a localtime from the optional seconds, or get the current local time.
-        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<Zoned> {
             Ok(match self {
-                Self::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?
-                    .with_timezone(&chrono::Local)
-                    .naive_local(),
-                Self::Present(None) | Self::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Present(Some(secs)) => {
+                    pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::system())
+                }
+                Self::Present(None) | Self::Missing => Zoned::now(),
             })
         }
     }
@@ -432,10 +426,10 @@ mod decl {
 
     #[cfg(not(any(unix, windows)))]
     impl OptionalArg<StructTimeData> {
-        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
+        fn naive_or_local(self, vm: &VirtualMachine) -> PyResult<DateTime> {
             Ok(match self {
                 Self::Present(t) => t.to_date_time(vm)?,
-                Self::Missing => chrono::offset::Local::now().naive_local(),
+                Self::Missing => Zoned::now().datetime(),
             })
         }
     }
@@ -456,9 +450,9 @@ mod decl {
             }
             _ => {
                 let instant = match secs {
-                    OptionalArg::Present(Some(secs)) => pyobj_to_date_time(secs, vm)?.naive_utc(),
+                    OptionalArg::Present(Some(secs)) => pyobj_to_timestamp(secs, vm)?.to_zoned(TimeZone::UTC),
                     OptionalArg::Present(None) | OptionalArg::Missing => {
-                        chrono::offset::Utc::now().naive_utc()
+                        Zoned::now().with_time_zone(TimeZone::UTC)
                     }
                 };
                 Ok(StructTimeData::new_utc(vm, instant))
@@ -481,7 +475,7 @@ mod decl {
             }
             _ => {
                 let instant = secs.naive_or_local(vm)?;
-                Ok(StructTimeData::new_local(vm, instant, 0))
+                StructTimeData::new_local(vm, instant.into(), 0)
             }
         }
     }
@@ -502,11 +496,10 @@ mod decl {
         {
             let datetime = t.to_date_time(vm)?;
             // mktime interprets struct_time as local time
-            let local_dt = chrono::Local
-                .from_local_datetime(&datetime)
-                .single()
-                .ok_or_else(|| vm.new_overflow_error("mktime argument out of range"))?;
-            let seconds_since_epoch = local_dt.timestamp() as f64;
+            let local_dt = datetime
+                .to_zoned(TimeZone::system())
+                .map_err(|_| vm.new_overflow_error("mktime argument out of range"))?;
+            let seconds_since_epoch = local_dt.timestamp().as_second() as f64;
             Ok(seconds_since_epoch)
         }
     }
@@ -534,7 +527,7 @@ mod decl {
         #[cfg(not(any(unix, windows)))]
         {
             let instant = t.naive_or_local(vm)?;
-            let formatted_time = instant.format(CFMT).to_string();
+            let formatted_time = instant.strftime(CFMT).to_string();
             Ok(vm.ctx.new_str(formatted_time).into())
         }
     }
@@ -555,7 +548,7 @@ mod decl {
         #[cfg(not(any(unix, windows)))]
         {
             let instant = secs.naive_or_local(vm)?;
-            Ok(instant.format(CFMT).to_string())
+            Ok(instant.strftime(CFMT).to_string())
         }
     }
 
@@ -645,7 +638,7 @@ mod decl {
             };
 
             let mut formatted_time = String::new();
-            write!(&mut formatted_time, "{}", instant.format(&fmt_lossy))
+            write!(&mut formatted_time, "{}", instant.strftime(&*fmt_lossy))
                 .unwrap_or_else(|_| formatted_time = format.to_string());
             Ok(vm.ctx.new_str(formatted_time).into())
         }
@@ -757,13 +750,7 @@ mod decl {
 
     impl StructTimeData {
         #[cfg(not(any(unix, windows)))]
-        fn new_inner(
-            vm: &VirtualMachine,
-            tm: NaiveDateTime,
-            isdst: i32,
-            gmtoff: i32,
-            zone: &str,
-        ) -> Self {
+        fn new_inner(vm: &VirtualMachine, tm: Zoned, isdst: i32) -> Self {
             Self {
                 tm_year: vm.ctx.new_int(tm.year()).into(),
                 tm_mon: vm.ctx.new_int(tm.month()).into(),
@@ -771,46 +758,47 @@ mod decl {
                 tm_hour: vm.ctx.new_int(tm.hour()).into(),
                 tm_min: vm.ctx.new_int(tm.minute()).into(),
                 tm_sec: vm.ctx.new_int(tm.second()).into(),
-                tm_wday: vm.ctx.new_int(tm.weekday().num_days_from_monday()).into(),
-                tm_yday: vm.ctx.new_int(tm.ordinal()).into(),
+                tm_wday: vm.ctx.new_int(tm.weekday().to_sunday_zero_offset()).into(),
+                tm_yday: vm.ctx.new_int(tm.day_of_year()).into(),
                 tm_isdst: vm.ctx.new_int(isdst).into(),
-                tm_zone: vm.ctx.new_str(zone).into(),
-                tm_gmtoff: vm.ctx.new_int(gmtoff).into(),
+                tm_zone: vm.ctx.new_str(tm.strftime("%Z").to_string()).into(),
+                tm_gmtoff: vm.ctx.new_int(tm.offset().seconds()).into(),
             }
         }
 
         /// Create struct_time for UTC (gmtime)
         #[cfg(not(any(unix, windows)))]
-        fn new_utc(vm: &VirtualMachine, tm: NaiveDateTime) -> Self {
-            Self::new_inner(vm, tm, 0, 0, "UTC")
+        fn new_utc(vm: &VirtualMachine, tm: Zoned) -> Self {
+            Self::new_inner(vm, tm, 0)
         }
 
         /// Create struct_time for local timezone (localtime)
         #[cfg(not(any(unix, windows)))]
-        fn new_local(vm: &VirtualMachine, tm: NaiveDateTime, isdst: i32) -> Self {
-            let local_time = chrono::Local.from_local_datetime(&tm).unwrap();
-            let offset_seconds = local_time.offset().local_minus_utc();
-            let tz_abbr = local_time.format("%Z").to_string();
-            Self::new_inner(vm, tm, isdst, offset_seconds, &tz_abbr)
+        fn new_local(vm: &VirtualMachine, tm: DateTime, isdst: i32) -> PyResult<Self> {
+            tm.to_zoned(TimeZone::system())
+                .map(|tm| Self::new_inner(vm, tm, isdst))
+                .map_err(|_| {
+                    vm.new_overflow_error("timestamp is ambiguous for the system timezone")
+                })
         }
 
         #[cfg(not(any(unix, windows)))]
-        fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<NaiveDateTime> {
-            let invalid_overflow = || vm.new_overflow_error("mktime argument out of range");
-            let invalid_value = || vm.new_value_error("invalid struct_time parameter");
-
+        fn to_date_time(&self, vm: &VirtualMachine) -> PyResult<DateTime> {
             macro_rules! field {
                 ($field:ident) => {
                     self.$field.clone().try_into_value(vm)?
                 };
             }
-            let dt = NaiveDateTime::new(
-                NaiveDate::from_ymd_opt(field!(tm_year), field!(tm_mon), field!(tm_mday))
-                    .ok_or_else(invalid_value)?,
-                NaiveTime::from_hms_opt(field!(tm_hour), field!(tm_min), field!(tm_sec))
-                    .ok_or_else(invalid_overflow)?,
-            );
-            Ok(dt)
+            DateTime::new(
+                field!(tm_year),
+                field!(tm_mon),
+                field!(tm_mday),
+                field!(tm_hour),
+                field!(tm_min),
+                field!(tm_sec),
+                0,
+            )
+            .map_err(|_| vm.new_overflow_error("mktime argument out of range"))
         }
     }
 

@@ -146,11 +146,9 @@ mod _sre {
         let mut items = Vec::with_capacity(1);
         let v = template.borrow_vec();
         let literal = v.first().ok_or_else(err)?.clone();
-        let trunks = v[1..].chunks_exact(2);
-
-        if !trunks.remainder().is_empty() {
+        let (trunks, []) = v[1..].as_chunks::<2>() else {
             return Err(err());
-        }
+        };
 
         for trunk in trunks {
             let index: usize = trunk[0]

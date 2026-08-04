@@ -415,7 +415,6 @@ class BasicSocketTests(unittest.TestCase):
                 value = getattr(ssl, name)
                 self.assertGreaterEqual(value, 0, f"ssl.{name}")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: TypeError not raised by Certificate
     def test_ssl_types(self):
         ssl_types = [
             _ssl._SSLContext,
@@ -651,7 +650,6 @@ class BasicSocketTests(unittest.TestCase):
             with test_wrap_socket(s) as ss:
                 self.assertEqual(timeout, ss.gettimeout())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_openssl111_deprecations(self):
         options = [
             ssl.OP_NO_TLSv1,
@@ -756,7 +754,6 @@ class BasicSocketTests(unittest.TestCase):
         with test_wrap_socket(s, server_side=True, certfile=CERTFILE) as ss:
             self.assertIsNone(ss.get_channel_binding("tls-unique"))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "<ssl.SSLSocket fd=3, family=2, type=1, proto=0, laddr=('0.0.0.0', 0)>" not found in "unclosed <socket.socket fd=3, family=2, type=1, proto=0, laddr=('0.0.0.0', 0)>"
     def test_dealloc_warn(self):
         ss = test_wrap_socket(socket.socket(socket.AF_INET))
         r = repr(ss)
@@ -1482,7 +1479,6 @@ class ContextTests(unittest.TestCase):
         ctx.set_servername_callback(None)
         ctx.set_servername_callback(dummycallback)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Expected 'mock' to not have been called. Called 1 times.
     def test_sni_callback_on_dead_references(self):
         # See https://github.com/python/cpython/issues/146080.
         c_ctx = make_test_context()

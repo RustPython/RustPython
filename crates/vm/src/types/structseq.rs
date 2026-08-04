@@ -1,4 +1,5 @@
 use crate::common::lock::LazyLock;
+use crate::common::wtf8::Wtf8;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
@@ -276,7 +277,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
 
         // Check for unexpected keyword arguments
         if !kwargs.is_empty() {
-            let names: Vec<&str> = kwargs.keys().map(|k| k.as_str()).collect();
+            let names: Vec<&Wtf8> = kwargs.keys().map(|k| k.as_ref()).collect();
             return Err(vm.new_type_error(format!("Got unexpected field name(s): {names:?}")));
         }
 

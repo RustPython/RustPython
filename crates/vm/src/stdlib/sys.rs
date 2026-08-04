@@ -44,7 +44,7 @@ pub mod sys {
             hash::{PyHash, PyUHash},
         },
         convert::ToPyObject,
-        frame::FrameRef,
+        frame::FrameObjectRef,
         function::{FuncArgs, KwArgs, OptionalArg, PosArgs},
         stdlib::{_warnings::warn, builtins},
         types::PyStructSequence,
@@ -968,9 +968,9 @@ pub mod sys {
     }
 
     #[pyfunction]
-    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameRef> {
+    fn _getframe(offset: OptionalArg<usize>, vm: &VirtualMachine) -> PyResult<FrameObjectRef> {
         let offset = offset.into_option().unwrap_or(0);
-        let frame_ref = crate::frame::frame_at_offset(offset)
+        let frame_ref = crate::frame::frame_at_offset(offset, vm)
             .ok_or_else(|| vm.new_value_error("call stack is not deep enough"))?;
         frame_ref.mark_escaped();
 
@@ -992,8 +992,8 @@ pub mod sys {
         }
 
         // Get the frame at the specified depth
-        let func_obj = match crate::frame::frame_at_offset(depth) {
-            Some(frame) => frame.func_obj.clone(),
+        let func_obj = match crate::frame::frame_at_offset(depth, vm) {
+            Some(frame) => frame.iframe().func_obj().map(|o| o.to_owned()),
             None => return Ok(vm.ctx.none()),
         };
 

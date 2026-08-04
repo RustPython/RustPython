@@ -119,9 +119,12 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                 if let Some(ref kwargs) = kwargs {
                     for pair in object_entries(kwargs) {
                         let (key, val) = pair?;
-                        py_func_args
-                            .kwargs
-                            .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
+                        py_func_args.kwargs.insert(
+                            // JS strings coming in are UTF-16; go through Rust `String`
+                            // (kwargs keys are now WTF-8, so convert String -> Wtf8Buf).
+                            String::from(js_sys::JsString::from(key)).into(),
+                            js_to_py(vm, val),
+                        );
                     }
                 }
                 let result = py_obj.call(py_func_args, vm);
@@ -229,7 +232,9 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
+                    // WTF-8 -> JS string: lone surrogates in the key become U+FFFD
+                    // (wasm-bindgen only accepts Rust `String`); acceptable at this boundary.
+                    Reflect::set(&this, &k.to_string().into(), &py_to_js(vm, v))
                         .expect("property to be settable");
                 }
                 let js_args = args

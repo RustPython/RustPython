@@ -10,7 +10,7 @@
 //! - Loading certificates from files, directories, and bytes
 
 use alloc::sync::Arc;
-use chrono::{DateTime, Utc};
+use jiff::{Timestamp, Zoned, tz::TimeZone};
 use parking_lot::RwLock as ParkingRwLock;
 use rustls::{
     DigitallySignedStruct, RootCertStore, SignatureScheme,
@@ -201,10 +201,10 @@ fn format_ip_address(ip: &[u8]) -> String {
 /// Formats certificate validity dates in the format:
 /// "Mon DD HH:MM:SS YYYY GMT"
 fn format_asn1_time(time: &x509_parser::time::ASN1Time) -> String {
-    let timestamp = time.timestamp();
-    DateTime::<Utc>::from_timestamp(timestamp, 0)
-        .expect("ASN1Time must be valid timestamp")
-        .format("%b %e %H:%M:%S %Y GMT")
+    let timestamp =
+        Timestamp::from_second(time.timestamp()).expect("ASN1Time must be valid timestamp");
+    Zoned::new(timestamp, TimeZone::UTC)
+        .strftime("%b %e %H:%M:%S %Y GMT")
         .to_string()
 }
 
@@ -341,7 +341,7 @@ pub(super) fn cert_to_dict(
     let serial = format_serial_number(&cert.serial);
     dict.set_item("serialNumber", vm.ctx.new_str(serial).into(), vm)?;
 
-    // Validity dates - format with GMT using chrono
+    // Validity dates - format with GMT using jiff
     dict.set_item(
         "notBefore",
         vm.ctx
@@ -414,7 +414,7 @@ pub(super) fn cert_der_to_dict_helper(
     // CPython ordering: issuer, notAfter, notBefore, serialNumber, subject, version
     dict.set_item("issuer", name_to_tuple(cert.issuer())?, vm)?;
 
-    // Validity - format with GMT using chrono
+    // Validity - format with GMT using jiff
     dict.set_item(
         "notAfter",
         vm.ctx
