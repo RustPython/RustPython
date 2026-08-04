@@ -2138,7 +2138,9 @@ pub(super) mod types {
                         .downcast_ref::<PyInt>()
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                        .and_then(|typ| vm.invoke_exception(typ, args_vec).ok())
+                        .and_then(|typ| vm.new_payload_exception::<PyOSError>(
+                            typ.to_owned(), args_vec.into()).ok()
+                        )
                     {
                         return error.to_pyresult(vm);
                     }
