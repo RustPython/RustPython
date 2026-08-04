@@ -1861,6 +1861,14 @@ pub(crate) fn parse(
         .into());
     }
 
+    if let Some(error) = rustpython_compiler::long_decimal_integer_literal_error(
+        &source_file,
+        parsed.tokens(),
+        vm.state.int_max_str_digits.load(),
+    ) {
+        return Err(error);
+    }
+
     let mut top = parsed.into_syntax();
     if let Some(error) = ipython_escape_command_syntax_error(&top, &source_file) {
         return Err(error);
