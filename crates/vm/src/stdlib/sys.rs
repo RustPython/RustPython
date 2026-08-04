@@ -777,7 +777,9 @@ pub mod sys {
             vec![status]
         };
         let exc = vm.new_payload_exception::<PySystemExit>(
-            vm.ctx.exceptions.system_exit.to_owned(), args.into())?;
+            vm.ctx.exceptions.system_exit.to_owned(),
+            args.into(),
+        )?;
         Err(exc.upcast())
     }
 

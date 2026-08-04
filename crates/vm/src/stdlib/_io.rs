@@ -944,14 +944,17 @@ mod _io {
                     Some(n) => n,
                     None => {
                         // BlockingIOError(errno, msg, characters_written=0)
-                        return Err(vm.new_payload_exception::<PyOSError>(
-                            vm.ctx.exceptions.blocking_io_error.to_owned(),
-                            vec![
-                                vm.new_pyobj(EAGAIN),
-                                vm.new_pyobj("write could not complete without blocking"),
-                                vm.new_pyobj(0),
-                            ].into(),
-                        )?.upcast());
+                        return Err(vm
+                            .new_payload_exception::<PyOSError>(
+                                vm.ctx.exceptions.blocking_io_error.to_owned(),
+                                vec![
+                                    vm.new_pyobj(EAGAIN),
+                                    vm.new_pyobj("write could not complete without blocking"),
+                                    vm.new_pyobj(0),
+                                ]
+                                .into(),
+                            )?
+                            .upcast());
                     }
                 };
                 self.write_pos += n as Offset;
@@ -1155,14 +1158,17 @@ mod _io {
                     self.buffer[self.write_end as usize..][..avail].copy_from_slice(&buf[..avail]);
                     self.write_end += avail as Offset;
                     self.pos += avail as Offset;
-                    return Err(vm.new_payload_exception::<PyOSError>(
-                        vm.ctx.exceptions.blocking_io_error.to_owned(),
-                        vec![
-                            vm.new_pyobj(EAGAIN),
-                            vm.new_pyobj("write could not complete without blocking"),
-                            vm.new_pyobj(avail),
-                        ].into(),
-                    )?.upcast());
+                    return Err(vm
+                        .new_payload_exception::<PyOSError>(
+                            vm.ctx.exceptions.blocking_io_error.to_owned(),
+                            vec![
+                                vm.new_pyobj(EAGAIN),
+                                vm.new_pyobj("write could not complete without blocking"),
+                                vm.new_pyobj(avail),
+                            ]
+                            .into(),
+                        )?
+                        .upcast());
                 }
                 Err(e) => return Err(e),
             }
@@ -1201,14 +1207,17 @@ mod _io {
                         self.write_end = buffer_size;
                         // BlockingIOError(errno, msg, characters_written)
                         let chars_written = written + buffer_len;
-                        return Err(vm.new_payload_exception::<PyOSError>(
-                            vm.ctx.exceptions.blocking_io_error.to_owned(),
-                            vec![
-                                vm.new_pyobj(EAGAIN),
-                                vm.new_pyobj("write could not complete without blocking"),
-                                vm.new_pyobj(chars_written),
-                            ].into(),
-                        )?.upcast());
+                        return Err(vm
+                            .new_payload_exception::<PyOSError>(
+                                vm.ctx.exceptions.blocking_io_error.to_owned(),
+                                vec![
+                                    vm.new_pyobj(EAGAIN),
+                                    vm.new_pyobj("write could not complete without blocking"),
+                                    vm.new_pyobj(chars_written),
+                                ]
+                                .into(),
+                            )?
+                            .upcast());
                     }
                     None => break,
                 }
