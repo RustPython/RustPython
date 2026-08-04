@@ -3012,7 +3012,7 @@ impl SymbolTableBuilder {
                 {
                     return Err(SymbolTableError {
                         error: format!(
-                            "assignment expression cannot rebind comprehension iteration variable '{mangled}'"
+                            "assignment expression cannot rebind comprehension iteration variable '{name}'"
                         ),
                         location,
                     });
@@ -3158,7 +3158,7 @@ impl SymbolTableBuilder {
             {
                 return Err(SymbolTableError {
                     error: format!(
-                        "comprehension inner loop cannot rebind assignment expression target '{name}'"
+                        "comprehension inner loop cannot rebind assignment expression target '{original_name}'"
                     ),
                     location,
                 });
