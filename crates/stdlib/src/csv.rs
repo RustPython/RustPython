@@ -781,8 +781,7 @@ mod _csv {
             _ => unreachable!(),
         };
         if dialect.skipinitialspace
-            && (matches!(dialect.escapechar, Some(b' '))
-                || matches!(dialect.quotechar, Some(b' ')))
+            && (matches!(dialect.escapechar, Some(b' ')) || matches!(dialect.quotechar, Some(b' ')))
         {
             return Err(vm.new_value_error(
                 "escapechar or quotechar cannot be a space when skipinitialspace is enabled",
