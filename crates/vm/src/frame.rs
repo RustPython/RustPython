@@ -544,6 +544,13 @@ impl LocalsPlus {
         Ok(())
     }
 
+    /// Push a PyObjectRef onto the evaluation stack.
+    /// Panics on overflow.
+    pub(crate) fn push_stack(&mut self, value: PyObjectRef) {
+        self.stack_try_push(Some(PyStackRef::new_owned(value)))
+            .expect("stack overflow in push_stack");
+    }
+
     /// Pop a value from the evaluation stack.
     #[inline(always)]
     fn stack_pop(&mut self) -> Option<PyStackRef> {
@@ -861,6 +868,9 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
+    /// Base pointer of the datastack allocation when this frame and its
+    /// localsplus are bump-allocated together. Null for heap-backed frames.
+    pub(crate) datastack_base: *mut u8,
     /// Pointer to the owning `Py<FrameObject>`, or null for stack-allocated
     /// frames that have not been materialized yet.
     /// Stored as `usize` for `PyAtomic` compatibility.
@@ -944,9 +954,108 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
+            datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::new(),
         }
+    }
+
+    /// Allocate an InterpreterFrame and its LocalsPlus data together on the
+    /// thread data stack in a single bump allocation.
+    ///
+    /// Layout: `[InterpreterFrame | localsplus usize×capacity]`
+    ///
+    /// Returns a mutable reference whose lifetime is bounded by the data
+    /// stack's LIFO discipline. The caller must call
+    /// `release_datastack_frame()` (unsafe) when done, then
+    /// `vm.datastack_pop(base)`. The reference must not be used after
+    /// `release_datastack_frame` returns.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_on_datastack<'a>(
+        code: &Py<PyCode>,
+        globals: &Py<PyDict>,
+        builtins: &PyObject,
+        func_obj: Option<&PyObject>,
+        locals: FrameLocals,
+        closure: &[PyCellRef],
+        vm: &VirtualMachine,
+    ) -> &'a mut Self {
+        let nlocalsplus = code.localspluskinds.len();
+        let stacksize = code.max_stackdepth as usize;
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+
+        let total_bytes = datastack_iframe_total_bytes(nlocalsplus, stacksize);
+        let base = vm.datastack_push(total_bytes);
+
+        // InterpreterFrame lives at the start of the allocation.
+        let iframe_ptr = base as *mut Self;
+        // LocalsPlus data follows the InterpreterFrame, aligned to usize.
+        let localsplus_data_ptr =
+            unsafe { base.add(datastack_iframe_localsplus_offset()) } as *mut usize;
+
+        // Zero-initialize localsplus data.
+        unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
+
+        let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::DataStack {
+                ptr: localsplus_data_ptr,
+                capacity,
+            },
+            nlocalsplus: nlocalsplus_u32,
+            stack_top: 0,
+        };
+
+        let mut iframe = Self::new(
+            code,
+            globals,
+            builtins,
+            func_obj,
+            localsplus,
+            locals,
+            closure,
+            FrameOwner::Thread,
+        );
+        iframe.datastack_base = base;
+
+        // Write the fully initialized InterpreterFrame into the datastack.
+        unsafe {
+            core::ptr::write(iframe_ptr, iframe);
+            &mut *iframe_ptr
+        }
+    }
+
+    /// Release this datastack-allocated frame's resources and return the
+    /// base pointer for `vm.datastack_pop()`.
+    ///
+    /// Drops all localsplus values, runs destructors for all frame fields
+    /// (trace, temporary_refs, retained_back, etc.), and detaches the
+    /// backing store.
+    /// Returns `None` if this frame is not datastack-allocated.
+    ///
+    /// After this call, the InterpreterFrame at `self` is logically dead —
+    /// the caller must not use `self` again except to pass the returned
+    /// base to `vm.datastack_pop()`.
+    pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<*mut u8> {
+        let base = self.datastack_base;
+        if base.is_null() {
+            return None;
+        }
+        self.datastack_base = core::ptr::null_mut();
+        // Drop all localsplus values while the backing store is still valid.
+        self.localsplus.drop_values();
+        // Detach from the data stack so further accesses see an empty frame.
+        self.localsplus.data = LocalsPlusData::Heap(Box::default());
+        self.localsplus.nlocalsplus = 0;
+        // Drop remaining frame fields (trace, temporary_refs, retained_back,
+        // etc.) by running destructors in place. The localsplus is already
+        // empty/heap-backed, so this only drops non-localsplus fields.
+        // SAFETY: `self` points to valid, initialized memory on the data
+        // stack. After this call the memory is logically dead.
+        unsafe { core::ptr::drop_in_place(self) };
+        Some(base)
     }
 
     /// Get the last instruction index.
@@ -1038,6 +1147,7 @@ impl InterpreterFrame {
             // If we copied Thread from the source iframe, frame.clear() would
             // reject the frame with "cannot clear an executing frame".
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
                 escaped: atomic::AtomicBool::new(true),
@@ -1117,6 +1227,7 @@ impl InterpreterFrame {
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
+            datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
                 escaped: atomic::AtomicBool::new(true),
@@ -1350,6 +1461,10 @@ unsafe impl Traverse for FrameObject {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
+    /// The bytecode loop wants to tail-call into a new frame that has
+    /// already been prepared on the datastack. The trampoline reads the
+    /// pending frame pointer from `vm.pending_tailcall_frame`.
+    TailCall,
 }
 
 /// A valid execution result, or an exception
@@ -2094,6 +2209,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            tailcall_enabled: false,
         };
         f(exec)
     }
@@ -2156,6 +2272,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            tailcall_enabled: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2177,6 +2294,92 @@ impl Py<FrameObject> {
         }
         frame
     }
+}
+
+/// Byte offset from the start of a datastack allocation to the LocalsPlus data,
+/// accounting for alignment padding after the InterpreterFrame header.
+#[inline]
+fn datastack_iframe_localsplus_offset() -> usize {
+    let iframe_size = core::mem::size_of::<InterpreterFrame>();
+    (iframe_size + core::mem::align_of::<usize>() - 1) & !(core::mem::align_of::<usize>() - 1)
+}
+
+/// Total bytes needed to co-allocate an InterpreterFrame and its LocalsPlus
+/// data on the thread data stack.
+pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize) -> usize {
+    let iframe_padded = datastack_iframe_localsplus_offset();
+    let capacity = nlocalsplus
+        .checked_add(stacksize)
+        .expect("LocalsPlus capacity overflow");
+    let data_bytes = capacity
+        .checked_mul(core::mem::size_of::<usize>())
+        .expect("LocalsPlus byte size overflow");
+    iframe_padded
+        .checked_add(data_bytes)
+        .expect("datastack iframe total size overflow")
+}
+
+/// Handle an exception propagating into a suspended caller frame in the
+/// trampoline. Adds a traceback entry at the caller's call site, then
+/// tries the caller's exception table via `unwind_blocks`.
+///
+/// Returns:
+/// - `Ok(None)` — handler found, the caller's `run_iframe` can be re-entered
+/// - `Ok(Some(result))` — handler returned a result (break from the run loop)
+/// - `Err(exc)` — no handler, exception propagates to the next caller
+pub(crate) fn trampoline_handle_exception(
+    iframe: &mut InterpreterFrame,
+    exception: &PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> FrameResult {
+    let code: &Py<PyCode> = unsafe { &*iframe.code };
+    let globals: &Py<PyDict> = unsafe { &*iframe.globals };
+    let builtins: &PyObject = unsafe { &*iframe.builtins };
+    let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
+        None
+    } else {
+        Some(unsafe { &*iframe.func_obj })
+    };
+    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+        builtins
+            .downcast_ref_if_exact::<PyDict>(vm)
+            .map(|d| unsafe { PyExact::ref_unchecked(d) })
+    } else {
+        None
+    };
+    let iframe_ptr = iframe as *const InterpreterFrame;
+    let mut exec = ExecutingFrame {
+        code,
+        localsplus: &mut iframe.localsplus,
+        locals: &iframe.locals,
+        globals,
+        builtins,
+        builtins_dict,
+        lasti: &iframe.lasti,
+        iframe: iframe_ptr,
+        func_obj,
+        prev_line: &mut iframe.prev_line,
+        monitoring_mask: 0,
+        tailcall_enabled: false,
+    };
+
+    // lasti points past the CallPyExactArgs instruction (+ cache entries).
+    // The exception occurred at the previous instruction (the call site).
+    let idx = (exec.lasti() as usize).saturating_sub(1);
+
+    // Add traceback entry at the call site.
+    if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
+        let next = exception.__traceback__();
+        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
+        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+    }
+
+    exec.unwind_blocks(
+        vm,
+        UnwindReason::Raising {
+            exception: exception.clone(),
+        },
+    )
 }
 
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
@@ -2217,6 +2420,7 @@ pub(crate) fn run_iframe(
         func_obj,
         prev_line: &mut iframe.prev_line,
         monitoring_mask: 0,
+        tailcall_enabled: true,
     };
     exec.run(vm)
 }
@@ -2246,6 +2450,9 @@ pub(crate) struct ExecutingFrame<'a> {
     prev_line: &'a core::cell::Cell<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
+    /// Whether TailCall is allowed. True when running under the trampoline
+    /// (`run_frame_fast`), false for FrameObject-based execution.
+    tailcall_enabled: bool,
 }
 
 #[inline]
@@ -5644,7 +5851,11 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // Stage args without a per-call Vec: [self?, arg1, ..., argN]
+                    if self.tailcall_enabled && !func.is_generator_like() {
+                        self.tailcall_prepare_frame(nargs, self_or_null_is_some, vm);
+                        return Ok(Some(ExecutionResult::TailCall));
+                    }
+                    // Recursive path: pop args and call.
                     let base = usize::from(self_or_null_is_some);
                     let mut arg_buf = CallArgBuffer::new(nargs as usize + base);
                     let args = arg_buf.slots();
@@ -5701,7 +5912,16 @@ impl ExecutingFrame<'_> {
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
-                        // Stage args without a per-call Vec:
+                        if self.tailcall_enabled && !func.is_generator_like() {
+                            self.tailcall_prepare_bound_method_frame(
+                                nargs,
+                                bound_function,
+                                bound_self,
+                                vm,
+                            );
+                            return Ok(Some(ExecutionResult::TailCall));
+                        }
+                        // Recursive path: stage args without a per-call Vec.
                         // [bound_self, arg1, ..., argN]
                         let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
                         let args = arg_buf.slots();
@@ -10398,6 +10618,129 @@ impl ExecutingFrame<'_> {
             .saturating_add(1)
             .saturating_add(extra_frames)
             >= vm.recursion_limit.get()
+    }
+
+    /// Prepare a callee frame on the datastack for a TailCall.
+    /// Pops args, self_or_null, and callable from the caller's stack,
+    /// builds the callee InterpreterFrame, and stores its pointer in
+    /// `vm.pending_tailcall_frame`.
+    ///
+    /// The callable must be at stack position `nargs + 1` (already validated).
+    fn tailcall_prepare_frame(
+        &mut self,
+        nargs: u32,
+        self_or_null_is_some: bool,
+        vm: &VirtualMachine,
+    ) {
+        let base = usize::from(self_or_null_is_some);
+        let effective_nargs = nargs as usize + base;
+
+        // Peek at the callable (still on the stack) to build the callee
+        // frame. The callable stays on the caller's stack until we're done
+        // constructing the callee.
+        let callable = self.nth_value(nargs + 1);
+        let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
+
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = InterpreterFrame::new_on_datastack(
+            code,
+            &func.globals,
+            &func.builtins,
+            Some(func.as_object()),
+            locals,
+            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Move args directly from the caller's stack into callee fastlocals,
+        // avoiding an intermediate buffer.
+        {
+            let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+            for (dst, arg) in fastlocals[base..effective_nargs]
+                .iter_mut()
+                .zip(self.pop_multiple(nargs as usize))
+            {
+                *dst = Some(arg);
+            }
+            let self_or_null = self.pop_value_opt();
+            debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+            if self_or_null.is_some() {
+                fastlocals[0] = self_or_null;
+            }
+        }
+
+        // Pop the callable and transfer ownership to the trampoline via
+        // the VM side channel, avoiding a per-frame mutex lock on
+        // temporary_refs.
+        let callable = self.pop_value();
+        unsafe { &mut *vm.pending_tailcall_refs.get() }.push(callable);
+
+        vm.set_pending_tailcall(callee_iframe);
+    }
+
+    /// Prepare a callee frame for a bound method TailCall.
+    /// Pops args, self_or_null (null), and callable from the caller's stack,
+    /// builds the callee InterpreterFrame with bound_self prepended, and
+    /// stores its pointer in `vm.pending_tailcall_frame`.
+    fn tailcall_prepare_bound_method_frame(
+        &mut self,
+        nargs: u32,
+        bound_function: PyObjectRef,
+        bound_self: PyObjectRef,
+        vm: &VirtualMachine,
+    ) {
+        let effective_nargs = nargs as usize + 1; // +1 for bound_self
+
+        let func = bound_function
+            .downcast_ref_if_exact::<PyFunction>(vm)
+            .unwrap();
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = InterpreterFrame::new_on_datastack(
+            code,
+            &func.globals,
+            &func.builtins,
+            Some(func.as_object()),
+            locals,
+            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Move args directly from the caller's stack into callee fastlocals.
+        let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+        for (dst, arg) in fastlocals[1..effective_nargs]
+            .iter_mut()
+            .zip(self.pop_multiple(nargs as usize))
+        {
+            *dst = Some(arg);
+        }
+        self.pop_value_opt(); // null (self_or_null)
+        let callable = self.pop_value(); // callable (bound method)
+        fastlocals[0] = Some(bound_self);
+
+        // Transfer ownership to the trampoline via the VM side channel.
+        let refs = unsafe { &mut *vm.pending_tailcall_refs.get() };
+        refs.push(bound_function);
+        refs.push(callable);
+
+        vm.set_pending_tailcall(callee_iframe);
     }
 
     #[inline]
