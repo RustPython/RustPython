@@ -23,6 +23,7 @@ impl ExecutionResult {
                 };
                 PyIterReturn::StopIteration(arg)
             }
+            Self::TailCall => unreachable!("TailCall in generator/coroutine"),
         }
     }
 }
@@ -104,6 +105,7 @@ impl Coro {
                 self.clear_frame_locals_on_close();
             }
             Ok(ExecutionResult::Yield(_)) => {}
+            Ok(ExecutionResult::TailCall) => unreachable!("TailCall in generator/coroutine"),
         }
     }
 

@@ -372,12 +372,15 @@ impl PyList {
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
-            let is_inside_range = index < self.borrow_vec().len();
-            Ok(is_inside_range.then(|| self.borrow_vec_mut().remove(index)))
+            let removed = {
+                let mut elements = self.borrow_vec_mut();
+                (index < elements.len()).then(|| elements.remove(index))
+            };
+            drop(removed);
+            Ok(())
         } else {
             Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
-        .map(drop)
     }
 
     fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
