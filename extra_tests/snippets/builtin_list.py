@@ -257,6 +257,11 @@ assert_raises(TypeError, sorted, [1, "a"])
 nan = float("nan")
 assert repr(sorted([nan, 1.0, 2.0])) == "[nan, 1.0, 2.0]"
 assert sorted([b"b", b"a", b"c"]) == [b"a", b"b", b"c"]
+assert sorted([(2, 9), (1, 5), (2, 1)]) == [(1, 5), (2, 1), (2, 9)]
+assert sorted([(1, "b"), (1, "a")]) == [(1, "a"), (1, "b")]
+assert sorted([(1,), (1, 2), ()]) == [(), (1,), (1, 2)]
+assert sorted([((2,), "x"), ((1,), "y")]) == [((1,), "y"), ((2,), "x")]
+assert sorted([(1, "a"), (2.5, "b"), (0, "c")]) == [(0, "c"), (1, "a"), (2.5, "b")]
 
 lst = [3, 1, 5, 2, 4]
 
