@@ -7,6 +7,7 @@ use crate::{
     convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
     function::FsPath,
 };
+use core::hint::cold_path;
 use std::path::{Path, PathBuf};
 
 /// path_converter
@@ -149,6 +150,7 @@ impl PathConverter {
             if self.non_strict || memchr::memchr(b'\0', b).is_none() {
                 Ok(())
             } else {
+                cold_path();
                 Err(vm.new_value_error(format!(
                     "{}embedded null character in {}",
                     self.error_prefix(),

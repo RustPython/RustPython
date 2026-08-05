@@ -24,9 +24,9 @@ mod mmap {
     use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::Signed;
-    #[cfg(windows)]
-    use std::io;
     use std::io::Write;
+    #[cfg(windows)]
+    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions, std::io};
 
     #[cfg(unix)]
     use rustpython_host_env::crt_fd;
@@ -460,8 +460,9 @@ mod mmap {
                     let s = obj
                         .try_to_value::<String>(vm)
                         .map_err(|_| vm.new_type_error("tagname must be a string or None"))?;
-                    if s.contains('\0') {
-                        return Err(vm.new_value_error("tagname must not contain null characters"));
+                    if memchr(b'\0', s.as_bytes()).is_some() {
+                        cold_path();
+                        return Err(exceptions::nul_char_error(vm));
                     }
                     Some(s)
                 }
