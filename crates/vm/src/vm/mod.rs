@@ -106,6 +106,15 @@ pub struct VirtualMachine {
     pub asyncio_running_task: RefCell<Option<PyObjectRef>>,
     pub(crate) callable_cache: CallableCache,
     pub(crate) audit_hooks: RefCell<Vec<PyObjectRef>>,
+    /// Side channel for TailCall: the bytecode loop stores the new frame
+    /// pointer here before returning `ExecutionResult::TailCall`.
+    /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
+    pending_tailcall_frame: Cell<Option<PendingFrame>>,
+    /// Owned references that keep callee raw pointers valid during TailCall.
+    /// Set by `tailcall_prepare_frame`, drained by the trampoline into
+    /// its local `owned_refs` Vec. Uses UnsafeCell because the VM is
+    /// per-thread and this field is only accessed on the owning thread.
+    pub(crate) pending_tailcall_refs: core::cell::UnsafeCell<Vec<PyObjectRef>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -777,6 +786,60 @@ pub fn process_hash_secret_seed() -> u32 {
     *SEED.get_or_init(|| u32::from_ne_bytes(rustpython_common::rand::os_random()))
 }
 
+/// A `NonNull<T>` wrapper that implements `Send + Sync`.
+///
+/// # Safety contract
+///
+/// This type bypasses Rust's `Send`/`Sync` bounds on `NonNull`. It is
+/// sound **only** when the pointer is exclusively accessed by one thread
+/// at a time. In this codebase, that invariant is upheld because
+/// `VirtualMachine` is per-thread.
+///
+/// **Do not use this type outside `pending_tailcall_frame`.** It exists
+/// solely to let a `Cell<Option<PendingFrame>>` field on the per-thread
+/// VM satisfy `Send + Sync`. If you need a `Send`-able pointer
+/// elsewhere, justify and document the safety invariant at that site.
+#[repr(transparent)]
+struct PendingFrame(core::ptr::NonNull<crate::frame::InterpreterFrame>);
+
+impl Copy for PendingFrame {}
+impl Clone for PendingFrame {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+// SAFETY: VirtualMachine is per-thread; the pointer is only ever
+// accessed on the thread that wrote it. The pointed-to InterpreterFrame
+// lives on that thread's datastack and is valid from set to take.
+unsafe impl Send for PendingFrame {}
+unsafe impl Sync for PendingFrame {}
+
+/// Saved state from `enter_iframe`, needed by `exit_iframe` to restore
+/// the previous frame chain and exception state.
+pub(crate) struct IframeEntryState {
+    pub(crate) iframe_ptr: *const crate::frame::InterpreterFrame,
+    pub(crate) old_chain: *const crate::frame::InterpreterFrame,
+    pub(crate) saved_exc: Option<PyBaseExceptionRef>,
+    pub(crate) save_exc: bool,
+}
+
+/// Caller frame suspended by a TailCall in the trampoline.
+struct SuspendedFrame {
+    iframe: *mut crate::frame::InterpreterFrame,
+    entry_state: IframeEntryState,
+    /// Owned references that keep callee's raw pointers (code, globals,
+    /// builtins borrowed from PyFunction) valid. Drained from
+    /// `vm.pending_tailcall_refs` when the callee's TailCall is consumed.
+    /// Dropped when this SuspendedFrame is popped (after callee returns/errors).
+    owned_refs: Vec<PyObjectRef>,
+    /// True for the initial frame passed into the trampoline by the caller.
+    /// The caller owns the datastack allocation for the entry frame, so the
+    /// trampoline must NOT release it — only callee-allocated frames are
+    /// released here.
+    is_entry: bool,
+}
+
 impl VirtualMachine {
     fn init_callable_cache(&mut self) -> PyResult<()> {
         self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
@@ -891,6 +954,8 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: CallableCache::default(),
             audit_hooks: RefCell::new(vec![]),
+            pending_tailcall_frame: Cell::new(None),
+            pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1331,13 +1396,294 @@ impl VirtualMachine {
         }
     }
 
+    /// Store a callee frame pointer for the trampoline to pick up after
+    /// `TailCall` is returned. The pointed-to InterpreterFrame must live
+    /// on the current thread's datastack and remain valid until the
+    /// trampoline calls `take_pending_tailcall`.
+    #[inline(always)]
+    pub(crate) fn set_pending_tailcall(&self, iframe: &mut crate::frame::InterpreterFrame) {
+        self.pending_tailcall_frame
+            .set(Some(PendingFrame(core::ptr::NonNull::from(iframe))));
+    }
+
+    /// Take the pending tailcall frame pointer, resetting the side channel.
+    #[inline(always)]
+    fn take_pending_tailcall(&self) -> *mut crate::frame::InterpreterFrame {
+        self.pending_tailcall_frame
+            .take()
+            .expect("TailCall without pending frame")
+            .0
+            .as_ptr()
+    }
+
     #[inline(always)]
     /// Run a stack-allocated InterpreterFrame without heap allocation.
-    /// This is the fast path for regular (non-generator) function calls.
+    /// Uses a trampoline loop to flatten Python-to-Python calls: when the
+    /// bytecode loop returns `TailCall`, the trampoline swaps to the new
+    /// frame without adding a Rust stack frame.
     pub fn run_frame_fast(&self, iframe: &mut crate::frame::InterpreterFrame) -> PyResult {
-        match self.with_iframe(iframe, |iframe| crate::frame::run_iframe(iframe, self))? {
-            ExecutionResult::Return(value) => Ok(value),
-            _ => panic!("Got unexpected result from function"),
+        use crate::frame::ExecutionResult;
+
+        let entry_state = self.enter_iframe(iframe)?;
+        let result = crate::frame::run_iframe(iframe, self);
+
+        match result {
+            Ok(ExecutionResult::Return(value)) => {
+                self.exit_iframe(entry_state);
+                Ok(value)
+            }
+            Ok(ExecutionResult::TailCall) => self.run_frame_fast_trampoline(iframe, entry_state),
+            Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
+            Err(exc) => {
+                self.exit_iframe(entry_state);
+                Err(exc)
+            }
+        }
+    }
+
+    /// Cold path: at least one TailCall was issued. Run the trampoline.
+    /// All frame dispatch happens in this single loop — no mutual recursion
+    /// between helper functions, so C stack depth is bounded.
+    #[cold]
+    #[inline(never)]
+    fn run_frame_fast_trampoline(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        entry_state: IframeEntryState,
+    ) -> PyResult {
+        use crate::frame::ExecutionResult;
+
+        let mut frame_stack: Vec<SuspendedFrame> = Vec::with_capacity(8);
+
+        // What we need to do next.
+        enum Action {
+            /// Enter and run a new callee frame (pointer from pending_tailcall_frame).
+            EnterCallee(*mut crate::frame::InterpreterFrame),
+            /// Push a return value onto the next caller and re-enter it.
+            ReturnValue(PyObjectRef),
+            /// Propagate an exception through suspended callers.
+            Unwind(PyBaseExceptionRef),
+        }
+
+        let initial_ptr = self.take_pending_tailcall();
+        // Drain the refs that keep the initial callee's raw pointers alive.
+        let initial_refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+            .drain(..)
+            .collect();
+        frame_stack.push(SuspendedFrame {
+            iframe: iframe as *mut crate::frame::InterpreterFrame,
+            entry_state,
+            owned_refs: initial_refs,
+            is_entry: true,
+        });
+        let mut action = Action::EnterCallee(initial_ptr);
+
+        loop {
+            match action {
+                Action::EnterCallee(callee_ptr) => {
+                    let callee = unsafe { &mut *callee_ptr };
+                    let callee_entry = match self.enter_iframe_unchecked(callee) {
+                        Ok(state) => state,
+                        Err(exc) => {
+                            unsafe {
+                                if let Some(base) = callee.release_datastack_frame() {
+                                    self.datastack_pop(base);
+                                }
+                            }
+                            action = Action::Unwind(exc);
+                            continue;
+                        }
+                    };
+
+                    let result = crate::frame::run_iframe(callee, self);
+                    match result {
+                        Ok(ExecutionResult::TailCall) => {
+                            let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+                                .drain(..)
+                                .collect();
+                            frame_stack.push(SuspendedFrame {
+                                iframe: callee_ptr,
+                                entry_state: callee_entry,
+                                owned_refs: refs,
+                                is_entry: false,
+                            });
+                            action = Action::EnterCallee(self.take_pending_tailcall());
+                        }
+                        Ok(ExecutionResult::Return(value)) => {
+                            self.exit_iframe(callee_entry);
+                            unsafe {
+                                if let Some(base) = callee.release_datastack_frame() {
+                                    self.datastack_pop(base);
+                                }
+                            }
+                            action = Action::ReturnValue(value);
+                        }
+                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
+                        Err(exc) => {
+                            self.exit_iframe(callee_entry);
+                            unsafe {
+                                if let Some(base) = callee.release_datastack_frame() {
+                                    self.datastack_pop(base);
+                                }
+                            }
+                            action = Action::Unwind(exc);
+                        }
+                    }
+                }
+
+                Action::ReturnValue(value) => {
+                    let Some(caller) = frame_stack.pop() else {
+                        // All frames consumed — this is the final return.
+                        return Ok(value);
+                    };
+                    let SuspendedFrame {
+                        iframe: caller_iframe_ptr,
+                        entry_state: caller_entry,
+                        owned_refs: _caller_refs,
+                        is_entry: caller_is_entry,
+                    } = caller;
+                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
+                    caller_iframe.localsplus.push_stack(value);
+
+                    let result = crate::frame::run_iframe(caller_iframe, self);
+                    match result {
+                        Ok(ExecutionResult::TailCall) => {
+                            let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+                                .drain(..)
+                                .collect();
+                            drop(_caller_refs);
+                            frame_stack.push(SuspendedFrame {
+                                iframe: caller_iframe_ptr,
+                                entry_state: caller_entry,
+                                owned_refs: refs,
+                                is_entry: caller_is_entry,
+                            });
+                            action = Action::EnterCallee(self.take_pending_tailcall());
+                        }
+                        Ok(ExecutionResult::Return(value)) => {
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
+                                }
+                            }
+                            action = Action::ReturnValue(value);
+                        }
+                        Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
+                        Err(exc) => {
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
+                                }
+                            }
+                            action = Action::Unwind(exc);
+                        }
+                    }
+                }
+
+                Action::Unwind(exc) => {
+                    let Some(caller) = frame_stack.pop() else {
+                        return Err(exc);
+                    };
+                    let SuspendedFrame {
+                        iframe: caller_iframe_ptr,
+                        entry_state: caller_entry,
+                        owned_refs: _caller_refs,
+                        is_entry: caller_is_entry,
+                    } = caller;
+                    let caller_iframe = unsafe { &mut *caller_iframe_ptr };
+
+                    let handled =
+                        crate::frame::trampoline_handle_exception(caller_iframe, &exc, self);
+
+                    match handled {
+                        Ok(None) => {
+                            // Handler found — resume the caller's dispatch loop.
+                            let result = crate::frame::run_iframe(caller_iframe, self);
+                            match result {
+                                Ok(ExecutionResult::TailCall) => {
+                                    let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
+                                        .drain(..)
+                                        .collect();
+                                    drop(_caller_refs);
+                                    frame_stack.push(SuspendedFrame {
+                                        iframe: caller_iframe_ptr,
+                                        entry_state: caller_entry,
+                                        owned_refs: refs,
+                                        is_entry: caller_is_entry,
+                                    });
+                                    action = Action::EnterCallee(self.take_pending_tailcall());
+                                }
+                                Ok(ExecutionResult::Return(value)) => {
+                                    drop(_caller_refs);
+                                    self.exit_iframe(caller_entry);
+                                    if !caller_is_entry {
+                                        unsafe {
+                                            if let Some(base) =
+                                                caller_iframe.release_datastack_frame()
+                                            {
+                                                self.datastack_pop(base);
+                                            }
+                                        }
+                                    }
+                                    action = Action::ReturnValue(value);
+                                }
+                                Ok(ExecutionResult::Yield(_)) => {
+                                    panic!("Yield in non-generator frame")
+                                }
+                                Err(new_exc) => {
+                                    drop(_caller_refs);
+                                    self.exit_iframe(caller_entry);
+                                    if !caller_is_entry {
+                                        unsafe {
+                                            if let Some(base) =
+                                                caller_iframe.release_datastack_frame()
+                                            {
+                                                self.datastack_pop(base);
+                                            }
+                                        }
+                                    }
+                                    action = Action::Unwind(new_exc);
+                                }
+                            }
+                        }
+                        Ok(Some(ExecutionResult::Return(value))) => {
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
+                                }
+                            }
+                            action = Action::ReturnValue(value);
+                        }
+                        Ok(Some(_)) => {
+                            panic!("Unexpected execution result in trampoline unwind")
+                        }
+                        Err(new_exc) => {
+                            drop(_caller_refs);
+                            self.exit_iframe(caller_entry);
+                            if !caller_is_entry {
+                                unsafe {
+                                    if let Some(base) = caller_iframe.release_datastack_frame() {
+                                        self.datastack_pop(base);
+                                    }
+                                }
+                            }
+                            action = Action::Unwind(new_exc);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1805,17 +2151,33 @@ impl VirtualMachine {
         result
     }
 
-    /// Execute a stack-allocated InterpreterFrame without heap-allocating
-    /// a FrameObject. This is the fast path for regular function calls.
-    /// The frame is pushed onto the chain as a `*const InterpreterFrame`.
-    #[inline(always)]
-    pub fn with_iframe<R>(
+    /// Push `iframe` onto the frame chain: recursion/C-stack check, TLS
+    /// link, exception save.  Returns the saved state needed by
+    /// `exit_iframe`.
+    #[inline]
+    pub(crate) fn enter_iframe(
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
-        f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
-    ) -> PyResult<R> {
+    ) -> PyResult<IframeEntryState> {
         self.check_recursive_call("")?;
 
+        let depth = self.recursion_depth.get();
+        if depth & 7 == 0 && self.check_c_stack_overflow() {
+            return Err(self.new_recursion_error(String::new()));
+        }
+
+        self.enter_iframe_unchecked(iframe)
+    }
+
+    /// Like `enter_iframe` but skips the Python recursion depth check
+    /// (already verified by `specialization_call_recursion_guard`).
+    /// Still checks C-stack overflow since each `run_iframe` call
+    /// consumes Rust stack space.
+    #[inline(always)]
+    pub(crate) fn enter_iframe_unchecked(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+    ) -> PyResult<IframeEntryState> {
         let depth = self.recursion_depth.get();
         if depth & 7 == 0 && self.check_c_stack_overflow() {
             return Err(self.new_recursion_error(String::new()));
@@ -1839,29 +2201,35 @@ impl VirtualMachine {
             None
         };
 
-        let result = f(iframe);
+        Ok(IframeEntryState {
+            iframe_ptr,
+            old_chain,
+            saved_exc,
+            save_exc,
+        })
+    }
+
+    /// Pop `iframe` from the frame chain: sync materialized state, restore
+    /// exception, TLS unlink, GC tracking.
+    pub(crate) fn exit_iframe(&self, state: IframeEntryState) {
+        let IframeEntryState {
+            iframe_ptr,
+            old_chain,
+            saved_exc,
+            save_exc,
+        } = state;
 
         // If this iframe was materialized, capture f_back so that code
-        // holding a reference to the FrameObject (e.g. sys._getframe()
-        // return value, traceback frames) can walk the chain after return.
-        //
-        // Read materialized through the raw TLS pointer instead of the
-        // &mut iframe reference.  During f(iframe), bytecode can
-        // materialize the frame via the TLS chain (a raw pointer alias);
-        // the &mut borrow lets LLVM assume no aliased writes, which can
-        // cause the store to be invisible through `iframe.materialized`.
+        // holding a reference to the FrameObject can walk the chain after
+        // return.  Read materialized through read_volatile to bypass
+        // LLVM's noalias on the &mut iframe borrow.
         {
-            // Use read_volatile through the original raw pointer to bypass
-            // LLVM's noalias assumptions on the &mut iframe borrow.
             let mat_ptr = unsafe {
                 let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
                 core::ptr::read_volatile(field_ptr as *const usize)
             };
             if mat_ptr != 0 {
                 let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
-                // Sync localsplus, prev_line, lasti from the live iframe to
-                // the materialized FrameObject so f_locals, f_lineno, f_lasti
-                // reflect the final state after execution.
                 unsafe {
                     let live_iframe = &*iframe_ptr;
                     fo.iframe_mut()
@@ -1879,15 +2247,9 @@ impl VirtualMachine {
                 }
                 if !old_chain.is_null() {
                     let prev_iframe = unsafe { &*old_chain };
-                    // Use materialize_chain to avoid cloning localsplus, which
-                    // would create extra refcounts on local variables. The
-                    // lightweight frame has empty localsplus; live values are
-                    // read through find_live_source_iframe when needed.
                     let back_fo = prev_iframe.materialize_chain(self);
                     *fo.iframe().cold().retained_back.lock() = Some(back_fo);
                 }
-                // Set owner to FrameObject since this frame is no longer
-                // executing on a thread.
                 fo.iframe().owner.store(
                     crate::frame::FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
@@ -1898,15 +2260,22 @@ impl VirtualMachine {
         if save_exc {
             self.restore_exception(saved_exc);
         }
-        // Restore the frame chain BEFORE clearing temporary_refs, so
-        // top_frame no longer points at the materialized FrameObject
-        // when its last strong reference is released.
+        // Clear previous before popping — it may point to a stack-allocated
+        // iframe that will be freed when the caller's with_iframe exits.
+        {
+            #[allow(unused_imports)]
+            use rustpython_common::atomic::Radium;
+            unsafe {
+                (*iframe_ptr)
+                    .previous
+                    .store(0, core::sync::atomic::Ordering::Relaxed);
+            }
+        }
         let _ = crate::vm::thread::set_current_frame(old_chain);
         self.recursion_depth.update(|d| d - 1);
 
-        // Now that the frame is off the chain, track the materialized
-        // FrameObject in the GC and release temporary_refs so cycle
-        // collection can detect and reclaim reference cycles.
+        // Track the materialized FrameObject in GC and release
+        // temporary_refs after the frame is off the chain.
         {
             let mat_ptr = unsafe {
                 let field_ptr = core::ptr::addr_of!((*iframe_ptr).materialized);
@@ -1922,7 +2291,19 @@ impl VirtualMachine {
                 }
             }
         }
+    }
 
+    pub fn with_iframe<R>(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
+    ) -> PyResult<R> {
+        let state = self.enter_iframe(iframe)?;
+        // Ensure exit_iframe runs even if f(iframe) panics.
+        let guard = scopeguard::guard(state, |s| self.exit_iframe(s));
+        let result = f(iframe);
+        let state = scopeguard::ScopeGuard::into_inner(guard);
+        self.exit_iframe(state);
         result
     }
 
