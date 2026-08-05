@@ -12,7 +12,7 @@ use crate::{
     builtins::{PyFloat, PyInt, PyStr},
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -21,7 +21,7 @@ use crate::{
     sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter,
+        PyComparisonOp, Representable, RichCompareFunc, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -639,6 +639,7 @@ enum PreSort {
     Str,
     Int,
     Float,
+    Object(RichCompareFunc),
     Generic,
 }
 
@@ -659,6 +660,8 @@ fn pre_sort_check<'a>(
         PreSort::Int
     } else if class.is(vm.ctx.types.float_type) {
         PreSort::Float
+    } else if let Some(f) = class.slots.richcompare.load() {
+        PreSort::Object(f)
     } else {
         PreSort::Generic
     }
@@ -674,6 +677,31 @@ fn int_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
 
 fn float_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
     a.downcast_ref::<PyFloat>().unwrap().to_f64() < b.downcast_ref::<PyFloat>().unwrap().to_f64()
+}
+
+fn object_lt(
+    cmp: RichCompareFunc,
+    a: &PyObjectRef,
+    b: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    #[allow(unpredictable_function_pointer_comparisons)]
+    if a.class().slots.richcompare.load() != Some(cmp) {
+        return a.rich_compare_bool(b, PyComparisonOp::Lt, vm);
+    }
+    match cmp(a, b, PyComparisonOp::Lt, vm)? {
+        Either::B(PyComparisonValue::Implemented(v)) => Ok(v),
+        Either::B(PyComparisonValue::NotImplemented) => {
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+        }
+        Either::A(obj) => {
+            if obj.is(&vm.ctx.not_implemented) {
+                a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+            } else {
+                obj.try_to_bool(vm)
+            }
+        }
+    }
 }
 
 fn timsort_specialized<T, K>(
@@ -710,6 +738,14 @@ where
                 (key(a), key(b))
             };
             Ok(float_lt(a, b))
+        }),
+        PreSort::Object(cmp) => timsort(items, &mut |a, b| {
+            let (a, b) = if reverse {
+                (key(b), key(a))
+            } else {
+                (key(a), key(b))
+            };
+            object_lt(cmp, a, b, vm)
         }),
         PreSort::Generic => timsort(items, &mut |a, b| {
             let (a, b) = if reverse {

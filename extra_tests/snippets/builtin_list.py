@@ -256,6 +256,7 @@ assert sorted([2.5, 1, 3.0, 2]) == [1, 2, 2.5, 3.0]
 assert_raises(TypeError, sorted, [1, "a"])
 nan = float("nan")
 assert repr(sorted([nan, 1.0, 2.0])) == "[nan, 1.0, 2.0]"
+assert sorted([b"b", b"a", b"c"]) == [b"a", b"b", b"c"]
 
 lst = [3, 1, 5, 2, 4]
 
