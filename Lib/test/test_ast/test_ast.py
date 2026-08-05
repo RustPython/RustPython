@@ -1888,7 +1888,6 @@ Module(
         self.assertRaises(ValueError, ast.literal_eval, '+True')
         self.assertRaises(ValueError, ast.literal_eval, '2+3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError not raised
     def test_literal_eval_str_int_limit(self):
         with support.adjust_int_max_str_digits(4000):
             ast.literal_eval('3'*4000)  # no error
@@ -2055,7 +2054,6 @@ class ASTValidatorTests(unittest.TestCase):
                           kw_defaults=[None, ast.Name("x", ast.Store())]),
                           "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_funcdef(self):
         a = ast.arguments([], [], None, [], [], None, [])
         f = ast.FunctionDef("x", a, [], [], None, None, [])
@@ -2267,7 +2265,6 @@ class ASTValidatorTests(unittest.TestCase):
         u = ast.UnaryOp(ast.Not(), ast.Name("x", ast.Store()))
         self.expr(u, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_lambda(self):
         a = ast.arguments([], [], None, [], [], None, [])
         self.expr(ast.Lambda(a, ast.Name("x", ast.Store())),

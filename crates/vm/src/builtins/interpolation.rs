@@ -68,8 +68,7 @@ impl Constructor for PyInterpolation {
                 .as_bytes()
                 .iter()
                 .exactly_one()
-                .ok()
-                .is_some_and(|s| matches!(*s, b's' | b'r' | b'a'));
+                .is_ok_and(|s| matches!(*s, b's' | b'r' | b'a'));
             if !has_flag {
                 return Err(vm.new_value_error(
                     "Interpolation() argument 'conversion' must be one of 's', 'a' or 'r'",

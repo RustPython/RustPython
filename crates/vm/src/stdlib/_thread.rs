@@ -25,7 +25,7 @@ pub(crate) mod _thread {
             PyUtf8StrRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
-        frame::FrameRef,
+        frame::FrameObjectRef,
         function::{ArgCallable, FuncArgs, KwArgs, OptionalArg, PySetterValue, TimeoutSeconds},
         object::{Traverse, TraverseFn},
         types::{Constructor, GetAttr, Representable, SetAttr},
@@ -997,8 +997,8 @@ pub(crate) mod _thread {
                 .slots
                 .init
                 .load()
-                .map(|init| init as usize);
-            (Some(cls_init as usize) != object_init).then_some(cls_init)
+                .map(|init| crate::types::fn_addr(init));
+            (Some(crate::types::fn_addr(cls_init)) != object_init).then_some(cls_init)
         }
 
         fn create_dict(&self, vm: &VirtualMachine) -> (PyDictRef, bool) {
@@ -1161,44 +1161,117 @@ pub(crate) mod _thread {
     pub(crate) use crate::vm::thread::CurrentFrameSlot;
 
     /// Get all threads' current (top) frames. Used by sys._current_frames().
-    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameRef)> {
+    pub(crate) fn get_all_current_frames(vm: &VirtualMachine) -> Vec<(u64, FrameObjectRef)> {
         // unix: read each thread's published top frame under stop-the-world so
         // the owning thread is parked at a safepoint and cannot pop or free the
         // frame while we take a strong reference. Request stop-the-world before
         // the registry lock to avoid deadlocking a thread parking mid-registry.
+        //
+        // For the current thread, use TLS CURRENT_FRAME directly because
+        // stack-allocated frames only update TLS (not top_frame).
         #[cfg(unix)]
         {
             use core::sync::atomic::Ordering;
+            let current_ident = get_ident();
             vm.state.stop_the_world.stop_the_world(vm);
             scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
                 .filter_map(|(id, slot)| {
-                    let top = slot.top_frame.load(Ordering::Relaxed);
-                    core::ptr::NonNull::new(top).map(|p| {
-                        // SAFETY: world stopped -> the owning thread is parked
-                        // and cannot pop or free this frame; it is alive on
-                        // that thread's call stack.
-                        let py =
-                            unsafe { &*Py::<crate::frame::Frame>::from_payload_ptr(p.as_ptr()) };
-                        (*id, py.to_owned())
-                    })
+                    if *id == current_ident {
+                        // Current thread: materialize from TLS chain
+                        crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
+                    } else {
+                        // Other threads: try top_frame first (FrameObject),
+                        // fall back to top_iframe (may be a stack-allocated frame).
+                        let top = slot.top_frame.load(Ordering::Relaxed);
+                        if let Some(p) = core::ptr::NonNull::new(top) {
+                            let py = unsafe {
+                                &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
+                            };
+                            Some((*id, py.to_owned()))
+                        } else {
+                            // Stack-allocated frame: materialize from top_iframe.
+                            // SAFETY: world stopped -> owning thread is parked.
+                            let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                                as *const crate::frame::InterpreterFrame;
+                            if !iframe_ptr.is_null() {
+                                // Materialize the entire frame chain and link
+                                // retained_back so f_back works after STW ends.
+                                let mut cur = iframe_ptr;
+                                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
+                                    None;
+                                while !cur.is_null() {
+                                    let iframe = unsafe { &*cur };
+                                    let fo = iframe.materialize(vm).to_owned();
+                                    if let Some(child) = child_fo.take() {
+                                        let mut guard = child.iframe().cold().retained_back.lock();
+                                        if guard.is_none() {
+                                            *guard = Some(fo.clone());
+                                        }
+                                    }
+                                    child_fo = Some(fo);
+                                    cur = iframe.previous();
+                                }
+                                let iframe = unsafe { &*iframe_ptr };
+                                let fo = iframe.materialize(vm);
+                                Some((*id, fo.to_owned()))
+                            } else {
+                                None
+                            }
+                        }
+                    }
                 })
                 .collect()
         }
         #[cfg(not(unix))]
         {
+            use core::sync::atomic::Ordering;
+            let current_ident = get_ident();
+            vm.state.stop_the_world.stop_the_world(vm);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
                 .filter_map(|(id, slot)| {
-                    let frames = slot.frames.lock();
-                    // SAFETY: the owning thread can't pop while we hold the Mutex,
-                    // so the FramePtr is valid for the duration of the lock.
-                    frames
-                        .last()
-                        .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                    if *id == current_ident {
+                        // Current thread: materialize from TLS chain
+                        crate::frame::current_thread_frame_materialize(vm).map(|frame| (*id, frame))
+                    } else {
+                        // Other threads: use top_iframe to include
+                        // stack-allocated frames. Materialize the entire
+                        // chain and link retained_back so f_back works.
+                        // SAFETY: world stopped -> owning thread is parked.
+                        let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
+                            as *const crate::frame::InterpreterFrame;
+                        if !iframe_ptr.is_null() {
+                            let mut cur = iframe_ptr;
+                            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
+                                None;
+                            while !cur.is_null() {
+                                let iframe = unsafe { &*cur };
+                                let fo = iframe.materialize(vm).to_owned();
+                                if let Some(child) = child_fo.take() {
+                                    let mut guard = child.iframe().cold().retained_back.lock();
+                                    if guard.is_none() {
+                                        *guard = Some(fo.clone());
+                                    }
+                                }
+                                child_fo = Some(fo);
+                                cur = iframe.previous();
+                            }
+                            let iframe = unsafe { &*iframe_ptr };
+                            let fo = iframe.materialize(vm);
+                            Some((*id, fo.to_owned()))
+                        } else {
+                            // Fall back to frames stack for FrameObject-only path
+                            let frames = slot.frames.lock();
+                            frames
+                                .last()
+                                .map(|fp| (*id, unsafe { fp.as_ref() }.to_owned()))
+                        }
+                    }
                 })
                 .collect()
         }

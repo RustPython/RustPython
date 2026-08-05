@@ -3356,7 +3356,14 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::USE);
             }
             SymbolUsage::Iter => {
-                flags.insert(SymbolFlags::ITER | SymbolFlags::DEF_COMP_ITER);
+                // CPython symtable_add_def_helper() records an inlined
+                // comprehension target as a local definition as well as a
+                // comprehension iterator.  Keep ITER as the internal
+                // re-assignment check marker; DEF_LOCAL is part of the public
+                // ste_symbols flags exposed by _symtable.
+                flags.insert(
+                    SymbolFlags::DEF_LOCAL | SymbolFlags::ITER | SymbolFlags::DEF_COMP_ITER,
+                );
             }
             SymbolUsage::TypeParam => {
                 flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_TYPE_PARAM);

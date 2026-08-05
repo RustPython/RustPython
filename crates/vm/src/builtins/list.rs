@@ -18,6 +18,7 @@ use crate::{
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
@@ -371,12 +372,15 @@ impl PyList {
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
-            let is_inside_range = index < self.borrow_vec().len();
-            Ok(is_inside_range.then(|| self.borrow_vec_mut().remove(index)))
+            let removed = {
+                let mut elements = self.borrow_vec_mut();
+                (index < elements.len()).then(|| elements.remove(index))
+            };
+            drop(removed);
+            Ok(())
         } else {
             Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
-        .map(drop)
     }
 
     fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -641,14 +645,15 @@ fn do_sort(
     reverse: bool,
 ) -> PyResult<()> {
     // CPython uses __lt__ for all comparisons in sort.
-    // try_sort_by_gt expects is_gt(a, b) = true when a should come AFTER b.
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| {
+    // `timsort` expects is_lt(a, b) = true when a must be placed BEFORE b.
+    // For reverse=True, swapping the operands yields a descending order that is
+    // still stable in the original relative order, matching CPython's
+    // reverse-sort-reverse approach.
+    let mut is_lt = |a: &PyObjectRef, b: &PyObjectRef| {
         if reverse {
-            // Descending: a comes after b when a < b
-            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
-        } else {
-            // Ascending: a comes after b when b < a
             b.rich_compare_bool(a, PyComparisonOp::Lt, vm)
+        } else {
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
         }
     };
 
@@ -657,10 +662,10 @@ fn do_sort(
             .iter()
             .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
             .collect::<Result<Vec<_>, _>>()?;
-        timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
+        timsort(&mut items, &mut |a, b| is_lt(&a.1, &b.1))?;
         *values = items.into_iter().map(|(val, _)| val).collect();
     } else {
-        timsort::try_sort_by_gt(values, cmp)?;
+        timsort(values, &mut is_lt)?;
     }
 
     Ok(())

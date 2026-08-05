@@ -557,6 +557,14 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
+impl TryFrom<[u8; 2]> for CodeUnit {
+    type Error = MarshalError;
+
+    fn try_from(value: [u8; 2]) -> Result<Self, Self::Error> {
+        Ok(Self::new(value[0].try_into()?, value[1].into()))
+    }
+}
+
 pub struct CodeUnits {
     units: UnsafeCell<Box<[CodeUnit]>>,
     adaptive_counters: Box<[AtomicU16]>,
@@ -610,12 +618,13 @@ impl TryFrom<&[u8]> for CodeUnits {
     type Error = MarshalError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if !value.len().is_multiple_of(2) {
+        let (chunks, []) = value.as_chunks::<2>() else {
             return Err(Self::Error::InvalidBytecode);
-        }
+        };
 
-        let units = value
-            .chunks_exact(2)
+        let units = chunks
+            .iter()
+            .copied()
             .map(CodeUnit::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(units.into())

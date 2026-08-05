@@ -48,7 +48,7 @@ mod _ssl {
             VirtualMachine,
             builtins::{
                 PyBaseExceptionRef, PyByteArray, PyBytesRef, PyListRef, PyStrRef, PyType,
-                PyTypeRef, PyUtf8StrRef,
+                PyTypeRef, PyUtf8StrRef, PyWeak,
             },
             convert::IntoPyException,
             function::{
@@ -67,9 +67,11 @@ mod _ssl {
     use alloc::sync::Arc;
     use core::{
         hash::{Hash, Hasher},
+        hint::cold_path,
         sync::atomic::{AtomicUsize, Ordering},
         time::Duration,
     };
+    use memchr::memchr;
     use rustpython_vm::exceptions;
     use std::{
         collections::{HashMap, hash_map::DefaultHasher},
@@ -392,7 +394,8 @@ mod _ssl {
         // IP addresses are allowed as server_hostname
         // SNI will not be sent for IP addresses
 
-        if hostname.contains('\0') {
+        if memchr(b'\0', hostname.as_bytes()).is_some() {
+            cold_path();
             return Err(exceptions::nul_char_type_error(vm));
         }
 
@@ -878,6 +881,24 @@ mod _ssl {
 
     #[pyclass(with(Constructor, Representable), flags(BASETYPE))]
     impl PySSLContext {
+        fn warn_deprecated_tls_version(version: i32, vm: &VirtualMachine) -> PyResult<()> {
+            let version_name = match version {
+                PROTO_SSLv3 => Some("SSLv3"),
+                PROTO_TLSv1 => Some("TLSv1"),
+                PROTO_TLSv1_1 => Some("TLSv1_1"),
+                _ => None,
+            };
+            if let Some(version_name) = version_name {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.TLSVersion.{version_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
+            }
+            Ok(())
+        }
+
         // Helper method to convert DER certificate bytes to Python dict
         fn cert_der_to_dict(&self, vm: &VirtualMachine, cert_der: &[u8]) -> PyResult<PyObjectRef> {
             cert::cert_der_to_dict_helper(vm, cert_der)
@@ -1021,6 +1042,8 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Convert special values to rustls actual supported versions
             // MINIMUM_SUPPORTED (-2) -> 0 (auto-negotiate)
             // MAXIMUM_SUPPORTED (-1) -> MAXIMUM_VERSION (TLSv1.3)
@@ -1052,6 +1075,8 @@ mod _ssl {
             {
                 return Err(vm.new_value_error(format!("invalid protocol version: {value}")));
             }
+            Self::warn_deprecated_tls_version(value, vm)?;
+
             // Convert special values to rustls actual supported versions
             // MAXIMUM_SUPPORTED (-1) -> 0 (auto-negotiate)
             // MINIMUM_SUPPORTED (-2) -> MINIMUM_VERSION (TLSv1.2)
@@ -1854,25 +1879,7 @@ mod _ssl {
             let hostname = match args.server_hostname.into_option().flatten() {
                 Some(hostname_str) => {
                     let hostname = hostname_str.as_str();
-
-                    // Validate hostname
-                    if hostname.is_empty() {
-                        return Err(vm.new_value_error("server_hostname cannot be an empty string"));
-                    }
-
-                    // Check if it starts with a dot
-                    if hostname.starts_with('.') {
-                        return Err(vm.new_value_error("server_hostname cannot start with a dot"));
-                    }
-
-                    // IP addresses are allowed
-                    // SNI will not be sent for IP addresses
-
-                    // Check for NULL bytes
-                    if hostname.contains('\0') {
-                        return Err(exceptions::nul_char_error(vm));
-                    }
-
+                    validate_hostname(hostname, vm)?;
                     Some(hostname.to_string())
                 }
                 None => None,
@@ -1913,7 +1920,12 @@ mod _ssl {
                 connection: PyMutex::new(None),
                 handshake_done: PyMutex::new(false),
                 session_was_reused: PyMutex::new(false),
-                owner: PyRwLock::new(args.owner.into_option()),
+                owner: PyRwLock::new(
+                    args.owner
+                        .into_option()
+                        .map(|o| o.downgrade(None, vm))
+                        .transpose()?,
+                ),
                 // Filter out Python None objects - only store actual SSLSession objects
                 session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
                 incoming_bio: None,
@@ -1990,7 +2002,12 @@ mod _ssl {
                 connection: PyMutex::new(None),
                 handshake_done: PyMutex::new(false),
                 session_was_reused: PyMutex::new(false),
-                owner: PyRwLock::new(args.owner.into_option()),
+                owner: PyRwLock::new(
+                    args.owner
+                        .into_option()
+                        .map(|o| o.downgrade(None, vm))
+                        .transpose()?,
+                ),
                 // Filter out Python None objects - only store actual SSLSession objects
                 session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
                 incoming_bio: Some(args.incoming),
@@ -2229,12 +2246,10 @@ mod _ssl {
         ) -> PyResult<Self> {
             let crypto_ext = CryptoExt::get_ext();
 
-            // Validate protocol
-            match protocol {
-                PROTOCOL_TLS | PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_2
-                | PROTOCOL_TLSv1_3 => {
-                    // Valid protocols
-                }
+            let deprecated_protocol = match protocol {
+                PROTOCOL_TLS => Some("PROTOCOL_TLS"),
+                PROTOCOL_TLSv1_2 => Some("PROTOCOL_TLSv1_2"),
+                PROTOCOL_TLS_CLIENT | PROTOCOL_TLS_SERVER | PROTOCOL_TLSv1_3 => None,
                 PROTOCOL_TLSv1 | PROTOCOL_TLSv1_1 => {
                     return Err(vm.new_value_error(
                         "TLS 1.0 and 1.1 are not supported by rustls for security reasons",
@@ -2243,6 +2258,14 @@ mod _ssl {
                 _ => {
                     return Err(vm.new_value_error(format!("invalid protocol version: {protocol}")));
                 }
+            };
+            if let Some(protocol_name) = deprecated_protocol {
+                _warnings::warn(
+                    vm.ctx.exceptions.deprecation_warning,
+                    format!("ssl.{protocol_name} is deprecated"),
+                    2,
+                    vm,
+                )?;
             }
 
             // Set default options
@@ -2364,7 +2387,7 @@ mod _ssl {
         #[pytraverse(skip)]
         session_was_reused: PyMutex<bool>,
         // Owner (SSLSocket instance that owns this _SSLSocket)
-        owner: PyRwLock<Option<PyObjectRef>>,
+        owner: PyRwLock<Option<PyRef<PyWeak>>>,
         // Session for resumption
         session: PyRwLock<Option<PyObjectRef>>,
         // MemoryBIO mode (optional)
@@ -2721,7 +2744,19 @@ mod _ssl {
                 return Ok(());
             };
 
-            let ssl_sock = self.owner.read().clone().unwrap_or_else(|| vm.ctx.none());
+            let ssl_sock = self
+                .owner
+                .read()
+                .as_ref()
+                .and_then(|owner| owner.upgrade())
+                .ok_or_else(|| {
+                    super::compat::SslError::create_ssl_error_with_reason(
+                        vm,
+                        Some("SSL"),
+                        "CALLBACK_FAILED",
+                        "[SSL: CALLBACK_FAILED] callback failed",
+                    )
+                })?;
             let server_name_py: PyObjectRef = match sni_name {
                 Some(name) => vm.ctx.new_str(name.to_string()).into(),
                 None => vm.ctx.none(),
@@ -3942,12 +3977,13 @@ mod _ssl {
 
         #[pygetset]
         fn owner(&self) -> Option<PyObjectRef> {
-            self.owner.read().clone()
+            self.owner.read().as_ref().and_then(|owner| owner.upgrade())
         }
 
         #[pygetset(setter)]
-        fn set_owner(&self, owner: PyObjectRef, _vm: &VirtualMachine) {
-            *self.owner.write() = Some(owner);
+        fn set_owner(&self, owner: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            *self.owner.write() = Some(owner.downgrade(None, vm)?);
+            Ok(())
         }
 
         #[pygetset]
@@ -5055,7 +5091,10 @@ mod _ssl {
         }
     }
 
-    #[pyclass(with(Comparable, Hashable, Representable))]
+    #[pyclass(
+        flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
+        with(Comparable, Hashable, Representable)
+    )]
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(

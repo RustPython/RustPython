@@ -150,6 +150,7 @@ mod _io {
     use alloc::borrow::Cow;
     use bstr::ByteSlice;
     use core::{
+        hint::cold_path,
         ops::Range,
         sync::atomic::{AtomicBool, Ordering},
     };
@@ -2854,7 +2855,8 @@ mod _io {
         }
 
         fn validate_errors(errors: &PyRef<PyUtf8Str>, vm: &VirtualMachine) -> PyResult<()> {
-            if errors.as_str().contains('\0') {
+            if errors.as_pystr().contains_nuls() {
+                cold_path();
                 return Err(nul_char_error(vm));
             }
             vm.state
@@ -2894,12 +2896,7 @@ mod _io {
                     }
                     Err(err) => return Err(err),
                 },
-                Some(enc) => {
-                    if enc.as_str().contains('\0') {
-                        return Err(nul_char_error(vm));
-                    }
-                    enc
-                }
+                Some(enc) => enc,
                 _ => match vm.import("locale", 0) {
                     Ok(locale) => locale
                         .get_attr("getencoding", vm)?
@@ -2914,7 +2911,8 @@ mod _io {
                     Err(err) => return Err(err),
                 },
             };
-            if encoding.as_str().contains('\0') {
+            if encoding.as_pystr().contains_nuls() {
+                cold_path();
                 return Err(nul_char_error(vm));
             }
             Ok(encoding)
@@ -3067,7 +3065,8 @@ mod _io {
             let mut write_through = None;
 
             if let Some(enc) = args.encoding {
-                if enc.as_str().contains('\0') && enc.as_str().starts_with("locale") {
+                if enc.as_pystr().contains_nuls() && enc.as_str().starts_with("locale") {
+                    cold_path();
                     return Err(vm.new_lookup_error(format!("unknown encoding: {enc}")));
                 }
                 let resolved = Self::resolve_encoding(Some(enc), vm)?;
@@ -5394,10 +5393,10 @@ mod _io {
             if vm.state.config.settings.warn_default_encoding {
                 let mut stacklevel = stacklevel.unwrap_or(2);
                 if stacklevel > 1
-                    && let Some(frame) = vm.current_frame()
+                    && let Some(code) = crate::frame::current_code()
                     && let Some(stdlib_dir) = vm.state.config.paths.stdlib_dir.as_deref()
                 {
-                    let path = frame.code.source_path().as_str();
+                    let path = code.source_path().as_str();
                     if !path.starts_with(stdlib_dir) {
                         stacklevel = stacklevel.saturating_sub(1);
                     }

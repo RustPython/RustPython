@@ -227,6 +227,7 @@ pub struct FormatSpec {
     conversion: Option<FormatConversion>,
     fill: Option<CodePoint>,
     align: Option<FormatAlign>,
+    align_specified: bool,
     sign: Option<FormatSign>,
     no_neg_0: bool,
     alternate_form: bool,
@@ -355,6 +356,7 @@ impl FormatSpec {
         // get_integer in CPython
         let (conversion, text) = FormatConversion::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
+        let align_specified = align.is_some();
         let (sign, text) = FormatSign::parse(text);
         let (no_neg_0, text) = parse_no_negative_zero(text);
         let (alternate_form, text) = parse_alternate_form(text);
@@ -384,6 +386,7 @@ impl FormatSpec {
             conversion,
             fill,
             align,
+            align_specified,
             sign,
             no_neg_0,
             alternate_form,
@@ -513,18 +516,6 @@ impl FormatSpec {
         Ok(())
     }
 
-    fn allows_negative_zero_coercion(&self) -> bool {
-        matches!(
-            self.format_type,
-            Some(
-                FormatType::GeneralFormat(_)
-                    | FormatType::FixedPoint(_)
-                    | FormatType::Exponent(_)
-                    | FormatType::Percentage
-            )
-        )
-    }
-
     fn formatted_magnitude_is_zero(magnitude: &str) -> bool {
         let mut saw_digit = false;
         for byte in magnitude.bytes() {
@@ -542,6 +533,14 @@ impl FormatSpec {
         num.is_sign_negative()
             && !num.is_nan()
             && !(self.no_neg_0 && Self::formatted_magnitude_is_zero(magnitude))
+    }
+
+    fn validate_complex_padding_and_alignment(&self) -> Result<(), FormatSpecError> {
+        match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
+            Some('0') => Err(FormatSpecError::ZeroPadding),
+            _ if self.align == Some(FormatAlign::AfterSign) => Err(FormatSpecError::AlignmentFlag),
+            _ => Ok(()),
+        }
     }
 
     const fn get_separator_interval(&self) -> usize {
@@ -699,15 +698,15 @@ impl FormatSpec {
         locale: &LocaleInfo,
     ) -> Result<String, FormatSpecError> {
         self.validate_format(FormatType::Decimal)?;
-        if self.no_neg_0 {
-            return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
-        }
         let magnitude = num.abs();
 
         let raw_magnitude_str = match self.format_type {
             Some(FormatType::Number(Case::Lower)) => self.format_int_radix(magnitude, 10),
             _ => return self.format_int(num),
         }?;
+        if self.no_neg_0 {
+            return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
+        }
 
         let magnitude_str = Self::apply_locale_formatting(raw_magnitude_str, locale);
 
@@ -826,13 +825,11 @@ impl FormatSpec {
         // No parentheses for 'n' format (CPython: add_parens=0)
         let magnitude_str = format!("{grouped_re}{grouped_im}");
 
+        self.validate_complex_padding_and_alignment()?;
         Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
     pub fn format_bool(&self, input: bool) -> Result<String, FormatSpecError> {
-        if self.no_neg_0 && !self.allows_negative_zero_coercion() {
-            return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
-        }
         let x = u8::from(input);
         match &self.format_type {
             Some(
@@ -848,11 +845,16 @@ impl FormatSpec {
                 self.format_float(x as f64)
             }
             None => {
+                if self.no_neg_0 {
+                    return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
+                }
                 let first_letter = (input.to_string().as_bytes()[0] as char).to_uppercase();
                 Ok(first_letter.collect::<String>() + &input.to_string()[1..])
             }
-            Some(FormatType::Unknown(c)) => Err(FormatSpecError::UnknownFormatCode(*c, "int")),
-            _ => Err(FormatSpecError::InvalidFormatSpecifier),
+            Some(format_type) => {
+                let ch = char::from(format_type);
+                Err(FormatSpecError::UnknownFormatCode(ch, "bool"))
+            }
         }
     }
 
@@ -993,9 +995,6 @@ impl FormatSpec {
 
     pub fn format_int(&self, num: &BigInt) -> Result<String, FormatSpecError> {
         self.validate_format(FormatType::Decimal)?;
-        if self.no_neg_0 && !self.allows_negative_zero_coercion() {
-            return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
-        }
         let magnitude = num.abs();
         let prefix = if self.alternate_form {
             match self.format_type {
@@ -1026,15 +1025,24 @@ impl FormatSpec {
                 Err(FormatSpecError::UnknownFormatCode('N', "int"))
             }
             Some(FormatType::String) => Err(FormatSpecError::UnknownFormatCode('s', "int")),
-            Some(FormatType::Character) => match (self.precision, self.sign, self.alternate_form) {
-                (Some(_), _, _) => Err(FormatSpecError::PrecisionNotAllowed),
-                (_, Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
-                (_, _, true) => Err(FormatSpecError::NotAllowed("Alternate form (#)")),
-                (_, _, _) => match num.to_u32() {
-                    Some(n) if n <= 0x10ffff => Ok(core::char::from_u32(n).unwrap().to_string()),
-                    Some(_) | None => Err(FormatSpecError::CodeNotInRange),
-                },
-            },
+            Some(FormatType::Character) => {
+                if self.precision.is_some() {
+                    Err(FormatSpecError::PrecisionNotAllowed)
+                } else if self.no_neg_0 {
+                    Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"))
+                } else {
+                    match (self.sign, self.alternate_form) {
+                        (Some(_), _) => Err(FormatSpecError::NotAllowed("Sign")),
+                        (_, true) => Err(FormatSpecError::NotAllowed("Alternate form (#)")),
+                        _ => match num.to_u32() {
+                            Some(n) if n <= 0x10ffff => {
+                                Ok(core::char::from_u32(n).unwrap().to_string())
+                            }
+                            Some(_) | None => Err(FormatSpecError::CodeNotInRange),
+                        },
+                    }
+                }
+            }
             Some(
                 FormatType::GeneralFormat(_)
                 | FormatType::FixedPoint(_)
@@ -1047,6 +1055,9 @@ impl FormatSpec {
             Some(FormatType::Unknown(c)) => Err(FormatSpecError::UnknownFormatCode(c, "int")),
             None => self.format_int_radix(magnitude, 10),
         }?;
+        if self.no_neg_0 {
+            return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"));
+        }
         let format_sign = self.sign.unwrap_or(FormatSign::Minus);
         let sign_str = match num.sign() {
             Sign::Minus => "-",
@@ -1070,18 +1081,29 @@ impl FormatSpec {
         T: CharLen + Deref<Target = str>,
     {
         self.validate_format(FormatType::String)?;
-        if self.no_neg_0 {
-            return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("string"));
-        }
         match self.format_type {
             Some(FormatType::String) | None => {
+                if self.no_neg_0 {
+                    return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("string"));
+                }
+                if self.align == Some(FormatAlign::AfterSign) && self.align_specified {
+                    return Err(FormatSpecError::StringAlignmentFlag);
+                }
                 // CPython parity: precision truncates BEFORE width pads.
                 // `'{:3.2s}'.format('abc')` -> 'ab ' (truncate to 'ab', pad to 3).
                 let truncated: String = match self.precision {
                     Some(p) => s.deref().chars().take(p).collect(),
                     None => s.deref().to_owned(),
                 };
-                Ok(self.format_sign_and_align(&truncated, "", FormatAlign::Left))
+                let spec = Self {
+                    align: if self.align == Some(FormatAlign::AfterSign) {
+                        Some(FormatAlign::Left)
+                    } else {
+                        self.align
+                    },
+                    ..*self
+                };
+                Ok(spec.format_sign_and_align(&truncated, "", FormatAlign::Left))
             }
             _ => {
                 let ch = char::from(self.format_type.as_ref().unwrap());
@@ -1098,17 +1120,8 @@ impl FormatSpec {
         } else {
             format!("{formatted_re}{formatted_im}")
         };
-        if let Some(FormatAlign::AfterSign) = &self.align {
-            return Err(FormatSpecError::AlignmentFlag);
-        }
-        match &self.fill.unwrap_or_else(|| ' '.into()).to_char() {
-            Some('0') => Err(FormatSpecError::ZeroPadding),
-            _ => Ok(self.format_sign_and_align(
-                &AsciiStr::new(&magnitude_str),
-                "",
-                FormatAlign::Right,
-            )),
-        }
+        self.validate_complex_padding_and_alignment()?;
+        Ok(self.format_sign_and_align(&AsciiStr::new(&magnitude_str), "", FormatAlign::Right))
     }
 
     fn format_complex_re_im(&self, num: &Complex64) -> Result<(String, String), FormatSpecError> {
@@ -1135,7 +1148,11 @@ impl FormatSpec {
         let sign_im = if self.is_negative_after_zero_coercion(num.im, &im) {
             "-"
         } else if formatted_re.is_empty() {
-            ""
+            match self.sign.unwrap_or(FormatSign::Minus) {
+                FormatSign::Plus => "+",
+                FormatSign::Minus => "",
+                FormatSign::MinusOrSpace => " ",
+            }
         } else {
             "+"
         };
@@ -1316,6 +1333,7 @@ pub enum FormatSpecError {
     ZeroPadding,
     AlignmentFlag,
     NegativeZeroCoercionNotAllowed(&'static str),
+    StringAlignmentFlag,
     NotImplemented(char, &'static str),
 }
 
@@ -1421,8 +1439,7 @@ impl FieldName {
             FieldType::Index(index)
         } else if first
             .as_str()
-            .ok()
-            .is_some_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
+            .is_ok_and(|s| s.bytes().all(|b| b.is_ascii_digit()))
         {
             // All-digit segment whose value overflows usize itself.
             return Err(FormatParseError::TooManyDecimalDigits);
@@ -1665,6 +1682,7 @@ mod tests {
             conversion: None,
             fill: None,
             align: None,
+            align_specified: false,
             sign: None,
             no_neg_0: false,
             alternate_form: false,
@@ -1683,6 +1701,7 @@ mod tests {
             conversion: None,
             fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
+            align_specified: true,
             sign: None,
             no_neg_0: false,
             alternate_form: false,
@@ -1701,6 +1720,7 @@ mod tests {
             conversion: None,
             fill: Some('<'.into()),
             align: Some(FormatAlign::Right),
+            align_specified: true,
             sign: Some(FormatSign::Minus),
             no_neg_0: false,
             alternate_form: true,
@@ -1750,10 +1770,100 @@ mod tests {
     }
 
     #[test]
+    fn format_string_zero_padding_uses_left_alignment() {
+        let spec = FormatSpec::parse("08s").unwrap();
+        let value = "result".to_owned();
+
+        assert_eq!(spec.format_string(&value), Ok("result00".to_owned()));
+    }
+
+    #[test]
+    fn format_string_explicit_after_sign_alignment_is_invalid() {
+        let spec = FormatSpec::parse("=8s").unwrap();
+        let value = "result".to_owned();
+
+        assert_eq!(
+            spec.format_string(&value),
+            Err(FormatSpecError::StringAlignmentFlag)
+        );
+    }
+
+    #[test]
+    fn format_complex_rejects_zero_padding_before_after_sign_alignment() {
+        for text in [
+            "08.1f", "=08.1f", "0=8.1f", "#08.1f", "0>8.1f", "0<8.1f", "0^8.1f",
+        ] {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(
+                spec.format_complex(&Complex64::new(1.0, 2.0)),
+                Err(FormatSpecError::ZeroPadding),
+                "{text}"
+            );
+        }
+
+        let spec = FormatSpec::parse("=8.1f").unwrap();
+        assert_eq!(
+            spec.format_complex(&Complex64::new(1.0, 2.0)),
+            Err(FormatSpecError::AlignmentFlag)
+        );
+    }
+
+    #[test]
+    fn format_int_zero_padding_stays_after_sign() {
+        let spec = FormatSpec::parse("08").unwrap();
+
+        assert_eq!(
+            spec.format_int(&BigInt::from(-42)),
+            Ok("-0000042".to_owned())
+        );
+    }
+
+    #[test]
+    fn format_complex_locale_rejects_zero_padding_before_after_sign_alignment() {
+        let locale = LocaleInfo {
+            thousands_sep: String::new(),
+            decimal_point: ".".to_owned(),
+            grouping: vec![],
+        };
+        for text in ["08n", "=08n", "0=8n", "#08n", "0>8n", "0<8n", "0^8n"] {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(
+                spec.format_complex_locale(&Complex64::new(1.0, 2.0), &locale),
+                Err(FormatSpecError::ZeroPadding),
+                "{text}"
+            );
+        }
+
+        let spec = FormatSpec::parse("=8n").unwrap();
+        assert_eq!(
+            spec.format_complex_locale(&Complex64::new(1.0, 2.0), &locale),
+            Err(FormatSpecError::AlignmentFlag)
+        );
+    }
+
+    #[test]
     fn format_negative_zero_coercion() {
         let int_spec = FormatSpec::parse("z8").unwrap();
         assert_eq!(
             int_spec.format_int(&BigInt::from(-42)),
+            Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"))
+        );
+        assert_eq!(
+            FormatSpec::parse("zs")
+                .unwrap()
+                .format_int(&BigInt::from(0)),
+            Err(FormatSpecError::UnknownFormatCode('s', "int"))
+        );
+        assert_eq!(
+            FormatSpec::parse("z.1d")
+                .unwrap()
+                .format_int(&BigInt::from(0)),
+            Err(FormatSpecError::PrecisionNotAllowed)
+        );
+        assert_eq!(
+            FormatSpec::parse("+zc")
+                .unwrap()
+                .format_int(&BigInt::from(0)),
             Err(FormatSpecError::NegativeZeroCoercionNotAllowed("integer"))
         );
 
@@ -1765,11 +1875,34 @@ mod tests {
             complex_spec.format_complex(&Complex64::new(-0.0, -0.0)),
             Ok("(0+0j)".to_owned())
         );
-
-        let string_spec = FormatSpec::parse("z").unwrap();
+        let pure_imaginary = Complex64::new(0.0, -0.0);
         assert_eq!(
-            string_spec.format_string(&"value".to_owned()),
+            FormatSpec::parse("+z")
+                .unwrap()
+                .format_complex(&pure_imaginary),
+            Ok("+0j".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse(" z")
+                .unwrap()
+                .format_complex(&pure_imaginary),
+            Ok(" 0j".to_owned())
+        );
+
+        let string_value = "value".to_owned();
+        assert_eq!(
+            FormatSpec::parse("z").unwrap().format_string(&string_value),
             Err(FormatSpecError::NegativeZeroCoercionNotAllowed("string"))
+        );
+        assert_eq!(
+            FormatSpec::parse("zd")
+                .unwrap()
+                .format_string(&string_value),
+            Err(FormatSpecError::UnknownFormatCode('d', "str"))
+        );
+        assert_eq!(
+            FormatSpec::parse("zs").unwrap().format_bool(false),
+            Err(FormatSpecError::UnknownFormatCode('s', "bool"))
         );
 
         let locale = LocaleInfo {
@@ -1785,6 +1918,12 @@ mod tests {
         assert_eq!(
             locale_spec.format_complex_locale(&Complex64::new(-0.0, -0.0), &locale),
             Ok("0+0j".to_owned())
+        );
+        assert_eq!(
+            FormatSpec::parse("z.1n")
+                .unwrap()
+                .format_int_locale(&BigInt::from(0), &locale),
+            Err(FormatSpecError::PrecisionNotAllowed)
         );
     }
 

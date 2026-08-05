@@ -228,12 +228,17 @@ impl VirtualMachine {
         let is_profile_event = event.is_profile_event();
         let is_opcode_event = event.is_opcode_event();
 
-        let Some(frame_ref) = self.current_frame() else {
+        let Some(frame_ref) = crate::frame::current_thread_frame_materialize(self) else {
             return Ok(None);
         };
 
         // Opcode events are only dispatched when f_trace_opcodes is set.
-        if is_opcode_event && !*frame_ref.trace_opcodes.lock() {
+        if is_opcode_event
+            && !frame_ref
+                .iframe()
+                .cold_opt()
+                .is_some_and(|c| *c.trace_opcodes.lock())
+        {
             return Ok(None);
         }
 
@@ -261,7 +266,7 @@ impl VirtualMachine {
                     // trace_trampoline behavior: clear per-frame f_trace
                     // and propagate the error.
                     if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.trace.lock() = self.ctx.none();
+                        *frame_ref.iframe().cold().trace.lock() = None;
                     }
                     return Err(e);
                 }

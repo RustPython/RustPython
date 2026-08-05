@@ -61,7 +61,7 @@ static KEYS_VERSION: AtomicU32 = AtomicU32::new(0);
 /// unrealistic in practice.
 fn next_keys_version() -> u32 {
     KEYS_VERSION
-        .fetch_update(Relaxed, Relaxed, |v| v.checked_add(1))
+        .try_update(Relaxed, Relaxed, |v| v.checked_add(1))
         .map_or(0, |v| v + 1)
 }
 
@@ -861,10 +861,13 @@ impl<T: Clone> Dict<T> {
         let inner = self.read();
         loop {
             let entry = inner.entries.get(position)?;
-            position = position.saturating_sub(1);
             if let Some(entry) = entry {
                 break Some((position, entry.key.clone(), entry.value.clone()));
             }
+            if position == 0 {
+                break None;
+            }
+            position -= 1;
         }
     }
 
