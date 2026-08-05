@@ -5,12 +5,21 @@ use crate::builtins::PyBaseExceptionRef;
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
 
-use crate::frame::Frame;
+#[cfg(all(unix, feature = "threading"))]
+use crate::frame::FrameObject;
+use crate::frame::InterpreterFrame;
+#[cfg(all(unix, feature = "threading"))]
+use crate::{AsObject, Py, PyObject, VirtualMachine};
+#[cfg(all(not(unix), feature = "threading"))]
 use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(not(feature = "threading"))]
+use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(all(unix, feature = "threading"))]
+use core::sync::atomic::AtomicPtr;
 use core::{
     cell::{Cell, RefCell},
     ptr::NonNull,
-    sync::atomic::{AtomicPtr, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 use itertools::Itertools;
 use std::thread_local;
@@ -38,9 +47,13 @@ pub struct ThreadSlot {
     /// thread at a safepoint and supplies the happens-before edge, so the
     /// pointer and the frames it reaches are quiescent and alive at read time.
     #[cfg(unix)]
-    pub top_frame: AtomicPtr<Frame>,
+    pub top_frame: AtomicPtr<FrameObject>,
+    /// Raw InterpreterFrame pointer, published alongside top_frame so
+    /// cross-thread readers (sys._current_frames) can materialize
+    /// stack-allocated frames that have no FrameObject.
+    pub top_iframe: AtomicUsize,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
-    /// Readers must hold the Mutex and convert to FrameRef inside the lock.
+    /// Readers must hold the Mutex and convert to FrameObjectRef inside the lock.
     /// Used on non-unix threading builds, which have no stop-the-world.
     #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
@@ -82,12 +95,11 @@ thread_local! {
     static CURRENT_THREAD_SLOT: RefCell<Option<CurrentFrameSlot>> = const { RefCell::new(None) };
 
     /// Current top frame for signal-safe traceback walking.
-    /// Mirrors `PyThreadState.current_frame`. Read by faulthandler's signal
-    /// handler to dump tracebacks without accessing RefCell or locks.
-    /// Uses AtomicPtr for async-signal-safety (signal handlers may read this
-    /// while the owning thread is writing).
-    pub(crate) static CURRENT_FRAME: AtomicPtr<Frame> =
-        const { AtomicPtr::new(core::ptr::null_mut()) };
+    /// Stores a `*const InterpreterFrame` as `usize`.
+    /// Read by faulthandler's signal handler to dump tracebacks without
+    /// accessing RefCell or locks. Uses AtomicUsize for async-signal-safety.
+    pub(crate) static CURRENT_FRAME: AtomicUsize =
+        const { AtomicUsize::new(0) };
 
     /// Cached pointer to this thread's `ThreadSlot::top_frame`, so the hot
     /// push/pop path can publish the top frame with a single relaxed store and
@@ -95,7 +107,7 @@ thread_local! {
     /// initialized; the `Arc<ThreadSlot>` in `CURRENT_THREAD_SLOT` keeps the
     /// pointee alive until `cleanup_current_thread_frames` clears this.
     #[cfg(all(unix, feature = "threading"))]
-    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<Frame>> =
+    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<FrameObject>> =
         const { Cell::new(core::ptr::null()) };
 
 }
@@ -339,6 +351,7 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
             let new_slot = Arc::new(ThreadSlot {
                 #[cfg(unix)]
                 top_frame: AtomicPtr::new(core::ptr::null_mut()),
+                top_iframe: AtomicUsize::new(0),
                 #[cfg(not(unix))]
                 frames: parking_lot::Mutex::new(Vec::new()),
                 exception: crate::PyAtomicRef::from(None::<PyBaseExceptionRef>),
@@ -670,28 +683,56 @@ pub fn pop_thread_frame() {
     });
 }
 
-/// Set the current thread's top frame pointer for signal-safe traceback walking.
-/// Returns the previous frame pointer so it can be restored on pop.
-pub fn set_current_frame(frame: *const Frame) -> *const Frame {
-    // Publish the top frame for cross-thread readers. The relaxed store is
-    // ordered by stop-the-world at read time (see `ThreadSlot::top_frame`).
-    #[cfg(all(unix, feature = "threading"))]
+/// Set the current thread's top InterpreterFrame pointer.
+/// Returns the previous pointer so it can be restored on pop.
+#[must_use]
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+    // Publish the top frame for cross-thread readers (faulthandler,
+    // sys._current_frames).
+    #[cfg(feature = "threading")]
     {
-        let slot_top = CURRENT_TOP_FRAME_SLOT.with(Cell::get);
-        if !slot_top.is_null() {
-            // SAFETY: points to this thread's `ThreadSlot::top_frame`, kept
-            // alive by the Arc in `CURRENT_THREAD_SLOT` for the thread's life.
-            unsafe { (*slot_top).store(frame as *mut Frame, Ordering::Relaxed) };
-        }
+        CURRENT_THREAD_SLOT.with(|slot| {
+            if let Some(s) = slot.borrow().as_ref() {
+                if !frame.is_null() {
+                    #[cfg(unix)]
+                    {
+                        let frame_obj = unsafe { (*frame).frame_obj() };
+                        let fo_ptr = match frame_obj {
+                            Some(py) => {
+                                py as *const Py<FrameObject> as *const FrameObject
+                                    as *mut FrameObject
+                            }
+                            None => core::ptr::null_mut(),
+                        };
+                        s.top_frame.store(fo_ptr, Ordering::Relaxed);
+                    }
+                    s.top_iframe.store(frame as usize, Ordering::Relaxed);
+                } else {
+                    #[cfg(unix)]
+                    s.top_frame.store(core::ptr::null_mut(), Ordering::Relaxed);
+                    s.top_iframe.store(0, Ordering::Relaxed);
+                }
+            }
+        });
     }
-    CURRENT_FRAME.with(|c| c.swap(frame as *mut Frame, Ordering::Relaxed) as *const Frame)
+    CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
 }
 
-/// Get the current thread's top frame pointer.
+/// Lightweight version that only writes to TLS CURRENT_FRAME, returning
+/// the previous value. Does not update cross-thread top_frame (that's
+/// updated by `set_current_frame` for FrameObject-based calls).
+#[inline(always)]
+#[must_use]
+pub fn set_current_frame_nosave(frame: *const InterpreterFrame) -> *const InterpreterFrame {
+    CURRENT_FRAME.with(|c| c.swap(frame as usize, Ordering::Relaxed)) as *const InterpreterFrame
+}
+
+/// Get the current thread's top InterpreterFrame pointer.
 /// Used by faulthandler's signal handler to start traceback walking.
 #[must_use]
-pub fn get_current_frame() -> *const Frame {
-    CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed) as *const Frame)
+pub fn get_current_frame() -> *const InterpreterFrame {
+    CURRENT_FRAME.with(|c| c.load(Ordering::Relaxed)) as *const InterpreterFrame
 }
 
 /// Update the current thread's exception slot atomically (no locks).
@@ -784,18 +825,36 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
         let mut cur = get_current_frame();
         while !cur.is_null() {
             // SAFETY: the forking thread's chain frames are alive.
-            let py = unsafe { crate::Py::<Frame>::from_payload_ptr(cur) };
-            current_frames.push(FramePtr(unsafe { NonNull::new_unchecked(py as *mut _) }));
-            cur = unsafe { (*cur).previous_frame() };
+            let iframe = unsafe { &*cur };
+            if let Some(fo) = iframe.frame_obj() {
+                current_frames.push(FramePtr(unsafe {
+                    NonNull::new_unchecked(fo as *const _ as *mut _)
+                }));
+            }
+            cur = iframe.previous.load(Ordering::Relaxed) as *const InterpreterFrame;
         }
         current_frames.reverse();
         current_frames
     };
+    #[cfg(unix)]
+    let top_fo_ptr = {
+        let top_iframe = get_current_frame();
+        if top_iframe.is_null() {
+            core::ptr::null_mut()
+        } else {
+            match unsafe { (*top_iframe).frame_obj() } {
+                Some(fo) => fo as *const Py<FrameObject> as *const FrameObject as *mut FrameObject,
+                None => core::ptr::null_mut(),
+            }
+        }
+    };
+    let top_iframe_ptr = get_current_frame() as usize;
     let new_slot = Arc::new(ThreadSlot {
-        // The surviving child thread keeps executing its current frame chain,
-        // whose top is the signal-safe `get_current_frame()`.
+        // The surviving child thread keeps executing its current frame chain.
+        // Only publish heavy frames for signal safety.
         #[cfg(unix)]
-        top_frame: AtomicPtr::new(get_current_frame() as *mut Frame),
+        top_frame: AtomicPtr::new(top_fo_ptr),
+        top_iframe: AtomicUsize::new(top_iframe_ptr),
         #[cfg(not(unix))]
         frames: parking_lot::Mutex::new(current_frames),
         exception: crate::PyAtomicRef::from(vm.topmost_exception()),
@@ -963,6 +1022,8 @@ impl VirtualMachine {
             asyncio_running_task: RefCell::new(None),
             callable_cache: self.callable_cache.clone(),
             audit_hooks: RefCell::new(vec![]),
+            pending_tailcall_frame: Cell::new(None),
+            pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
         };
         ThreadedVirtualMachine { vm }
     }

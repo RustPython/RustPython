@@ -260,7 +260,6 @@ class Test_Csv(unittest.TestCase):
         self._write_test(['C\\', '6', '7', 'X"'], 'C\\\\,6,7,"X"""',
                          escapechar='\\', quoting=csv.QUOTE_MINIMAL)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_write_lineterminator(self):
         for lineterminator in '\r\n', '\n', '\r', '!@#', '\0':
             with self.subTest(lineterminator=lineterminator):
@@ -370,7 +369,6 @@ class Test_Csv(unittest.TestCase):
         result = list(reader)
         self.assertEqual(result, expect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_oddinputs(self):
         self._read_test([], [])
         self._read_test([''], [[]])
@@ -381,7 +379,6 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(csv.Error, self._read_test,
                           [b'abc'], None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_eol(self):
         self._read_test(['a,b', 'c,d'], [['a','b'], ['c','d']])
         self._read_test(['a,b\n', 'c,d\n'], [['a','b'], ['c','d']])
@@ -396,7 +393,6 @@ class Test_Csv(unittest.TestCase):
         with self.assertRaisesRegex(csv.Error, errmsg):
             next(csv.reader(['a,b\r\nc,d']))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_eof(self):
         self._read_test(['a,"'], [['a', '']])
         self._read_test(['"a'], [['a']])
@@ -406,7 +402,6 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(csv.Error, self._read_test,
                           ['^'], [], escapechar='^', strict=True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_nul(self):
         self._read_test(['\0'], [['\0']])
         self._read_test(['a,\0b,c'], [['a', '\0b', 'c']])
@@ -419,7 +414,6 @@ class Test_Csv(unittest.TestCase):
         self._read_test(['a;b;c'], [['a', 'b', 'c']], delimiter=';')
         self._read_test(['a\0b\0c'], [['a', 'b', 'c']], delimiter='\0')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_escape(self):
         self._read_test(['a,\\b,c'], [['a', 'b', 'c']], escapechar='\\')
         self._read_test(['a,b\\,c'], [['a', 'b,c']], escapechar='\\')
@@ -432,7 +426,6 @@ class Test_Csv(unittest.TestCase):
         self._read_test(['a,\\b,c'], [['a', '\\b', 'c']], escapechar=None)
         self._read_test(['a,\\b,c'], [['a', '\\b', 'c']])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_quoting(self):
         self._read_test(['1,",3,",5'], [['1', ',3,', '5']])
         self._read_test(['1,",3,",5'], [['1', '"', '3', '"', '5']],
@@ -483,7 +476,6 @@ class Test_Csv(unittest.TestCase):
                         [[None, None, None]],
                         skipinitialspace=True, quoting=csv.QUOTE_STRINGS)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_space_delimiter(self):
         self._read_test(['a   b', '  a  ', '  ', ''],
                         [['a', '', '', 'b'], ['', '', 'a', '', ''], ['', '', ''], []],
@@ -523,7 +515,6 @@ class Test_Csv(unittest.TestCase):
         self.assertRaises(StopIteration, next, r)
         self.assertEqual(r.line_num, 3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_roundtrip_quoteed_newlines(self):
         rows = [
             ['\na', 'b\nc', 'd\n'],
@@ -542,7 +533,6 @@ class Test_Csv(unittest.TestCase):
                     for i, row in enumerate(csv.reader(fileobj)):
                         self.assertEqual(row, rows[i])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_roundtrip_escaped_unquoted_newlines(self):
         rows = [
             ['\na', 'b\nc', 'd\n'],
@@ -806,7 +796,6 @@ class TestDialectExcel(TestCsvBase):
                                  '"I see," said the blind man',
                                  'as he picked up his hammer and saw']])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_quoted_nl(self):
         input = '''\
 1,2,3,"""I see,""
@@ -1077,7 +1066,6 @@ class TestDictFields(unittest.TestCase):
                                          "s1": 'abc',
                                          "s2": 'def'})
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_read_with_blanks(self):
         reader = csv.DictReader(["1,2,abc,4,5,6\r\n","\r\n",
                                  "1,2,abc,4,5,6\r\n"],

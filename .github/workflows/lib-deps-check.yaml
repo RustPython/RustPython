@@ -6,6 +6,8 @@ on:
     paths:
       - "Lib/**"
 
+permissions: {}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
@@ -18,7 +20,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout base branch
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Use base branch for scripts (security: don't run PR code with elevated permissions)
           ref: ${{ github.event.pull_request.base.ref }}
@@ -26,13 +28,17 @@ jobs:
           persist-credentials: false
 
       - name: Fetch PR head
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          git fetch origin ${{ github.event.pull_request.head.sha }}
+          git fetch origin "$PR_HEAD_SHA"
 
       - name: Checkout PR Lib files
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Checkout only Lib/ directory from PR head for accurate comparison
-          git checkout ${{ github.event.pull_request.head.sha }} -- Lib/
+          git checkout "$PR_HEAD_SHA" -- Lib/
 
       - name: Get target CPython version
         id: cpython-version
@@ -41,7 +47,7 @@ jobs:
           echo "version=${version}" >> "$GITHUB_OUTPUT"
 
       - name: Checkout CPython
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: python/cpython
           path: cpython
@@ -51,14 +57,17 @@ jobs:
 
       - name: Get changed Lib files
         id: all-changed-files
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Get the list of changed files under Lib/
           {
             echo 'changed<<EOF'
 
-            git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'Lib/*.py' 'Lib/**/*.py'
+            git diff --name-only "$PR_BASE_SHA" "$PR_HEAD_SHA" -- 'Lib/*.py' 'Lib/**/*.py'
 
-            echo 'EOF' 
+            echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
       - name: Parse changed files
@@ -98,7 +107,7 @@ jobs:
 
       - name: Setup Python
         if: steps.changed-files.outputs.modules != ''
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
 
       - name: Run deps check
         if: steps.changed-files.outputs.modules != ''

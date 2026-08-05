@@ -25,9 +25,11 @@ fn dict_to_kwargs(vm: &VirtualMachine, dict: &Py<PyDict>) -> PyResult<KwArgs> {
     dict.items_vec()
         .into_iter()
         .map(|(key, value)| {
+            // `to_string()` would replace lone surrogates with U+FFFD; keep the
+            // raw WTF-8 so surrogate keys round-trip (issue #8228).
             let key = key
                 .downcast_ref::<PyStr>()
-                .map(|s| s.to_string())
+                .map(|s| s.as_wtf8().to_owned())
                 .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
             Ok((key, value))
         })

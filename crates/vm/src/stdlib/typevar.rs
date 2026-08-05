@@ -47,20 +47,17 @@ pub(crate) mod typevar {
     ///
     /// Note: CPython's implementation (in typevarobject.c) gets the module from the
     /// frame's function object using PyFunction_GetModule(f->f_funcobj). However,
-    /// RustPython's Frame doesn't store a reference to the function object, so we
+    /// RustPython's FrameObject doesn't store a reference to the function object, so we
     /// get the module name from the frame's globals dictionary instead.
     fn caller(vm: &VirtualMachine) -> Option<PyObjectRef> {
-        let frame = vm.current_frame()?;
-
-        // In RustPython, we get the module name from frame's globals
-        // This is similar to CPython's sys._getframe().f_globals.get('__name__')
-        frame.globals.get_item("__name__", vm).ok()
+        let globals = crate::frame::current_globals()?;
+        globals.get_item("__name__", vm).ok()
     }
 
     /// Set __module__ attribute for an object based on the caller's module.
     /// This follows CPython's behavior for TypeVar and similar objects.
     fn set_module_from_caller(obj: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-        // Note: CPython gets module from frame->f_funcobj, but RustPython's Frame
+        // Note: CPython gets module from frame->f_funcobj, but RustPython's FrameObject
         // architecture is different - we use globals['__name__'] instead
         let module_value: PyObjectRef = if let Some(module_name) = caller(vm) {
             // Special handling for certain module names

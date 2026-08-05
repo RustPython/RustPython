@@ -401,13 +401,13 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path().as_str();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
         filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
-        tb_entry.frame.code.obj_name
+        tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]
@@ -704,7 +704,7 @@ impl PyRef<PyBaseException> {
 
         let notes = notes
             .downcast::<PyList>()
-            .map_err(|_| vm.new_type_error("__notes__ must be a list"))?;
+            .map_err(|_| vm.new_type_error("Cannot add note: __notes__ is not a list"))?;
 
         notes.borrow_vec_mut().push(note.into());
         Ok(())

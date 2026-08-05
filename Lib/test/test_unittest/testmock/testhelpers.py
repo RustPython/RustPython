@@ -929,6 +929,7 @@ class SpecSignatureTest(unittest.TestCase):
         check_data_descriptor(foo.desc)
 
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; time.ctime has an auto-generated __text_signature__, so inspect.signature() succeeds instead of raising ValueError
     def test_autospec_on_bound_builtin_function(self):
         meth = types.MethodType(time.ctime, time.time())
         self.assertIsInstance(meth(), str)

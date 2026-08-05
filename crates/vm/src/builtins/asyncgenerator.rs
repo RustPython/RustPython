@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::lock::PyMutex,
     coroutine::{Coro, warn_deprecated_throw_signature},
-    frame::FrameRef,
+    frame::FrameObjectRef,
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -50,7 +50,7 @@ impl PyAsyncGen {
     }
 
     #[must_use]
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
             running_async: AtomicCell::new(false),
@@ -127,7 +127,7 @@ impl PyAsyncGen {
         self.inner.frame().yield_from_target()
     }
     #[pygetset]
-    fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
+    fn ag_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
         if self.inner.closed() {
             None
         } else {
@@ -140,7 +140,7 @@ impl PyAsyncGen {
     }
     #[pygetset]
     fn ag_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+        self.inner.frame().iframe().code().to_owned()
     }
 
     #[pyclassmethod]
@@ -688,7 +688,8 @@ impl PyAnextAwaitable {
                 && generator
                     .as_coro()
                     .frame()
-                    .code
+                    .iframe()
+                    .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             {

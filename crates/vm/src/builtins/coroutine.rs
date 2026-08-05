@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
     coroutine::{Coro, warn_deprecated_throw_signature},
-    frame::FrameRef,
+    frame::FrameObjectRef,
     function::OptionalArg,
     object::{Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -41,7 +41,7 @@ impl PyCoroutine {
     }
 
     #[must_use]
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             inner: Coro::new(frame, name, qualname),
         }
@@ -80,7 +80,7 @@ impl PyCoroutine {
         self.inner.frame().yield_from_target()
     }
     #[pygetset]
-    fn cr_frame(&self, _vm: &VirtualMachine) -> Option<FrameRef> {
+    fn cr_frame(&self, _vm: &VirtualMachine) -> Option<FrameObjectRef> {
         if self.inner.closed() {
             None
         } else {
@@ -93,7 +93,7 @@ impl PyCoroutine {
     }
     #[pygetset]
     fn cr_code(&self, _vm: &VirtualMachine) -> PyRef<PyCode> {
-        self.inner.frame().code.clone()
+        self.inner.frame().iframe().code().to_owned()
     }
     // TODO: coroutine origin tracking:
     // https://docs.python.org/3/library/sys.html#sys.set_coroutine_origin_tracking_depth

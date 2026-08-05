@@ -524,13 +524,12 @@ impl PyCPointer {
 
         // c_wchar → str
         if type_code.as_deref() == Some("u") {
-            if len == 0 {
-                return Ok(vm.ctx.new_str("").into());
+            if len > 0
+                && let Some(s) = unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) }
+            {
+                return Ok(vm.ctx.new_str(s).into());
             }
-            return Ok(vm
-                .ctx
-                .new_str(unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) })
-                .into());
+            return Ok(vm.ctx.new_str("").into());
         }
 
         // other types → list with Pointer_item for each

@@ -1142,6 +1142,11 @@ mod mmap {
         }
 
         #[pymethod]
+        fn seekable(&self) -> bool {
+            true
+        }
+
+        #[pymethod]
         fn write(&self, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
             let pos = self.pos();
             let size = self.__len__();
