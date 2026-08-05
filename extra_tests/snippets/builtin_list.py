@@ -242,6 +242,21 @@ assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[0]) == [(0, 3, 6), (1, 2, 
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[1]) == [(1, 2, 3), (0, 3, 6)]
 assert sorted([(1, 2), (), (5,)], key=len) == [(), (5,), (1, 2)]
 
+assert sorted(["b", "a", "é", "z\U0001F600", "z"]) == ["a", "b", "z", "z\U0001F600", "é"]
+assert sorted([10**30, -(10**30), 5, 0]) == [-(10**30), 0, 5, 10**30]
+assert sorted([True, False, True]) == [False, True, True]
+
+
+class IntSub(int):
+    pass
+
+
+assert sorted([IntSub(2), 3, IntSub(1)]) == [1, 2, 3]
+assert sorted([2.5, 1, 3.0, 2]) == [1, 2, 2.5, 3.0]
+assert_raises(TypeError, sorted, [1, "a"])
+nan = float("nan")
+assert repr(sorted([nan, 1.0, 2.0])) == "[nan, 1.0, 2.0]"
+
 lst = [3, 1, 5, 2, 4]
 
 
