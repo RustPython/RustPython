@@ -9,7 +9,7 @@ use crate::common::lock::{
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    builtins::PyStr,
+    builtins::{PyFloat, PyInt, PyStr},
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
@@ -638,34 +638,113 @@ impl Representable for PyList {
     }
 }
 
+enum PreSort {
+    Str,
+    Int,
+    Float,
+    Generic,
+}
+
+fn pre_sort_check<'a>(
+    mut keys: impl Iterator<Item = &'a PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PreSort {
+    let Some(first) = keys.next() else {
+        return PreSort::Generic;
+    };
+    let class = first.class();
+    if !keys.all(|o| o.class().is(class)) {
+        return PreSort::Generic;
+    }
+    if class.is(vm.ctx.types.str_type) {
+        PreSort::Str
+    } else if class.is(vm.ctx.types.int_type) {
+        PreSort::Int
+    } else if class.is(vm.ctx.types.float_type) {
+        PreSort::Float
+    } else {
+        PreSort::Generic
+    }
+}
+
+fn str_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+    a.downcast_ref::<PyStr>().unwrap().as_bytes() < b.downcast_ref::<PyStr>().unwrap().as_bytes()
+}
+
+fn int_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+    a.downcast_ref::<PyInt>().unwrap().as_bigint() < b.downcast_ref::<PyInt>().unwrap().as_bigint()
+}
+
+fn float_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+    a.downcast_ref::<PyFloat>().unwrap().to_f64() < b.downcast_ref::<PyFloat>().unwrap().to_f64()
+}
+
+fn timsort_specialized<T, K>(
+    vm: &VirtualMachine,
+    items: &mut [T],
+    reverse: bool,
+    key: K,
+) -> PyResult<()>
+where
+    T: Clone,
+    K: Fn(&T) -> &PyObjectRef,
+{
+    match pre_sort_check(items.iter().map(&key), vm) {
+        PreSort::Str => timsort(items, &mut |a, b| {
+            let (a, b) = if reverse {
+                (key(b), key(a))
+            } else {
+                (key(a), key(b))
+            };
+            Ok(str_lt(a, b))
+        }),
+        PreSort::Int => timsort(items, &mut |a, b| {
+            let (a, b) = if reverse {
+                (key(b), key(a))
+            } else {
+                (key(a), key(b))
+            };
+            Ok(int_lt(a, b))
+        }),
+        PreSort::Float => timsort(items, &mut |a, b| {
+            let (a, b) = if reverse {
+                (key(b), key(a))
+            } else {
+                (key(a), key(b))
+            };
+            Ok(float_lt(a, b))
+        }),
+        PreSort::Generic => timsort(items, &mut |a, b| {
+            let (a, b) = if reverse {
+                (key(b), key(a))
+            } else {
+                (key(a), key(b))
+            };
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+        }),
+    }
+}
+
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
     key_func: Option<PyObjectRef>,
     reverse: bool,
 ) -> PyResult<()> {
-    // CPython uses __lt__ for all comparisons in sort.
-    // `timsort` expects is_lt(a, b) = true when a must be placed BEFORE b.
-    // For reverse=True, swapping the operands yields a descending order that is
-    // still stable in the original relative order, matching CPython's
-    // reverse-sort-reverse approach.
-    let mut is_lt = |a: &PyObjectRef, b: &PyObjectRef| {
-        if reverse {
-            b.rich_compare_bool(a, PyComparisonOp::Lt, vm)
-        } else {
-            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
-        }
-    };
-
     if let Some(ref key_func) = key_func {
         let mut items = values
             .iter()
             .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
             .collect::<Result<Vec<_>, _>>()?;
-        timsort(&mut items, &mut |a, b| is_lt(&a.1, &b.1))?;
+        timsort_specialized(
+            vm,
+            &mut items,
+            reverse,
+            |item: &(PyObjectRef, PyObjectRef)| &item.1,
+        )?;
         *values = items.into_iter().map(|(val, _)| val).collect();
     } else {
-        timsort(values, &mut is_lt)?;
+        timsort_specialized(vm, values, reverse, |x: &PyObjectRef| x)?
     }
 
     Ok(())
