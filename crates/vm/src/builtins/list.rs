@@ -9,7 +9,7 @@ use crate::common::lock::{
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    builtins::{PyFloat, PyInt, PyStr},
+    builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::PyClassImpl,
     convert::ToPyObject,
     function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
@@ -638,12 +638,47 @@ impl Representable for PyList {
     }
 }
 
-enum PreSort {
+enum Elem {
     Str,
     Int,
     Float,
     Object(RichCompareFunc),
     Generic,
+}
+
+enum PreSort {
+    Str,
+    Int,
+    Float,
+    Object(RichCompareFunc),
+    Tuple(Elem),
+    Generic,
+}
+
+impl From<Elem> for PreSort {
+    fn from(e: Elem) -> Self {
+        match e {
+            Elem::Str => Self::Str,
+            Elem::Int => Self::Int,
+            Elem::Float => Self::Float,
+            Elem::Object(f) => Self::Object(f),
+            Elem::Generic => Self::Generic,
+        }
+    }
+}
+
+fn classify(class: &Py<PyType>, vm: &VirtualMachine) -> Elem {
+    if class.is(vm.ctx.types.str_type) {
+        Elem::Str
+    } else if class.is(vm.ctx.types.int_type) {
+        Elem::Int
+    } else if class.is(vm.ctx.types.float_type) {
+        Elem::Float
+    } else if let Some(f) = class.slots.richcompare.load() {
+        Elem::Object(f)
+    } else {
+        Elem::Generic
+    }
 }
 
 fn pre_sort_check<'a>(
@@ -653,21 +688,48 @@ fn pre_sort_check<'a>(
     let Some(first) = keys.next() else {
         return PreSort::Generic;
     };
-    let class = first.class();
-    if !keys.all(|o| o.class().is(class)) {
-        return PreSort::Generic;
-    }
-    if class.is(vm.ctx.types.str_type) {
-        PreSort::Str
-    } else if class.is(vm.ctx.types.int_type) {
-        PreSort::Int
-    } else if class.is(vm.ctx.types.float_type) {
-        PreSort::Float
-    } else if let Some(f) = class.slots.richcompare.load() {
-        PreSort::Object(f)
+
+    if let Some(t) = first
+        .downcast_ref_if_exact::<PyTuple>(vm)
+        .filter(|t| !t.as_slice().is_empty())
+    {
+        pre_sort_check_tuples(&t.as_slice()[0], keys, vm)
     } else {
-        PreSort::Generic
+        let class = first.class();
+        if keys.all(|k| k.class().is(class)) {
+            classify(class, vm).into()
+        } else {
+            PreSort::Generic
+        }
     }
+}
+
+fn pre_sort_check_tuples<'a>(
+    first_elem: &PyObjectRef,
+    keys: impl Iterator<Item = &'a PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PreSort {
+    let class = first_elem.class();
+    let mut all_same_type = true;
+
+    for k in keys {
+        let Some(t) = k
+            .downcast_ref_if_exact::<PyTuple>(vm)
+            .filter(|t| !t.as_slice().is_empty())
+        else {
+            return PreSort::Generic;
+        };
+        if all_same_type && !t.as_slice()[0].class().is(class) {
+            all_same_type = false;
+        }
+    }
+
+    let elem = if !all_same_type || class.is(vm.ctx.types.tuple_type) {
+        Elem::Generic
+    } else {
+        classify(class, vm)
+    };
+    PreSort::Tuple(elem)
 }
 
 fn str_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
@@ -704,6 +766,37 @@ fn object_lt(
                 obj.try_to_bool(vm)
             }
         }
+    }
+}
+
+fn elem_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    match elem {
+        Elem::Str => Ok(str_lt(a, b)),
+        Elem::Int => Ok(int_lt(a, b)),
+        Elem::Float => Ok(float_lt(a, b)),
+        Elem::Object(f) => object_lt(*f, a, b, vm),
+        Elem::Generic => a.rich_compare_bool(b, PyComparisonOp::Lt, vm),
+    }
+}
+
+fn tuple_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    let a = a.downcast_ref::<PyTuple>().unwrap().as_slice();
+    let b = b.downcast_ref::<PyTuple>().unwrap().as_slice();
+
+    let mut i = 0;
+    while i < a.len() && i < b.len() {
+        if !a[i].rich_compare_bool(&b[i], PyComparisonOp::Eq, vm)? {
+            break;
+        }
+        i += 1;
+    }
+    if i >= a.len() || i >= b.len() {
+        return Ok(a.len() < b.len());
+    }
+    if i == 0 {
+        elem_lt(elem, &a[0], &b[0], vm)
+    } else {
+        a[i].rich_compare_bool(&b[i], PyComparisonOp::Lt, vm)
     }
 }
 
@@ -749,6 +842,14 @@ where
                 (key(a), key(b))
             };
             object_lt(cmp, a, b, vm)
+        }),
+        PreSort::Tuple(elem) => timsort(items, &mut |a, b| {
+            let (a, b) = if reverse {
+                (key(b), key(a))
+            } else {
+                (key(a), key(b))
+            };
+            tuple_lt(&elem, a, b, vm)
         }),
         PreSort::Generic => timsort(items, &mut |a, b| {
             let (a, b) = if reverse {
