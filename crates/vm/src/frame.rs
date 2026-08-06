@@ -2839,6 +2839,7 @@ impl ExecutingFrame<'_> {
                 }
             }
 
+            #[cfg_attr(not(feature = "threading"), allow(clippy::collapsible_if))]
             if vm.eval_breaker_tripped() {
                 if let Err(exception) = vm.check_signals() {
                     #[cold]

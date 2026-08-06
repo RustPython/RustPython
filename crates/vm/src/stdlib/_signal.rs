@@ -429,6 +429,13 @@ pub(crate) mod _signal {
     }
 
     #[pyfunction]
+    #[cfg_attr(
+        not(any(unix, windows)),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "WASI does not support signals yet"
+        )
+    )]
     fn valid_signals(vm: &VirtualMachine) -> PyResult {
         use crate::PyPayload;
         use crate::builtins::PySet;
