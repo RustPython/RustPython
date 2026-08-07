@@ -135,7 +135,7 @@ mod _symtable {
     impl PySymbolTable {
         #[pygetset]
         fn name(&self) -> String {
-            self.symtable.name.clone()
+            self.symtable.name.to_string()
         }
 
         #[pygetset(name = "type")]
@@ -185,7 +185,7 @@ mod _symtable {
         fn symbols(&self, vm: &VirtualMachine) -> PyDictRef {
             let dict = vm.ctx.new_dict();
             for (name, symbol) in &self.symtable.symbols {
-                dict.set_item(name, vm.new_pyobj(symbol.flags.bits()), vm)
+                dict.set_item(name.as_str(), vm.new_pyobj(symbol.flags.bits()), vm)
                     .unwrap();
             }
             dict
