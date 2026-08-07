@@ -178,6 +178,7 @@ impl Constructor for PyFloat {
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
+            && args.args.len() == 1
             && args.kwargs.is_empty()
             && let Some(first) = args.args.first()
             && first.class().is(vm.ctx.types.float_type)
