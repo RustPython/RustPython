@@ -1,6 +1,7 @@
 // spell-checker: disable
 use super::{JitCompileError, JitSig, JitType};
 use alloc::collections::BTreeSet;
+use alloc::rc::Rc;
 use cranelift::codegen::ir::FuncRef;
 use cranelift::prelude::*;
 use num_traits::cast::ToPrimitive;
@@ -15,13 +16,23 @@ enum CustomTrapCode {
     /// Raised when shifting by a negative number
     NegativeShiftCount = 1,
 }
-
-#[derive(Clone)]
-struct Local {
-    var: Variable,
-    ty: JitType,
+#[derive(Debug)]
+enum ObjectKind {
+    Opaque,
+    Tuple(Rc<TupleShape>),
 }
-
+#[derive(Debug)]
+enum ElementShape {
+    Scalar(JitType),
+    Object(Rc<ObjectKind>),
+}
+#[derive(Debug)]
+struct TupleShape(Vec<ElementShape>);
+#[derive(Clone)]
+enum Local {
+    Scalar { var: Variable, ty: JitType },
+    Object { var: Variable, kind: Rc<ObjectKind> },
+}
 #[derive(Debug)]
 enum JitValue {
     Int(Value),
@@ -29,7 +40,7 @@ enum JitValue {
     Bool(Value),
     None,
     Null,
-    Tuple(Vec<Self>),
+    Object(Value, Rc<ObjectKind>),
     FuncRef(FuncRef),
 }
 
@@ -39,6 +50,7 @@ impl JitValue {
             JitType::Int => Self::Int(val),
             JitType::Float => Self::Float(val),
             JitType::Bool => Self::Bool(val),
+            JitType::Object => Self::Object(val, Rc::new(ObjectKind::Opaque)),
         }
     }
 
@@ -47,14 +59,16 @@ impl JitValue {
             Self::Int(_) => Some(JitType::Int),
             Self::Float(_) => Some(JitType::Float),
             Self::Bool(_) => Some(JitType::Bool),
-            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
+            Self::Object(_, _) => Some(JitType::Object),
+            Self::None | Self::Null | Self::FuncRef(_) => None,
         }
     }
 
     fn into_value(self) -> Option<Value> {
         match self {
             Self::Int(val) | Self::Float(val) | Self::Bool(val) => Some(val),
-            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
+            Self::Object(val, _) => Some(val),
+            Self::None | Self::Null | Self::FuncRef(_) => None,
         }
     }
 }
@@ -70,9 +84,9 @@ pub(crate) struct FunctionCompiler<'a, 'b> {
     stack: Vec<JitValue>,
     variables: Box<[Option<Local>]>,
     label_to_block: HashMap<Label, Block>,
+    alloc_func: FuncRef,
     pub(crate) sig: JitSig,
 }
-
 impl<'a, 'b> FunctionCompiler<'a, 'b> {
     pub(crate) fn new(
         builder: &'a mut FunctionBuilder<'b>,
@@ -80,6 +94,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         arg_types: &[JitType],
         ret_type: Option<JitType>,
         entry_block: Block,
+        alloc_func: FuncRef,
     ) -> Self {
         let mut compiler = Self {
             builder,
@@ -90,6 +105,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 args: arg_types.to_vec(),
                 ret: ret_type,
             },
+            alloc_func,
         };
         let params = compiler.builder.func.dfg.block_params(entry_block).to_vec();
         for (i, (ty, val)) in arg_types.iter().zip(params).enumerate() {
@@ -103,30 +119,52 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         compiler
     }
 
+    /// Pops Multiple Values off the Stack, returning a Vector
     fn pop_multiple(&mut self, count: usize) -> Vec<JitValue> {
         let stack_len = self.stack.len();
         self.stack.drain(stack_len - count..).collect()
     }
 
-    fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
-        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
-        let builder = &mut self.builder;
-        let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-        let local = self.variables[idx].get_or_insert_with(|| {
-            let var = builder.declare_var(ty.to_cranelift());
-            Local {
-                var,
-                ty: ty.clone(),
+    /// Generates a local out of a jitvalue
+    fn local_from_value(
+        builder: &mut FunctionBuilder<'_>,
+        value: JitValue,
+    ) -> Result<Local, JitCompileError> {
+        match value {
+            JitValue::Object(ptr, kind) => {
+                let var = builder.declare_var(types::I64);
+                builder.def_var(var, ptr);
+                Ok(Local::Object { var, kind })
             }
-        });
-        if ty != local.ty {
-            Err(JitCompileError::NotSupported)
-        } else {
-            self.builder.def_var(local.var, val.into_value().unwrap());
-            Ok(())
+
+            scalar => {
+                let ty = scalar.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+                let var = builder.declare_var(ty.to_cranelift());
+                builder.def_var(var, scalar.into_value().unwrap());
+
+                Ok(Local::Scalar { var, ty })
+            }
         }
     }
 
+    /// Generates a JitValue out of a Local
+    fn local_to_value(builder: &mut FunctionBuilder<'_>, local: &Local) -> JitValue {
+        match local {
+            Local::Scalar { var, ty } => {
+                JitValue::from_type_and_value(ty.clone(), builder.use_var(*var))
+            }
+            Local::Object { var, kind } => JitValue::Object(builder.use_var(*var), kind.clone()),
+        }
+    }
+    /// Stores a Local into the variables array
+    fn store_variable(&mut self, idx: oparg::VarNum, val: JitValue) -> Result<(), JitCompileError> {
+        #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
+        let builder = &mut self.builder;
+        let local = Self::local_from_value(builder, val)?;
+        self.variables[idx] = Some(local);
+        Ok(())
+    }
+    /// Generates a boolean value out of a JitValue, Nulls FuncRefs and Objects aren't supported
     fn boolean_val(&mut self, val: JitValue) -> Result<Value, JitCompileError> {
         match val {
             JitValue::Float(val) => {
@@ -141,7 +179,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             JitValue::Bool(val) => Ok(val),
             JitValue::None => Ok(self.builder.ins().iconst(types::I8, 0)),
-            JitValue::Null | JitValue::Tuple(_) | JitValue::FuncRef(_) => {
+            JitValue::Null | JitValue::FuncRef(_) | JitValue::Object(_, _) => {
                 Err(JitCompileError::NotSupported)
             }
         }
@@ -242,7 +280,6 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             if label_targets.contains(&label) {
                 // Create or get the block for this label:
                 let target_block = self.get_or_create_block(label);
-
                 // If the current block isn't terminated, add a fallthrough jump
                 if let Some(cur) = self.builder.current_block()
                     && cur != target_block
@@ -321,34 +358,84 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let val = self.builder.ins().iconst(types::I8, value as i64);
                 JitValue::Bool(val)
             }
+            BorrowedConstant::Tuple { elements } => {
+                let mut vals = Vec::new();
+                for el in elements {
+                    let b = el.borrow_constant();
+                    let res = self.prepare_const(b)?;
+                    vals.push(res);
+                }
+                let (ptr, shape) = self.build_heap_tuple(vals)?;
+                JitValue::Object(ptr, Rc::new(ObjectKind::Tuple(shape)))
+            }
             BorrowedConstant::None => JitValue::None,
             _ => return Err(JitCompileError::NotSupported),
         };
         Ok(value)
     }
-
-    fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
-        if let Some(ref ty) = self.sig.ret {
-            // If the signature has a return type, enforce it
-            if val.to_jit_type().as_ref() != Some(ty) {
-                return Err(JitCompileError::NotSupported);
+    fn build_heap_tuple(
+        &mut self,
+        elements: Vec<JitValue>,
+    ) -> Result<(Value, Rc<TupleShape>), JitCompileError> {
+        let len_val = self.builder.ins().iconst(types::I64, elements.len() as i64);
+        let call = self.builder.ins().call(self.alloc_func, &[len_val]);
+        let ptr = self.builder.inst_results(call)[0];
+        let mut shape = Vec::with_capacity(elements.len());
+        for (i, element) in elements.into_iter().enumerate() {
+            let offset = 8 + 8 * i as i32;
+            match element {
+                JitValue::Object(val, kind) => {
+                    self.builder.ins().store(MemFlags::new(), val, ptr, offset);
+                    shape.push(ElementShape::Object(kind));
+                }
+                scalar => {
+                    let ty = scalar.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+                    let val = scalar.into_value().unwrap();
+                    self.builder.ins().store(MemFlags::new(), val, ptr, offset);
+                    shape.push(ElementShape::Scalar(ty));
+                }
             }
-        } else {
-            // First time we see a return, define it in the signature
-            let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-            self.sig.ret = Some(ty.clone());
-            self.builder
-                .func
-                .signature
-                .returns
-                .push(AbiParam::new(ty.to_cranelift()));
         }
+        Ok((ptr, Rc::new(TupleShape(shape))))
+    }
+    fn unpack_heap_tuple(&mut self, ptr: Value, shape: &TupleShape) -> Vec<JitValue> {
+        let mut values = Vec::with_capacity(shape.0.len());
+        for (i, element_shape) in shape.0.iter().enumerate() {
+            let offset = 8 + 8 * i as i32;
+            let value = match element_shape {
+                ElementShape::Scalar(ty) => {
+                    let val =
+                        self.builder
+                            .ins()
+                            .load(ty.to_cranelift(), MemFlags::new(), ptr, offset);
+                    JitValue::from_type_and_value(ty.clone(), val)
+                }
+                ElementShape::Object(kind) => {
+                    let val = self
+                        .builder
+                        .ins()
+                        .load(types::I64, MemFlags::new(), ptr, offset);
+                    JitValue::Object(val, kind.clone())
+                }
+            };
+            values.push(value);
+        }
+        values
+    }
+    fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
+        let expected = self.sig.ret.as_ref().ok_or(JitCompileError::NotSupported)?;
 
-        // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
-        // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
-        let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
+        let value = match (expected, val) {
+            (JitType::Int, JitValue::Int(v)) => v,
+            (JitType::Float, JitValue::Float(v)) => v,
+            (JitType::Float, JitValue::Int(v)) => self.builder.ins().fcvt_from_sint(types::F64, v),
 
-        self.builder.ins().return_(&[cr_val]);
+            (JitType::Bool, JitValue::Bool(v)) => v,
+            (JitType::Object, JitValue::Object(v, _)) => v,
+            _ => return Err(JitCompileError::NotSupported),
+        };
+
+        self.builder.ins().return_(&[value]);
         Ok(())
     }
 
@@ -524,7 +611,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::BuildTuple { count } => {
                 let elements = self.pop_multiple(count.get(arg) as usize);
-                self.stack.push(JitValue::Tuple(elements));
+                let (ptr, shape) = self.build_heap_tuple(elements)?;
+                self.stack
+                    .push(JitValue::Object(ptr, Rc::new(ObjectKind::Tuple(shape))));
                 Ok(())
             }
             Instruction::Call { argc } => {
@@ -656,10 +745,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[var_num.get(arg)]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue::from_type_and_value(
-                    local.ty.clone(),
-                    self.builder.use_var(local.var),
-                ));
+                let value = Self::local_to_value(self.builder, local);
+                self.stack.push(value);
                 Ok(())
             }
             Instruction::LoadFastLoadFast { var_nums }
@@ -675,10 +762,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                     let local = self.variables[idx]
                         .as_ref()
                         .ok_or(JitCompileError::BadBytecode)?;
-                    self.stack.push(JitValue::from_type_and_value(
-                        local.ty.clone(),
-                        self.builder.use_var(local.var),
-                    ));
+                    let value = Self::local_to_value(self.builder, local);
+                    self.stack.push(value);
                 }
                 Ok(())
             }
@@ -751,10 +836,8 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 let local = self.variables[load_idx]
                     .as_ref()
                     .ok_or(JitCompileError::BadBytecode)?;
-                self.stack.push(JitValue::from_type_and_value(
-                    local.ty.clone(),
-                    self.builder.use_var(local.var),
-                ));
+                let value = Self::local_to_value(self.builder, local);
+                self.stack.push(value);
                 Ok(())
             }
             Instruction::StoreFastStoreFast { var_nums } => {
@@ -801,23 +884,23 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
             }
             Instruction::UnpackSequence { count } => {
                 let val = self.stack.pop().ok_or(JitCompileError::BadBytecode)?;
-
-                let elements = match val {
-                    JitValue::Tuple(elements) => elements,
+                let (ptr, shape) = match val {
+                    JitValue::Object(ptr, kind) => match &*kind {
+                        ObjectKind::Tuple(shape) => (ptr, shape.clone()),
+                        _ => return Err(JitCompileError::NotSupported),
+                    },
                     _ => return Err(JitCompileError::NotSupported),
                 };
-
-                if elements.len() != count.get(arg) as usize {
+                if shape.0.len() != count.get(arg) as usize {
                     return Err(JitCompileError::NotSupported);
                 }
-
+                let elements = self.unpack_heap_tuple(ptr, &shape);
                 self.stack.extend(elements.into_iter().rev());
                 Ok(())
             }
             _ => Err(JitCompileError::NotSupported),
         }
     }
-
     fn compile_sub(&mut self, a: Value, b: Value) -> Value {
         let (out, carry) = self.builder.ins().ssub_overflow(a, b);
         self.builder.ins().trapnz(carry, TrapCode::INTEGER_OVERFLOW);
@@ -1273,6 +1356,7 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         self.builder.ins().jump(merge_block, &[nan_f.into()]);
 
         self.builder.switch_to_block(continue_neg_inf);
+
         // b is an integer here; convert b_floor to an i64.
         let b_i64 = self.builder.ins().fcvt_to_sint(i64_ty, b_floor);
         let one_i = self.builder.ins().iconst(i64_ty, 1);
