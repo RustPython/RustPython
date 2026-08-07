@@ -202,9 +202,9 @@ bstr = { version = "1", default-features = false, features = ["unicode"] }
 bzip2 = "0.6"
 console_error_panic_hook = "0.1"
 constant_time_eq = "0.5"
-cranelift = "0.132.0"
-cranelift-jit = "0.132.0"
-cranelift-module = "0.132.0"
+cranelift = "0.134.2"
+cranelift-jit = "0.133.2"
+cranelift-module = "0.134.2"
 crc32fast = "1.3.2"
 criterion = { version = "0.8", features = ["html_reports"] }
 crossbeam-utils = "0.8.21"
