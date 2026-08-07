@@ -1286,7 +1286,6 @@ class TestDialectValidity(unittest.TestCase):
         self.assertEqual(str(cm.exception),
                          '"lineterminator" must be a string, not NoneType')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_invalid_chars(self):
         def create_invalid(field_name, value, **kwargs):
             class mydialect(csv.Dialect):
