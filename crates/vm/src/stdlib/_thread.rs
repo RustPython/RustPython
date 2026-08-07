@@ -21,8 +21,8 @@ pub(crate) mod _thread {
     use crate::{
         AsObject, Py, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PySystemExit, PyTupleRef, PyType,
-            PyTypeRef, PyUtf8StrRef,
+            PyBaseExceptionRef, PyDictRef, PyIntRef, PyStr, PyTupleRef, PyType, PyTypeRef,
+            PyUtf8StrRef,
         },
         common::{lock::PyMutex, wtf8::Wtf8Buf},
         frame::FrameRef,
@@ -635,13 +635,7 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     fn exit(vm: &VirtualMachine) -> PyResult {
-        Err(vm
-            .new_payload_exception::<PySystemExit>(
-                vm.ctx.exceptions.system_exit.to_owned(),
-                vec![].into(),
-            )
-            .expect("SystemExit is a BaseException Subclass.")
-            .upcast())
+        Err(vm.new_system_exit(vec![].into()))
     }
 
     thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) });

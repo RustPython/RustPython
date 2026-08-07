@@ -19,8 +19,6 @@ mod vm_new;
 mod vm_object;
 mod vm_ops;
 
-#[cfg(feature = "threading")]
-use crate::builtins::PySystemExit;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
@@ -2169,13 +2167,7 @@ impl VirtualMachine {
         if self.state.finalizing.load(Ordering::Acquire) && !self.is_main_thread() {
             // once finalization starts,
             // non-main Python threads should stop running bytecode.
-            return Err(self
-                .new_payload_exception::<PySystemExit>(
-                    self.ctx.exceptions.system_exit.to_owned(),
-                    vec![].into(),
-                )
-                .expect("SystemExit is a BaseException Subclass.")
-                .upcast());
+            return Err(self.new_system_exit(vec![].into()));
         }
 
         // Suspend this thread if stop-the-world is in progress

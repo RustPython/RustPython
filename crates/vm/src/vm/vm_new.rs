@@ -13,7 +13,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
         PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError,
-        PyStopIteration, PyStrRef, PyType, PyTypeRef,
+        PyStopIteration, PyStrRef, PySystemExit, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
@@ -914,13 +914,19 @@ impl VirtualMachine {
         exc
     }
 
+    pub fn new_system_exit(&self, args: FuncArgs) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PySystemExit>(self.ctx.exceptions.system_exit.to_owned(), args)
+            .expect("SystemExit construction from internal args is infallible")
+            .upcast()
+    }
+
     pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
         let args: FuncArgs = value.map(|v| vec![v]).unwrap_or_default().into();
         self.new_payload_exception::<PyStopIteration>(
             self.ctx.exceptions.stop_iteration.to_owned(),
             args,
         )
-        .expect("StopIteration is a BaseException Subclass.")
+        .expect("StopIteration construction from internal args is infallible")
         // `PyStopIteration` -> `PyBaseException` needs an owned upcast here.
         // `.upcast()` does a runtime downcast; the zero-cost `upcast_ref`/`to_base`
         // only return `&Py<_>`, which doesn't fit the owned `PyBaseExceptionRef`

@@ -36,8 +36,8 @@ pub mod sys {
     use crate::{
         AsObject, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
         builtins::{
-            PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PySystemExit,
-            PyTuple, PyTupleRef, PyTypeRef, PyUtf8StrRef,
+            PyBaseExceptionRef, PyDictRef, PyFrozenSet, PyNamespace, PyStr, PyStrRef, PyTuple,
+            PyTupleRef, PyTypeRef, PyUtf8StrRef,
         },
         common::{
             ascii,
@@ -776,13 +776,7 @@ pub mod sys {
         } else {
             vec![status]
         };
-        let exc = vm
-            .new_payload_exception::<PySystemExit>(
-                vm.ctx.exceptions.system_exit.to_owned(),
-                args.into(),
-            )
-            .expect("SystemExit is a BaseException Subclass.");
-        Err(exc.upcast())
+        Err(vm.new_system_exit(args.into()))
     }
 
     #[pyfunction]
