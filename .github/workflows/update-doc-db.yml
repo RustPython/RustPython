@@ -8,7 +8,7 @@ on:
       python-version:
         description: Target python version to generate doc db for
         type: string
-        default: "3.14.3"
+        default: "3.14.7"
       base-ref:
         description: Base branch to create the update branch from
         type: string
