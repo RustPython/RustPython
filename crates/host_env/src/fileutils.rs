@@ -27,7 +27,9 @@ pub mod windows {
     use alloc::ffi::CString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
     use std::ffi::{OsStr, OsString};
+    use std::io;
     use std::os::windows::io::AsRawHandle;
+    use std::path::Path;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
         ERROR_INVALID_HANDLE, ERROR_NOT_SUPPORTED, FILETIME, FreeLibrary, SetLastError,
@@ -74,13 +76,8 @@ pub mod windows {
         // update_st_mode_from_path in cpython
         pub fn update_st_mode_from_path(&mut self, path: &OsStr, attr: u32) {
             if attr & FILE_ATTRIBUTE_DIRECTORY == 0 {
-                let file_extension = path
-                    .to_wide()
-                    .split(|&c| c == '.' as u16)
-                    .next_back()
-                    .and_then(|s| String::from_utf16(s).ok());
-
-                if let Some(file_extension) = file_extension
+                if let Some(file_extension) =
+                    Path::new(path).extension().and_then(|ext| ext.to_str())
                     && (file_extension.eq_ignore_ascii_case("exe")
                         || file_extension.eq_ignore_ascii_case("bat")
                         || file_extension.eq_ignore_ascii_case("cmd")

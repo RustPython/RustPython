@@ -1234,6 +1234,12 @@ impl ToPyException for NulError {
     }
 }
 
+impl ToPyException for rustpython_common::wtf8::InteriorNulError {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        cstring_error(vm)
+    }
+}
+
 #[cfg(windows)]
 impl<C> ToPyException for widestring::error::ContainsNul<C> {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {

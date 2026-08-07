@@ -566,14 +566,16 @@ mod winreg {
             ));
         }
 
-        host_winreg::query_default_value(hkey, sub_key.as_deref().map(std::ffi::OsStr::new))
+        let sub_key = sub_key.map(WideCString::from_str).transpose()?;
+        host_winreg::query_default_value(hkey, sub_key.as_deref())
             .map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
     fn QueryValueEx(key: HKEYArg, name: String, vm: &VirtualMachine) -> PyResult<PyRef<PyTuple>> {
         let hkey = key.0;
-        let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, std::ffi::OsStr::new(&name))
+        let wide_name = WideCString::from_str(name)?;
+        let (ret_buf, typ) = host_winreg::query_value_bytes(hkey, &wide_name)
             .map_err(|err| os_error_from_windows_code(vm, err as i32))?;
         let obj = reg_to_py(vm, &ret_buf, typ)?;
         // Return tuple (value, type)
@@ -582,7 +584,7 @@ mod winreg {
 
     #[pyfunction]
     fn SaveKey(key: PyRef<PyHkey>, file_name: String, vm: &VirtualMachine) -> PyResult<()> {
-        let file_name = file_name.to_wide_cstring();
+        let file_name = WideCString::from_str(file_name)?;
         let res = unsafe { host_winreg::save_key(key.hkey.load(), &file_name) };
         if res == 0 {
             Ok(())
@@ -611,6 +613,8 @@ mod winreg {
             ));
         }
 
+        let wide_sub_key = WideCString::from_str(sub_key)?;
+        let wide_value = WideCString::from_str(value)?;
         let res = host_winreg::set_default_value(
             hkey,
             std::ffi::OsStr::new(&sub_key),
@@ -841,7 +845,7 @@ mod winreg {
 
     #[pyfunction]
     fn ExpandEnvironmentStrings(i: String, vm: &VirtualMachine) -> PyResult<String> {
-        host_winreg::expand_environment_strings(std::ffi::OsStr::new(&i))
-            .map_err(|err| err.to_pyexception(vm))
+        let i = WideCString::from_str(&i)?;
+        host_winreg::expand_environment_strings(&i).map_err(|err| err.to_pyexception(vm))
     }
 }

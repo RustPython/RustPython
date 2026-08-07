@@ -912,6 +912,19 @@ impl Wtf8 {
         }
     }
 
+    /// Converts the WTF-8 string to potentially ill-formed UTF-16 while checking for interior
+    /// NULs.
+    ///
+    /// The resulting bytes is suitable for FFI expecting a wide string. It is NUL capped
+    /// without interior NULs.
+    #[inline]
+    pub fn encode_wide_ffi(&self) -> EncodeWideForFfi<'_> {
+        EncodeWideForFfi {
+            iter: self.encode_wide(),
+            complete: false,
+        }
+    }
+
     pub const fn chunks(&self) -> Wtf8Chunks<'_> {
         Wtf8Chunks { wtf8: self }
     }
@@ -1500,6 +1513,65 @@ impl Iterator for EncodeWide<'_> {
 }
 
 impl FusedIterator for EncodeWide<'_> {}
+
+pub struct EncodeWideForFfi<'s> {
+    iter: EncodeWide<'s>,
+    complete: bool,
+}
+
+impl Iterator for EncodeWideForFfi<'_> {
+    type Item = Result<u16, InteriorNulError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.complete {
+            return None;
+        }
+
+        match self.iter.next() {
+            Some(v) if v != 0 => Some(Ok(v)),
+            Some(_) => {
+                core::hint::cold_path();
+
+                // Scan if the rest of the buffer is NUL. This is technically incorrect as any
+                // interior NUL should fail, but this implementation is defensive in case NULs
+                // are filled in anywhere else.
+                for next in self.iter.by_ref() {
+                    if next != 0 {
+                        self.complete = true;
+                        return Some(Err(InteriorNulError));
+                    }
+                }
+
+                // If there aren't any valid u16s past the current NUL, then the original
+                // buffer is NUL capped and therefore valid.
+                self.complete = true;
+                Some(Ok(0))
+            }
+            None => {
+                self.complete = true;
+                Some(Ok(0))
+            }
+        }
+    }
+
+    #[inline]
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
+}
+
+impl FusedIterator for EncodeWideForFfi<'_> {}
+
+#[derive(Debug)]
+pub struct InteriorNulError;
+
+impl core::error::Error for InteriorNulError {}
+
+impl fmt::Display for InteriorNulError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "embedded null character")
+    }
+}
 
 pub struct Wtf8Chunks<'a> {
     wtf8: &'a Wtf8,
