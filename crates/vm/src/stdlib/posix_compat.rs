@@ -60,7 +60,7 @@ pub(crate) mod module {
 
     #[allow(dead_code)]
     fn os_unimpl<T>(func: &str, vm: &VirtualMachine) -> PyResult<T> {
-        Err(vm.new_os_error(format!("{} is not supported on this platform", func)))
+        Err(vm.new_os_error(format!("{func} is not supported on this platform")))
     }
 
     pub(crate) fn support_funcs() -> Vec<SupportFunc> {

@@ -11,8 +11,8 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
 use std::collections::HashSet;
 
 fn elapsed_secs(
-    #[cfg(target_arch = "wasm32")] _start: &(),
-    #[cfg(not(target_arch = "wasm32"))] start: &std::time::Instant,
+    #[cfg(target_arch = "wasm32")] _start: (),
+    #[cfg(not(target_arch = "wasm32"))] start: std::time::Instant,
 ) -> f64 {
     cfg_select! {
         target_arch = "wasm32" => 0.0,
@@ -528,7 +528,7 @@ impl GcState {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
 
-            let duration = elapsed_secs(&start_time);
+            let duration = elapsed_secs(start_time);
 
             self.generations[generation].update_stats(0, 0, 0, duration);
             return CollectResult {
@@ -704,7 +704,7 @@ impl GcState {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
 
-            let duration = elapsed_secs(&start_time);
+            let duration = elapsed_secs(start_time);
 
             self.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
@@ -727,7 +727,7 @@ impl GcState {
                 self.generations[i].count.store(0, Ordering::SeqCst);
             }
 
-            let duration = elapsed_secs(&start_time);
+            let duration = elapsed_secs(start_time);
 
             self.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
@@ -953,7 +953,7 @@ impl GcState {
             self.generations[i].count.store(0, Ordering::SeqCst);
         }
 
-        let duration = elapsed_secs(&start_time);
+        let duration = elapsed_secs(start_time);
 
         self.generations[generation].update_stats(collected, 0, candidates, duration);
 

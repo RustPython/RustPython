@@ -609,6 +609,7 @@ mod decl {
     }
 
     #[pyfunction]
+    #[cfg_attr(not(any(unix, windows)), expect(clippy::unnecessary_wraps,))]
     fn strftime(format: PyStrRef, t: OptionalArg<StructTimeData>, vm: &VirtualMachine) -> PyResult {
         #[cfg(any(unix, windows))]
         {
