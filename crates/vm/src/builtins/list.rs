@@ -800,6 +800,22 @@ fn tuple_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) 
     }
 }
 
+fn timsort_by<T, K, L>(items: &mut [T], reverse: bool, key: &K, mut lt: L) -> PyResult<()>
+where
+    T: Clone,
+    K: Fn(&T) -> &PyObjectRef,
+    L: FnMut(&PyObjectRef, &PyObjectRef) -> PyResult<bool>,
+{
+    timsort(items, &mut |a, b| {
+        let (a, b) = if reverse {
+            (key(b), key(a))
+        } else {
+            (key(a), key(b))
+        };
+        lt(a, b)
+    })
+}
+
 fn timsort_specialized<T, K>(
     vm: &VirtualMachine,
     items: &mut [T],
@@ -811,52 +827,12 @@ where
     K: Fn(&T) -> &PyObjectRef,
 {
     match pre_sort_check(items.iter().map(&key), vm) {
-        PreSort::Str => timsort(items, &mut |a, b| {
-            let (a, b) = if reverse {
-                (key(b), key(a))
-            } else {
-                (key(a), key(b))
-            };
-            Ok(str_lt(a, b))
-        }),
-        PreSort::Int => timsort(items, &mut |a, b| {
-            let (a, b) = if reverse {
-                (key(b), key(a))
-            } else {
-                (key(a), key(b))
-            };
-            Ok(int_lt(a, b))
-        }),
-        PreSort::Float => timsort(items, &mut |a, b| {
-            let (a, b) = if reverse {
-                (key(b), key(a))
-            } else {
-                (key(a), key(b))
-            };
-            Ok(float_lt(a, b))
-        }),
-        PreSort::Object(cmp) => timsort(items, &mut |a, b| {
-            let (a, b) = if reverse {
-                (key(b), key(a))
-            } else {
-                (key(a), key(b))
-            };
-            object_lt(cmp, a, b, vm)
-        }),
-        PreSort::Tuple(elem) => timsort(items, &mut |a, b| {
-            let (a, b) = if reverse {
-                (key(b), key(a))
-            } else {
-                (key(a), key(b))
-            };
-            tuple_lt(&elem, a, b, vm)
-        }),
-        PreSort::Generic => timsort(items, &mut |a, b| {
-            let (a, b) = if reverse {
-                (key(b), key(a))
-            } else {
-                (key(a), key(b))
-            };
+        PreSort::Str => timsort_by(items, reverse, &key, |a, b| Ok(str_lt(a, b))),
+        PreSort::Int => timsort_by(items, reverse, &key, |a, b| Ok(int_lt(a, b))),
+        PreSort::Float => timsort_by(items, reverse, &key, |a, b| Ok(float_lt(a, b))),
+        PreSort::Object(cmp) => timsort_by(items, reverse, &key, |a, b| object_lt(cmp, a, b, vm)),
+        PreSort::Tuple(elem) => timsort_by(items, reverse, &key, |a, b| tuple_lt(&elem, a, b, vm)),
+        PreSort::Generic => timsort_by(items, reverse, &key, |a, b| {
             a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
         }),
     }
