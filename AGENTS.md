@@ -17,6 +17,11 @@ See the "Code organization" section in [CONTRIBUTING.md](CONTRIBUTING.md#code-or
 
 ## AI Agent Rules
 
+**CRITICAL: AI Policy**
+
+- Follow RustPython's [AI Policy](https://github.com/RustPython/.github/blob/main/AI_POLICY.md) for every AI-assisted contribution.
+- Disclose AI assistance in commit messages with an `Assisted-by: AGENT_NAME:MODEL_VERSION` trailer. Use one trailer per AI tool, and never use `Co-authored-by` for an AI assistant.
+
 **CRITICAL: Git Operations**
 - NEVER create pull requests directly without explicit user permission
 - NEVER push commits to remote without explicit user permission
@@ -27,7 +32,7 @@ See the "Code organization" section in [CONTRIBUTING.md](CONTRIBUTING.md#code-or
 - Install the repository's pre-commit hook with `prek install` (or `pre-commit install`) after cloning the repository.
 - Every commit must run the configured pre-commit hook. NEVER bypass it with `--no-verify`. Automated workflows that use a normal `git commit`, such as `scripts/update_lib quick`, should be allowed to create local commits through the hook.
 - If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes and retry the commit. Do not amend or force a failing commit through.
-- Before completing a task, run the tests appropriate for the change. Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
+- Before completing a task, run the tests appropriate for the change. Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi`, then run `cargo test` from `crates/capi`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
 
 ## Important Development Notes
 
@@ -113,7 +118,10 @@ rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
 
 ```bash
 # Run Rust unit tests
-cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher
+cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
+
+# Run C-API tests from their directory so their separate Cargo config applies
+(cd crates/capi && cargo test)
 
 # Run Python snippets tests (debug mode recommended for faster compilation)
 cargo run -- extra_tests/snippets/builtin_bytes.py
