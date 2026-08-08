@@ -2006,14 +2006,21 @@ where
     while let Some((_, attr)) = iter.peek() {
         // take all cfgs but no py items
         let attr = *attr;
-        let attr_name = if let Some(ident) = attr.get_ident() {
-            ident.to_string()
-        } else {
-            continue;
-        };
-        if attr_name == "cfg" {
-            cfgs.push(attr.clone());
-        } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+        if let Some(ident) = attr.get_ident() {
+            let attr_name = ident.to_string();
+            if attr_name == "cfg" {
+                cfgs.push(attr.clone());
+            } else if ALL_ALLOWED_NAMES.contains(&attr_name.as_str()) {
+                break;
+            }
+        } else if attr
+            .path()
+            .segments
+            .last()
+            .is_some_and(|s| ALL_ALLOWED_NAMES.contains(&s.ident.to_string().as_str()))
+        {
+            // Multi-segment path whose last segment is a py* name (e.g. `vm::pymethod`).
+            // Stop here so the for-loop below can emit a diagnostic with the correct span.
             break;
         }
         iter.next();
@@ -2024,6 +2031,28 @@ where
         let attr_name = if let Some(ident) = attr.get_ident() {
             ident.to_string()
         } else {
+            // Multi-segment path: if the last segment is a known py* name, the user
+            // likely wrote `#[vm::pymethod]` instead of `#[pymethod]`.  Proc-macros
+            // cannot resolve namespace aliases, so the qualified form is never supported.
+            if let Some(last_seg) = attr.path().segments.last() {
+                let last_name = last_seg.ident.to_string();
+                if ALL_ALLOWED_NAMES.contains(&last_name.as_str()) {
+                    let full_path = attr
+                        .path()
+                        .segments
+                        .iter()
+                        .map(|s| s.ident.to_string())
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    bail_span!(
+                        attr,
+                        "found `#[{}]`, use `#[{}]` instead; \
+                         proc-macros cannot resolve namespace aliases",
+                        full_path,
+                        last_name
+                    );
+                }
+            }
             continue;
         };
         if attr_name == "cfg" {
@@ -2063,4 +2092,28 @@ fn parse_vec_ident(
             )
         })?
         .to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test: path-qualified inner attrs like `#[vm::pymethod]` must return an error.
+    // Before the fix, `attrs_to_content_items` looped forever on such attributes.
+    #[test]
+    fn path_qualified_py_attr_returns_error() {
+        let attr: syn::Attribute = syn::parse_quote!(#[vm::pymethod]);
+        let result =
+            attrs_to_content_items(&[attr], |i, name| (i, name));
+        let err = result.expect_err("expected error for path-qualified #[vm::pymethod]");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("vm::pymethod"),
+            "error should mention the full path; got: {msg}"
+        );
+        assert!(
+            msg.contains("pymethod"),
+            "error should mention the unqualified name; got: {msg}"
+        );
+    }
 }
