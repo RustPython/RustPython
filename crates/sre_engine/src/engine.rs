@@ -998,12 +998,12 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
                         return true;
                     }
 
+                    // `state.cursor` is `req.start + skip`, the position the
+                    // tail match resumes from; advancing past the prefix
+                    // instead would resume at `req.start + len` and only
+                    // agree when the prefix ends at the skip boundary.
                     let mut next_ctx = ctx;
-                    if skip != 0 {
-                        next_ctx.advance_char::<S>();
-                    } else {
-                        next_ctx.cursor = state.cursor;
-                    }
+                    next_ctx.cursor = state.cursor;
 
                     if _match(req, state, next_ctx) {
                         return true;
