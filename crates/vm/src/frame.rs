@@ -1794,9 +1794,10 @@ impl FrameObject {
                 }
             }
 
-            // Free variables only included for optimized (function-like) scopes.
-            // Class/module scopes should not expose free vars in locals().
-            if kind == CO_FAST_FREE && !is_optimized {
+            // CPython only syncs fastlocals/cells into locals() for function
+            // scope; class/module scope just returns the namespace dict as-is
+            // (_PyFrame_GetLocals, Objects/frameobject.c).
+            if !is_optimized && kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
                 continue;
             }
 
