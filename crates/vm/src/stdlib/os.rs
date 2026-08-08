@@ -1183,18 +1183,15 @@ pub(super) mod _os {
         pub st_gid: PyIntRef,
         pub st_size: PyIntRef,
         // Indices 7-9: integer seconds
-        #[cfg_attr(target_env = "musl", allow(deprecated))]
         #[pyarg(positional, default)]
         #[pystruct_sequence(unnamed)]
-        pub st_atime_int: libc::time_t,
-        #[cfg_attr(target_env = "musl", allow(deprecated))]
+        pub st_atime_int: i64,
         #[pyarg(positional, default)]
         #[pystruct_sequence(unnamed)]
-        pub st_mtime_int: libc::time_t,
-        #[cfg_attr(target_env = "musl", allow(deprecated))]
+        pub st_mtime_int: i64,
         #[pyarg(positional, default)]
         #[pystruct_sequence(unnamed)]
-        pub st_ctime_int: libc::time_t,
+        pub st_ctime_int: i64,
         // Float time attributes
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
@@ -1219,11 +1216,11 @@ pub(super) mod _os {
         #[cfg(not(windows))]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
-        pub st_blksize: i64,
+        pub st_blksize: u64,
         #[cfg(not(windows))]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
-        pub st_blocks: i64,
+        pub st_blocks: u64,
         #[cfg(windows)]
         #[pyarg(any, default)]
         #[pystruct_sequence(skip)]
@@ -1237,18 +1234,11 @@ pub(super) mod _os {
     impl StatResultData {
         fn from_stat(stat: &StatStruct, vm: &VirtualMachine) -> Self {
             let (atime, mtime, ctime);
-            #[cfg(any(unix, windows))]
-            #[cfg(not(any(target_os = "netbsd", target_os = "wasi")))]
+            #[cfg(all(any(unix, windows), not(target_os = "wasi")))]
             {
                 atime = (stat.st_atime, stat.st_atime_nsec);
                 mtime = (stat.st_mtime, stat.st_mtime_nsec);
                 ctime = (stat.st_ctime, stat.st_ctime_nsec);
-            }
-            #[cfg(target_os = "netbsd")]
-            {
-                atime = (stat.st_atime, stat.st_atimensec);
-                mtime = (stat.st_mtime, stat.st_mtimensec);
-                ctime = (stat.st_ctime, stat.st_ctimensec);
             }
             #[cfg(target_os = "wasi")]
             {
@@ -1274,12 +1264,18 @@ pub(super) mod _os {
             let st_ino = stat.st_ino;
 
             #[cfg(not(windows))]
-            #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
-            let st_blksize = i64::from(stat.st_blksize);
+            #[allow(
+                clippy::useless_conversion,
+                reason = "signedness differs between platforms"
+            )]
+            let st_blksize = stat.st_blksize.try_into().unwrap_or(4096);
 
             #[cfg(not(windows))]
-            #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
-            let st_blocks = i64::from(stat.st_blocks);
+            #[allow(
+                clippy::useless_conversion,
+                reason = "signedness differs between platforms"
+            )]
+            let st_blocks = stat.st_blocks.try_into().unwrap_or_default();
 
             Self {
                 st_mode: vm.ctx.new_pyref(stat.st_mode),
@@ -1360,11 +1356,9 @@ pub(super) mod _os {
         follow_symlinks: FollowSymlinks,
     ) -> io::Result<Option<StatStruct>> {
         match file {
-            OsPathOrFd::Path(path) => host_posix::stat_path(
-                path.as_ref().as_os_str(),
-                dir_fd.raw_opt(),
-                follow_symlinks.0,
-            ),
+            OsPathOrFd::Path(path) => {
+                host_posix::stat_path(path, dir_fd.get_opt(), follow_symlinks.0)
+            }
             OsPathOrFd::Fd(fd) => host_posix::stat_fd(fd).map(Some),
         }
     }

@@ -2,22 +2,14 @@
 #![allow(non_snake_case)]
 
 #[cfg(not(windows))]
-pub use libc::stat as StatStruct;
+pub use rustix::fs::Stat as StatStruct;
 
 #[cfg(windows)]
 pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-    let mut stat = core::mem::MaybeUninit::uninit();
-    unsafe {
-        let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
-        if ret == -1 {
-            Err(crate::os::errno_io_error())
-        } else {
-            Ok(stat.assume_init())
-        }
-    }
+    rustix::fs::fstat(fd).map_err(Into::into)
 }
 
 #[cfg(windows)]

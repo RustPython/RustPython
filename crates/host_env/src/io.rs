@@ -3,6 +3,9 @@ use core::ffi::CStr;
 use std::io;
 
 #[cfg(any(unix, target_os = "wasi"))]
+use rustix::{fs::FileType, io::Errno};
+
+#[cfg(any(unix, target_os = "wasi"))]
 use crate::fileutils;
 use crate::{crt_fd, os};
 
@@ -148,8 +151,8 @@ pub struct FileTargetInfo {
 #[cfg(any(unix, target_os = "wasi"))]
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
     let status = fileutils::fstat(fd)?;
-    if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    if FileType::from_raw_mode(status.st_mode).is_dir() {
+        return Err(io::Error::from(Errno::ISDIR));
     }
     #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
     let blksize = (status.st_blksize > 1).then(|| i64::from(status.st_blksize));
