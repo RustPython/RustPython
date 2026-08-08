@@ -17,7 +17,7 @@ use super::{
 };
 use crate::object::traverse_object::PyObjVTable;
 use crate::{
-    builtins::{PyDictRef, PyType, PyTypeBases, PyTypeRef},
+    builtins::{PyDictRef, PyTuple, PyTupleRef, PyType, PyTypeRef, type_::PyTypeTupleRef},
     common::{
         atomic::{Ordering, PyAtomic, Radium},
         linked_list::{Link, Pointers},
@@ -2309,12 +2309,12 @@ impl<T> Clone for PyRef<T> {
 }
 
 impl<T: PyPayload> PyRef<T> {
-    // #[inline(always)]
-    // pub(crate) const fn into_non_null(self) -> NonNull<Py<T>> {
-    //     let ptr = self.ptr;
-    //     std::mem::forget(self);
-    //     ptr
-    // }
+    #[inline(always)]
+    pub(super) const fn into_non_null(self) -> NonNull<Py<T>> {
+        let ptr = self.ptr;
+        core::mem::forget(self);
+        ptr
+    }
 
     #[inline(always)]
     pub(crate) const unsafe fn from_non_null(ptr: NonNull<Py<T>>) -> Self {
@@ -2547,156 +2547,195 @@ impl<T: PyPayload> PyWeakRef<T> {
 
 /// Partially initialize a struct, ensuring that all fields are
 /// either given values or explicitly left uninitialized
-macro_rules! partially_init {
-    (
-        $ty:path {$($init_field:ident: $init_value:expr),*$(,)?},
-        Uninit { $($uninit_field:ident),*$(,)? }$(,)?
-    ) => {{
-        // check all the fields are there but *don't* actually run it
-
-        #[allow(clippy::diverging_sub_expression, reason = "intentional compile-time field check in an unreachable branch")]
-        if false {
-            #[allow(invalid_value, dead_code, unreachable_code)]
-            let _ = {$ty {
-                $($init_field: $init_value,)*
-                $($uninit_field: unreachable!(),)*
-            }};
-        }
-        let mut m = ::core::mem::MaybeUninit::<$ty>::uninit();
-        #[allow(unused_unsafe)]
-        unsafe {
-            $(::core::ptr::write(&mut (*m.as_mut_ptr()).$init_field, $init_value);)*
-        }
-        m
-    }};
+pub(crate) struct BootstrapTypeHierarchy {
+    pub type_type: PyTypeRef,
+    pub object_type: PyTypeRef,
+    pub tuple_type: PyTypeRef,
+    pub weakref_type: PyTypeRef,
+    pub empty_tuple: PyTupleRef,
 }
 
-pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
-    use crate::{builtins::object, class::PyClassImpl};
+pub(crate) fn init_type_hierarchy() -> BootstrapTypeHierarchy {
+    use crate::{
+        builtins::{object, tuple},
+        class::PyClassImpl,
+    };
     use core::mem::MaybeUninit;
 
-    // `type` inherits from `object`
-    // and both `type` and `object are instances of `type`.
-    // to produce this circular dependency, we need an unsafe block.
-    // (and yes, this will never get dropped. TODO?)
-    let (type_type, object_type) = {
-        // We cast between these 2 types, so make sure (at compile time) that there's no change in
-        // layout when we wrap PyInner<PyTypeObj> in MaybeUninit<>
-        static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
-        static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
+    static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
+    static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyType>>, PyInner<PyType>);
+    static_assertions::assert_eq_size!(MaybeUninit<PyInner<PyTuple>>, PyInner<PyTuple>);
+    static_assertions::assert_eq_align!(MaybeUninit<PyInner<PyTuple>>, PyInner<PyTuple>);
 
-        let type_payload = PyType {
-            base: None.into(),
-            bases: PyRwLock::default(),
-            mro: PyRwLock::default(),
-            subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(Default::default()),
-            slots: PyType::make_slots(),
-            heaptype_ext: None,
-            tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-            abc_tpflags: core::sync::atomic::AtomicU64::new(0),
-        };
-        let object_payload = PyType {
-            base: None.into(),
-            bases: PyRwLock::default(),
-            mro: PyRwLock::default(),
-            subclasses: PyRwLock::default(),
-            attributes: PyRwLock::new(Default::default()),
-            slots: object::PyBaseObject::make_slots(),
-            heaptype_ext: None,
-            tp_version_tag: core::sync::atomic::AtomicU32::new(0),
-            abc_tpflags: core::sync::atomic::AtomicU64::new(0),
-        };
-        // Both type_type and object_type are instances of `type`, which has
-        // HAS_DICT and HAS_WEAKREF, so they need both ObjExt and WeakRefList prefixes.
-        // Layout: [ObjExt][WeakRefList][PyInner<PyType>]
-        let alloc_type_with_prefixes = || -> *mut MaybeUninit<PyInner<PyType>> {
-            let inner_layout = core::alloc::Layout::new::<MaybeUninit<PyInner<PyType>>>();
-            let ext_layout = core::alloc::Layout::new::<ObjExt>();
-            let weakref_layout = core::alloc::Layout::new::<WeakRefList>();
+    // All three core type objects are instances of `type`, which has HAS_DICT
+    // and HAS_WEAKREF. Their allocations therefore need both prefixes.
+    let alloc_type_with_prefixes = || -> *mut PyInner<PyType> {
+        let inner_layout = core::alloc::Layout::new::<MaybeUninit<PyInner<PyType>>>();
+        let ext_layout = core::alloc::Layout::new::<ObjExt>();
+        let weakref_layout = core::alloc::Layout::new::<WeakRefList>();
 
-            let (layout, weakref_offset) = ext_layout.extend(weakref_layout).unwrap();
-            let (combined, inner_offset) = layout.extend(inner_layout).unwrap();
-            let combined = combined.pad_to_align();
+        let (layout, weakref_offset) = ext_layout.extend(weakref_layout).unwrap();
+        let (combined, inner_offset) = layout.extend(inner_layout).unwrap();
+        let combined = combined.pad_to_align();
 
-            let alloc_ptr = unsafe { alloc::alloc::alloc(combined) };
-            if alloc_ptr.is_null() {
-                alloc::alloc::handle_alloc_error(combined);
-            }
-            alloc_ptr.expose_provenance();
-
-            unsafe {
-                let ext_ptr = alloc_ptr as *mut ObjExt;
-                ext_ptr.write(ObjExt::new(None, 0, true));
-
-                let weakref_ptr = alloc_ptr.add(weakref_offset) as *mut WeakRefList;
-                weakref_ptr.write(WeakRefList::new());
-
-                alloc_ptr.add(inner_offset) as *mut MaybeUninit<PyInner<PyType>>
-            }
-        };
-
-        let type_type_ptr = alloc_type_with_prefixes();
-        unsafe {
-            type_type_ptr.write(partially_init!(
-                PyInner::<PyType> {
-                    ref_count: RefCount::new(),
-                    vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(0),
-                    gc_generation: Radium::new(GC_UNTRACKED),
-                    gc_pointers: Pointers::new(),
-                    payload: type_payload,
-                },
-                Uninit { typ }
-            ));
+        let alloc_ptr = unsafe { alloc::alloc::alloc(combined) };
+        if alloc_ptr.is_null() {
+            alloc::alloc::handle_alloc_error(combined);
         }
-
-        let object_type_ptr = alloc_type_with_prefixes();
-        unsafe {
-            object_type_ptr.write(partially_init!(
-                PyInner::<PyType> {
-                    ref_count: RefCount::new(),
-                    vtable: PyObjVTable::of::<PyType>(),
-                    gc_bits: Radium::new(0),
-                    gc_generation: Radium::new(GC_UNTRACKED),
-                    gc_pointers: Pointers::new(),
-                    payload: object_payload,
-                },
-                Uninit { typ },
-            ));
-        }
-
-        let object_type_ptr = object_type_ptr as *mut PyInner<PyType>;
-        let type_type_ptr = type_type_ptr as *mut PyInner<PyType>;
+        alloc_ptr.expose_provenance();
 
         unsafe {
-            (*type_type_ptr).ref_count.inc();
-            let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
-            ptr::write(&mut (*object_type_ptr).typ, PyAtomicRef::from(type_type));
-            (*type_type_ptr).ref_count.inc();
-            let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
-            ptr::write(&mut (*type_type_ptr).typ, PyAtomicRef::from(type_type));
-
-            let object_type = PyTypeRef::from_raw(object_type_ptr.cast());
-            // object's mro is [object]
-            (*object_type_ptr).payload.mro = PyRwLock::new(vec![object_type.clone()]);
-
-            (*type_type_ptr).payload.bases =
-                PyRwLock::new(PyTypeBases::Bootstrap(vec![object_type.clone()]));
-            (*type_type_ptr).payload.base = Some(object_type.clone()).into();
-
-            let type_type = PyTypeRef::from_raw(type_type_ptr.cast());
-            // type's mro is [type, object]
-            (*type_type_ptr).payload.mro =
-                PyRwLock::new(vec![type_type.clone(), object_type.clone()]);
-
-            (type_type, object_type)
+            (alloc_ptr as *mut ObjExt).write(ObjExt::new(None, 0, true));
+            (alloc_ptr.add(weakref_offset) as *mut WeakRefList).write(WeakRefList::new());
+            alloc_ptr.add(inner_offset).cast()
         }
     };
 
-    let weakref_type = PyType {
+    let alloc_tuple = || {
+        Box::into_raw(Box::new(MaybeUninit::<PyInner<PyTuple>>::uninit()))
+            .cast::<PyInner<PyTuple>>()
+    };
+
+    unsafe fn init_ref_count<T>(ptr: *mut PyInner<T>) {
+        unsafe { ptr::addr_of_mut!((*ptr).ref_count).write(RefCount::new()) };
+    }
+
+    unsafe fn initial_ref<T: PyPayload>(ptr: *mut PyInner<T>) -> PyRef<T> {
+        unsafe { PyRef::from_raw(ptr.cast()) }
+    }
+
+    unsafe fn clone_raw_ref<T: PyPayload>(ptr: *mut PyInner<T>) -> PyRef<T> {
+        unsafe { &*ptr::addr_of!((*ptr).ref_count) }.inc();
+        unsafe { PyRef::from_raw(ptr.cast()) }
+    }
+
+    unsafe fn into_type_tuple(tuple: PyTupleRef) -> PyTypeTupleRef {
+        // SAFETY: PyTypeRef and PyObjectRef have the same layout, and the
+        // bootstrap tuples contain only PyType objects.
+        unsafe { core::mem::transmute::<PyTupleRef, PyTypeTupleRef>(tuple) }
+    }
+
+    unsafe fn init_inner<T>(ptr: *mut PyInner<T>, typ: PyTypeRef, payload: T)
+    where
+        T: PyPayload + MaybeTraverse + fmt::Debug,
+    {
+        unsafe {
+            ptr::addr_of_mut!((*ptr).vtable).write(PyObjVTable::of::<T>());
+            ptr::addr_of_mut!((*ptr).gc_bits).write(Radium::new(0));
+            ptr::addr_of_mut!((*ptr).gc_generation).write(Radium::new(GC_UNTRACKED));
+            ptr::addr_of_mut!((*ptr).gc_pointers).write(Pointers::new());
+            ptr::addr_of_mut!((*ptr).typ).write(PyAtomicRef::from_ref_without_retag(typ));
+            ptr::addr_of_mut!((*ptr).payload).write(payload);
+        }
+    }
+
+    let type_type_ptr = alloc_type_with_prefixes();
+    let object_type_ptr = alloc_type_with_prefixes();
+    let tuple_type_ptr = alloc_type_with_prefixes();
+    let empty_tuple_ptr = alloc_tuple();
+    let type_bases_ptr = alloc_tuple();
+    let tuple_bases_ptr = alloc_tuple();
+
+    unsafe {
+        init_ref_count(type_type_ptr);
+        init_ref_count(object_type_ptr);
+        init_ref_count(tuple_type_ptr);
+        init_ref_count(empty_tuple_ptr);
+        init_ref_count(type_bases_ptr);
+        init_ref_count(tuple_bases_ptr);
+    }
+
+    // Each initial reference consumes the allocation's initial strong count.
+    // Further references are created through clone_raw_ref while the graph is
+    // still being assembled and cannot yet be safely dereferenced.
+    let type_type = unsafe { initial_ref(type_type_ptr) };
+    let object_type = unsafe { initial_ref(object_type_ptr) };
+    let tuple_type = unsafe { initial_ref(tuple_type_ptr) };
+    let empty_tuple = unsafe { initial_ref(empty_tuple_ptr) };
+    let type_bases = unsafe { into_type_tuple(initial_ref(type_bases_ptr)) };
+    let tuple_bases = unsafe { into_type_tuple(initial_ref(tuple_bases_ptr)) };
+
+    let type_payload = PyType {
+        base: unsafe {
+            PyAtomicRef::from_optional_ref_without_retag(Some(clone_raw_ref(object_type_ptr)))
+        },
+        bases: PyRwLock::new(type_bases),
+        mro: PyRwLock::new(vec![unsafe { clone_raw_ref(type_type_ptr) }, unsafe {
+            clone_raw_ref(object_type_ptr)
+        }]),
+        subclasses: PyRwLock::default(),
+        attributes: PyRwLock::default(),
+        slots: PyType::make_slots(),
+        heaptype_ext: None,
+        tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
+    };
+    let object_payload = PyType {
+        base: unsafe { PyAtomicRef::from_optional_ref_without_retag(None) },
+        bases: PyRwLock::new(unsafe { into_type_tuple(clone_raw_ref(empty_tuple_ptr)) }),
+        mro: PyRwLock::new(vec![unsafe { clone_raw_ref(object_type_ptr) }]),
+        subclasses: PyRwLock::default(),
+        attributes: PyRwLock::default(),
+        slots: object::PyBaseObject::make_slots(),
+        heaptype_ext: None,
+        tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
+    };
+    let tuple_payload = PyType {
+        base: unsafe {
+            PyAtomicRef::from_optional_ref_without_retag(Some(clone_raw_ref(object_type_ptr)))
+        },
+        bases: PyRwLock::new(tuple_bases),
+        mro: PyRwLock::new(vec![unsafe { clone_raw_ref(tuple_type_ptr) }, unsafe {
+            clone_raw_ref(object_type_ptr)
+        }]),
+        subclasses: PyRwLock::default(),
+        attributes: PyRwLock::default(),
+        slots: tuple::PyTuple::make_slots(),
+        heaptype_ext: None,
+        tp_version_tag: core::sync::atomic::AtomicU32::new(0),
+        abc_tpflags: core::sync::atomic::AtomicU64::new(0),
+    };
+
+    let object_element =
+        || -> PyObjectRef { unsafe { clone_raw_ref::<PyType>(object_type_ptr) }.into() };
+    unsafe {
+        init_inner(type_type_ptr, clone_raw_ref(type_type_ptr), type_payload);
+        init_inner(
+            object_type_ptr,
+            clone_raw_ref(type_type_ptr),
+            object_payload,
+        );
+        init_inner(tuple_type_ptr, clone_raw_ref(type_type_ptr), tuple_payload);
+        init_inner(
+            empty_tuple_ptr,
+            clone_raw_ref(tuple_type_ptr),
+            PyTuple::new_unchecked(Vec::new().into_boxed_slice()),
+        );
+        init_inner(
+            type_bases_ptr,
+            clone_raw_ref(tuple_type_ptr),
+            PyTuple::new_unchecked(vec![object_element()].into_boxed_slice()),
+        );
+        init_inner(
+            tuple_bases_ptr,
+            clone_raw_ref(tuple_type_ptr),
+            PyTuple::new_unchecked(vec![object_element()].into_boxed_slice()),
+        );
+    }
+
+    PyType::finalize_bootstrap_static(&tuple_type);
+
+    let weakref_bases =
+        PyTuple::new_ref_typed_with_type(vec![object_type.clone()], tuple_type.clone());
+    unsafe {
+        crate::gc_state::gc_state()
+            .untrack_object(NonNull::from(weakref_bases.as_untyped().as_object()));
+    }
+    weakref_bases.as_untyped().as_object().clear_gc_tracked();
+    let weakref_payload = PyType {
         base: Some(object_type.clone()).into(),
-        bases: PyRwLock::new(PyTypeBases::Bootstrap(vec![object_type.clone()])),
+        bases: PyRwLock::new(weakref_bases),
         mro: PyRwLock::new(vec![object_type.clone()]),
         subclasses: PyRwLock::default(),
         attributes: PyRwLock::default(),
@@ -2705,7 +2744,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
         tp_version_tag: core::sync::atomic::AtomicU32::new(0),
         abc_tpflags: core::sync::atomic::AtomicU64::new(0),
     };
-    let weakref_type = PyRef::new_ref(weakref_type, type_type.clone(), None);
+    let weakref_type = PyRef::new_ref(weakref_payload, type_type.clone(), None);
     // Static type: untrack from GC (was tracked by new_ref because PyType has HAS_TRAVERSE)
     unsafe {
         crate::gc_state::gc_state()
@@ -2723,13 +2762,26 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
     );
 
     object_type.subclasses.write().push(
+        tuple_type
+            .as_object()
+            .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
+            .unwrap(),
+    );
+
+    object_type.subclasses.write().push(
         weakref_type
             .as_object()
             .downgrade_with_weakref_typ_opt(None, weakref_type.clone())
             .unwrap(),
     );
 
-    (type_type, object_type, weakref_type)
+    BootstrapTypeHierarchy {
+        type_type,
+        object_type,
+        tuple_type,
+        weakref_type,
+        empty_tuple,
+    }
 }
 
 #[cfg(test)]
@@ -2738,7 +2790,29 @@ mod tests {
 
     #[test]
     fn miri_test_type_initialization() {
-        let _ = init_type_hierarchy();
+        let hierarchy = init_type_hierarchy();
+
+        assert!(hierarchy.type_type.class().is(&hierarchy.type_type));
+        assert!(hierarchy.object_type.class().is(&hierarchy.type_type));
+        assert!(hierarchy.tuple_type.class().is(&hierarchy.type_type));
+        assert!(hierarchy.weakref_type.class().is(&hierarchy.type_type));
+
+        let object_bases = hierarchy.object_type.bases.read();
+        assert!(object_bases.is_empty());
+        assert!(object_bases.as_untyped().is(&hierarchy.empty_tuple));
+        assert!(object_bases.as_untyped().class().is(&hierarchy.tuple_type));
+        drop(object_bases);
+
+        for typ in [
+            &hierarchy.type_type,
+            &hierarchy.tuple_type,
+            &hierarchy.weakref_type,
+        ] {
+            let bases = typ.bases.read();
+            assert_eq!(bases.len(), 1);
+            assert!(bases[0].is(&hierarchy.object_type));
+            assert!(bases.as_untyped().class().is(&hierarchy.tuple_type));
+        }
     }
 
     #[test]
