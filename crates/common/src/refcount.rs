@@ -50,8 +50,8 @@ impl State {
     }
 
     #[inline]
-    fn strong(self) -> u32 {
-        ((self.inner & STRONG) / COUNT) as u32
+    fn strong(self) -> usize {
+        (self.inner & STRONG) / COUNT
     }
 
     #[inline]
@@ -102,14 +102,14 @@ impl RefCount {
     /// Get current strong count
     #[inline]
     pub fn get(&self) -> usize {
-        State::from_raw(self.state.load(Ordering::Relaxed)).strong() as usize
+        State::from_raw(self.state.load(Ordering::Relaxed)).strong()
     }
 
     /// Increment strong count
     #[inline]
     pub fn inc(&self) {
         let val = State::from_raw(self.state.fetch_add(COUNT, Ordering::Relaxed));
-        if val.destructed() || (val.strong() as usize) > STRONG - 1 {
+        if val.destructed() || val.strong() > STRONG - 1 {
             refcount_overflow();
         }
         if val.strong() == 0 {
@@ -122,7 +122,7 @@ impl RefCount {
     pub fn inc_by(&self, n: usize) {
         debug_assert!(n <= STRONG);
         let val = State::from_raw(self.state.fetch_add(n * COUNT, Ordering::Relaxed));
-        if val.destructed() || (val.strong() as usize) > STRONG - n {
+        if val.destructed() || val.strong() > STRONG - n {
             refcount_overflow();
         }
     }
@@ -136,7 +136,7 @@ impl RefCount {
             if old.destructed() || old.strong() == 0 {
                 return false;
             }
-            if (old.strong() as usize) >= STRONG {
+            if old.strong() >= STRONG {
                 refcount_overflow();
             }
             let new_state = old.add_strong(1);
