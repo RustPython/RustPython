@@ -41,54 +41,13 @@ use num_traits::ToPrimitive;
 use rustpython_common::wtf8::Wtf8;
 use std::collections::HashSet;
 
-type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
-
-#[derive(Clone, Debug)]
-pub enum PyTypeBases {
-    /// Bases created before a Python tuple can be allocated.
-    Bootstrap(Vec<PyTypeRef>),
-    /// The Python-visible tuple, with every element validated as a type.
-    Tuple(PyTypeTupleRef),
-}
-
-impl Default for PyTypeBases {
-    fn default() -> Self {
-        Self::Bootstrap(Vec::new())
-    }
-}
-
-impl Deref for PyTypeBases {
-    type Target = [PyTypeRef];
-
-    fn deref(&self) -> &Self::Target {
-        match self {
-            Self::Bootstrap(bases) => bases,
-            Self::Tuple(bases) => bases.as_slice(),
-        }
-    }
-}
-
-unsafe impl Traverse for PyTypeBases {
-    fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        match self {
-            Self::Bootstrap(bases) => bases.traverse(tracer_fn),
-            Self::Tuple(bases) => tracer_fn(bases.as_untyped().as_object()),
-        }
-    }
-
-    fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        match core::mem::take(self) {
-            Self::Bootstrap(bases) => out.extend(bases.into_iter().map(Into::into)),
-            Self::Tuple(bases) => out.push(bases.into_untyped().into()),
-        }
-    }
-}
+pub(crate) type PyTypeTupleRef = PyRef<PyTuple<PyTypeRef>>;
 
 #[pyclass(module = false, name = "type", traverse = "manual")]
 pub struct PyType {
     /// tp_base. Written under the type lock (see `set_bases`); read lock-free.
     pub base: PyAtomicRef<Option<Self>>,
-    pub bases: PyRwLock<PyTypeBases>,
+    pub bases: PyRwLock<PyTypeTupleRef>,
     pub mro: PyRwLock<Vec<PyTypeRef>>,
     pub subclasses: PyRwLock<Vec<PyRef<PyWeak>>>,
     pub attributes: TypeNamespace,
@@ -284,7 +243,7 @@ unsafe impl crate::object::Traverse for PyType {
         if let Some(base) = self.base.deref() {
             tracer_fn(base.as_object());
         }
-        self.bases.traverse(tracer_fn);
+        tracer_fn(self.bases.read_recursive().as_untyped().as_object());
         self.mro.traverse(tracer_fn);
         self.subclasses.traverse(tracer_fn);
         self.attributes.traverse(tracer_fn);
@@ -300,7 +259,9 @@ unsafe impl crate::object::Traverse for PyType {
             out.push(base.into());
         }
         if let Some(mut bases) = self.bases.try_write() {
-            bases.clear(out);
+            let empty = object::PyBaseObject::static_type().bases.read().clone();
+            let old_bases = core::mem::replace(&mut *bases, empty);
+            out.push(old_bases.into_untyped().into());
         }
         if let Some(mut guard) = self.mro.try_write() {
             for typ in guard.drain(..) {
@@ -1030,7 +991,7 @@ impl PyType {
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base).into(),
-                bases: PyRwLock::new(PyTypeBases::Tuple(bases)),
+                bases: PyRwLock::new(bases),
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: TypeNamespace::new(attrs, ctx),
@@ -1086,13 +1047,14 @@ impl PyType {
         }
 
         let inherited_abc_tpflags = Self::inherited_abc_tpflags(core::slice::from_ref(&base));
-        let bases = PyRwLock::new(PyTypeBases::Bootstrap(vec![base.clone()]));
+        let bases =
+            PyTuple::new_ref_typed_with_type(vec![base.clone()], PyTuple::static_type().to_owned());
         let mro = base.mro_map_collect(|x| x.to_owned());
 
         let new_type = PyRef::new_ref(
             Self {
                 base: Some(base).into(),
-                bases,
+                bases: PyRwLock::new(bases),
                 mro: PyRwLock::new(mro),
                 subclasses: PyRwLock::default(),
                 attributes: attrs.into(),
@@ -1203,6 +1165,11 @@ impl PyType {
                 .alloc
                 .store(base.and_then(|base| base.slots.alloc.load()));
         }
+    }
+
+    pub(crate) fn finalize_bootstrap_static(typ: &Py<Self>) {
+        Self::set_new(&typ.slots, typ.base.deref());
+        Self::set_alloc(&typ.slots, typ.base.deref());
     }
 
     /// Inherit slots from base type. inherit_slots
@@ -1684,21 +1651,7 @@ impl Py<PyType> {
 impl PyType {
     #[pygetset]
     fn __bases__(&self, vm: &VirtualMachine) -> PyTupleRef {
-        let bases = Self::with_type_lock(vm, || self.bases.read().clone());
-        let types = match bases {
-            PyTypeBases::Tuple(tuple) => return tuple.into_untyped(),
-            PyTypeBases::Bootstrap(types) => types,
-        };
-
-        let tuple = PyTuple::new_ref_typed(types, &vm.ctx);
-        Self::with_type_lock(vm, || {
-            let mut bases = self.bases.write();
-            if let PyTypeBases::Tuple(current) = &*bases {
-                return current.clone().into_untyped();
-            }
-            *bases = PyTypeBases::Tuple(tuple.clone());
-            tuple.into_untyped()
-        })
+        Self::with_type_lock(vm, || self.bases.read().clone().into_untyped())
     }
     #[pygetset(setter, name = "__bases__")]
     fn set_bases(zelf: &Py<Self>, bases_tuple: PyTupleRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -1795,8 +1748,7 @@ impl PyType {
                 *subclasses = kept;
             }
 
-            let mut old_bases =
-                core::mem::replace(&mut *zelf.bases.write(), PyTypeBases::Tuple(bases));
+            let old_bases = core::mem::replace(&mut *zelf.bases.write(), bases);
             let old_base = unsafe { zelf.base.swap(Some(new_base)) };
 
             // Recursively update the mros of this class and all subclasses,
@@ -1832,12 +1784,12 @@ impl PyType {
                     retired.extend(failed_mro.into_iter().map(Into::into));
                     retired.push(cls.into());
                 }
-                let mut failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
+                let failed_bases = core::mem::replace(&mut *zelf.bases.write(), old_bases);
                 if let Some(failed_base) = unsafe { zelf.base.swap(old_base) } {
                     keep_alive(failed_base, &mut retired);
                 }
                 register_subclasses(&zelf.bases.read());
-                failed_bases.clear(&mut retired);
+                retired.push(failed_bases.into_untyped().into());
                 zelf.modified_inner();
                 return Err(err);
             }
@@ -1847,7 +1799,7 @@ impl PyType {
                 retired.extend(old_mro.into_iter().map(Into::into));
                 retired.push(cls.into());
             }
-            old_bases.clear(&mut retired);
+            retired.push(old_bases.into_untyped().into());
             if let Some(old_base) = old_base {
                 keep_alive(old_base, &mut retired);
             }

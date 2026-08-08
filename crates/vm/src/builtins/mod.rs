@@ -72,7 +72,7 @@ pub(crate) mod super_;
 pub use super_::PySuper;
 #[path = "type.rs"]
 pub(crate) mod type_;
-pub use type_::{PyType, PyTypeBases, PyTypeRef};
+pub use type_::{PyType, PyTypeRef};
 pub(crate) mod range;
 pub use range::PyRange;
 pub(crate) mod set;
