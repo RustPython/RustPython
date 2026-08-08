@@ -10680,11 +10680,10 @@ impl ExecutingFrame<'_> {
             }
         }
 
-        // Pop the callable and transfer ownership to the trampoline via
-        // the VM side channel, avoiding a per-frame mutex lock on
-        // temporary_refs.
+        // Pop the callable and transfer ownership to the trampoline. This one
+        // reference keeps every field borrowed by the callee frame alive.
         let callable = self.pop_value();
-        unsafe { &mut *vm.pending_tailcall_refs.get() }.push(callable);
+        vm.set_pending_tailcall_owner(callable);
 
         vm.set_pending_tailcall(callee_iframe);
     }
@@ -10734,13 +10733,13 @@ impl ExecutingFrame<'_> {
             *dst = Some(arg);
         }
         self.pop_value_opt(); // null (self_or_null)
-        let callable = self.pop_value(); // callable (bound method)
+        self.pop_value(); // callable (bound method)
         fastlocals[0] = Some(bound_self);
 
-        // Transfer ownership to the trampoline via the VM side channel.
-        let refs = unsafe { &mut *vm.pending_tailcall_refs.get() };
-        refs.push(bound_function);
-        refs.push(callable);
+        // The function owns every field borrowed by the callee frame.
+        // bound_self is owned by fastlocals; the bound-method object itself is
+        // no longer needed and was dropped above, matching the recursive path.
+        vm.set_pending_tailcall_owner(bound_function);
 
         vm.set_pending_tailcall(callee_iframe);
     }

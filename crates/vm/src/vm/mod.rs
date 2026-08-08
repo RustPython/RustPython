@@ -110,11 +110,11 @@ pub struct VirtualMachine {
     /// pointer here before returning `ExecutionResult::TailCall`.
     /// Access only via `set_pending_tailcall` / `take_pending_tailcall`.
     pending_tailcall_frame: Cell<Option<PendingFrame>>,
-    /// Owned references that keep callee raw pointers valid during TailCall.
-    /// Set by `tailcall_prepare_frame`, drained by the trampoline into
-    /// its local `owned_refs` Vec. Uses UnsafeCell because the VM is
-    /// per-thread and this field is only accessed on the owning thread.
-    pub(crate) pending_tailcall_refs: core::cell::UnsafeCell<Vec<PyObjectRef>>,
+    /// Owned reference that keeps callee raw pointers valid during TailCall.
+    /// Set by the exact-call handlers and moved into the trampoline's
+    /// `SuspendedFrame`. Uses UnsafeCell because the VM is per-thread and this
+    /// field is only accessed on the owning thread.
+    pending_tailcall_owner: core::cell::UnsafeCell<Option<PyObjectRef>>,
 }
 
 /// Non-owning frame pointer for the non-unix threading frames stack.
@@ -828,11 +828,11 @@ pub(crate) struct IframeEntryState {
 struct SuspendedFrame {
     iframe: *mut crate::frame::InterpreterFrame,
     entry_state: IframeEntryState,
-    /// Owned references that keep callee's raw pointers (code, globals,
-    /// builtins borrowed from PyFunction) valid. Drained from
-    /// `vm.pending_tailcall_refs` when the callee's TailCall is consumed.
+    /// Function that owns the callee's raw pointers (code, globals, builtins,
+    /// closure, and func_obj). Moved from `vm.pending_tailcall_owner` when the
+    /// callee's TailCall is consumed.
     /// Dropped when this SuspendedFrame is popped (after callee returns/errors).
-    owned_refs: Vec<PyObjectRef>,
+    callee_owner: PyObjectRef,
     /// True for the initial frame passed into the trampoline by the caller.
     /// The caller owns the datastack allocation for the entry frame, so the
     /// trampoline must NOT release it — only callee-allocated frames are
@@ -955,7 +955,7 @@ impl VirtualMachine {
             callable_cache: CallableCache::default(),
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
-            pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
+            pending_tailcall_owner: core::cell::UnsafeCell::new(None),
         };
 
         if vm.state.hash_secret.hash_str("")
@@ -1406,6 +1406,22 @@ impl VirtualMachine {
             .set(Some(PendingFrame(core::ptr::NonNull::from(iframe))));
     }
 
+    /// Store the function that owns the fields borrowed by the pending callee.
+    #[inline(always)]
+    pub(crate) fn set_pending_tailcall_owner(&self, owner: PyObjectRef) {
+        let slot = unsafe { &mut *self.pending_tailcall_owner.get() };
+        debug_assert!(slot.is_none(), "pending TailCall owner was not consumed");
+        *slot = Some(owner);
+    }
+
+    /// Take the pending callee owner, resetting the side channel.
+    #[inline(always)]
+    fn take_pending_tailcall_owner(&self) -> PyObjectRef {
+        unsafe { &mut *self.pending_tailcall_owner.get() }
+            .take()
+            .expect("TailCall without pending owner")
+    }
+
     /// Take the pending tailcall frame pointer, resetting the side channel.
     #[inline(always)]
     fn take_pending_tailcall(&self) -> *mut crate::frame::InterpreterFrame {
@@ -1466,14 +1482,11 @@ impl VirtualMachine {
         }
 
         let initial_ptr = self.take_pending_tailcall();
-        // Drain the refs that keep the initial callee's raw pointers alive.
-        let initial_refs = unsafe { &mut *self.pending_tailcall_refs.get() }
-            .drain(..)
-            .collect();
+        let initial_owner = self.take_pending_tailcall_owner();
         frame_stack.push(SuspendedFrame {
             iframe: iframe as *mut crate::frame::InterpreterFrame,
             entry_state,
-            owned_refs: initial_refs,
+            callee_owner: initial_owner,
             is_entry: true,
         });
         let mut action = Action::EnterCallee(initial_ptr);
@@ -1498,13 +1511,11 @@ impl VirtualMachine {
                     let result = crate::frame::run_iframe(callee, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
-                            let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
-                                .drain(..)
-                                .collect();
+                            let callee_owner = self.take_pending_tailcall_owner();
                             frame_stack.push(SuspendedFrame {
                                 iframe: callee_ptr,
                                 entry_state: callee_entry,
-                                owned_refs: refs,
+                                callee_owner,
                                 is_entry: false,
                             });
                             action = Action::EnterCallee(self.take_pending_tailcall());
@@ -1539,7 +1550,7 @@ impl VirtualMachine {
                     let SuspendedFrame {
                         iframe: caller_iframe_ptr,
                         entry_state: caller_entry,
-                        owned_refs: _caller_refs,
+                        callee_owner,
                         is_entry: caller_is_entry,
                     } = caller;
                     let caller_iframe = unsafe { &mut *caller_iframe_ptr };
@@ -1548,20 +1559,18 @@ impl VirtualMachine {
                     let result = crate::frame::run_iframe(caller_iframe, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
-                            let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
-                                .drain(..)
-                                .collect();
-                            drop(_caller_refs);
+                            let next_callee_owner = self.take_pending_tailcall_owner();
+                            drop(callee_owner);
                             frame_stack.push(SuspendedFrame {
                                 iframe: caller_iframe_ptr,
                                 entry_state: caller_entry,
-                                owned_refs: refs,
+                                callee_owner: next_callee_owner,
                                 is_entry: caller_is_entry,
                             });
                             action = Action::EnterCallee(self.take_pending_tailcall());
                         }
                         Ok(ExecutionResult::Return(value)) => {
-                            drop(_caller_refs);
+                            drop(callee_owner);
                             self.exit_iframe(caller_entry);
                             if !caller_is_entry {
                                 unsafe {
@@ -1574,7 +1583,7 @@ impl VirtualMachine {
                         }
                         Ok(ExecutionResult::Yield(_)) => panic!("Yield in non-generator frame"),
                         Err(exc) => {
-                            drop(_caller_refs);
+                            drop(callee_owner);
                             self.exit_iframe(caller_entry);
                             if !caller_is_entry {
                                 unsafe {
@@ -1595,7 +1604,7 @@ impl VirtualMachine {
                     let SuspendedFrame {
                         iframe: caller_iframe_ptr,
                         entry_state: caller_entry,
-                        owned_refs: _caller_refs,
+                        callee_owner,
                         is_entry: caller_is_entry,
                     } = caller;
                     let caller_iframe = unsafe { &mut *caller_iframe_ptr };
@@ -1609,20 +1618,18 @@ impl VirtualMachine {
                             let result = crate::frame::run_iframe(caller_iframe, self);
                             match result {
                                 Ok(ExecutionResult::TailCall) => {
-                                    let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
-                                        .drain(..)
-                                        .collect();
-                                    drop(_caller_refs);
+                                    let next_callee_owner = self.take_pending_tailcall_owner();
+                                    drop(callee_owner);
                                     frame_stack.push(SuspendedFrame {
                                         iframe: caller_iframe_ptr,
                                         entry_state: caller_entry,
-                                        owned_refs: refs,
+                                        callee_owner: next_callee_owner,
                                         is_entry: caller_is_entry,
                                     });
                                     action = Action::EnterCallee(self.take_pending_tailcall());
                                 }
                                 Ok(ExecutionResult::Return(value)) => {
-                                    drop(_caller_refs);
+                                    drop(callee_owner);
                                     self.exit_iframe(caller_entry);
                                     if !caller_is_entry {
                                         unsafe {
@@ -1639,7 +1646,7 @@ impl VirtualMachine {
                                     panic!("Yield in non-generator frame")
                                 }
                                 Err(new_exc) => {
-                                    drop(_caller_refs);
+                                    drop(callee_owner);
                                     self.exit_iframe(caller_entry);
                                     if !caller_is_entry {
                                         unsafe {
@@ -1655,7 +1662,7 @@ impl VirtualMachine {
                             }
                         }
                         Ok(Some(ExecutionResult::Return(value))) => {
-                            drop(_caller_refs);
+                            drop(callee_owner);
                             self.exit_iframe(caller_entry);
                             if !caller_is_entry {
                                 unsafe {
@@ -1670,7 +1677,7 @@ impl VirtualMachine {
                             panic!("Unexpected execution result in trampoline unwind")
                         }
                         Err(new_exc) => {
-                            drop(_caller_refs);
+                            drop(callee_owner);
                             self.exit_iframe(caller_entry);
                             if !caller_is_entry {
                                 unsafe {
