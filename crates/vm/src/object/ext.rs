@@ -312,6 +312,22 @@ impl<T: PyPayload> Deref for PyAtomicRef<T> {
 }
 
 impl<T: PyPayload> PyAtomicRef<T> {
+    /// Move a reference into an atomic pointer without creating a Rust
+    /// reference to the pointee. This is only for bootstrap objects whose
+    /// allocation is valid but whose payload is still being initialized.
+    ///
+    /// # Safety
+    /// The pointee must remain allocated, and this atomic reference must not
+    /// be dereferenced until the pointee has been fully initialized.
+    pub(super) unsafe fn from_ref_without_retag(pyref: PyRef<T>) -> Self {
+        let ptr = pyref.into_non_null().as_ptr().cast::<u8>();
+        ptr.expose_provenance();
+        Self {
+            inner: Radium::new(ptr),
+            _phantom: Default::default(),
+        }
+    }
+
     /// Load the raw pointer without creating a reference.
     /// Avoids Stacked Borrows retag, safe for use during bootstrap
     /// when type objects have self-referential pointers being mutated.
@@ -349,6 +365,22 @@ impl<T: PyPayload> From<Option<PyRef<T>>> for PyAtomicRef<Option<T>> {
 }
 
 impl<T: PyPayload> PyAtomicRef<Option<T>> {
+    /// Optional form of PyAtomicRef::from_ref_without_retag.
+    ///
+    /// # Safety
+    /// A non-None pointee must remain allocated, and this atomic reference
+    /// must not be dereferenced until the pointee has been fully initialized.
+    pub(super) unsafe fn from_optional_ref_without_retag(opt_ref: Option<PyRef<T>>) -> Self {
+        let ptr = opt_ref.map_or(null_mut(), |pyref| {
+            pyref.into_non_null().as_ptr().cast::<u8>()
+        });
+        ptr.expose_provenance();
+        Self {
+            inner: Radium::new(ptr),
+            _phantom: Default::default(),
+        }
+    }
+
     pub fn deref(&self) -> Option<&Py<T>> {
         self.deref_ordering(Ordering::Relaxed)
     }
