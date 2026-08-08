@@ -277,7 +277,7 @@ pub(crate) fn impl_pymodule(args: PyModuleArgs, module_item: Item) -> Result<Tok
                             methods: METHOD_DEFS,
                             slots: Default::default(),
                         };
-                        def.slots.exec = Some(module_exec);
+                        def.slots.exec = Some(::rustpython_vm::builtins::ModuleExec::Rust(module_exec));
                         def
                     })
                 }

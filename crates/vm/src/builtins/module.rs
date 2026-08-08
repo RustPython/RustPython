@@ -1,4 +1,4 @@
-use super::{PyDict, PyDictRef, PyStr, PyStrRef, PyType, PyTypeRef};
+use super::{PyDict, PyDictRef, PyNamespace, PyStr, PyStrRef, PyType, PyTypeRef};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyStrInterned, pystr::AsPyStr},
@@ -8,9 +8,12 @@ use crate::{
     import::{get_spec_file_origin, is_possibly_shadowing_path, is_stdlib_module_name},
     types::{GetAttr, Initializer, Representable},
 };
+use alloc::borrow::Cow;
+use core::ffi::{c_int, c_void};
+use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "module")]
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PyModuleDef {
     // pub index: usize,
     pub name: &'static PyStrInterned,
@@ -23,11 +26,31 @@ pub struct PyModuleDef {
     // free: free_func
 }
 
-pub(crate) type ModuleCreate =
-    fn(&VirtualMachine, &PyObject, &'static PyModuleDef) -> PyResult<PyRef<PyModule>>;
-pub(crate) type ModuleExec = fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>;
+#[derive(Clone)]
+pub enum ModuleCreate {
+    Rust(fn(&VirtualMachine, &PyObject, &PyModuleDef) -> PyResult<PyRef<PyModule>>),
+    C(unsafe extern "C" fn(spec: *mut PyObject, def: *mut c_void) -> *mut PyObject),
+}
 
-#[derive(Default)]
+impl From<unsafe extern "C" fn(*mut PyObject, *mut c_void) -> *mut PyObject> for ModuleCreate {
+    fn from(func: unsafe extern "C" fn(*mut PyObject, *mut c_void) -> *mut PyObject) -> Self {
+        Self::C(func)
+    }
+}
+
+#[derive(Clone)]
+pub enum ModuleExec {
+    Rust(fn(&VirtualMachine, &Py<PyModule>) -> PyResult<()>),
+    C(unsafe extern "C" fn(*mut PyObject) -> c_int),
+}
+
+impl From<unsafe extern "C" fn(*mut PyObject) -> c_int> for ModuleExec {
+    fn from(func: unsafe extern "C" fn(*mut PyObject) -> c_int) -> Self {
+        Self::C(func)
+    }
+}
+
+#[derive(Default, Clone)]
 pub struct PyModuleSlots {
     pub create: Option<ModuleCreate>,
     pub exec: Option<ModuleExec>,
@@ -55,13 +78,51 @@ impl PyModuleDef {
         use crate::PyPayload;
 
         // Create module (use create slot if provided, else default creation)
-        let module = if let Some(create) = self.slots.create {
-            // Custom module creation
-            let spec = vm.ctx.new_str(self.name.as_str());
-            create(vm, spec.as_object(), self)?
-        } else {
-            // Default module creation
-            PyModule::from_def(self).into_ref(&vm.ctx)
+        let module = match self.slots.create {
+            Some(ModuleCreate::Rust(create)) => {
+                let spec = vm.ctx.new_str(self.name.as_str());
+                create(vm, spec.as_object(), self)?
+            }
+            Some(ModuleCreate::C(_)) => {
+                return Err(vm.new_system_error("C module create slot is not supported here"));
+            }
+            None => PyModule::from_def(self).into_ref(&vm.ctx),
+        };
+
+        // Initialize module dict and methods
+        PyModule::__init_dict_from_def(vm, &module);
+        module.__init_methods(vm)?;
+
+        Ok(module)
+    }
+
+    pub fn create_module_owned(self, vm: &VirtualMachine) -> PyResult<PyRef<PyModule>> {
+        use crate::PyPayload;
+
+        // Create module (use create slot if provided, else default creation)
+        let module = match self.slots.create {
+            Some(ModuleCreate::Rust(create)) => {
+                let spec = vm.ctx.new_str(self.name.as_str());
+                create(vm, spec.as_object(), &self)?
+            }
+            Some(ModuleCreate::C(create)) => {
+                let def = Box::leak(Box::new(self));
+                let spec = PyNamespace::default().into_ref(&vm.ctx);
+                spec.as_object()
+                    .set_attr("name", vm.ctx.new_str(def.name.as_str()), vm)?;
+                let module_ptr =
+                    unsafe { create(spec.as_object().as_raw().cast_mut(), core::ptr::null_mut()) };
+                let module_ptr = NonNull::new(module_ptr).ok_or_else(|| {
+                    vm.take_raised_exception().unwrap_or_else(|| {
+                        vm.new_system_error(
+                            "module create slot failed without setting an exception",
+                        )
+                    })
+                })?;
+                let module_obj = unsafe { PyObjectRef::from_raw(module_ptr) };
+                module_obj.try_downcast::<PyModule>(vm)?
+            }
+            None => PyModule::from_def_owned(self).into_ref(&vm.ctx),
         };
 
         // Initialize module dict and methods
@@ -74,11 +135,37 @@ impl PyModuleDef {
     /// Execute the module's exec slot (Phase 2 of multi-phase init).
     ///
     /// Calls the exec slot if present. Returns Ok(()) if no exec slot.
-    pub fn exec_module(&'static self, vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
-        if let Some(exec) = self.slots.exec {
-            exec(vm, module)?;
+    pub fn exec_module(&self, vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        if let Some(exec) = self.slots.exec.as_ref() {
+            match exec {
+                ModuleExec::Rust(exec) => exec(vm, module)?,
+                ModuleExec::C(exec) => unsafe {
+                    if exec(module.as_object().as_raw().cast_mut()) != 0 {
+                        return Err(vm.take_raised_exception().unwrap_or_else(|| {
+                            vm.new_system_error("Unknown error in module exec slot")
+                        }));
+                    }
+                },
+            };
         }
         Ok(())
+    }
+
+    pub fn from_slots<C: Into<ModuleCreate>, E: Into<ModuleExec>>(
+        name: &'static PyStrInterned,
+        doc: Option<&'static PyStrInterned>,
+        create: Option<C>,
+        exec: Option<E>,
+    ) -> Self {
+        Self {
+            name,
+            doc,
+            methods: &[],
+            slots: PyModuleSlots {
+                create: create.map(Into::into),
+                exec: exec.map(Into::into),
+            },
+        }
     }
 }
 
@@ -86,7 +173,7 @@ impl PyModuleDef {
 #[derive(Debug)]
 pub struct PyModule {
     // PyObject *md_dict;
-    pub def: Option<&'static PyModuleDef>,
+    pub def: Option<Cow<'static, PyModuleDef>>,
     // state: Any
     // weaklist
     // for logging purposes after md_dict is cleared
@@ -123,13 +210,22 @@ impl PyModule {
     #[must_use]
     pub const fn from_def(def: &'static PyModuleDef) -> Self {
         Self {
-            def: Some(def),
+            def: Some(Cow::Borrowed(def)),
             name: Some(def.name),
         }
     }
 
+    #[must_use]
+    pub const fn from_def_owned(def: PyModuleDef) -> Self {
+        let name = def.name;
+        Self {
+            def: Some(Cow::Owned(def)),
+            name: Some(name),
+        }
+    }
+
     pub fn __init_dict_from_def(vm: &VirtualMachine, module: &Py<Self>) {
-        let doc = module.def.unwrap().doc.map(|doc| doc.to_owned());
+        let doc = module.def.as_ref().unwrap().doc.map(|doc| doc.to_owned());
         module.init_dict(module.name.unwrap(), doc, vm);
     }
 }
@@ -137,7 +233,7 @@ impl PyModule {
 impl Py<PyModule> {
     pub fn __init_methods(&self, vm: &VirtualMachine) -> PyResult<()> {
         debug_assert!(self.def.is_some());
-        for method in self.def.unwrap().methods {
+        for method in self.def.as_ref().unwrap().methods {
             let func = method
                 .to_function()
                 .with_module(self.name.unwrap())
