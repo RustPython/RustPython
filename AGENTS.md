@@ -23,11 +23,11 @@ See the "Code organization" section in [CONTRIBUTING.md](CONTRIBUTING.md#code-or
 - Always ask the user before performing any git operations that affect the remote repository
 - Commits can be created locally when requested, but pushing and PR creation require explicit approval
 
-**CRITICAL: Pre-commit Checks**
-- Before creating ANY commit, you MUST run `prek run --all-files` (or `pre-commit run --all-files`) AND the full test suite. Both must pass — do not commit if either fails.
-- Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
-- If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes, re-run `prek` until it reports a clean pass, then re-run the tests, then commit.
-- NEVER bypass these checks with `--no-verify`, `--no-gpg-sign`, or by skipping tests "because the change is small". If a hook or test fails, fix the underlying issue and create a new commit — do not amend or force the failing commit through.
+**CRITICAL: Commit Hooks and Validation**
+- Install the repository's pre-commit hook with `prek install` (or `pre-commit install`) after cloning the repository.
+- Every commit must run the configured pre-commit hook. NEVER bypass it with `--no-verify`. Automated workflows that use a normal `git commit`, such as `scripts/update_lib quick`, should be allowed to create local commits through the hook.
+- If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes and retry the commit. Do not amend or force a failing commit through.
+- Before completing a task, run the tests appropriate for the change. Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
 
 ## Important Development Notes
 
