@@ -12,6 +12,7 @@ use crate::{
         PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
     },
+    types::c_slots::{CSlots, CSlotsPtr, is_c_trampoline},
     types::slot_defs::{SlotAccessor, find_slot_defs_by_name},
     vm::Context,
 };
@@ -177,6 +178,10 @@ pub struct PyTypeSlots {
     // tp_alloc
     pub alloc: AtomicCell<Option<AllocFunc>>,
     pub new: AtomicCell<Option<NewFunc>>,
+    /// The slots an extension supplied, shared with every type that inherited
+    /// them. Reached through the trampolines held in the matching Rust slots,
+    /// never read directly by the interpreter.
+    pub(crate) c_slots: AtomicCell<Option<CSlotsPtr>>,
     // tp_free
     // tp_is_gc
     // tp_bases
@@ -209,6 +214,35 @@ impl PyTypeSlots {
         }
         */
         Self::default()
+    }
+
+    /// The C slots this type reaches, if any.
+    #[must_use]
+    pub fn c_slots(&self) -> Option<&CSlots> {
+        // SAFETY: the pointer is set only from a table owned by a live heap
+        // type, and a type that holds it keeps that owner alive through its
+        // mro, so the target outlives this borrow.
+        self.c_slots.load().map(|ptr| unsafe { &*ptr.as_ptr() })
+    }
+
+    /// What tp_new ultimately dispatches to, for the "is not safe" comparison.
+    ///
+    /// Every type whose tp_new came from C shares one trampoline, so comparing
+    /// `new` alone cannot tell two of them apart. Opening the trampoline down
+    /// to the C function it reads restores the distinction.
+    #[must_use]
+    pub fn new_identity(&self) -> Option<usize> {
+        let new = self.new.load()?;
+        if is_c_trampoline(new) {
+            // A type carrying the trampoline without a table is malformed;
+            // fall back to the trampoline itself rather than claiming no slot.
+            return Some(
+                self.c_slots()
+                    .and_then(|c| c.new.load())
+                    .map_or_else(|| fn_addr(new), fn_addr),
+            );
+        }
+        Some(fn_addr(new))
     }
 }
 
@@ -311,6 +345,14 @@ pub(crate) type DescrSetFunc =
     fn(&PyObject, PyObjectRef, PySetterValue, &VirtualMachine) -> PyResult<()>;
 pub(crate) type AllocFunc = fn(PyTypeRef, usize, &VirtualMachine) -> PyResult;
 pub(crate) type NewFunc = fn(PyTypeRef, FuncArgs, &VirtualMachine) -> PyResult;
+/// tp_new supplied by an extension module. It is never called through this
+/// slot directly: `new` holds the trampoline that marshals the arguments and
+/// reads this, so the two are stored and inherited together.
+pub type CNewFunc = unsafe extern "C" fn(
+    subtype: *mut Py<PyType>,
+    args: *mut PyObject,
+    kwds: *mut PyObject,
+) -> *mut PyObject;
 pub(crate) type InitFunc = fn(PyObjectRef, FuncArgs, &VirtualMachine) -> PyResult<()>;
 pub(crate) type DelFunc = fn(&PyObject, &VirtualMachine) -> PyResult<()>;
 
@@ -862,6 +904,17 @@ impl PyType {
                 }
             }
             SlotAccessor::TpNew => {
+                // A type that owns a C tp_new keeps its trampoline: its
+                // `__new__` entry is the wrapper over that slot, not a
+                // definition replacing it. A type that merely inherited the
+                // slot is not exempt, since `__new__` can be defined over it.
+                let owns_table = self.slots.c_slots.load().is_some()
+                    && self.slots.c_slots.load()
+                        != self.base.deref().and_then(|base| base.slots.c_slots.load());
+                if owns_table {
+                    return;
+                }
+
                 // __new__ is a staticmethod, not a PyWrapper descriptor, so
                 // lookup_slot_in_mro cannot classify it. Resolve __new__
                 // through the MRO dicts instead: a Python-level definition
@@ -882,11 +935,19 @@ impl PyType {
                         })
                 };
                 if needs_wrapper {
+                    // A Python-level __new__ replaces the C slot outright, so
+                    // the table goes with the trampoline it was reached by.
                     self.slots.new.store(Some(new_wrapper));
+                    self.slots.c_slots.store(None);
                     self.slots.vectorcall.store(None);
                 } else {
-                    let inherited = self.base.deref().and_then(|base| base.slots.new.load());
-                    self.slots.new.store(inherited);
+                    let base = self.base.deref();
+                    self.slots
+                        .new
+                        .store(base.and_then(|base| base.slots.new.load()));
+                    self.slots
+                        .c_slots
+                        .store(base.and_then(|base| base.slots.c_slots.load()));
                 }
             }
             SlotAccessor::TpDel => update_main_slot!(del, del_wrapper, Del),
