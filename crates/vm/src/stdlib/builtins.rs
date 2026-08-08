@@ -1041,7 +1041,7 @@ mod builtins {
     #[pyfunction]
     pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
-        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![code])?)
+        Err(vm.new_system_exit(vec![code].into()))
     }
 
     #[derive(Debug, Default, FromArgs)]

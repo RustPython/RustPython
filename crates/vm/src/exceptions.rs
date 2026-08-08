@@ -1385,14 +1385,8 @@ impl OSErrorBuilder {
             vec![strerror.to_pyobject(vm)]
         };
 
-        let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
-            .expect("new_os_error usage error");
-        let os_error = payload
-            .into_ref_with_type_lazy_dict(vm, exc_type)
-            .expect("new_os_error usage error");
-        PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
-            .expect("new_os_error usage error");
-        os_error
+        vm.new_payload_exception::<PyOSError>(exc_type, args.into())
+            .expect("new_os_error usage error")
     }
 }
 
@@ -2144,7 +2138,10 @@ pub(super) mod types {
                         .downcast_ref::<PyInt>()
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                        .and_then(|typ| vm.invoke_exception(typ, args_vec).ok())
+                        .and_then(|typ| {
+                            vm.new_payload_exception::<Self>(typ.to_owned(), args_vec.into())
+                                .ok()
+                        })
                     {
                         return error.to_pyresult(vm);
                     }
