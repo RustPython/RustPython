@@ -160,10 +160,13 @@ mod _tkinter {
             return Ok(varname);
         }
 
-        if let Some(_tcl_obj) = obj.downcast_ref::<TclObject>() {
-            // Assume that the Tcl object has a method to retrieve a string.
-            // return tcl_obj.
-            todo!();
+        if let Some(tcl_obj) = obj.downcast_ref::<TclObject>() {
+            let c_str = unsafe { tk_sys::Tcl_GetString(tcl_obj.value) };
+            let varname = unsafe { ffi::CStr::from_ptr(c_str as _) }
+                .to_str()
+                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?
+                .to_owned();
+            return Ok(varname);
         }
 
         // Construct an error message using the type name (truncated to 50 characters).
