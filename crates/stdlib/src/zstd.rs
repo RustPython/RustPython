@@ -1403,17 +1403,18 @@ mod _zstd {
             let outcome = loop {
                 iteration += 1;
                 // Honor `max_length`: stop growing the output buffer once
-                // we have produced enough. Special-case the first iteration
-                // when the cap is zero so a zero-output frame (skippable
-                // frame, empty content frame) can still complete; we hand
-                // libzstd a 1-byte scratch and discard the byte if it ends
-                // up writing one.
+                // we have produced enough. When the cap is zero, hand
+                // libzstd a zero-size buffer instead: it then consumes
+                // input without emitting, so zero-output frames (skippable
+                // frame, empty content frame) still complete while real
+                // output stays inside libzstd until a later call has room.
+                // CPython's decompressor uses the same zero-size mechanism.
                 let grow = match max_length {
                     Some(maxl) if output.len() >= maxl && iteration > 1 => {
                         hit_max = true;
                         break Ok(());
                     }
-                    Some(maxl) if output.len() >= maxl => 1,
+                    Some(maxl) if output.len() >= maxl => 0,
                     Some(maxl) => (maxl - output.len()).min(chunk_size),
                     None => chunk_size,
                 };
@@ -1441,7 +1442,10 @@ mod _zstd {
                     state.eof = true;
                     break Ok(());
                 }
-                let output_was_full = written == grow;
+                // Only meaningful with a non-zero buffer: libzstd had more
+                // to emit but ran out of room. A zero-size call (the
+                // max_length == 0 probe) is not "full".
+                let output_was_full = grow > 0 && written == grow;
                 let input_consumed = input.pos == input.size;
 
                 if let Some(maxl) = max_length
@@ -1462,18 +1466,7 @@ mod _zstd {
             outcome.map(|()| (output, hit_max, input.pos))
         });
 
-        let (mut output, mut hit_max, consumed) =
-            loop_result.map_err(|c| catch_zstd_error(c, vm))?;
-
-        // If `max_length == 0` opened a courtesy iteration that produced more
-        // bytes than the caller asked for, truncate. Should not happen with
-        // the scratch slicing above, but keep the safety net.
-        if let Some(maxl) = max_length
-            && output.len() > maxl
-        {
-            output.truncate(maxl);
-            hit_max = true;
-        }
+        let (output, hit_max, consumed) = loop_result.map_err(|c| catch_zstd_error(c, vm))?;
 
         let remaining = &work_data[consumed..];
 
