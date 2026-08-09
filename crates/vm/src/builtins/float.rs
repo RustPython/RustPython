@@ -208,18 +208,8 @@ impl Constructor for PyFloat {
 pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
-        use crate::common::str::PyKindStr;
-        match s.as_str_kind() {
-            PyKindStr::Ascii(s) => s.trim().as_bytes(),
-            PyKindStr::Utf8(s) => {
-                mapped_string =
-                    rustpython_common::str::transform_decimal_and_space_to_ascii(s.trim());
-                mapped_string.as_bytes()
-            }
-            // if there are surrogates, it's not gonna parse anyway,
-            // so we can just choose a known bad value
-            PyKindStr::Wtf8(_) => b"",
-        }
+        mapped_string = crate::protocol::numeric_literal_from_str(s);
+        mapped_string.as_bytes()
     } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
         bytes.as_bytes()
     } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {

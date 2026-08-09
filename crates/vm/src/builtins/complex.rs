@@ -220,11 +220,10 @@ impl Constructor for PyComplex {
                             "complex() can't take second arg if first is a string",
                         ));
                     }
-                    let (re, im) = s
-                        .to_str()
-                        .map(crate::common::str::transform_decimal_and_space_to_ascii)
-                        .and_then(|s| rustpython_literal::complex::parse_str(&s))
-                        .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
+                    let (re, im) = rustpython_literal::complex::parse_str(
+                        &crate::protocol::numeric_literal_from_str(s),
+                    )
+                    .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
                     return Ok(Self::from(Complex64 { re, im }));
                 } else {
                     return Err(vm.new_type_error(format!(
