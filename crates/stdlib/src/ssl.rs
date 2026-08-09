@@ -501,6 +501,39 @@ mod _ssl {
         session_cache: SessionCache,
     }
 
+    impl PythonClientSessionStore {
+        fn new(session_cache: SessionCache) -> Self {
+            Self {
+                inner: Arc::new(ClientSessionMemoryCache::new(SSL_SESSION_CACHE_SIZE)),
+                session_cache,
+            }
+        }
+
+        fn transfer_session(
+            &self,
+            target: &Self,
+            server_name: &ServerName<'static>,
+            kind: ClientSessionKind,
+        ) {
+            if let Some(group) = self.kx_hint(server_name) {
+                target.set_kx_hint(server_name.clone(), group);
+            }
+
+            match kind {
+                ClientSessionKind::Tls12 => {
+                    if let Some(session) = self.tls12_session(server_name) {
+                        target.set_tls12_session(server_name.clone(), session);
+                    }
+                }
+                ClientSessionKind::Tls13 => {
+                    if let Some(ticket) = self.take_tls13_ticket(server_name) {
+                        target.insert_tls13_ticket(server_name.clone(), ticket);
+                    }
+                }
+            }
+        }
+    }
+
     impl ClientSessionStore for PythonClientSessionStore {
         fn set_kx_hint(&self, server_name: ServerName<'static>, group: rustls::NamedGroup) {
             self.inner.set_kx_hint(server_name, group);
@@ -804,9 +837,6 @@ mod _ssl {
         // Session management
         #[pytraverse(skip)]
         client_session_cache: SessionCache,
-        // Rustls session store for actual TLS session resumption
-        #[pytraverse(skip)]
-        rustls_session_store: Arc<PythonClientSessionStore>,
         // Rustls server session store for server-side session resumption
         #[pytraverse(skip)]
         rustls_server_session_store: Arc<rustls::server::ServerSessionMemoryCache>,
@@ -1925,6 +1955,7 @@ mod _ssl {
                 ),
                 session: PyRwLock::new(None),
                 client_config: PyRwLock::new(None),
+                client_session_store: PyRwLock::new(None),
                 incoming_bio: None,
                 outgoing_bio: None,
                 sni_state: PyRwLock::new(None),
@@ -2013,6 +2044,7 @@ mod _ssl {
                 ),
                 session: PyRwLock::new(None),
                 client_config: PyRwLock::new(None),
+                client_session_store: PyRwLock::new(None),
                 incoming_bio: Some(args.incoming),
                 outgoing_bio: Some(args.outgoing),
                 sni_state: PyRwLock::new(None),
@@ -2313,18 +2345,9 @@ mod _ssl {
                 _ => (PROTO_MINIMUM_SUPPORTED, PROTO_MAXIMUM_SUPPORTED), // Auto-negotiate
             };
 
-            // IMPORTANT: Create shared session cache BEFORE PySSLContext
-            // Both client_session_cache and PythonClientSessionStore.session_cache
-            // MUST point to the same HashMap to ensure Python-level and Rustls-level
-            // sessions are synchronized
+            // Session metadata is scoped to the SSLContext. Each per-connection
+            // rustls session store records into this shared cache.
             let shared_session_cache = Arc::new(ParkingRwLock::new(HashMap::new()));
-            let rustls_client_store = Arc::new(PythonClientSessionStore {
-                inner: Arc::new(rustls::client::ClientSessionMemoryCache::new(
-                    SSL_SESSION_CACHE_SIZE,
-                )),
-                session_cache: shared_session_cache.clone(),
-            });
-
             Ok(Self {
                 context_identity: Arc::new(()),
                 protocol,
@@ -2350,7 +2373,6 @@ mod _ssl {
                 x509_cert_count: PyRwLock::new(0),
                 // Use the shared cache created above
                 client_session_cache: shared_session_cache,
-                rustls_session_store: rustls_client_store,
                 rustls_server_session_store: rustls::server::ServerSessionMemoryCache::new(
                     SSL_SESSION_CACHE_SIZE,
                 ),
@@ -2400,10 +2422,13 @@ mod _ssl {
         owner: PyRwLock<Option<PyRef<PyWeak>>>,
         // Session for resumption
         session: PyRwLock<Option<PyObjectRef>>,
-        // Client configuration used by this connection. Keeping it alive also keeps the
-        // rustls verifier and client credentials referenced by cached sessions alive.
+        // Client configuration used by this connection. Retained so the resulting
+        // SSLSession can reuse the same verifier and client credentials.
         #[pytraverse(skip)]
         client_config: PyRwLock<Option<Arc<rustls::ClientConfig>>>,
+        // Per-connection store containing the session selected by this connection.
+        #[pytraverse(skip)]
+        client_session_store: PyRwLock<Option<Arc<PythonClientSessionStore>>>,
         // MemoryBIO mode (optional)
         incoming_bio: Option<PyRef<PyMemoryBIO>>,
         outgoing_bio: Option<PyRef<PyMemoryBIO>>,
@@ -2513,12 +2538,11 @@ mod _ssl {
 
             // Try to get session data from context's session cache
             // IMPORTANT: Acquire and release locks quickly to avoid deadlock
-            let (context_identity, session_cache_arc, rustls_session_store) = {
+            let (context_identity, session_cache_arc) = {
                 let context = self.context.read();
                 (
                     context.context_identity.clone(),
                     context.client_session_cache.clone(),
-                    context.rustls_session_store.clone(),
                 )
             };
 
@@ -2554,22 +2578,31 @@ mod _ssl {
                 cached_session_data
             };
 
-            let rustls_server_name = server_name
+            let rustls_server_name = server_name.and_then(|name| ServerName::try_from(name).ok());
+            let protocol_version = self
+                .connection
+                .lock()
                 .as_ref()
-                .and_then(|name| ServerName::try_from(name.clone()).ok());
-            let tls12_session = rustls_server_name
-                .as_ref()
-                .and_then(|name| rustls_session_store.tls12_session(name));
+                .and_then(|connection| connection.protocol_version());
+            let session_kind = match protocol_version {
+                Some(rustls::ProtocolVersion::TLSv1_2) => ClientSessionKind::Tls12,
+                Some(rustls::ProtocolVersion::TLSv1_3) => ClientSessionKind::Tls13,
+                _ => return,
+            };
 
-            let Some(client_config) = self.client_config.read().clone() else {
+            let Some(client_config) = self.client_config.write().take() else {
+                return;
+            };
+            let Some(session_store) = self.client_session_store.write().take() else {
                 return;
             };
 
             let session = PySSLSession {
                 context_identity,
                 client_config,
+                session_store,
                 server_name: rustls_server_name,
-                tls12_session,
+                kind: session_kind,
                 session_id: session_data.session_id,
                 creation_time: session_data.creation_time,
                 lifetime: session_data.lifetime,
@@ -3518,8 +3551,7 @@ mod _ssl {
                     let verify_flags = *ctx.verify_flags.read();
                     let context_identity = ctx.context_identity.clone();
 
-                    // Get session store before dropping ctx
-                    let session_store = ctx.rustls_session_store.clone();
+                    let session_cache = ctx.client_session_cache.clone();
 
                     // Get CRLs for revocation checking
                     let crls_clone = ctx.crls.read().clone();
@@ -3546,6 +3578,7 @@ mod _ssl {
                     };
 
                     let explicit_session = self.session.read().clone();
+                    let session_store = Arc::new(PythonClientSessionStore::new(session_cache));
                     let config = if let Some(session) = explicit_session {
                         let session = session
                             .downcast_ref::<PySSLSession>()
@@ -3555,13 +3588,17 @@ mod _ssl {
                                 vm.new_value_error("Session refers to a different SSLContext.")
                             );
                         }
-                        if session.server_name.as_ref() == Some(&server_name)
-                            && let Some(tls12_session) = &session.tls12_session
-                        {
-                            session_store
-                                .set_tls12_session(server_name.clone(), tls12_session.clone());
+                        if session.server_name.as_ref() == Some(&server_name) {
+                            session.session_store.transfer_session(
+                                &session_store,
+                                &server_name,
+                                session.kind,
+                            );
                         }
-                        session.client_config.clone()
+                        let mut config = (*session.client_config).clone();
+                        config.resumption =
+                            rustls::client::Resumption::store(session_store.clone());
+                        Arc::new(config)
                     } else {
                         let config_options = ClientConfigOptions {
                             protocol_settings,
@@ -3580,7 +3617,7 @@ mod _ssl {
                             verify_server_cert: verify_mode != CERT_NONE,
                             check_hostname,
                             verify_flags,
-                            session_store: Some(session_store),
+                            session_store: Some(session_store.clone()),
                             crls: crls_clone,
                         };
                         Arc::new(
@@ -3590,6 +3627,7 @@ mod _ssl {
                     };
 
                     *self.client_config.write() = Some(config.clone());
+                    *self.client_session_store.write() = Some(session_store);
 
                     let conn = ClientConnection::new(config, server_name).map_err(|e| {
                         vm.new_value_error(format!("Failed to create client connection: {e}"))
@@ -4801,14 +4839,21 @@ mod _ssl {
 
     // SSLSession - represents a cached SSL session
     // NOTE: This is an EMULATION - actual session data is managed by Rustls internally
+    #[derive(Debug, Clone, Copy)]
+    enum ClientSessionKind {
+        Tls12,
+        Tls13,
+    }
+
     #[pyattr]
     #[pyclass(name = "SSLSession", module = "ssl")]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
         context_identity: Arc<()>,
         client_config: Arc<rustls::ClientConfig>,
+        session_store: Arc<PythonClientSessionStore>,
         server_name: Option<ServerName<'static>>,
-        tls12_session: Option<rustls::client::Tls12ClientSessionValue>,
+        kind: ClientSessionKind,
         // Session ID - synthetic ID generated from metadata (NOT actual TLS session ID)
         session_id: Vec<u8>,
         // Session metadata
