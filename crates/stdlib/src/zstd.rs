@@ -4,7 +4,6 @@
 // spell-checker:ignore srcsize zdict refprefix refcdict refddict pledgedsrcsize getframecontentsize
 // spell-checker:ignore Zstd Zstandard pylib RFC
 // spell-checker:ignore CLEVEL zstdmodule cparameter dparameter maxl c2rust
-// spell-checker:ignore cctx dctx CCTX DCTX ldm cdict ddict windowlog hashlog chainlog searchlog CLEVEL
 
 //! The `_zstd` extension module. Backs the pure-Python `compression.zstd`
 //! package by exposing the same classes, functions and constants that
