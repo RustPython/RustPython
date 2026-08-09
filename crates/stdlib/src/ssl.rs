@@ -137,6 +137,8 @@ mod _ssl {
     #[pyattr]
     const PROTOCOL_TLSv1_3: i32 = 6;
 
+    static NEXT_SSL_SESSION_NONCE: AtomicUsize = AtomicUsize::new(1);
+
     // Protocol version constants for TLSVersion enum
     #[pyattr]
     const PROTO_SSLv3: i32 = 0x0300;
@@ -439,6 +441,31 @@ mod _ssl {
         lifetime: u64,
     }
 
+    impl SessionData {
+        // NOTE: This is NOT the actual TLS session ID, just a unique identifier.
+        fn new(server_name: &str, lifetime: u64) -> Self {
+            let creation_time = SystemTime::now();
+            let nonce = NEXT_SSL_SESSION_NONCE.fetch_add(1, Ordering::Relaxed);
+            let mut hasher = Sha256::new();
+            hasher.update(server_name.as_bytes());
+            hasher.update(
+                creation_time
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+                    .to_le_bytes(),
+            );
+            hasher.update(nonce.to_le_bytes());
+
+            Self {
+                _server_name: server_name.to_owned(),
+                session_id: hasher.finalize()[..16].to_vec(),
+                creation_time,
+                lifetime,
+            }
+        }
+    }
+
     // Type alias to simplify complex session cache type
     type SessionCache = Arc<ParkingRwLock<HashMap<Vec<u8>, Arc<ParkingMutex<SessionData>>>>>;
 
@@ -466,26 +493,45 @@ mod _ssl {
     // ✓ session_reused - tracked via handshake_kind()
     // ✗ Actual TLS session ID/ticket data - NOT ACCESSIBLE
 
-    // Generate a synthetic session ID from server name and timestamp
-    // NOTE: This is NOT the actual TLS session ID, just a unique identifier
-    fn generate_session_id_from_metadata(server_name: &str, time: SystemTime) -> Vec<u8> {
-        let mut hasher = Sha256::new();
-        hasher.update(server_name.as_bytes());
-        hasher.update(
-            time.duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                .to_le_bytes(),
-        );
-        hasher.finalize()[..16].to_vec()
-    }
-
     // Custom ClientSessionStore that tracks session metadata for Python access
     // NOTE: This wraps ClientSessionMemoryCache and records metadata when sessions are stored
     #[derive(Debug)]
     struct PythonClientSessionStore {
         inner: Arc<ClientSessionMemoryCache>,
         session_cache: SessionCache,
+    }
+
+    impl PythonClientSessionStore {
+        fn new(session_cache: SessionCache) -> Self {
+            Self {
+                inner: Arc::new(ClientSessionMemoryCache::new(SSL_SESSION_CACHE_SIZE)),
+                session_cache,
+            }
+        }
+
+        fn transfer_session(
+            &self,
+            target: &Self,
+            server_name: &ServerName<'static>,
+            kind: ClientSessionKind,
+        ) {
+            if let Some(group) = self.kx_hint(server_name) {
+                target.set_kx_hint(server_name.clone(), group);
+            }
+
+            match kind {
+                ClientSessionKind::Tls12 => {
+                    if let Some(session) = self.tls12_session(server_name) {
+                        target.set_tls12_session(server_name.clone(), session);
+                    }
+                }
+                ClientSessionKind::Tls13 => {
+                    if let Some(ticket) = self.take_tls13_ticket(server_name) {
+                        target.insert_tls13_ticket(server_name.clone(), ticket);
+                    }
+                }
+            }
+        }
     }
 
     impl ClientSessionStore for PythonClientSessionStore {
@@ -508,17 +554,8 @@ mod _ssl {
             // Record metadata in Python-accessible cache
             // NOTE: We can't access value.session_id or value.ticket (private fields)
             // So we generate a synthetic ID from metadata
-            let creation_time = SystemTime::now();
             let server_name_str = server_name.to_str();
-            let session_data = SessionData {
-                _server_name: server_name_str.as_ref().to_string(),
-                session_id: generate_session_id_from_metadata(
-                    server_name_str.as_ref(),
-                    creation_time,
-                ),
-                creation_time,
-                lifetime: 7200, // TLS 1.2 default session lifetime
-            };
+            let session_data = SessionData::new(server_name_str.as_ref(), 7200);
 
             let key = server_name_str.as_bytes().to_vec();
             self.session_cache
@@ -552,17 +589,8 @@ mod _ssl {
             // Record metadata in Python-accessible cache
             // NOTE: We can't access value.ticket or value.lifetime_secs (private fields)
             // So we use default values
-            let creation_time = SystemTime::now();
             let server_name_str = server_name.to_str();
-            let session_data = SessionData {
-                _server_name: server_name_str.to_string(),
-                session_id: generate_session_id_from_metadata(
-                    server_name_str.as_ref(),
-                    creation_time,
-                ),
-                creation_time,
-                lifetime: 7200, // Default TLS 1.3 ticket lifetime (Rustls uses this)
-            };
+            let session_data = SessionData::new(server_name_str.as_ref(), 7200);
 
             let key = server_name_str.as_bytes().to_vec();
             self.session_cache
@@ -746,6 +774,8 @@ mod _ssl {
     #[derive(Debug, PyPayload)]
     struct PySSLContext {
         #[pytraverse(skip)]
+        context_identity: Arc<()>,
+        #[pytraverse(skip)]
         protocol: i32,
         #[pytraverse(skip)]
         check_hostname: PyRwLock<bool>,
@@ -807,9 +837,6 @@ mod _ssl {
         // Session management
         #[pytraverse(skip)]
         client_session_cache: SessionCache,
-        // Rustls session store for actual TLS session resumption
-        #[pytraverse(skip)]
-        rustls_session_store: Arc<PythonClientSessionStore>,
         // Rustls server session store for server-side session resumption
         #[pytraverse(skip)]
         rustls_server_session_store: Arc<rustls::server::ServerSessionMemoryCache>,
@@ -1926,8 +1953,9 @@ mod _ssl {
                         .map(|o| o.downgrade(None, vm))
                         .transpose()?,
                 ),
-                // Filter out Python None objects - only store actual SSLSession objects
-                session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
+                session: PyRwLock::new(None),
+                client_config: PyRwLock::new(None),
+                client_session_store: PyRwLock::new(None),
                 incoming_bio: None,
                 outgoing_bio: None,
                 sni_state: PyRwLock::new(None),
@@ -1944,6 +1972,12 @@ mod _ssl {
             let ssl_socket_ref = ssl_socket
                 .into_ref_with_type(vm, vm.class("_ssl", "_SSLSocket"))
                 .map_err(|_| vm.new_type_error("Failed to create SSLSocket"))?;
+
+            if let Some(session) = args.session.into_option()
+                && !vm.is_none(&session)
+            {
+                ssl_socket_ref.set_session(session, vm)?;
+            }
 
             Ok(ssl_socket_ref)
         }
@@ -2008,8 +2042,9 @@ mod _ssl {
                         .map(|o| o.downgrade(None, vm))
                         .transpose()?,
                 ),
-                // Filter out Python None objects - only store actual SSLSession objects
-                session: PyRwLock::new(args.session.into_option().filter(|s| !vm.is_none(s))),
+                session: PyRwLock::new(None),
+                client_config: PyRwLock::new(None),
+                client_session_store: PyRwLock::new(None),
                 incoming_bio: Some(args.incoming),
                 outgoing_bio: Some(args.outgoing),
                 sni_state: PyRwLock::new(None),
@@ -2025,6 +2060,12 @@ mod _ssl {
             let ssl_socket_ref = ssl_socket
                 .into_ref_with_type(vm, vm.class("_ssl", "_SSLSocket"))
                 .map_err(|_| vm.new_type_error("Failed to create SSLSocket"))?;
+
+            if let Some(session) = args.session.into_option()
+                && !vm.is_none(&session)
+            {
+                ssl_socket_ref.set_session(session, vm)?;
+            }
 
             Ok(ssl_socket_ref)
         }
@@ -2304,19 +2345,11 @@ mod _ssl {
                 _ => (PROTO_MINIMUM_SUPPORTED, PROTO_MAXIMUM_SUPPORTED), // Auto-negotiate
             };
 
-            // IMPORTANT: Create shared session cache BEFORE PySSLContext
-            // Both client_session_cache and PythonClientSessionStore.session_cache
-            // MUST point to the same HashMap to ensure Python-level and Rustls-level
-            // sessions are synchronized
+            // Session metadata is scoped to the SSLContext. Each per-connection
+            // rustls session store records into this shared cache.
             let shared_session_cache = Arc::new(ParkingRwLock::new(HashMap::new()));
-            let rustls_client_store = Arc::new(PythonClientSessionStore {
-                inner: Arc::new(rustls::client::ClientSessionMemoryCache::new(
-                    SSL_SESSION_CACHE_SIZE,
-                )),
-                session_cache: shared_session_cache.clone(),
-            });
-
             Ok(Self {
+                context_identity: Arc::new(()),
                 protocol,
                 check_hostname: PyRwLock::new(protocol == PROTOCOL_TLS_CLIENT),
                 verify_mode: PyRwLock::new(default_verify_mode),
@@ -2340,7 +2373,6 @@ mod _ssl {
                 x509_cert_count: PyRwLock::new(0),
                 // Use the shared cache created above
                 client_session_cache: shared_session_cache,
-                rustls_session_store: rustls_client_store,
                 rustls_server_session_store: rustls::server::ServerSessionMemoryCache::new(
                     SSL_SESSION_CACHE_SIZE,
                 ),
@@ -2390,6 +2422,13 @@ mod _ssl {
         owner: PyRwLock<Option<PyRef<PyWeak>>>,
         // Session for resumption
         session: PyRwLock<Option<PyObjectRef>>,
+        // Client configuration used by this connection. Retained so the resulting
+        // SSLSession can reuse the same verifier and client credentials.
+        #[pytraverse(skip)]
+        client_config: PyRwLock<Option<Arc<rustls::ClientConfig>>>,
+        // Per-connection store containing the session selected by this connection.
+        #[pytraverse(skip)]
+        client_session_store: PyRwLock<Option<Arc<PythonClientSessionStore>>>,
         // MemoryBIO mode (optional)
         incoming_bio: Option<PyRef<PyMemoryBIO>>,
         outgoing_bio: Option<PyRef<PyMemoryBIO>>,
@@ -2487,31 +2526,27 @@ mod _ssl {
         }
 
         // Create and store a session object after successful handshake
-        fn create_session_after_handshake(&self, vm: &VirtualMachine) {
+        fn create_session_after_handshake(&self, was_resumed: bool, vm: &VirtualMachine) {
             // Only create session for client-side connections
             if self.server_side {
                 return;
             }
 
-            // Check if session already exists
-            let session_opt = self.session.read().clone();
-            if let Some(ref s) = session_opt {
-                if vm.is_none(s) {
-                } else {
-                    return;
-                }
-            }
-
             // Get server hostname
             let server_name = self.server_hostname.read().clone();
+            let previous_session = self.session.read().clone();
 
             // Try to get session data from context's session cache
             // IMPORTANT: Acquire and release locks quickly to avoid deadlock
-            let context = self.context.read();
-            let session_cache_arc = context.client_session_cache.clone();
-            drop(context); // Release context lock ASAP
+            let (context_identity, session_cache_arc) = {
+                let context = self.context.read();
+                (
+                    context.context_identity.clone(),
+                    context.client_session_cache.clone(),
+                )
+            };
 
-            let (session_id, creation_time, lifetime) = if let Some(ref name) = server_name {
+            let cached_session_data = if let Some(ref name) = server_name {
                 let key = name.as_bytes().to_vec();
 
                 // Clone the data we need while holding the lock, then immediately release
@@ -2521,29 +2556,57 @@ mod _ssl {
                 }; // Lock released here
 
                 if let Some(session_data_arc) = session_data_opt {
-                    let data = session_data_arc.lock();
-                    let result = (data.session_id.clone(), data.creation_time, data.lifetime);
-                    drop(data); // Explicit unlock
-                    result
+                    session_data_arc.lock().clone()
                 } else {
-                    // Create new session ID if not in cache
-                    let time = std::time::SystemTime::now();
-                    (generate_session_id_from_metadata(name, time), time, 7200)
+                    SessionData::new(name, 7200)
                 }
             } else {
-                // No server name, use defaults
-                let time = std::time::SystemTime::now();
-                (vec![0; 16], time, 7200)
+                SessionData::new("", 7200)
             };
 
-            // Create a new SSLSession object with real metadata
+            let session_data = if was_resumed {
+                previous_session
+                    .as_ref()
+                    .and_then(|session| session.downcast_ref::<PySSLSession>())
+                    .map_or(cached_session_data, |session| SessionData {
+                        _server_name: server_name.clone().unwrap_or_default(),
+                        session_id: session.session_id.clone(),
+                        creation_time: session.creation_time,
+                        lifetime: session.lifetime,
+                    })
+            } else {
+                cached_session_data
+            };
+
+            let rustls_server_name = server_name.and_then(|name| ServerName::try_from(name).ok());
+            let protocol_version = self
+                .connection
+                .lock()
+                .as_ref()
+                .and_then(|connection| connection.protocol_version());
+            let session_kind = match protocol_version {
+                Some(rustls::ProtocolVersion::TLSv1_2) => ClientSessionKind::Tls12,
+                Some(rustls::ProtocolVersion::TLSv1_3) => ClientSessionKind::Tls13,
+                _ => return,
+            };
+
+            let Some(client_config) = self.client_config.write().take() else {
+                return;
+            };
+            let Some(session_store) = self.client_session_store.write().take() else {
+                return;
+            };
+
             let session = PySSLSession {
-                // Use dummy session data to indicate we have a ticket
-                // TLS 1.2+ always uses session tickets/resumption
-                session_data: vec![1], // Non-empty to indicate has_ticket=True
-                session_id,
-                creation_time,
-                lifetime,
+                context_identity,
+                client_config,
+                session_store,
+                server_name: rustls_server_name,
+                kind: session_kind,
+                session_id: session_data.session_id,
+                creation_time: session_data.creation_time,
+                lifetime: session_data.lifetime,
+                has_ticket: true,
             };
 
             let py_session = session.into_pyobject(vm);
@@ -2638,7 +2701,7 @@ mod _ssl {
                 let _ = self.track_used_ca_from_capath();
             }
 
-            self.create_session_after_handshake(vm);
+            self.create_session_after_handshake(was_resumed, vm);
         }
 
         // Internal implementation with timeout control
@@ -3486,40 +3549,15 @@ mod _ssl {
 
                     let check_hostname = *ctx.check_hostname.read();
                     let verify_flags = *ctx.verify_flags.read();
+                    let context_identity = ctx.context_identity.clone();
 
-                    // Get session store before dropping ctx
-                    let session_store = ctx.rustls_session_store.clone();
+                    let session_cache = ctx.client_session_cache.clone();
 
                     // Get CRLs for revocation checking
                     let crls_clone = ctx.crls.read().clone();
 
                     // Drop ctx early to avoid borrow conflicts
                     drop(ctx);
-
-                    // Build client config using compat helper
-                    let config_options = ClientConfigOptions {
-                        protocol_settings,
-                        root_store: if verify_mode != CERT_NONE {
-                            Some(root_store_clone)
-                        } else {
-                            None
-                        },
-                        ca_certs_der: ca_certs_der_clone,
-                        cert_chain: if !cert_chain_clone.is_empty() {
-                            Some(cert_chain_clone)
-                        } else {
-                            None
-                        },
-                        private_key: private_key_opt,
-                        verify_server_cert: verify_mode != CERT_NONE,
-                        check_hostname,
-                        verify_flags,
-                        session_store: Some(session_store),
-                        crls: crls_clone,
-                    };
-
-                    let config =
-                        create_client_config(config_options).map_err(|e| vm.new_value_error(e))?;
 
                     // Parse server name for SNI
                     // Convert to ServerName
@@ -3539,10 +3577,61 @@ mod _ssl {
                         )
                     };
 
-                    let conn = ClientConnection::new(Arc::new(config), server_name.clone())
-                        .map_err(|e| {
-                            vm.new_value_error(format!("Failed to create client connection: {e}"))
-                        })?;
+                    let explicit_session = self.session.read().clone();
+                    let session_store = Arc::new(PythonClientSessionStore::new(session_cache));
+                    let config = if let Some(session) = explicit_session {
+                        let session = session
+                            .downcast_ref::<PySSLSession>()
+                            .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
+                        if !Arc::ptr_eq(&session.context_identity, &context_identity) {
+                            return Err(
+                                vm.new_value_error("Session refers to a different SSLContext.")
+                            );
+                        }
+                        if session.server_name.as_ref() == Some(&server_name) {
+                            session.session_store.transfer_session(
+                                &session_store,
+                                &server_name,
+                                session.kind,
+                            );
+                        }
+                        let mut config = (*session.client_config).clone();
+                        config.resumption =
+                            rustls::client::Resumption::store(session_store.clone());
+                        Arc::new(config)
+                    } else {
+                        let config_options = ClientConfigOptions {
+                            protocol_settings,
+                            root_store: if verify_mode != CERT_NONE {
+                                Some(root_store_clone)
+                            } else {
+                                None
+                            },
+                            ca_certs_der: ca_certs_der_clone,
+                            cert_chain: if !cert_chain_clone.is_empty() {
+                                Some(cert_chain_clone)
+                            } else {
+                                None
+                            },
+                            private_key: private_key_opt,
+                            verify_server_cert: verify_mode != CERT_NONE,
+                            check_hostname,
+                            verify_flags,
+                            session_store: Some(session_store.clone()),
+                            crls: crls_clone,
+                        };
+                        Arc::new(
+                            create_client_config(config_options)
+                                .map_err(|e| vm.new_value_error(e))?,
+                        )
+                    };
+
+                    *self.client_config.write() = Some(config.clone());
+                    *self.client_session_store.write() = Some(session_store);
+
+                    let conn = ClientConnection::new(config, server_name).map_err(|e| {
+                        vm.new_value_error(format!("Failed to create client connection: {e}"))
+                    })?;
 
                     *conn_guard = Some(Connection::Client(conn));
                 }
@@ -4046,12 +4135,15 @@ mod _ssl {
 
         #[pygetset(setter)]
         fn set_session(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            // Validate that value is an SSLSession
-            if !value.is(vm.ctx.types.none_type) {
-                // Try to downcast to SSLSession to validate
-                let _ = value
-                    .downcast_ref::<PySSLSession>()
-                    .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
+            let session = value
+                .downcast_ref::<PySSLSession>()
+                .ok_or_else(|| vm.new_type_error("Value is not a SSLSession."))?;
+
+            if !Arc::ptr_eq(
+                &session.context_identity,
+                &self.context.read().context_identity,
+            ) {
+                return Err(vm.new_value_error("Session refers to a different SSLContext."));
             }
 
             // Check if this is a client socket
@@ -4065,11 +4157,7 @@ mod _ssl {
             }
 
             // Store the session for potential use during handshake
-            *self.session.write() = if value.is(vm.ctx.types.none_type) {
-                None
-            } else {
-                Some(value)
-            };
+            *self.session.write() = Some(value);
 
             Ok(())
         }
@@ -4751,22 +4839,31 @@ mod _ssl {
 
     // SSLSession - represents a cached SSL session
     // NOTE: This is an EMULATION - actual session data is managed by Rustls internally
+    #[derive(Debug, Clone, Copy)]
+    enum ClientSessionKind {
+        Tls12,
+        Tls13,
+    }
+
     #[pyattr]
     #[pyclass(name = "SSLSession", module = "ssl")]
     #[derive(Debug, PyPayload)]
     struct PySSLSession {
-        // Session data - serialized rustls session (EMULATED - kept empty)
-        session_data: Vec<u8>,
+        context_identity: Arc<()>,
+        client_config: Arc<rustls::ClientConfig>,
+        session_store: Arc<PythonClientSessionStore>,
+        server_name: Option<ServerName<'static>>,
+        kind: ClientSessionKind,
         // Session ID - synthetic ID generated from metadata (NOT actual TLS session ID)
-        #[allow(dead_code)]
         session_id: Vec<u8>,
         // Session metadata
         creation_time: std::time::SystemTime,
         // Lifetime in seconds (default 7200 = 2 hours)
         lifetime: u64,
+        has_ticket: bool,
     }
 
-    #[pyclass(flags(BASETYPE))]
+    #[pyclass(flags(BASETYPE), with(Comparable))]
     impl PySSLSession {
         #[pygetset]
         fn time(&self) -> i64 {
@@ -4791,20 +4888,29 @@ mod _ssl {
 
         #[pygetset]
         fn id(&self, vm: &VirtualMachine) -> PyBytesRef {
-            // Return session ID (hash of session data for uniqueness)
-
-            let mut hasher = DefaultHasher::new();
-            self.session_data.hash(&mut hasher);
-            let hash = hasher.finish();
-
-            // Convert hash to bytes
-            vm.ctx.new_bytes(hash.to_be_bytes().to_vec())
+            vm.ctx.new_bytes(self.session_id.clone())
         }
 
         #[pygetset]
         fn has_ticket(&self) -> bool {
-            // For rustls, if we have session data, we have a ticket
-            !self.session_data.is_empty()
+            self.has_ticket
+        }
+    }
+
+    impl Comparable for PySSLSession {
+        fn cmp(
+            zelf: &Py<Self>,
+            other: &PyObject,
+            op: PyComparisonOp,
+            _vm: &VirtualMachine,
+        ) -> PyResult<PyComparisonValue> {
+            op.eq_only(|| {
+                if let Some(other_session) = other.downcast_ref::<Self>() {
+                    Ok((zelf.session_id == other_session.session_id).into())
+                } else {
+                    Ok(PyComparisonValue::NotImplemented)
+                }
+            })
         }
     }
 
