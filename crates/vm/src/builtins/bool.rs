@@ -1,5 +1,4 @@
 use super::{PyInt, PyStrRef, PyType, PyTypeRef, PyUtf8StrRef};
-use crate::common::format::FormatSpec;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
     class::PyClassImpl,
@@ -100,9 +99,10 @@ impl Constructor for PyBool {
 impl PyBool {
     #[pymethod]
     fn __format__(obj: PyObjectRef, spec: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<String> {
+        let format_spec = crate::format::parse_format_spec(obj.as_object(), spec.as_str(), vm)?;
         let new_bool = obj.try_to_bool(vm)?;
-        FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| format_spec.format_bool(new_bool))
+        format_spec
+            .format_bool(new_bool)
             .map_err(|err| err.into_pyexception(vm))
     }
 }
