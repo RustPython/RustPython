@@ -927,10 +927,6 @@ impl VirtualMachine {
             args,
         )
         .expect("StopIteration construction from internal args is infallible")
-        // `PyStopIteration` -> `PyBaseException` needs an owned upcast here.
-        // `.upcast()` does a runtime downcast; the zero-cost `upcast_ref`/`to_base`
-        // only return `&Py<_>`, which doesn't fit the owned `PyBaseExceptionRef`
-        // return. Keeping the downcast for now.
         .upcast()
     }
 
