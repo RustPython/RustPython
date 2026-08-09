@@ -1,5 +1,6 @@
 import csv
 import io
+import sys
 
 from testutils import assert_raises
 
@@ -260,6 +261,42 @@ def test_multichar_lineterminator():
 
 
 test_multichar_lineterminator()
+
+
+def test_reject_non_ascii_lineterminator():
+    # CPython accepts non-ASCII line terminators; RustPython rejects them
+    # because the writer quotes and escapes byte by byte. Supporting them
+    # requires code-point-wise handling as part of full Unicode dialect support.
+    with assert_raises(csv.Error):
+        csv.writer(io.StringIO(), lineterminator="é")
+
+    with assert_raises(csv.Error):
+        csv.writer(io.StringIO(), lineterminator="\x85")
+
+    with assert_raises(csv.Error):
+        csv.writer(io.StringIO(), lineterminator="\ud800")
+
+    with assert_raises(csv.Error):
+        csv.writer(
+            io.StringIO(), lineterminator="é", quoting=csv.QUOTE_NONE, escapechar="\\"
+        )
+
+    with assert_raises(csv.Error):
+        csv.register_dialect("non_ascii_lt", lineterminator="é")
+
+    class NonAsciiDialect(csv.excel):
+        lineterminator = "é"
+
+    with assert_raises(csv.Error):
+        NonAsciiDialect()
+
+    buf = io.StringIO()
+    csv.writer(buf, lineterminator="!@#").writerow(["a", "b"])
+    assert buf.getvalue() == "a,b!@#"
+
+
+if sys.implementation.name == "rustpython":
+    test_reject_non_ascii_lineterminator()
 
 
 def test_empty_lineterminator():
