@@ -519,13 +519,14 @@ pub fn set_errno(value: i32) {
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn set_errno(_value: i32) {}
 
-#[cfg(unix)]
+// WASIp1, like Unix, provides byte-preserving OsStr conversions.
+#[cfg(any(unix, all(target_os = "wasi", not(target_env = "p2"))))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    use std::os::unix::ffi::OsStrExt;
+    use self::ffi::OsStrExt;
     Ok(std::ffi::OsStr::from_bytes(b))
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, all(target_os = "wasi", not(target_env = "p2")))))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(core::str::from_utf8(b)?.as_ref())
 }
