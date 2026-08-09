@@ -65,6 +65,7 @@ pub use windows_sys::Win32::{
     },
     UI::WindowsAndMessaging::SW_HIDE,
 };
+use windows_sys::w;
 
 pub type Handle = HANDLE;
 pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
@@ -1093,14 +1094,14 @@ where
             return Err(MimeRegistryReadError::Os(err));
         }
 
-        let content_type_key: Vec<u16> = "Content Type\0".encode_utf16().collect();
+        let content_type_key = w!("Content Type");
         let mut type_buf = [0u16; 256];
         let mut cb_type = (type_buf.len() * 2) as u32;
         let mut reg_type = 0;
         let err = unsafe {
             RegQueryValueExW(
                 subkey,
-                content_type_key.as_ptr(),
+                content_type_key,
                 core::ptr::null_mut(),
                 &mut reg_type,
                 type_buf.as_mut_ptr().cast(),
