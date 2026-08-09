@@ -635,7 +635,7 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     fn exit(vm: &VirtualMachine) -> PyResult {
-        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![])?)
+        Err(vm.new_system_exit(vec![].into()))
     }
 
     thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) });
