@@ -3,7 +3,7 @@
 // spell-checker:ignore btlazy dfast nbworkers windowlogmax windowlog overlap targetcblock
 // spell-checker:ignore srcsize zdict refprefix refcdict refddict pledgedsrcsize getframecontentsize
 // spell-checker:ignore Zstd Zstandard pylib RFC
-// spell-checker:ignore CLEVEL zstdmodule cparameter dparameter maxl
+// spell-checker:ignore CLEVEL zstdmodule cparameter dparameter maxl c2rust
 // spell-checker:ignore cctx dctx CCTX DCTX ldm cdict ddict windowlog hashlog chainlog searchlog CLEVEL
 
 //! The `_zstd` extension module. Backs the pure-Python `compression.zstd`
@@ -12,10 +12,9 @@
 //! `Lib/compression/zstd/__init__.py` imports from this module unconditionally,
 //! so the names and call signatures here must stay in sync with CPython.
 //!
-//! Backend: the `zstd_safe` Rust crate (a thin safe wrapper over Facebook's
-//! libzstd C library, which is what CPython links against). A handful of
-//! routines that `zstd_safe` does not expose at a safe level (parameter
-//! bounds, dictionary finalization) drop down to raw `zstd_sys` FFI calls.
+//! Backend: the `libzstd-rs-sys` crate (Trifecta Tech Foundation's pure-Rust
+//! c2rust translation of Facebook's libzstd, the C library CPython links
+//! against), used directly through its `unsafe extern "C"` API surface.
 
 pub(crate) use _zstd::module_def;
 
@@ -26,7 +25,23 @@ pub(crate) use _zstd::module_def;
 #[allow(non_upper_case_globals)]
 #[pymodule]
 mod _zstd {
-    use core::ffi::c_int;
+    use core::ffi::{CStr, c_int};
+    use libzstd_rs_sys::lib::compress::zstd_compress::{ZSTD_e_continue, ZSTD_e_end, ZSTD_e_flush};
+    use libzstd_rs_sys::lib::zdict::ZDICT_finalizeDictionary;
+    use libzstd_rs_sys::{
+        ZDICT_getErrorName, ZDICT_isError, ZDICT_params_t, ZDICT_trainFromBuffer, ZSTD_CCtx,
+        ZSTD_CCtx_loadDictionary, ZSTD_CCtx_refCDict, ZSTD_CCtx_refPrefix, ZSTD_CCtx_setParameter,
+        ZSTD_CCtx_setPledgedSrcSize, ZSTD_CDict, ZSTD_CONTENTSIZE_ERROR, ZSTD_CONTENTSIZE_UNKNOWN,
+        ZSTD_CStreamOutSize, ZSTD_DCtx, ZSTD_DCtx_loadDictionary, ZSTD_DCtx_refDDict,
+        ZSTD_DCtx_refPrefix, ZSTD_DCtx_setParameter, ZSTD_DDict, ZSTD_DStreamOutSize,
+        ZSTD_EndDirective, ZSTD_cParam_getBounds, ZSTD_cParameter, ZSTD_compressStream2,
+        ZSTD_createCCtx, ZSTD_createCDict, ZSTD_createDCtx, ZSTD_createDDict,
+        ZSTD_dParam_getBounds, ZSTD_dParameter, ZSTD_decompressStream,
+        ZSTD_findFrameCompressedSize, ZSTD_freeCCtx, ZSTD_freeCDict, ZSTD_freeDCtx, ZSTD_freeDDict,
+        ZSTD_getDictID_fromDict, ZSTD_getDictID_fromFrame, ZSTD_getErrorName,
+        ZSTD_getFrameContentSize, ZSTD_inBuffer, ZSTD_isError, ZSTD_outBuffer, ZSTD_strategy,
+        ZSTD_versionNumber, ZSTD_versionString,
+    };
     use rustpython_common::lock::PyMutex;
     use rustpython_vm::builtins::{
         PyBaseExceptionRef, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
@@ -36,94 +51,98 @@ mod _zstd {
     use rustpython_vm::{
         AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     };
-    use zstd_safe::zstd_sys;
-    use zstd_safe::{CCtx, CParameter, DCtx, DParameter, InBuffer, OutBuffer};
 
     #[pyattr]
-    const ZSTD_CLEVEL_DEFAULT: i32 = zstd_sys::ZSTD_CLEVEL_DEFAULT as i32;
+    const ZSTD_CLEVEL_DEFAULT: i32 = libzstd_rs_sys::ZSTD_CLEVEL_DEFAULT;
 
     // Compression parameter identifiers. Values match the `ZSTD_cParameter`
     // enum in libzstd, which is what the public `CompressionParameter` IntEnum
     // in `Lib/compression/zstd/__init__.py` derives its members from.
+    // libzstd-rs-sys models the enum as a newtype whose inner value is
+    // crate-private, so the ids — frozen C ABI values from zstd.h — are
+    // spelled out as literals here.
     #[pyattr]
-    const ZSTD_c_compressionLevel: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_compressionLevel as i32;
+    const ZSTD_c_compressionLevel: i32 = 100;
     #[pyattr]
-    const ZSTD_c_windowLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_windowLog as i32;
+    const ZSTD_c_windowLog: i32 = 101;
     #[pyattr]
-    const ZSTD_c_hashLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_hashLog as i32;
+    const ZSTD_c_hashLog: i32 = 102;
     #[pyattr]
-    const ZSTD_c_chainLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_chainLog as i32;
+    const ZSTD_c_chainLog: i32 = 103;
     #[pyattr]
-    const ZSTD_c_searchLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_searchLog as i32;
+    const ZSTD_c_searchLog: i32 = 104;
     #[pyattr]
-    const ZSTD_c_minMatch: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_minMatch as i32;
+    const ZSTD_c_minMatch: i32 = 105;
     #[pyattr]
-    const ZSTD_c_targetLength: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_targetLength as i32;
+    const ZSTD_c_targetLength: i32 = 106;
     #[pyattr]
-    const ZSTD_c_strategy: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_strategy as i32;
+    const ZSTD_c_strategy: i32 = 107;
     #[pyattr]
-    const ZSTD_c_enableLongDistanceMatching: i32 =
-        zstd_sys::ZSTD_cParameter::ZSTD_c_enableLongDistanceMatching as i32;
+    const ZSTD_c_enableLongDistanceMatching: i32 = 160;
     #[pyattr]
-    const ZSTD_c_ldmHashLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_ldmHashLog as i32;
+    const ZSTD_c_ldmHashLog: i32 = 161;
     #[pyattr]
-    const ZSTD_c_ldmMinMatch: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_ldmMinMatch as i32;
+    const ZSTD_c_ldmMinMatch: i32 = 162;
     #[pyattr]
-    const ZSTD_c_ldmBucketSizeLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_ldmBucketSizeLog as i32;
+    const ZSTD_c_ldmBucketSizeLog: i32 = 163;
     #[pyattr]
-    const ZSTD_c_ldmHashRateLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_ldmHashRateLog as i32;
+    const ZSTD_c_ldmHashRateLog: i32 = 164;
     #[pyattr]
-    const ZSTD_c_contentSizeFlag: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_contentSizeFlag as i32;
+    const ZSTD_c_contentSizeFlag: i32 = 200;
     #[pyattr]
-    const ZSTD_c_checksumFlag: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_checksumFlag as i32;
+    const ZSTD_c_checksumFlag: i32 = 201;
     #[pyattr]
-    const ZSTD_c_dictIDFlag: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_dictIDFlag as i32;
+    const ZSTD_c_dictIDFlag: i32 = 202;
     #[pyattr]
-    const ZSTD_c_nbWorkers: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_nbWorkers as i32;
+    const ZSTD_c_nbWorkers: i32 = 400;
     #[pyattr]
-    const ZSTD_c_jobSize: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_jobSize as i32;
+    const ZSTD_c_jobSize: i32 = 401;
     #[pyattr]
-    const ZSTD_c_overlapLog: i32 = zstd_sys::ZSTD_cParameter::ZSTD_c_overlapLog as i32;
+    const ZSTD_c_overlapLog: i32 = 402;
 
     // Decompression parameter identifiers. libzstd only exposes one non-
     // experimental decompression parameter.
     #[pyattr]
-    const ZSTD_d_windowLogMax: i32 = zstd_sys::ZSTD_dParameter::ZSTD_d_windowLogMax as i32;
+    const ZSTD_d_windowLogMax: i32 = 100;
 
     // Strategy enum members ordered from fastest to strongest. These power
     // the `Strategy` IntEnum in `Lib/compression/zstd/__init__.py`.
     #[pyattr]
-    const ZSTD_fast: i32 = zstd_sys::ZSTD_strategy::ZSTD_fast as i32;
+    const ZSTD_fast: i32 = libzstd_rs_sys::lib::zstd::ZSTD_fast as i32;
     #[pyattr]
-    const ZSTD_dfast: i32 = zstd_sys::ZSTD_strategy::ZSTD_dfast as i32;
+    const ZSTD_dfast: i32 = libzstd_rs_sys::lib::zstd::ZSTD_dfast as i32;
     #[pyattr]
-    const ZSTD_greedy: i32 = zstd_sys::ZSTD_strategy::ZSTD_greedy as i32;
+    const ZSTD_greedy: i32 = libzstd_rs_sys::lib::zstd::ZSTD_greedy as i32;
     #[pyattr]
-    const ZSTD_lazy: i32 = zstd_sys::ZSTD_strategy::ZSTD_lazy as i32;
+    const ZSTD_lazy: i32 = libzstd_rs_sys::lib::zstd::ZSTD_lazy as i32;
     #[pyattr]
-    const ZSTD_lazy2: i32 = zstd_sys::ZSTD_strategy::ZSTD_lazy2 as i32;
+    const ZSTD_lazy2: i32 = libzstd_rs_sys::lib::zstd::ZSTD_lazy2 as i32;
     #[pyattr]
-    const ZSTD_btlazy2: i32 = zstd_sys::ZSTD_strategy::ZSTD_btlazy2 as i32;
+    const ZSTD_btlazy2: i32 = libzstd_rs_sys::lib::zstd::ZSTD_btlazy2 as i32;
     #[pyattr]
-    const ZSTD_btopt: i32 = zstd_sys::ZSTD_strategy::ZSTD_btopt as i32;
+    const ZSTD_btopt: i32 = libzstd_rs_sys::lib::zstd::ZSTD_btopt as i32;
     #[pyattr]
-    const ZSTD_btultra: i32 = zstd_sys::ZSTD_strategy::ZSTD_btultra as i32;
+    const ZSTD_btultra: i32 = libzstd_rs_sys::lib::zstd::ZSTD_btultra as i32;
     #[pyattr]
-    const ZSTD_btultra2: i32 = zstd_sys::ZSTD_strategy::ZSTD_btultra2 as i32;
+    const ZSTD_btultra2: i32 = libzstd_rs_sys::lib::zstd::ZSTD_btultra2 as i32;
 
     #[pyattr(once, name = "zstd_version")]
     fn zstd_version(_vm: &VirtualMachine) -> String {
-        zstd_safe::version_string().to_string()
+        // SAFETY: `ZSTD_versionString` returns a pointer to libzstd's static,
+        // NUL-terminated version string.
+        unsafe { CStr::from_ptr(ZSTD_versionString()) }
+            .to_string_lossy()
+            .into_owned()
     }
 
     #[pyattr(once, name = "zstd_version_number")]
     fn zstd_version_number(_vm: &VirtualMachine) -> u32 {
-        zstd_safe::version_number()
+        ZSTD_versionNumber()
     }
 
     #[pyattr(once, name = "ZSTD_DStreamOutSize")]
     fn zstd_dstream_out_size(_vm: &VirtualMachine) -> usize {
-        DCtx::out_size()
+        ZSTD_DStreamOutSize()
     }
 
     // Dictionary load type markers. The `ZstdDict.as_*` properties wrap the
@@ -152,7 +171,10 @@ mod _zstd {
     /// functions when `ZSTD_isError(code)` is non-zero) into a `ZstdError`
     /// carrying the human-readable message from `ZSTD_getErrorName`.
     fn catch_zstd_error(code: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        new_zstd_error(zstd_safe::get_error_name(code).to_string(), vm)
+        // SAFETY: `ZSTD_getErrorName` returns a pointer to a static,
+        // NUL-terminated error string from libzstd's error table.
+        let name = unsafe { CStr::from_ptr(ZSTD_getErrorName(code)) };
+        new_zstd_error(name.to_string_lossy(), vm)
     }
 
     /// Reject an options-dict `key` whose class is the parameter enum that is
@@ -184,92 +206,80 @@ mod _zstd {
         Ok(())
     }
 
-    /// Map a compression parameter id to its raw libzstd `ZSTD_cParameter`
-    /// enum value. Returns `None` for unknown ids so callers can surface a
+    /// Map a compression parameter id to its libzstd `ZSTD_cParameter`
+    /// constant. Returns `None` for unknown ids so callers can surface a
     /// targeted `ValueError`. Done with an explicit match rather than
     /// `mem::transmute` so passing junk like `ZSTD_cParameter(42)` cannot
     /// be triggered from Python.
-    fn c_param_enum(param: i32) -> Option<zstd_sys::ZSTD_cParameter> {
-        use zstd_sys::ZSTD_cParameter as P;
+    fn c_param_enum(param: i32) -> Option<ZSTD_cParameter> {
         Some(match param {
-            ZSTD_c_compressionLevel => P::ZSTD_c_compressionLevel,
-            ZSTD_c_windowLog => P::ZSTD_c_windowLog,
-            ZSTD_c_hashLog => P::ZSTD_c_hashLog,
-            ZSTD_c_chainLog => P::ZSTD_c_chainLog,
-            ZSTD_c_searchLog => P::ZSTD_c_searchLog,
-            ZSTD_c_minMatch => P::ZSTD_c_minMatch,
-            ZSTD_c_targetLength => P::ZSTD_c_targetLength,
-            ZSTD_c_strategy => P::ZSTD_c_strategy,
-            ZSTD_c_enableLongDistanceMatching => P::ZSTD_c_enableLongDistanceMatching,
-            ZSTD_c_ldmHashLog => P::ZSTD_c_ldmHashLog,
-            ZSTD_c_ldmMinMatch => P::ZSTD_c_ldmMinMatch,
-            ZSTD_c_ldmBucketSizeLog => P::ZSTD_c_ldmBucketSizeLog,
-            ZSTD_c_ldmHashRateLog => P::ZSTD_c_ldmHashRateLog,
-            ZSTD_c_contentSizeFlag => P::ZSTD_c_contentSizeFlag,
-            ZSTD_c_checksumFlag => P::ZSTD_c_checksumFlag,
-            ZSTD_c_dictIDFlag => P::ZSTD_c_dictIDFlag,
-            ZSTD_c_nbWorkers => P::ZSTD_c_nbWorkers,
-            ZSTD_c_jobSize => P::ZSTD_c_jobSize,
-            ZSTD_c_overlapLog => P::ZSTD_c_overlapLog,
+            ZSTD_c_compressionLevel => ZSTD_cParameter::ZSTD_c_compressionLevel,
+            ZSTD_c_windowLog => ZSTD_cParameter::ZSTD_c_windowLog,
+            ZSTD_c_hashLog => ZSTD_cParameter::ZSTD_c_hashLog,
+            ZSTD_c_chainLog => ZSTD_cParameter::ZSTD_c_chainLog,
+            ZSTD_c_searchLog => ZSTD_cParameter::ZSTD_c_searchLog,
+            ZSTD_c_minMatch => ZSTD_cParameter::ZSTD_c_minMatch,
+            ZSTD_c_targetLength => ZSTD_cParameter::ZSTD_c_targetLength,
+            ZSTD_c_strategy => ZSTD_cParameter::ZSTD_c_strategy,
+            ZSTD_c_enableLongDistanceMatching => ZSTD_cParameter::ZSTD_c_enableLongDistanceMatching,
+            ZSTD_c_ldmHashLog => ZSTD_cParameter::ZSTD_c_ldmHashLog,
+            ZSTD_c_ldmMinMatch => ZSTD_cParameter::ZSTD_c_ldmMinMatch,
+            ZSTD_c_ldmBucketSizeLog => ZSTD_cParameter::ZSTD_c_ldmBucketSizeLog,
+            ZSTD_c_ldmHashRateLog => ZSTD_cParameter::ZSTD_c_ldmHashRateLog,
+            ZSTD_c_contentSizeFlag => ZSTD_cParameter::ZSTD_c_contentSizeFlag,
+            ZSTD_c_checksumFlag => ZSTD_cParameter::ZSTD_c_checksumFlag,
+            ZSTD_c_dictIDFlag => ZSTD_cParameter::ZSTD_c_dictIDFlag,
+            ZSTD_c_nbWorkers => ZSTD_cParameter::ZSTD_c_nbWorkers,
+            ZSTD_c_jobSize => ZSTD_cParameter::ZSTD_c_jobSize,
+            ZSTD_c_overlapLog => ZSTD_cParameter::ZSTD_c_overlapLog,
             _ => return None,
         })
     }
 
-    /// Map a decompression parameter id to its raw libzstd `ZSTD_dParameter`
-    /// enum value. See [`c_param_enum`] for rationale.
-    fn d_param_enum(param: i32) -> Option<zstd_sys::ZSTD_dParameter> {
-        use zstd_sys::ZSTD_dParameter as P;
+    /// Map a decompression parameter id to its libzstd `ZSTD_dParameter`
+    /// constant. See [`c_param_enum`] for rationale.
+    fn d_param_enum(param: i32) -> Option<ZSTD_dParameter> {
         match param {
-            ZSTD_d_windowLogMax => Some(P::ZSTD_d_windowLogMax),
+            ZSTD_d_windowLogMax => Some(ZSTD_dParameter::ZSTD_d_windowLogMax),
             _ => None,
         }
     }
 
-    /// Map a compression-parameter id and integer value to a `CParameter`
-    /// variant. Used by the compressor's `options=` constructor argument.
-    fn cparameter_from_int(param: i32, value: i32, vm: &VirtualMachine) -> PyResult<CParameter> {
-        let p = match param {
-            ZSTD_c_compressionLevel => CParameter::CompressionLevel(value),
-            ZSTD_c_windowLog => CParameter::WindowLog(value as u32),
-            ZSTD_c_hashLog => CParameter::HashLog(value as u32),
-            ZSTD_c_chainLog => CParameter::ChainLog(value as u32),
-            ZSTD_c_searchLog => CParameter::SearchLog(value as u32),
-            ZSTD_c_minMatch => CParameter::MinMatch(value as u32),
-            ZSTD_c_targetLength => CParameter::TargetLength(value as u32),
-            ZSTD_c_strategy => {
-                CParameter::Strategy(strategy_from_int(value).ok_or_else(|| {
-                    new_zstd_error(format!("invalid strategy value: {value}"), vm)
-                })?)
-            }
-            ZSTD_c_enableLongDistanceMatching => CParameter::EnableLongDistanceMatching(value != 0),
-            ZSTD_c_ldmHashLog => CParameter::LdmHashLog(value as u32),
-            ZSTD_c_ldmMinMatch => CParameter::LdmMinMatch(value as u32),
-            ZSTD_c_ldmBucketSizeLog => CParameter::LdmBucketSizeLog(value as u32),
-            ZSTD_c_ldmHashRateLog => CParameter::LdmHashRateLog(value as u32),
-            ZSTD_c_contentSizeFlag => CParameter::ContentSizeFlag(value != 0),
-            ZSTD_c_checksumFlag => CParameter::ChecksumFlag(value != 0),
-            ZSTD_c_dictIDFlag => CParameter::DictIdFlag(value != 0),
-            ZSTD_c_nbWorkers => CParameter::NbWorkers(value as u32),
-            ZSTD_c_jobSize => CParameter::JobSize(value as u32),
-            ZSTD_c_overlapLog => CParameter::OverlapSizeLog(value as u32),
-            _ => {
-                return Err(vm.new_value_error(format!(
-                    "invalid compression parameter 'unknown parameter (key {param})'"
-                )));
-            }
-        };
+    /// Validate a compression-parameter id and value pair, returning the
+    /// parameter constant on success. Used by the compressor's `options=`
+    /// constructor argument. The value is only validated here for the
+    /// strategy parameter (which libzstd does not bounds-check on its own in
+    /// a way CPython can rely on); everything else is guarded by the bounds
+    /// pre-validation in `apply_options` and passed through to libzstd
+    /// untouched, like CPython does.
+    fn cparameter_from_int(
+        param: i32,
+        value: i32,
+        vm: &VirtualMachine,
+    ) -> PyResult<ZSTD_cParameter> {
+        let p = c_param_enum(param).ok_or_else(|| {
+            vm.new_value_error(format!(
+                "invalid compression parameter 'unknown parameter (key {param})'"
+            ))
+        })?;
+        if param == ZSTD_c_strategy && strategy_from_int(value).is_none() {
+            return Err(new_zstd_error(
+                format!("invalid strategy value: {value}"),
+                vm,
+            ));
+        }
         Ok(p)
     }
 
-    /// Map a decompression-parameter id and integer value to a `DParameter`.
-    /// Used by the decompressor's `options=` constructor argument.
-    fn dparameter_from_int(param: i32, value: i32, vm: &VirtualMachine) -> PyResult<DParameter> {
-        match param {
-            ZSTD_d_windowLogMax => Ok(DParameter::WindowLogMax(value as u32)),
-            _ => Err(vm.new_value_error(format!(
+    /// Validate a decompression-parameter id, returning the parameter
+    /// constant on success. Used by the decompressor's `options=` constructor
+    /// argument.
+    fn dparameter_from_int(param: i32, vm: &VirtualMachine) -> PyResult<ZSTD_dParameter> {
+        d_param_enum(param).ok_or_else(|| {
+            vm.new_value_error(format!(
                 "invalid decompression parameter 'unknown parameter (key {param})'"
-            ))),
-        }
+            ))
+        })
     }
 
     /// Build the CPython-compatible "<kind> parameter 'name' received an
@@ -312,21 +322,23 @@ mod _zstd {
     /// parameter id. Returns `None` if the id is not recognized (callers
     /// validate the id separately).
     fn lookup_param_bounds(param: i32, is_compress: bool) -> Option<(i32, i32)> {
-        // SAFETY: `ZSTD_*Param_getBounds` reads no memory beyond the enum
-        // discriminant; the helpers above validated that `param` maps to a
-        // real enum variant.
-        let bounds = if is_compress {
+        // The helpers above validated that `param` maps to a real parameter
+        // constant before `ZSTD_*Param_getBounds` inspects it. The two
+        // functions return distinct (but layout-identical) `ZSTD_bounds`
+        // types, so destructure into a tuple right away.
+        let (error, lo, hi) = if is_compress {
             let p = c_param_enum(param)?;
-            unsafe { zstd_sys::ZSTD_cParam_getBounds(p) }
+            let b = ZSTD_cParam_getBounds(p);
+            (b.error, b.lowerBound, b.upperBound)
         } else {
             let p = d_param_enum(param)?;
-            unsafe { zstd_sys::ZSTD_dParam_getBounds(p) }
+            let b = ZSTD_dParam_getBounds(p);
+            (b.error, b.lowerBound, b.upperBound)
         };
-        // SAFETY: ZSTD_isError just inspects the bounds.error integer.
-        if unsafe { zstd_sys::ZSTD_isError(bounds.error) } != 0 {
+        if ZSTD_isError(error) != 0 {
             return None;
         }
-        Some((bounds.lowerBound, bounds.upperBound))
+        Some((lo, hi))
     }
 
     /// Map a parameter integer id back to the Python-visible enum member
@@ -365,21 +377,21 @@ mod _zstd {
     }
 
     /// Map a strategy integer (as exposed via the `Strategy` IntEnum) back
-    /// to the underlying `ZSTD_strategy` C enum value. Done via an explicit
+    /// to the underlying `ZSTD_strategy` C value. Done via an explicit
     /// match for the same reason as [`c_param_enum`]: an untrusted int
-    /// might not correspond to any real enum variant.
-    fn strategy_from_int(v: i32) -> Option<zstd_sys::ZSTD_strategy> {
-        use zstd_sys::ZSTD_strategy as S;
+    /// might not correspond to any real strategy value.
+    fn strategy_from_int(v: i32) -> Option<ZSTD_strategy> {
+        use libzstd_rs_sys::lib::zstd as s;
         Some(match v {
-            ZSTD_fast => S::ZSTD_fast,
-            ZSTD_dfast => S::ZSTD_dfast,
-            ZSTD_greedy => S::ZSTD_greedy,
-            ZSTD_lazy => S::ZSTD_lazy,
-            ZSTD_lazy2 => S::ZSTD_lazy2,
-            ZSTD_btlazy2 => S::ZSTD_btlazy2,
-            ZSTD_btopt => S::ZSTD_btopt,
-            ZSTD_btultra => S::ZSTD_btultra,
-            ZSTD_btultra2 => S::ZSTD_btultra2,
+            ZSTD_fast => s::ZSTD_fast,
+            ZSTD_dfast => s::ZSTD_dfast,
+            ZSTD_greedy => s::ZSTD_greedy,
+            ZSTD_lazy => s::ZSTD_lazy,
+            ZSTD_lazy2 => s::ZSTD_lazy2,
+            ZSTD_btlazy2 => s::ZSTD_btlazy2,
+            ZSTD_btopt => s::ZSTD_btopt,
+            ZSTD_btultra => s::ZSTD_btultra,
+            ZSTD_btultra2 => s::ZSTD_btultra2,
             _ => return None,
         })
     }
@@ -462,12 +474,16 @@ mod _zstd {
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let dict_content = args.dict_content.with_ref(|b| b.to_vec());
-            // libzstd's `get_dict_id_from_dict` returns `None` either when
+            // libzstd's `ZSTD_getDictID_fromDict` returns 0 either when
             // the content is too small to contain a valid header or when it
             // does not carry the dictionary magic. Both are runtime errors
             // when `is_raw=False`, matching CPython's behavior of raising
             // `ValueError` on a non-conformant dictionary.
-            let parsed_id = zstd_safe::get_dict_id_from_dict(&dict_content).map_or(0, |n| n.get());
+            // SAFETY: `dict_content` is a live slice for the duration of the
+            // call.
+            let parsed_id = unsafe {
+                ZSTD_getDictID_fromDict(dict_content.as_ptr().cast(), dict_content.len())
+            };
             if !args.is_raw && parsed_id == 0 {
                 return Err(vm.new_value_error(
                     "ZSTD_DICT_MAGIC_NUMBER not found, dict_content cannot be a 'raw content' \
@@ -549,6 +565,150 @@ mod _zstd {
     const COMP_MODE_FLUSH_BLOCK: i32 = 1;
     const COMP_MODE_FLUSH_FRAME: i32 = 2;
 
+    /// Owning wrapper around a raw libzstd compression context. Frees the
+    /// context with `ZSTD_freeCCtx` on drop.
+    struct CCtx(*mut ZSTD_CCtx);
+
+    // SAFETY: the wrapped context is only ever accessed while holding the
+    // owning pyclass's `PyMutex` (`CompressorState`), so no concurrent
+    // access can occur.
+    unsafe impl Send for CCtx {}
+
+    impl CCtx {
+        fn create() -> Self {
+            // SAFETY: `ZSTD_createCCtx` has no preconditions; it returns NULL
+            // only on allocation failure.
+            let ptr = unsafe { ZSTD_createCCtx() };
+            assert!(!ptr.is_null(), "ZSTD_createCCtx failed");
+            Self(ptr)
+        }
+
+        /// Forward a `(parameter, value)` pair to libzstd, passing the value
+        /// straight through like CPython does. The error code is returned on
+        /// failure so the caller can pick the right error mapping.
+        fn set_parameter(&mut self, param: ZSTD_cParameter, value: c_int) -> Result<(), usize> {
+            // SAFETY: `self.0` is a live context owned by this wrapper.
+            let code = unsafe { ZSTD_CCtx_setParameter(self.0, param, value) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn set_pledged_src_size(&mut self, pledged: Option<u64>) -> Result<(), usize> {
+            // libzstd represents "unknown" as `ZSTD_CONTENTSIZE_UNKNOWN`.
+            let pledged = pledged.map_or(ZSTD_CONTENTSIZE_UNKNOWN, |v| v);
+            // SAFETY: `self.0` is a live context owned by this wrapper.
+            let code = unsafe { ZSTD_CCtx_setPledgedSrcSize(self.0, pledged) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl Drop for CCtx {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` was created by `ZSTD_createCCtx` and is freed
+            // exactly once, here.
+            unsafe { ZSTD_freeCCtx(self.0) };
+        }
+    }
+
+    /// Owning wrapper around a raw libzstd decompression context. Frees the
+    /// context with `ZSTD_freeDCtx` on drop.
+    struct DCtx(*mut ZSTD_DCtx);
+
+    // SAFETY: same reasoning as `CCtx`: access is serialized by the owning
+    // pyclass's `PyMutex` (`DecompressorState`).
+    unsafe impl Send for DCtx {}
+
+    impl DCtx {
+        fn create() -> Self {
+            // SAFETY: `ZSTD_createDCtx` has no preconditions; it returns NULL
+            // only on allocation failure.
+            let ptr = unsafe { ZSTD_createDCtx() };
+            assert!(!ptr.is_null(), "ZSTD_createDCtx failed");
+            Self(ptr)
+        }
+
+        /// See [`CCtx::set_parameter`].
+        fn set_parameter(&mut self, param: ZSTD_dParameter, value: c_int) -> Result<(), usize> {
+            // SAFETY: `self.0` is a live context owned by this wrapper.
+            let code = unsafe { ZSTD_DCtx_setParameter(self.0, param, value) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl Drop for DCtx {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` was created by `ZSTD_createDCtx` and is freed
+            // exactly once, here.
+            unsafe { ZSTD_freeDCtx(self.0) };
+        }
+    }
+
+    /// Owning wrapper around a digested compression dictionary. Frees the
+    /// dictionary with `ZSTD_freeCDict` on drop.
+    struct CDict(*mut ZSTD_CDict);
+
+    // SAFETY: the dictionary is only referenced by the `CCtx` stored
+    // alongside it in `CompressorState`, which the pyclass's `PyMutex`
+    // serializes access to.
+    unsafe impl Send for CDict {}
+
+    impl CDict {
+        /// Build a digested dictionary; libzstd copies the bytes into its own
+        /// storage. Returns `None` when libzstd rejects the content (NULL),
+        /// e.g. for a corrupted dictionary.
+        fn try_create(bytes: &[u8], level: c_int) -> Option<Self> {
+            // SAFETY: `bytes` is a live slice for the duration of the call,
+            // and `ZSTD_createCDict` copies what it needs.
+            let ptr = unsafe { ZSTD_createCDict(bytes.as_ptr().cast(), bytes.len(), level) };
+            if ptr.is_null() { None } else { Some(Self(ptr)) }
+        }
+    }
+
+    impl Drop for CDict {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` was created by `ZSTD_createCDict` and is freed
+            // exactly once, here.
+            unsafe { ZSTD_freeCDict(self.0) };
+        }
+    }
+
+    /// Owning wrapper around a digested decompression dictionary. Frees the
+    /// dictionary with `ZSTD_freeDDict` on drop.
+    struct DDict(*mut ZSTD_DDict);
+
+    // SAFETY: same reasoning as `CDict` (guarded by the decompressor's
+    // `PyMutex` via `DecompressorState`).
+    unsafe impl Send for DDict {}
+
+    impl DDict {
+        /// See [`CDict::try_create`].
+        fn try_create(bytes: &[u8]) -> Option<Self> {
+            // SAFETY: `bytes` is a live slice for the duration of the call,
+            // and `ZSTD_createDDict` copies what it needs.
+            let ptr = unsafe { ZSTD_createDDict(bytes.as_ptr().cast(), bytes.len()) };
+            if ptr.is_null() { None } else { Some(Self(ptr)) }
+        }
+    }
+
+    impl Drop for DDict {
+        fn drop(&mut self) {
+            // SAFETY: `self.0` was created by `ZSTD_createDDict` and is freed
+            // exactly once, here.
+            unsafe { ZSTD_freeDDict(self.0) };
+        }
+    }
+
     /// Internal state of a `ZstdCompressor`. Holds the libzstd context, the
     /// last mode used (for `last_mode` and `set_pledged_input_size`
     /// validation), and the dictionary handles that the context may reference
@@ -557,12 +717,12 @@ mod _zstd {
     /// `PyRef<ZstdDict>` go away afterwards, which is the safe order for
     /// teardown.
     struct CompressorState {
-        cctx: CCtx<'static>,
+        cctx: CCtx,
         /// Cached digested dictionary. The CCtx references this via
-        /// `ref_cdict`, so it must outlive the CCtx (handled by Rust's
-        /// field drop order: `cctx` drops first).
-        _cdict: Option<zstd_safe::CDict<'static>>,
-        /// Keeps the ZstdDict's bytes alive for `ref_prefix` mode.
+        /// `ZSTD_CCtx_refCDict`, so it must outlive the CCtx (handled by
+        /// Rust's field drop order: `cctx` drops first).
+        _cdict: Option<CDict>,
+        /// Keeps the ZstdDict's bytes alive for `ZSTD_CCtx_refPrefix` mode.
         _dict: Option<PyRef<ZstdDict>>,
         last_mode: i32,
     }
@@ -592,14 +752,11 @@ mod _zstd {
 
     /// Translate the public `mode` int to the libzstd `ZSTD_EndDirective`
     /// the streaming API takes.
-    fn end_directive_from_mode(
-        mode: i32,
-        vm: &VirtualMachine,
-    ) -> PyResult<zstd_sys::ZSTD_EndDirective> {
+    fn end_directive_from_mode(mode: i32, vm: &VirtualMachine) -> PyResult<ZSTD_EndDirective> {
         match mode {
-            COMP_MODE_CONTINUE => Ok(zstd_sys::ZSTD_EndDirective::ZSTD_e_continue),
-            COMP_MODE_FLUSH_BLOCK => Ok(zstd_sys::ZSTD_EndDirective::ZSTD_e_flush),
-            COMP_MODE_FLUSH_FRAME => Ok(zstd_sys::ZSTD_EndDirective::ZSTD_e_end),
+            COMP_MODE_CONTINUE => Ok(ZSTD_e_continue),
+            COMP_MODE_FLUSH_BLOCK => Ok(ZSTD_e_flush),
+            COMP_MODE_FLUSH_FRAME => Ok(ZSTD_e_end),
             _ => Err(vm.new_value_error(format!(
                 "mode argument wrong value, it should be one of \
                  ZstdCompressor.CONTINUE ({COMP_MODE_CONTINUE}), \
@@ -621,11 +778,11 @@ mod _zstd {
                 return Err(vm.new_type_error("Only one of level or options should be used."));
             }
 
-            let mut cctx = CCtx::<'static>::create();
+            let mut cctx = CCtx::create();
 
             if let Some(level_obj) = level_opt {
                 let level = parse_compression_level(&level_obj, vm)?;
-                cctx.set_parameter(CParameter::CompressionLevel(level))
+                cctx.set_parameter(ZSTD_cParameter::ZSTD_c_compressionLevel, level)
                     .map_err(|_| param_value_error_for(ZSTD_c_compressionLevel, level, true, vm))?;
             }
 
@@ -708,25 +865,25 @@ mod _zstd {
 
     /// Trait wrapper over `CCtx::set_parameter` and `DCtx::set_parameter` so
     /// `apply_options` can drive either context without duplicated code.
-    /// `set_parameter` translates the (id, value) pair to the appropriate
-    /// `CParameter` / `DParameter` enum variant, then forwards to libzstd.
+    /// `apply` validates the (id, value) pair via `cparameter_from_int` /
+    /// `dparameter_from_int`, then forwards to libzstd.
     trait ParamSetter {
         fn apply(&mut self, param: i32, value: i32, vm: &VirtualMachine) -> PyResult<()>;
     }
 
-    impl ParamSetter for CCtx<'static> {
+    impl ParamSetter for CCtx {
         fn apply(&mut self, param: i32, value: i32, vm: &VirtualMachine) -> PyResult<()> {
             let p = cparameter_from_int(param, value, vm)?;
-            self.set_parameter(p)
+            self.set_parameter(p, value)
                 .map_err(|_| param_value_error_for(param, value, true, vm))?;
             Ok(())
         }
     }
 
-    impl ParamSetter for DCtx<'static> {
+    impl ParamSetter for DCtx {
         fn apply(&mut self, param: i32, value: i32, vm: &VirtualMachine) -> PyResult<()> {
-            let p = dparameter_from_int(param, value, vm)?;
-            self.set_parameter(p)
+            let p = dparameter_from_int(param, vm)?;
+            self.set_parameter(p, value)
                 .map_err(|_| param_value_error_for(param, value, false, vm))?;
             Ok(())
         }
@@ -736,46 +893,95 @@ mod _zstd {
     /// and decompressor consume a dictionary: the name of the type that
     /// appears in error messages, the eager-validation constructor for the
     /// digested variant, and the three ways of attaching it to the context.
-    trait DictLoader<'a> {
+    /// The `Err` payload of each method is a libzstd error code.
+    trait DictLoader {
         type Digested;
         const KIND_NAME: &'static str;
         fn try_create_digested(bytes: &[u8]) -> Option<Self::Digested>;
-        fn ref_digested(&mut self, dict: &Self::Digested) -> zstd_safe::SafeResult;
-        fn load_undigested(&mut self, bytes: &[u8]) -> zstd_safe::SafeResult;
-        fn ref_prefix_static(&mut self, bytes: &'static [u8]) -> zstd_safe::SafeResult;
+        fn ref_digested(&mut self, dict: &Self::Digested) -> Result<(), usize>;
+        fn load_undigested(&mut self, bytes: &[u8]) -> Result<(), usize>;
+        fn ref_prefix(&mut self, bytes: &[u8]) -> Result<(), usize>;
     }
 
-    impl DictLoader<'static> for CCtx<'static> {
-        type Digested = zstd_safe::CDict<'static>;
+    impl DictLoader for CCtx {
+        type Digested = CDict;
         const KIND_NAME: &'static str = "ZSTD_CDict";
         fn try_create_digested(bytes: &[u8]) -> Option<Self::Digested> {
-            zstd_safe::CDict::try_create(bytes, ZSTD_CLEVEL_DEFAULT)
+            CDict::try_create(bytes, libzstd_rs_sys::ZSTD_CLEVEL_DEFAULT)
         }
-        fn ref_digested(&mut self, dict: &Self::Digested) -> zstd_safe::SafeResult {
-            self.ref_cdict(dict)
+        fn ref_digested(&mut self, dict: &Self::Digested) -> Result<(), usize> {
+            // SAFETY: both handles are live; `load_dict`'s safety contract
+            // keeps `dict` alive at least as long as `self`.
+            let code = unsafe { ZSTD_CCtx_refCDict(self.0, dict.0.cast_const()) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
         }
-        fn load_undigested(&mut self, bytes: &[u8]) -> zstd_safe::SafeResult {
-            self.load_dictionary(bytes)
+        fn load_undigested(&mut self, bytes: &[u8]) -> Result<(), usize> {
+            // SAFETY: `bytes` is a live slice for the duration of the call;
+            // its contents are copied into the context.
+            let code =
+                unsafe { ZSTD_CCtx_loadDictionary(self.0, bytes.as_ptr().cast(), bytes.len()) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
         }
-        fn ref_prefix_static(&mut self, bytes: &'static [u8]) -> zstd_safe::SafeResult {
-            self.ref_prefix(bytes)
+        fn ref_prefix(&mut self, bytes: &[u8]) -> Result<(), usize> {
+            // SAFETY: `bytes` is a live slice for the duration of the call.
+            // libzstd keeps a raw pointer to the bytes afterwards;
+            // `load_dict`'s safety contract keeps them alive at least as
+            // long as `self`.
+            let code = unsafe { ZSTD_CCtx_refPrefix(self.0, bytes.as_ptr().cast(), bytes.len()) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
         }
     }
 
-    impl DictLoader<'static> for DCtx<'static> {
-        type Digested = zstd_safe::DDict<'static>;
+    impl DictLoader for DCtx {
+        type Digested = DDict;
         const KIND_NAME: &'static str = "ZSTD_DDict";
         fn try_create_digested(bytes: &[u8]) -> Option<Self::Digested> {
-            zstd_safe::DDict::try_create(bytes)
+            DDict::try_create(bytes)
         }
-        fn ref_digested(&mut self, dict: &Self::Digested) -> zstd_safe::SafeResult {
-            self.ref_ddict(dict)
+        fn ref_digested(&mut self, dict: &Self::Digested) -> Result<(), usize> {
+            // SAFETY: both handles are live; `load_dict`'s safety contract
+            // keeps `dict` alive at least as long as `self`.
+            let code = unsafe { ZSTD_DCtx_refDDict(self.0, dict.0.cast_const()) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
         }
-        fn load_undigested(&mut self, bytes: &[u8]) -> zstd_safe::SafeResult {
-            self.load_dictionary(bytes)
+        fn load_undigested(&mut self, bytes: &[u8]) -> Result<(), usize> {
+            // SAFETY: `bytes` is a live slice for the duration of the call;
+            // its contents are copied into the context.
+            let code =
+                unsafe { ZSTD_DCtx_loadDictionary(self.0, bytes.as_ptr().cast(), bytes.len()) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
         }
-        fn ref_prefix_static(&mut self, bytes: &'static [u8]) -> zstd_safe::SafeResult {
-            self.ref_prefix(bytes)
+        fn ref_prefix(&mut self, bytes: &[u8]) -> Result<(), usize> {
+            // SAFETY: `bytes` is a live slice for the duration of the call.
+            // libzstd keeps a raw pointer to the bytes afterwards;
+            // `load_dict`'s safety contract keeps them alive at least as
+            // long as `self`.
+            let code = unsafe { ZSTD_DCtx_refPrefix(self.0, bytes.as_ptr().cast(), bytes.len()) };
+            if ZSTD_isError(code) != 0 {
+                Err(code)
+            } else {
+                Ok(())
+            }
         }
     }
 
@@ -803,7 +1009,7 @@ mod _zstd {
     /// In `undigested` mode the bytes are copied into `ctx`, so neither
     /// return value carries a safety obligation — but the caller cannot tell
     /// the modes apart, so it must keep both alive regardless.
-    unsafe fn load_dict<L: DictLoader<'static>>(
+    unsafe fn load_dict<L: DictLoader>(
         ctx: &mut L,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
@@ -825,17 +1031,7 @@ mod _zstd {
         let mut digested = None;
         match marker {
             DICT_TYPE_PREFIX => {
-                // SAFETY: we extend `dict_bytes`' lifetime to `'static` only
-                // to thread it through `ref_prefix_static`'s signature.
-                // `load_dict`'s own safety contract requires the caller to
-                // keep the returned `PyRef<ZstdDict>` (which owns
-                // `dict_bytes`) alive at least as long as `ctx`, so the
-                // raw pointer libzstd stores stays valid for the required
-                // window.
-                let static_bytes: &'static [u8] =
-                    unsafe { core::slice::from_raw_parts(dict_bytes.as_ptr(), dict_bytes.len()) };
-                ctx.ref_prefix_static(static_bytes)
-                    .map_err(|_| bad_dict_err())?;
+                ctx.ref_prefix(dict_bytes).map_err(|_| bad_dict_err())?;
             }
             DICT_TYPE_DIGESTED => {
                 // Build the digested dict eagerly so a corrupted dictionary
@@ -861,7 +1057,7 @@ mod _zstd {
     /// here, both invariants `load_dict` documents become structural and a
     /// safe-Rust caller cannot split the pieces apart.
     fn build_compressor_state(
-        mut cctx: CCtx<'static>,
+        mut cctx: CCtx,
         dict_obj: Option<PyObjectRef>,
         last_mode: i32,
         vm: &VirtualMachine,
@@ -874,7 +1070,7 @@ mod _zstd {
         // and `_dict` (prefix mode) are freed. `CompressorState` is private
         // to this module and is never destructured, so no safe caller can
         // reorder the drops.
-        let (cdict, dict) = unsafe { load_dict::<CCtx<'static>>(&mut cctx, dict_obj, vm) }?;
+        let (cdict, dict) = unsafe { load_dict::<CCtx>(&mut cctx, dict_obj, vm) }?;
         Ok(CompressorState {
             cctx,
             _cdict: cdict,
@@ -887,12 +1083,12 @@ mod _zstd {
     /// [`build_compressor_state`] for the safety reasoning;
     /// `DecompressorState`'s field order plays the same role here.
     fn build_decompressor_state(
-        mut dctx: DCtx<'static>,
+        mut dctx: DCtx,
         dict_obj: Option<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<DecompressorState> {
         // SAFETY: see [`build_compressor_state`].
-        let (ddict, dict) = unsafe { load_dict::<DCtx<'static>>(&mut dctx, dict_obj, vm) }?;
+        let (ddict, dict) = unsafe { load_dict::<DCtx>(&mut dctx, dict_obj, vm) }?;
         Ok(DecompressorState {
             dctx,
             _ddict: ddict,
@@ -904,13 +1100,14 @@ mod _zstd {
         })
     }
 
-    /// Drive `compress_stream2` until the input is fully consumed and, for
-    /// flush/end directives, the internal buffers report zero remaining bytes.
-    /// Grows the output `Vec` by `CStreamOutSize` chunks as needed.
+    /// Drive `ZSTD_compressStream2` until the input is fully consumed and,
+    /// for flush/end directives, the internal buffers report zero remaining
+    /// bytes. Grows the output `Vec` by `ZSTD_CStreamOutSize` chunks as
+    /// needed.
     fn do_compress(
         state: &mut CompressorState,
         data: &[u8],
-        end_op: zstd_sys::ZSTD_EndDirective,
+        end_op: ZSTD_EndDirective,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         // Release the GIL for the duration of the compression loop. Safety:
@@ -921,21 +1118,41 @@ mod _zstd {
         // and the output `Vec` is local to this function. No Python object
         // access happens inside the closure — error codes are surfaced as
         // `usize` and converted into exceptions after re-attaching.
-        let is_end = end_op != zstd_sys::ZSTD_EndDirective::ZSTD_e_continue;
-        let chunk_size = CCtx::out_size().max(1);
+        let is_end = end_op != ZSTD_e_continue;
+        let chunk_size = ZSTD_CStreamOutSize().max(1);
         let result: Result<Vec<u8>, usize> = vm.allow_threads(|| {
-            let mut output = Vec::new();
-            let mut input = InBuffer::around(data);
+            let mut output: Vec<u8> = Vec::new();
+            let mut input = ZSTD_inBuffer {
+                src: data.as_ptr().cast(),
+                size: data.len(),
+                pos: 0,
+            };
             loop {
                 let prev_len = output.len();
                 output.reserve(chunk_size);
                 let remaining = {
-                    let mut out_buf = OutBuffer::around_pos(&mut output, prev_len);
-                    state
-                        .cctx
-                        .compress_stream2(&mut out_buf, &mut input, end_op)
-                }?;
-                let consumed_all = input.pos == input.src.len();
+                    let spare = output.spare_capacity_mut();
+                    let mut out_buf = ZSTD_outBuffer {
+                        dst: spare.as_mut_ptr().cast(),
+                        size: spare.len(),
+                        pos: 0,
+                    };
+                    // SAFETY: `state.cctx` is a live context; `out_buf`
+                    // covers the Vec's spare capacity, which is valid for
+                    // `spare.len()` bytes; `input` points to `data`, which
+                    // outlives the call.
+                    let code = unsafe {
+                        ZSTD_compressStream2(state.cctx.0, &mut out_buf, &mut input, end_op)
+                    };
+                    if ZSTD_isError(code) != 0 {
+                        return Err(code);
+                    }
+                    // SAFETY: libzstd wrote `out_buf.pos` bytes
+                    // (`out_buf.pos <= spare.len()`) into the spare capacity.
+                    unsafe { output.set_len(prev_len + out_buf.pos) };
+                    code
+                };
+                let consumed_all = input.pos == input.size;
                 // Stop when input is fully consumed and, for flush/end
                 // directives, libzstd reports that all internal buffers have
                 // been drained (remaining == 0). Otherwise loop; the next
@@ -986,8 +1203,8 @@ mod _zstd {
             // likewise converts the argument before touching the compressor.
             //
             // Python passes `None` to mean "unknown"; libzstd represents that
-            // internally as `ZSTD_CONTENTSIZE_UNKNOWN` (`u64::MAX`), and
-            // `zstd_safe` translates `None` accordingly. libzstd also reserves
+            // internally as `ZSTD_CONTENTSIZE_UNKNOWN` (`u64::MAX`), which
+            // `set_pledged_src_size` maps `None` to. libzstd also reserves
             // `ZSTD_CONTENTSIZE_ERROR` (`u64::MAX - 1`), so a concrete size must
             // be strictly less than that; reject anything else up front so
             // callers see the documented `ValueError`, not a libzstd-level error.
@@ -1072,9 +1289,10 @@ mod _zstd {
     /// the `dctx` is freed first and must give up its internal pointers
     /// before any referenced `DDict`/`PyRef<ZstdDict>` is dropped.
     struct DecompressorState {
-        dctx: DCtx<'static>,
-        /// Cached decompression dictionary referenced by the DCtx.
-        _ddict: Option<zstd_safe::DDict<'static>>,
+        dctx: DCtx,
+        /// Cached decompression dictionary referenced by the DCtx via
+        /// `ZSTD_DCtx_refDDict`.
+        _ddict: Option<DDict>,
         _dict: Option<PyRef<ZstdDict>>,
         eof: bool,
         needs_input: bool,
@@ -1113,7 +1331,7 @@ mod _zstd {
             let dict_opt = args.zstd_dict.flatten();
             let options_opt = args.options.flatten();
 
-            let mut dctx = DCtx::<'static>::create();
+            let mut dctx = DCtx::create();
 
             if let Some(options_obj) = options_opt {
                 apply_options(&mut dctx, options_obj, false, vm)?;
@@ -1162,18 +1380,22 @@ mod _zstd {
             alloc::borrow::Cow::Owned(combined)
         };
 
-        let chunk_size = DCtx::out_size().max(1);
+        let chunk_size = ZSTD_DStreamOutSize().max(1);
         // Release the GIL for the streaming loop. Safety: see `do_compress`;
         // the closure captures only Rust-owned buffers and `&mut state` (held
         // under the decompressor's `PyMutex`), and surfaces error codes as
         // `usize` so we can build the exception after re-attaching.
         let loop_result: Result<(Vec<u8>, bool, usize), usize> = vm.allow_threads(|| {
-            let mut input = InBuffer::around(&work_data);
+            let mut input = ZSTD_inBuffer {
+                src: work_data.as_ptr().cast(),
+                size: work_data.len(),
+                pos: 0,
+            };
             let mut output: Vec<u8> = Vec::new();
             // Reusable scratch buffer for each decompress_stream call. We need
             // an exact-size output buffer because `Vec::reserve` may
-            // over-allocate; `OutBuffer` reports the full Vec capacity to
-            // libzstd, which would then happily write past `max_length`.
+            // over-allocate; reporting the full Vec capacity to libzstd would
+            // let it write past `max_length`.
             let mut scratch: Vec<u8> = vec![0u8; chunk_size];
             let mut hit_max = false;
             let mut iteration = 0usize;
@@ -1195,41 +1417,46 @@ mod _zstd {
                     Some(maxl) => (maxl - output.len()).min(chunk_size),
                     None => chunk_size,
                 };
-                let result;
+                let code;
                 let written;
                 {
                     let slot = &mut scratch[..grow];
-                    let mut out_buf = OutBuffer::around(slot as &mut [u8]);
-                    result = state.dctx.decompress_stream(&mut out_buf, &mut input);
-                    written = out_buf.pos();
+                    let mut out_buf = ZSTD_outBuffer {
+                        dst: slot.as_mut_ptr().cast(),
+                        size: slot.len(),
+                        pos: 0,
+                    };
+                    // SAFETY: `state.dctx` is a live context; `out_buf`
+                    // covers `slot`; `input` points into `work_data`, which
+                    // outlives the call.
+                    code = unsafe { ZSTD_decompressStream(state.dctx.0, &mut out_buf, &mut input) };
+                    written = out_buf.pos;
                 }
                 output.extend_from_slice(&scratch[..written]);
-                match result {
-                    Ok(0) => {
-                        // Frame fully decompressed; the decompressor is at EOF.
-                        state.eof = true;
-                        break Ok(());
-                    }
-                    Ok(_) => {
-                        let output_was_full = written == grow;
-                        let input_consumed = input.pos == input.src.len();
+                if ZSTD_isError(code) != 0 {
+                    break Err(code);
+                }
+                if code == 0 {
+                    // Frame fully decompressed; the decompressor is at EOF.
+                    state.eof = true;
+                    break Ok(());
+                }
+                let output_was_full = written == grow;
+                let input_consumed = input.pos == input.size;
 
-                        if let Some(maxl) = max_length
-                            && output.len() >= maxl
-                            && iteration > 1
-                        {
-                            hit_max = true;
-                            break Ok(());
-                        }
+                if let Some(maxl) = max_length
+                    && output.len() >= maxl
+                    && iteration > 1
+                {
+                    hit_max = true;
+                    break Ok(());
+                }
 
-                        // Input is gone and libzstd had room to write but did
-                        // not, which means the frame is incomplete and the
-                        // caller has to supply more input.
-                        if input_consumed && !output_was_full {
-                            break Ok(());
-                        }
-                    }
-                    Err(code) => break Err(code),
+                // Input is gone and libzstd had room to write but did
+                // not, which means the frame is incomplete and the
+                // caller has to supply more input.
+                if input_consumed && !output_was_full {
+                    break Ok(());
                 }
             };
             outcome.map(|()| (output, hit_max, input.pos))
@@ -1318,14 +1545,17 @@ mod _zstd {
     #[pyfunction]
     fn get_frame_size(frame_buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
         let buf = frame_buffer.with_ref(|b| b.to_vec());
-        zstd_safe::find_frame_compressed_size(&buf).map_err(|_| {
-            new_zstd_error(
+        // SAFETY: `buf` is a live slice for the duration of the call.
+        let size = unsafe { ZSTD_findFrameCompressedSize(buf.as_ptr().cast(), buf.len()) };
+        if ZSTD_isError(size) != 0 {
+            return Err(new_zstd_error(
                 "Error when finding the compressed size of a Zstandard frame. \
                  Ensure the frame_buffer argument starts from the beginning of a frame, \
                  and its length not less than this complete frame.",
                 vm,
-            )
-        })
+            ));
+        }
+        Ok(size)
     }
 
     #[pyfunction]
@@ -1334,19 +1564,23 @@ mod _zstd {
         vm: &VirtualMachine,
     ) -> PyResult<(PyObjectRef, u32)> {
         let buf = frame_buffer.with_ref(|b| b.to_vec());
-        let content_size = zstd_safe::get_frame_content_size(&buf).map_err(|_| {
-            new_zstd_error(
+        // SAFETY: `buf` is a live slice for the duration of the call.
+        let content_size = unsafe { ZSTD_getFrameContentSize(buf.as_ptr().cast(), buf.len()) };
+        if content_size == ZSTD_CONTENTSIZE_ERROR {
+            return Err(new_zstd_error(
                 "Error when getting information from the header of a Zstandard frame. \
                  Ensure the frame_buffer argument starts from the beginning of a frame, \
                  and its length not less than the frame header (6~18 bytes).",
                 vm,
-            )
-        })?;
-        let content_size_obj: PyObjectRef = match content_size {
-            Some(n) => vm.ctx.new_int(n).into(),
-            None => vm.ctx.none(),
+            ));
+        }
+        let content_size_obj: PyObjectRef = if content_size == ZSTD_CONTENTSIZE_UNKNOWN {
+            vm.ctx.none()
+        } else {
+            vm.ctx.new_int(content_size).into()
         };
-        let dict_id = zstd_safe::get_dict_id_from_frame(&buf).map_or(0, |n| n.get());
+        // SAFETY: `buf` is a live slice for the duration of the call.
+        let dict_id = unsafe { ZSTD_getDictID_fromFrame(buf.as_ptr().cast(), buf.len()) };
         Ok((content_size_obj, dict_id))
     }
 
@@ -1405,9 +1639,9 @@ mod _zstd {
     }
 
     /// Sum the per-sample sizes and check they exactly cover `expected_total`,
-    /// rejecting overflow. A safe-fn interface that calls into libzstd with
-    /// these sizes must not let a wrapping sum sneak past the equality check,
-    /// since libzstd would then read past the samples buffer.
+    /// rejecting overflow. Any call into libzstd with these sizes must not
+    /// let a wrapping sum sneak past the equality check, since libzstd would
+    /// then read past the samples buffer.
     fn check_sample_sizes_match(
         sizes: &[usize],
         expected_total: usize,
@@ -1433,8 +1667,27 @@ mod _zstd {
         let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
         check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
         let mut dict_buffer: Vec<u8> = Vec::with_capacity(dict_size);
-        zstd_safe::train_from_buffer(&mut dict_buffer, &samples_buffer, &sizes)
-            .map_err(|c| catch_zstd_error(c, vm))?;
+        // SAFETY: `dict_buffer`'s spare capacity is valid for writes of up to
+        // `dict_size` bytes; the samples and sizes buffers are live slices
+        // for the duration of the call.
+        let written = unsafe {
+            ZDICT_trainFromBuffer(
+                dict_buffer.as_mut_ptr().cast(),
+                dict_size,
+                samples_buffer.as_ptr().cast(),
+                sizes.as_ptr(),
+                sizes.len() as u32,
+            )
+        };
+        if ZDICT_isError(written) != 0 {
+            // SAFETY: `ZDICT_getErrorName` returns a pointer to a static,
+            // NUL-terminated error string from libzstd's error table.
+            let name = unsafe { CStr::from_ptr(ZDICT_getErrorName(written)) };
+            return Err(new_zstd_error(name.to_string_lossy(), vm));
+        }
+        // SAFETY: `ZDICT_trainFromBuffer` wrote `written` (<= dict_size)
+        // bytes into the buffer's spare capacity.
+        unsafe { dict_buffer.set_len(written) };
         Ok(dict_buffer)
     }
 
@@ -1459,8 +1712,6 @@ mod _zstd {
         compression_level: PyObjectRef,
     }
 
-    // `zstd_safe` does not wrap `ZDICT_finalizeDictionary`, so we drop down to
-    // raw `zstd_sys` FFI for it.
     #[pyfunction]
     fn finalize_dict(args: FinalizeDictArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         let dict_size = parse_positive_dict_size(&args.dict_size, vm)?;
@@ -1471,7 +1722,7 @@ mod _zstd {
         check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
 
         let mut dict_buffer: Vec<u8> = vec![0u8; dict_size];
-        let params = zstd_sys::ZDICT_params_t {
+        let params = ZDICT_params_t {
             compressionLevel: compression_level,
             notificationLevel: 0,
             dictID: 0,
@@ -1481,7 +1732,7 @@ mod _zstd {
         // that outlive the FFI call. ZDICT_finalizeDictionary just reads from
         // the sample/dict buffers and writes into `dict_buffer`.
         let written = unsafe {
-            zstd_sys::ZDICT_finalizeDictionary(
+            ZDICT_finalizeDictionary(
                 dict_buffer.as_mut_ptr() as *mut _,
                 dict_buffer.len(),
                 custom_dict.as_ptr() as *const _,
@@ -1492,15 +1743,14 @@ mod _zstd {
                 params,
             )
         };
-        // SAFETY: ZDICT_isError just inspects the integer return code.
-        if unsafe { zstd_sys::ZDICT_isError(written) } != 0 {
-            // SAFETY: ZDICT_getErrorName returns a static NUL-terminated
-            // C string from libzstd's internal error table.
-            let err_ptr = unsafe { zstd_sys::ZDICT_getErrorName(written) };
+        if ZDICT_isError(written) != 0 {
+            let err_ptr = ZDICT_getErrorName(written);
             let msg = if err_ptr.is_null() {
                 "zstd dictionary finalization failed".to_string()
             } else {
-                unsafe { core::ffi::CStr::from_ptr(err_ptr) }
+                // SAFETY: `ZDICT_getErrorName` returns a pointer to a static,
+                // NUL-terminated error string from libzstd's error table.
+                unsafe { CStr::from_ptr(err_ptr) }
                     .to_string_lossy()
                     .into_owned()
             };
@@ -1533,22 +1783,22 @@ mod _zstd {
         };
         // Validate the id via the same safe enum-lookup helpers used in
         // `lookup_param_bounds`, then call libzstd directly so we can
-        // distinguish a libzstd-reported error from our own "unknown".
-        let bounds = if args.is_compress {
+        // distinguish a libzstd-reported error from our own "unknown". The
+        // two `getBounds` functions return distinct (but layout-identical)
+        // `ZSTD_bounds` types, so destructure into a tuple right away.
+        let (error, lo, hi) = if args.is_compress {
             let p = c_param_enum(args.parameter).ok_or_else(unknown)?;
-            // SAFETY: `c_param_enum` returned `Some`, so `p` is a real
-            // `ZSTD_cParameter` discriminant.
-            unsafe { zstd_sys::ZSTD_cParam_getBounds(p) }
+            let b = ZSTD_cParam_getBounds(p);
+            (b.error, b.lowerBound, b.upperBound)
         } else {
             let p = d_param_enum(args.parameter).ok_or_else(unknown)?;
-            // SAFETY: same as above.
-            unsafe { zstd_sys::ZSTD_dParam_getBounds(p) }
+            let b = ZSTD_dParam_getBounds(p);
+            (b.error, b.lowerBound, b.upperBound)
         };
-        // SAFETY: ZSTD_isError just inspects the integer error code.
-        if unsafe { zstd_sys::ZSTD_isError(bounds.error) } != 0 {
-            return Err(catch_zstd_error(bounds.error, vm));
+        if ZSTD_isError(error) != 0 {
+            return Err(catch_zstd_error(error, vm));
         }
-        Ok((bounds.lowerBound, bounds.upperBound))
+        Ok((lo, hi))
     }
 
     // Register the `CompressionParameter` / `DecompressionParameter` enum
