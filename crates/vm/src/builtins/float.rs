@@ -212,19 +212,8 @@ pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64>
         match s.as_str_kind() {
             PyKindStr::Ascii(s) => s.trim().as_bytes(),
             PyKindStr::Utf8(s) => {
-                mapped_string = s
-                    .trim()
-                    .chars()
-                    .map(|c| {
-                        if let Some(n) = rustpython_common::str::char_to_decimal(c) {
-                            char::from_digit(n.into(), 10).unwrap()
-                        } else if c.is_whitespace() {
-                            ' '
-                        } else {
-                            c
-                        }
-                    })
-                    .collect::<String>();
+                mapped_string =
+                    rustpython_common::str::transform_decimal_and_space_to_ascii(s.trim());
                 mapped_string.as_bytes()
             }
             // if there are surrogates, it's not gonna parse anyway,

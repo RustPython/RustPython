@@ -59,7 +59,7 @@ impl PyObject {
         } else if let Some(i) = self.number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Some(s) = self.downcast_ref::<PyStr>() {
-            try_convert(self, s.as_wtf8().trim().as_bytes(), vm)
+            try_convert(self, int::int_literal_from_str(s).as_bytes(), vm)
         } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
             try_convert(self, bytes, vm)
         } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {

@@ -9,6 +9,7 @@ use crate::{
         format::FormatSpec,
         hash,
         int::{bigint_to_finite_float, bytes_to_int, true_div},
+        str::{PyKindStr, transform_decimal_and_space_to_ascii},
         wtf8::Wtf8Buf,
     },
     convert::{IntoPyException, ToPyObject, ToPyResult},
@@ -19,6 +20,7 @@ use crate::{
     protocol::{PyNumberMethods, handle_bytes_to_int_err},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
+use alloc::borrow::Cow;
 use alloc::fmt;
 use core::cell::Cell;
 use core::ops::{Neg, Not};
@@ -801,10 +803,22 @@ struct IntToByteArgs {
     signed: OptionalArg<ArgIntoBool>,
 }
 
+/// Normalize a `str` for the byte-oriented int parser: Unicode decimal digits and
+/// whitespace fold to their ASCII equivalents, the way CPython's
+/// `PyLong_FromUnicodeObject` does. A string holding surrogates can never be a
+/// valid literal, so it folds to an empty — and therefore invalid — one.
+pub(crate) fn int_literal_from_str(s: &PyStr) -> Cow<'_, str> {
+    match s.as_str_kind() {
+        PyKindStr::Ascii(s) => Cow::Borrowed(s.trim().as_str()),
+        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s.trim()),
+        PyKindStr::Wtf8(_) => Cow::Borrowed(""),
+    }
+}
+
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     match_class!(match obj.to_owned() {
         string @ PyStr => {
-            let s = string.as_wtf8().trim();
+            let s = int_literal_from_str(&string);
             bytes_to_int(s.as_bytes(), base, vm.state.int_max_str_digits.load())
                 .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }

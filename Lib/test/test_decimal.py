@@ -854,7 +854,6 @@ class CExplicitConstructionTest(ExplicitConstructionTest, unittest.TestCase):
 class PyExplicitConstructionTest(ExplicitConstructionTest, unittest.TestCase):
     decimal = P
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_digits(self):
         return super().test_unicode_digits()
 

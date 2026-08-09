@@ -222,7 +222,8 @@ impl Constructor for PyComplex {
                     }
                     let (re, im) = s
                         .to_str()
-                        .and_then(rustpython_literal::complex::parse_str)
+                        .map(crate::common::str::transform_decimal_and_space_to_ascii)
+                        .and_then(|s| rustpython_literal::complex::parse_str(&s))
                         .ok_or_else(|| vm.new_value_error("complex() arg is a malformed string"))?;
                     return Ok(Self::from(Complex64 { re, im }));
                 } else {
