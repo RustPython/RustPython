@@ -41,6 +41,20 @@ pub(crate) fn get_locale_info() -> LocaleInfo {
     }
 }
 
+pub(crate) fn parse_format_spec(
+    object: &PyObject,
+    spec: &str,
+    vm: &VirtualMachine,
+) -> PyResult<FormatSpec> {
+    FormatSpec::parse(spec).map_err(|err| match err {
+        FormatSpecError::InvalidFormatSpecifier => vm.new_value_error(format!(
+            "Invalid format specifier '{spec}' for object of type '{}'",
+            object.class().name()
+        )),
+        _ => err.into_pyexception(vm),
+    })
+}
+
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {

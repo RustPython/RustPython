@@ -6,7 +6,6 @@ use crate::{
     byte::bytes_from_object,
     class::{PyClassDef, PyClassImpl},
     common::{
-        format::FormatSpec,
         hash,
         int::{bigint_to_finite_float, bytes_to_int, true_div},
         wtf8::Wtf8Buf,
@@ -602,7 +601,7 @@ impl Py<PyInt> {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
         let format_spec =
-            FormatSpec::parse(format_spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+            crate::format::parse_format_spec(zelf.as_object(), format_spec.as_str(), vm)?;
         if format_spec.is_decimal_int_format() {
             check_int_to_str_digits(zelf.as_bigint(), vm)?;
         }
