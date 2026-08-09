@@ -245,7 +245,11 @@ impl VirtualMachine {
                     _ => true,
                 };
 
-                if same_line {
+                // A lone continuation at EOF has no highlighted source span.
+                let lone_line_continuation =
+                    maybe_end_offset == Some(-1) && l_text.to_string_lossy() == "\\";
+
+                if same_line && !lone_line_continuation {
                     let mut end_offset = match maybe_end_offset {
                         Some(0) | None => offset,
                         Some(end_offset) => end_offset,

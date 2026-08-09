@@ -113,6 +113,10 @@ mod file_run {
                                 "source code cannot contain null bytes".into(),
                             ));
                         }
+                        #[cfg(feature = "parser")]
+                        // Match compile() by honoring BOMs and encoding cookies in files.
+                        let source = self.decode_source_bytes(&source_bytes, path, false)?;
+                        #[cfg(not(feature = "parser"))]
                         let source = String::from_utf8(source_bytes)
                             .map_err(|err| self.new_os_error(err.to_string()))?;
                         let code_obj = self

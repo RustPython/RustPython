@@ -752,7 +752,7 @@ impl VirtualMachine {
             Some(line + "\n")
         }
 
-        let statement = source.and_then(|src| get_statement(src, error.location()));
+        let mut statement = source.and_then(|src| get_statement(src, error.location()));
 
         let mut msg = error.to_string();
         if !msg.starts_with("Exceeds the limit ")
@@ -799,6 +799,16 @@ impl VirtualMachine {
         }
 
         let SyntaxErrorInfo { msg, narrow_caret } = syntax_error_info;
+        let unterminated_triple_quoted_string =
+            msg.starts_with("unterminated triple-quoted string literal");
+        let unexpected_eof_error = msg == "unexpected EOF while parsing";
+        if unterminated_triple_quoted_string
+            && let Some(statement) = statement.as_mut()
+            && statement.ends_with('\n')
+        {
+            // CPython omits the parser-added final newline from SyntaxError.text.
+            statement.pop();
+        }
         let check_version_suite_error = msg.starts_with("Async functions are")
             || msg.starts_with("Async for loops are")
             || msg.starts_with("Async with statements are")
@@ -820,12 +830,14 @@ impl VirtualMachine {
 
         // Set end_lineno and end_offset if available
         if let Some((end_lineno, end_offset)) = error.python_end_location() {
-            let (end_lineno, end_offset) = if check_version_suite_error
-                && statement
-                    .as_deref()
-                    .and_then(|line| line.chars().next())
-                    .is_some_and(|ch| ch.is_ascii_whitespace())
-            {
+            // EOF errors have no source span in CPython.
+            let no_end_offset = unexpected_eof_error
+                || (check_version_suite_error
+                    && statement
+                        .as_deref()
+                        .and_then(|line| line.chars().next())
+                        .is_some_and(|ch| ch.is_ascii_whitespace()));
+            let (end_lineno, end_offset) = if no_end_offset {
                 (end_lineno, -1)
             } else if line_end_binary_operator_error && end_offset == offset_raw {
                 (end_lineno, (end_offset + 1) as isize)
