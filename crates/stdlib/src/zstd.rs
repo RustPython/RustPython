@@ -39,10 +39,6 @@ mod _zstd {
     use zstd_safe::zstd_sys;
     use zstd_safe::{CCtx, CParameter, DCtx, DParameter, InBuffer, OutBuffer};
 
-    // =========================================================================
-    // Module-level constants
-    // =========================================================================
-
     #[pyattr]
     const ZSTD_CLEVEL_DEFAULT: i32 = zstd_sys::ZSTD_CLEVEL_DEFAULT as i32;
 
@@ -138,10 +134,6 @@ mod _zstd {
     const DICT_TYPE_UNDIGESTED: i32 = 1;
     const DICT_TYPE_PREFIX: i32 = 2;
 
-    // =========================================================================
-    // ZstdError exception
-    // =========================================================================
-
     #[pyattr(once, name = "ZstdError")]
     fn zstd_error(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type(
@@ -162,10 +154,6 @@ mod _zstd {
     fn catch_zstd_error(code: usize, vm: &VirtualMachine) -> PyBaseExceptionRef {
         new_zstd_error(zstd_safe::get_error_name(code).to_string(), vm)
     }
-
-    // =========================================================================
-    // Parameter helpers
-    // =========================================================================
 
     /// Reject an options-dict `key` whose class is the parameter enum that is
     /// invalid for the caller's context (a `CompressionParameter` passed to a
@@ -442,10 +430,6 @@ mod _zstd {
         Err(vm.new_type_error("zstd_dict argument should be a ZstdDict object"))
     }
 
-    // =========================================================================
-    // ZstdDict
-    // =========================================================================
-
     #[derive(FromArgs)]
     pub(super) struct ZstdDictArgs {
         #[pyarg(positional)]
@@ -557,10 +541,6 @@ mod _zstd {
                 .new_tuple(vec![zelf.into(), vm.ctx.new_int(DICT_TYPE_PREFIX).into()])
         }
     }
-
-    // =========================================================================
-    // ZstdCompressor
-    // =========================================================================
 
     // The three flush modes for `ZstdCompressor.compress()`, mirrored as
     // class attributes via `extend_class` below. Values are positional and
@@ -1050,10 +1030,10 @@ mod _zstd {
             self.state.lock().last_mode
         }
 
-        /// Install class-level constants `CONTINUE`, `FLUSH_BLOCK`, and
-        /// `FLUSH_FRAME` so callers can reference them as
-        /// `ZstdCompressor.FLUSH_FRAME` (as the Python `ZstdFile` wrapper
-        /// does).
+        // Install class-level constants `CONTINUE`, `FLUSH_BLOCK`, and
+        // `FLUSH_FRAME` so callers can reference them as
+        // `ZstdCompressor.FLUSH_FRAME` (as the Python `ZstdFile` wrapper
+        // does).
         #[extend_class]
         fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
             class.set_attr(
@@ -1084,10 +1064,6 @@ mod _zstd {
         #[pyarg(any, optional)]
         mode: Option<i32>,
     }
-
-    // =========================================================================
-    // ZstdDecompressor
-    // =========================================================================
 
     /// Internal state of a `ZstdDecompressor`. The CPython decompressor is
     /// single-frame: once we hit end-of-frame, additional bytes go into
@@ -1338,10 +1314,6 @@ mod _zstd {
             self.state.lock().unused_data.clone()
         }
     }
-
-    // =========================================================================
-    // Module-level functions
-    // =========================================================================
 
     #[pyfunction]
     fn get_frame_size(frame_buffer: ArgBytesLike, vm: &VirtualMachine) -> PyResult<usize> {
