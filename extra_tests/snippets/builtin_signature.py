@@ -1,4 +1,5 @@
 import inspect
+import sys
 
 # __text_signature__ is generated from the Rust parameter list, so it must not
 # describe parameters the function does not actually take, and must mark the
@@ -46,19 +47,20 @@ assert str(inspect.signature(isinstance)) == "(obj, class_or_tuple, /)"
 assert str(inspect.signature(issubclass)) == "(cls, class_or_tuple, /)"
 assert str(inspect.signature(aiter)) == "(async_iterable, /)"
 
-# Functions whose Rust arguments are destructuring patterns rather than plain
-# names get no signature at all, instead of emitting text that is not valid
-# Python and makes inspect.signature() raise "invalid signature".
-#
-# CPython does have signatures for these, hand-written via Argument Clinic. We
-# cannot derive them until FromArgs reports its own parameters, so until then we
-# report no signature, which is at least how CPython behaves for the builtins it
-# has no signature for.
-for f in (round, sum):
-    assert f.__text_signature__ is None, f.__name__
-    try:
-        inspect.signature(f)
-    except ValueError as e:
-        assert "no signature found" in str(e), str(e)
-    else:
-        raise AssertionError(f"{f.__name__} should have no signature")
+if sys.implementation.name == "rustpython":
+    # Functions whose Rust arguments are destructuring patterns rather than
+    # plain names get no signature at all, instead of emitting text that is not
+    # valid Python and makes inspect.signature() raise "invalid signature".
+    #
+    # CPython does have signatures for these, hand-written via Argument Clinic.
+    # We cannot derive them until FromArgs reports the parameters of its own
+    # structs, so until then we report no signature, which is at least how
+    # CPython behaves for the builtins it has no signature for.
+    for f in (round, sum):
+        assert f.__text_signature__ is None, f.__name__
+        try:
+            inspect.signature(f)
+        except ValueError as e:
+            assert "no signature found" in str(e), str(e)
+        else:
+            raise AssertionError(f"{f.__name__} should have no signature")
