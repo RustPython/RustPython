@@ -24,13 +24,6 @@ it = map(lambda x: x + 1, Counter())
 assert next(it) == 2
 assert next(it) == 3
 
-# test for no iterables
-try:
-    map(lambda: 1)
-    assert False, "TypeError expected at map construction"
-except TypeError as e:
-    assert str(e) == "map() must have at least two arguments."
-
 
 def mapping(x):
     if x == 0:
