@@ -74,8 +74,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(x: PyIntRef) -> String {
-        let x = x.as_bigint();
+    fn bin(number: PyIntRef) -> String {
+        let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -391,11 +391,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn delattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.del_attr(attr, vm)
@@ -407,8 +407,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._divmod(&a, &b)
+    fn divmod(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._divmod(&x, &y)
     }
 
     #[derive(FromArgs)]
@@ -712,11 +712,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn hasattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         Ok(vm.get_attribute_opt(obj, attr)?.is_some())
@@ -818,13 +818,21 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        obj.is_instance(&typ, vm)
+    fn isinstance(
+        obj: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        obj.is_instance(&class_or_tuple, vm)
     }
 
     #[pyfunction]
-    fn issubclass(subclass: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        subclass.is_subclass(&typ, vm)
+    fn issubclass(
+        cls: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        cls.is_subclass(&class_or_tuple, vm)
     }
 
     #[pyfunction]
@@ -845,8 +853,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        iter_target.get_aiter(vm)
+    fn aiter(async_iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        async_iterable.get_aiter(vm)
     }
 
     #[pyfunction]
@@ -994,8 +1002,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn ord(string: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
-        match string {
+    fn ord(character: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
+        match character {
             Either::A(bytes) => bytes.with_ref(|bytes| {
                 let bytes_len = bytes.len();
                 if bytes_len != 1 {
@@ -1138,14 +1146,14 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyObjectRef,
+        name: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.set_attr(attr, value, vm)?;
