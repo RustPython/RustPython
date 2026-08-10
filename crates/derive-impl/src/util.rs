@@ -737,7 +737,14 @@ where
 // so there's no module to mark with `$module`.
 pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
     let signature = func_sig(sig);
-    format!("{name}({signature})")
+    // Arguments bind through `FuncArgs::take_positional`, which never consults
+    // the keyword map, so they are positional-only. `*args`/`**kwargs` cannot be
+    // followed by `/`, and an empty parameter list has nothing to mark.
+    if signature.is_empty() || signature.contains('*') {
+        format!("{name}({signature})")
+    } else {
+        format!("{name}({signature}, /)")
+    }
 }
 
 pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
