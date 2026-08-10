@@ -732,13 +732,12 @@ where
 
 // Best effort attempt to generate a template from which a
 // __text_signature__ can be created.
+//
+// Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument,
+// so there's no module to mark with `$module`.
 pub(crate) fn text_signature(sig: &Signature, name: &str) -> String {
     let signature = func_sig(sig);
-    if signature.starts_with("$self") {
-        format!("{name}({signature})")
-    } else {
-        format!("{}({}, {})", name, "$module", signature)
-    }
+    format!("{name}({signature})")
 }
 
 pub(crate) fn infer_native_call_flags(sig: &Signature, drop_first_typed: usize) -> TokenStream {
