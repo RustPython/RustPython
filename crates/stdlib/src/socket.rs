@@ -2601,7 +2601,7 @@ mod _socket {
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
                 let host_str = core::str::from_utf8(&bytes).map_err(|e| {
-                    vm.new_unicode_decode_error_real(
+                    vm.new_unicode_decode_error(
                         vm.ctx.new_str("utf-8"),
                         vm.ctx.new_bytes(bytes.to_vec()),
                         e.valid_up_to(),
@@ -2643,7 +2643,7 @@ mod _socket {
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
                             .map_err(|e| {
-                                vm.new_unicode_decode_error_real(
+                                vm.new_unicode_decode_error(
                                     vm.ctx.new_str("utf-8"),
                                     vm.ctx.new_bytes(bytes.to_vec()),
                                     e.valid_up_to(),

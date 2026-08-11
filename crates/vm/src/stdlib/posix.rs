@@ -1277,8 +1277,20 @@ pub mod module {
 
     #[pyfunction]
     fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResultData> {
-        let info = rustpython_host_env::posix::uname_info()
-            .map_err(|err| vm.new_unicode_decode_error(err.to_string()))?;
+        let info = rustpython_host_env::posix::uname_info().map_err(|err| {
+            let start = err.error.valid_up_to();
+            let end = err
+                .error
+                .error_len()
+                .map_or(err.bytes.len(), |len| start + len);
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(err.bytes),
+                start,
+                end,
+                vm.ctx.new_str(err.error.to_string()),
+            )
+        })?;
         Ok(_os::UnameResultData {
             sysname: info.sysname,
             nodename: info.nodename,
@@ -1732,7 +1744,7 @@ pub mod module {
             return Err(vm.new_os_error("unable to determine login name"));
         };
         login.to_str().map(|s| s.to_owned()).map_err(|e| {
-            vm.new_unicode_decode_error_real(
+            vm.new_unicode_decode_error(
                 vm.ctx.new_str("utf-8"),
                 vm.ctx.new_bytes(login.as_bytes().to_vec()),
                 e.valid_up_to(),

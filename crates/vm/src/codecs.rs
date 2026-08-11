@@ -802,7 +802,7 @@ impl DecodeContext for PyDecodeContext<'_> {
                     } else {
                         vm.ctx.new_bytes(self.data.to_vec())
                     };
-                    vm.new_unicode_decode_error_real(
+                    vm.new_unicode_decode_error(
                         vm.ctx.new_str(self.encoding),
                         data,
                         byte_range.start,

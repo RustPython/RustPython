@@ -638,7 +638,7 @@ pub mod array {
     impl ToPyResult for WideChar {
         fn to_pyresult(self, vm: &VirtualMachine) -> PyResult {
             Ok(CodePoint::try_from(self)
-                .map_err(|e| vm.new_unicode_encode_error(e))?
+                .map_err(|e| vm.new_value_error(e))?
                 .to_pyobject(vm))
         }
     }
@@ -1696,8 +1696,17 @@ pub mod array {
             })?,
             MachineFormatCode::Utf16 { big_endian } => {
                 let utf16: Vec<_> = chunks.map(|b| chunk_to_obj!(b, u16, big_endian)).collect();
-                let s = String::from_utf16(&utf16)
-                    .map_err(|_| vm.new_unicode_encode_error("items cannot decode as utf16"))?;
+                let s = String::from_utf16(&utf16).map_err(|_| {
+                    let (index, reason) = invalid_utf16(&utf16).unwrap();
+                    vm.new_unicode_decode_error(
+                        vm.ctx
+                            .new_str(if big_endian { "utf-16-be" } else { "utf-16-le" }),
+                        args.items.clone(),
+                        index * 2,
+                        index * 2 + 2,
+                        vm.ctx.new_str(reason),
+                    )
+                })?;
                 let bytes = PyArray::_unicode_to_wchar_bytes((*s).as_ref(), array.itemsize());
                 array.frombytes_move(bytes);
             }
@@ -1711,6 +1720,25 @@ pub mod array {
             }
         };
         PyArray::from(array).into_ref_with_type(vm, cls)
+    }
+
+    fn invalid_utf16(units: &[u16]) -> Option<(usize, &'static str)> {
+        let mut index = 0;
+        while index < units.len() {
+            let unit = units[index];
+            if (0xd800..=0xdbff).contains(&unit) {
+                match units.get(index + 1) {
+                    Some(next) if (0xdc00..=0xdfff).contains(next) => index += 2,
+                    Some(_) => return Some((index, "illegal UTF-16 surrogate")),
+                    None => return Some((index, "unexpected end of data")),
+                }
+            } else if (0xdc00..=0xdfff).contains(&unit) {
+                return Some((index, "illegal encoding"));
+            } else {
+                index += 1;
+            }
+        }
+        None
     }
 
     // Register array.array as collections.abc.MutableSequence
