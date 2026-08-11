@@ -463,6 +463,26 @@ impl<T: Clone> Dict<T> {
         K: DictKey + ?Sized,
     {
         let hash = key.key_hash(vm)?;
+        self.insert_with_hash(vm, key, hash, value)
+    }
+
+    /// Store a key whose hash the caller already knows.
+    ///
+    /// `hash` MUST be the value `key.key_hash(vm)` would return. Passing a
+    /// different hash corrupts the table: the entry is stored in a bucket no
+    /// lookup will probe, so the key silently goes missing. Only pass a hash
+    /// read out of another dict/set entry holding this very key object, e.g.
+    /// via [`Self::keys_with_hashes`].
+    pub(crate) fn insert_with_hash<K>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        value: T,
+    ) -> PyResult<()>
+    where
+        K: DictKey + ?Sized,
+    {
         let _removed = loop {
             let (entry_index, index_index) = self.lookup(vm, key, hash, None)?;
             let mut inner = self.write();
@@ -512,7 +532,20 @@ impl<T: Clone> Dict<T> {
         key: &K,
     ) -> PyResult<bool> {
         let key_hash = key.key_hash(vm)?;
-        let (entry, _) = self.lookup(vm, key, key_hash, None)?;
+        self.contains_with_hash(vm, key, key_hash)
+    }
+
+    /// [`Self::contains`] with a caller-supplied hash.
+    ///
+    /// Same contract as [`Self::insert_with_hash`]: a wrong `hash` makes the
+    /// lookup probe the wrong bucket and report a present key as missing.
+    pub(crate) fn contains_with_hash<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<bool> {
+        let (entry, _) = self.lookup(vm, key, hash, None)?;
         Ok(entry.index().is_some())
     }
 
@@ -697,6 +730,22 @@ impl<T: Clone> Dict<T> {
         self.remove_if_exists(vm, key).map(|opt| opt.is_some())
     }
 
+    /// [`Self::delete_if_exists`] with a caller-supplied hash.
+    ///
+    /// Same contract as [`Self::insert_with_hash`].
+    pub(crate) fn delete_if_exists_with_hash<K>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<bool>
+    where
+        K: DictKey + ?Sized,
+    {
+        self.remove_if_with_hash(vm, key, hash, |_| Ok(true))
+            .map(|opt| opt.is_some())
+    }
+
     pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
     where
         K: DictKey + ?Sized,
@@ -725,6 +774,23 @@ impl<T: Clone> Dict<T> {
         F: Fn(&T) -> PyResult<bool>,
     {
         let hash = key.key_hash(vm)?;
+        self.remove_if_with_hash(vm, key, hash, pred)
+    }
+
+    /// [`Self::remove_if`] with a caller-supplied hash.
+    ///
+    /// Same contract as [`Self::insert_with_hash`].
+    fn remove_if_with_hash<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        pred: F,
+    ) -> PyResult<Option<T>>
+    where
+        K: DictKey + ?Sized,
+        F: Fn(&T) -> PyResult<bool>,
+    {
         let removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
             match self.pop_inner_if(lookup, &pred)? {
@@ -742,6 +808,19 @@ impl<T: Clone> Dict<T> {
         value: T,
     ) -> PyResult<()> {
         let hash = key.key_hash(vm)?;
+        self.delete_or_insert_with_hash(vm, key, hash, value)
+    }
+
+    /// [`Self::delete_or_insert`] with a caller-supplied hash.
+    ///
+    /// Same contract as [`Self::insert_with_hash`].
+    pub(crate) fn delete_or_insert_with_hash(
+        &self,
+        vm: &VirtualMachine,
+        key: &PyObject,
+        hash: HashValue,
+        value: T,
+    ) -> PyResult<()> {
         let _removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
             let (entry, index_index) = lookup;
@@ -885,6 +964,18 @@ impl<T: Clone> Dict<T> {
             .entries
             .iter()
             .filter_map(|v| v.as_ref().map(|v| v.key.clone()))
+            .collect()
+    }
+
+    /// All keys paired with the hash already stored in their entry.
+    ///
+    /// Lets a caller move keys into another dict/set without calling
+    /// `__hash__` again; see [`Self::insert_with_hash`].
+    pub(crate) fn keys_with_hashes(&self) -> Vec<(PyObjectRef, HashValue)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.hash)))
             .collect()
     }
 
