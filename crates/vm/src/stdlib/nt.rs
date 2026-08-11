@@ -54,7 +54,7 @@ pub(crate) mod module {
             let reason = match err.error_len() {
                 None => "unexpected end of data",
                 Some(_) => match bytes[err.valid_up_to()] {
-                    0xc2..=0xdf | 0xe0..=0xef | 0xf0..=0xf4 => "invalid continuation byte",
+                    0xc2..=0xf4 => "invalid continuation byte",
                     _ => "invalid start byte",
                 },
             };

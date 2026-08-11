@@ -1067,8 +1067,7 @@ class CodecCallbackTest(unittest.TestCase):
                 decoded = input.decode(enc, "test.bug36819")
                 self.assertEqual(decoded, 'abcdx' * 51)
 
-    # TODO: RUSTPYTHON
-    @unittest.expectedFailure
+    @unittest.expectedFailureIf(sys.platform != "win32", "TODO: RUSTPYTHON")
     def test_encodehelper_bug36819(self):
         handler = RepeatedPosReturn()
         codecs.register_error("test.bug36819", handler.handle)
