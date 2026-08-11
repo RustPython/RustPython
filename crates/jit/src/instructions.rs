@@ -548,8 +548,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                     JitValue::FuncRef(reference) => {
                         let call = self.builder.ins().call(reference, &args);
-                        let returns = self.builder.inst_results(call);
-                        self.stack.push(JitValue::Int(returns[0]));
+                        // The only callable reachable here is this function itself,
+                        // so the result carries the declared return type - it is not
+                        // always an Int. A function whose return type is still
+                        // unknown has no return slot in the signature it was
+                        // declared with, and there is nothing to type the result as.
+                        let ret = match *self.builder.inst_results(call) {
+                            [] => None,
+                            [val] => Some(val),
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+                        let val = match (self.sig.ret.clone(), ret) {
+                            (Some(JitType::None), None) => JitValue::None,
+                            (Some(ty), Some(val)) => JitValue::from_type_and_value(ty, val),
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+                        self.stack.push(val);
 
                         Ok(())
                     }
