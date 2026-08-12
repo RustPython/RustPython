@@ -323,15 +323,17 @@ mod _ssl {
     #[pyattr]
     const ALERT_DESCRIPTION_NO_APPLICATION_PROTOCOL: i32 = 120;
 
-    // Version info - reporting as OpenSSL 3.3.0 for compatibility
+    // `ssl.py` still requires OpenSSL-shaped numeric compatibility fields even
+    // for non-OpenSSL TLS providers. Keep them in the supported 3.x ABI range,
+    // but report the actual rustls/AWS-LC backend in the human-readable string.
     #[pyattr]
-    const OPENSSL_VERSION_NUMBER: i32 = 0x30300000; // OpenSSL 3.3.0 (808452096)
+    const OPENSSL_VERSION_NUMBER: i32 = 0x30300000;
     #[pyattr]
-    const OPENSSL_VERSION: &str = "OpenSSL 3.3.0 (rustls/0.23)";
+    const OPENSSL_VERSION: &str = "OpenSSL 3.3.0-compatible (AWS-LC/rustls 0.23)";
     #[pyattr]
-    const OPENSSL_VERSION_INFO: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15); // 3.3.0 release
+    const OPENSSL_VERSION_INFO: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15);
     #[pyattr]
-    const _OPENSSL_API_VERSION: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15); // 3.3.0 release
+    const _OPENSSL_API_VERSION: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15);
 
     // Default cipher list for rustls - using modern secure ciphers
     #[pyattr]
@@ -2816,8 +2818,8 @@ mod _ssl {
                     super::compat::SslError::create_ssl_error_with_reason(
                         vm,
                         Some("SSL"),
-                        "CALLBACK_FAILED",
-                        "[SSL: CALLBACK_FAILED] callback failed",
+                        "PARSE_TLSEXT",
+                        "[SSL: PARSE_TLSEXT] SNI callback owner is no longer available",
                     )
                 })?;
             let server_name_py: PyObjectRef = match sni_name {
