@@ -1260,7 +1260,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(list(t), [1, 1, 1])
         self.assertRaises(StopIteration, next, t)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dropwhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
         self.assertEqual(list(dropwhile(underten, data)), [20, 2, 4, 6, 8])
