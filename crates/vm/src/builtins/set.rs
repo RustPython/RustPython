@@ -605,6 +605,23 @@ fn extract_set(obj: &PyObject) -> Option<&PySetInner> {
     })
 }
 
+/// Elements of `obj` with their stored hashes, or `None` unless `obj` is exactly
+/// a `set` or `frozenset` — `PyAnySet_CheckExact`, where [`extract_set`] is the
+/// subclass-inclusive `PyAnySet_Check`.
+pub(super) fn exact_set_keys_with_hashes(
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> Option<Vec<(PyObjectRef, PyHash)>> {
+    let inner = obj
+        .downcast_ref_if_exact::<PySet>(vm)
+        .map(|set| &set.inner)
+        .or_else(|| {
+            obj.downcast_ref_if_exact::<PyFrozenSet>(vm)
+                .map(|frozen| &frozen.inner)
+        })?;
+    Some(inner.content.keys_with_hashes())
+}
+
 fn reduce_set(zelf: &PyObject, vm: &VirtualMachine) -> (PyTypeRef, PyTupleRef, Option<PyDictRef>) {
     (
         zelf.class().to_owned(),
