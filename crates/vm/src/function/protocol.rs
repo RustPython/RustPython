@@ -87,7 +87,7 @@ unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
 
 impl<T> ArgIterable<T> {
     #[must_use]
-    pub fn as_object(&self) -> &PyObject {
+    pub(crate) fn as_object(&self) -> &PyObject {
         &self.iterable
     }
 

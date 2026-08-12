@@ -468,11 +468,9 @@ impl<T: Clone> Dict<T> {
 
     /// Store a key whose hash the caller already knows.
     ///
-    /// `hash` MUST be the value `key.key_hash(vm)` would return. Passing a
-    /// different hash corrupts the table: the entry is stored in a bucket no
-    /// lookup will probe, so the key silently goes missing. Only pass a hash
-    /// read out of another dict/set entry holding this very key object, e.g.
-    /// via [`Self::keys_with_hashes`].
+    /// `hash` must equal `key.key_hash(vm)`; a wrong one lands the entry in a
+    /// bucket no lookup probes, silently losing the key. Only pass a hash from
+    /// [`Self::keys_with_hashes`] on a container holding this same key.
     pub(crate) fn insert_known_hash<K>(
         &self,
         vm: &VirtualMachine,
@@ -535,10 +533,8 @@ impl<T: Clone> Dict<T> {
         self.contains_known_hash(vm, key, key_hash)
     }
 
-    /// [`Self::contains`] with a caller-supplied hash.
-    ///
-    /// Same contract as [`Self::insert_known_hash`]: a wrong `hash` makes the
-    /// lookup probe the wrong bucket and report a present key as missing.
+    /// [`Self::contains`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
     pub(crate) fn contains_known_hash<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
@@ -730,9 +726,8 @@ impl<T: Clone> Dict<T> {
         self.remove_if_exists(vm, key).map(|opt| opt.is_some())
     }
 
-    /// [`Self::delete_if_exists`] with a caller-supplied hash.
-    ///
-    /// Same contract as [`Self::insert_known_hash`].
+    /// [`Self::delete_if_exists`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
     pub(crate) fn delete_if_exists_known_hash<K>(
         &self,
         vm: &VirtualMachine,
@@ -777,9 +772,8 @@ impl<T: Clone> Dict<T> {
         self.remove_if_known_hash(vm, key, hash, pred)
     }
 
-    /// [`Self::remove_if`] with a caller-supplied hash.
-    ///
-    /// Same contract as [`Self::insert_known_hash`].
+    /// [`Self::remove_if`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
     fn remove_if_known_hash<K, F>(
         &self,
         vm: &VirtualMachine,
@@ -811,9 +805,8 @@ impl<T: Clone> Dict<T> {
         self.delete_or_insert_known_hash(vm, key, hash, value)
     }
 
-    /// [`Self::delete_or_insert`] with a caller-supplied hash.
-    ///
-    /// Same contract as [`Self::insert_known_hash`].
+    /// [`Self::delete_or_insert`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
     pub(crate) fn delete_or_insert_known_hash(
         &self,
         vm: &VirtualMachine,
@@ -967,10 +960,8 @@ impl<T: Clone> Dict<T> {
             .collect()
     }
 
-    /// All keys paired with the hash already stored in their entry.
-    ///
-    /// Lets a caller move keys into another dict/set without calling
-    /// `__hash__` again; see [`Self::insert_known_hash`].
+    /// All keys paired with the hash stored in their entry, for feeding
+    /// [`Self::insert_known_hash`] without re-calling `__hash__`.
     pub(crate) fn keys_with_hashes(&self) -> Vec<(PyObjectRef, HashValue)> {
         self.read()
             .entries

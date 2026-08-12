@@ -195,20 +195,17 @@ impl PySetInner {
         Ok(set)
     }
 
-    /// Build a set from an arbitrary object, reusing the source's stored
-    /// hashes when it is a set/frozenset/dict.
-    pub(super) fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+    /// Build a set from an arbitrary object, reusing stored hashes when the
+    /// source is a set/frozenset/dict.
+    fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
         let set = Self::default();
         set.update_internal(iterable, vm)?;
         Ok(set)
     }
 
-    /// Elements of `obj` paired with the hash already stored alongside them,
-    /// or `None` if `obj` keeps no such hashes and has to be iterated
-    /// generically (which calls `__hash__` on every element again).
-    ///
-    /// Mirrors the `PyAnySet_Check` / `PyDict_CheckExact` fast paths in
-    /// CPython's `set_update_internal`.
+    /// Elements of `obj` with their stored hashes, or `None` if `obj` keeps
+    /// none and must be iterated generically. Mirrors the `PyAnySet_Check` /
+    /// `PyDict_CheckExact` fast paths in CPython's `set_update_internal`.
     fn cached_hashes(obj: &PyObject, vm: &VirtualMachine) -> Option<Vec<(PyObjectRef, PyHash)>> {
         if let Some(set) = extract_set(obj) {
             Some(set.content.keys_with_hashes())
@@ -251,9 +248,8 @@ impl PySetInner {
         Self::wrap_unhashable_error(result, needle, vm)
     }
 
-    /// [`Self::contains`] for a needle whose hash was read from another
-    /// set/dict. Such a needle is hashable by construction, so there is no
-    /// set-to-frozenset retry to do.
+    /// [`Self::contains`] with a known hash. Such a needle came out of a
+    /// set/dict, so it is hashable and needs no frozenset retry.
     fn contains_known_hash(
         &self,
         needle: &PyObject,
@@ -398,7 +394,7 @@ impl PySetInner {
         Self::wrap_unhashable_error(result, &item, vm)
     }
 
-    /// [`Self::add`] for an item whose hash was read from another set/dict.
+    /// [`Self::add`] with a known hash.
     fn add_known_hash(&self, item: PyObjectRef, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
         let result = self.content.insert_known_hash(vm, &*item, hash, ());
         Self::wrap_unhashable_error(result, &item, vm)
@@ -1098,8 +1094,6 @@ impl Constructor for PyFrozenSet {
     }
 
     fn py_new(_cls: &Py<PyType>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        // built from the object itself, so a set/frozenset/dict source can
-        // hand over its stored hashes instead of being re-hashed
         let inner = match iterable {
             OptionalArg::Present(iterable) => PySetInner::from_object(iterable, vm)?,
             OptionalArg::Missing => PySetInner::default(),
