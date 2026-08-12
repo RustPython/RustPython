@@ -516,7 +516,7 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
         let code = deserialize_code_inner(rdr, bag, depth - 1, refs)?;
         bag.make_code(code)
     } else {
-        deserialize_value_typed(rdr, bag, depth, refs, typ)?
+        deserialize_value_typed(rdr, bag, depth, refs, typ, slot)?
     };
     if let Some(idx) = slot {
         refs[idx] = Some(value.clone());
@@ -539,6 +539,10 @@ pub trait MarshalBag: Copy {
     fn make_complex(&self, value: Complex64) -> Self::Value;
 
     fn make_str(&self, value: &Wtf8) -> Self::Value;
+
+    fn make_interned_str(&self, value: &Wtf8) -> Self::Value {
+        self.make_str(value)
+    }
 
     fn make_bytes(&self, value: &[u8]) -> Self::Value;
 
@@ -563,6 +567,51 @@ pub trait MarshalBag: Copy {
         &self,
         it: impl Iterator<Item = (Self::Value, Self::Value)>,
     ) -> Result<Self::Value>;
+
+    /// Install partially-built containers in the marshal reference table
+    /// before reading their children, as CPython's `r_object()` does.
+    /// Runtime bags can opt in; constant bags retain collect-then-construct.
+    fn make_tuple_placeholder(&self, _len: usize) -> Option<Self::Value> {
+        None
+    }
+
+    fn set_tuple_item(
+        &self,
+        _tuple: &Self::Value,
+        _index: usize,
+        _value: Self::Value,
+    ) -> Result<()> {
+        Err(MarshalError::BadType)
+    }
+
+    fn make_list_placeholder(&self, _len: usize) -> Option<Self::Value> {
+        None
+    }
+
+    fn set_list_item(&self, _list: &Self::Value, _index: usize, _value: Self::Value) -> Result<()> {
+        Err(MarshalError::BadType)
+    }
+
+    fn make_set_placeholder(&self) -> Option<Self::Value> {
+        None
+    }
+
+    fn insert_set_item(&self, _set: &Self::Value, _value: Self::Value) -> Result<()> {
+        Err(MarshalError::BadType)
+    }
+
+    fn make_dict_placeholder(&self) -> Option<Self::Value> {
+        None
+    }
+
+    fn insert_dict_item(
+        &self,
+        _dict: &Self::Value,
+        _key: Self::Value,
+        _value: Self::Value,
+    ) -> Result<()> {
+        Err(MarshalError::BadType)
+    }
 
     fn make_slice(
         &self,
@@ -755,7 +804,7 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
         let code = deserialize_code_inner(rdr, bag.constant_bag(), depth - 1, &mut inner_refs)?;
         bag.make_code(code)
     } else {
-        deserialize_value_typed(rdr, bag, depth, refs, typ)?
+        deserialize_value_typed(rdr, bag, depth, refs, typ, slot)?
     };
 
     if let Some(idx) = slot {
@@ -770,6 +819,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
     depth: usize,
     refs: &mut Vec<Option<Bag::Value>>,
     typ: Type,
+    slot: Option<usize>,
 ) -> Result<Bag::Value> {
     if depth == 0 {
         return Err(MarshalError::InvalidBytecode);
@@ -806,21 +856,42 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let value = Complex64 { re, im };
             bag.make_complex(value)
         }
-        Type::Ascii | Type::AsciiInterned | Type::Unicode | Type::Interned => {
+        Type::Ascii | Type::Unicode => {
             let len = rdr.read_u32()?;
             let value = rdr.read_wtf8(len)?;
             bag.make_str(value)
         }
-        Type::ShortAscii | Type::ShortAsciiInterned => {
+        Type::AsciiInterned | Type::Interned => {
+            let len = rdr.read_u32()?;
+            let value = rdr.read_wtf8(len)?;
+            bag.make_interned_str(value)
+        }
+        Type::ShortAscii => {
             let len = rdr.read_u8()? as u32;
             let value = rdr.read_wtf8(len)?;
             bag.make_str(value)
         }
+        Type::ShortAsciiInterned => {
+            let len = rdr.read_u8()? as u32;
+            let value = rdr.read_wtf8(len)?;
+            bag.make_interned_str(value)
+        }
         Type::SmallTuple => {
             let len = rdr.read_u8()? as usize;
             let d = depth - 1;
-            let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
-            itertools::process_results(it, |it| bag.make_tuple(it))?
+            if let Some(index) = slot
+                && let Some(tuple) = bag.make_tuple_placeholder(len)
+            {
+                refs[index] = Some(tuple.clone());
+                for item_index in 0..len {
+                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    bag.set_tuple_item(&tuple, item_index, item)?;
+                }
+                tuple
+            } else {
+                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                itertools::process_results(it, |it| bag.make_tuple(it))?
+            }
         }
         Type::Null => {
             return Err(MarshalError::BadType);
@@ -830,22 +901,55 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             return Err(MarshalError::BadType);
         }
         Type::Tuple => {
-            let len = rdr.read_u32()?;
+            let len = rdr.read_u32()? as usize;
             let d = depth - 1;
-            let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
-            itertools::process_results(it, |it| bag.make_tuple(it))?
+            if let Some(index) = slot
+                && let Some(tuple) = bag.make_tuple_placeholder(len)
+            {
+                refs[index] = Some(tuple.clone());
+                for item_index in 0..len {
+                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    bag.set_tuple_item(&tuple, item_index, item)?;
+                }
+                tuple
+            } else {
+                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                itertools::process_results(it, |it| bag.make_tuple(it))?
+            }
         }
         Type::List => {
-            let len = rdr.read_u32()?;
+            let len = rdr.read_u32()? as usize;
             let d = depth - 1;
-            let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
-            itertools::process_results(it, |it| bag.make_list(it))??
+            if let Some(index) = slot
+                && let Some(list) = bag.make_list_placeholder(len)
+            {
+                refs[index] = Some(list.clone());
+                for item_index in 0..len {
+                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    bag.set_list_item(&list, item_index, item)?;
+                }
+                list
+            } else {
+                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                itertools::process_results(it, |it| bag.make_list(it))??
+            }
         }
         Type::Set => {
-            let len = rdr.read_u32()?;
+            let len = rdr.read_u32()? as usize;
             let d = depth - 1;
-            let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
-            itertools::process_results(it, |it| bag.make_set(it))??
+            if let Some(index) = slot
+                && let Some(set) = bag.make_set_placeholder()
+            {
+                refs[index] = Some(set.clone());
+                for _ in 0..len {
+                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    bag.insert_set_item(&set, item)?;
+                }
+                set
+            } else {
+                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                itertools::process_results(it, |it| bag.make_set(it))??
+            }
         }
         Type::FrozenSet => {
             let len = rdr.read_u32()?;
@@ -855,17 +959,33 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
         }
         Type::Dict => {
             let d = depth - 1;
-            let mut pairs = Vec::new();
-            loop {
-                let raw = rdr.read_u8()?;
-                if raw & !FLAG_REF == b'0' {
-                    break;
+            if let Some(index) = slot
+                && let Some(dict) = bag.make_dict_placeholder()
+            {
+                refs[index] = Some(dict.clone());
+                loop {
+                    let raw = rdr.read_u8()?;
+                    if raw & !FLAG_REF == b'0' {
+                        break;
+                    }
+                    let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
+                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    bag.insert_dict_item(&dict, key, value)?;
                 }
-                let k = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                let v = deserialize_value_depth(rdr, bag, d, refs)?;
-                pairs.push((k, v));
+                dict
+            } else {
+                let mut pairs = Vec::new();
+                loop {
+                    let raw = rdr.read_u8()?;
+                    if raw & !FLAG_REF == b'0' {
+                        break;
+                    }
+                    let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
+                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    pairs.push((key, value));
+                }
+                bag.make_dict(pairs.into_iter())?
             }
-            bag.make_dict(pairs.into_iter())?
         }
         Type::Bytes => {
             // After marshaling, byte arrays are converted into bytes.
