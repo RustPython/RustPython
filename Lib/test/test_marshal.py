@@ -410,13 +410,13 @@ class BugsTestCase(unittest.TestCase):
         self.assertIsInstance(a[0], dict)
         self.assertIs(a[0][None], a)
 
-        # Direct self-reference which cannot be created in Python.
-        # This creates a reference loop which cannot be collected.
-        if False:
-            data = b'\xa8\x01\x00\x00\x00r\x00\x00\x00\x00' # (<R>,)
-            a = marshal.loads(data)
-            self.assertIsInstance(a, tuple)
-            self.assertIs(a[0], a)
+        # Direct self-reference which cannot be created in Python.  CPython
+        # leaves this disabled because its reference counting cannot collect
+        # the resulting cycle; RustPython's tracing collector can.
+        data = b'\xa8\x01\x00\x00\x00r\x00\x00\x00\x00' # (<R>,)
+        a = marshal.loads(data)
+        self.assertIsInstance(a, tuple)
+        self.assertIs(a[0], a)
 
         # Direct self-references which cannot be created in Python
         # because of unhashability.
