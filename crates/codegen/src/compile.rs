@@ -5083,6 +5083,14 @@ impl<'warnings> Compiler<'warnings> {
         func_range: TextRange,
     ) -> CompileResult<bool> {
         if !self.next_function_annotation_symbol_table_uses_annotations() {
+            // CPython creates a hidden AnnotationBlock for every function
+            // signature under `from __future__ import annotations`, including
+            // an unannotated one.  It still belongs to this function: consume
+            // it so the next function sees its own block rather than remaining
+            // pinned to this unused entry.
+            if self.push_annotation_symbol_table() {
+                self.pop_annotation_symbol_table();
+            }
             return Ok(false);
         }
 
@@ -31244,6 +31252,25 @@ def f(x: T): pass
         assert!(
             find_code(&code, "f").is_some(),
             "function body symbol-table cursor must skip the hidden AnnotationBlock"
+        );
+    }
+
+    #[test]
+    fn future_unannotated_function_does_not_hide_next_annotation_block() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+def plain(x): pass
+def annotated(x: int): pass
+",
+        );
+        let annotate = find_direct_child_code(&code, "__annotate__")
+            .expect("second function must retain its annotation closure");
+        assert!(
+            annotate.constants.iter().any(
+                |constant| matches!(constant, ConstantData::Str { value } if value.as_str() == Ok("int"))
+            ),
+            "annotation closure must belong to the annotated function"
         );
     }
 
