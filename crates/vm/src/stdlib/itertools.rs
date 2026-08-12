@@ -10,7 +10,7 @@ mod decl {
             rc::PyRc,
         },
         convert::ToPyObject,
-        function::{ArgCallable, FuncArgs, OptionalArg, OptionalOption, PosArgs},
+        function::{FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
         raise_if_stop,
         stdlib::sys,
@@ -477,7 +477,7 @@ mod decl {
     #[pyclass(name = "dropwhile")]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsDropwhile {
-        predicate: ArgCallable,
+        predicate: PyObjectRef,
         iterable: PyIter,
         start_flag: AtomicCell<bool>,
     }
@@ -485,7 +485,7 @@ mod decl {
     #[derive(FromArgs)]
     struct DropwhileNewArgs {
         #[pyarg(positional)]
-        predicate: ArgCallable,
+        predicate: PyObjectRef,
         #[pyarg(positional)]
         iterable: PyIter,
     }
@@ -522,8 +522,7 @@ mod decl {
             if !zelf.start_flag.load() {
                 loop {
                     let obj = raise_if_stop!(iterable.next(vm)?);
-                    let pred = predicate.clone();
-                    let pred_value = pred.invoke((obj.clone(),), vm)?;
+                    let pred_value = predicate.call((obj.clone(),), vm)?;
                     if !pred_value.try_to_bool(vm)? {
                         zelf.start_flag.store(true);
                         return Ok(PyIterReturn::Return(obj));
