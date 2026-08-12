@@ -195,6 +195,26 @@ impl PySetInner {
         Ok(set)
     }
 
+    /// Build a set from an arbitrary object, reusing stored hashes when the
+    /// source is a set/frozenset/dict.
+    fn from_object(iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        let set = Self::default();
+        set.update_internal(iterable, vm)?;
+        Ok(set)
+    }
+
+    /// Elements of `obj` with their stored hashes, or `None` if `obj` keeps
+    /// none and must be iterated generically. Mirrors the `PyAnySet_Check` /
+    /// `PyDict_CheckExact` fast paths in CPython's `set_update_internal`.
+    fn cached_hashes(obj: &PyObject, vm: &VirtualMachine) -> Option<Vec<(PyObjectRef, PyHash)>> {
+        if let Some(set) = extract_set(obj) {
+            Some(set.content.keys_with_hashes())
+        } else {
+            obj.downcast_ref_if_exact::<PyDict>(vm)
+                .map(|dict| dict._as_dict_inner().keys_with_hashes())
+        }
+    }
+
     fn fold_op<O>(
         &self,
         others: impl core::iter::Iterator<Item = O>,
@@ -228,6 +248,17 @@ impl PySetInner {
         Self::wrap_unhashable_error(result, needle, vm)
     }
 
+    /// [`Self::contains`] with a known hash. Such a needle came out of a
+    /// set/dict, so it is hashable and needs no frozenset retry.
+    fn contains_known_hash(
+        &self,
+        needle: &PyObject,
+        hash: PyHash,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        self.content.contains_known_hash(vm, needle, hash)
+    }
+
     fn compare(&self, other: &Self, op: PyComparisonOp, vm: &VirtualMachine) -> PyResult<bool> {
         if op == PyComparisonOp::Ne {
             return self.compare(other, PyComparisonOp::Eq, vm).map(|eq| !eq);
@@ -251,6 +282,12 @@ impl PySetInner {
 
     pub(super) fn union(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = self.clone();
+        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
+            for (item, hash) in elements {
+                set.add_known_hash(item, hash, vm)?;
+            }
+            return Ok(set);
+        }
         for item in other.iter(vm)? {
             set.add(item?, vm)?;
         }
@@ -260,6 +297,14 @@ impl PySetInner {
 
     pub(super) fn intersection(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = Self::default();
+        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
+            for (obj, hash) in elements {
+                if self.contains_known_hash(&obj, hash, vm)? {
+                    set.add_known_hash(obj, hash, vm)?;
+                }
+            }
+            return Ok(set);
+        }
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
@@ -271,6 +316,12 @@ impl PySetInner {
 
     pub(super) fn difference(&self, other: ArgIterable, vm: &VirtualMachine) -> PyResult<Self> {
         let set = self.copy();
+        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
+            for (item, hash) in elements {
+                set.content.delete_if_exists_known_hash(vm, &*item, hash)?;
+            }
+            return Ok(set);
+        }
         for item in other.iter(vm)? {
             set.content.delete_if_exists(vm, &*item?)?;
         }
@@ -283,6 +334,16 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let new_inner = self.clone();
+
+        if let Some(elements) = Self::cached_hashes(other.as_object(), vm) {
+            // the source is already duplicate-free
+            for (item, hash) in elements {
+                new_inner
+                    .content
+                    .delete_or_insert_known_hash(vm, &item, hash, ())?;
+            }
+            return Ok(new_inner);
+        }
 
         // We want to remove duplicates in other
         let other_set = Self::from_iter(other.iter(vm)?, vm)?;
@@ -330,6 +391,12 @@ impl PySetInner {
 
     fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let result = self.content.insert(vm, &*item, ());
+        Self::wrap_unhashable_error(result, &item, vm)
+    }
+
+    /// [`Self::add`] with a known hash.
+    fn add_known_hash(&self, item: PyObjectRef, hash: PyHash, vm: &VirtualMachine) -> PyResult<()> {
+        let result = self.content.insert_known_hash(vm, &*item, hash, ());
         Self::wrap_unhashable_error(result, &item, vm)
     }
 
@@ -393,15 +460,15 @@ impl PySetInner {
     }
 
     fn merge_set(&self, any_set: AnySet, vm: &VirtualMachine) -> PyResult<()> {
-        for item in any_set.as_inner().elements() {
-            self.add(item, vm)?;
+        for (item, hash) in any_set.as_inner().content.keys_with_hashes() {
+            self.add_known_hash(item, hash, vm)?;
         }
         Ok(())
     }
 
     fn merge_dict(&self, dict: PyDictRef, vm: &VirtualMachine) -> PyResult<()> {
-        for (key, _value) in dict {
-            self.add(key, vm)?;
+        for (key, hash) in dict._as_dict_inner().keys_with_hashes() {
+            self.add_known_hash(key, hash, vm)?;
         }
         Ok(())
     }
@@ -413,8 +480,8 @@ impl PySetInner {
     ) -> PyResult<()> {
         let temp_inner = self.fold_op(others, Self::intersection, vm)?;
         self.clear();
-        for obj in temp_inner.elements() {
-            self.add(obj, vm)?;
+        for (obj, hash) in temp_inner.content.keys_with_hashes() {
+            self.add_known_hash(obj, hash, vm)?;
         }
         Ok(())
     }
@@ -425,6 +492,12 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
+            if let Some(elements) = Self::cached_hashes(iterable.as_object(), vm) {
+                for (item, hash) in elements {
+                    self.content.delete_if_exists_known_hash(vm, &*item, hash)?;
+                }
+                continue;
+            }
             let items = iterable.iter(vm)?.collect::<Result<Vec<_>, _>>()?;
             for item in items {
                 self.content.delete_if_exists(vm, &*item)?;
@@ -439,6 +512,14 @@ impl PySetInner {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         for iterable in others {
+            if let Some(elements) = Self::cached_hashes(iterable.as_object(), vm) {
+                // the source is already duplicate-free
+                for (item, hash) in elements {
+                    self.content
+                        .delete_or_insert_known_hash(vm, &item, hash, ())?;
+                }
+                continue;
+            }
             // We want to remove duplicates in iterable
             let iterable_set = Self::from_iter(iterable.iter(vm)?, vm)?;
             for item in iterable_set.elements() {
@@ -955,7 +1036,7 @@ impl Representable for PySet {
 }
 
 impl Constructor for PyFrozenSet {
-    type Args = Vec<PyObjectRef>;
+    type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         let is_exact_frozenset = cls.is(vm.ctx.types.frozenset_type);
@@ -988,11 +1069,11 @@ impl Constructor for PyFrozenSet {
                 return Ok(input.clone());
             }
 
-            iterable.into_option()
+            iterable
         } else {
             match &args.args[..] {
-                [] => None,
-                [iterable] => Some(iterable.clone()),
+                [] => OptionalArg::Missing,
+                [iterable] => OptionalArg::Present(iterable.clone()),
                 slice => {
                     return Err(vm.new_type_error(format!(
                         "frozenset expected at most 1 argument, got {}",
@@ -1002,23 +1083,25 @@ impl Constructor for PyFrozenSet {
             }
         };
 
-        let elements = if let Some(iterable) = iterable_opt {
-            iterable.try_to_value(vm)?
-        } else {
-            vec![]
-        };
+        let payload = Self::py_new(&cls, iterable_opt, vm)?;
 
         // Return empty frozenset singleton
-        if is_exact_frozenset && elements.is_empty() {
+        if is_exact_frozenset && payload.inner.len() == 0 {
             return Ok(vm.ctx.empty_frozenset.clone().into());
         }
 
-        let payload = Self::py_new(&cls, elements, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
 
-    fn py_new(_cls: &Py<PyType>, elements: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
-        Self::from_iter(vm, elements)
+    fn py_new(_cls: &Py<PyType>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let inner = match iterable {
+            OptionalArg::Present(iterable) => PySetInner::from_object(iterable, vm)?,
+            OptionalArg::Missing => PySetInner::default(),
+        };
+        Ok(Self {
+            inner,
+            ..Default::default()
+        })
     }
 }
 

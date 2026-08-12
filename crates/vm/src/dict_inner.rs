@@ -463,6 +463,24 @@ impl<T: Clone> Dict<T> {
         K: DictKey + ?Sized,
     {
         let hash = key.key_hash(vm)?;
+        self.insert_known_hash(vm, key, hash, value)
+    }
+
+    /// Store a key whose hash the caller already knows.
+    ///
+    /// `hash` must equal `key.key_hash(vm)`; a wrong one lands the entry in a
+    /// bucket no lookup probes, silently losing the key. Only pass a hash from
+    /// [`Self::keys_with_hashes`] on a container holding this same key.
+    pub(crate) fn insert_known_hash<K>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        value: T,
+    ) -> PyResult<()>
+    where
+        K: DictKey + ?Sized,
+    {
         let _removed = loop {
             let (entry_index, index_index) = self.lookup(vm, key, hash, None)?;
             let mut inner = self.write();
@@ -512,7 +530,18 @@ impl<T: Clone> Dict<T> {
         key: &K,
     ) -> PyResult<bool> {
         let key_hash = key.key_hash(vm)?;
-        let (entry, _) = self.lookup(vm, key, key_hash, None)?;
+        self.contains_known_hash(vm, key, key_hash)
+    }
+
+    /// [`Self::contains`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn contains_known_hash<K: DictKey + ?Sized>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<bool> {
+        let (entry, _) = self.lookup(vm, key, hash, None)?;
         Ok(entry.index().is_some())
     }
 
@@ -697,6 +726,21 @@ impl<T: Clone> Dict<T> {
         self.remove_if_exists(vm, key).map(|opt| opt.is_some())
     }
 
+    /// [`Self::delete_if_exists`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn delete_if_exists_known_hash<K>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+    ) -> PyResult<bool>
+    where
+        K: DictKey + ?Sized,
+    {
+        self.remove_if_known_hash(vm, key, hash, |_| Ok(true))
+            .map(|opt| opt.is_some())
+    }
+
     pub(crate) fn delete_if<K, F>(&self, vm: &VirtualMachine, key: &K, pred: F) -> PyResult<bool>
     where
         K: DictKey + ?Sized,
@@ -725,6 +769,22 @@ impl<T: Clone> Dict<T> {
         F: Fn(&T) -> PyResult<bool>,
     {
         let hash = key.key_hash(vm)?;
+        self.remove_if_known_hash(vm, key, hash, pred)
+    }
+
+    /// [`Self::remove_if`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    fn remove_if_known_hash<K, F>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        pred: F,
+    ) -> PyResult<Option<T>>
+    where
+        K: DictKey + ?Sized,
+        F: Fn(&T) -> PyResult<bool>,
+    {
         let removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
             match self.pop_inner_if(lookup, &pred)? {
@@ -742,6 +802,18 @@ impl<T: Clone> Dict<T> {
         value: T,
     ) -> PyResult<()> {
         let hash = key.key_hash(vm)?;
+        self.delete_or_insert_known_hash(vm, key, hash, value)
+    }
+
+    /// [`Self::delete_or_insert`] with a known hash. Same contract as
+    /// [`Self::insert_known_hash`].
+    pub(crate) fn delete_or_insert_known_hash(
+        &self,
+        vm: &VirtualMachine,
+        key: &PyObject,
+        hash: HashValue,
+        value: T,
+    ) -> PyResult<()> {
         let _removed = loop {
             let lookup = self.lookup(vm, key, hash, None)?;
             let (entry, index_index) = lookup;
@@ -885,6 +957,16 @@ impl<T: Clone> Dict<T> {
             .entries
             .iter()
             .filter_map(|v| v.as_ref().map(|v| v.key.clone()))
+            .collect()
+    }
+
+    /// All keys paired with the hash stored in their entry, for feeding
+    /// [`Self::insert_known_hash`] without re-calling `__hash__`.
+    pub(crate) fn keys_with_hashes(&self) -> Vec<(PyObjectRef, HashValue)> {
+        self.read()
+            .entries
+            .iter()
+            .filter_map(|v| v.as_ref().map(|v| (v.key.clone(), v.hash)))
             .collect()
     }
 
