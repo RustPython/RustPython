@@ -354,19 +354,19 @@ impl PyDict {
     ) -> PyResult<Option<PyObjectRef>> {
         self.entries.get(vm, key)
     }
-}
 
-/// Keys of `obj` with their stored hashes, or `None` if it must be iterated
-/// generically. Only exact dicts and sets qualify, as in CPython's
-/// `_PyDict_FromKeys`: a subclass may override `__iter__`.
-fn fromkeys_known_hashes(
-    obj: &PyObject,
-    vm: &VirtualMachine,
-) -> Option<Vec<(PyObjectRef, PyHash)>> {
-    if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
-        Some(dict.entries.keys_with_hashes())
-    } else {
-        set::exact_set_keys_with_hashes(obj, vm)
+    /// Keys of `obj` with their stored hashes, or `None` if it must be iterated
+    /// generically. Only exact dicts and sets qualify, as in CPython's
+    /// `_PyDict_FromKeys`: a subclass may override `__iter__`.
+    fn fromkeys_known_hashes(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+    ) -> Option<Vec<(PyObjectRef, PyHash)>> {
+        if let Some(dict) = obj.downcast_ref_if_exact::<Self>(vm) {
+            Some(dict.entries.keys_with_hashes())
+        } else {
+            set::exact_set_keys_with_hashes(obj, vm)
+        }
     }
 }
 
@@ -398,7 +398,7 @@ impl PyDict {
         let d = PyType::call(&class, ().into(), vm)?;
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
-                if let Some(keys) = fromkeys_known_hashes(iterable.as_object(), vm) {
+                if let Some(keys) = Self::fromkeys_known_hashes(iterable.as_object(), vm) {
                     for (key, hash) in keys {
                         pydict
                             .entries
