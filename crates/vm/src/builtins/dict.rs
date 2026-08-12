@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
+    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set, set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
@@ -9,7 +9,7 @@ use crate::{
     TryFromObject, atomic_func,
     builtins::{PyList, PyTuple, iter::builtins_iter, type_::PyAttributes},
     class::{PyClassDef, PyClassImpl},
-    common::ascii,
+    common::{ascii, hash::PyHash},
     dict_inner::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
@@ -356,6 +356,20 @@ impl PyDict {
     }
 }
 
+/// Keys of `obj` with their stored hashes, or `None` if it must be iterated
+/// generically. Only exact dicts and sets qualify, as in CPython's
+/// `_PyDict_FromKeys`: a subclass may override `__iter__`.
+fn fromkeys_known_hashes(
+    obj: &PyObject,
+    vm: &VirtualMachine,
+) -> Option<Vec<(PyObjectRef, PyHash)>> {
+    if let Some(dict) = obj.downcast_ref_if_exact::<PyDict>(vm) {
+        Some(dict.entries.keys_with_hashes())
+    } else {
+        set::exact_set_keys_with_hashes(obj, vm)
+    }
+}
+
 // Python dict methods:
 #[pyclass(
     with(
@@ -384,8 +398,16 @@ impl PyDict {
         let d = PyType::call(&class, ().into(), vm)?;
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
-                for key in iterable.iter(vm)? {
-                    pydict.__setitem__(key?, value.clone(), vm)?;
+                if let Some(keys) = fromkeys_known_hashes(iterable.as_object(), vm) {
+                    for (key, hash) in keys {
+                        pydict
+                            .entries
+                            .insert_known_hash(vm, &*key, hash, value.clone())?;
+                    }
+                } else {
+                    for key in iterable.iter(vm)? {
+                        pydict.__setitem__(key?, value.clone(), vm)?;
+                    }
                 }
                 Ok(pydict.into_pyref().into())
             }
