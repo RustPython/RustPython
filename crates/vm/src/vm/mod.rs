@@ -1467,6 +1467,10 @@ impl VirtualMachine {
 
         let initial_ptr = self.take_pending_tailcall();
         // Drain the refs that keep the initial callee's raw pointers alive.
+        #[allow(
+            clippy::drain_collect,
+            reason = "`pending_tailcall_refs`'s allocation is intentionally reused"
+        )]
         let initial_refs = unsafe { &mut *self.pending_tailcall_refs.get() }
             .drain(..)
             .collect();
@@ -1498,6 +1502,10 @@ impl VirtualMachine {
                     let result = crate::frame::run_iframe(callee, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
+                            #[allow(
+                                clippy::drain_collect,
+                                reason = "`pending_tailcall_refs`'s allocation is intentionally reused"
+                            )]
                             let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
                                 .drain(..)
                                 .collect();
@@ -1548,6 +1556,10 @@ impl VirtualMachine {
                     let result = crate::frame::run_iframe(caller_iframe, self);
                     match result {
                         Ok(ExecutionResult::TailCall) => {
+                            #[allow(
+                                clippy::drain_collect,
+                                reason = "`pending_tailcall_refs`'s allocation is intentionally reused"
+                            )]
                             let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
                                 .drain(..)
                                 .collect();
@@ -1609,6 +1621,10 @@ impl VirtualMachine {
                             let result = crate::frame::run_iframe(caller_iframe, self);
                             match result {
                                 Ok(ExecutionResult::TailCall) => {
+                                    #[allow(
+                                        clippy::drain_collect,
+                                        reason = "`pending_tailcall_refs`'s allocation is intentionally reused"
+                                    )]
                                     let refs = unsafe { &mut *self.pending_tailcall_refs.get() }
                                         .drain(..)
                                         .collect();

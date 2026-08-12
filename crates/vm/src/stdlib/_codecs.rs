@@ -791,19 +791,18 @@ mod _codecs_windows {
 
             // Convert code point to UTF-16
             let mut wchars = [0u16; 2];
-            let wchar_len;
             let is_surrogate = (0xD800..=0xDFFF).contains(&ch);
 
-            if is_surrogate {
-                wchar_len = 0; // Can't encode surrogates normally
+            let wchar_len = if is_surrogate {
+                0 // Can't encode surrogates normally
             } else if ch < 0x10000 {
                 wchars[0] = ch as u16;
-                wchar_len = 1;
+                1
             } else {
                 wchars[0] = ((ch - 0x10000) >> 10) as u16 + 0xD800;
                 wchars[1] = ((ch - 0x10000) & 0x3FF) as u16 + 0xDC00;
-                wchar_len = 2;
-            }
+                2
+            };
 
             if !is_surrogate {
                 let mut buf = [0u8; 8];
