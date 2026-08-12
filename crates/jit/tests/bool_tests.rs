@@ -202,4 +202,18 @@ mod tests {
         assert_eq!(lte(false, 1), Ok(1));
         assert_eq!(lte(true, 0), Ok(0));
     }
+
+    #[test]
+    fn recursive_bool() {
+        let recursive_bool = jit_function! { recursive_bool(n: i64) -> bool => r##"
+        def recursive_bool(n: int) -> bool:
+            if n == 0:
+                return True
+            return not recursive_bool(n - 1)
+    "## };
+
+        assert_eq!(recursive_bool(0), Ok(true));
+        assert_eq!(recursive_bool(1), Ok(false));
+        assert_eq!(recursive_bool(4), Ok(true));
+    }
 }
