@@ -605,14 +605,35 @@ pub(crate) mod _thread {
         vm.state.thread_count.fetch_sub(1);
     }
 
+    /// Default stack size for Python threads in **debug builds only**, where
+    /// Rust stack frames are substantially larger than in release. Rust's
+    /// `std::thread::Builder` otherwise defaults to 2 MB, which is too small
+    /// for the call chains the Python stdlib runs on helper threads in debug
+    /// (e.g. the SSL test server, see #7941). Release builds keep the prior
+    /// behavior — leave the stack size unset and let Rust's std default apply
+    /// — to avoid oversized virtual stack mappings when many threads spawn.
+    #[cfg(debug_assertions)]
+    const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+    /// Configure a `thread::Builder` with the stack size to use for a new
+    /// Python thread. Uses the value set via `threading.stack_size(N)` when
+    /// the user has provided one (non-zero). Otherwise, debug builds fall
+    /// back to [`DEFAULT_THREAD_STACK_SIZE`] and release builds leave the
+    /// builder unmodified (Rust's std default applies).
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
         if configured != 0 {
-            thread_builder.stack_size(configured)
-        } else {
+            return thread_builder.stack_size(configured);
+        }
+        #[cfg(debug_assertions)]
+        {
+            thread_builder.stack_size(DEFAULT_THREAD_STACK_SIZE)
+        }
+        #[cfg(not(debug_assertions))]
+        {
             thread_builder
         }
     }
@@ -1995,5 +2016,56 @@ pub(crate) mod _thread {
         }
 
         Ok(handle_clone)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        use super::*;
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        use crate::Interpreter;
+
+        /// Regression test for #7941: a Python thread started without an
+        /// explicit `threading.stack_size()` must not run on Rust's 2 MiB
+        /// std default in debug builds, where the call chains the stdlib
+        /// runs on helper threads (e.g. the SSL test server) overflowed it.
+        #[test]
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        fn default_python_thread_stack_size_debug() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                assert_eq!(vm.state.stacksize.load(), 0);
+                let builder = apply_thread_stack_size(thread::Builder::new(), vm);
+                let stack_size = builder
+                    .spawn(current_thread_stack_size)
+                    .expect("failed to spawn thread")
+                    .join()
+                    .expect("thread panicked");
+                assert!(
+                    stack_size >= DEFAULT_THREAD_STACK_SIZE,
+                    "Python thread stack size is {stack_size} bytes, expected at least {DEFAULT_THREAD_STACK_SIZE}"
+                );
+            });
+        }
+
+        #[cfg(all(debug_assertions, target_os = "linux"))]
+        fn current_thread_stack_size() -> usize {
+            use libc::{
+                pthread_attr_destroy, pthread_attr_getstacksize, pthread_attr_t,
+                pthread_getattr_np, pthread_self,
+            };
+            let mut attr: pthread_attr_t = unsafe { core::mem::zeroed() };
+            unsafe {
+                assert_eq!(pthread_getattr_np(pthread_self(), &mut attr), 0);
+                let mut size = 0;
+                assert_eq!(pthread_attr_getstacksize(&attr, &mut size), 0);
+                pthread_attr_destroy(&mut attr);
+                size
+            }
+        }
+
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        fn current_thread_stack_size() -> usize {
+            unsafe { libc::pthread_get_stacksize_np(libc::pthread_self()) }
+        }
     }
 }

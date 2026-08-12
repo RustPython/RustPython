@@ -287,9 +287,11 @@ pub(super) fn is_ca_certificate(cert_der: &[u8]) -> bool {
         return ext.value.ca;
     }
 
-    // No Basic Constraints extension -> NOT a CA certificate
-    // (matches OpenSSL X509_check_ca() behavior)
-    false
+    // X509_check_ca() also retains OpenSSL's legacy trust-anchor rule: a
+    // self-issued X.509v1 certificate has no extensions at all, but is still
+    // classified as a CA. CPython's test CA at capath/4e1295a3.0 exercises
+    // precisely this case.
+    cert.version().0 == 0 && cert.subject() == cert.issuer()
 }
 
 /// Convert an X509Name to Python nested tuple format for SSL certificate dicts
@@ -867,26 +869,36 @@ impl ServerCertVerifier for NoVerifier {
 
     fn verify_tls12_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        // Accept all signatures without verification
-        Ok(HandshakeSignatureValid::assertion())
+        rustls::crypto::verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &CryptoExt::get_provider().signature_verification_algorithms,
+        )
     }
 
     fn verify_tls13_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, rustls::Error> {
-        // Accept all signatures without verification
-        Ok(HandshakeSignatureValid::assertion())
+        rustls::crypto::verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &CryptoExt::get_provider().signature_verification_algorithms,
+        )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        ALL_SIGNATURE_SCHEMES.to_vec()
+        CryptoExt::get_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
     }
 }
 
