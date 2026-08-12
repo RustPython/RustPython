@@ -319,7 +319,6 @@ class BugsTestCase(unittest.TestCase):
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_list(self):
         a = []
         a.append(a)
@@ -331,7 +330,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b, list)
             self.assertIs(b[0], b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_dict(self):
         a = {}
         a[None] = a
@@ -343,7 +341,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b, dict)
             self.assertIs(b[None], b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_tuple(self):
         a = ([],)
         a[0].append(a)
@@ -387,22 +384,19 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, a, v)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_reference_loop_list(self):
         data = b'\xdb\x01\x00\x00\x00r\x00\x00\x00\x00' # [<R>]
         a = marshal.loads(data)
         self.assertIsInstance(a, list)
         self.assertIs(a[0], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_reference_loop_dict(self):
         data = b'\xfbNr\x00\x00\x00\x000' # {None: <R>}
         a = marshal.loads(data)
         self.assertIsInstance(a, dict)
         self.assertIs(a[None], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
-    def test_loads_abnormal_reference_loops(self):
+    def test_loads_indirect_tuple_reference_loops(self):
         # Indirect self-references of tuples.
         data = b'\xa8\x01\x00\x00\x00[\x01\x00\x00\x00r\x00\x00\x00\x00' # ([<R>],)
         a = marshal.loads(data)
@@ -416,6 +410,8 @@ class BugsTestCase(unittest.TestCase):
         self.assertIsInstance(a[0], dict)
         self.assertIs(a[0][None], a)
 
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; malformed hash cycles report ValueError
+    def test_loads_abnormal_reference_loops(self):
         # Direct self-reference which cannot be created in Python.
         # This creates a reference loop which cannot be collected.
         if False:
@@ -748,7 +744,6 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
     strobj = "this is an interned string"
     strobj = sys.intern(strobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testIntern(self):
         s = marshal.loads(marshal.dumps(self.strobj))
         self.assertEqual(s, self.strobj)

@@ -410,6 +410,9 @@ mod decl {
         fn make_str(&self, value: &Wtf8) -> Self::Value {
             self.0.ctx.new_str(value).into()
         }
+        fn make_interned_str(&self, value: &Wtf8) -> Self::Value {
+            self.0.ctx.intern_str(value).to_owned().into()
+        }
         fn make_bytes(&self, value: &[u8]) -> Self::Value {
             self.0.ctx.new_bytes(value.to_vec()).into()
         }
@@ -418,6 +421,23 @@ mod decl {
         }
         fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
             self.0.ctx.new_tuple(elements.collect()).into()
+        }
+        fn make_tuple_placeholder(&self, len: usize) -> Option<Self::Value> {
+            Some(PyTuple::new_marshal_placeholder(len, &self.0.ctx).into())
+        }
+        fn set_tuple_item(
+            &self,
+            tuple: &Self::Value,
+            index: usize,
+            value: Self::Value,
+        ) -> Result<(), marshal::MarshalError> {
+            let tuple = tuple
+                .downcast_ref::<PyTuple>()
+                .ok_or(marshal::MarshalError::BadType)?;
+            // SAFETY: compiler-core calls this only on a fresh placeholder,
+            // once per index, before returning it to Python code.
+            unsafe { tuple.set_marshal_item(index, value) };
+            Ok(())
         }
         fn make_code(&self, code: CodeObject) -> Self::Value {
             crate::builtins::PyCode::new_ref_with_bag(self.0, code).into()
@@ -431,6 +451,21 @@ mod decl {
         ) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.0.ctx.new_list(it.collect()).into())
         }
+        fn make_list_placeholder(&self, len: usize) -> Option<Self::Value> {
+            Some(self.0.ctx.new_list(vec![self.0.ctx.none(); len]).into())
+        }
+        fn set_list_item(
+            &self,
+            list: &Self::Value,
+            index: usize,
+            value: Self::Value,
+        ) -> Result<(), marshal::MarshalError> {
+            let list = list
+                .downcast_ref::<PyList>()
+                .ok_or(marshal::MarshalError::BadType)?;
+            list.borrow_vec_mut()[index] = value;
+            Ok(())
+        }
         fn make_set(
             &self,
             it: impl Iterator<Item = Self::Value>,
@@ -440,6 +475,20 @@ mod decl {
                 set.add(elem, self.0).unwrap()
             }
             Ok(set.into())
+        }
+        fn make_set_placeholder(&self) -> Option<Self::Value> {
+            Some(PySet::default().into_ref(&self.0.ctx).into())
+        }
+        fn insert_set_item(
+            &self,
+            set: &Self::Value,
+            value: Self::Value,
+        ) -> Result<(), marshal::MarshalError> {
+            let set = set
+                .downcast_ref::<PySet>()
+                .ok_or(marshal::MarshalError::BadType)?;
+            set.add(value, self.0)
+                .map_err(|_| marshal::MarshalError::BadType)
         }
         fn make_frozenset(
             &self,
@@ -458,6 +507,21 @@ mod decl {
                 dict.set_item(&*k, v, self.0).unwrap()
             }
             Ok(dict.into())
+        }
+        fn make_dict_placeholder(&self) -> Option<Self::Value> {
+            Some(self.0.ctx.new_dict().into())
+        }
+        fn insert_dict_item(
+            &self,
+            dict: &Self::Value,
+            key: Self::Value,
+            value: Self::Value,
+        ) -> Result<(), marshal::MarshalError> {
+            let dict = dict
+                .downcast_ref::<PyDict>()
+                .ok_or(marshal::MarshalError::BadType)?;
+            dict.set_item(&*key, value, self.0)
+                .map_err(|_| marshal::MarshalError::BadType)
         }
         fn make_slice(
             &self,
