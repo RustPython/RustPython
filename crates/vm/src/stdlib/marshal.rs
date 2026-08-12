@@ -9,14 +9,16 @@ mod decl {
     use crate::{
         PyObjectRef, PyResult, TryFromObject, VirtualMachine,
         builtins::{
-            PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict, PyEllipsis, PyFloat,
-            PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr, PyTuple,
+            PyBaseExceptionRef, PyBool, PyByteArray, PyBytes, PyCode, PyComplex, PyDict,
+            PyEllipsis, PyFloat, PyFrozenSet, PyInt, PyList, PyNone, PySet, PyStopIteration, PyStr,
+            PyTuple,
         },
         convert::ToPyObject,
         function::{ArgBytesLike, OptionalArg},
         object::{AsObject, PyPayload},
         protocol::PyBuffer,
     };
+    use core::cell::RefCell;
     use malachite_bigint::BigInt;
     use num_traits::Zero;
     use rustpython_compiler_core::marshal::{self, DumpableValue};
@@ -386,44 +388,64 @@ mod decl {
     }
 
     #[derive(Copy, Clone)]
-    struct PyMarshalBag<'a>(&'a VirtualMachine);
+    struct PyMarshalBag<'a> {
+        vm: &'a VirtualMachine,
+        pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
+    }
+
+    impl<'a> PyMarshalBag<'a> {
+        fn new(
+            vm: &'a VirtualMachine,
+            pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
+        ) -> Self {
+            Self { vm, pending_error }
+        }
+
+        fn remember_python_error(&self, error: PyBaseExceptionRef) -> marshal::MarshalError {
+            let mut pending = self.pending_error.borrow_mut();
+            if pending.is_none() {
+                *pending = Some(error);
+            }
+            marshal::MarshalError::BadType
+        }
+    }
 
     impl<'a> marshal::MarshalBag for PyMarshalBag<'a> {
         type Value = PyObjectRef;
         type ConstantBag = PyVmBag<'a>;
 
         fn make_bool(&self, value: bool) -> Self::Value {
-            self.0.ctx.new_bool(value).into()
+            self.vm.ctx.new_bool(value).into()
         }
         fn make_none(&self) -> Self::Value {
-            self.0.ctx.none()
+            self.vm.ctx.none()
         }
         fn make_ellipsis(&self) -> Self::Value {
-            self.0.ctx.ellipsis.clone().into()
+            self.vm.ctx.ellipsis.clone().into()
         }
         fn make_float(&self, value: f64) -> Self::Value {
-            self.0.ctx.new_float(value).into()
+            self.vm.ctx.new_float(value).into()
         }
         fn make_complex(&self, value: num_complex::Complex64) -> Self::Value {
-            self.0.ctx.new_complex(value).into()
+            self.vm.ctx.new_complex(value).into()
         }
         fn make_str(&self, value: &Wtf8) -> Self::Value {
-            self.0.ctx.new_str(value).into()
+            self.vm.ctx.new_str(value).into()
         }
         fn make_interned_str(&self, value: &Wtf8) -> Self::Value {
-            self.0.ctx.intern_str(value).to_owned().into()
+            self.vm.ctx.intern_str(value).to_owned().into()
         }
         fn make_bytes(&self, value: &[u8]) -> Self::Value {
-            self.0.ctx.new_bytes(value.to_vec()).into()
+            self.vm.ctx.new_bytes(value.to_vec()).into()
         }
         fn make_int(&self, value: BigInt) -> Self::Value {
-            self.0.ctx.new_int(value).into()
+            self.vm.ctx.new_int(value).into()
         }
         fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
-            self.0.ctx.new_tuple(elements.collect()).into()
+            self.vm.ctx.new_tuple(elements.collect()).into()
         }
         fn make_tuple_placeholder(&self, len: usize) -> Option<Self::Value> {
-            Some(PyTuple::new_marshal_placeholder(len, &self.0.ctx).into())
+            Some(PyTuple::new_marshal_placeholder(len, &self.vm.ctx).into())
         }
         fn set_tuple_item(
             &self,
@@ -440,19 +462,19 @@ mod decl {
             Ok(())
         }
         fn make_code(&self, code: CodeObject) -> Self::Value {
-            crate::builtins::PyCode::new_ref_with_bag(self.0, code).into()
+            crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into()
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
-            Ok(self.0.ctx.exceptions.stop_iteration.to_owned().into())
+            Ok(self.vm.ctx.exceptions.stop_iteration.to_owned().into())
         }
         fn make_list(
             &self,
             it: impl Iterator<Item = Self::Value>,
         ) -> Result<Self::Value, marshal::MarshalError> {
-            Ok(self.0.ctx.new_list(it.collect()).into())
+            Ok(self.vm.ctx.new_list(it.collect()).into())
         }
         fn make_list_placeholder(&self, len: usize) -> Option<Self::Value> {
-            Some(self.0.ctx.new_list(vec![self.0.ctx.none(); len]).into())
+            Some(self.vm.ctx.new_list(vec![self.vm.ctx.none(); len]).into())
         }
         fn set_list_item(
             &self,
@@ -470,14 +492,15 @@ mod decl {
             &self,
             it: impl Iterator<Item = Self::Value>,
         ) -> Result<Self::Value, marshal::MarshalError> {
-            let set = PySet::default().into_ref(&self.0.ctx);
+            let set = PySet::default().into_ref(&self.vm.ctx);
             for elem in it {
-                set.add(elem, self.0).unwrap()
+                set.add(elem, self.vm)
+                    .map_err(|error| self.remember_python_error(error))?;
             }
             Ok(set.into())
         }
         fn make_set_placeholder(&self) -> Option<Self::Value> {
-            Some(PySet::default().into_ref(&self.0.ctx).into())
+            Some(PySet::default().into_ref(&self.vm.ctx).into())
         }
         fn insert_set_item(
             &self,
@@ -487,29 +510,30 @@ mod decl {
             let set = set
                 .downcast_ref::<PySet>()
                 .ok_or(marshal::MarshalError::BadType)?;
-            set.add(value, self.0)
-                .map_err(|_| marshal::MarshalError::BadType)
+            set.add(value, self.vm)
+                .map_err(|error| self.remember_python_error(error))
         }
         fn make_frozenset(
             &self,
             it: impl Iterator<Item = Self::Value>,
         ) -> Result<Self::Value, marshal::MarshalError> {
-            Ok(PyFrozenSet::from_iter(self.0, it)
-                .unwrap()
-                .to_pyobject(self.0))
+            PyFrozenSet::from_iter(self.vm, it)
+                .map(|set| set.to_pyobject(self.vm))
+                .map_err(|error| self.remember_python_error(error))
         }
         fn make_dict(
             &self,
             it: impl Iterator<Item = (Self::Value, Self::Value)>,
         ) -> Result<Self::Value, marshal::MarshalError> {
-            let dict = self.0.ctx.new_dict();
+            let dict = self.vm.ctx.new_dict();
             for (k, v) in it {
-                dict.set_item(&*k, v, self.0).unwrap()
+                dict.set_item(&*k, v, self.vm)
+                    .map_err(|error| self.remember_python_error(error))?;
             }
             Ok(dict.into())
         }
         fn make_dict_placeholder(&self) -> Option<Self::Value> {
-            Some(self.0.ctx.new_dict().into())
+            Some(self.vm.ctx.new_dict().into())
         }
         fn insert_dict_item(
             &self,
@@ -520,8 +544,8 @@ mod decl {
             let dict = dict
                 .downcast_ref::<PyDict>()
                 .ok_or(marshal::MarshalError::BadType)?;
-            dict.set_item(&*key, value, self.0)
-                .map_err(|_| marshal::MarshalError::BadType)
+            dict.set_item(&*key, value, self.vm)
+                .map_err(|error| self.remember_python_error(error))
         }
         fn make_slice(
             &self,
@@ -530,7 +554,7 @@ mod decl {
             step: Self::Value,
         ) -> Result<Self::Value, marshal::MarshalError> {
             use crate::builtins::PySlice;
-            let vm = self.0;
+            let vm = self.vm;
             Ok(PySlice {
                 start: if vm.is_none(&start) {
                     None
@@ -544,7 +568,21 @@ mod decl {
             .into())
         }
         fn constant_bag(self) -> Self::ConstantBag {
-            PyVmBag(self.0)
+            PyVmBag(self.vm)
+        }
+    }
+
+    fn deserialize_value(
+        rdr: &mut impl marshal::Read,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
+        let pending_error = RefCell::new(None);
+        match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error)) {
+            Ok(value) => Ok(value),
+            Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
+                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
+                _ => vm.new_value_error("bad marshal data"),
+            })),
         }
     }
 
@@ -566,11 +604,7 @@ mod decl {
             vm.new_buffer_error("Buffer provided to marshal.loads() is not contiguous")
         })?;
 
-        let result =
-            marshal::deserialize_value(&mut &buf[..], PyMarshalBag(vm)).map_err(|e| match e {
-                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
-                _ => vm.new_value_error("bad marshal data"),
-            })?;
+        let result = deserialize_value(&mut &buf[..], vm)?;
         if !allow_code {
             check_no_code(&result, vm)?;
         }
@@ -598,14 +632,7 @@ mod decl {
 
         let mut rdr: &[u8] = &buf;
         let len_before = rdr.len();
-        let result =
-            marshal::deserialize_value(&mut rdr, PyMarshalBag(vm)).map_err(|e| match e {
-                marshal::MarshalError::Eof => vm.new_exception_msg(
-                    vm.ctx.exceptions.eof_error.to_owned(),
-                    "marshal data too short".into(),
-                ),
-                _ => vm.new_value_error("bad marshal data"),
-            })?;
+        let result = deserialize_value(&mut rdr, vm)?;
         let consumed = len_before - rdr.len();
 
         // Seek file to just after the consumed bytes

@@ -410,7 +410,6 @@ class BugsTestCase(unittest.TestCase):
         self.assertIsInstance(a[0], dict)
         self.assertIs(a[0][None], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; malformed hash cycles report ValueError
     def test_loads_abnormal_reference_loops(self):
         # Direct self-reference which cannot be created in Python.
         # This creates a reference loop which cannot be collected.
