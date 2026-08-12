@@ -2175,7 +2175,7 @@ impl<'warnings> Compiler<'warnings> {
     /// On success, returns the saved CompileContext to pass to exit_annotation_scope.
     fn enter_annotation_scope(
         &mut self,
-        _func_name: &str,
+        func_name: &str,
         loc: TextRange,
     ) -> CompileResult<Option<CompileContext>> {
         if !self.push_annotation_symbol_table() {
@@ -2199,6 +2199,12 @@ impl<'warnings> Compiler<'warnings> {
             key,
             lineno.to_u32(),
         )?;
+
+        // enter_scope() qualified the scope by the enclosing scope only; redo it
+        // now that the annotated function is known. Only signature annotations
+        // get this treatment - deferred class and module annotations are
+        // compiled inside the scope they belong to and are already qualified.
+        self.set_annotation_qualname(func_name);
 
         // Keep the internal ".format" name; exit_annotation_scope()
         // renames it to "format" on the final code object.
@@ -2605,11 +2611,24 @@ impl<'warnings> Compiler<'warnings> {
     /// Set the qualified name for the current code object
     // = compiler_set_qualname
     fn set_qualname(&mut self) -> String {
-        let qualname = self.make_qualname();
+        self.set_qualname_for_function(None)
+    }
+
+    /// Set the qualname of an annotation scope, qualified by the function whose
+    /// signature it annotates. CPython records that name on the annotation
+    /// block's symbol table entry (`ste_function_name`) and folds it into the
+    /// qualname, so `f`'s annotation scope is named `f.__annotate__`.
+    fn set_annotation_qualname(&mut self, function_name: &str) {
+        self.set_qualname_for_function(Some(function_name));
+    }
+
+    fn set_qualname_for_function(&mut self, function_name: Option<&str>) -> String {
+        let qualname = self.make_qualname(function_name);
         self.current_code_info().metadata.qualname = Some(qualname.clone());
         qualname
     }
-    fn make_qualname(&mut self) -> String {
+
+    fn make_qualname(&mut self, function_name: Option<&str>) -> String {
         let stack_size = self.code_stack.len();
         assert!(stack_size >= 1);
 
@@ -2693,10 +2712,10 @@ impl<'warnings> Compiler<'warnings> {
             }
         }
 
-        // Build the qualified name
-        if force_global {
+        // Build the prefix the current name is qualified by, if any
+        let base = if force_global {
             // For global symbols, qualname is just the name
-            current_obj_name
+            None
         } else {
             // Check parent scope type
             let parent_obj_name = &parent.metadata.name;
@@ -2709,23 +2728,32 @@ impl<'warnings> Compiler<'warnings> {
                 )
             );
 
+            // Use parent's qualname if available, otherwise use parent_obj_name
+            let parent_qualname = parent.metadata.qualname.as_ref().unwrap_or(parent_obj_name);
+
             if is_function_parent {
                 // For functions, append .<locals> to parent qualname
-                // Use parent's qualname if available, otherwise use parent_obj_name
-                let parent_qualname = parent.metadata.qualname.as_ref().unwrap_or(parent_obj_name);
-                format!("{parent_qualname}.<locals>.{current_obj_name}")
+                Some(format!("{parent_qualname}.<locals>"))
+            } else if parent_qualname == "<module>" {
+                // Module level, nothing to qualify by
+                None
             } else {
                 // For classes and other scopes, use parent's qualname directly
-                // Use parent's qualname if available, otherwise use parent_obj_name
-                let parent_qualname = parent.metadata.qualname.as_ref().unwrap_or(parent_obj_name);
-                if parent_qualname == "<module>" {
-                    // Module level, just use the name
-                    current_obj_name
-                } else {
-                    // Concatenate parent qualname with current name
-                    format!("{parent_qualname}.{current_obj_name}")
-                }
+                Some(parent_qualname.clone())
             }
+        };
+
+        // An annotation scope is compiled in the scope enclosing the function it
+        // annotates, so the function itself is missing from the prefix above.
+        let base = match (base, function_name) {
+            (Some(base), Some(function_name)) => Some(format!("{base}.{function_name}")),
+            (None, Some(function_name)) => Some(function_name.to_owned()),
+            (base, None) => base,
+        };
+
+        match base {
+            Some(base) => format!("{base}.{current_obj_name}"),
+            None => current_obj_name,
         }
     }
 

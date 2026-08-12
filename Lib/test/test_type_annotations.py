@@ -843,7 +843,6 @@ class RegressionTests(unittest.TestCase):
         lamb = list(genexp)[0]
         self.assertEqual(lamb(), 42)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: '__annotate__' != 'f.__annotate__'
     def test_annotate_qualname(self):
         code = """
         def f() -> None:
