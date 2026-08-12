@@ -329,7 +329,7 @@ mod _ssl {
     #[pyattr]
     const OPENSSL_VERSION_NUMBER: i32 = 0x30300000;
     #[pyattr]
-    const OPENSSL_VERSION: &str = "AWS-LC (rustls/0.23)";
+    const OPENSSL_VERSION: &str = "OpenSSL 3.3.0-compatible (AWS-LC/rustls 0.23)";
     #[pyattr]
     const OPENSSL_VERSION_INFO: (i32, i32, i32, i32, i32) = (3, 3, 0, 0, 15);
     #[pyattr]
