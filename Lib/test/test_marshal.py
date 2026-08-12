@@ -396,7 +396,7 @@ class BugsTestCase(unittest.TestCase):
         self.assertIsInstance(a, dict)
         self.assertIs(a[None], a)
 
-    def test_loads_indirect_tuple_reference_loops(self):
+    def test_loads_abnormal_reference_loops(self):
         # Indirect self-references of tuples.
         data = b'\xa8\x01\x00\x00\x00[\x01\x00\x00\x00r\x00\x00\x00\x00' # ([<R>],)
         a = marshal.loads(data)
@@ -410,7 +410,6 @@ class BugsTestCase(unittest.TestCase):
         self.assertIsInstance(a[0], dict)
         self.assertIs(a[0][None], a)
 
-    def test_loads_abnormal_reference_loops(self):
         # Direct self-reference which cannot be created in Python.
         # This creates a reference loop which cannot be collected.
         if False:
