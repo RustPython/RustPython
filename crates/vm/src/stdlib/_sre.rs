@@ -597,7 +597,7 @@ mod _sre {
         regs: Vec<(isize, isize)>,
     }
 
-    #[pyclass(with(AsMapping, Representable))]
+    #[pyclass(with(AsMapping, Representable), flags(DISALLOW_INSTANTIATION))]
     impl Match {
         pub(crate) fn new(state: &mut State, pattern: PyRef<Pattern>, string: PyObjectRef) -> Self {
             let string_position = state.cursor.position;
