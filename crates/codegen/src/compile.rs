@@ -2406,7 +2406,13 @@ impl<'warnings> Compiler<'warnings> {
                 }
 
                 if let FBlockDatum::FinallyBody(ref body) = info.fb_datum {
+                    // This is an extra copy of the finally body, emitted for the
+                    // path that leaves the try block early. The try statement
+                    // emits its own copies afterwards, so rewind the symbol table
+                    // cursors and leave the nested scopes for those copies.
+                    let symbol_table_cursors = self.current_symbol_table_cursors();
                     self.compile_statements(body)?;
+                    self.set_symbol_table_cursors(symbol_table_cursors);
                 }
 
                 if preserve_tos {
