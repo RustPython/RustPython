@@ -1382,6 +1382,73 @@ for _ in range(40):
         worker.join().expect("worker panicked");
     }
 
+    /// Entering a subinterpreter from inside the parent's `enter` must attach
+    /// the subinterpreter's thread slot (and detach the parent's). Otherwise the
+    /// thread runs the sub's bytecode with a DETACHED slot, and a collector
+    /// stopping that interpreter force-parks the slot and wrongly concludes the
+    /// world is stopped while this thread keeps mutating objects.
+    #[cfg(all(feature = "threading", feature = "rustpython-compiler"))]
+    #[test]
+    fn nested_enter_of_subinterpreter_is_stoppable() {
+        use crate::compiler::Mode;
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, AtomicU64, Ordering},
+            time::Duration,
+        };
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+        let sub_state = sub.enter(|vm| vm.state.clone());
+
+        let progress = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+
+        // Worker runs the SUB nested inside an active MAIN section.
+        let progress_worker = Arc::clone(&progress);
+        let stop_worker = Arc::clone(&stop);
+        let main_vm = main.enter(|vm| vm.new_thread());
+        let sub_vm = sub.enter(|vm| vm.new_thread());
+        let worker = std::thread::spawn(move || {
+            main_vm.run(|_main| {
+                sub_vm.run(|vm| {
+                    let source = "x = 1 + 1\n";
+                    let code = vm
+                        .compile(source, Mode::Exec, "<nested>")
+                        .map_err(|err| err.into_pyexception(vm, Some(source)))
+                        .unwrap();
+                    while !stop_worker.load(Ordering::Acquire) {
+                        let scope = vm.new_scope_with_builtins();
+                        vm.run_code_obj(code.clone(), scope).unwrap();
+                        progress_worker.fetch_add(1, Ordering::Release);
+                    }
+                });
+            });
+        });
+
+        while progress.load(Ordering::Acquire) == 0 {
+            std::thread::yield_now();
+        }
+
+        sub_state.stop_the_world.stop_the_world(&sub_state);
+        let parked_at = progress.load(Ordering::Acquire);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(
+            progress.load(Ordering::Acquire),
+            parked_at,
+            "nested subinterpreter thread kept running while the sub's world was stopped"
+        );
+        sub_state.stop_the_world.start_the_world(&sub_state);
+
+        let resumed_from = progress.load(Ordering::Acquire);
+        while progress.load(Ordering::Acquire) == resumed_from {
+            std::thread::yield_now();
+        }
+
+        stop.store(true, Ordering::Release);
+        worker.join().expect("nested worker panicked");
+    }
+
     /// The process main id is recorded once and is stable across later creates.
     #[test]
     fn process_main_id_recorded_and_stable() {

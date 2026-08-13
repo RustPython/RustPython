@@ -143,33 +143,20 @@ pub fn with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> R {
 }
 
 fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-    // Ensure the thread slot matches this VM's interpreter before it becomes
-    // current (important when switching interpreters on one OS thread).
+    // Attach to this VM's interpreter, detaching the enclosing one if this is a
+    // switch between interpreters on the same OS thread.
     #[cfg(feature = "threading")]
-    init_thread_slot_if_needed(vm);
+    let switched = begin_interpreter_section(vm);
 
     VM_STACK.with(|vms| {
         vms.borrow_mut().push(vm.into());
         scopeguard::defer! {
             vms.borrow_mut().pop();
-            // Restore the slot for the VM that is current after pop (if any).
             #[cfg(feature = "threading")]
-            restore_thread_slot_from_stack();
+            end_interpreter_section(switched);
         }
         f()
     })
-}
-
-/// After popping the VM stack, point `CURRENT_THREAD_SLOT` at the new top VM's
-/// interpreter slot so nested multi-interpreter enters unwind cleanly.
-#[cfg(feature = "threading")]
-fn restore_thread_slot_from_stack() {
-    let prev = VM_STACK.with(|vms| vms.borrow().last().copied());
-    if let Some(vm_ptr) = prev {
-        // SAFETY: entries on VM_STACK are valid for the enter/set_current_vm scope.
-        let vm = unsafe { vm_ptr.as_ref() };
-        init_thread_slot_if_needed(vm);
-    }
 }
 
 pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
@@ -182,27 +169,8 @@ pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R>
 }
 
 pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
-    // Outermost enter_vm: transition DETACHED → ATTACHED
-    #[cfg(feature = "threading")]
-    let was_outermost = !current_vm_is_set();
-
-    // Initialize thread slot for this thread if not already done
-    #[cfg(feature = "threading")]
-    init_thread_slot_if_needed(vm);
-
-    #[cfg(feature = "threading")]
-    if was_outermost {
-        attach_thread(vm);
-    }
-
-    scopeguard::defer! {
-        // Outermost exit: transition ATTACHED → DETACHED
-        #[cfg(feature = "threading")]
-        if was_outermost {
-            detach_thread();
-        }
-    }
-
+    // Attach/detach is handled by `set_current_vm`, which pairs it with the
+    // VM_STACK push so that switching interpreters mid-stack stays consistent.
     set_current_vm(vm, f)
 }
 
@@ -220,29 +188,19 @@ pub fn enter_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 #[must_use]
 pub(crate) struct VmBootstrapGuard {
     #[cfg(feature = "threading")]
-    was_outermost: bool,
+    switched: bool,
 }
 
 impl VmBootstrapGuard {
     pub(crate) fn new(vm: &VirtualMachine) -> Self {
-        // Outermost: transition DETACHED → ATTACHED
         #[cfg(feature = "threading")]
-        let was_outermost = !current_vm_is_set();
-
-        // Initialize thread slot for this thread if not already done
-        #[cfg(feature = "threading")]
-        init_thread_slot_if_needed(vm);
-
-        #[cfg(feature = "threading")]
-        if was_outermost {
-            attach_thread(vm);
-        }
+        let switched = begin_interpreter_section(vm);
 
         VM_STACK.with(|vms| vms.borrow_mut().push(vm.into()));
 
         Self {
             #[cfg(feature = "threading")]
-            was_outermost,
+            switched,
         }
     }
 }
@@ -253,15 +211,8 @@ impl Drop for VmBootstrapGuard {
             vms.borrow_mut().pop();
         });
 
-        // Outermost exit: transition ATTACHED → DETACHED
         #[cfg(feature = "threading")]
-        if self.was_outermost {
-            detach_thread();
-        } else {
-            // Nested bootstrap: restore the outer VM's interpreter thread slot.
-            #[cfg(feature = "threading")]
-            restore_thread_slot_from_stack();
-        }
+        end_interpreter_section(self.switched);
     }
 }
 
@@ -390,8 +341,16 @@ pub fn release_current_thread(state: CurrentVmAttachState) {
 /// `CURRENT_THREAD_SLOT` to that interpreter's slot (creating one if needed).
 #[cfg(feature = "threading")]
 fn init_thread_slot_if_needed(vm: &VirtualMachine) {
+    let slot = ensure_thread_slot(vm);
+    set_current_thread_slot(slot);
+}
+
+/// Look up (creating if needed) this thread's [`ThreadSlot`] for `vm`'s
+/// interpreter, without making it the current slot.
+#[cfg(feature = "threading")]
+fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
     let interp_id = vm.state.interpreter_id;
-    let slot = INTERP_THREAD_SLOTS.with(|slots| {
+    INTERP_THREAD_SLOTS.with(|slots| {
         let mut slots = slots.borrow_mut();
         if let Some(existing) = slots.get(&interp_id) {
             return existing.clone();
@@ -423,13 +382,77 @@ fn init_thread_slot_if_needed(vm: &VirtualMachine) {
         drop(registry);
         slots.insert(interp_id, new_slot.clone());
         new_slot
-    });
+    })
+}
 
-    #[cfg(all(unix, feature = "threading"))]
+/// Make `slot` the current thread slot (and the cached top-frame pointer).
+#[cfg(feature = "threading")]
+fn set_current_thread_slot(slot: CurrentFrameSlot) {
+    #[cfg(unix)]
     CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&slot.top_frame));
     CURRENT_THREAD_SLOT.with(|current| {
         *current.borrow_mut() = Some(slot);
     });
+}
+
+/// Whether the current thread slot is ATTACHED.
+#[cfg(feature = "threading")]
+fn current_slot_is_attached() -> bool {
+    CURRENT_THREAD_SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| s.state.load(Ordering::Acquire) == THREAD_ATTACHED)
+    })
+}
+
+/// Attach this thread to `vm`'s interpreter for the duration of a section,
+/// detaching whichever interpreter it was attached to (≈ `_PyThreadState_Swap`).
+///
+/// A thread must never be ATTACHED to two interpreters at once: stop-the-world
+/// treats an ATTACHED slot as "running this interpreter's bytecode" and a
+/// DETACHED slot as parkable without cooperation, so running interpreter B's
+/// code while B's slot is DETACHED would let a collector conclude B is stopped
+/// while this thread keeps mutating the (process-global) object graph.
+///
+/// Returns whether the attachment changed, i.e. whether the matching
+/// [`end_interpreter_section`] must undo it.
+#[cfg(feature = "threading")]
+fn begin_interpreter_section(vm: &VirtualMachine) -> bool {
+    let target = ensure_thread_slot(vm);
+    let already_current = CURRENT_THREAD_SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| Arc::ptr_eq(s, &target))
+    });
+    if already_current && current_slot_is_attached() {
+        // Nested section in the same interpreter: already attached.
+        return false;
+    }
+    if !already_current && current_slot_is_attached() {
+        detach_thread();
+    }
+    set_current_thread_slot(target);
+    attach_thread(vm);
+    true
+}
+
+/// Undo [`begin_interpreter_section`]: detach this interpreter and re-attach the
+/// enclosing one, if any. Call after the VM has been popped from `VM_STACK`.
+#[cfg(feature = "threading")]
+fn end_interpreter_section(switched: bool) {
+    if !switched {
+        return;
+    }
+    if current_slot_is_attached() {
+        detach_thread();
+    }
+    // The enclosing section, if any, is the VM now on top of the stack.
+    if let Some(vm_ptr) = VM_STACK.with(|vms| vms.borrow().last().copied()) {
+        // SAFETY: entries on VM_STACK are valid for their enter/set_current_vm scope.
+        let vm = unsafe { vm_ptr.as_ref() };
+        set_current_thread_slot(ensure_thread_slot(vm));
+        attach_thread(vm);
+    }
 }
 
 /// Transition DETACHED → ATTACHED. Blocks if the thread was SUSPENDED by
