@@ -1,3 +1,5 @@
+import _md5
+import _sha1
 import hashlib
 
 # print(hashlib.md5)
@@ -48,3 +50,9 @@ print(h.hexdigest())
 assert (
     h.hexdigest() == "25738bfe4cc104131e1b45bece4dfd4e7e1d6f0dffda1211e996e9d5d3b66e81"
 )
+
+# The single-algorithm modules set up their own types rather than relying on
+# hashlib having done it.
+
+assert _md5.md5(b"").hexdigest() == "d41d8cd98f00b204e9800998ecf8427e"
+assert _sha1.sha1(b"").hexdigest() == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
