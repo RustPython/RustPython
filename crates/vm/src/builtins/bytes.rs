@@ -544,7 +544,11 @@ impl PyBytes {
 
     // TODO: Uncomment when Python adds __class_getitem__ to bytes
     // #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }

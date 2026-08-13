@@ -498,7 +498,7 @@ mod _sre {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -844,7 +844,7 @@ mod _sre {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }

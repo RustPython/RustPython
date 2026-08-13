@@ -779,7 +779,7 @@ pub(crate) mod _asyncio {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -1852,7 +1852,7 @@ pub(crate) mod _asyncio {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }

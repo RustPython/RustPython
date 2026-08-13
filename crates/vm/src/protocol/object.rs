@@ -7,7 +7,7 @@ use crate::{
         PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyObject,
     dict_inner::DictKey,
     function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
     object::PyPayload,
@@ -741,8 +741,8 @@ impl PyObject {
         } else {
             if self.class().fast_issubclass(vm.ctx.types.type_type) {
                 if self.is(vm.ctx.types.type_type) {
-                    return PyGenericAlias::from_args(self.class().to_owned(), needle, vm)
-                        .to_pyresult(vm);
+                    let alias = PyGenericAlias::from_args(self.class().to_owned(), needle, vm)?;
+                    return Ok(alias.to_pyobject(vm));
                 }
 
                 if let Some(class_getitem) =

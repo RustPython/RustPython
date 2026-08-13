@@ -297,7 +297,7 @@ pub(crate) mod decl {
                 PyTuple::new_ref(vec![args], &vm.ctx)
             };
             let origin: PyObjectRef = zelf.as_object().to_owned();
-            Ok(PyGenericAlias::new(origin, args_tuple, false, vm).into_pyobject(vm))
+            Ok(PyGenericAlias::new(origin, args_tuple, false, vm)?.into_pyobject(vm))
         }
 
         #[pymethod]
