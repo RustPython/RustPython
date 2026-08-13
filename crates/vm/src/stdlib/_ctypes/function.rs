@@ -939,6 +939,23 @@ struct CallInfo {
     ret: RetSpec,
 }
 
+fn extract_arg_types(argtypes: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<PyTypeRef>> {
+    let error = || vm.new_type_error("_argtypes_ must be a sequence of types");
+    let sequence = argtypes.try_sequence(vm).map_err(|_| error())?;
+    let length = sequence.length(vm).map_err(|_| error())?;
+    let mut types = Vec::new();
+    types
+        .try_reserve(length)
+        .map_err(|_| vm.new_memory_error(""))?;
+
+    for index in 0..length {
+        let item = sequence.get_item(index as isize, vm).map_err(|_| error())?;
+        types.push(item.downcast::<PyType>().map_err(|_| error())?);
+    }
+
+    Ok(types)
+}
+
 /// Determine how to retrieve the return value from restype, reproducing the
 /// prior `ffi_return_type` + `is_pointer_return` dispatch.
 fn compute_ret_spec(
@@ -1007,13 +1024,7 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
     let explicit_arg_types: Option<Vec<PyTypeRef>> =
         if let Some(argtypes_obj) = zelf.argtypes.read().as_ref() {
             if !vm.is_none(argtypes_obj) {
-                Some(
-                    argtypes_obj
-                        .try_to_value::<Vec<PyObjectRef>>(vm)?
-                        .into_iter()
-                        .filter_map(|obj| obj.downcast::<PyType>().ok())
-                        .collect(),
-                )
+                Some(extract_arg_types(argtypes_obj, vm)?)
             } else {
                 None // argtypes is None -> use ConvParam
             }
@@ -1023,13 +1034,7 @@ fn extract_call_info(zelf: &Py<PyCFuncPtr>, vm: &VirtualMachine) -> PyResult<Cal
             .get_attr(vm.ctx.intern_str("_argtypes_"))
             && !vm.is_none(&class_argtypes)
         {
-            Some(
-                class_argtypes
-                    .try_to_value::<Vec<PyObjectRef>>(vm)?
-                    .into_iter()
-                    .filter_map(|obj| obj.downcast::<PyType>().ok())
-                    .collect(),
-            )
+            Some(extract_arg_types(&class_argtypes, vm)?)
         } else {
             None // No argtypes -> use ConvParam
         };
@@ -1944,14 +1949,7 @@ impl PyCThunk {
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let arg_type_vec: Vec<PyTypeRef> = match arg_types {
-            Some(args) if !vm.is_none(&args) => args
-                .try_to_value::<Vec<PyObjectRef>>(vm)?
-                .into_iter()
-                .map(|item| {
-                    item.downcast::<PyType>()
-                        .map_err(|_| vm.new_type_error("_argtypes_ must be a sequence of types"))
-                })
-                .collect::<PyResult<Vec<_>>>()?,
+            Some(args) if !vm.is_none(&args) => extract_arg_types(&args, vm)?,
             _ => Vec::new(),
         };
 
