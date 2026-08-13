@@ -555,6 +555,18 @@ pub trait MarshalBag: Copy {
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
     ) -> Self::Value;
 
+    /// Construct a runtime code object while retaining the exact values read
+    /// from ``co_consts``. Compiler bags ignore this second channel; runtime
+    /// bags use it for marshalable values (lists, dicts, sets, recursive
+    /// containers) that their compiler constant representation cannot hold.
+    fn make_code_with_constants(
+        &self,
+        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        _constants: Vec<Self::Value>,
+    ) -> Self::Value {
+        self.make_code(code)
+    }
+
     fn make_stop_iter(&self) -> Result<Self::Value>;
 
     fn make_list(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value>;
@@ -628,6 +640,30 @@ pub trait MarshalBag: Copy {
         &self,
         _value: &Self::Value,
     ) -> Option<<Self::ConstantBag as ConstantBag>::Constant> {
+        None
+    }
+
+    /// Convert a runtime constant to the compiler-side shape stored in
+    /// ``CodeObject``. Runtime implementations may return a semantically
+    /// unused placeholder when the exact value is carried by
+    /// `make_code_with_constants` instead.
+    fn code_constant_from_value(
+        &self,
+        value: &Self::Value,
+    ) -> Result<<Self::ConstantBag as ConstantBag>::Constant> {
+        self.constant_ref_from_value(value)
+            .ok_or(MarshalError::BadType)
+    }
+
+    fn bytes_from_value(&self, _value: &Self::Value) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn str_from_value(&self, _value: &Self::Value) -> Option<alloc::string::String> {
+        None
+    }
+
+    fn tuple_elements_from_value(&self, _value: &Self::Value) -> Option<Vec<Self::Value>> {
         None
     }
 }
@@ -731,6 +767,27 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     ) -> Option<<Self::ConstantBag as ConstantBag>::Constant> {
         Some(value.clone())
     }
+
+    fn bytes_from_value(&self, value: &Self::Value) -> Option<Vec<u8>> {
+        match value.borrow_constant() {
+            BorrowedConstant::Bytes { value } => Some(value.to_vec()),
+            _ => None,
+        }
+    }
+
+    fn str_from_value(&self, value: &Self::Value) -> Option<alloc::string::String> {
+        match value.borrow_constant() {
+            BorrowedConstant::Str { value } => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        }
+    }
+
+    fn tuple_elements_from_value(&self, value: &Self::Value) -> Option<Vec<Self::Value>> {
+        match value.borrow_constant() {
+            BorrowedConstant::Tuple { elements } => Some(elements.to_vec()),
+            _ => None,
+        }
+    }
 }
 
 pub const MAX_MARSHAL_STACK_DEPTH: usize = 2000;
@@ -789,20 +846,8 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
     };
 
     let typ = Type::try_from(type_code)?;
-    // CPython's r_object() uses one global ref table: TYPE_CODE reserves its
-    // slot before reading code fields, and those fields may use later TYPE_REF
-    // indexes. Keep the same indexes even when Bag::Value and Constant differ.
     let value = if matches!(typ, Type::Code) {
-        let mut inner_refs: Vec<Option<<Bag::ConstantBag as ConstantBag>::Constant>> = refs
-            .iter()
-            .map(|value| {
-                value
-                    .as_ref()
-                    .and_then(|value| bag.constant_ref_from_value(value))
-            })
-            .collect();
-        let code = deserialize_code_inner(rdr, bag.constant_bag(), depth - 1, &mut inner_refs)?;
-        bag.make_code(code)
+        deserialize_code_value_inner(rdr, bag, depth - 1, refs)?
     } else {
         deserialize_value_typed(rdr, bag, depth, refs, typ, slot)?
     };
@@ -811,6 +856,137 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
         refs[idx] = Some(value.clone());
     }
     Ok(value)
+}
+
+/// Decode a code object through the runtime bag.  CPython's marshal reader
+/// keeps one reference table for the code fields and `co_consts`; using
+/// `Bag::Value` here preserves that index space and lets runtime-only
+/// constants survive alongside the compiler representation.
+fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
+    rdr: &mut R,
+    bag: Bag,
+    depth: usize,
+    refs: &mut Vec<Option<Bag::Value>>,
+) -> Result<Bag::Value> {
+    if depth == 0 {
+        return Err(MarshalError::InvalidBytecode);
+    }
+    let arg_count = rdr.read_u32()?;
+    let posonlyarg_count = rdr.read_u32()?;
+    let kwonlyarg_count = rdr.read_u32()?;
+    let max_stackdepth = rdr.read_u32()?;
+    let flags = CodeFlags::from_bits_truncate(rdr.read_u32()?);
+    let child_depth = depth - 1;
+
+    let code_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let code_bytes = bag
+        .bytes_from_value(&code_value)
+        .ok_or(MarshalError::BadType)?;
+
+    let consts_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let constant_values = bag
+        .tuple_elements_from_value(&consts_value)
+        .ok_or(MarshalError::BadType)?;
+    let constants = constant_values
+        .iter()
+        .map(|value| bag.code_constant_from_value(value))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter()
+        .collect();
+
+    let read_strings =
+        |rdr: &mut R, refs: &mut Vec<Option<Bag::Value>>| -> Result<Vec<alloc::string::String>> {
+            let tuple = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+            bag.tuple_elements_from_value(&tuple)
+                .ok_or(MarshalError::BadType)?
+                .iter()
+                .map(|value| bag.str_from_value(value).ok_or(MarshalError::BadType))
+                .collect()
+        };
+    let names_raw = read_strings(rdr, refs)?;
+    let localsplusnames = read_strings(rdr, refs)?;
+
+    let kinds_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let localspluskinds = bag
+        .bytes_from_value(&kinds_value)
+        .ok_or(MarshalError::BadType)?;
+
+    let read_string =
+        |rdr: &mut R, refs: &mut Vec<Option<Bag::Value>>| -> Result<alloc::string::String> {
+            let value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+            bag.str_from_value(&value).ok_or(MarshalError::BadType)
+        };
+    let source_path_raw = read_string(rdr, refs)?;
+    let obj_name_raw = read_string(rdr, refs)?;
+    let qualname_raw = read_string(rdr, refs)?;
+
+    let first_line_raw = rdr.read_u32()? as i32;
+    let first_line_number = if first_line_raw > 0 {
+        OneIndexed::new(first_line_raw as usize)
+    } else {
+        None
+    };
+    let linetable_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let linetable = bag
+        .bytes_from_value(&linetable_value)
+        .ok_or(MarshalError::BadType)?
+        .into_boxed_slice();
+    let exceptiontable_value = deserialize_value_depth(rdr, bag, child_depth, refs)?;
+    let exceptiontable = bag
+        .bytes_from_value(&exceptiontable_value)
+        .ok_or(MarshalError::BadType)?
+        .into_boxed_slice();
+
+    let lp = split_localplus(
+        &localsplusnames
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>(),
+        &localspluskinds,
+        arg_count,
+        kwonlyarg_count,
+        flags,
+    )?;
+    let instructions = CodeUnits::try_from(code_bytes.as_slice())?;
+    let locations = linetable_to_locations(&linetable, first_line_raw, instructions.len());
+    let constant_bag = bag.constant_bag();
+    let code = CodeObject {
+        instructions,
+        locations,
+        flags,
+        posonlyarg_count,
+        arg_count,
+        kwonlyarg_count,
+        source_path: constant_bag.make_name(&source_path_raw),
+        first_line_number,
+        max_stackdepth,
+        obj_name: constant_bag.make_name(&obj_name_raw),
+        qualname: constant_bag.make_name(&qualname_raw),
+        constants,
+        names: names_raw
+            .iter()
+            .map(|name| constant_bag.make_name(name))
+            .collect(),
+        varnames: lp
+            .varnames
+            .iter()
+            .map(|name| constant_bag.make_name(name))
+            .collect(),
+        cellvars: lp
+            .cellvars
+            .iter()
+            .map(|name| constant_bag.make_name(name))
+            .collect(),
+        freevars: lp
+            .freevars
+            .iter()
+            .map(|name| constant_bag.make_name(name))
+            .collect(),
+        localspluskinds: localspluskinds.into_boxed_slice(),
+        linetable,
+        exceptiontable,
+    };
+    Ok(bag.make_code_with_constants(code, constant_values))
 }
 
 fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
@@ -1222,6 +1398,25 @@ pub fn serialize_value<W: Write, D: Dumpable>(
 /// Split varnames/cellvars/freevars are reassembled into
 /// co_localsplusnames/co_localspluskinds.
 pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) {
+    serialize_code_with(buf, code, |buf, constant| {
+        serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {});
+        Ok::<(), core::convert::Infallible>(())
+    })
+    .unwrap_or_else(|x| match x {})
+}
+
+/// Serialize a code object, writing each `co_consts` entry through
+/// `write_constant`.
+///
+/// A runtime caller passes its own object writer so that values its constant
+/// representation carries but `BorrowedConstant` cannot describe — lists,
+/// dicts, sets — reach the stream, and so a constant shared with the enclosing
+/// object keeps its entry in that writer's reference table.
+pub fn serialize_code_with<W: Write, C: Constant, E>(
+    buf: &mut W,
+    code: &CodeObject<C>,
+    mut write_constant: impl FnMut(&mut W, &C) -> core::result::Result<(), E>,
+) -> core::result::Result<(), E> {
     // 1–5: scalar fields
     buf.write_u32(code.arg_count);
     buf.write_u32(code.posonlyarg_count);
@@ -1238,7 +1433,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     buf.write_u8(Type::Tuple as u8);
     write_len(buf, code.constants.len());
     for constant in &*code.constants {
-        serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {})
+        write_constant(buf, constant)?;
     }
 
     // 8: co_names (tuple of strings)
@@ -1281,6 +1476,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     // 16: co_exceptiontable
     buf.write_u8(Type::Bytes as u8);
     write_vec(buf, &code.exceptiontable);
+    Ok(())
 }
 
 fn write_marshal_str<W: Write>(buf: &mut W, s: &str) {
