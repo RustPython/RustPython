@@ -779,11 +779,16 @@ mod _csv {
                     // TODO: Maybe need to update the obj from HashMap
                 }
                 DialectItem::Obj(o) => Ok(self.update_py_dialect(o.clone())),
-                DialectItem::None => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    let res = g.get("excel").unwrap().clone();
-                    Ok(self.update_py_dialect(res))
-                }
+                DialectItem::None => Ok(self.update_py_dialect(PyDialect {
+                    delimiter: b',',
+                    quotechar: Some(b'"'),
+                    escapechar: None,
+                    doublequote: true,
+                    skipinitialspace: false,
+                    lineterminator: "\r\n".to_owned(),
+                    quoting: QuoteStyle::Minimal,
+                    strict: false,
+                })),
             }
         }
 
