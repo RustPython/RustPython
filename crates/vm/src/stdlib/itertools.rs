@@ -1201,7 +1201,9 @@ mod decl {
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative"));
             }
-            let r = r.to_usize().unwrap();
+            let r = r.to_isize().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })? as usize;
 
             let n = pool.len();
 
@@ -1302,7 +1304,9 @@ mod decl {
             if r.is_negative() {
                 return Err(vm.new_value_error("r must be non-negative"));
             }
-            let r = r.to_usize().unwrap();
+            let r = r.to_isize().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })? as usize;
 
             let n = pool.len();
 
@@ -1408,7 +1412,9 @@ mod decl {
                     if val.is_negative() {
                         return Err(vm.new_value_error("r must be non-negative"));
                     }
-                    val.to_usize().unwrap()
+                    val.to_isize().ok_or_else(|| {
+                        vm.new_overflow_error("Python int too large to convert to C ssize_t")
+                    })? as usize
                 }
                 None => n,
             };
