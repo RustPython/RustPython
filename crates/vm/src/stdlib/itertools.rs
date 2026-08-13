@@ -274,11 +274,15 @@ mod decl {
                     return Ok(PyIterReturn::StopIteration(None));
                 }
 
-                let last_index = zelf.index.fetch_add(1);
-
-                if last_index >= saved.len() - 1 {
-                    zelf.index.store(0);
-                }
+                // Advance and wrap in a single atomic step. A separate
+                // fetch_add followed by a reset lets a second thread observe
+                // an index past the end of `saved`.
+                let last_index = match zelf.index.fetch_update(|index| {
+                    let next = index + 1;
+                    Some(if next < saved.len() { next } else { 0 })
+                }) {
+                    Ok(index) | Err(index) => index,
+                };
 
                 saved[last_index].clone()
             };
