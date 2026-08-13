@@ -26,7 +26,7 @@ mod decl {
     use num_traits::{Signed, ToPrimitive};
 
     #[pyattr]
-    #[pyclass(name = "chain")]
+    #[pyclass(name = "chain", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsChain {
         source: PyRwLock<Option<PyIter>>,
@@ -119,7 +119,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "compress")]
+    #[pyclass(name = "compress", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCompress {
         data: PyIter,
@@ -166,7 +166,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "count")]
+    #[pyclass(name = "count", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCount {
         cur: PyRwLock<PyObjectRef>,
@@ -237,11 +237,12 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "cycle")]
+    #[pyclass(name = "cycle", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCycle {
         iter: PyIter,
         saved: PyRwLock<Vec<PyObjectRef>>,
+        #[pytraverse(skip)]
         index: AtomicCell<usize>,
     }
 
@@ -287,10 +288,11 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "repeat")]
+    #[pyclass(name = "repeat", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsRepeat {
         object: PyObjectRef,
+        #[pytraverse(skip)]
         times: Option<PyRwLock<usize>>,
     }
 
@@ -365,7 +367,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "starmap")]
+    #[pyclass(name = "starmap", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsStarmap {
         function: PyObjectRef,
@@ -412,11 +414,12 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "takewhile")]
+    #[pyclass(name = "takewhile", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsTakewhile {
         predicate: PyObjectRef,
         iterable: PyIter,
+        #[pytraverse(skip)]
         stop_flag: AtomicCell<bool>,
     }
 
@@ -474,11 +477,12 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "dropwhile")]
+    #[pyclass(name = "dropwhile", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsDropwhile {
         predicate: PyObjectRef,
         iterable: PyIter,
+        #[pytraverse(skip)]
         start_flag: AtomicCell<bool>,
     }
 
@@ -533,11 +537,13 @@ mod decl {
         }
     }
 
-    #[derive(Default)]
+    #[derive(Default, Traverse)]
     struct GroupByState {
         current_value: Option<PyObjectRef>,
         current_key: Option<PyObjectRef>,
+        #[pytraverse(skip)]
         next_group: bool,
+        #[pytraverse(skip)]
         grouper: Option<PyWeakRef<PyItertoolsGrouper>>,
     }
 
@@ -561,7 +567,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "groupby")]
+    #[pyclass(name = "groupby", traverse)]
     #[derive(PyPayload)]
     struct PyItertoolsGroupBy {
         iterable: PyIter,
@@ -661,7 +667,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "_grouper")]
+    #[pyclass(name = "_grouper", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsGrouper {
         groupby: PyRef<PyItertoolsGroupBy>,
@@ -703,13 +709,17 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "islice")]
+    #[pyclass(name = "islice", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsIslice {
         iterable: PyIter,
+        #[pytraverse(skip)]
         cur: AtomicCell<usize>,
+        #[pytraverse(skip)]
         next: AtomicCell<usize>,
+        #[pytraverse(skip)]
         stop: Option<usize>,
+        #[pytraverse(skip)]
         step: usize,
     }
 
@@ -828,7 +838,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "filterfalse")]
+    #[pyclass(name = "filterfalse", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsFilterFalse {
         predicate: PyObjectRef,
@@ -887,7 +897,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "accumulate")]
+    #[pyclass(name = "accumulate", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsAccumulate {
         iterable: PyIter,
@@ -1053,7 +1063,7 @@ mod decl {
         #[pymethod]
         fn __copy__(&self) -> Self {
             Self {
-                tee_data: PyRc::clone(&self.tee_data),
+                tee_data: self.tee_data.clone(),
                 index: AtomicCell::new(self.index.load()),
             }
         }
@@ -1068,12 +1078,15 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "product")]
+    #[pyclass(name = "product", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsProduct {
         pools: Vec<Vec<PyObjectRef>>,
+        #[pytraverse(skip)]
         idxs: PyRwLock<Vec<usize>>,
+        #[pytraverse(skip)]
         cur: AtomicCell<usize>,
+        #[pytraverse(skip)]
         stop: AtomicCell<bool>,
     }
 
@@ -1169,13 +1182,16 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "combinations")]
+    #[pyclass(name = "combinations", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCombinations {
         pool: Vec<PyObjectRef>,
+        #[pytraverse(skip)]
         indices: PyRwLock<Vec<usize>>,
         result: PyRwLock<Option<Vec<PyObjectRef>>>,
+        #[pytraverse(skip)]
         r: AtomicCell<usize>,
+        #[pytraverse(skip)]
         exhausted: AtomicCell<bool>,
     }
 
@@ -1282,12 +1298,15 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "combinations_with_replacement")]
+    #[pyclass(name = "combinations_with_replacement", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsCombinationsWithReplacement {
         pool: Vec<PyObjectRef>,
+        #[pytraverse(skip)]
         indices: PyRwLock<Vec<usize>>,
+        #[pytraverse(skip)]
         r: AtomicCell<usize>,
+        #[pytraverse(skip)]
         exhausted: AtomicCell<bool>,
     }
 
@@ -1370,15 +1389,20 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "permutations")]
+    #[pyclass(name = "permutations", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsPermutations {
-        pool: Vec<PyObjectRef>,               // Collected input iterable
-        indices: PyRwLock<Vec<usize>>,        // One index per element in pool
-        cycles: PyRwLock<Vec<usize>>,         // One rollover counter per element in the result
+        pool: Vec<PyObjectRef>, // Collected input iterable
+        #[pytraverse(skip)]
+        indices: PyRwLock<Vec<usize>>, // One index per element in pool
+        #[pytraverse(skip)]
+        cycles: PyRwLock<Vec<usize>>, // One rollover counter per element in the result
+        #[pytraverse(skip)]
         result: PyRwLock<Option<Vec<usize>>>, // Indexes of the most recently returned result
-        r: AtomicCell<usize>,                 // Size of result tuple
-        exhausted: AtomicCell<bool>,          // Set when the iterator is exhausted
+        #[pytraverse(skip)]
+        r: AtomicCell<usize>, // Size of result tuple
+        #[pytraverse(skip)]
+        exhausted: AtomicCell<bool>, // Set when the iterator is exhausted
     }
 
     #[derive(FromArgs)]
@@ -1530,7 +1554,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "zip_longest")]
+    #[pyclass(name = "zip_longest", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsZipLongest {
         iterators: Vec<PyIter>,
@@ -1568,7 +1592,7 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "pairwise")]
+    #[pyclass(name = "pairwise", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsPairwise {
         iterator: PyIter,
@@ -1617,12 +1641,15 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "batched")]
+    #[pyclass(name = "batched", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsBatched {
+        #[pytraverse(skip)]
         exhausted: AtomicCell<bool>,
         iterable: PyIter,
+        #[pytraverse(skip)]
         n: AtomicCell<usize>,
+        #[pytraverse(skip)]
         strict: AtomicCell<bool>,
     }
 
