@@ -39,8 +39,17 @@ pub(crate) mod decl {
     };
 
     #[pyfunction]
-    pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {
-        args.args[0].clone()
+    pub(crate) fn _idfunc(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("_typing._idfunc() takes no keyword arguments"));
+        }
+        if args.args.len() != 1 {
+            return Err(vm.new_type_error(format!(
+                "_typing._idfunc() takes exactly one argument ({} given)",
+                args.args.len()
+            )));
+        }
+        Ok(args.args[0].clone())
     }
 
     #[pyfunction(name = "override")]
