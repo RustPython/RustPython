@@ -694,7 +694,7 @@ impl PyObject {
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
         if let Some(hash) = self.class().slots.hash.load() {
-            return hash(self, vm);
+            return vm.with_recursion("while hashing", || hash(self, vm));
         }
 
         Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().name())))
