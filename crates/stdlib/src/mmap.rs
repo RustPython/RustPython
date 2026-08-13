@@ -886,7 +886,7 @@ mod mmap {
                 let dest = dest.try_to_primitive(vm).ok()?;
                 let src = src.try_to_primitive(vm).ok()?;
                 let cnt = cnt.try_to_primitive(vm).ok()?;
-                if size - dest < cnt || size - src < cnt {
+                if dest > size || src > size || size - dest < cnt || size - src < cnt {
                     return None;
                 }
                 Some((dest, src, cnt))
