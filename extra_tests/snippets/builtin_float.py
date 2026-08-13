@@ -561,3 +561,12 @@ assert str(161852602146008.12) == "161852602146008.12"
 assert repr(1.5) == "1.5"
 assert repr(0.1) == "0.1"
 assert repr(100.0) == "100.0"
+
+
+# float() takes at most one positional argument; the exact-float fast path
+# must not let extra ones through.
+assert_raises(TypeError, float, 1.5, True)
+assert_raises(TypeError, float, 1.5, 2, 3)
+assert_raises(TypeError, float, "1.5", 2)
+assert float(1.5) == 1.5
+assert float() == 0.0
