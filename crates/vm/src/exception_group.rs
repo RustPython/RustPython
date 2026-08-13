@@ -255,20 +255,11 @@ pub(super) mod types {
                 )));
             }
 
-            // Validate exceptions is a sequence (not set or None)
+            // Validate exceptions is a sequence
             let exceptions_arg = &args[1];
-
-            // Check for set/frozenset (not a sequence - unordered)
-            if exceptions_arg.fast_isinstance(vm.ctx.types.set_type)
-                || exceptions_arg.fast_isinstance(vm.ctx.types.frozenset_type)
-            {
-                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
-            }
-
-            // Check for None
-            if exceptions_arg.is(&vm.ctx.none) {
-                return Err(vm.new_type_error("second argument (exceptions) must be a sequence"));
-            }
+            exceptions_arg.try_sequence(vm).map_err(|_| {
+                vm.new_type_error("second argument (exceptions) must be a sequence")
+            })?;
 
             let exceptions: Vec<PyObjectRef> = exceptions_arg.try_to_value(vm).map_err(|_| {
                 vm.new_type_error("second argument (exceptions) must be a sequence")
