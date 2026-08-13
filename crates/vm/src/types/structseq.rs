@@ -4,7 +4,7 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
     class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -192,6 +192,17 @@ pub trait PyStructSequenceData: Sized {
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     /// The Data struct that provides field definitions.
     type Data: PyStructSequenceData;
+
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if args.is_empty() {
+            return Err(
+                vm.new_type_error("structseq() missing required argument 'sequence' (pos 1)")
+            );
+        }
+        let (seq, _dict): (PyObjectRef, OptionalArg<PyObjectRef>) = args.bind(vm)?;
+        struct_sequence_new(cls, seq, vm)
+    }
 
     /// Convert a Data struct into a PyStructSequence instance.
     fn from_data(data: Self::Data, vm: &VirtualMachine) -> PyTupleRef {
