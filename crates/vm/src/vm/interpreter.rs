@@ -200,6 +200,13 @@ where
     // Call custom init function (can mutate vm.state)
     init(&mut vm);
 
+    // Register before `initialize()` runs any Python: it allocates GC-tracked
+    // objects, so a collection on another thread has to be able to stop this
+    // interpreter while that happens. It cannot be registered earlier — the
+    // hooks above take `PyRc::get_mut` on the state, which fails once the
+    // registry holds a weak reference to it.
+    runtime::register_interpreter(&vm.state);
+
     // `initialize()` runs Python bytecode directly (e.g. importing `codecs`
     // and `encodings`) before any `enter_vm` scope exists, so attach this
     // thread for the duration so type cache reads see it as ATTACHED.
@@ -209,7 +216,6 @@ where
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
-    runtime::register_interpreter(&global_state);
     (vm, global_state)
 }
 
@@ -378,12 +384,6 @@ impl Default for InterpreterBuilder {
 pub struct Interpreter {
     pub global_state: PyRc<PyGlobalState>,
     vm: VirtualMachine,
-}
-
-impl Drop for Interpreter {
-    fn drop(&mut self) {
-        runtime::unregister_interpreter(self.global_state.interpreter_id);
-    }
 }
 
 impl Interpreter {
@@ -812,7 +812,27 @@ mod tests {
         assert!(ids.contains(&sub2.id()));
     }
 
-    /// Dropping a subinterpreter unregisters it; main remains.
+    /// An interpreter stays looked-up-able until nothing holds its state.
+    ///
+    /// Dropping the handle is not the end of its life: `new_thread()` workers
+    /// hold their own reference, and a collection in progress holds one for
+    /// every live interpreter while the world is stopped. So the registry entry
+    /// goes away eventually rather than at the drop.
+    fn wait_until_unregistered(id: i64) {
+        use core::time::Duration;
+        use std::time::Instant;
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while runtime::lookup_interpreter(id).is_some() {
+            assert!(
+                Instant::now() < deadline,
+                "interpreter {id} still registered long after its last reference"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    /// Dropping a subinterpreter releases it; main remains.
     #[test]
     fn drop_subinterpreter_unregisters() {
         let main = Interpreter::without_stdlib(Default::default());
@@ -822,7 +842,7 @@ mod tests {
             assert!(runtime::lookup_interpreter(id).is_some());
             id
         };
-        assert!(runtime::lookup_interpreter(sub_id).is_none());
+        wait_until_unregistered(sub_id);
         assert!(runtime::lookup_interpreter(main.id()).is_some());
     }
 
@@ -1203,9 +1223,9 @@ mod tests {
         assert!(runtime::lookup_interpreter(id).is_some());
         assert!(runtime::take_owned_interpreter(id).is_none());
 
-        // Dropping the reclaimed handle unregisters it.
+        // Dropping the reclaimed handle releases it.
         drop(reclaimed);
-        assert!(runtime::lookup_interpreter(id).is_none());
+        wait_until_unregistered(id);
     }
 
     /// `create_owned_subinterpreter` stores the sub and returns only its id.

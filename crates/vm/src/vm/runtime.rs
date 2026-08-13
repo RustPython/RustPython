@@ -150,6 +150,11 @@ pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
         );
     }
     let mut entries = registry().entries.lock();
+    // Entries are weak and an interpreter's lifetime is decided by its last
+    // `PyRc<PyGlobalState>` — which outlives the `Interpreter` handle whenever
+    // `new_thread()` workers are still running — so nothing removes them at a
+    // fixed point. Reap the dead ones here to bound the table instead.
+    entries.retain(|_, entry| entry.state.strong_count() > 0);
     entries.insert(
         id,
         RegistryEntry {
@@ -157,11 +162,6 @@ pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
             state: PyRc::downgrade(state),
         },
     );
-}
-
-/// Unregister an interpreter (called when its owning `Interpreter` is dropped).
-pub(crate) fn unregister_interpreter(id: i64) {
-    registry().entries.lock().remove(&id);
 }
 
 /// Look up a live interpreter state by id.
@@ -196,6 +196,23 @@ pub fn list_interpreters() -> Vec<InterpreterInfo> {
 #[must_use]
 pub fn interpreter_count() -> usize {
     list_interpreters().len()
+}
+
+/// Reset the registry's locks after `fork()`.
+///
+/// The tables are reachable from every thread, so a thread that died in the
+/// fork may have left one locked; the child would then deadlock the first time
+/// it enumerates interpreters (which the collector now does on every stop).
+///
+/// # Safety
+/// Must only be called after `fork()` in the child process, when no other
+/// threads exist and the calling thread holds neither lock.
+#[cfg(all(unix, feature = "threading"))]
+pub unsafe fn reinit_after_fork() {
+    unsafe {
+        crate::common::lock::reinit_mutex_after_fork(&registry().entries);
+        crate::common::lock::reinit_mutex_after_fork(owned_interpreters());
+    }
 }
 
 /// All live interpreter states, ordered by id.

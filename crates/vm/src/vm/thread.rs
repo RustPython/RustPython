@@ -946,6 +946,19 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     });
 }
 
+/// Drop this thread's cached slots for every interpreter except `keep_id`.
+///
+/// After `fork()` only the calling thread survives, and the other
+/// interpreters' registries are cleared; a cached slot would otherwise stay
+/// current for an interpreter that no longer lists it, hiding the thread from
+/// that interpreter's stop-the-world. The next enter builds a fresh slot.
+#[cfg(feature = "threading")]
+pub fn purge_other_interpreter_slots_after_fork(keep_id: i64) {
+    INTERP_THREAD_SLOTS.with(|slots| {
+        slots.borrow_mut().retain(|&id, _| id == keep_id);
+    });
+}
+
 pub fn with_vm<F, R>(obj: &PyObject, f: F) -> Option<R>
 where
     F: Fn(&VirtualMachine) -> R,
