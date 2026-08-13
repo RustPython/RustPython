@@ -371,13 +371,19 @@ stop = False
 
 def mutate_set():
     while not stop:
-        shared_set.clear()
-        shared_set.update({1, 2, 3})
+        try:
+            shared_set.clear()
+            shared_set.update({1, 2, 3})
+        except RuntimeError:  # changed size during iteration
+            pass
 
 
 def read_set():
     for _ in range(20000):
-        repr(shared_set)
+        try:
+            repr(shared_set)
+        except RuntimeError:  # changed size during iteration
+            pass
 
 
 threads = [threading.Thread(target=mutate_set) for _ in range(2)]
