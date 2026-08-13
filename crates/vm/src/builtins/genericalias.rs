@@ -68,7 +68,7 @@ impl Constructor for PyGenericAlias {
         } else {
             PyTuple::new_ref(vec![arguments], &vm.ctx)
         };
-        Ok(Self::new(origin, args, false, vm))
+        Self::new(origin, args, false, vm)
     }
 }
 
@@ -92,14 +92,14 @@ impl PyGenericAlias {
         args: PyTupleRef,
         starred: bool,
         vm: &VirtualMachine,
-    ) -> Self {
-        let parameters = make_parameters(&args, vm);
-        Self {
+    ) -> PyResult<Self> {
+        let parameters = make_parameters(&args, vm)?;
+        Ok(Self {
             origin: origin.into(),
             args,
             parameters,
             starred,
-        }
+        })
     }
 
     /// Create a GenericAlias from an origin and PyObjectRef arguments (helper for compatibility)
@@ -107,7 +107,7 @@ impl PyGenericAlias {
         origin: impl Into<PyObjectRef>,
         args: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> Self {
+    ) -> PyResult<Self> {
         let args = if let Ok(tuple) = args.try_to_ref::<PyTuple>(vm) {
             tuple.to_owned()
         } else {
@@ -228,7 +228,7 @@ impl PyGenericAlias {
             vm,
         )?;
 
-        Ok(Self::new(zelf.origin.clone(), new_args, false, vm).into_pyobject(vm))
+        Ok(Self::new(zelf.origin.clone(), new_args, false, vm)?.into_pyobject(vm))
     }
 
     #[pymethod]
@@ -247,7 +247,7 @@ impl PyGenericAlias {
         if zelf.starred {
             // (next, (iter(GenericAlias(origin, args)),))
             let next_fn = vm.builtins.get_attr("next", vm)?;
-            let non_starred = Self::new(zelf.origin.clone(), zelf.args.clone(), false, vm);
+            let non_starred = Self::new(zelf.origin.clone(), zelf.args.clone(), false, vm)?;
             let iter_obj = PyGenericAliasIterator {
                 obj: crate::common::lock::PyMutex::new(Some(non_starred.into_pyobject(vm))),
             }
@@ -292,11 +292,11 @@ impl PyGenericAlias {
     }
 }
 
-pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyTupleRef {
+pub(crate) fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
     make_parameters_from_slice(args.as_slice(), vm)
 }
 
-fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyTupleRef {
+fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<PyTupleRef> {
     let mut parameters: Vec<PyObjectRef> = Vec::with_capacity(args.len());
 
     for arg in args {
@@ -326,7 +326,9 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyTu
                 let list = arg.downcast_ref::<PyList>().unwrap();
                 list.borrow_vec().to_vec()
             };
-            let sub = make_parameters_from_slice(&items, vm);
+            let sub = vm.with_recursion("while computing __parameters__", || {
+                make_parameters_from_slice(&items, vm)
+            })?;
             for sub_param in sub.iter() {
                 if tuple_index(&parameters, sub_param).is_none() {
                     parameters.push(sub_param.clone());
@@ -335,7 +337,7 @@ fn make_parameters_from_slice(args: &[PyObjectRef], vm: &VirtualMachine) -> PyTu
         }
     }
 
-    PyTuple::new_ref(parameters, &vm.ctx)
+    Ok(PyTuple::new_ref(parameters, &vm.ctx))
 }
 
 #[inline]
@@ -716,7 +718,7 @@ impl crate::types::IterNext for PyGenericAliasIterator {
         let alias = obj
             .downcast_ref::<PyGenericAlias>()
             .ok_or_else(|| vm.new_type_error("generic_alias_iterator expected GenericAlias"))?;
-        let starred = PyGenericAlias::new(alias.origin.clone(), alias.args.clone(), true, vm);
+        let starred = PyGenericAlias::new(alias.origin.clone(), alias.args.clone(), true, vm)?;
         Ok(PyIterReturn::Return(starred.into_pyobject(vm)))
     }
 }

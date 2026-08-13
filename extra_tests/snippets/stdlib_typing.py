@@ -1,6 +1,9 @@
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+import _typing
+from testutils import assert_raises
+
 T = TypeVar("T")
 
 
@@ -35,3 +38,10 @@ class ClassWithUnionParams:
 
     def method(self, value: Union[int, float]) -> Union[str, bytes]:
         return str(value)
+
+
+# _idfunc takes exactly one argument, checked before the argument is read.
+
+assert _typing._idfunc(1) == 1
+with assert_raises(TypeError):
+    _typing._idfunc()
