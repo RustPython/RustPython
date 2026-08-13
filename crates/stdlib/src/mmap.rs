@@ -777,7 +777,10 @@ mod mmap {
             let start = options
                 .start
                 .map_or_else(|| self.pos(), |start| start.saturated_at(size));
-            let end = options.end.map_or(size, |end| end.saturated_at(size));
+            let end = options
+                .end
+                .map_or(size, |end| end.saturated_at(size))
+                .max(start);
             (start, end)
         }
 
