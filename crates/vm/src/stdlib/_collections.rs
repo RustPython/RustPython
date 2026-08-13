@@ -22,9 +22,10 @@ mod _collections {
             Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
+        vm::MAX_MEMORY_SIZE,
     };
     use alloc::collections::VecDeque;
-    use core::cmp::max;
+    use core::{cmp::max, mem::size_of};
     use crossbeam_utils::atomic::AtomicCell;
 
     #[pyattr]
@@ -318,6 +319,10 @@ mod _collections {
             let deque = self.borrow_deque();
             let n = vm.check_repeat_or_overflow_error(deque.len(), n)?;
             let mul_len = n * deque.len();
+            let result_len = self.maxlen.map_or(mul_len, |maxlen| mul_len.min(maxlen));
+            if n > 1 && result_len.saturating_mul(size_of::<PyObjectRef>()) >= MAX_MEMORY_SIZE {
+                return Err(vm.new_memory_error(""));
+            }
             let iter = deque.iter().cycle().take(mul_len);
             let skipped = self
                 .maxlen
