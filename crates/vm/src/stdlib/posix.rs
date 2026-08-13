@@ -1333,14 +1333,13 @@ pub mod module {
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(
-        group_ids: crate::function::ArgIterable<RawGid>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let gids = group_ids
-            .iter(vm)?
-            .map(|gid| gid.map(|gid| gid.0))
-            .collect::<Result<Vec<_>, _>>()?;
+    fn setgroups(group_ids: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        group_ids
+            .try_sequence(vm)
+            .map_err(|_| vm.new_type_error("setgroups argument must be a sequence"))?;
+        let gids = vm.extract_elements_with(&group_ids, |gid| {
+            RawGid::try_from_object(vm, gid).map(|gid| gid.0)
+        })?;
         rustpython_host_env::posix::setgroups_raw(&gids).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1400,7 +1399,7 @@ pub mod module {
         #[pyarg(positional)]
         path: OsPath,
         #[pyarg(positional)]
-        args: crate::function::ArgIterable<OsPath>,
+        args: PyObjectRef,
         #[pyarg(positional)]
         env: Option<crate::function::ArgMapping>,
         #[pyarg(named, default)]
@@ -1438,6 +1437,19 @@ pub mod module {
                 .clone()
                 .into_cstring(vm)
                 .map_err(|_| vm.new_value_error("path should not have nul bytes"))?;
+
+            let function_name = if spawnp {
+                "posix_spawnp"
+            } else {
+                "posix_spawn"
+            };
+            if !self.args.fast_isinstance(vm.ctx.types.list_type)
+                && !self.args.fast_isinstance(vm.ctx.types.tuple_type)
+            {
+                return Err(
+                    vm.new_type_error(format!("{function_name}: argv must be a tuple or list"))
+                );
+            }
 
             let mut file_actions = Vec::new();
             if let Some(it) = self.file_actions {
@@ -1478,20 +1490,21 @@ pub mod module {
                 }
             }
 
-            let setsigdef = self
-                .setsigdef
-                .map(|sigs| {
-                    let sigs = sigs.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-                    for &sig in &sigs {
-                        if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
-                            return Err(
-                                vm.new_value_error(format!("signal number {sig} out of range"))
-                            );
-                        }
+            let collect_signals = |sigs: crate::function::ArgIterable<i32>| {
+                let mut collected = Vec::new();
+                for sig in sigs.iter(vm)? {
+                    let sig = sig?;
+                    if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
+                        return Err(vm.new_value_error(format!("signal number {sig} out of range")));
                     }
-                    Ok(sigs)
-                })
-                .transpose()?;
+                    if !collected.contains(&sig) {
+                        collected.push(sig);
+                    }
+                }
+                Ok(collected)
+            };
+
+            let setsigdef = self.setsigdef.map(&collect_signals).transpose()?;
 
             if let Some(_scheduler) = self.scheduler {
                 // TODO: Implement scheduler parameter handling
@@ -1507,29 +1520,12 @@ pub mod module {
                 ));
             }
 
-            let setsigmask = self
-                .setsigmask
-                .map(|sigs| {
-                    let sigs = sigs.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
-                    for &sig in &sigs {
-                        if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
-                            return Err(
-                                vm.new_value_error(format!("signal number {sig} out of range"))
-                            );
-                        }
-                    }
-                    Ok(sigs)
-                })
-                .transpose()?;
+            let setsigmask = self.setsigmask.map(collect_signals).transpose()?;
 
-            let args: Vec<CString> = self
-                .args
-                .iter(vm)?
-                .map(|res| {
-                    CString::new(res?.into_bytes())
-                        .map_err(|_| vm.new_value_error("path should not have nul bytes"))
-                })
-                .collect::<Result<_, _>>()?;
+            let args = vm.extract_elements_with(&self.args, |arg| {
+                CString::new(OsPath::try_from_object(vm, arg)?.into_bytes())
+                    .map_err(|_| vm.new_value_error("path should not have nul bytes"))
+            })?;
             let env = if let Some(env_dict) = self.env {
                 envp_from_dict(env_dict, vm)?
             } else {
