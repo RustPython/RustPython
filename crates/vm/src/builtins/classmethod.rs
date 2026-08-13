@@ -27,7 +27,7 @@ use crate::{
 ///
 /// Class methods are different than C++ or Java static methods.
 /// If you want those, see the staticmethod builtin.
-#[pyclass(module = false, name = "classmethod")]
+#[pyclass(module = false, name = "classmethod", traverse)]
 #[derive(Debug)]
 pub struct PyClassMethod {
     callable: PyMutex<PyObjectRef>,
