@@ -176,13 +176,18 @@ impl CollectStopTheWorld {
             };
         }
 
-        let states = crate::vm::runtime::live_interpreter_states();
-        let mut stopped = Vec::with_capacity(states.len());
-        for state in states {
+        // Accumulate into a live `Self` rather than a bare Vec: if a later
+        // `stop_the_world` unwinds, dropping this guard restarts the
+        // interpreters already stopped, instead of leaving their threads parked
+        // and their exclusion held forever.
+        let mut guard = Self {
+            stopped: Vec::new(),
+        };
+        for state in crate::vm::runtime::live_interpreter_states() {
             state.stop_the_world.stop_the_world(&state);
-            stopped.push(state);
+            guard.stopped.push(state);
         }
-        Self { stopped }
+        guard
     }
 
     /// Restart the world. Idempotent.

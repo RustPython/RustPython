@@ -14,7 +14,6 @@ use crate::vm::PyGlobalState;
 use core::sync::atomic::{AtomicI64, Ordering};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::OnceLock;
 
 /// Where an interpreter state came from (mirrors CPython `_PyInterpreterState_GetWhence`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,22 +57,17 @@ struct RegistryEntry {
     state: alloc::rc::Weak<PyGlobalState>,
 }
 
+/// `main_id` value before any main interpreter has been registered.
+const NO_MAIN_INTERPRETER: i64 = -1;
+
 struct InterpreterRegistry {
     next_id: AtomicI64,
+    /// Id of the first registered `is_main` interpreter (PEP 734 `get_main()`),
+    /// or [`NO_MAIN_INTERPRETER`].
+    main_id: AtomicI64,
     /// id → entry. Main interpreter is always id 0 when created first.
     entries: Mutex<HashMap<i64, RegistryEntry>>,
 }
-
-// Without the `threading` feature `RegistryEntry` holds `rc::Weak`, which is
-// `!Send`/`!Sync`, so the process-global registry static would not type-check.
-// SAFETY: non-threading builds are single-threaded by construction (`Rc`-based
-// objects are already unsound to touch across threads), and this process-global
-// registry is only ever reached from that one thread. The `parking_lot::Mutex`
-// still guards the map contents against reentrancy.
-#[cfg(not(feature = "threading"))]
-unsafe impl Send for InterpreterRegistry {}
-#[cfg(not(feature = "threading"))]
-unsafe impl Sync for InterpreterRegistry {}
 
 impl InterpreterRegistry {
     fn new() -> Self {
@@ -81,13 +75,23 @@ impl InterpreterRegistry {
             // Monotonic ids starting at 0. Concurrent Interpreter construction
             // (e.g. cargo test threads) must never share an id.
             next_id: AtomicI64::new(0),
+            main_id: AtomicI64::new(NO_MAIN_INTERPRETER),
             entries: Mutex::new(HashMap::new()),
         }
     }
 }
 
+/// The interpreter registry.
+///
+/// With `threading` this is one process-global table. Without it, `PyRc` is
+/// `Rc` and each OS thread owns an independent `Context::genesis()` and
+/// `GcState`, so the registry is thread-local for the same reason `gc_state()`
+/// is: an `Rc` handle must never be reachable from another thread.
+/// `static_cell!` provides exactly that split.
 fn registry() -> &'static InterpreterRegistry {
-    static REGISTRY: OnceLock<InterpreterRegistry> = OnceLock::new();
+    rustpython_common::static_cell! {
+        static REGISTRY: InterpreterRegistry;
+    }
     REGISTRY.get_or_init(InterpreterRegistry::new)
 }
 
@@ -105,39 +109,45 @@ pub const MAIN_INTERPRETER_ID: i64 = 0;
 /// in the commit that lands `_interpreters`.
 pub const SUPPORTS_ISOLATED_INTERPRETERS: bool = false;
 
-/// Process main interpreter id for PEP 734 `_interpreters.get_main()`, recorded
-/// once when the first `is_main` interpreter is registered.
-static MAIN_INTERPRETER: OnceLock<i64> = OnceLock::new();
-
-/// Id of the process main interpreter (PEP 734 `get_main()`), or `None` before
-/// any interpreter has been created.
+/// Id of the main interpreter (PEP 734 `get_main()`), or `None` before any
+/// interpreter has been created.
 ///
 /// This is distinct from [`PyGlobalState::is_main`]: every top-level (non-sub)
 /// interpreter carries `is_main` for its own signal / main-thread bookkeeping,
-/// but only the first one registered becomes *the* process main.
+/// but only the first one registered becomes *the* main.
 #[must_use]
 pub fn main_interpreter_id() -> Option<i64> {
-    MAIN_INTERPRETER.get().copied()
+    match registry().main_id.load(Ordering::Acquire) {
+        NO_MAIN_INTERPRETER => None,
+        id => Some(id),
+    }
 }
 
-/// Allocate a unique process-global interpreter id.
+/// Allocate a unique interpreter id.
 ///
-/// Ids are strictly monotonic and never reused for the lifetime of the process.
-/// This is required for thread-safe concurrent `Interpreter` construction
-/// (parallel unit tests, multi-threaded embedding).
+/// Ids are strictly monotonic and never reused for the lifetime of the
+/// registry, so concurrent `Interpreter` construction (parallel unit tests,
+/// multi-threaded embedding) never shares an id. Without `threading` the
+/// registry — like `Context::genesis()` and the GC state — is per OS thread, so
+/// ids are unique within a thread rather than across the process.
 pub(crate) fn alloc_interpreter_id() -> i64 {
     registry().next_id.fetch_add(1, Ordering::Relaxed)
 }
 
-/// Register an interpreter state in the process-global table.
+/// Register an interpreter state in the registry.
 pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
     let id = state.interpreter_id;
     let whence = state.whence;
     if state.is_main {
-        // First `is_main` interpreter defines the process main for `get_main()`.
+        // First `is_main` interpreter defines the main for `get_main()`.
         // Additional top-level Interpreters (embedding) keep their own `is_main`
-        // flag but do not displace the recorded process main.
-        let _ = MAIN_INTERPRETER.set(id);
+        // flag but do not displace the recorded main.
+        let _ = registry().main_id.compare_exchange(
+            NO_MAIN_INTERPRETER,
+            id,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
     }
     let mut entries = registry().entries.lock();
     entries.insert(
@@ -220,6 +230,7 @@ pub fn live_interpreter_states() -> Vec<PyRc<PyGlobalState>> {
 /// only when `PyObjectRef` is `Arc`-backed).
 #[cfg(feature = "threading")]
 fn owned_interpreters() -> &'static Mutex<HashMap<i64, crate::Interpreter>> {
+    use std::sync::OnceLock;
     static OWNED: OnceLock<Mutex<HashMap<i64, crate::Interpreter>>> = OnceLock::new();
     OWNED.get_or_init(|| Mutex::new(HashMap::new()))
 }
