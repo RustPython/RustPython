@@ -264,21 +264,20 @@ mod _imp {
         if let OptionalArg::Present(data) = data
             && !vm.is_none(&data)
         {
-            let buf = crate::protocol::PyBuffer::try_from_borrowed_object(vm, &data)?;
-            let contiguous = buf.as_contiguous().ok_or_else(|| {
-                vm.new_buffer_error("get_frozen_object() requires a contiguous buffer")
-            })?;
             let invalid_err = || {
                 vm.new_import_error(
                     format!("Frozen object named '{}' is invalid", name.as_str()),
                     name.clone().into_wtf8(),
                 )
             };
-            let bag = crate::builtins::code::PyVmBag(vm);
-            let code =
-                rustpython_compiler_core::marshal::deserialize_code(&mut &contiguous[..], bag)
-                    .map_err(|_| invalid_err())?;
-            return Ok(PyCode::new_ref_with_bag(vm, code));
+            // A non-buffer is a TypeError, not invalid frozen data.
+            crate::protocol::PyBuffer::try_from_borrowed_object(vm, &data)?;
+            // The data is a marshalled code object: a whole marshal value, which
+            // deserialize_code() does not read — it takes the code body alone,
+            // without the type byte the writer puts in front of it.
+            let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
+            let code = loads.call((data,), vm).map_err(|_| invalid_err())?;
+            return code.downcast::<PyCode>().map_err(|_| invalid_err());
         }
         import::make_frozen(vm, name.as_str())
     }
