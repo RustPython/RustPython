@@ -1036,7 +1036,7 @@ pub(crate) mod _asyncio {
                 )));
             }
 
-            let exc = if exc_type.fast_isinstance(vm.ctx.types.type_type) {
+            let exc: PyBaseExceptionRef = if exc_type.fast_isinstance(vm.ctx.types.type_type) {
                 // exc_type is a class
                 let exc_class: PyTypeRef = exc_type.clone().downcast().unwrap();
                 // Must be a subclass of BaseException
@@ -1047,12 +1047,23 @@ pub(crate) mod _asyncio {
                 }
 
                 let val = exc_val.unwrap_or_none(vm);
-                if vm.is_none(&val) {
+                let exc = if vm.is_none(&val) {
                     exc_type.call((), vm)?
                 } else if val.fast_isinstance(&exc_class) {
                     val
                 } else {
                     exc_type.call((val,), vm)?
+                };
+                match exc.downcast() {
+                    Ok(exc) => exc,
+                    Err(obj) => {
+                        let exc_class_repr = exc_class.as_object().repr(vm)?;
+                        vm.new_type_error(format!(
+                            "calling {} should have returned an instance of BaseException, not {}",
+                            exc_class_repr.as_wtf8(),
+                            obj.class()
+                        ))
+                    }
                 }
             } else if exc_type.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
                 // exc_type is an exception instance
@@ -1063,7 +1074,7 @@ pub(crate) mod _asyncio {
                         vm.new_type_error("instance exception may not have a separate value")
                     );
                 }
-                exc_type
+                exc_type.downcast().unwrap()
             } else {
                 // exc_type is neither a class nor an exception instance
                 return Err(vm.new_type_error(format!(
@@ -1075,10 +1086,11 @@ pub(crate) mod _asyncio {
             if let OptionalArg::Present(tb) = exc_tb
                 && !vm.is_none(&tb)
             {
-                exc.set_attr(vm.ctx.intern_str("__traceback__"), tb, vm)?;
+                exc.as_object()
+                    .set_attr(vm.ctx.intern_str("__traceback__"), tb, vm)?;
             }
 
-            Err(exc.downcast().unwrap())
+            Err(exc)
         }
 
         #[pymethod]
