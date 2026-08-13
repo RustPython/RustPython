@@ -1398,6 +1398,25 @@ pub fn serialize_value<W: Write, D: Dumpable>(
 /// Split varnames/cellvars/freevars are reassembled into
 /// co_localsplusnames/co_localspluskinds.
 pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) {
+    serialize_code_with(buf, code, |buf, constant| {
+        serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {});
+        Ok::<(), core::convert::Infallible>(())
+    })
+    .unwrap_or_else(|x| match x {})
+}
+
+/// Serialize a code object, writing each `co_consts` entry through
+/// `write_constant`.
+///
+/// A runtime caller passes its own object writer so that values its constant
+/// representation carries but `BorrowedConstant` cannot describe — lists,
+/// dicts, sets — reach the stream, and so a constant shared with the enclosing
+/// object keeps its entry in that writer's reference table.
+pub fn serialize_code_with<W: Write, C: Constant, E>(
+    buf: &mut W,
+    code: &CodeObject<C>,
+    mut write_constant: impl FnMut(&mut W, &C) -> core::result::Result<(), E>,
+) -> core::result::Result<(), E> {
     // 1–5: scalar fields
     buf.write_u32(code.arg_count);
     buf.write_u32(code.posonlyarg_count);
@@ -1414,7 +1433,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     buf.write_u8(Type::Tuple as u8);
     write_len(buf, code.constants.len());
     for constant in &*code.constants {
-        serialize_value(buf, constant.borrow_constant().into()).unwrap_or_else(|x| match x {})
+        write_constant(buf, constant)?;
     }
 
     // 8: co_names (tuple of strings)
@@ -1457,6 +1476,7 @@ pub fn serialize_code<W: Write, C: Constant>(buf: &mut W, code: &CodeObject<C>) 
     // 16: co_exceptiontable
     buf.write_u8(Type::Bytes as u8);
     write_vec(buf, &code.exceptiontable);
+    Ok(())
 }
 
 fn write_marshal_str<W: Write>(buf: &mut W, s: &str) {
