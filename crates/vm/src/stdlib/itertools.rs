@@ -1227,9 +1227,15 @@ mod decl {
 
             let n = pool.len();
 
+            let mut indices = Vec::new();
+            indices
+                .try_reserve_exact(r)
+                .map_err(|_| vm.new_memory_error(""))?;
+            indices.extend(0..r);
+
             Ok(Self {
                 pool,
-                indices: PyRwLock::new((0..r).collect()),
+                indices: PyRwLock::new(indices),
                 result: PyRwLock::new(None),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(r > n),
@@ -1333,9 +1339,15 @@ mod decl {
 
             let n = pool.len();
 
+            let mut indices = Vec::new();
+            indices
+                .try_reserve_exact(r)
+                .map_err(|_| vm.new_memory_error(""))?;
+            indices.resize(r, 0);
+
             Ok(Self {
                 pool,
-                indices: PyRwLock::new(vec![0; r]),
+                indices: PyRwLock::new(indices),
                 r: AtomicCell::new(r),
                 exhausted: AtomicCell::new(n == 0 && r > 0),
             })
