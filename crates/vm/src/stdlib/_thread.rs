@@ -796,9 +796,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn _is_main_interpreter() -> bool {
-        // RustPython only has one interpreter
-        true
+    fn _is_main_interpreter(vm: &VirtualMachine) -> bool {
+        vm.state.is_main_interpreter()
     }
 
     /// Initialize the main thread ident. Should be called once at interpreter startup.

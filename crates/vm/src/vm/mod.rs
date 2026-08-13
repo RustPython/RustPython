@@ -13,6 +13,7 @@ mod interpreter;
 mod method;
 #[cfg(feature = "rustpython-compiler")]
 mod python_run;
+pub mod runtime;
 mod setting;
 pub mod thread;
 mod vm_new;
@@ -61,16 +62,22 @@ use std::{
 pub use context::Context;
 pub use interpreter::{Interpreter, InterpreterBuilder};
 pub(crate) use method::PyMethod;
+pub use runtime::{InterpreterInfo, InterpreterWhence, MAIN_INTERPRETER_ID};
 pub use setting::{CheckHashPycsMode, Paths, PyConfig, Settings};
 
 pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 
 // Objects are live when they are on stack, or referenced by a name (for now)
 
-/// Top level container of a python virtual machine. In theory you could
-/// create more instances of this struct and have them operate fully isolated.
+/// Per-thread execution context for a single interpreter (≈ CPython `PyThreadState`).
 ///
-/// To construct this, please refer to the [`Interpreter`]
+/// A `VirtualMachine` holds thread-local eval state (exceptions, recursion, frames,
+/// datastack) plus shared references to interpreter-owned data (`state`,
+/// `builtins`, `sys_module`, `ctx`). Multiple VMs may share the same
+/// [`PyGlobalState`] via [`VirtualMachine::new_thread`]; distinct interpreters
+/// each have their own `PyGlobalState` (see [`Interpreter::create_subinterpreter`]).
+///
+/// To construct the main VM of an interpreter, use [`Interpreter`].
 pub struct VirtualMachine {
     pub builtins: PyRef<PyModule>,
     pub sys_module: PyRef<PyModule>,
@@ -732,7 +739,18 @@ pub(crate) struct CallableCache {
     pub builtin_any: Option<PyObjectRef>,
 }
 
+/// Per-interpreter shared state (≈ CPython `PyInterpreterState`).
+///
+/// Not process-global: each [`Interpreter`] (main or subinterpreter) owns its own
+/// `PyGlobalState`. Process-wide pieces live elsewhere (`Context::genesis`,
+/// GC, the interpreter registry in [`runtime`]).
 pub struct PyGlobalState {
+    /// Unique process-global interpreter id (main is [`MAIN_INTERPRETER_ID`]).
+    pub interpreter_id: i64,
+    /// How this interpreter was created.
+    pub whence: runtime::InterpreterWhence,
+    /// True only for the process main interpreter.
+    pub is_main: bool,
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
     pub frozen: HashMap<&'static str, FrozenModule, rapidhash::quality::RandomState>,
@@ -777,6 +795,14 @@ pub struct PyGlobalState {
     /// Stop-the-world state for pre-fork thread suspension
     #[cfg(feature = "threading")]
     pub stop_the_world: StopTheWorldState,
+}
+
+impl PyGlobalState {
+    #[inline]
+    #[must_use]
+    pub fn is_main_interpreter(&self) -> bool {
+        self.is_main
+    }
 }
 
 pub fn process_hash_secret_seed() -> u32 {
@@ -1083,9 +1109,12 @@ impl VirtualMachine {
 
         assert!(!self.initialized, "Double Initialize Error");
 
-        // Initialize main thread ident before any threading operations
+        // Process main-thread identity is owned by the main interpreter only
+        // (used for signal handling / `_thread._is_main_interpreter` helpers).
         #[cfg(feature = "threading")]
-        stdlib::_thread::init_main_thread_ident(self);
+        if self.state.is_main_interpreter() {
+            stdlib::_thread::init_main_thread_ident(self);
+        }
 
         stdlib::builtins::init_module(self, &self.builtins);
         let callable_cache_init = self.init_callable_cache();
