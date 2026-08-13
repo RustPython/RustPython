@@ -179,7 +179,7 @@ mod _imp {
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
         convert::TryFromBorrowedObject,
-        function::OptionalArg,
+        function::{FuncArgs, OptionalArg},
         import, version,
     };
 
@@ -320,14 +320,16 @@ mod _imp {
     #[allow(clippy::type_complexity)]
     #[pyfunction]
     fn find_frozen(
-        name: PyUtf8StrRef,
-        withdata: OptionalArg<bool>,
+        args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
-        if withdata.into_option().is_some() {
-            // this is keyword-only argument in CPython
-            unimplemented!();
+        if args.args.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "find_frozen() takes exactly 1 positional argument ({} given)",
+                args.args.len()
+            )));
         }
+        let (name,): (PyUtf8StrRef,) = args.bind(vm)?;
 
         let name_str = name.as_str();
         let info = match super::find_frozen(name_str, vm) {

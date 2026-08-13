@@ -777,7 +777,10 @@ mod mmap {
             let start = options
                 .start
                 .map_or_else(|| self.pos(), |start| start.saturated_at(size));
-            let end = options.end.map_or(size, |end| end.saturated_at(size));
+            let end = options
+                .end
+                .map_or(size, |end| end.saturated_at(size))
+                .max(start);
             (start, end)
         }
 
@@ -886,7 +889,7 @@ mod mmap {
                 let dest = dest.try_to_primitive(vm).ok()?;
                 let src = src.try_to_primitive(vm).ok()?;
                 let cnt = cnt.try_to_primitive(vm).ok()?;
-                if size - dest < cnt || size - src < cnt {
+                if dest > size || src > size || size - dest < cnt || size - src < cnt {
                     return None;
                 }
                 Some((dest, src, cnt))

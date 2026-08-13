@@ -1,3 +1,4 @@
+import itertools
 import math
 
 from testutils import assert_raises, skip_if_unsupported
@@ -311,3 +312,9 @@ assert math.fmod(0.0, 3.0) == 0.0
 assert math.fmod(0.0, NINF) == 0.0
 
 assert math.gamma(1) == 1.0
+
+# sumprod compares the two lengths as it goes; it must not drain either
+# argument first.
+assert_raises(ValueError, lambda: math.sumprod(itertools.count(), [1, 2, 3]))
+assert_raises(ValueError, lambda: math.sumprod([1, 2, 3], itertools.count()))
+assert math.sumprod(iter([1, 2, 3]), iter([4, 5, 6])) == 32

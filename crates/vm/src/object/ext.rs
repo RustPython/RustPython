@@ -269,13 +269,16 @@ cfg_select! {
     _ => {}
 }
 
-impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
+impl<T> fmt::Debug for PyAtomicRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PyAtomicRef(")?;
+        // The stored pointer is a `Py<T>` — the full object, header included —
+        // as `Deref`, `load_raw` and `swap` all read it. Formatting it as a
+        // bare payload would skip the header and print misaligned bytes.
         unsafe {
             self.inner
                 .load(Ordering::Relaxed)
-                .cast::<T>()
+                .cast::<PyObject>()
                 .as_ref()
                 .fmt(f)
         }?;

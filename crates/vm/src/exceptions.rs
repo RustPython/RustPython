@@ -988,6 +988,9 @@ impl ExceptionZoo {
 
         extend_exception!(PyImportError, ctx, excs.import_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.import_error, make_arg_getter(0)),
+            "name" => ctx.none(),
+            "path" => ctx.none(),
+            "name_from" => ctx.none(),
         });
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
@@ -1908,10 +1911,11 @@ pub(super) mod types {
         #[pymethod]
         fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
             let obj = exc.as_object().to_owned();
-            let mut result: Vec<PyObjectRef> = vec![
-                obj.class().to_owned().into(),
-                vm.new_tuple((exc.get_arg(0).unwrap(),)).into(),
-            ];
+            let args: PyObjectRef = match exc.get_arg(0) {
+                Some(arg) => vm.new_tuple((arg,)).into(),
+                None => exc.args().into(),
+            };
+            let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into(), args];
 
             if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
                 result.push(dict.into());
@@ -1938,10 +1942,21 @@ pub(super) mod types {
                 )));
             }
 
-            let dict = crate::builtins::object::object_get_dict(zelf.clone(), vm)?;
-            dict.set_item("name", vm.unwrap_or_none(name), vm)?;
-            dict.set_item("path", vm.unwrap_or_none(path), vm)?;
-            dict.set_item("name_from", vm.unwrap_or_none(name_from), vm)?;
+            if let Some(name) = name {
+                zelf.set_attr("name", name, vm)?;
+            } else if let Some(dict) = zelf.dict() {
+                dict.del_item("name", vm).ok();
+            }
+            if let Some(path) = path {
+                zelf.set_attr("path", path, vm)?;
+            } else if let Some(dict) = zelf.dict() {
+                dict.del_item("path", vm).ok();
+            }
+            if let Some(name_from) = name_from {
+                zelf.set_attr("name_from", name_from, vm)?;
+            } else if let Some(dict) = zelf.dict() {
+                dict.del_item("name_from", vm).ok();
+            }
             PyBaseException::slot_init(zelf, args, vm)
         }
 

@@ -888,8 +888,7 @@ pub mod sys {
                 format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\"",),
                 0,
                 vm,
-            )
-            .unwrap();
+            )?;
             Ok(vm.ctx.none())
         };
 

@@ -12,8 +12,8 @@ pub(crate) mod _asyncio {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
-                PyBaseException, PyBaseExceptionRef, PyDict, PyDictRef, PyGenericAlias, PyList,
-                PyListRef, PyModule, PySet, PyTuple, PyType, PyTypeRef,
+                PyBaseException, PyBaseExceptionRef, PyDict, PyGenericAlias, PyList, PyListRef,
+                PyModule, PySet, PyTuple, PyType, PyTypeRef,
             },
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, OptionalOption, PySetterValue},
@@ -779,7 +779,7 @@ pub(crate) mod _asyncio {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -1036,7 +1036,7 @@ pub(crate) mod _asyncio {
                 )));
             }
 
-            let exc = if exc_type.fast_isinstance(vm.ctx.types.type_type) {
+            let exc: PyBaseExceptionRef = if exc_type.fast_isinstance(vm.ctx.types.type_type) {
                 // exc_type is a class
                 let exc_class: PyTypeRef = exc_type.clone().downcast().unwrap();
                 // Must be a subclass of BaseException
@@ -1047,12 +1047,23 @@ pub(crate) mod _asyncio {
                 }
 
                 let val = exc_val.unwrap_or_none(vm);
-                if vm.is_none(&val) {
+                let exc = if vm.is_none(&val) {
                     exc_type.call((), vm)?
                 } else if val.fast_isinstance(&exc_class) {
                     val
                 } else {
                     exc_type.call((val,), vm)?
+                };
+                match exc.downcast() {
+                    Ok(exc) => exc,
+                    Err(obj) => {
+                        let exc_class_repr = exc_class.as_object().repr(vm)?;
+                        vm.new_type_error(format!(
+                            "calling {} should have returned an instance of BaseException, not {}",
+                            exc_class_repr.as_wtf8(),
+                            obj.class()
+                        ))
+                    }
                 }
             } else if exc_type.fast_isinstance(vm.ctx.exceptions.base_exception_type) {
                 // exc_type is an exception instance
@@ -1063,7 +1074,7 @@ pub(crate) mod _asyncio {
                         vm.new_type_error("instance exception may not have a separate value")
                     );
                 }
-                exc_type
+                exc_type.downcast().unwrap()
             } else {
                 // exc_type is neither a class nor an exception instance
                 return Err(vm.new_type_error(format!(
@@ -1075,10 +1086,11 @@ pub(crate) mod _asyncio {
             if let OptionalArg::Present(tb) = exc_tb
                 && !vm.is_none(&tb)
             {
-                exc.set_attr(vm.ctx.intern_str("__traceback__"), tb, vm)?;
+                exc.as_object()
+                    .set_attr(vm.ctx.intern_str("__traceback__"), tb, vm)?;
             }
 
-            Err(exc.downcast().unwrap())
+            Err(exc)
         }
 
         #[pymethod]
@@ -1840,7 +1852,7 @@ pub(crate) mod _asyncio {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -2405,7 +2417,9 @@ pub(crate) mod _asyncio {
 
         // Slow path: look up in the module-level dict for cross-thread queries
         let current_tasks = get_current_tasks_dict(vm)?;
-        let dict: PyDictRef = current_tasks.downcast().unwrap();
+        let Ok(dict) = current_tasks.downcast::<PyDict>() else {
+            return Ok(vm.ctx.none());
+        };
 
         match dict.get_item(&*loop_obj, vm) {
             Ok(task) => Ok(task),
@@ -2485,15 +2499,17 @@ pub(crate) mod _asyncio {
     #[pyfunction]
     fn _enter_task(loop_: PyObjectRef, task: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Per-thread check, matching CPython's ts->asyncio_running_task
-        {
-            let running_task = vm.asyncio_running_task.borrow();
-            if running_task.is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "Cannot enter into task {:?} while another task {:?} is being executed.",
-                    task,
-                    running_task.as_ref().unwrap()
-                )));
-            }
+        let running_task = vm.asyncio_running_task.borrow().clone();
+        if let Some(running_task) = running_task {
+            let task_repr = task.repr(vm)?;
+            let running_task_repr = running_task.repr(vm)?;
+            return Err(vm.new_runtime_error(wtf8_concat!(
+                "Cannot enter into task ",
+                task_repr.as_wtf8(),
+                " while another task ",
+                running_task_repr.as_wtf8(),
+                " is being executed."
+            )));
         }
 
         *vm.asyncio_running_task.borrow_mut() = Some(task.clone());

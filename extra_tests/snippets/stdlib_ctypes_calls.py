@@ -1,6 +1,7 @@
 # Exercises the migrated _ctypes foreign-call path (routed through the unified
 # host_env `call` entry point): scalar int/double arguments and returns,
-# pointer (c_char_p / c_void_p) returns, and a use_errno round-trip.
+# pointer (c_char_p / c_void_p) returns, a use_errno round-trip, and the
+# argument conversion an untyped call performs.
 #
 # Prints "OK" and exits 0; any failed assertion aborts. Output is identical
 # under CPython and RustPython on the same platform.
@@ -60,5 +61,18 @@ libc.strtol.restype = c_long
 set_errno(0)
 libc.strtol(b"9" * 40, None, 10)
 assert get_errno() == errno.ERANGE, (get_errno(), errno.ERANGE)
+
+# 7. A float has no implicit conversion to an integer argument: converting it
+#    would pass a truncated value where the callee expects an int or a pointer.
+libc.abs.argtypes = None
+for bad in (1.5, 0.0, 1e300):
+    try:
+        libc.abs(bad)
+    except (TypeError, ctypes.ArgumentError):
+        pass
+    else:
+        assert False, f"{bad!r} was accepted as an integer argument"
+assert libc.abs(-3) == 3
+assert libc.abs(True) == 1
 
 print("OK")

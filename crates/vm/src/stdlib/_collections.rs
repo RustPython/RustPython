@@ -13,6 +13,7 @@ mod _collections {
         convert::ToPyObject,
         function::{FuncArgs, KwArgs, OptionalArg, PyComparisonValue},
         iter::PyExactSizeIterator,
+        object::{Traverse, TraverseFn},
         protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
         recursion::ReprGuard,
         sequence::{MutObjectSequenceOp, OptionalRangeArgs},
@@ -22,18 +23,39 @@ mod _collections {
             Initializer, IterNext, Iterable, PyComparisonOp, Representable, SelfIter,
         },
         utils::collection_repr,
+        vm::MAX_MEMORY_SIZE,
     };
     use alloc::collections::VecDeque;
-    use core::cmp::max;
+    use core::{cmp::max, mem::size_of};
     use crossbeam_utils::atomic::AtomicCell;
 
     #[pyattr]
-    #[pyclass(module = "collections", name = "deque", unhashable = true)]
+    #[pyclass(
+        module = "collections",
+        name = "deque",
+        unhashable = true,
+        traverse = "manual"
+    )]
     #[derive(Debug, Default, PyPayload)]
     struct PyDeque {
         deque: PyRwLock<VecDeque<PyObjectRef>>,
         maxlen: Option<usize>,
         state: AtomicCell<usize>, // incremented whenever the indices move
+    }
+
+    // SAFETY: Traverse visits each owned Python reference at most once.
+    unsafe impl Traverse for PyDeque {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            if let Some(deque) = self.deque.try_read_recursive() {
+                for obj in deque.iter() {
+                    obj.traverse(tracer_fn);
+                }
+            }
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            out.extend(self.deque.get_mut().drain(..));
+        }
     }
 
     type PyDequeRef = PyRef<PyDeque>;
@@ -318,6 +340,10 @@ mod _collections {
             let deque = self.borrow_deque();
             let n = vm.check_repeat_or_overflow_error(deque.len(), n)?;
             let mul_len = n * deque.len();
+            let result_len = self.maxlen.map_or(mul_len, |maxlen| mul_len.min(maxlen));
+            if n > 1 && result_len.saturating_mul(size_of::<PyObjectRef>()) >= MAX_MEMORY_SIZE {
+                return Err(vm.new_memory_error(""));
+            }
             let iter = deque.iter().cycle().take(mul_len);
             let skipped = self
                 .maxlen
@@ -400,7 +426,7 @@ mod _collections {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -576,9 +602,10 @@ mod _collections {
             let closing_part = zelf
                 .maxlen
                 .map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
+            let empty = format!("{class_name}([{closing_part})");
 
             if zelf.__len__() == 0 {
-                return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));
+                return Ok(vm.ctx.new_str(empty));
             }
 
             if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -586,6 +613,7 @@ mod _collections {
                     Some(&class_name),
                     "[",
                     &closing_part,
+                    &empty,
                     deque.iter(),
                     vm,
                 )?))
@@ -753,12 +781,28 @@ mod _collections {
         module = "collections",
         name = "defaultdict",
         base = PyDict,
-        unhashable = true
+        unhashable = true,
+        traverse = "manual"
     )]
     #[derive(Debug, Default)]
     struct PyDefaultDict {
         dict: PyDict,
         default_factory: PyRwLock<Option<PyObjectRef>>,
+    }
+
+    // SAFETY: Traverse visits each owned Python reference at most once.
+    unsafe impl Traverse for PyDefaultDict {
+        fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
+            self.dict.traverse(tracer_fn);
+            self.default_factory.traverse(tracer_fn);
+        }
+
+        fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
+            Traverse::clear(&mut self.dict, out);
+            if let Some(factory) = self.default_factory.get_mut().take() {
+                out.push(factory);
+            }
+        }
     }
 
     #[pyclass(

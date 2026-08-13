@@ -2,9 +2,11 @@ use crate::common::lock::LazyLock;
 use crate::common::wtf8::Wtf8;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
-    builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef},
+    builtins::{
+        PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+    },
     class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -21,12 +23,35 @@ const DEFAULT_STRUCTSEQ_REDUCE: PyMethodDef = PyMethodDef::new_const(
     None,
 );
 
+/// The arguments every struct sequence constructor takes.
+#[derive(FromArgs)]
+pub struct StructSequenceNewArgs {
+    #[pyarg(any)]
+    pub sequence: PyObjectRef,
+    #[pyarg(any, optional)]
+    pub dict: OptionalArg<PyObjectRef>,
+}
+
 /// Create a new struct sequence instance from a sequence.
+///
+/// `dict` supplies the hidden fields — the ones past `n_sequence_fields`, named
+/// by `hidden_field_names` in order — that the sequence itself did not cover. It
+/// may not name a field the sequence already supplied, nor one that does not
+/// exist.
 ///
 /// The class must have `n_sequence_fields` and `n_fields` attributes set
 /// (done automatically by `PyStructSequence::extend_pyclass`).
-pub fn struct_sequence_new(cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+pub fn struct_sequence_new(
+    cls: PyTypeRef,
+    args: StructSequenceNewArgs,
+    hidden_field_names: &[&str],
+    vm: &VirtualMachine,
+) -> PyResult {
     // = structseq_new
+    let StructSequenceNewArgs {
+        sequence: seq,
+        dict,
+    } = args;
 
     #[cold]
     fn length_error(
@@ -60,6 +85,16 @@ pub fn struct_sequence_new(cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine
         .ok_or_else(|| vm.new_type_error("missing n_fields attribute"))?
         .try_into_value(vm)?;
 
+    let dict = match dict {
+        OptionalArg::Missing => None,
+        OptionalArg::Present(dict) => Some(dict.downcast::<PyDict>().map_err(|_| {
+            vm.new_type_error(format!(
+                "{}() takes a dict as second arg, if any",
+                cls.slot_name()
+            ))
+        })?),
+    };
+
     let seq: Vec<PyObjectRef> = seq.try_into_value(vm)?;
     let len = seq.len();
 
@@ -67,9 +102,29 @@ pub fn struct_sequence_new(cls: PyTypeRef, seq: PyObjectRef, vm: &VirtualMachine
         return Err(length_error(&cls.slot_name(), min_len, max_len, len, vm));
     }
 
-    // Copy items and pad with None
+    // Copy items and pad the hidden fields the sequence did not cover with None.
     let mut items = seq;
     items.resize_with(max_len, || vm.ctx.none());
+
+    // Fill those padded slots from `dict`. Every key has to land in one of them:
+    // a key naming a field the sequence already supplied, or no field at all,
+    // would otherwise be silently dropped.
+    if let Some(dict) = dict.filter(|dict| !dict.is_empty()) {
+        let mut found = 0;
+        let names = hidden_field_names.get(len - min_len..).unwrap_or(&[]);
+        for (item, name) in items[len..].iter_mut().zip(names) {
+            if let Some(value) = dict.get_item_opt(*name, vm)? {
+                *item = value;
+                found += 1;
+            }
+        }
+        if found != dict.__len__() {
+            return Err(vm.new_type_error(format!(
+                "{}() got duplicate or unexpected field name(s)",
+                cls.slot_name()
+            )));
+        }
+    }
 
     PyTuple::new_unchecked(items.into_boxed_slice())
         .into_ref_with_type(vm, cls)
@@ -192,6 +247,11 @@ pub trait PyStructSequenceData: Sized {
 pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
     /// The Data struct that provides field definitions.
     type Data: PyStructSequenceData;
+
+    #[pyslot]
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        struct_sequence_new(cls, args.bind(vm)?, Self::Data::OPTIONAL_FIELD_NAMES, vm)
+    }
 
     /// Convert a Data struct into a PyStructSequence instance.
     fn from_data(data: Self::Data, vm: &VirtualMachine) -> PyTupleRef {

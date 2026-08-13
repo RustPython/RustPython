@@ -337,40 +337,43 @@ mod _lzma {
     }
 
     fn parse_filter_chain_spec(
-        filter_specs: Vec<PyObjectRef>,
+        filter_specs: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<Filters> {
         const LZMA_FILTERS_MAX: usize = 4;
-        if filter_specs.len() > LZMA_FILTERS_MAX {
+        let filter_specs_len = filter_specs.length(vm)?;
+        if filter_specs_len > LZMA_FILTERS_MAX {
             return Err(new_lzma_error(
                 format!("Too many filters - liblzma supports a maximum of {LZMA_FILTERS_MAX}"),
                 vm,
             ));
         }
 
+        let filter_specs = filter_specs.try_sequence(vm)?;
         let mut filters = Filters::new();
-        for spec in &filter_specs {
-            let filter_id = get_dict_opt_u64(spec, "id", vm)?
+        for i in 0..filter_specs_len {
+            let spec = filter_specs.get_item(i as isize, vm)?;
+            let filter_id = get_dict_opt_u64(&spec, "id", vm)?
                 .ok_or_else(|| vm.new_value_error("Filter specifier must have an \"id\" entry"))?;
 
             match filter_id {
                 FILTER_LZMA1 => {
-                    let opts = parse_filter_spec_lzma(spec, vm)?;
+                    let opts = parse_filter_spec_lzma(&spec, vm)?;
                     filters.lzma1(&opts);
                 }
                 FILTER_LZMA2 => {
-                    let opts = parse_filter_spec_lzma(spec, vm)?;
+                    let opts = parse_filter_spec_lzma(&spec, vm)?;
                     filters.lzma2(&opts);
                 }
                 FILTER_DELTA => {
-                    let dist = parse_filter_spec_delta(spec, vm)?;
+                    let dist = parse_filter_spec_delta(&spec, vm)?;
                     filters
                         .delta_properties(&[(dist - 1) as u8])
                         .map_err(|e| catch_lzma_error(e, vm))?;
                 }
                 FILTER_X86 | FILTER_POWERPC | FILTER_IA64 | FILTER_ARM | FILTER_ARMTHUMB
                 | FILTER_SPARC => {
-                    let start_offset = parse_filter_spec_bcj(spec, vm)?;
+                    let start_offset = parse_filter_spec_bcj(&spec, vm)?;
                     add_bcj_filter(&mut filters, filter_id, start_offset)
                         .map_err(|e| catch_lzma_error(e, vm))?;
                 }
@@ -570,7 +573,7 @@ mod _lzma {
         #[pyarg(any, optional)]
         memlimit: Option<u64>,
         #[pyarg(any, optional)]
-        filters: Option<Vec<PyObjectRef>>,
+        filters: Option<PyObjectRef>,
     }
 
     impl Constructor for LZMADecompressor {
@@ -735,7 +738,7 @@ mod _lzma {
         fn init_xz(
             check: i32,
             preset: u32,
-            filters: Option<Vec<PyObjectRef>>,
+            filters: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Stream> {
             let real_check =
@@ -751,10 +754,11 @@ mod _lzma {
 
         fn init_alone(
             preset: u32,
-            filter_specs: Option<Vec<PyObjectRef>>,
+            filter_specs: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Stream> {
-            if let Some(_filter_specs) = filter_specs {
+            if let Some(filter_specs) = filter_specs {
+                filter_specs.length(vm)?;
                 // TODO: validate single LZMA1 filter and use its options
                 let options = LzmaOptions::new_preset(preset).map_err(|_| {
                     new_lzma_error(format!("Invalid compression preset: {preset}"), vm)
@@ -768,10 +772,7 @@ mod _lzma {
             }
         }
 
-        fn init_raw(
-            filter_specs: Option<Vec<PyObjectRef>>,
-            vm: &VirtualMachine,
-        ) -> PyResult<Stream> {
+        fn init_raw(filter_specs: Option<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Stream> {
             let filter_specs = filter_specs
                 .ok_or_else(|| vm.new_value_error("Must specify filters for FORMAT_RAW"))?;
             let filters = parse_filter_chain_spec(filter_specs, vm)?;
@@ -788,7 +789,7 @@ mod _lzma {
         #[pyarg(any, optional)]
         preset: Option<PyObjectRef>,
         #[pyarg(any, optional)]
-        filters: Option<Vec<PyObjectRef>>,
+        filters: Option<PyObjectRef>,
     }
 
     impl Constructor for LZMACompressor {

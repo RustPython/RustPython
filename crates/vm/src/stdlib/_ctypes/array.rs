@@ -511,7 +511,11 @@ impl AsMapping for PyCArray {
 )]
 impl PyCArray {
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 
@@ -990,12 +994,18 @@ impl PyCArray {
         let (range, step, slice_len) = sat_slice.adjust_indices(length);
 
         // other_len = PySequence_Length(value);
-        let items: Vec<PyObjectRef> = vm.extract_elements_with(&value, Ok)?;
-        let other_len = items.len();
+        // Size the operand before consuming it so an unbounded iterable is
+        // rejected without being materialized.
+        let other_len = value
+            .sequence_unchecked()
+            .length(vm)
+            .map_err(|_| vm.new_value_error("Can only assign sequence of same size"))?;
 
         if other_len != slice_len {
             return Err(vm.new_value_error("Can only assign sequence of same size"));
         }
+
+        let items: Vec<PyObjectRef> = vm.extract_elements_with(&value, Ok)?;
 
         // Use SaturatedSliceIter for correct index iteration (handles negative step)
         let iter = SaturatedSliceIter::from_adjust_indices(range, step, slice_len);
