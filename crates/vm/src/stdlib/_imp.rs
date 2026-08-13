@@ -324,7 +324,10 @@ mod _imp {
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
         if args.args.len() > 1 {
-            return Err(vm.new_type_error("find_frozen() takes exactly 1 positional argument"));
+            return Err(vm.new_type_error(format!(
+                "find_frozen() takes exactly 1 positional argument ({} given)",
+                args.args.len()
+            )));
         }
         let (name,): (PyUtf8StrRef,) = args.bind(vm)?;
 
