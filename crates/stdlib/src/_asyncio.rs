@@ -12,8 +12,8 @@ pub(crate) mod _asyncio {
         vm::{
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             builtins::{
-                PyBaseException, PyBaseExceptionRef, PyDict, PyDictRef, PyGenericAlias, PyList,
-                PyListRef, PyModule, PySet, PyTuple, PyType, PyTypeRef,
+                PyBaseException, PyBaseExceptionRef, PyDict, PyGenericAlias, PyList, PyListRef,
+                PyModule, PySet, PyTuple, PyType, PyTypeRef,
             },
             extend_module,
             function::{FuncArgs, KwArgs, OptionalArg, OptionalOption, PySetterValue},
@@ -2405,7 +2405,9 @@ pub(crate) mod _asyncio {
 
         // Slow path: look up in the module-level dict for cross-thread queries
         let current_tasks = get_current_tasks_dict(vm)?;
-        let dict: PyDictRef = current_tasks.downcast().unwrap();
+        let Ok(dict) = current_tasks.downcast::<PyDict>() else {
+            return Ok(vm.ctx.none());
+        };
 
         match dict.get_item(&*loop_obj, vm) {
             Ok(task) => Ok(task),
