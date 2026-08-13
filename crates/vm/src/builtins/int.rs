@@ -487,7 +487,9 @@ impl PyInt {
                 return vm.ctx.new_int(rounded);
             }
         }
-        zelf
+        // No rounding to do, but an int subclass must still be normalized to an
+        // exact int, the way CPython's long_long() does.
+        zelf.__int__(vm).into_pyref()
     }
 
     #[pymethod]
