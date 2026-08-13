@@ -9,7 +9,7 @@ use super::{
 };
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-    builtins::{PyBytes, PyDict, PyStr, PyTuple, PyType, PyTypeRef},
+    builtins::{PyBytes, PyDict, PyInt, PyStr, PyTuple, PyType, PyTypeRef},
     class::StaticType,
     function::FuncArgs,
     protocol::{BufferDescriptor, PyBuffer, PyNumberMethods},
@@ -171,7 +171,10 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
     }
 
     // 10. Python int -> i32 (default integer type)
-    if let Ok(int_val) = value.try_int(vm) {
+    // PyLong_Check: only an int (or a subclass) converts. Going through
+    // `__int__` would accept a float and pass its truncated value where the
+    // callee expects a pointer.
+    if let Some(int_val) = value.downcast_ref::<PyInt>() {
         let val = int_val.as_bigint().to_i32().unwrap_or(0);
         return Ok(Argument {
             keep: None,
@@ -179,15 +182,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
         });
     }
 
-    // 11. Python float -> f64
-    if let Ok(float_val) = value.try_float(vm) {
-        return Ok(Argument {
-            keep: None,
-            value: CArgValue::Double(float_val.to_f64()),
-        });
-    }
-
-    // 12. Check _as_parameter_ attribute
+    // 11. Check _as_parameter_ attribute
     if let Ok(as_param) = value.get_attr("_as_parameter_", vm) {
         return conv_param(&as_param, vm);
     }
