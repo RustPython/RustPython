@@ -3,7 +3,7 @@ use crate::{
     VirtualMachine,
     builtins::{PyStr, PyStrRef},
     common::borrow::{BorrowedValue, BorrowedValueMut},
-    protocol::PyBuffer,
+    protocol::{BufferFlags, PyBuffer},
 };
 
 // Python/getargs.c
@@ -17,7 +17,7 @@ impl PyObject {
     where
         F: FnOnce(&[u8]) -> R,
     {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
+        let buffer = PyBuffer::from_object(vm, self, BufferFlags::SIMPLE)?;
         buffer
             .as_contiguous()
             .map(|x| f(&x))
@@ -28,7 +28,7 @@ impl PyObject {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, self)?;
+        let buffer = PyBuffer::from_object(vm, self, BufferFlags::WRITABLE)?;
         buffer
             .as_contiguous_mut()
             .map(|mut x| f(&mut x))
@@ -77,14 +77,39 @@ impl From<ArgBytesLike> for PyObjectRef {
     }
 }
 
-impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
+impl ArgBytesLike {
+    fn from_request(vm: &VirtualMachine, obj: &PyObject, flags: BufferFlags) -> PyResult<Self> {
+        let buffer = PyBuffer::from_object(vm, obj, flags)?;
         if buffer.desc.is_contiguous() {
             Ok(Self(buffer))
         } else {
             Err(vm.new_buffer_error("non-contiguous buffer is not a bytes-like object"))
         }
+    }
+}
+
+impl<'a> TryFromBorrowedObject<'a> for ArgBytesLike {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        Self::from_request(vm, obj, BufferFlags::SIMPLE)
+    }
+}
+
+/// A bytes-like object asked for as `PyBUF_CONTIG_RO`, which is what a shape is
+/// requested with rather than assumed.
+#[derive(Debug, Traverse)]
+pub struct ArgContiguousBytesLike(ArgBytesLike);
+
+impl core::ops::Deref for ArgContiguousBytesLike {
+    type Target = ArgBytesLike;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a> TryFromBorrowedObject<'a> for ArgContiguousBytesLike {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        ArgBytesLike::from_request(vm, obj, BufferFlags::CONTIG_RO).map(Self)
     }
 }
 
@@ -124,7 +149,15 @@ impl From<ArgMemoryBuffer> for PyBuffer {
 
 impl<'a> TryFromBorrowedObject<'a> for ArgMemoryBuffer {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
+        let buffer = PyBuffer::from_object(vm, obj, BufferFlags::WRITABLE).map_err(|exc| {
+            if obj.check_buffer() {
+                // An exporter that cannot serve the request leaves the argument
+                // simply the wrong kind of object, as `PyArg_Parse` reports it.
+                vm.new_type_error("buffer is not a read-write bytes-like object")
+            } else {
+                exc
+            }
+        })?;
         if !buffer.desc.is_contiguous() {
             Err(vm.new_buffer_error("non-contiguous buffer is not a bytes-like object"))
         } else if buffer.desc.readonly {

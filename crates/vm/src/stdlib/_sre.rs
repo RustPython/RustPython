@@ -3,8 +3,8 @@ pub(crate) use _sre::module_def;
 #[pymodule]
 mod _sre {
     use crate::{
-        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-        TryFromObject, VirtualMachine, atomic_func,
+        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        atomic_func,
         builtins::{
             PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
@@ -13,7 +13,7 @@ mod _sre {
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
-        protocol::{PyBuffer, PyCallable, PyMappingMethods},
+        protocol::{BufferFlags, PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable, Representable},
     };
@@ -386,7 +386,7 @@ mod _sre {
         where
             F: FnOnce(&[u8]) -> PyResult<R>,
         {
-            PyBuffer::try_from_borrowed_object(vm, string)?.contiguous_or_collect(f)
+            PyBuffer::from_object(vm, string, BufferFlags::SIMPLE)?.contiguous_or_collect(f)
         }
 
         #[pymethod(name = "match")]

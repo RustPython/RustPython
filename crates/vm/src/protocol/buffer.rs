@@ -11,8 +11,93 @@ use crate::{
     sliceable::SequenceIndexOp,
 };
 use alloc::borrow::Cow;
+use bitflags::bitflags;
 use core::{fmt::Debug, ops::Range};
 use itertools::Itertools;
+
+bitflags! {
+    /// Capabilities a consumer asks a buffer exporter for, the `flags` argument of
+    /// `bf_getbuffer` and of `__buffer__` (`PyBUF_*`).
+    ///
+    /// The composite requests are supersets of the simpler ones, so
+    /// [`contains`](Self::contains) answers the `REQ_*` questions an exporter asks:
+    /// `flags.contains(BufferFlags::C_CONTIGUOUS)` is `REQ_C_CONTIGUOUS(flags)`.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct BufferFlags: u32 {
+        const WRITABLE = 0x0001;
+        const FORMAT = 0x0004;
+        const ND = 0x0008;
+        const STRIDES = 0x0010 | Self::ND.bits();
+        const C_CONTIGUOUS = 0x0020 | Self::STRIDES.bits();
+        const F_CONTIGUOUS = 0x0040 | Self::STRIDES.bits();
+        const ANY_CONTIGUOUS = 0x0080 | Self::STRIDES.bits();
+        const INDIRECT = 0x0100 | Self::STRIDES.bits();
+    }
+}
+
+impl BufferFlags {
+    /// `PyBUF_SIMPLE`: a plain read-only block of bytes.
+    pub const SIMPLE: Self = Self::empty();
+    /// `PyBUF_CONTIG`
+    pub const CONTIG: Self = Self::ND.union(Self::WRITABLE);
+    /// `PyBUF_CONTIG_RO`
+    pub const CONTIG_RO: Self = Self::ND;
+    /// `PyBUF_STRIDED`
+    pub const STRIDED: Self = Self::STRIDES.union(Self::WRITABLE);
+    /// `PyBUF_STRIDED_RO`
+    pub const STRIDED_RO: Self = Self::STRIDES;
+    /// `PyBUF_RECORDS`
+    pub const RECORDS: Self = Self::STRIDED.union(Self::FORMAT);
+    /// `PyBUF_RECORDS_RO`
+    pub const RECORDS_RO: Self = Self::STRIDED_RO.union(Self::FORMAT);
+    /// `PyBUF_FULL`: everything an exporter can describe, writable.
+    pub const FULL: Self = Self::INDIRECT.union(Self::WRITABLE).union(Self::FORMAT);
+    /// `PyBUF_FULL_RO`: everything an exporter can describe, read-only.
+    pub const FULL_RO: Self = Self::INDIRECT.union(Self::FORMAT);
+
+    /// `PyBUF_READ`. Belongs to `PyMemoryView_FromMemory`, not to `bf_getbuffer`.
+    const MEMORY_READ: Self = Self::from_bits_retain(0x100);
+    /// `PyBUF_WRITE`. Belongs to `PyMemoryView_FromMemory`, not to `bf_getbuffer`.
+    const MEMORY_WRITE: Self = Self::from_bits_retain(0x200);
+
+    /// Whether this request is really a `PyMemoryView_FromMemory` access mode,
+    /// which no exporter can serve.
+    #[must_use]
+    pub const fn is_memory_access_mode(self) -> bool {
+        self.bits() == Self::MEMORY_READ.bits() || self.bits() == Self::MEMORY_WRITE.bits()
+    }
+
+    /// Whether the consumer demands a writable buffer.
+    #[must_use]
+    pub const fn is_writable(self) -> bool {
+        self.intersects(Self::WRITABLE)
+    }
+
+    /// The argument checks `PyBuffer_FillInfo` performs, for exporters that hand
+    /// out a flat block of bytes.
+    pub fn fill_info_check(self, readonly: bool, vm: &VirtualMachine) -> PyResult<()> {
+        if self == Self::SIMPLE {
+            return Ok(());
+        }
+        if self.is_memory_access_mode() {
+            return Err(vm.new_system_error("bad argument to internal function"));
+        }
+        self.check_writable(readonly, "Object is not writable.", vm)
+    }
+
+    /// Reject a writable request against a read-only export.
+    pub fn check_writable(
+        self,
+        readonly: bool,
+        message: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        if self.is_writable() && readonly {
+            return Err(vm.new_buffer_error(message.to_owned()));
+        }
+        Ok(())
+    }
+}
 
 pub struct BufferMethods {
     pub obj_bytes: fn(&PyBuffer) -> BorrowedValue<'_, [u8]>,
@@ -32,13 +117,30 @@ impl Debug for BufferMethods {
     }
 }
 
-#[derive(Debug, Clone, Traverse)]
+#[derive(Debug, Traverse)]
 pub struct PyBuffer {
     pub obj: PyObjectRef,
     #[pytraverse(skip)]
     pub desc: BufferDescriptor,
     #[pytraverse(skip)]
     methods: &'static BufferMethods,
+    /// Set on the buffer an exporter handed out, and not on the additional
+    /// references taken from it, so `bf_releasebuffer` runs once per acquisition.
+    #[pytraverse(skip)]
+    acquired: bool,
+}
+
+/// Cloning takes another reference to the same export rather than acquiring a
+/// new one, so the clone carries no release of its own.
+impl Clone for PyBuffer {
+    fn clone(&self) -> Self {
+        Self {
+            obj: self.obj.clone(),
+            desc: self.desc.clone(),
+            methods: self.methods,
+            acquired: false,
+        }
+    }
 }
 
 impl PyBuffer {
@@ -47,7 +149,12 @@ impl PyBuffer {
         #[cfg(debug_assertions)]
         let desc = desc.validate();
 
-        let zelf = Self { obj, desc, methods };
+        let zelf = Self {
+            obj,
+            desc,
+            methods,
+            acquired: true,
+        };
         zelf.retain();
         zelf
     }
@@ -129,6 +236,11 @@ impl PyBuffer {
     }
 
     pub fn release(&self) {
+        // slot_bf_releasebuffer: a Python-level `__release_buffer__` runs first,
+        // then the exporter's own release so export counts stay balanced.
+        if self.acquired && self.obj.class().slots.python_release_buffer.load() {
+            crate::builtins::memory::release_buffer_call_python(self);
+        }
         (self.methods.release)(self)
     }
 
@@ -148,16 +260,40 @@ impl PyBuffer {
     }
 }
 
-impl<'a> TryFromBorrowedObject<'a> for PyBuffer {
-    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+impl PyBuffer {
+    /// Acquire a buffer from `obj`. PyObject_GetBuffer
+    pub fn from_object(vm: &VirtualMachine, obj: &PyObject, flags: BufferFlags) -> PyResult<Self> {
+        if flags.is_memory_access_mode() {
+            return Err(vm.new_system_error("bad argument to internal function"));
+        }
         let cls = obj.class();
-        if let Some(f) = cls.slots.as_buffer {
-            return f(obj, vm);
+        if let Some(f) = cls.slots.as_buffer.load() {
+            return f(obj, flags, vm);
         }
         Err(vm.new_type_error(format!(
             "a bytes-like object is required, not '{}'",
             cls.name()
         )))
+    }
+}
+
+impl PyObject {
+    /// Whether this object's type exports the buffer protocol. PyObject_CheckBuffer
+    ///
+    /// A consumer that falls back to something else for non-buffer objects asks
+    /// this instead of attempting an acquisition, so that an error raised by
+    /// `__buffer__` is not mistaken for "not a buffer".
+    #[must_use]
+    pub fn check_buffer(&self) -> bool {
+        self.class().slots.as_buffer.load().is_some()
+    }
+}
+
+/// The request a conversion makes when the consumer has no say in it: describe
+/// the export as fully as possible, read-only.
+impl<'a> TryFromBorrowedObject<'a> for PyBuffer {
+    fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
+        Self::from_object(vm, obj, BufferFlags::FULL_RO)
     }
 }
 

@@ -732,12 +732,12 @@ pub mod array {
                     }
                 } else if init.downcastable::<PyBytes>() || init.downcastable::<PyByteArray>() {
                     init.try_bytes_like(vm, |x| array.frombytes(x))?;
-                } else if let Ok(iter) = ArgIterable::try_from_object(vm, init.clone()) {
+                } else {
+                    // Everything else is taken item by item, buffer or not.
+                    let iter = ArgIterable::try_from_object(vm, init)?;
                     for obj in iter.iter(vm)? {
                         array.push(obj?, vm)?;
                     }
-                } else {
-                    init.try_bytes_like(vm, |x| array.frombytes(x))?;
                 }
             }
 
@@ -1292,6 +1292,8 @@ pub mod array {
     }
 
     impl AsBuffer for PyArray {
+        const RELEASE_BUFFER: bool = true;
+
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let array = zelf.read();
             let buf = PyBuffer::new(

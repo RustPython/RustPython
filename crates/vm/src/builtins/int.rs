@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
     builtins::PyUtf8StrRef,
-    bytes_inner::PyBytesInner,
+    byte::bytes_from_object,
     class::PyClassImpl,
     common::{
         format::FormatSpec,
@@ -556,13 +556,13 @@ impl PyInt {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let signed = args.signed.map_or(false, Into::into);
+        // PyObject_Bytes, so an iterable of ints is as good as a buffer
+        let bytes = bytes_from_object(vm, &args.bytes)?;
         let value = match (args.byteorder, signed) {
-            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(args.bytes.as_bytes()),
-            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, args.bytes.as_bytes()),
-            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(args.bytes.as_bytes()),
-            (ArgByteOrder::Little, false) => {
-                BigInt::from_bytes_le(Sign::Plus, args.bytes.as_bytes())
-            }
+            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(&bytes),
+            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, &bytes),
+            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(&bytes),
+            (ArgByteOrder::Little, false) => BigInt::from_bytes_le(Sign::Plus, &bytes),
         };
         Self::with_value(cls, value, vm)
     }
@@ -786,7 +786,7 @@ pub(crate) struct IntOptions {
 
 #[derive(FromArgs)]
 struct IntFromByteArgs {
-    bytes: PyBytesInner,
+    bytes: PyObjectRef,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]

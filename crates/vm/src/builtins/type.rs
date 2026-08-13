@@ -794,8 +794,6 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
-        Self::inherit_readonly_slots(&mut slots, &base);
-
         // Normalize: any type with HAS_WEAKREF gets MANAGED_WEAKREF
         if slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
             slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
@@ -863,8 +861,6 @@ impl PyType {
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
         }
-
-        Self::inherit_readonly_slots(&mut slots, &base);
 
         // Normalize: any type with HAS_WEAKREF gets MANAGED_WEAKREF
         if slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
@@ -991,18 +987,9 @@ impl PyType {
         }
     }
 
-    /// Inherit readonly slots from base type at creation time.
-    /// These slots are not AtomicCell and must be set before the type is used.
-    fn inherit_readonly_slots(slots: &mut PyTypeSlots, base: &Self) {
-        if slots.as_buffer.is_none() {
-            slots.as_buffer = base.slots.as_buffer;
-        }
-    }
-
     /// Inherit slots from base type. inherit_slots
     pub(crate) fn inherit_slots(&self, base: &Self) {
         // Use SLOT_DEFS to iterate all slots
-        // Note: as_buffer is handled in inherit_readonly_slots (not AtomicCell)
         for def in SLOT_DEFS {
             def.accessor.copyslot_if_none(self, base);
         }
