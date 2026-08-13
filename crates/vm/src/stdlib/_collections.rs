@@ -602,9 +602,10 @@ mod _collections {
             let closing_part = zelf
                 .maxlen
                 .map_or_else(|| "]".to_owned(), |maxlen| format!("], maxlen={maxlen}"));
+            let empty = format!("{class_name}([{closing_part})");
 
             if zelf.__len__() == 0 {
-                return Ok(vm.ctx.new_str(format!("{class_name}([{closing_part})")));
+                return Ok(vm.ctx.new_str(empty));
             }
 
             if let Some(_guard) = ReprGuard::enter(vm, zelf.as_object()) {
@@ -612,6 +613,7 @@ mod _collections {
                     Some(&class_name),
                     "[",
                     &closing_part,
+                    &empty,
                     deque.iter(),
                     vm,
                 )?))

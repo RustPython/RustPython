@@ -613,7 +613,7 @@ impl Representable for PyTuple {
             let s = if zelf.len() == 1 {
                 wtf8_concat!("(", zelf.elements[0].repr(vm)?.as_wtf8(), ",)")
             } else {
-                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
+                collection_repr(None, "(", ")", "()", zelf.elements.iter(), vm)?
             };
             vm.ctx.new_str(s)
         } else {
