@@ -324,7 +324,14 @@ mod decl {
             }
         } else if let Some(co) = obj.downcast_ref::<PyCode>() {
             buf.write_u8(b'c');
-            marshal::serialize_code(buf, &co.code);
+            // `Literal` holds the exact object a constant was built from, so
+            // route `co_consts` back through the object writer: it reaches the
+            // values `BorrowedConstant` cannot describe and shares the one
+            // reference table the reader indexes against.
+            marshal::serialize_code_with(buf, &co.code, |buf, constant| {
+                let constant = PyObjectRef::from(constant.clone());
+                write_object_depth(buf, &constant, refs, version, vm, depth - 1)
+            })?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
                 return Err(vm.new_value_error("unmarshallable object"));
@@ -569,6 +576,27 @@ mod decl {
         }
         fn constant_bag(self) -> Self::ConstantBag {
             PyVmBag(self.vm)
+        }
+        /// `Literal` wraps any object, so a decoded `co_consts` entry is
+        /// already its own compiler-side constant — no placeholder is needed
+        /// and `make_code_with_constants` keeps the default.
+        fn constant_ref_from_value(&self, value: &Self::Value) -> Option<Literal> {
+            Some(Literal::from(value.clone()))
+        }
+        fn bytes_from_value(&self, value: &Self::Value) -> Option<Vec<u8>> {
+            value
+                .downcast_ref::<PyBytes>()
+                .map(|bytes| bytes.as_bytes().to_vec())
+        }
+        fn str_from_value(&self, value: &Self::Value) -> Option<String> {
+            value
+                .downcast_ref::<PyStr>()
+                .map(|str| str.to_string_lossy().into_owned())
+        }
+        fn tuple_elements_from_value(&self, value: &Self::Value) -> Option<Vec<Self::Value>> {
+            value
+                .downcast_ref::<PyTuple>()
+                .map(|tuple| tuple.as_slice().to_vec())
         }
     }
 

@@ -74,6 +74,27 @@ class MarshalTests(unittest.TestCase):
 
         assert eval(loaded) == eval(orig)
 
+    def test_roundtrip_non_constant_co_consts(self):
+        # `code.replace` accepts any marshalable object, including values the
+        # compiler constant representation cannot describe.
+        orig = compile("1 + 1", "", "eval").replace(
+            co_consts=([1, 2], {"a": 3}, {4, 5}, 6)
+        )
+
+        loaded = marshal.loads(marshal.dumps(orig))
+
+        self.assertEqual(loaded.co_consts, ([1, 2], {"a": 3}, {4, 5}, 6))
+
+    def test_roundtrip_shared_co_const(self):
+        # A constant shared with the enclosing object is written once and both
+        # readers resolve the same reference.
+        shared = ["shared"]
+        orig = compile("1 + 1", "", "eval").replace(co_consts=(shared,))
+
+        loaded_code, loaded_shared = marshal.loads(marshal.dumps((orig, shared)))
+
+        self.assertIs(loaded_code.co_consts[0], loaded_shared)
+
 
 if __name__ == "__main__":
     unittest.main()
