@@ -1222,6 +1222,146 @@ mod tests {
         assert!(!sub.is_main());
     }
 
+    /// A collection must stop every interpreter, not just the collecting one:
+    /// the generation lists are process-global, so the reachability walk reads
+    /// objects owned by other interpreters while their threads would otherwise
+    /// still be mutating them.
+    #[cfg(all(feature = "threading", feature = "rustpython-compiler"))]
+    #[test]
+    fn gc_collect_is_safe_while_another_interpreter_runs() {
+        use crate::compiler::Mode;
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, Ordering},
+            time::Duration,
+        };
+        use std::time::Instant;
+
+        // Each interpreter churns reference cycles so both contribute tracked
+        // objects to the shared generation lists.
+        const CHURN: &str = "\
+for _ in range(40):
+    a = {}
+    b = {'peer': a}
+    a['peer'] = b
+";
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+        let stop = Arc::new(AtomicBool::new(false));
+
+        let run_source = |vm: &VirtualMachine, source: &str| {
+            let scope = vm.new_scope_with_builtins();
+            let code = vm
+                .compile(source, Mode::Exec, "<churn>")
+                .map_err(|err| err.into_pyexception(vm, Some(source)))
+                .unwrap();
+            vm.run_code_obj(code, scope).unwrap();
+        };
+
+        // Subinterpreter thread: allocate cycles continuously.
+        let stop_worker = Arc::clone(&stop);
+        let churner = sub.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|vm| {
+                    while !stop_worker.load(Ordering::Acquire) {
+                        run_source(vm, CHURN);
+                    }
+                });
+            })
+        });
+
+        // Main interpreter: force collections while the sub keeps mutating.
+        main.enter(|vm| {
+            run_source(vm, CHURN);
+            let deadline = Instant::now() + Duration::from_secs(2);
+            let mut collections = 0;
+            while Instant::now() < deadline && collections < 20 {
+                crate::gc_state::gc_state().collect_force(2);
+                collections += 1;
+            }
+            assert!(collections > 0);
+        });
+
+        stop.store(true, Ordering::Release);
+        churner.join().expect("churn worker panicked");
+    }
+
+    /// A thread entered in one interpreter can park another interpreter's
+    /// threads. This is what makes a collection safe: the generation lists are
+    /// process-global, so the collector must be able to stop every interpreter,
+    /// not only its own.
+    #[cfg(all(feature = "threading", feature = "rustpython-compiler"))]
+    #[test]
+    fn stop_the_world_parks_threads_of_another_interpreter() {
+        use crate::compiler::Mode;
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, AtomicU64, Ordering},
+            time::Duration,
+        };
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+        let sub_state = sub.enter(|vm| vm.state.clone());
+
+        let progress = Arc::new(AtomicU64::new(0));
+        let stop = Arc::new(AtomicBool::new(false));
+
+        // Sub-interpreter worker: runs bytecode (so it reaches safepoints) and
+        // reports progress every iteration.
+        let progress_worker = Arc::clone(&progress);
+        let stop_worker = Arc::clone(&stop);
+        let worker = sub.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|vm| {
+                    let source = "x = 1 + 1\n";
+                    let code = vm
+                        .compile(source, Mode::Exec, "<spin>")
+                        .map_err(|err| err.into_pyexception(vm, Some(source)))
+                        .unwrap();
+                    while !stop_worker.load(Ordering::Acquire) {
+                        let scope = vm.new_scope_with_builtins();
+                        vm.run_code_obj(code.clone(), scope).unwrap();
+                        progress_worker.fetch_add(1, Ordering::Release);
+                    }
+                });
+            })
+        });
+
+        // Wait until the worker is actually running.
+        while progress.load(Ordering::Acquire) == 0 {
+            std::thread::yield_now();
+        }
+
+        main.enter(|_vm| {
+            // Stop the *subinterpreter* from a thread whose current interpreter
+            // is main — the cross-interpreter stop a collection performs.
+            sub_state.stop_the_world.stop_the_world(&sub_state);
+
+            let parked_at = progress.load(Ordering::Acquire);
+            std::thread::sleep(Duration::from_millis(50));
+            assert_eq!(
+                progress.load(Ordering::Acquire),
+                parked_at,
+                "subinterpreter thread kept running while its world was stopped"
+            );
+
+            sub_state.stop_the_world.start_the_world(&sub_state);
+        });
+
+        // After restart the worker makes progress again.
+        let resumed_from = progress.load(Ordering::Acquire);
+        while progress.load(Ordering::Acquire) == resumed_from {
+            std::thread::yield_now();
+        }
+
+        stop.store(true, Ordering::Release);
+        worker.join().expect("worker panicked");
+    }
+
     /// The process main id is recorded once and is stable across later creates.
     #[test]
     fn process_main_id_recorded_and_stable() {

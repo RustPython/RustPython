@@ -1193,8 +1193,8 @@ pub(crate) mod _thread {
         {
             use core::sync::atomic::Ordering;
             let current_ident = get_ident();
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
@@ -1249,8 +1249,8 @@ pub(crate) mod _thread {
         {
             use core::sync::atomic::Ordering;
             let current_ident = get_ident();
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()

@@ -146,41 +146,57 @@ struct GcPtr(NonNull<PyObject>);
 /// well-defined while all other threads are parked at a safepoint. Restarting
 /// happens explicitly once the snapshot has pinned every object; `Drop` is a
 /// backstop that also restarts on the early-return paths.
+///
+/// The generation lists are process-global, so a collection walks objects
+/// owned by *every* interpreter. Stopping only the collecting interpreter
+/// would leave another interpreter's threads mutating the same object graph,
+/// so every live interpreter is stopped. Stopping in `runtime` id order keeps
+/// exclusion acquisition ordered; the `collecting` mutex additionally
+/// serializes collections process-wide, so no second collector can take these
+/// exclusions in another order.
 #[cfg(feature = "threading")]
 struct CollectStopTheWorld {
-    vm: *const crate::VirtualMachine,
-    stopped: bool,
+    /// Stopped interpreter states, in stop order. Held as strong references so
+    /// an interpreter cannot be dropped between stop and restart.
+    stopped: Vec<crate::common::rc::PyRc<crate::vm::PyGlobalState>>,
 }
 
 #[cfg(feature = "threading")]
 impl CollectStopTheWorld {
-    /// Request stop-the-world when the current thread has an attached VM.
-    /// Falls back to no barrier when no VM is attached (the tracked-object
-    /// reads then run without other threads only if the caller guarantees it).
+    /// Request stop-the-world on every live interpreter when the current thread
+    /// has an attached VM. Falls back to no barrier when no VM is attached (the
+    /// tracked-object reads then run without other threads only if the caller
+    /// guarantees it).
     fn new() -> Self {
-        let vm = crate::vm::thread::try_with_current_vm(|vm| {
-            vm.state.stop_the_world.stop_the_world(vm);
-            vm as *const crate::VirtualMachine
-        });
-        match vm {
-            Some(vm) => Self { vm, stopped: true },
-            None => Self {
-                vm: core::ptr::null(),
-                stopped: false,
-            },
+        // No attached VM means no interpreter is running Python on this thread;
+        // keep the historical no-barrier fallback.
+        if !crate::vm::thread::current_vm_is_set() {
+            return Self {
+                stopped: Vec::new(),
+            };
         }
+
+        let states = crate::vm::runtime::live_interpreter_states();
+        let mut stopped = Vec::with_capacity(states.len());
+        for state in states {
+            state.stop_the_world.stop_the_world(&state);
+            stopped.push(state);
+        }
+        Self { stopped }
     }
 
     /// Restart the world. Idempotent.
     fn restart(&mut self) {
-        if self.stopped {
-            // SAFETY: the current thread stays attached to this VM for the
-            // whole collection — the VM is never popped from the thread's VM
-            // stack while collecting — so the pointer is valid here.
-            let vm = unsafe { &*self.vm };
-            vm.state.stop_the_world.start_the_world(vm);
-            self.stopped = false;
+        // Reverse of the stop order.
+        for state in self.stopped.drain(..).rev() {
+            state.stop_the_world.start_the_world(&state);
         }
+    }
+
+    /// Whether this collection actually stopped the world.
+    #[cfg(all(unix, debug_assertions))]
+    fn is_stopped(&self) -> bool {
+        !self.stopped.is_empty()
     }
 }
 
@@ -638,7 +654,7 @@ impl GcState {
         // because stack-allocated frames update only CURRENT_FRAME (via
         // set_current_frame_nosave), not top_frame.
         #[cfg(all(unix, feature = "threading", debug_assertions))]
-        if stw.stopped {
+        if stw.is_stopped() {
             let unreachable_set: HashSet<GcPtr> = unreachable.iter().copied().collect();
             let mut cur = crate::vm::thread::get_current_frame();
             while !cur.is_null() {
@@ -1091,6 +1107,14 @@ impl GcState {
 /// In threading mode this is a true global (OnceLock).
 /// In non-threading mode this is thread-local, because PyRwLock/PyMutex
 /// use Cell-based locks that are not Sync.
+///
+/// The collector is process-wide rather than per-interpreter: every
+/// interpreter's tracked objects live in these generation lists, so a
+/// collection stops and collects across all of them, and `gc.disable()`,
+/// thresholds, `gc.garbage` and `gc.get_objects()` observe process-wide state.
+/// Making the collector per-interpreter additionally requires routing
+/// `untrack_object` (called from `default_dealloc`, where no VM is in scope) to
+/// the owning interpreter's lists.
 pub fn gc_state() -> &'static GcState {
     rustpython_common::static_cell! {
         static GC_STATE: GcState;

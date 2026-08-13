@@ -188,6 +188,24 @@ pub fn interpreter_count() -> usize {
     list_interpreters().len()
 }
 
+/// All live interpreter states, ordered by id.
+///
+/// Used by the cyclic collector, which must stop every interpreter's threads
+/// (not just the collecting one) because GC-tracked objects from all
+/// interpreters share one object graph. Ordering is deterministic so that
+/// multiple stop-the-world requesters always take exclusions in the same order.
+#[must_use]
+pub fn live_interpreter_states() -> Vec<PyRc<PyGlobalState>> {
+    let entries = registry().entries.lock();
+    let mut states: Vec<(i64, PyRc<PyGlobalState>)> = entries
+        .iter()
+        .filter_map(|(&id, entry)| entry.state.upgrade().map(|state| (id, state)))
+        .collect();
+    drop(entries);
+    states.sort_by_key(|(id, _)| *id);
+    states.into_iter().map(|(_, state)| state).collect()
+}
+
 /// Runtime-owned interpreters (the ownership anchor for the Python
 /// `_interpreters` API).
 ///

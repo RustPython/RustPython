@@ -897,8 +897,8 @@ impl Py<FrameObject> {
         {
             // Enter STW before dereferencing `prev` — the owning thread may
             // return and free the stack-allocated iframe at any time.
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
             if let Some(fo) = prev_ref.frame_obj() {

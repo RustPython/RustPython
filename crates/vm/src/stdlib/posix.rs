@@ -626,7 +626,7 @@ pub mod module {
         crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.stop_the_world(vm);
+        vm.state.stop_the_world.stop_the_world(&vm.state);
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
@@ -729,7 +729,7 @@ pub mod module {
 
     fn py_os_after_fork_parent(vm: &VirtualMachine) {
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.start_the_world(vm);
+        vm.state.stop_the_world.start_the_world(&vm.state);
 
         #[cfg(feature = "threading")]
         crate::stdlib::_imp::release_imp_lock_after_fork_parent();

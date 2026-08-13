@@ -264,9 +264,9 @@ impl StopTheWorldState {
     }
 
     #[inline]
-    fn init_thread_countdown(&self, vm: &VirtualMachine) -> i64 {
+    fn init_thread_countdown(&self, state: &PyGlobalState) -> i64 {
         let requester = self.requester.load(Ordering::Relaxed);
-        let registry = vm.state.thread_frames.lock();
+        let registry = state.thread_frames.lock();
         // Keep requested/count initialization serialized with thread-slot
         // registration (which also takes this lock), matching the
         // HEAD_LOCK-guarded stop-the-world bookkeeping.
@@ -295,10 +295,10 @@ impl StopTheWorldState {
 
     /// Try to CAS detached threads directly to SUSPENDED and check whether
     /// stop countdown reached zero after parking detached threads.
-    fn park_detached_threads(&self, vm: &VirtualMachine) -> bool {
+    fn park_detached_threads(&self, state: &PyGlobalState) -> bool {
         use thread::{THREAD_ATTACHED, THREAD_DETACHED, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
-        let registry = vm.state.thread_frames.lock();
+        let registry = state.thread_frames.lock();
         let mut attached_seen = 0u64;
         let mut forced_parks = 0u64;
 
@@ -420,23 +420,23 @@ impl StopTheWorldState {
     /// Takes the shared exclusion first so at most one requester (fork or GC)
     /// drives the stop→start span at a time; it is released by
     /// `start_the_world`/`reset_after_fork`.
-    pub fn stop_the_world(&self, vm: &VirtualMachine) {
+    pub fn stop_the_world(&self, state: &PyGlobalState) {
         self.acquire_exclusion();
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
         self.stats_stop_calls.fetch_add(1, Ordering::Relaxed);
-        let initial_countdown = self.init_thread_countdown(vm);
+        let initial_countdown = self.init_thread_countdown(state);
         stw_trace(format_args!("stop begin requester={requester_ident}"));
         // Park detached threads and set stop bits, then confirm every other
         // thread is SUSPENDED. The completion condition is level-triggered
         // (`all_non_requester_suspended`) so an already-suspended thread that
         // was counted but will not notify again cannot stall the stop.
-        self.park_detached_threads(vm);
-        if initial_countdown == 0 || self.all_non_requester_suspended(vm) {
+        self.park_detached_threads(state);
+        if initial_countdown == 0 || self.all_non_requester_suspended(state) {
             self.world_stopped.store(true, Ordering::Release);
             #[cfg(debug_assertions)]
-            self.debug_assert_all_non_requester_suspended(vm);
+            self.debug_assert_all_non_requester_suspended(state);
             stw_trace(format_args!(
                 "stop end requester={requester_ident} wait_ns=0 polls=0"
             ));
@@ -445,8 +445,8 @@ impl StopTheWorldState {
 
         let mut polls = 0u64;
         loop {
-            self.park_detached_threads(vm);
-            if self.all_non_requester_suspended(vm) {
+            self.park_detached_threads(state);
+            if self.all_non_requester_suspended(state) {
                 break;
             }
             polls = polls.saturating_add(1);
@@ -454,7 +454,7 @@ impl StopTheWorldState {
             // Re-check under the wait mutex first to avoid a lost-wake race:
             // a thread may have suspended and notified right before we enter wait.
             let guard = self.notify_mutex.lock().unwrap();
-            if self.all_non_requester_suspended(vm) {
+            if self.all_non_requester_suspended(state) {
                 drop(guard);
                 break;
             }
@@ -483,18 +483,18 @@ impl StopTheWorldState {
         }
         self.world_stopped.store(true, Ordering::Release);
         #[cfg(debug_assertions)]
-        self.debug_assert_all_non_requester_suspended(vm);
+        self.debug_assert_all_non_requester_suspended(state);
         stw_trace(format_args!(
             "stop end requester={requester_ident} wait_ns={wait_ns} polls={polls}"
         ));
     }
 
     /// Resume all suspended threads (`start_the_world`).
-    pub fn start_the_world(&self, vm: &VirtualMachine) {
+    pub fn start_the_world(&self, state: &PyGlobalState) {
         use thread::{THREAD_DETACHED, THREAD_SUSPENDED};
         let requester = self.requester.load(Ordering::Relaxed);
         stw_trace(format_args!("start begin requester={requester}"));
-        let registry = vm.state.thread_frames.lock();
+        let registry = state.thread_frames.lock();
         // Clear the request flag BEFORE waking threads. Otherwise a thread
         // returning from allow_threads → attach_thread could observe
         // `requested == true`, re-suspend itself, and stay parked forever.
@@ -528,7 +528,7 @@ impl StopTheWorldState {
         self.thread_countdown.store(0, Ordering::Release);
         self.requester.store(0, Ordering::Relaxed);
         #[cfg(debug_assertions)]
-        self.debug_assert_all_non_requester_detached(vm);
+        self.debug_assert_all_non_requester_detached(state);
         // Release the exclusion last, ending the stop→start span so the next
         // requester (fork or GC) can proceed.
         self.release_exclusion();
@@ -611,10 +611,10 @@ impl StopTheWorldState {
     /// lost-decrement race under rapid back-to-back stops: a thread that is
     /// already SUSPENDED when a new stop counts it neither notifies nor is
     /// force-parked again, so an edge-based countdown could never reach zero.
-    fn all_non_requester_suspended(&self, vm: &VirtualMachine) -> bool {
+    fn all_non_requester_suspended(&self, state: &PyGlobalState) -> bool {
         use thread::THREAD_SUSPENDED;
         let requester = self.requester.load(Ordering::Relaxed);
-        let registry = vm.state.thread_frames.lock();
+        let registry = state.thread_frames.lock();
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -632,10 +632,10 @@ impl StopTheWorldState {
     }
 
     #[cfg(debug_assertions)]
-    fn debug_assert_all_non_requester_suspended(&self, vm: &VirtualMachine) {
+    fn debug_assert_all_non_requester_suspended(&self, state: &PyGlobalState) {
         use thread::THREAD_SUSPENDED;
         let requester = self.requester.load(Ordering::Relaxed);
-        let registry = vm.state.thread_frames.lock();
+        let registry = state.thread_frames.lock();
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -655,10 +655,10 @@ impl StopTheWorldState {
     }
 
     #[cfg(debug_assertions)]
-    fn debug_assert_all_non_requester_detached(&self, vm: &VirtualMachine) {
+    fn debug_assert_all_non_requester_detached(&self, state: &PyGlobalState) {
         use thread::THREAD_SUSPENDED;
         let requester = self.requester.load(Ordering::Relaxed);
-        let registry = vm.state.thread_frames.lock();
+        let registry = state.thread_frames.lock();
 
         #[expect(
             clippy::iter_over_hash_type,
