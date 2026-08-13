@@ -2499,15 +2499,17 @@ pub(crate) mod _asyncio {
     #[pyfunction]
     fn _enter_task(loop_: PyObjectRef, task: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // Per-thread check, matching CPython's ts->asyncio_running_task
-        {
-            let running_task = vm.asyncio_running_task.borrow();
-            if running_task.is_some() {
-                return Err(vm.new_runtime_error(format!(
-                    "Cannot enter into task {:?} while another task {:?} is being executed.",
-                    task,
-                    running_task.as_ref().unwrap()
-                )));
-            }
+        let running_task = vm.asyncio_running_task.borrow().clone();
+        if let Some(running_task) = running_task {
+            let task_repr = task.repr(vm)?;
+            let running_task_repr = running_task.repr(vm)?;
+            return Err(vm.new_runtime_error(wtf8_concat!(
+                "Cannot enter into task ",
+                task_repr.as_wtf8(),
+                " while another task ",
+                running_task_repr.as_wtf8(),
+                " is being executed."
+            )));
         }
 
         *vm.asyncio_running_task.borrow_mut() = Some(task.clone());
