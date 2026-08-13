@@ -206,7 +206,10 @@ pub(super) mod _os {
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{Destructor, IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        types::{
+            Destructor, IterNext, Iterable, PyStructSequence, PyStructSequenceData, Representable,
+            SelfIter,
+        },
         vm::VirtualMachine,
     };
     #[cfg(not(windows))]
@@ -1314,8 +1317,12 @@ pub(super) mod _os {
     impl PyStatResult {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let seq: PyObjectRef = args.bind(vm)?;
-            let result = crate::types::struct_sequence_new(cls.clone(), seq, vm)?;
+            let result = crate::types::struct_sequence_new(
+                cls.clone(),
+                args.bind(vm)?,
+                StatResultData::OPTIONAL_FIELD_NAMES,
+                vm,
+            )?;
             let tuple = result.downcast_ref::<PyTuple>().unwrap();
             let mut items: Vec<PyObjectRef> = tuple.to_vec();
 
@@ -1964,8 +1971,12 @@ pub(super) mod _os {
     impl PyStatvfsResult {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let seq: PyObjectRef = args.bind(vm)?;
-            crate::types::struct_sequence_new(cls, seq, vm)
+            crate::types::struct_sequence_new(
+                cls,
+                args.bind(vm)?,
+                StatvfsResultData::OPTIONAL_FIELD_NAMES,
+                vm,
+            )
         }
     }
 
