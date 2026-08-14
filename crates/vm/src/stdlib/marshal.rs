@@ -131,8 +131,15 @@ mod decl {
         Ok(PyBytes::from(buf))
     }
 
+    struct WriterRefEntry {
+        idx: u32,
+        /// Set between `reserve` and `complete` for the object kinds whose
+        /// immutable representation cannot be rebuilt from a back-reference.
+        incomplete: bool,
+    }
+
     struct WriterRefTable {
-        map: std::collections::HashMap<usize, u32>,
+        map: std::collections::HashMap<usize, WriterRefEntry>,
         next_idx: u32,
     }
 
@@ -143,22 +150,34 @@ mod decl {
                 next_idx: 0,
             }
         }
-        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObjectRef) -> bool {
+        /// `w_ref`: write a back-reference to an object already in the table.
+        /// Reaching an entry that is still being written is a recursion the
+        /// reader could not rebuild, so it is an error rather than a `TYPE_REF`.
+        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObjectRef) -> Result<bool, ()> {
             use marshal::Write;
-            let id = obj.get_id();
-            if let Some(&idx) = self.map.get(&id) {
-                buf.write_u8(b'r');
-                buf.write_u32(idx);
-                true
-            } else {
-                false
+            let Some(entry) = self.map.get(&obj.get_id()) else {
+                return Ok(false);
+            };
+            if entry.incomplete {
+                return Err(());
             }
+            buf.write_u8(b'r');
+            buf.write_u32(entry.idx);
+            Ok(true)
         }
-        fn reserve(&mut self, obj: &PyObjectRef) -> u32 {
+        fn reserve(&mut self, obj: &PyObjectRef, incomplete: bool) -> u32 {
             let idx = self.next_idx;
-            self.map.insert(obj.get_id(), idx);
+            self.map
+                .insert(obj.get_id(), WriterRefEntry { idx, incomplete });
             self.next_idx += 1;
             idx
+        }
+        /// `w_complete`: the object's contents are on the stream, so a later
+        /// occurrence may reference it.
+        fn complete(&mut self, obj: &PyObjectRef) {
+            if let Some(entry) = self.map.get_mut(&obj.get_id()) {
+                entry.incomplete = false;
+            }
         }
     }
 
@@ -199,16 +218,28 @@ mod decl {
             || obj.downcast_ref::<crate::builtins::PyEllipsis>().is_some();
 
         // FLAG_REF: check if already written, otherwise reserve slot
-        if !is_singleton
-            && let Some(rt) = refs.as_mut()
-            && rt.try_ref(buf, obj)
-        {
-            return Ok(());
+        if !is_singleton && let Some(rt) = refs.as_mut() {
+            match rt.try_ref(buf, obj) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(()) => {
+                    return Err(vm.new_value_error(format!(
+                        "cannot marshal recursion {} objects",
+                        obj.class().name()
+                    )));
+                }
+            }
         }
         let type_pos = buf.len();
         let use_ref = refs.is_some() && !is_singleton;
+        // A code or slice entry stays incomplete until its contents are
+        // written: the reader rebuilds both from their fields, so a
+        // back-reference issued while those fields are still being emitted
+        // would name an object that does not exist yet.
+        let requires_completion = obj.downcast_ref::<PyCode>().is_some()
+            || obj.downcast_ref::<crate::builtins::PySlice>().is_some();
         if use_ref {
-            refs.as_mut().unwrap().reserve(obj);
+            refs.as_mut().unwrap().reserve(obj, requires_completion);
         }
 
         if vm.is_none(obj) {
@@ -366,6 +397,9 @@ mod decl {
 
         if use_ref {
             buf[type_pos] |= marshal::FLAG_REF;
+            if requires_completion {
+                refs.as_mut().unwrap().complete(obj);
+            }
         }
         Ok(())
     }
