@@ -2745,16 +2745,20 @@ pub(crate) mod _asyncio {
         }
     }
 
+    fn get_invalid_state_error_type(vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+        let module = vm.import("asyncio.exceptions", 0)?;
+        let exc_type = vm
+            .get_attribute_opt(module, vm.ctx.intern_str("InvalidStateError"))?
+            .ok_or_else(|| vm.new_attribute_error("InvalidStateError not found"))?;
+        exc_type
+            .downcast()
+            .map_err(|_| vm.new_type_error("InvalidStateError is not a type"))
+    }
+
     fn new_invalid_state_error(vm: &VirtualMachine, msg: &str) -> PyBaseExceptionRef {
-        match vm.import("asyncio.exceptions", 0) {
-            Ok(module) => {
-                match vm.get_attribute_opt(module, vm.ctx.intern_str("InvalidStateError")) {
-                    Ok(Some(exc_type)) => match exc_type.call((msg,), vm) {
-                        Ok(exc) => exc.downcast().unwrap(),
-                        Err(_) => vm.new_runtime_error(msg.to_string()),
-                    },
-                    _ => vm.new_runtime_error(msg.to_string()),
-                }
+        match get_invalid_state_error_type(vm) {
+            Ok(invalid_state_error) => {
+                vm.new_exception_msg(invalid_state_error, msg.to_string().into())
             }
             Err(_) => vm.new_runtime_error(msg.to_string()),
         }
