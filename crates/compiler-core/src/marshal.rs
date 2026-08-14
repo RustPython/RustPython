@@ -19,6 +19,8 @@ pub enum MarshalError {
     InvalidLocation,
     /// Bad type marker
     BadType,
+    /// A container length that is negative or does not fit, named by what it counts
+    BadSize(&'static str),
 }
 
 impl core::fmt::Display for MarshalError {
@@ -29,6 +31,7 @@ impl core::fmt::Display for MarshalError {
             Self::InvalidUtf8 => f.write_str("invalid utf8"),
             Self::InvalidLocation => f.write_str("invalid source location"),
             Self::BadType => f.write_str("bad type marker"),
+            Self::BadSize(what) => write!(f, "{what} size out of range"),
         }
     }
 }
@@ -145,6 +148,13 @@ pub trait Read {
 
     fn read_u64(&mut self) -> Result<u64> {
         Ok(u64::from_le_bytes(*self.read_array()?))
+    }
+
+    /// A length, read the way `r_long` reads one: it is signed, so a value
+    /// with the top bit set is out of range rather than four billion items.
+    fn read_len(&mut self, what: &'static str) -> Result<usize> {
+        let len = self.read_u32()? as i32;
+        usize::try_from(len).map_err(|_| MarshalError::BadSize(what))
     }
 }
 
@@ -553,7 +563,7 @@ pub trait MarshalBag: Copy {
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-    ) -> Self::Value;
+    ) -> Result<Self::Value>;
 
     /// Construct a runtime code object while retaining the exact values read
     /// from ``co_consts``. Compiler bags ignore this second channel; runtime
@@ -563,7 +573,7 @@ pub trait MarshalBag: Copy {
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
         _constants: Vec<Self::Value>,
-    ) -> Self::Value {
+    ) -> Result<Self::Value> {
         self.make_code(code)
     }
 
@@ -725,8 +735,8 @@ impl<Bag: ConstantBag> MarshalBag for Bag {
     fn make_code(
         &self,
         code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
-    ) -> Self::Value {
-        self.make_code(code)
+    ) -> Result<Self::Value> {
+        Ok(self.make_code(code))
     }
 
     fn make_stop_iter(&self) -> Result<Self::Value> {
@@ -986,7 +996,7 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         linetable,
         exceptiontable,
     };
-    Ok(bag.make_code_with_constants(code, constant_values))
+    bag.make_code_with_constants(code, constant_values)
 }
 
 fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
@@ -1033,13 +1043,13 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             bag.make_complex(value)
         }
         Type::Ascii | Type::Unicode => {
-            let len = rdr.read_u32()?;
-            let value = rdr.read_wtf8(len)?;
+            let len = rdr.read_len("string")?;
+            let value = rdr.read_wtf8(len as u32)?;
             bag.make_str(value)
         }
         Type::AsciiInterned | Type::Interned => {
-            let len = rdr.read_u32()?;
-            let value = rdr.read_wtf8(len)?;
+            let len = rdr.read_len("string")?;
+            let value = rdr.read_wtf8(len as u32)?;
             bag.make_interned_str(value)
         }
         Type::ShortAscii => {
@@ -1077,7 +1087,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             return Err(MarshalError::BadType);
         }
         Type::Tuple => {
-            let len = rdr.read_u32()? as usize;
+            let len = rdr.read_len("tuple")?;
             let d = depth - 1;
             if let Some(index) = slot
                 && let Some(tuple) = bag.make_tuple_placeholder(len)
@@ -1094,7 +1104,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             }
         }
         Type::List => {
-            let len = rdr.read_u32()? as usize;
+            let len = rdr.read_len("list")?;
             let d = depth - 1;
             if let Some(index) = slot
                 && let Some(list) = bag.make_list_placeholder(len)
@@ -1111,7 +1121,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             }
         }
         Type::Set => {
-            let len = rdr.read_u32()? as usize;
+            let len = rdr.read_len("set")?;
             let d = depth - 1;
             if let Some(index) = slot
                 && let Some(set) = bag.make_set_placeholder()
@@ -1128,7 +1138,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             }
         }
         Type::FrozenSet => {
-            let len = rdr.read_u32()?;
+            let len = rdr.read_len("set")?;
             let d = depth - 1;
             let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
             itertools::process_results(it, |it| bag.make_frozenset(it))??
@@ -1165,8 +1175,8 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
         }
         Type::Bytes => {
             // After marshaling, byte arrays are converted into bytes.
-            let len = rdr.read_u32()?;
-            let value = rdr.read_slice(len)?;
+            let len = rdr.read_len("bytes object")?;
+            let value = rdr.read_slice(len as u32)?;
             bag.make_bytes(value)
         }
         Type::Code => return Err(MarshalError::BadType),

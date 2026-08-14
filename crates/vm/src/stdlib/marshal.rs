@@ -116,9 +116,6 @@ mod decl {
             )?;
         }
 
-        if !allow_code {
-            check_no_code(&value, vm)?;
-        }
         check_exact_type(&value, vm)?;
         let mut buf = Vec::new();
         let mut refs = if version >= 3 {
@@ -126,7 +123,7 @@ mod decl {
         } else {
             None
         };
-        write_object(&mut buf, &value, &mut refs, version, vm)?;
+        write_object(&mut buf, &value, &mut refs, version, allow_code, vm)?;
         Ok(PyBytes::from(buf))
     }
 
@@ -185,6 +182,7 @@ mod decl {
         obj: &PyObjectRef,
         refs: &mut Option<WriterRefTable>,
         version: i32,
+        allow_code: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         write_object_depth(
@@ -192,6 +190,7 @@ mod decl {
             obj,
             refs,
             version,
+            allow_code,
             vm,
             marshal::MAX_MARSHAL_STACK_DEPTH,
         )
@@ -202,6 +201,7 @@ mod decl {
         obj: &PyObjectRef,
         refs: &mut Option<WriterRefTable>,
         version: i32,
+        allow_code: bool,
         vm: &VirtualMachine,
         depth: usize,
     ) -> PyResult<()> {
@@ -322,20 +322,20 @@ mod decl {
             buf.write_u8(b'(');
             buf.write_u32(t.len() as u32);
             for elem in t.as_slice() {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(l) = obj.downcast_ref::<PyList>() {
             buf.write_u8(b'[');
             let items = l.borrow_vec();
             buf.write_u32(items.len() as u32);
             for elem in items.iter() {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(d) = obj.downcast_ref::<PyDict>() {
             buf.write_u8(b'{');
             for (k, v) in d {
-                write_object_depth(buf, &k, refs, version, vm, depth - 1)?;
-                write_object_depth(buf, &v, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, &k, refs, version, allow_code, vm, depth - 1)?;
+                write_object_depth(buf, &v, refs, version, allow_code, vm, depth - 1)?;
             }
             buf.write_u8(b'0'); // TYPE_NULL terminator
         } else if let Some(s) = obj.downcast_ref::<PySet>() {
@@ -343,16 +343,19 @@ mod decl {
             let elems = s.elements();
             buf.write_u32(elems.len() as u32);
             for elem in &elems {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(s) = obj.downcast_ref::<PyFrozenSet>() {
             buf.write_u8(b'>');
             let elems = s.elements();
             buf.write_u32(elems.len() as u32);
             for elem in &elems {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(co) = obj.downcast_ref::<PyCode>() {
+            if !allow_code {
+                return Err(vm.new_value_error("marshalling code objects is disallowed"));
+            }
             buf.write_u8(b'c');
             // `Literal` holds the exact object a constant was built from, so
             // route `co_consts` back through the object writer: it reaches the
@@ -360,7 +363,7 @@ mod decl {
             // reference table the reader indexes against.
             marshal::serialize_code_with(buf, &co.code, |buf, constant| {
                 let constant = PyObjectRef::from(constant.clone());
-                write_object_depth(buf, &constant, refs, version, vm, depth - 1)
+                write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
             })?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
@@ -373,15 +376,17 @@ mod decl {
                 sl.start.as_ref().unwrap_or(&none),
                 refs,
                 version,
+                allow_code,
                 vm,
                 depth - 1,
             )?;
-            write_object_depth(buf, &sl.stop, refs, version, vm, depth - 1)?;
+            write_object_depth(buf, &sl.stop, refs, version, allow_code, vm, depth - 1)?;
             write_object_depth(
                 buf,
                 sl.step.as_ref().unwrap_or(&none),
                 refs,
                 version,
+                allow_code,
                 vm,
                 depth - 1,
             )?;
@@ -431,14 +436,20 @@ mod decl {
     struct PyMarshalBag<'a> {
         vm: &'a VirtualMachine,
         pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
+        allow_code: bool,
     }
 
     impl<'a> PyMarshalBag<'a> {
         fn new(
             vm: &'a VirtualMachine,
             pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
+            allow_code: bool,
         ) -> Self {
-            Self { vm, pending_error }
+            Self {
+                vm,
+                pending_error,
+                allow_code,
+            }
         }
 
         fn remember_python_error(&self, error: PyBaseExceptionRef) -> marshal::MarshalError {
@@ -501,8 +512,14 @@ mod decl {
             unsafe { tuple.set_marshal_item(index, value) };
             Ok(())
         }
-        fn make_code(&self, code: CodeObject) -> Self::Value {
-            crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into()
+        fn make_code(&self, code: CodeObject) -> Result<Self::Value, marshal::MarshalError> {
+            if !self.allow_code {
+                return Err(self.remember_python_error(
+                    self.vm
+                        .new_value_error("unmarshalling code objects is disallowed"),
+                ));
+            }
+            Ok(crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.vm.ctx.exceptions.stop_iteration.to_owned().into())
@@ -635,13 +652,17 @@ mod decl {
 
     fn deserialize_value(
         rdr: &mut impl marshal::Read,
+        allow_code: bool,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let pending_error = RefCell::new(None);
-        match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error)) {
+        match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error, allow_code)) {
             Ok(value) => Ok(value),
             Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
                 marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
+                error @ marshal::MarshalError::BadSize(_) => {
+                    vm.new_value_error(format!("bad marshal data ({error})"))
+                }
                 _ => vm.new_value_error("bad marshal data"),
             })),
         }
@@ -661,11 +682,7 @@ mod decl {
         let LoadsArgs { data, allow_code } = args;
         let buf = data.borrow_buf();
 
-        let result = deserialize_value(&mut &buf[..], vm)?;
-        if !allow_code {
-            check_no_code(&result, vm)?;
-        }
-        Ok(result)
+        deserialize_value(&mut &buf[..], allow_code, vm)
     }
 
     #[derive(FromArgs)]
@@ -685,54 +702,25 @@ mod decl {
             .try_into_value::<i64>(vm)?;
         let read_res = vm.call_method(&args.f, "read", ())?;
         let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
-        let buf = bytes.borrow_buf();
 
-        let mut rdr: &[u8] = &buf;
-        let len_before = rdr.len();
-        let result = deserialize_value(&mut rdr, vm)?;
-        let consumed = len_before - rdr.len();
+        // The borrow ends here: seek() below is the caller's, and reaching the
+        // same buffer from it would deadlock on a borrow still held.
+        let (result, consumed) = {
+            let buf = bytes.borrow_buf();
+            let mut rdr: &[u8] = &buf;
+            let len_before = rdr.len();
+            let result = deserialize_value(&mut rdr, args.allow_code, vm)?;
+            (result, len_before - rdr.len())
+        };
 
         // Seek file to just after the consumed bytes
         let new_pos = tell_before + consumed as i64;
         vm.call_method(&args.f, "seek", (new_pos,))?;
 
-        if !args.allow_code {
-            check_no_code(&result, vm)?;
-        }
         Ok(result)
     }
 
     /// Reject subclasses of marshallable types (int, float, complex, tuple, etc.).
-    /// Recursively check that no code objects are present.
-    fn check_no_code(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if obj.downcast_ref::<PyCode>().is_some() {
-            return Err(vm.new_value_error("unmarshalling code objects is disallowed"));
-        }
-        if let Some(tup) = obj.downcast_ref::<PyTuple>() {
-            for elem in tup.as_slice() {
-                check_no_code(elem, vm)?;
-            }
-        } else if let Some(list) = obj.downcast_ref::<PyList>() {
-            for elem in list.borrow_vec().iter() {
-                check_no_code(elem, vm)?;
-            }
-        } else if let Some(set) = obj.downcast_ref::<PySet>() {
-            for elem in set.elements() {
-                check_no_code(&elem, vm)?;
-            }
-        } else if let Some(fset) = obj.downcast_ref::<PyFrozenSet>() {
-            for elem in fset.elements() {
-                check_no_code(&elem, vm)?;
-            }
-        } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
-            for (k, v) in dict {
-                check_no_code(&k, vm)?;
-                check_no_code(&v, vm)?;
-            }
-        }
-        Ok(())
-    }
-
     fn check_exact_type(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let cls = obj.class();
         // bool is a subclass of int but is marshallable
