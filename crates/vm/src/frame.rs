@@ -6894,10 +6894,13 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
-                    if op != PyComparisonOp::Eq && op != PyComparisonOp::Ne {
+                    // The same two shortcuts the unspecialized comparison takes:
+                    // one object is equal to itself, and equality answers two
+                    // strings of different length without reading either.
+                    let Some(result) = op.eval_eq(|| a.is(b) || a_str.as_wtf8() == b_str.as_wtf8())
+                    else {
                         return self.execute_compare(vm, arg);
-                    }
-                    let result = op.eval_ord(a_str.as_wtf8().cmp(b_str.as_wtf8()));
+                    };
                     self.pop_value();
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(result).into());
