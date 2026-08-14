@@ -59,3 +59,32 @@ assert hebrew_text[30:10:-3] == "אםהֱאּ "
 assert len(hebrew_text[30:10:-3]) == 7
 assert hebrew_text[30:10:-1] == "א ,םיִהֹלֱא אָרָּב ,"
 assert len(hebrew_text[30:10:-1]) == 20
+
+
+# A stepped slice whose span is an exact multiple of the step ends on the last
+# character it collects rather than one past it, so the character count is the
+# span divided by the step and not one more. The subject goes through a
+# variable because a constant subscript is folded at compile time and would
+# never reach the runtime slice at all.
+def stepped(s, step):
+    return s[::step]
+
+
+for subject, step, expected in [
+    ("a\u00e9c", 3, "a"),
+    ("가나다라", 2, "가다"),
+    ("가나다라마바", 3, "가라"),
+    ("가나다라", -2, "라나"),
+    ("가나다라마바", -3, "바다"),
+    ("\U0001f600\U0001f601\U0001f602\U0001f603", 2, "\U0001f600\U0001f602"),
+]:
+    sliced = stepped(subject, step)
+    assert sliced == expected, (subject, step, sliced)
+    assert len(sliced) == len(expected), (subject, step, len(sliced))
+    # An overstated count makes the string claim characters its buffer does not
+    # hold, which reversed() then reads past.
+    assert list(reversed(sliced)) == list(expected)[::-1]
+
+assert len(stepped(hebrew_text, 2)) == 30
+assert len(stepped(hebrew_text, 4)) == 15
+assert len(stepped(hebrew_text, -2)) == 30
