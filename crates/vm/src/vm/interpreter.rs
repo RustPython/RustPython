@@ -1201,6 +1201,64 @@ mod tests {
         });
     }
 
+    /// Subclassing a shared type records the subclass on an object every
+    /// interpreter reaches, but only the interpreter that created it lists it.
+    #[test]
+    fn subinterpreter_subclasses_are_scoped_to_their_interpreter() {
+        use crate::compiler::Mode;
+        use crate::scope::Scope;
+
+        fn run(vm: &VirtualMachine, scope: &Scope, source: &str) {
+            let code = vm
+                .compile(source, Mode::Exec, "<subclasses>")
+                .map_err(|err| err.into_pyexception(vm, Some(source)))
+                .unwrap();
+            vm.run_code_obj(code, scope.clone()).unwrap();
+        }
+
+        fn lists_subclass(vm: &VirtualMachine, scope: &Scope, name: &str) -> bool {
+            run(
+                vm,
+                scope,
+                &format!("found = any(c.__name__ == {name:?} for c in int.__subclasses__())\n"),
+            );
+            let found = scope.globals.get_item("found", vm).unwrap();
+            found.try_to_bool(vm).unwrap()
+        }
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+
+        // The scopes are what keep the classes alive; a subclass list holds
+        // only weak references, so both must outlive every assertion below.
+        let main_scope = main.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            run(vm, &scope, "class MainOnly(int): pass\n");
+            scope
+        });
+        let sub_scope = sub.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            run(vm, &scope, "class SubOnly(int): pass\n");
+            scope
+        });
+
+        main.enter(|vm| {
+            assert!(lists_subclass(vm, &main_scope, "MainOnly"));
+            assert!(!lists_subclass(vm, &main_scope, "SubOnly"));
+            // A subclass built before either interpreter existed belongs to the
+            // shared context, so it stays visible to both.
+            assert!(lists_subclass(vm, &main_scope, "bool"));
+        });
+        sub.enter(|vm| {
+            assert!(lists_subclass(vm, &sub_scope, "SubOnly"));
+            assert!(!lists_subclass(vm, &sub_scope, "MainOnly"));
+            assert!(lists_subclass(vm, &sub_scope, "bool"));
+        });
+
+        main.enter(|_| drop(main_scope));
+        sub.enter(|_| drop(sub_scope));
+    }
+
     /// The runtime can own a subinterpreter by id and hand it back on destroy.
     #[cfg(feature = "threading")]
     #[test]
