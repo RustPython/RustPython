@@ -1589,7 +1589,10 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let mut buffer = Vec::with_capacity(bufsize);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.new_memory_error(""))?;
             let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
                 sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1638,7 +1641,10 @@ mod _socket {
             let bufsize = bufsize
                 .to_usize()
                 .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom"))?;
-            let mut buffer = Vec::with_capacity(bufsize);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.new_memory_error(""))?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
                 self.sock()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
