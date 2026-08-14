@@ -983,8 +983,6 @@ class GeneralModuleTests(unittest.TestCase):
             raise socket.herror
         with self.assertRaises(OSError, msg=msg % 'socket.gaierror'):
             raise socket.gaierror
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message format differs
     def testSendtoErrors(self):
         # Testing that sendto doesn't mask failures. See #10169.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

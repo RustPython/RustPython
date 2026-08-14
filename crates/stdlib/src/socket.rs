@@ -19,7 +19,7 @@ mod _socket {
         convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
         function::{
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
-            OptionalArg, OptionalOption,
+            FuncArgs, OptionalArg, OptionalOption,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
@@ -1731,16 +1731,30 @@ mod _socket {
         }
 
         #[pymethod]
-        fn sendto(
-            &self,
-            bytes: ArgBytesLike,
-            arg2: PyObjectRef,
-            arg3: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> Result<usize, IoOrPyException> {
+        fn sendto(&self, args: FuncArgs, vm: &VirtualMachine) -> Result<usize, IoOrPyException> {
+            // Bound by hand so a wrong argument count reports CPython's wording
+            // rather than the generic one.
+            if !args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("socket.sendto() takes no keyword arguments")
+                    .into());
+            }
+            if !(2..=3).contains(&args.args.len()) {
+                return Err(vm
+                    .new_type_error(format!(
+                        "sendto() takes 2 or 3 arguments ({} given)",
+                        args.args.len()
+                    ))
+                    .into());
+            }
+            let mut positional = args.args.into_iter();
+            let bytes: ArgBytesLike = positional.next().unwrap().try_into_value(vm)?;
+            let arg2 = positional.next().unwrap();
+            let arg3 = positional.next();
+
             // signature is bytes[, flags], address
             let (flags, address) = match arg3 {
-                OptionalArg::Present(arg3) => {
+                Some(arg3) => {
                     // should just be i32::try_from_obj but tests check for error message
                     let int = arg2
                         .try_index_opt(vm)
@@ -1748,7 +1762,7 @@ mod _socket {
                     let flags = int.try_to_primitive::<i32>(vm)?;
                     (flags, arg3)
                 }
-                OptionalArg::Missing => (0, arg2),
+                None => (0, arg2),
             };
             let addr = self.extract_address(address, "sendto", vm)?;
             let buf = bytes.borrow_buf_unlocked(vm)?;

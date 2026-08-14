@@ -78,10 +78,14 @@ mod _bz2 {
             let data = &*args.data();
 
             let mut state = self.state.lock();
+            if state.failed() {
+                return Err(vm.new_value_error("Decompressor is unusable after a previous error"));
+            }
             state
                 .decompress(data, max_length, BUFSIZ, vm)
                 .map_err(|e| match e {
-                    DecompressError::Decompress(err) => vm.new_os_error(err.to_string()),
+                    // CPython reports libbzip2's status, not the crate's wording.
+                    DecompressError::Decompress(_) => vm.new_os_error("Invalid data stream"),
                     DecompressError::Eof(err) => err.to_pyexception(vm),
                 })
         }
