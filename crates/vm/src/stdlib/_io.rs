@@ -3364,14 +3364,17 @@ mod _io {
                 *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
                 let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
-                let pos_is_valid = decoded
-                    .as_wtf8()
-                    .is_code_point_boundary(cookie.bytes_to_skip as usize);
+                // The position is stored both as a count of characters and as
+                // an offset in bytes, so both have to land inside what was
+                // just decoded: everything read back from here indexes it.
+                let num_to_skip = cookie.num_to_skip();
+                let pos_is_valid = num_to_skip.chars <= decoded.char_len()
+                    && decoded.as_wtf8().is_code_point_boundary(num_to_skip.bytes);
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
                     return Err(vm.new_os_error("can't restore logical file position"));
                 }
-                textio.decoded_chars_used = cookie.num_to_skip();
+                textio.decoded_chars_used = num_to_skip;
             } else {
                 textio.snapshot = Some((cookie.dec_flags, PyBytes::from(vec![]).into_ref(&vm.ctx)))
             }
@@ -4813,8 +4816,20 @@ mod _io {
         }
 
         #[pymethod]
-        fn readinto(&self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
-            let mut buf = self.buffer(vm)?;
+        fn readinto(zelf: &Py<Self>, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+            // Reading locks this object, and a destination that views it locks
+            // it too, so such a destination is filled after the read is done.
+            if obj.source_object().is(zelf.as_object()) {
+                let mut data = vec![0u8; obj.len()];
+                let ret = zelf
+                    .buffer(vm)?
+                    .cursor
+                    .read(&mut data)
+                    .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
+                obj.borrow_buf_mut()[..ret].copy_from_slice(&data[..ret]);
+                return Ok(ret);
+            }
+            let mut buf = zelf.buffer(vm)?;
             let ret = buf
                 .cursor
                 .read(&mut obj.borrow_buf_mut())

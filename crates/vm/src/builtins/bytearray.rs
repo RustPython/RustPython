@@ -354,7 +354,10 @@ impl PyByteArray {
 
     #[pymethod]
     fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
-        Ok(self.inner().join(iter, vm)?.into())
+        // Driving the iterable runs Python, which can reach this bytearray,
+        // so the separator is taken by value rather than left borrowed.
+        let separator = self.inner().clone();
+        Ok(separator.join(iter, vm)?.into())
     }
 
     #[pymethod]
@@ -532,7 +535,10 @@ impl PyByteArray {
     }
 
     fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
-        let formatted = self.inner().cformat(values, vm)?;
+        // Formatting calls the values' conversion methods, which can reach
+        // this bytearray, so the format is taken by value.
+        let format = self.inner().clone();
+        let formatted = format.cformat(values, vm)?;
         Ok(formatted.into())
     }
 
@@ -778,8 +784,9 @@ impl BufferResizeGuard for PyByteArray {
     type Resizable<'a> = PyRwLockWriteGuard<'a, PyBytesInner>;
 
     fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
-        let w = self.inner.write();
-        (self.exports.load(Ordering::SeqCst) == 0).then_some(w)
+        // An export is a borrow someone else still holds, so it is answered
+        // before the lock rather than by waiting on it.
+        (self.exports.load(Ordering::SeqCst) == 0).then(|| self.inner.write())
     }
 }
 

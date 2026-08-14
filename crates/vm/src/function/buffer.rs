@@ -63,6 +63,16 @@ impl ArgBytesLike {
     pub fn as_object(&self) -> &PyObject {
         &self.0.obj
     }
+
+    /// The object whose storage is borrowed while this buffer is read: a view
+    /// borrows the object it looks at, not itself.
+    #[must_use]
+    pub fn source_object(&self) -> &PyObject {
+        self.0
+            .obj
+            .downcast_ref::<crate::builtins::PyMemoryView>()
+            .map_or(&self.0.obj, |view| view.viewed_object())
+    }
 }
 
 impl From<ArgBytesLike> for PyBuffer {
@@ -138,6 +148,16 @@ impl ArgMemoryBuffer {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// The object whose storage is borrowed while this buffer is written: a
+    /// view borrows the object it looks at, not itself.
+    #[must_use]
+    pub fn source_object(&self) -> &PyObject {
+        self.0
+            .obj
+            .downcast_ref::<crate::builtins::PyMemoryView>()
+            .map_or(&self.0.obj, |view| view.viewed_object())
     }
 }
 

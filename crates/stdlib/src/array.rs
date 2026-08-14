@@ -55,6 +55,11 @@ pub mod array {
                 $($n(Vec<$t>),)*
             }
 
+            /// One item, already converted to the array's element type.
+            enum ArrayItem {
+                $($n($t),)*
+            }
+
             impl ArrayContentType {
                 fn from_char(c: char) -> Result<Self, String> {
                     match c {
@@ -303,17 +308,31 @@ pub mod array {
                     }
                 }
 
-                fn setitem_by_index(
-                    &mut self,
-                    i: isize,
+                /// Convert an object to the element type of the array with
+                /// this typecode. This runs the object's conversion methods,
+                /// which can reach the array, so it takes the typecode by
+                /// value and holds no lock on it.
+                fn item_from_object(
+                    typecode: char,
                     value: PyObjectRef,
                     vm: &VirtualMachine
+                ) -> PyResult<ArrayItem> {
+                    match typecode {
+                        $($c => Ok(ArrayItem::$n(<$t>::try_into_from_object(vm, value)?)),)*
+                        _ => unreachable!("array has a typecode"),
+                    }
+                }
+
+                fn setitem_by_item(
+                    &mut self,
+                    i: isize,
+                    item: ArrayItem,
+                    vm: &VirtualMachine
                 ) -> PyResult<()> {
-                    match self {
-                        $(ArrayContentType::$n(v) => {
-                            let value = <$t>::try_into_from_object(vm, value)?;
-                            v.setitem_by_index(vm, i, value)
-                        })*
+                    match (self, item) {
+                        $((ArrayContentType::$n(v), ArrayItem::$n(value)) =>
+                            v.setitem_by_index(vm, i, value),)*
+                        _ => unreachable!("item was converted for this array"),
                     }
                 }
 
@@ -1047,7 +1066,11 @@ pub mod array {
             vm: &VirtualMachine,
         ) -> PyResult<()> {
             match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
-                SequenceIndex::Int(i) => zelf.write().setitem_by_index(i, value, vm),
+                SequenceIndex::Int(i) => {
+                    let typecode = zelf.read().typecode();
+                    let item = ArrayContentType::item_from_object(typecode, value, vm)?;
+                    zelf.write().setitem_by_item(i, item, vm)
+                }
                 SequenceIndex::Slice(slice) => {
                     let cloned;
                     let guard;
@@ -1408,7 +1431,9 @@ pub mod array {
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyArray::sequence_downcast(seq);
                     if let Some(value) = value {
-                        zelf.write().setitem_by_index(i, value, vm)
+                        let typecode = zelf.read().typecode();
+                        let item = ArrayContentType::item_from_object(typecode, value, vm)?;
+                        zelf.write().setitem_by_item(i, item, vm)
                     } else {
                         zelf.write().delitem_by_index(i, vm)
                     }
@@ -1443,8 +1468,9 @@ pub mod array {
         type Resizable<'a> = PyRwLockWriteGuard<'a, ArrayContentType>;
 
         fn try_resizable_opt(&self) -> Option<Self::Resizable<'_>> {
-            let w = self.write();
-            (self.exports.load(atomic::Ordering::SeqCst) == 0).then_some(w)
+            // An export is a borrow someone else still holds, so it is
+            // answered before the lock rather than by waiting on it.
+            (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| self.write())
         }
     }
 

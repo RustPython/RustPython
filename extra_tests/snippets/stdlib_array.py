@@ -143,3 +143,31 @@ class _ReenteringWriter:
 arr = array("b", range(128))
 arr.tofile(_ReenteringWriter(arr))
 assert len(arr) == 129
+
+
+def test_setitem_reentrant():
+    # Converting the value runs Python, which can reach the array, so the
+    # array is not locked while it happens.
+    a = array("i", [1, 2, 3])
+
+    class Index:
+        def __index__(self):
+            a[1] = 9
+            return 7
+
+    a[0] = Index()
+    assert a == array("i", [7, 9, 3]), a
+
+
+test_setitem_reentrant()
+
+
+def test_frombytes_of_itself():
+    # Resizing is refused while a buffer is exported, before any lock is taken
+    a = array("i", [1, 2, 3])
+    m = memoryview(a)
+    try:
+        a.frombytes(m)
+    except (BufferError, TypeError):
+        pass
+    del m

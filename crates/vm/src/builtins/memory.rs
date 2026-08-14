@@ -192,6 +192,11 @@ impl PyMemoryView {
         }
     }
 
+    /// The object this view looks at, whose storage it borrows.
+    pub fn viewed_object(&self) -> &PyObject {
+        &self.buffer.obj
+    }
+
     fn try_not_released(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object"))

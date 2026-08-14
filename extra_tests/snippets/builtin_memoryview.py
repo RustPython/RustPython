@@ -562,3 +562,33 @@ def test_negative_stride():
 
 
 test_negative_stride()
+
+
+def test_write_through_same_object():
+    # Reading the source and writing the destination lock the same object
+    # when they overlap, and converting a value runs Python that can reach it.
+    b = bytearray(b"abcd")
+    memoryview(b)[0:4] = b
+    assert b == bytearray(b"abcd"), b
+
+    b = bytearray(b"abcd")
+    memoryview(b)[0:4] = memoryview(b)[::-1]
+    assert b == bytearray(b"dcba"), b
+
+    b = bytearray(b"abcd")
+    memoryview(b)[0:2] = memoryview(b)[2:4]
+    assert b == bytearray(b"cdcd"), b
+
+    b = bytearray(b"abcd")
+    view = memoryview(b)
+
+    class Index:
+        def __index__(self):
+            view[1] = 66
+            return 65
+
+    view[0] = Index()
+    assert b == bytearray(b"ABcd"), b
+
+
+test_write_through_same_object()
