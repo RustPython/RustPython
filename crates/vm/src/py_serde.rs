@@ -63,7 +63,10 @@ impl serde::Serialize for PyObjectSerializer<'_> {
                 seq.end()
             };
         if let Some(s) = self.pyobject.downcast_ref::<PyStr>() {
-            serializer.serialize_str(s.as_ref())
+            serializer.serialize_str(
+                s.to_str()
+                    .ok_or_else(|| serde::ser::Error::custom("str contains surrogates"))?,
+            )
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.float_type) {
             serializer.serialize_f64(float::get_value(self.pyobject))
         } else if self.pyobject.fast_isinstance(self.vm.ctx.types.bool_type) {

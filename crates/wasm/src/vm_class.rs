@@ -325,9 +325,12 @@ impl WASMVirtualMachine {
             if let Some(imports) = imports {
                 for entry in convert::object_entries(&imports) {
                     let (key, value) = entry?;
-                    let key: String = Object::from(key).to_string().into();
                     attrs
-                        .set_item(key.as_str(), convert::js_to_py(vm, value), vm)
+                        .set_item(
+                            &*convert::js_string_to_wtf8(&key.into()),
+                            convert::js_to_py(vm, value),
+                            vm,
+                        )
                         .into_js(vm)?;
                 }
             }
@@ -356,10 +359,10 @@ impl WASMVirtualMachine {
             let py_module = vm.new_module(&name, vm.ctx.new_dict(), None);
             for entry in convert::object_entries(&module) {
                 let (key, value) = entry?;
-                let key = Object::from(key).to_string();
-                extend_module!(vm, &py_module, {
-                    String::from(key) => convert::js_to_py(vm, value),
-                });
+                let key = vm.ctx.new_str(convert::js_string_to_wtf8(&key.into()));
+                py_module
+                    .set_attr(&key, convert::js_to_py(vm, value), vm)
+                    .into_js(vm)?;
             }
 
             let sys_modules = vm.sys_module.get_attr("modules", vm).into_js(vm)?;
