@@ -2152,7 +2152,13 @@ pub trait AsBuffer: PyPayload {
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
         let buffer = Self::as_buffer(zelf, vm)?;
-        flags.check_writable(buffer.desc.readonly, "Object is not writable.", vm)?;
+        if let Err(exc) = flags.check_writable(buffer.desc.readonly, "Object is not writable.", vm)
+        {
+            // An acquisition that cannot be served never happened, so the
+            // exporter's release is undone without running the Python hook.
+            buffer.abort_acquisition();
+            return Err(exc);
+        }
         Ok(buffer)
     }
 

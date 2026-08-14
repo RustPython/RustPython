@@ -8,7 +8,7 @@ use crate::{
     VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
-    byte::{bytes_from_object, bytes_from_setslice_value, value_from_object},
+    byte::{bytes_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -611,12 +611,34 @@ impl Py<PyByteArray> {
     #[pymethod]
     fn extend(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.is(&object) {
-            PyByteArray::irepeat(self, 2, vm)
-        } else {
-            let items = bytes_from_setslice_value(vm, &object)?;
-            self.try_resizable(vm)?.elements.extend(items);
-            Ok(())
+            return PyByteArray::irepeat(self, 2, vm);
         }
+        // bytearray_setslice keeps the export alive across the resize, so a value
+        // looking at this bytearray is what stops it from growing.
+        let buffer = object
+            .check_buffer()
+            .then(|| {
+                PyBuffer::from_object(vm, &object, BufferFlags::SIMPLE).map_err(|_| {
+                    // What an exporter refuses to hand out leaves the value simply
+                    // not usable here, whatever the exporter's own complaint was.
+                    vm.new_type_error(format!(
+                        "can't set bytearray slice from {}",
+                        object.class().name()
+                    ))
+                })
+            })
+            .transpose()?;
+        let items = match &buffer {
+            Some(buffer) => buffer
+                .as_contiguous()
+                .ok_or_else(|| {
+                    vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
+                })?
+                .to_vec(),
+            None => bytes_from_object(vm, &object)?,
+        };
+        self.try_resizable(vm)?.elements.extend(items);
+        Ok(())
     }
 
     #[pymethod]

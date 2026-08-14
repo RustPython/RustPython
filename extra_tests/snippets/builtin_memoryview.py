@@ -90,3 +90,250 @@ def test_delitem():
 
 
 test_delitem()
+
+
+def test_empty_view_offset():
+    # An empty view keeps the offset slicing left it, which can sit outside the
+    # exporter, and reaches no byte through it.
+    ba = bytearray(range(17))
+    assert bytes(memoryview(ba)[::-9][-30::-9]) == b""
+    assert bytes(memoryview(ba)[-30::-1]) == b""
+    v = memoryview(ba)[::-9][-30::-9]
+    assert v.shape == (0,)
+    assert v.strides == (81,)
+    assert v.suboffsets == ()
+    b24 = bytearray(range(24))
+    assert bytes(memoryview(b24).cast("B", [4, 6])[-30::-1]) == b""
+
+
+test_empty_view_offset()
+
+
+def test_exported_suboffsets():
+    mv = memoryview(bytearray(b"abcdef"))[::-1]
+    exported = mv.__buffer__(284)
+    assert exported.suboffsets == ()
+    assert bytes(exported) == b"fedcba"
+    assert (
+        bytes(memoryview(memoryview(bytearray(b"abcdefg"))[::2].__buffer__(284)))
+        == b"aceg"
+    )
+
+
+test_exported_suboffsets()
+
+
+def test_setitem_slice_strided_source():
+    src = bytearray(b"abcdef")
+    dst = bytearray(b"......")
+    memoryview(dst)[:] = memoryview(src)[::-1]
+    assert bytes(dst) == b"fedcba"
+    dst = bytearray(b"...")
+    memoryview(dst)[:] = memoryview(src)[::2]
+    assert bytes(dst) == b"ace"
+
+
+test_setitem_slice_strided_source()
+
+
+def test_zero_dim_position():
+    z = memoryview(bytearray(range(8)))[4:5].cast("B", [])
+    assert z[()] == 4
+    assert z.tolist() == 4
+    w = bytearray(range(8))
+    memoryview(w)[4:5].cast("B", [])[()] = 99
+    assert w[4] == 99
+    assert w[0] == 0
+
+
+test_zero_dim_position()
+
+
+def test_cast_zero_dim_size():
+    assert_raises(TypeError, lambda: memoryview(bytearray(range(8))).cast("B", []))
+    assert memoryview(bytearray(b"a")).cast("B", []).nbytes == 1
+
+
+test_cast_zero_dim_size()
+
+
+def test_hash_format():
+    assert_raises(ValueError, lambda: hash(memoryview(b"abcd").cast("I")))
+    hash(memoryview(b"abcd").cast("b"))
+    hash(memoryview(b"abcdef")[::2])
+    hash(memoryview(b"a").cast("B", []))
+
+
+test_hash_format()
+
+
+def test_cast_keeps_exports():
+    ba = bytearray(b"abc")
+    mv = memoryview(ba)
+    cast = mv.cast("B")
+    mv.release()
+    assert_raises(BufferError, lambda: ba.clear())
+    cast.release()
+    ba.clear()
+    assert bytes(ba) == b""
+
+
+test_cast_keeps_exports()
+
+
+def test_setitem_converts_before_writing():
+    ba = bytearray(b"abc")
+    mv = memoryview(ba)
+
+    class Idx:
+        def __index__(self):
+            return len(bytes(ba))
+
+    mv[0] = Idx()
+    assert bytes(ba) == b"\x03bc"
+
+
+test_setitem_converts_before_writing()
+
+
+def test_pep688_exporter_aliasing():
+    def exporter(view_factory):
+        class C:
+            def __buffer__(self, flags):
+                return view_factory()
+
+            def __release_buffer__(self, view):
+                pass
+
+        return C()
+
+    ba = bytearray(b"abc")
+    memoryview(ba)[:] = exporter(lambda: memoryview(ba))
+    assert bytes(ba) == b"abc"
+
+    ba = bytearray(b"abcdef")
+    memoryview(ba)[0:3] = exporter(lambda: memoryview(ba)[3:6])
+    assert bytes(ba) == b"defdef"
+
+    ba = bytearray(b"abcdef")
+    memoryview(ba)[3:6] = exporter(lambda: memoryview(ba)[0:3])
+    assert bytes(ba) == b"abcabc"
+
+    ba = bytearray(b"abcdef")
+    memoryview(ba)[:] = exporter(lambda: memoryview(ba)[::-1])
+    assert bytes(ba) == b"fedcba"
+
+    ba = bytearray(b"abcdef")
+    memoryview(ba)[::2] = exporter(lambda: memoryview(ba)[0:3])
+    assert bytes(ba) == b"abbdcf"
+
+    ba = bytearray(b"abcdef")
+    mv = memoryview(exporter(lambda: memoryview(ba)))
+    mv[:] = exporter(lambda: memoryview(ba))
+    assert bytes(ba) == b"abcdef"
+    mv[:] = ba
+    assert bytes(ba) == b"abcdef"
+
+
+test_pep688_exporter_aliasing()
+
+
+def test_release_buffer_waits_for_last_view():
+    class C(bytearray):
+        calls = 0
+
+        def __release_buffer__(self, view):
+            type(self).calls += 1
+            super().__release_buffer__(view)
+
+    c = C(b"abcdef")
+    a = memoryview(c)
+    b = memoryview(a)
+    a.release()
+    assert C.calls == 0
+    assert b.tobytes() == b"abcdef"
+    b.release()
+    assert C.calls == 1
+
+    class D:
+        n = 0
+
+        def __init__(self):
+            self.b = bytearray(b"abcdef")
+
+        def __buffer__(self, flags):
+            return memoryview(self.b)
+
+        def __release_buffer__(self, view):
+            type(self).n += 1
+
+    d = D()
+    m = memoryview(d)
+    m2 = memoryview(m)
+    m3 = m.cast("B")
+    m.release()
+    m2.release()
+    assert D.n == 0
+    m3.release()
+    assert D.n == 1
+
+    # Two acquisitions are two exports, each released on its own.
+    D.n = 0
+    d = D()
+    a1 = memoryview(d)
+    a2 = memoryview(d)
+    a1.release()
+    assert D.n == 1
+    a2.release()
+    assert D.n == 2
+
+
+test_release_buffer_waits_for_last_view()
+
+
+def test_failed_request_does_not_release():
+    import inspect
+    import mmap
+
+    class M(mmap.mmap):
+        calls = 0
+
+        def __release_buffer__(self, view):
+            type(self).calls += 1
+            super().__release_buffer__(view)
+
+    m = M(-1, 10, access=mmap.ACCESS_READ)
+    assert_raises(BufferError, lambda: m.__buffer__(inspect.BufferFlags.WRITABLE))
+    assert M.calls == 0
+
+
+test_failed_request_does_not_release()
+
+
+def test_request_shapes_exported_descriptor():
+    import array
+
+    a = array.array("I", [1, 2, 3])
+    assert a.__buffer__(0).format == "B"
+    assert a.__buffer__(28).format == "I"
+
+    m = memoryview(a)
+    b = m.__buffer__(0)
+    assert (b.format, b.itemsize, b.ndim, b.shape, b.strides) == ("B", 4, 1, (3,), (4,))
+    assert m.__buffer__(28).format == "I"
+
+    b = a.__buffer__(0)
+    assert b[0] == 1
+    assert b.tolist() == [1, 2, 3]
+    assert len(b.tobytes()) == 12
+    b[0] = 9
+    assert a[0] == 9
+
+    n = memoryview(bytearray(b"abcdef" * 4)).cast("I", (2, 3))
+    assert n.__buffer__(0).ndim == 1
+    assert n.__buffer__(0).shape == (6,)
+    assert n.__buffer__(8).ndim == 2
+    assert n.__buffer__(8).format == "B"
+
+
+test_request_shapes_exported_descriptor()

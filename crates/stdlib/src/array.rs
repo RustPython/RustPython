@@ -27,8 +27,8 @@ pub mod array {
                 ArgBytesLike, ArgIntoFloat, ArgIterable, KwArgs, OptionalArg, PyComparisonValue,
             },
             protocol::{
-                BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
-                PyMappingMethods, PySequenceMethods,
+                BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer,
+                PyIterReturn, PyMappingMethods, PySequenceMethods,
             },
             sequence::{OptionalRangeArgs, SequenceExt, SequenceMutExt},
             sliceable::{
@@ -1291,22 +1291,42 @@ pub mod array {
         }
     }
 
+    impl PyArray {
+        fn buffer_desc(&self) -> BufferDescriptor {
+            let array = self.read();
+            BufferDescriptor::format(
+                array.len() * array.itemsize(),
+                false,
+                array.itemsize(),
+                array.typecode_str().into(),
+            )
+        }
+    }
+
     impl AsBuffer for PyArray {
         const RELEASE_BUFFER: bool = true;
 
+        // array_buffer_getbuf, which reports the type code only when the request
+        // asked for a format.
+        fn slot_as_buffer(
+            zelf: &PyObject,
+            flags: BufferFlags,
+            vm: &VirtualMachine,
+        ) -> PyResult<PyBuffer> {
+            let zelf = zelf
+                .downcast_ref::<Self>()
+                .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
+            let desc = zelf.buffer_desc().projected(flags);
+            flags.check_writable(desc.readonly, "Object is not writable.", vm)?;
+            Ok(PyBuffer::new(zelf.to_owned().into(), desc, &BUFFER_METHODS))
+        }
+
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
-            let array = zelf.read();
-            let buf = PyBuffer::new(
+            Ok(PyBuffer::new(
                 zelf.to_owned().into(),
-                BufferDescriptor::format(
-                    array.len() * array.itemsize(),
-                    false,
-                    array.itemsize(),
-                    array.typecode_str().into(),
-                ),
+                zelf.buffer_desc(),
                 &BUFFER_METHODS,
-            );
-            Ok(buf)
+            ))
         }
     }
 

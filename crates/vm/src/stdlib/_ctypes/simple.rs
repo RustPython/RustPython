@@ -1283,6 +1283,7 @@ impl AsBuffer for PyCSimple {
         let itemsize = stg_info.size;
         // Simple types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

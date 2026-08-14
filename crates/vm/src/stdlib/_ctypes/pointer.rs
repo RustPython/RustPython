@@ -777,6 +777,7 @@ impl AsBuffer for PyCPointer {
         let itemsize = stg_info.size;
         // Pointer types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

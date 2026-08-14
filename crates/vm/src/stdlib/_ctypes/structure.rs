@@ -823,6 +823,7 @@ impl AsBuffer for PyCStructure {
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
             BufferDescriptor {
+                offset: 0,
                 len: buffer_len,
                 readonly: false,
                 itemsize: buffer_len,

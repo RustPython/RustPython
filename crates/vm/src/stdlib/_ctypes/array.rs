@@ -1061,6 +1061,7 @@ impl AsBuffer for PyCArray {
             dim_desc.reverse();
 
             BufferDescriptor {
+                offset: 0,
                 len: buffer_len,
                 readonly: false,
                 itemsize,
