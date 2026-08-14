@@ -113,6 +113,16 @@ pub enum PyKindStr<'a> {
     Wtf8(&'a Wtf8),
 }
 
+/// How far from an end an index is resolved by walking rather than by building
+/// the code point index.
+///
+/// PyPy spells this `MAX_UNROLL_NEXT_CODEPOINT_POS`, in a guard that also asks
+/// the JIT whether the index is a constant, so that the walk unrolls. There is
+/// no JIT here to ask, and the walk is short rather than free -- but four steps
+/// still beat a pass over the whole buffer, and skipping the build is what
+/// keeps `s[0]` and `s[1:-1]` on a long string from paying for a table.
+const MAX_WALK_TO_INDEX: usize = 4;
+
 #[derive(Debug, Clone)]
 pub struct StrData {
     data: Box<Wtf8>,
@@ -405,11 +415,74 @@ impl StrData {
             .byte_offset(&self.data, index)
     }
 
+    /// The byte offset of code point `index`, for a caller that resolves one
+    /// index and stops.
+    ///
+    /// Building the table costs a pass over the whole buffer, so it is worth it
+    /// only for a caller that comes back; an index within
+    /// [`MAX_WALK_TO_INDEX`] steps of either end is cheaper to walk to, and
+    /// walking keeps `s[0]` on a long string from paying for a table it will
+    /// never use again. Anything further in builds, on the reasoning that a
+    /// string indexed once in the middle tends to be indexed again.
+    fn char_index_to_byte_once(&self, index: usize) -> usize {
+        if index <= MAX_WALK_TO_INDEX {
+            return self
+                .data
+                .code_point_indices()
+                .nth(index)
+                .map_or(self.data.len(), |(byte, _)| byte);
+        }
+        let from_end = self.char_len() - index;
+        if from_end <= MAX_WALK_TO_INDEX {
+            return self
+                .data
+                .code_point_indices()
+                .nth_back(from_end - 1)
+                .map_or(self.data.len(), |(byte, _)| byte);
+        }
+        self.char_index_to_byte(index)
+    }
+
+    /// The byte range spanned by the code points in `range`.
+    ///
+    /// A range that reaches within [`MAX_WALK_TO_INDEX`] of *both* ends is
+    /// walked to for the same reason a single index near one end is -- a slice
+    /// like `s[1:-1]` should not build a table over the whole string.
+    #[must_use]
+    pub fn char_range_to_bytes(&self, range: core::ops::Range<usize>) -> core::ops::Range<usize> {
+        if self.kind.is_ascii() {
+            return range;
+        }
+        let from_end = self.char_len() - range.end;
+        if range.start <= MAX_WALK_TO_INDEX && from_end <= MAX_WALK_TO_INDEX {
+            // Two walks over disjoint ends, each of at most MAX_WALK_TO_INDEX
+            // steps -- one iterator driven from both sides would have them meet
+            // on a short string.
+            let start = self
+                .data
+                .code_point_indices()
+                .nth(range.start)
+                .map_or(self.data.len(), |(byte, _)| byte);
+            let end = match from_end {
+                0 => self.data.len(),
+                n => self
+                    .data
+                    .code_point_indices()
+                    .nth_back(n - 1)
+                    .map_or(self.data.len(), |(byte, _)| byte),
+            };
+            return start..end;
+        }
+        self.char_index_to_byte(range.start)..self.char_index_to_byte(range.end)
+    }
+
     pub fn nth_char(&self, index: usize) -> CodePoint {
         match self.as_str_kind() {
             PyKindStr::Ascii(s) => s[index].into(),
-            PyKindStr::Utf8(s) => s.chars().nth(index).unwrap().into(),
-            PyKindStr::Wtf8(w) => w.code_points().nth(index).unwrap(),
+            _ => self.data[self.char_index_to_byte_once(index)..]
+                .code_points()
+                .next()
+                .unwrap(),
         }
     }
 }
