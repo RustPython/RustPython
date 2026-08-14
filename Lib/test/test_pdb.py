@@ -2806,7 +2806,7 @@ def test_pdb_closure():
     ...     g = 3
     ...     import pdb; pdb.Pdb(nosigint=True, readrc=False).set_trace()
 
-    >>> with PdbTestInput([  # TODO: RUSTPYTHON # doctest: +NORMALIZE_WHITESPACE +EXPECTED_FAILURE
+    >>> with PdbTestInput([  # doctest: +NORMALIZE_WHITESPACE
     ...     'k',
     ...     'g',
     ...     'y = y',
