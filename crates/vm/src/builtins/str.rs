@@ -712,6 +712,13 @@ impl PyStr {
         self.data.char_len()
     }
 
+    /// The byte offset the `index`-th character starts at, or the string's byte
+    /// length if `index` is at or past its end.
+    #[inline]
+    pub fn char_index_to_byte(&self, index: usize) -> usize {
+        self.data.char_index_to_byte(index)
+    }
+
     #[pymethod]
     #[inline(always)]
     pub const fn isascii(&self) -> bool {
