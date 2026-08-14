@@ -1870,14 +1870,14 @@ impl SliceableSequenceOp for PyStr {
                 .collect::<AsciiString>()
                 .into(),
             PyKindStr::Utf8(s) => {
-                let char_len = (range.len() / step) + 1;
+                let char_len = range.len().div_ceil(step);
                 let mut out = String::with_capacity(2 * char_len);
                 out.extend(s.chars().skip(range.start).take(range.len()).step_by(step));
                 // SAFETY: char_len is accurate
                 unsafe { Self::new_with_char_len(out, char_len) }
             }
             PyKindStr::Wtf8(w) => {
-                let char_len = (range.len() / step) + 1;
+                let char_len = range.len().div_ceil(step);
                 let mut out = Wtf8Buf::with_capacity(2 * char_len);
                 out.extend(
                     w.code_points()
@@ -1900,7 +1900,7 @@ impl SliceableSequenceOp for PyStr {
                 .collect::<AsciiString>()
                 .into(),
             PyKindStr::Utf8(s) => {
-                let char_len = (range.len() / step) + 1;
+                let char_len = range.len().div_ceil(step);
                 // not ascii, so the codepoints have to be at least 2 bytes each
                 let mut out = String::with_capacity(2 * char_len);
                 out.extend(
@@ -1914,7 +1914,7 @@ impl SliceableSequenceOp for PyStr {
                 unsafe { Self::new_with_char_len(out, char_len) }
             }
             PyKindStr::Wtf8(w) => {
-                let char_len = (range.len() / step) + 1;
+                let char_len = range.len().div_ceil(step);
                 // not ascii, so the codepoints have to be at least 2 bytes each
                 let mut out = Wtf8Buf::with_capacity(2 * char_len);
                 out.extend(
