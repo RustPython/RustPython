@@ -42,6 +42,8 @@ def worker():
                     pass
     except Exception as exc:  # noqa: BLE001
         errors.append(exc)
+        # the other workers are waiting at the barrier for this one
+        start.abort()
 
 
 threads = [threading.Thread(target=worker) for _ in range(WORKERS)]

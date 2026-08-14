@@ -992,13 +992,15 @@ mod decl {
                     return Ok(PyIterReturn::Return(values[index].clone()));
                 }
             }
-            // Prevent concurrent/reentrant calls to iterable.next()
+            // Prevent concurrent/reentrant calls to iterable.next(). The claim
+            // covers caching the value as well: released any earlier, a second
+            // tee at the same index fetches a value of its own and one of the
+            // two is dropped without ever reaching a caller.
             if self.running.swap(true, Ordering::Acquire) {
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             }
-            let result = self.iterable.next(vm);
-            self.running.store(false, Ordering::Release);
-            let obj = raise_if_stop!(result?);
+            scopeguard::defer! { self.running.store(false, Ordering::Release) }
+            let obj = raise_if_stop!(self.iterable.next(vm)?);
             let Some(mut values) = self.values.try_lock() else {
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             };
@@ -1016,6 +1018,8 @@ mod decl {
         tee_data: PyRef<PyItertoolsTeeData>,
         #[pytraverse(skip)]
         index: AtomicCell<usize>,
+        #[pytraverse(skip)]
+        advancing: AtomicBool,
     }
 
     impl Constructor for PyItertoolsTee {
@@ -1030,6 +1034,7 @@ mod decl {
             Ok(Self {
                 tee_data: PyItertoolsTeeData::new(iterator, vm),
                 index: AtomicCell::new(0),
+                advancing: AtomicBool::new(false),
             })
         }
     }
@@ -1044,6 +1049,7 @@ mod decl {
             Ok(Self {
                 tee_data: PyItertoolsTeeData::new(iterator, vm),
                 index: AtomicCell::new(0),
+                advancing: AtomicBool::new(false),
             }
             .into_ref_with_type(vm, class.to_owned())?
             .into())
@@ -1054,6 +1060,7 @@ mod decl {
             Self {
                 tee_data: self.tee_data.clone(),
                 index: AtomicCell::new(self.index.load()),
+                advancing: AtomicBool::new(false),
             }
         }
     }
@@ -1086,8 +1093,16 @@ mod decl {
     impl SelfIter for PyItertoolsTee {}
     impl IterNext for PyItertoolsTee {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let value = raise_if_stop!(zelf.tee_data.get_item(vm, zelf.index.load())?);
-            zelf.index.fetch_add(1);
+            // Reading the index and moving it on is one step: two callers that
+            // read the same index hand out the same value twice and leave the
+            // buffer to be filled out of order.
+            if zelf.advancing.swap(true, Ordering::Acquire) {
+                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+            }
+            scopeguard::defer! { zelf.advancing.store(false, Ordering::Release) }
+            let index = zelf.index.load();
+            let value = raise_if_stop!(zelf.tee_data.get_item(vm, index)?);
+            zelf.index.store(index + 1);
             Ok(PyIterReturn::Return(value))
         }
     }
