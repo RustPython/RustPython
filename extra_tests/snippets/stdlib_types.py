@@ -47,14 +47,14 @@ if sys.implementation.name == "rustpython":
         list[self_referential]
 
     nested = [0]
-    for _ in range(sys.getrecursionlimit() * 2):
+    for _ in range(100_000):
         nested = [nested]
     with assert_raises(RecursionError):
         list[nested]
 
     # hashing an alias walks the same shape
     deep_alias = int
-    for _ in range(sys.getrecursionlimit() * 2):
+    for _ in range(100_000):
         deep_alias = list[deep_alias]
     with assert_raises(RecursionError):
         hash(deep_alias)

@@ -2105,16 +2105,16 @@ impl VirtualMachine {
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
+    /// `Py_EnterRecursiveCall`: bounds native recursion that pushes no Python
+    /// frame, against the native stack. That is a separate budget from the
+    /// frame limit `sys.setrecursionlimit()` sets, so nesting counted here does
+    /// not come out of what Python code has left to call with.
     pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
-        self.check_recursive_call(_where)?;
-
-        // Native stack guard: check C stack like _Py_MakeRecCheck
         if self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(_where.to_string()));
+            return Err(
+                self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
+            );
         }
-
-        self.recursion_depth.update(|d| d + 1);
-        scopeguard::defer! { self.recursion_depth.update(|d| d - 1) }
         f()
     }
 
