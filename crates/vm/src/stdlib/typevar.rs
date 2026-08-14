@@ -923,11 +923,12 @@ pub(crate) mod typevar {
     impl Representable for ParamSpecArgs {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // Check if origin is a ParamSpec
-            if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
-                return Ok(format!("{name}.args", name = name.str(vm)?));
+            // A ParamSpec origin is named; anything else is shown by its repr,
+            // which carries the recursion guard a Rust `{:?}` walk does not.
+            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
+                return Ok(format!("{}.args", param_spec.__name__().str_utf8(vm)?));
             }
-            Ok(format!("{:?}.args", zelf.__origin__))
+            Ok(format!("{}.args", zelf.__origin__.repr(vm)?))
         }
     }
 
@@ -986,11 +987,12 @@ pub(crate) mod typevar {
     impl Representable for ParamSpecKwargs {
         #[inline(always)]
         fn repr_str(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-            // Check if origin is a ParamSpec
-            if let Ok(name) = zelf.__origin__.get_attr("__name__", vm) {
-                return Ok(format!("{name}.kwargs", name = name.str(vm)?));
+            // A ParamSpec origin is named; anything else is shown by its repr,
+            // which carries the recursion guard a Rust `{:?}` walk does not.
+            if let Some(param_spec) = zelf.__origin__.downcast_ref::<ParamSpec>() {
+                return Ok(format!("{}.kwargs", param_spec.__name__().str_utf8(vm)?));
             }
-            Ok(format!("{:?}.kwargs", zelf.__origin__))
+            Ok(format!("{}.kwargs", zelf.__origin__.repr(vm)?))
         }
     }
 
