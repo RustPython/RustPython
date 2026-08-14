@@ -514,3 +514,51 @@ def test_fortran_contiguity():
 
 
 test_fortran_contiguity()
+
+
+def test_cast_arguments():
+    # cast() takes a native single character format, optionally '@'-prefixed;
+    # a zero-size format used to reach a division by zero.
+    assert memoryview(b"abcd").cast("@i").itemsize == 4
+    for fmt in ("0s", "4s", "<i", "", "ss"):
+        assert_raises(ValueError, lambda fmt=fmt: memoryview(b"abcd").cast(fmt))
+
+    # every element of shape is an int > 0; a 0 used to divide by zero while
+    # checking the product against SSIZE_MAX
+    for shape in ([0], [0, 4], [4, 0], [-1, 4], [0, 0]):
+        assert_raises(
+            ValueError, lambda shape=shape: memoryview(b"abcd").cast("B", shape)
+        )
+
+    class Index:
+        def __index__(self):
+            return 4
+
+    for shape in ([2.0, 2], [Index()], ["4"]):
+        assert_raises(
+            TypeError, lambda shape=shape: memoryview(b"abcd").cast("B", shape)
+        )
+
+    assert memoryview(b"abcd").cast("B", [True, 4]).tolist() == [[97, 98, 99, 100]]
+
+
+test_cast_arguments()
+
+
+def test_negative_stride():
+    # A reversed view starts at its last byte, so walking it from there runs
+    # off the front of the exported slice.
+    assert memoryview(b"dcba") == memoryview(b"abcd")[::-1]
+    assert memoryview(b"abcd")[::-1] == memoryview(b"dcba")
+    assert not memoryview(b"abcd") == memoryview(b"abcd")[::-1]
+
+    b = bytearray(b"____")
+    memoryview(b)[0:4] = memoryview(b"abcd")[::-1]
+    assert b == bytearray(b"dcba"), b
+
+    a = array.array("i", [1, 2, 3])
+    assert memoryview(array.array("i", [3, 2, 1])) == memoryview(a)[::-1]
+    assert memoryview(a)[::-1].tolist() == [3, 2, 1]
+
+
+test_negative_stride()

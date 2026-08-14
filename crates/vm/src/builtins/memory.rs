@@ -1010,7 +1010,19 @@ impl PyMemoryView {
             let mut dim_descriptor = Vec::with_capacity(shape_ndim);
 
             for x in shape {
-                let x = usize::try_from_borrowed_object(vm, x)?;
+                let x = x
+                    .downcast_ref::<PyInt>()
+                    .ok_or_else(|| {
+                        vm.new_type_error("memoryview.cast(): elements of shape must be integers")
+                    })?
+                    .try_to_primitive::<usize>(vm)
+                    .ok()
+                    .filter(|x| *x > 0)
+                    .ok_or_else(|| {
+                        vm.new_value_error(
+                            "memoryview.cast(): elements of shape must be integers > 0",
+                        )
+                    })?;
 
                 if x > isize::MAX as usize / product_shape {
                     return Err(vm.new_value_error("memoryview.cast(): product(shape) > SSIZE_MAX"));
