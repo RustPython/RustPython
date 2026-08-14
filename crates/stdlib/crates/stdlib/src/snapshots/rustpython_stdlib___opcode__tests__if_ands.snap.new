@@ -1,0 +1,9 @@
+---
+source: crates/stdlib/src/_opcode.rs
+assertion_line: 252
+expression: "dis(r#\"\nif True and False and False:\n    pass\n\"#)"
+---
+  0           RESUME                   0
+
+  1           LOAD_CONST               1 (None)
+              RETURN_VALUE
