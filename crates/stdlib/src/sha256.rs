@@ -1,15 +1,17 @@
 #[pymodule]
 mod _sha256 {
-    use crate::hashlib::_hashlib::{HashArgs, local_sha224, local_sha256};
-    use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
+    use crate::hashlib::_hashlib::{local_sha224, local_sha256};
+    use crate::vm::{
+        Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, function::FuncArgs,
+    };
 
     #[pyfunction]
-    fn sha224(args: HashArgs, vm: &VirtualMachine) -> PyResult {
+    fn sha224(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(local_sha224(args, vm)?.into_pyobject(vm))
     }
 
     #[pyfunction]
-    fn sha256(args: HashArgs, vm: &VirtualMachine) -> PyResult {
+    fn sha256(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(local_sha256(args, vm)?.into_pyobject(vm))
     }
 

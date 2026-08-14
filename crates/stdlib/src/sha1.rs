@@ -2,11 +2,13 @@ pub(crate) use _sha1::module_def;
 
 #[pymodule]
 mod _sha1 {
-    use crate::hashlib::_hashlib::{HashArgs, local_sha1};
-    use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
+    use crate::hashlib::_hashlib::local_sha1;
+    use crate::vm::{
+        Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, function::FuncArgs,
+    };
 
     #[pyfunction]
-    fn sha1(args: HashArgs, vm: &VirtualMachine) -> PyResult {
+    fn sha1(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(local_sha1(args, vm)?.into_pyobject(vm))
     }
 
