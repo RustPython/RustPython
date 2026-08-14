@@ -2603,12 +2603,28 @@ impl VirtualMachine {
         // Objects/listobject.c. Each branch takes an atomic snapshot to avoid
         // race conditions from concurrent mutation (no GIL).
         let cls = value.class();
-        let list_borrow;
         let slice = if cls.is(self.ctx.types.tuple_type) {
             value.downcast_ref::<PyTuple>().unwrap().as_slice()
         } else if cls.is(self.ctx.types.list_type) {
-            list_borrow = value.downcast_ref::<PyList>().unwrap().borrow_vec();
-            &list_borrow
+            // The list is re-read on every step, the way map_iterable_object()
+            // does it: func() runs Python, which can mutate or even clear the
+            // same list, and a borrow held across that call deadlocks it.
+            let list = value.downcast_ref::<PyList>().unwrap();
+            let mut results = Vec::new();
+            let mut i = 0;
+            loop {
+                let elem = {
+                    let elements = list.borrow_vec();
+                    let Some(elem) = elements.get(i) else {
+                        break;
+                    };
+                    elem.clone()
+                    // free the lock
+                };
+                results.push(func(elem)?);
+                i += 1;
+            }
+            return Ok(results);
         } else if cls.is(self.ctx.types.dict_type) {
             let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
             return keys.into_iter().map(func).collect();

@@ -304,7 +304,10 @@ mod decl {
                 timeout: OptionalArg<TimeoutArg<true>>,
                 vm: &VirtualMachine,
             ) -> PyResult<Vec<PyObjectRef>> {
-                let mut fds = self.fds.lock();
+                // Poll a copy: the wait releases the GIL-equivalent and runs
+                // signal handlers, which can register or unregister on the same
+                // object, and a held lock would deadlock them.
+                let mut fds = self.fds.lock().clone();
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
                 let timeout_ms = match timeout {
                     Some(d) => i32::try_from(d.as_millis())
