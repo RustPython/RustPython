@@ -2043,8 +2043,6 @@ class _PosixSpawnMixin:
         path, args = self.NOOP_PROGRAM[0], self.NOOP_PROGRAM
         pid = self.spawn_func(path, args, os.environ, scheduler=None)
         support.wait_process(pid, exitcode=0)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     @support.subTests("scheduler", [object(), 1, [1, 2]])
     def test_scheduler_wrong_type(self, scheduler):
         path, args = self.NOOP_PROGRAM[0], self.NOOP_PROGRAM

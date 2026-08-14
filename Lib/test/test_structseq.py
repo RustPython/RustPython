@@ -285,8 +285,6 @@ class StructSeqTest(unittest.TestCase):
             copy.replace(t, error=-1)
         with self.assertRaisesRegex(TypeError, 'unexpected field name'):
             copy.replace(t, user=1, error=-1)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_copy_replace_with_invisible_fields(self):
         assert time.struct_time.n_unnamed_fields == 0
         assert time.struct_time.n_sequence_fields < time.struct_time.n_fields

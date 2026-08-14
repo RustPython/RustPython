@@ -33,7 +33,10 @@ pub mod module {
         target_os = "linux",
         target_os = "openbsd"
     ))]
-    use crate::{builtins::PyUtf8StrRef, utils::ToCString};
+    use crate::{
+        builtins::{PyTuple, PyUtf8StrRef},
+        utils::ToCString,
+    };
     use alloc::ffi::CString;
     use core::ffi::CStr;
     use rustpython_host_env::os::ffi::OsStringExt;
@@ -1489,8 +1492,10 @@ pub mod module {
         setsid: bool,
         #[pyarg(named, default)]
         setsigmask: Option<crate::function::ArgIterable<i32>>,
+        // Validated in `spawn` so a wrong type reports CPython's message
+        // rather than the generic argument-conversion one.
         #[pyarg(named, default)]
-        scheduler: Option<PyTupleRef>,
+        scheduler: Option<PyObjectRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1581,7 +1586,12 @@ pub mod module {
 
             let setsigdef = self.setsigdef.map(&collect_signals).transpose()?;
 
-            if let Some(_scheduler) = self.scheduler {
+            if let Some(scheduler) = &self.scheduler
+                && !vm.is_none(scheduler)
+            {
+                if !scheduler.downcastable::<PyTuple>() {
+                    return Err(vm.new_type_error("scheduler must be a tuple or None"));
+                }
                 // TODO: Implement scheduler parameter handling
                 // This requires platform-specific sched_param struct handling
                 return Err(

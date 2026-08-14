@@ -1137,8 +1137,6 @@ class TestBinaryPlistlib(unittest.TestCase):
         msg = "can't subtract offset-naive and offset-aware datetimes"
         with self.assertRaisesRegex(TypeError, msg):
             plistlib.dumps(dt, fmt=plistlib.FMT_BINARY, aware_datetime=False)
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_dump_utc_aware_datetime_without_aware_datetime_option(self):
         dt = datetime.datetime(2345, 6, 7, 8, tzinfo=datetime.UTC)
         msg = "can't subtract offset-naive and offset-aware datetimes"
