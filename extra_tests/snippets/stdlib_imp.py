@@ -36,3 +36,9 @@ assert hello.initialized == True
 with assert_raises(TypeError):
     _imp.find_frozen("x", True)
 assert _imp.find_frozen("_this_module_does_not_exist_") is None
+
+# and it hands back the marshalled code that get_frozen_object() takes
+data, ispkg, origname = _imp.find_frozen("__hello__", withdata=True)
+assert ispkg is False
+assert origname == "__hello__"
+assert _imp.get_frozen_object("__hello__", data).co_name == "<module>"

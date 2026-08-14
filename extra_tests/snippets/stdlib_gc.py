@@ -62,5 +62,7 @@ assert collects(lambda c: itertools.filterfalse(None, c))
 assert collects(lambda c: itertools.compress(c, [1]))
 assert collects(lambda c: itertools.product(c))
 assert collects(lambda c: itertools.combinations(c, 1))
+# tee holds its buffer through a second object, which has to be walked too
+assert collects(lambda c: itertools.tee(c)[0])
 
 print("ok")

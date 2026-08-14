@@ -49,4 +49,27 @@ future = _asyncio.Future(loop=object())
 with assert_raises(TypeError):
     future.__await__().throw(BadException)
 
+# InvalidStateError is looked up in asyncio.exceptions every time a pending
+# future is asked for its result, so what is found there need not be an
+# exception type at all.
+import asyncio  # noqa: E402
+import asyncio.exceptions  # noqa: E402
+
+pending = _asyncio.Future(loop=object())
+with assert_raises(asyncio.exceptions.InvalidStateError):
+    pending.result()
+
+saved_invalid_state_error = asyncio.exceptions.InvalidStateError
+try:
+    for replacement in (lambda *args: 42, None):
+        asyncio.InvalidStateError = replacement
+        asyncio.exceptions.InvalidStateError = replacement
+        with assert_raises(RuntimeError):
+            pending.result()
+        with assert_raises(RuntimeError):
+            pending.exception()
+finally:
+    asyncio.InvalidStateError = saved_invalid_state_error
+    asyncio.exceptions.InvalidStateError = saved_invalid_state_error
+
 print("ok")

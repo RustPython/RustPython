@@ -1270,7 +1270,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(TypeError, next, dropwhile(10, [(4,5)]))
         self.assertRaises(ValueError, next, dropwhile(errfunc, [(4,5)]))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tee(self):
         n = 200
 

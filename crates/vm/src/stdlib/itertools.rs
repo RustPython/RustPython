@@ -4,11 +4,10 @@ pub(crate) use decl::module_def;
 mod decl {
     use crate::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, PyWeakRef, VirtualMachine,
-        builtins::{PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyType, PyTypeRef, int},
-        common::{
-            lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
-            rc::PyRc,
+        builtins::{
+            PyGenericAlias, PyInt, PyIntRef, PyList, PyTuple, PyTupleRef, PyType, PyTypeRef, int,
         },
+        common::lock::{PyMutex, PyRwLock, PyRwLockWriteGuard},
         convert::ToPyObject,
         function::{FuncArgs, OptionalArg, OptionalOption, PosArgs},
         protocol::{PyIter, PyIterReturn, PyNumber},
@@ -962,20 +961,25 @@ mod decl {
         }
     }
 
-    #[derive(Debug)]
+    #[pyattr]
+    #[pyclass(name = "_tee_dataobject", traverse)]
+    #[derive(Debug, PyPayload)]
     struct PyItertoolsTeeData {
         iterable: PyIter,
         values: PyMutex<Vec<PyObjectRef>>,
+        #[pytraverse(skip)]
         running: AtomicBool,
     }
 
+    #[pyclass(flags(DISALLOW_INSTANTIATION))]
     impl PyItertoolsTeeData {
-        fn new(iterable: PyIter, _vm: &VirtualMachine) -> PyRc<Self> {
-            PyRc::new(Self {
+        fn new(iterable: PyIter, vm: &VirtualMachine) -> PyRef<Self> {
+            Self {
                 iterable,
                 values: PyMutex::new(vec![]),
                 running: AtomicBool::new(false),
-            })
+            }
+            .into_ref(&vm.ctx)
         }
 
         fn get_item(&self, vm: &VirtualMachine, index: usize) -> PyResult<PyIterReturn> {
@@ -988,13 +992,15 @@ mod decl {
                     return Ok(PyIterReturn::Return(values[index].clone()));
                 }
             }
-            // Prevent concurrent/reentrant calls to iterable.next()
+            // Prevent concurrent/reentrant calls to iterable.next(). The claim
+            // covers caching the value as well: released any earlier, a second
+            // tee at the same index fetches a value of its own and one of the
+            // two is dropped without ever reaching a caller.
             if self.running.swap(true, Ordering::Acquire) {
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             }
-            let result = self.iterable.next(vm);
-            self.running.store(false, Ordering::Release);
-            let obj = raise_if_stop!(result?);
+            scopeguard::defer! { self.running.store(false, Ordering::Release) }
+            let obj = raise_if_stop!(self.iterable.next(vm)?);
             let Some(mut values) = self.values.try_lock() else {
                 return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
             };
@@ -1006,59 +1012,44 @@ mod decl {
     }
 
     #[pyattr]
-    #[pyclass(name = "tee")]
+    #[pyclass(name = "_tee", traverse)]
     #[derive(Debug, PyPayload)]
     struct PyItertoolsTee {
-        tee_data: PyRc<PyItertoolsTeeData>,
+        tee_data: PyRef<PyItertoolsTeeData>,
+        #[pytraverse(skip)]
         index: AtomicCell<usize>,
-    }
-
-    #[derive(FromArgs)]
-    struct TeeNewArgs {
-        #[pyarg(positional)]
-        iterable: PyIter,
-        #[pyarg(positional, optional)]
-        n: OptionalArg<usize>,
+        #[pytraverse(skip)]
+        advancing: AtomicBool,
     }
 
     impl Constructor for PyItertoolsTee {
-        type Args = TeeNewArgs;
+        type Args = PyIter;
 
-        // TODO: make tee() a function, rename this class to itertools._tee and make
-        // teedata a python class
-        fn slot_new(_cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let TeeNewArgs { iterable, n } = args.bind(vm)?;
-            let n = n.unwrap_or(2);
-
-            let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
-                vm.call_special_method(iterable.as_object(), identifier!(vm, __copy__), ())?
-            } else {
-                Self::from_iter(iterable, vm)?
-            };
-
-            let mut tee_vec: Vec<PyObjectRef> = Vec::with_capacity(n);
-            for _ in 0..n {
-                tee_vec.push(vm.call_special_method(&copyable, identifier!(vm, __copy__), ())?);
+        fn py_new(_cls: &Py<PyType>, iterator: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+            // An iterator that is already a tee shares its buffer rather than
+            // getting one of its own.
+            if let Some(tee) = iterator.as_object().downcast_ref::<Self>() {
+                return Ok(tee.__copy__());
             }
-
-            Ok(PyTuple::new_ref(tee_vec, &vm.ctx).into())
-        }
-
-        fn py_new(_cls: &Py<PyType>, _args: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
-            unimplemented!("use slot_new")
+            Ok(Self {
+                tee_data: PyItertoolsTeeData::new(iterator, vm),
+                index: AtomicCell::new(0),
+                advancing: AtomicBool::new(false),
+            })
         }
     }
 
-    #[pyclass(with(IterNext, Iterable, Constructor))]
+    #[pyclass(with(IterNext, Iterable, Constructor), flags(HAS_WEAKREF))]
     impl PyItertoolsTee {
         fn from_iter(iterator: PyIter, vm: &VirtualMachine) -> PyResult {
             let class = Self::class(&vm.ctx);
-            if iterator.class().is(Self::class(&vm.ctx)) {
+            if iterator.class().is(class) {
                 return vm.call_special_method(&iterator, identifier!(vm, __copy__), ());
             }
             Ok(Self {
                 tee_data: PyItertoolsTeeData::new(iterator, vm),
                 index: AtomicCell::new(0),
+                advancing: AtomicBool::new(false),
             }
             .into_ref_with_type(vm, class.to_owned())?
             .into())
@@ -1069,14 +1060,49 @@ mod decl {
             Self {
                 tee_data: self.tee_data.clone(),
                 index: AtomicCell::new(self.index.load()),
+                advancing: AtomicBool::new(false),
             }
         }
+    }
+
+    #[pyfunction]
+    fn tee(iterable: PyIter, n: OptionalArg<isize>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        let n = n.unwrap_or(2);
+        if n < 0 {
+            return Err(vm.new_value_error("n must be >= 0"));
+        }
+        let n = n as usize;
+
+        // Only an iterator that cannot copy itself needs a tee to buffer it.
+        let copyable = if iterable.class().has_attr(identifier!(vm, __copy__)) {
+            iterable.into()
+        } else {
+            PyItertoolsTee::from_iter(iterable, vm)?
+        };
+
+        let mut tee_vec: Vec<PyObjectRef> = Vec::new();
+        tee_vec
+            .try_reserve_exact(n)
+            .map_err(|_| vm.new_memory_error(""))?;
+        for _ in 0..n {
+            tee_vec.push(vm.call_special_method(&copyable, identifier!(vm, __copy__), ())?);
+        }
+
+        Ok(PyTuple::new_ref(tee_vec, &vm.ctx))
     }
     impl SelfIter for PyItertoolsTee {}
     impl IterNext for PyItertoolsTee {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            let value = raise_if_stop!(zelf.tee_data.get_item(vm, zelf.index.load())?);
-            zelf.index.fetch_add(1);
+            // Reading the index and moving it on is one step: two callers that
+            // read the same index hand out the same value twice and leave the
+            // buffer to be filled out of order.
+            if zelf.advancing.swap(true, Ordering::Acquire) {
+                return Err(vm.new_runtime_error("cannot re-enter the tee iterator"));
+            }
+            scopeguard::defer! { zelf.advancing.store(false, Ordering::Release) }
+            let index = zelf.index.load();
+            let value = raise_if_stop!(zelf.tee_data.get_item(vm, index)?);
+            zelf.index.store(index + 1);
             Ok(PyIterReturn::Return(value))
         }
     }
