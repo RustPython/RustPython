@@ -505,8 +505,8 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize) -> Self {
-        self.inner.zfill(width).into()
+    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(self.inner.zfill(width, vm)?.into())
     }
 
     #[pymethod]

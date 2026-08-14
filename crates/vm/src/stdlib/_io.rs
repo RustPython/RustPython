@@ -1258,7 +1258,7 @@ mod _io {
 
             let current_size = self.readahead() as usize;
 
-            let mut out = vec![0u8; n];
+            let mut out = vm.new_zeroed_bytes(n)?;
             let mut remaining = n;
             let mut written = 0;
             if current_size > 0 {
@@ -1673,7 +1673,7 @@ mod _io {
                 check_writable(&raw, vm)?;
             }
 
-            data.buffer = vec![0; buffer_size];
+            data.buffer = vm.new_zeroed_bytes(buffer_size)?;
 
             if Self::READABLE {
                 data.reset_read();
@@ -1938,7 +1938,7 @@ mod _io {
             if data.writable() {
                 data.flush_rewind(vm)?;
             }
-            let mut v = vec![0; n];
+            let mut v = vm.new_zeroed_bytes(n)?;
             data.reset_read();
             let r = data
                 .raw_read(Either::A(Some(&mut v)), 0..n, vm)?
@@ -5767,7 +5767,7 @@ mod fileio {
             }
             let handle = zelf.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
-                let mut bytes = vec![0; read_byte];
+                let mut bytes = vm.new_zeroed_bytes(read_byte)?;
                 // Loop on EINTR (PEP 475)
                 let n = loop {
                     match vm.allow_threads(|| host_io::read_once(handle, &mut bytes)) {

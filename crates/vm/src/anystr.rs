@@ -27,7 +27,7 @@ pub struct SplitLinesArgs {
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
     #[pyarg(any, default = 8)]
-    tabsize: isize,
+    tabsize: i32,
 }
 
 impl ExpandTabsArgs {
@@ -132,6 +132,11 @@ where
 {
     fn new() -> Self;
     fn with_capacity(capacity: usize) -> Self;
+    /// `with_capacity`, reporting a capacity that cannot be allocated instead
+    /// of aborting the process on it.
+    fn try_with_capacity(capacity: usize) -> Option<Self>
+    where
+        Self: Sized;
     fn push_str(&mut self, s: &S);
 }
 
@@ -285,27 +290,29 @@ pub(crate) trait AnyStr {
         }
     }
 
-    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Self::Container {
-        let mut u = Self::Container::with_capacity(
-            (left + right) * fillchar.bytes_len() + self.bytes_len(),
-        );
+    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Option<Self::Container> {
+        let capacity = left
+            .checked_add(right)?
+            .checked_mul(fillchar.bytes_len())?
+            .checked_add(self.bytes_len())?;
+        let mut u = Self::Container::try_with_capacity(capacity)?;
         u.extend(core::iter::repeat_n(fillchar, left));
         u.push_str(self);
         u.extend(core::iter::repeat_n(fillchar, right));
-        u
+        Some(u)
     }
 
-    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         let marg = width - len;
         let left = marg / 2 + (marg & width & 1);
         self.py_pad(left, marg - left, fillchar)
     }
 
-    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(0, width - len, fillchar)
     }
 
-    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(width - len, 0, fillchar)
     }
 
@@ -402,7 +409,7 @@ pub(crate) trait AnyStr {
         elements
     }
 
-    fn py_zfill(&self, width: isize) -> Vec<u8> {
+    fn py_zfill(&self, width: isize) -> Option<Vec<u8>> {
         let width = width.to_usize().unwrap_or(0);
         let char_len = self.elements().count();
         let width = self

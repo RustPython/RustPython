@@ -847,8 +847,8 @@ pub(crate) mod _hashlib {
                 if len < 1 {
                     return Err(vm.new_value_error("key length must be greater than 0."));
                 }
-                usize::try_from(len)
-                    .map_err(|_| vm.new_overflow_error("key length is too great."))?
+                i32::try_from(len).map_err(|_| vm.new_overflow_error("key length is too great."))?
+                    as usize
             }
             None => hash_digest_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?,
         };

@@ -197,3 +197,10 @@ expect_value_error(
     f"cannot fit '{truncated_non_ascii_type_name}' into an index-sized integer",
     lambda: setattr(textio, "_CHUNK_SIZE", NonAsciiNamedChunkSize()),
 )
+
+
+# A buffer size or read size that cannot be allocated is a MemoryError, not an
+# aborted process.
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a"), buffer_size=2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read(2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read1(2**62))
