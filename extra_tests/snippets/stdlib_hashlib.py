@@ -57,10 +57,12 @@ assert (
 assert _md5.md5(b"").hexdigest() == "d41d8cd98f00b204e9800998ecf8427e"
 assert _sha1.sha1(b"").hexdigest() == "da39a3ee5e6b4b0d3255bfef95601890afd80709"
 
-# a derived key wider than a C int does not fit, and never gets allocated
+# a derived key wider than a C int does not fit, and never gets allocated.
+# Which OverflowError comes out depends on the width of a C long: where it is
+# narrower than the length asked for, converting the argument fails first.
 try:
     hashlib.pbkdf2_hmac("sha256", b"password", b"salt", 1, 2**62)
-except OverflowError as e:
-    assert "key length is too great." in str(e), e
+except OverflowError:
+    pass
 else:
     assert False, "expected OverflowError"
