@@ -74,9 +74,20 @@ mod _queue {
             }
         }
 
-        fn release(&self) {
+        /// Take `mutex`, detaching first so that blocking on it cannot stall a
+        /// stop-the-world request.
+        ///
+        /// A waiter holds this mutex across its `allow_threads` wait, so it can
+        /// still hold it when it is stopped. An attached thread blocking on it
+        /// would then never reach a safepoint, the stop would never complete,
+        /// and the holder would never be resumed to release it.
+        fn lock_count(&self, vm: &VirtualMachine) -> parking_lot::MutexGuard<'_, usize> {
+            vm.allow_threads(|| self.mutex.lock())
+        }
+
+        fn release(&self, vm: &VirtualMachine) {
             {
-                let mut count = self.mutex.lock();
+                let mut count = self.lock_count(vm);
                 *count += 1;
             } // lock dropped. now we can notify a waiting thread
 
@@ -95,7 +106,7 @@ mod _queue {
                 // Guard must be dropped before check_signals() below, since a
                 // signal handler may call back into this same queue.
                 {
-                    let mut count = self.mutex.lock();
+                    let mut count = self.lock_count(vm);
 
                     if *count > 0 {
                         *count -= 1;
@@ -151,11 +162,15 @@ mod _queue {
     }
 
     impl PySimpleQueue {
-        fn push(&self, item: PyObjectRef) {
+        #[cfg_attr(
+            not(feature = "threading"),
+            expect(unused_variables, reason = "only the semaphore needs the vm")
+        )]
+        fn push(&self, item: PyObjectRef, vm: &VirtualMachine) {
             self.buf.lock().push_back(item);
 
             #[cfg(feature = "threading")]
-            self.sem.release();
+            self.sem.release(vm);
         }
 
         /// Returns a strong reference from the head of the buffer.
@@ -221,14 +236,14 @@ mod _queue {
         }
 
         #[pymethod]
-        fn put(&self, args: PutArgs) {
+        fn put(&self, args: PutArgs, vm: &VirtualMachine) {
             let PutArgs { item, .. } = args;
-            self.push(item);
+            self.push(item, vm);
         }
 
         #[pymethod]
-        fn put_nowait(&self, item: PyObjectRef) {
-            self.push(item);
+        fn put_nowait(&self, item: PyObjectRef, vm: &VirtualMachine) {
+            self.push(item, vm);
         }
 
         #[pymethod]

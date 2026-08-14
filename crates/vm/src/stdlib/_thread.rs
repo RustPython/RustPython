@@ -1385,6 +1385,19 @@ pub(crate) mod _thread {
         }
     }
 
+    /// Take a thread handle's completion mutex, detaching first.
+    ///
+    /// A joiner holds this mutex across its `allow_threads` wait, so it can
+    /// still hold it when stop-the-world stops it. An attached thread that
+    /// blocked on it would never reach a safepoint, so the stop could never
+    /// complete and the holder would never be resumed to release it.
+    fn lock_done<'a>(
+        lock: &'a parking_lot::Mutex<bool>,
+        vm: &VirtualMachine,
+    ) -> parking_lot::MutexGuard<'a, bool> {
+        vm.allow_threads(|| lock.lock())
+    }
+
     /// Reset a parking_lot::Mutex to unlocked state after fork.
     #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
@@ -1467,7 +1480,7 @@ pub(crate) mod _thread {
             // Wait for thread completion using Condvar (supports timeout)
             // Loop to handle spurious wakeups
             let (lock, cvar) = &**done_event;
-            let mut done = lock.lock();
+            let mut done = lock_done(lock, vm);
 
             // ThreadHandle_join semantics: self-join/finalizing checks
             // apply only while target thread has not reported it is exiting yet.
@@ -1527,7 +1540,7 @@ pub(crate) mod _thread {
                     drop(inner_guard);
                     // Wait on done_event
                     let (lock, cvar) = &**done_event;
-                    let mut done = lock.lock();
+                    let mut done = lock_done(lock, vm);
                     while !*done {
                         vm.allow_threads(|| cvar.wait(&mut done));
                     }
@@ -1589,7 +1602,7 @@ pub(crate) mod _thread {
             remove_from_shutdown_handles(vm, inner, done_event);
 
             let (lock, cvar) = &**done_event;
-            *lock.lock() = true;
+            *lock_done(lock, vm) = true;
             cvar.notify_all();
             Ok(())
         }
@@ -1659,7 +1672,7 @@ pub(crate) mod _thread {
             // before returning True.
             let done = {
                 let (lock, _) = &*self.done_event;
-                *lock.lock()
+                *lock_done(lock, vm)
             };
             if !done {
                 return Ok(false);
@@ -1855,7 +1868,7 @@ pub(crate) mod _thread {
         // Starting a handle always resets the completion event.
         {
             let (done_lock, _) = &*handle.done_event;
-            *done_lock.lock() = false;
+            *lock_done(done_lock, vm) = false;
         }
 
         // Add non-daemon threads to shutdown registry so _shutdown() will wait for them
@@ -1937,7 +1950,7 @@ pub(crate) mod _thread {
                     // This must be LAST to ensure all cleanup is complete before join() returns
                     {
                         let (lock, cvar) = &*done_event_for_cleanup;
-                        *lock.lock() = true;
+                        *lock_done(lock, vm) = true;
                         cvar.notify_all();
                     }
                 }
@@ -1972,7 +1985,7 @@ pub(crate) mod _thread {
                 }
                 {
                     let (done_lock, done_cvar) = &*handle.done_event;
-                    *done_lock.lock() = true;
+                    *lock_done(done_lock, vm) = true;
                     done_cvar.notify_all();
                 }
                 if !daemon {
