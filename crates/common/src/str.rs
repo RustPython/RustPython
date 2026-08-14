@@ -1,7 +1,8 @@
 // spell-checker:ignore uncomputed
-use crate::atomic::{PyAtomic, Radium};
+use crate::atomic::{OncePtr, PyAtomic, Radium};
 use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
+use crate::wtf8_index::Wtf8Index;
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
 use core::ops::{Bound, RangeBounds};
@@ -117,6 +118,55 @@ pub struct StrData {
     data: Box<Wtf8>,
     kind: StrKind,
     len: StrLen,
+    index: Wtf8IndexSlot,
+}
+
+/// A [`Wtf8Index`] built on first use.
+///
+/// The table is a pure function of `data`, so publishing it races benignly: a
+/// thread that loses the exchange drops its own copy and reads the winner's.
+#[derive(Default)]
+struct Wtf8IndexSlot(OncePtr<Wtf8Index>);
+
+impl Wtf8IndexSlot {
+    #[inline(always)]
+    fn new() -> Self {
+        Self(OncePtr::new())
+    }
+
+    #[inline]
+    fn get_or_build(&self, data: &Wtf8, char_len: usize) -> &Wtf8Index {
+        let index = self
+            .0
+            .get_or_init(|| Box::new(Wtf8Index::new(data, char_len)));
+        // The slot owns the table, never replaces it, and outlives the borrow.
+        unsafe { index.as_ref() }
+    }
+}
+
+impl fmt::Debug for Wtf8IndexSlot {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0.get() {
+            Some(_) => f.write_str("<built>"),
+            None => f.write_str("<unbuilt>"),
+        }
+    }
+}
+
+impl Clone for Wtf8IndexSlot {
+    /// A fresh slot: the clone copies the buffer, so it has to index that copy,
+    /// and the table is rebuilt on demand rather than eagerly here.
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Wtf8IndexSlot {
+    fn drop(&mut self) {
+        if let Some(index) = self.0.get() {
+            drop(unsafe { Box::from_raw(index.as_ptr()) });
+        }
+    }
 }
 
 struct StrLen(PyAtomic<usize>);
@@ -163,6 +213,7 @@ impl Default for StrData {
             data: <Box<Wtf8>>::default(),
             kind: StrKind::Ascii,
             len: StrLen::zero(),
+            index: Wtf8IndexSlot::new(),
         }
     }
 }
@@ -193,6 +244,7 @@ impl From<Box<AsciiStr>> for StrData {
             len: value.len().into(),
             data: value.into(),
             kind: StrKind::Ascii,
+            index: Wtf8IndexSlot::new(),
         }
     }
 }
@@ -212,6 +264,7 @@ impl From<char> for StrData {
                 data: ch.to_string().into(),
                 kind: StrKind::Utf8,
                 len: 1.into(),
+                index: Wtf8IndexSlot::new(),
             }
         }
     }
@@ -226,6 +279,7 @@ impl From<CodePoint> for StrData {
                 data: Wtf8Buf::from(ch).into(),
                 kind: StrKind::Wtf8,
                 len: 1.into(),
+                index: Wtf8IndexSlot::new(),
             }
         }
     }
@@ -241,7 +295,12 @@ impl StrData {
             StrKind::Ascii => data.len().into(),
             _ => StrLen::uncomputed(),
         };
-        Self { data, kind, len }
+        Self {
+            data,
+            kind,
+            len,
+            index: Wtf8IndexSlot::new(),
+        }
     }
 
     /// # Safety
@@ -253,6 +312,7 @@ impl StrData {
             data,
             kind,
             len: char_len.into(),
+            index: Wtf8IndexSlot::new(),
         }
     }
 
@@ -320,6 +380,29 @@ impl StrData {
         // len cannot be usize::MAX, since vec.capacity() < sys.maxsize
         self.len.0.store(len, Relaxed);
         len
+    }
+
+    /// The byte offset the `index`-th code point starts at.
+    ///
+    /// An `index` at or past the end answers the buffer's byte length, so a
+    /// caller walking to a bound does not have to special-case it.
+    ///
+    /// O(1), but the first call on a non-ASCII string builds an index over the
+    /// whole buffer, so a caller that resolves a single index and stops is
+    /// better served by [`Self::nth_char`].
+    pub fn char_index_to_byte(&self, index: usize) -> usize {
+        // For ASCII the two units coincide, and the table would be a Nth entry
+        // saying N.
+        if self.kind.is_ascii() {
+            return index.min(self.data.len());
+        }
+        let char_len = self.char_len();
+        if index >= char_len {
+            return self.data.len();
+        }
+        self.index
+            .get_or_build(&self.data, char_len)
+            .byte_offset(&self.data, index)
     }
 
     pub fn nth_char(&self, index: usize) -> CodePoint {
