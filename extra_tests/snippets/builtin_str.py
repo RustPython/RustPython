@@ -170,6 +170,15 @@ assert "aaa".count("a", 1, 2) == 1
 assert "aaa".count("a", 2, 2) == 0
 assert "aaa".count("a", 2, 1) == 0
 
+# An empty needle is counted in characters, not in encoded positions.
+assert "".count("") == 1
+assert "abc".count("") == 4
+assert "가나다".count("") == 4
+assert "가나다".count("", 1) == 3
+assert "가나다".count("", 1, 2) == 2
+assert "가나다".count("", 4, 4) == 0
+assert "a\U0001f600b".count("") == 4
+
 assert "___a__".find("a") == 3
 assert "___a__".find("a", -10) == 3
 assert "___a__".find("a", -3) == 3

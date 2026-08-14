@@ -1275,8 +1275,17 @@ impl PyStr {
     #[pymethod]
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
-        self.as_wtf8()
-            .py_count(needle.as_wtf8(), range, |h, n| h.find_iter(n).count())
+        self.as_wtf8().py_count(needle.as_wtf8(), range, |h, n| {
+            if n.is_empty() {
+                // An empty needle sits between every pair of characters and at
+                // both ends, so it occurs once more than the haystack holds
+                // characters. Searching for it in the bytes would instead
+                // answer in encoded positions.
+                h.code_points().count() + 1
+            } else {
+                h.find_iter(n).count()
+            }
+        })
     }
 
     #[pymethod]
