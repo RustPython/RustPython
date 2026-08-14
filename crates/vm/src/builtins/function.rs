@@ -669,7 +669,10 @@ impl Py<PyFunction> {
         );
         // SAFETY: the frame is alive (held by `frame`) and untracked.
         unsafe {
-            crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
+            crate::gc_state::gc_state().track_object(
+                core::ptr::NonNull::from(frame.as_object()),
+                crate::gc_state::current_owner(),
+            );
         }
         frame.set_generator(&obj);
         obj

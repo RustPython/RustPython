@@ -732,8 +732,10 @@ pub mod module {
             // Codec registry RwLock
             vm.state.codec_registry.reinit_after_fork();
 
-            // GC state (multiple Mutex + RwLock)
+            // GC state (multiple Mutex + RwLock), shared lists and this
+            // interpreter's own policy state.
             crate::gc_state::gc_state().reinit_after_fork();
+            vm.state.gc.reinit_after_fork();
 
             // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
             crate::stdlib::_imp::reinit_imp_lock_after_fork();
@@ -773,6 +775,7 @@ pub mod module {
                 reinit_mutex_after_fork(&state.shutdown_handles);
 
                 state.codec_registry.reinit_after_fork();
+                state.gc.reinit_after_fork();
             }
 
             state.stop_the_world.reset_after_fork();

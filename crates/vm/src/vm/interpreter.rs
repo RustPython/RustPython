@@ -151,6 +151,7 @@ where
 
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
+        gc: crate::gc_state::GcInterpreterState::new(&ctx),
         interpreter_id,
         whence,
         is_main,
@@ -617,7 +618,7 @@ impl Interpreter {
             vm.state.finalizing.store(true, Ordering::Release);
 
             // GC pass - collect cycles before module cleanup
-            crate::gc_state::gc_state().collect_force(2);
+            vm.state.gc.collect_force(2);
 
             // Module finalization: remove modules from sys.modules, GC collect
             // (while builtins is still available for __del__), then clear module dicts.
@@ -1203,18 +1204,17 @@ mod tests {
 
     /// Subclassing a shared type records the subclass on an object every
     /// interpreter reaches, but only the interpreter that created it lists it.
+    fn run(vm: &VirtualMachine, scope: &crate::scope::Scope, source: &str) {
+        let code = vm
+            .compile(source, crate::compiler::Mode::Exec, "<test>")
+            .map_err(|err| err.into_pyexception(vm, Some(source)))
+            .unwrap();
+        vm.run_code_obj(code, scope.clone()).unwrap();
+    }
+
     #[test]
     fn subinterpreter_subclasses_are_scoped_to_their_interpreter() {
-        use crate::compiler::Mode;
         use crate::scope::Scope;
-
-        fn run(vm: &VirtualMachine, scope: &Scope, source: &str) {
-            let code = vm
-                .compile(source, Mode::Exec, "<subclasses>")
-                .map_err(|err| err.into_pyexception(vm, Some(source)))
-                .unwrap();
-            vm.run_code_obj(code, scope.clone()).unwrap();
-        }
 
         fn lists_subclass(vm: &VirtualMachine, scope: &Scope, name: &str) -> bool {
             run(
@@ -1253,6 +1253,97 @@ mod tests {
             assert!(lists_subclass(vm, &sub_scope, "SubOnly"));
             assert!(!lists_subclass(vm, &sub_scope, "MainOnly"));
             assert!(lists_subclass(vm, &sub_scope, "bool"));
+        });
+
+        main.enter(|_| drop(main_scope));
+        sub.enter(|_| drop(sub_scope));
+    }
+
+    /// A cycle allocated in one interpreter is not the parent's to collect.
+    #[test]
+    fn collections_only_reach_the_collecting_interpreter() {
+        use core::time::Duration;
+        use std::time::Instant;
+
+        const CYCLE: &str = "class Node:\n    pass\n\
+                             a = Node()\n\
+                             b = Node()\n\
+                             a.other = b\n\
+                             b.other = a\n\
+                             del a\n\
+                             del b\n";
+
+        fn live_nodes(vm: &VirtualMachine) -> usize {
+            vm.state
+                .gc
+                .get_objects(None)
+                .iter()
+                .filter(|obj| &*obj.class().name() == "Node")
+                .count()
+        }
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+
+        let sub_scope = sub.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            run(vm, &scope, CYCLE);
+            assert_eq!(live_nodes(vm), 2);
+            scope
+        });
+
+        // A collection in the parent walks its own tracked objects and leaves
+        // the sub's cycle where it is. Collections are serialized process-wide
+        // by a `try_lock`, so one running elsewhere in the suite makes
+        // `collect_force` a no-op; retry until this one gets to run. Each retry
+        // waits outside `enter`, since a thread that is entered but not running
+        // bytecode never reaches a safepoint, and the collection this is
+        // waiting for cannot stop it.
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !main.enter(|vm| vm.state.gc.collect_force(2).candidates > 0) {
+            assert!(
+                Instant::now() < deadline,
+                "no collection ran in the parent interpreter"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        sub.enter(|vm| assert_eq!(live_nodes(vm), 2));
+
+        sub.enter(|_| drop(sub_scope));
+    }
+
+    /// And it is not the parent's to enumerate either.
+    #[test]
+    fn get_objects_only_reports_the_calling_interpreter() {
+        fn tracks_class(vm: &VirtualMachine, name: &str) -> bool {
+            vm.state
+                .gc
+                .get_objects(None)
+                .iter()
+                .any(|obj| &*obj.class().name() == name)
+        }
+
+        let main = Interpreter::without_stdlib(Default::default());
+        let sub = main.create_subinterpreter();
+
+        let main_scope = main.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            run(vm, &scope, "class MainNode:\n    pass\nkeep = MainNode()\n");
+            scope
+        });
+        let sub_scope = sub.enter(|vm| {
+            let scope = vm.new_scope_with_builtins();
+            run(vm, &scope, "class SubNode:\n    pass\nkeep = SubNode()\n");
+            scope
+        });
+
+        main.enter(|vm| {
+            assert!(tracks_class(vm, "MainNode"));
+            assert!(!tracks_class(vm, "SubNode"));
+        });
+        sub.enter(|vm| {
+            assert!(tracks_class(vm, "SubNode"));
+            assert!(!tracks_class(vm, "MainNode"));
         });
 
         main.enter(|_| drop(main_scope));
@@ -1356,7 +1447,7 @@ for _ in range(40):
             let deadline = Instant::now() + Duration::from_secs(2);
             let mut collections = 0;
             while Instant::now() < deadline && collections < 20 {
-                crate::gc_state::gc_state().collect_force(2);
+                vm.state.gc.collect_force(2);
                 collections += 1;
             }
             assert!(collections > 0);

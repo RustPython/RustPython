@@ -795,6 +795,8 @@ pub struct PyGlobalState {
     /// Stop-the-world state for pre-fork thread suspension
     #[cfg(feature = "threading")]
     pub stop_the_world: StopTheWorldState,
+    /// This interpreter's garbage collector policy and results.
+    pub gc: crate::gc_state::GcInterpreterState,
 }
 
 impl PyGlobalState {
@@ -1812,14 +1814,14 @@ impl VirtualMachine {
         // Phase 4: GC collect — modules removed from sys.modules are freed,
         // exposing cycles (e.g., dict ↔ function.__globals__). GC collects
         // these and calls __del__ while module dicts are still intact.
-        crate::gc_state::gc_state().collect_force(2);
+        self.state.gc.collect_force(2);
 
         // Phase 5: Clear module dicts in reverse import order using 2-pass algorithm.
         // Skip builtins and sys — those are cleared last.
         self.finalize_clear_module_dicts(&module_weakrefs);
 
         // Phase 6: GC collect — pick up anything freed by dict clearing.
-        crate::gc_state::gc_state().collect_force(2);
+        self.state.gc.collect_force(2);
 
         // Phase 7: Clear sys and builtins dicts last
         self.finalize_clear_sys_builtins_dict();
@@ -2329,8 +2331,10 @@ impl VirtualMachine {
             if mat_ptr != 0 {
                 let fo = unsafe { &*(mat_ptr as *const crate::Py<crate::frame::FrameObject>) };
                 unsafe {
-                    crate::gc_state::gc_state()
-                        .track_object(core::ptr::NonNull::from(fo.as_object()));
+                    crate::gc_state::gc_state().track_object(
+                        core::ptr::NonNull::from(fo.as_object()),
+                        crate::gc_state::current_owner(),
+                    );
                     let live_iframe = &*iframe_ptr;
                     live_iframe.cold().temporary_refs.lock().clear();
                 }
@@ -2809,7 +2813,7 @@ impl VirtualMachine {
     #[cfg(feature = "threading")]
     pub(crate) fn run_scheduled_gc(&self) {
         if crate::signal::take_gc_scheduled() {
-            crate::gc_state::gc_state().collect(0);
+            self.state.gc.collect(0);
         }
     }
 

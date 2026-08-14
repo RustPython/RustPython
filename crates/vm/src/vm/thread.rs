@@ -159,6 +159,26 @@ fn set_current_vm<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     })
 }
 
+/// Pointer to the GC state of the interpreter running on this thread.
+///
+/// The pointee belongs to the `PyGlobalState` of the VM on top of `VM_STACK`,
+/// which is borrowed for the whole `set_current_vm` scope — so the pointer stays
+/// valid as long as the caller remains inside that scope.
+pub(crate) fn current_gc_state() -> Option<NonNull<crate::gc_state::GcInterpreterState>> {
+    // Reached from every tracked allocation, including ones a thread-local
+    // destructor makes while the VM stack is being torn down, so neither a
+    // destroyed key nor an outstanding borrow may panic here.
+    VM_STACK
+        .try_with(|vms| {
+            let vm = vms.try_borrow().ok()?.last().copied()?;
+            // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+            // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+            Some(NonNull::from(&unsafe { vm.as_ref() }.state.gc))
+        })
+        .ok()
+        .flatten()
+}
+
 pub fn try_with_current_vm<R>(f: impl FnOnce(&VirtualMachine) -> R) -> Option<R> {
     VM_STACK.with(|vms| {
         let vm = vms.borrow().last().copied()?;

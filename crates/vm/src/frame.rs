@@ -2611,7 +2611,10 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
     );
     // SAFETY: the frame is alive (held by `frame` and the escaped reference)
     // and untracked.
-    unsafe { crate::gc_state::gc_state().track_object(NonNull::from(frame_obj)) };
+    unsafe {
+        crate::gc_state::gc_state()
+            .track_object(NonNull::from(frame_obj), crate::gc_state::current_owner())
+    };
 }
 
 type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;

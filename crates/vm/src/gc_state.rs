@@ -4,7 +4,7 @@
 
 use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
-use crate::object::{GC_PERMANENT, GC_UNTRACKED, GcLink};
+use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_UNTRACKED, GcLink};
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -56,10 +56,12 @@ pub struct GcStats {
     pub duration: f64,
 }
 
-/// A single GC generation with intrusive linked list
+/// One generation's collection policy and statistics, per interpreter.
+///
+/// The objects themselves live in the process-wide lists on [`GcState`], so the
+/// occupancy count sits there; what an interpreter owns is when to collect and
+/// what its own collections have done.
 pub struct GcGeneration {
-    /// Number of objects in this generation
-    count: AtomicUsize,
     /// Threshold for triggering collection
     threshold: AtomicU32,
     /// Collection statistics
@@ -70,7 +72,6 @@ impl GcGeneration {
     #[must_use]
     pub const fn new(threshold: u32) -> Self {
         Self {
-            count: AtomicUsize::new(0),
             threshold: AtomicU32::new(threshold),
             stats: PyMutex::new(GcStats {
                 collections: 0,
@@ -80,10 +81,6 @@ impl GcGeneration {
                 duration: 0.0,
             }),
         }
-    }
-
-    pub fn count(&self) -> usize {
-        self.count.load(Ordering::SeqCst)
     }
 
     pub fn threshold(&self) -> u32 {
@@ -131,6 +128,26 @@ impl GcGeneration {
     }
 }
 
+/// Drop one from a generation's occupancy.
+///
+/// A collection resets the counts of the generations it emptied, but it only
+/// empties its own interpreter's objects; another interpreter's stay behind with
+/// the count already zeroed, and untracking one of those must not wrap.
+fn release_count(count: &AtomicUsize) {
+    let _ = count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
+        Some(count.saturating_sub(1))
+    });
+}
+
+/// Whether `owner`'s collections act on `obj`.
+///
+/// Objects with no owner — everything the shared context allocates, and anything
+/// allocated with no interpreter current — belong to all of them.
+fn is_owned_by(obj: &PyObject, owner: u32) -> bool {
+    let obj_owner = obj.gc_owner();
+    obj_owner == owner || obj_owner == GC_NO_OWNER
+}
+
 /// Wrapper for NonNull<PyObject> to impl Hash/Eq for use in temporary collection sets.
 /// Only used within collect_inner, never shared across threads.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -147,18 +164,23 @@ struct GcPtr(NonNull<PyObject>);
 /// happens explicitly once the snapshot has pinned every object; `Drop` is a
 /// backstop that also restarts on the early-return paths.
 ///
-/// The generation lists are process-global, so a collection walks objects
-/// owned by *every* interpreter. Stopping only the collecting interpreter
-/// would leave another interpreter's threads mutating the same object graph,
-/// so every live interpreter is stopped. Stopping in `runtime` id order keeps
-/// exclusion acquisition ordered; the `collecting` mutex additionally
+/// A collection acts on one interpreter's objects, but its candidates include
+/// the ones no interpreter owns, which every interpreter can reference and so
+/// incref. Reading a refcount that another interpreter is changing is what
+/// makes an object look unreachable when it is not, so every live interpreter
+/// is stopped, not just the collecting one. Stopping in `runtime` id order
+/// keeps exclusion acquisition ordered; the `collecting` mutex additionally
 /// serializes collections process-wide, so no second collector can take these
 /// exclusions in another order.
 #[cfg(feature = "threading")]
 struct CollectStopTheWorld {
     /// Stopped interpreter states, in stop order. Held as strong references so
-    /// an interpreter cannot be dropped between stop and restart.
+    /// an interpreter cannot be dropped between stop and restart, and kept past
+    /// the restart so that releasing the last one — which frees that
+    /// interpreter's objects, and so removes them from these lists — happens
+    /// after the collection has let go of the generation locks.
     stopped: Vec<crate::common::rc::PyRc<crate::vm::PyGlobalState>>,
+    restarted: bool,
 }
 
 #[cfg(feature = "threading")]
@@ -173,6 +195,7 @@ impl CollectStopTheWorld {
         if !crate::vm::thread::current_vm_is_set() {
             return Self {
                 stopped: Vec::new(),
+                restarted: true,
             };
         }
 
@@ -182,6 +205,7 @@ impl CollectStopTheWorld {
         // and their exclusion held forever.
         let mut guard = Self {
             stopped: Vec::new(),
+            restarted: false,
         };
         for state in crate::vm::runtime::live_interpreter_states() {
             state.stop_the_world.stop_the_world(&state);
@@ -192,9 +216,14 @@ impl CollectStopTheWorld {
 
     /// Restart the world. Idempotent.
     fn restart(&mut self) {
-        // Reverse of the stop order.
-        for state in self.stopped.drain(..).rev() {
-            state.stop_the_world.start_the_world(&state);
+        if self.restarted {
+            return;
+        }
+        self.restarted = true;
+        // Reverse of the stop order. The references stay until this guard is
+        // dropped; see the field comment.
+        for state in self.stopped.iter().rev() {
+            state.stop_the_world.start_the_world(state);
         }
     }
 
@@ -212,29 +241,32 @@ impl Drop for CollectStopTheWorld {
     }
 }
 
-/// Global GC state
+/// The process-wide object lists every interpreter's collections walk.
+///
+/// Interpreter-owned policy and results live in [`GcInterpreterState`]; what is
+/// here is shared because the lists are: an object is untracked from
+/// `default_dealloc`, where no interpreter is in scope, so it has to be findable
+/// without one.
 pub struct GcState {
-    /// 3 generations (0 = youngest, 2 = oldest)
-    pub generations: [GcGeneration; 3],
-    /// Permanent generation (frozen objects)
-    pub permanent: GcGeneration,
-    /// GC enabled flag
-    pub enabled: AtomicBool,
     /// Per-generation intrusive linked lists for object tracking.
     /// Objects start in gen0, survivors are promoted to gen1, then gen2.
     generation_lists: [PyRwLock<LinkedList<GcLink, PyObject>>; 3],
     /// Frozen/permanent objects (excluded from normal GC)
     permanent_list: PyRwLock<LinkedList<GcLink, PyObject>>,
-    /// Debug flags
-    pub debug: AtomicU32,
-    /// gc.garbage list (uncollectable objects with __del__)
-    pub garbage: PyMutex<Vec<PyObjectRef>>,
-    /// gc.callbacks list
-    pub callbacks: PyMutex<Vec<PyObjectRef>>,
+    /// Number of tracked objects per generation, across all interpreters.
+    counts: [AtomicUsize; 3],
+    /// Number of frozen objects.
+    permanent_count: AtomicUsize,
     /// Mutex for collection (prevents concurrent collections)
     collecting: PyMutex<()>,
     /// Allocation counter for gen0
     alloc_count: AtomicUsize,
+    /// Next `gc_owner` tag to hand to an interpreter.
+    next_owner: AtomicU32,
+    /// Tags of interpreters that are gone. Their objects outlived them, so a
+    /// collection adopts them — tags them `GC_NO_OWNER` again — as it walks,
+    /// rather than leaving them for a collector that will never come.
+    retired: PyMutex<Vec<u32>>,
 }
 
 // SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
@@ -254,102 +286,71 @@ impl GcState {
     #[must_use]
     pub const fn new() -> Self {
         Self {
-            generations: [
-                GcGeneration::new(2000), // young
-                GcGeneration::new(10),   // old[0]
-                GcGeneration::new(0),    // old[1]
-            ],
-            permanent: GcGeneration::new(0),
-            enabled: AtomicBool::new(true),
             generation_lists: [
                 PyRwLock::new(LinkedList::new()),
                 PyRwLock::new(LinkedList::new()),
                 PyRwLock::new(LinkedList::new()),
             ],
             permanent_list: PyRwLock::new(LinkedList::new()),
-            debug: AtomicU32::new(0),
-            garbage: PyMutex::new(Vec::new()),
-            callbacks: PyMutex::new(Vec::new()),
+            counts: [
+                AtomicUsize::new(0),
+                AtomicUsize::new(0),
+                AtomicUsize::new(0),
+            ],
+            permanent_count: AtomicUsize::new(0),
             collecting: PyMutex::new(()),
             alloc_count: AtomicUsize::new(0),
+            next_owner: AtomicU32::new(GC_NO_OWNER + 1),
+            retired: PyMutex::new(Vec::new()),
         }
     }
 
-    /// Check if GC is enabled
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::SeqCst)
+    /// Reserve a tag for a new interpreter. Tags are never reused; exhausting
+    /// the 32-bit space falls back to `GC_NO_OWNER`, which costs isolation but
+    /// stays correct, rather than aliasing a live interpreter.
+    fn alloc_owner(&self) -> u32 {
+        self.next_owner
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+                next.checked_add(1)
+            })
+            .unwrap_or(GC_NO_OWNER)
     }
 
-    /// Enable GC
-    pub fn enable(&self) {
-        self.enabled.store(true, Ordering::SeqCst);
-    }
-
-    /// Disable GC
-    pub fn disable(&self) {
-        self.enabled.store(false, Ordering::SeqCst);
-    }
-
-    /// Get debug flags
-    pub fn get_debug(&self) -> GcDebugFlags {
-        GcDebugFlags::from_bits_truncate(self.debug.load(Ordering::SeqCst))
-    }
-
-    /// Set debug flags
-    pub fn set_debug(&self, flags: GcDebugFlags) {
-        self.debug.store(flags.bits(), Ordering::SeqCst);
-    }
-
-    /// Get thresholds for all generations
-    pub fn get_threshold(&self) -> (u32, u32, u32) {
-        (
-            self.generations[0].threshold(),
-            self.generations[1].threshold(),
-            self.generations[2].threshold(),
-        )
-    }
-
-    /// Set thresholds
-    pub fn set_threshold(&self, t0: u32, t1: Option<u32>, t2: Option<u32>) {
-        self.generations[0].set_threshold(t0);
-        if let Some(t1) = t1 {
-            self.generations[1].set_threshold(t1);
+    /// Record that `owner`'s interpreter is gone, so the next collection adopts
+    /// whatever it left behind. Retagging the objects here would mean walking
+    /// every list under an interpreter drop, which happens while a collection
+    /// holds the collecting lock.
+    fn retire_owner(&self, owner: u32) {
+        if owner == GC_NO_OWNER {
+            return;
         }
-        if let Some(t2) = t2 {
-            self.generations[2].set_threshold(t2);
-        }
+        self.retired.lock().push(owner);
     }
 
-    /// Get counts for all generations
+    /// Get counts for all generations. Tracked objects are shared, so these are
+    /// process-wide even though the thresholds they are compared against are
+    /// per interpreter.
     pub fn get_count(&self) -> (usize, usize, usize) {
         (
-            self.generations[0].count(),
-            self.generations[1].count(),
-            self.generations[2].count(),
+            self.counts[0].load(Ordering::SeqCst),
+            self.counts[1].load(Ordering::SeqCst),
+            self.counts[2].load(Ordering::SeqCst),
         )
     }
 
-    /// Get statistics for all generations
-    pub fn get_stats(&self) -> [GcStats; 3] {
-        [
-            self.generations[0].stats(),
-            self.generations[1].stats(),
-            self.generations[2].stats(),
-        ]
-    }
-
-    /// Track a new object (add to gen0).
+    /// Track a new object (add to gen0) as owned by `owner`.
     /// O(1) — intrusive linked list push_front, no hashing.
     ///
     /// # Safety
     /// obj must be a valid pointer to a PyObject
-    pub unsafe fn track_object(&self, obj: NonNull<PyObject>) {
+    pub unsafe fn track_object(&self, obj: NonNull<PyObject>, owner: u32) {
         let obj_ref = unsafe { obj.as_ref() };
         obj_ref.set_gc_tracked();
         obj_ref.set_gc_generation(0);
+        obj_ref.set_gc_owner(owner);
 
         self.generation_lists[0].write().push_front(obj);
-        self.generations[0].count.fetch_add(1, Ordering::SeqCst);
+        self.counts[0].fetch_add(1, Ordering::SeqCst);
         self.alloc_count.fetch_add(1, Ordering::SeqCst);
     }
 
@@ -369,10 +370,10 @@ impl GcState {
                 (
                     &self.generation_lists[obj_gen as usize]
                         as &PyRwLock<LinkedList<GcLink, PyObject>>,
-                    &self.generations[obj_gen as usize].count,
+                    &self.counts[obj_gen as usize],
                 )
             } else if obj_gen == GC_PERMANENT {
-                (&self.permanent_list, &self.permanent.count)
+                (&self.permanent_list, &self.permanent_count)
             } else {
                 return; // GC_UNTRACKED or unknown — already untracked
             };
@@ -384,7 +385,7 @@ impl GcState {
                 continue; // Retry with the updated generation
             }
             if unsafe { list.remove(obj) }.is_some() {
-                count.fetch_sub(1, Ordering::SeqCst);
+                release_count(count);
                 obj_ref.clear_gc_tracked();
                 obj_ref.set_gc_generation(GC_UNTRACKED);
             } else {
@@ -402,14 +403,18 @@ impl GcState {
         }
     }
 
-    /// Get tracked objects (for gc.get_objects)
-    /// If generation is None, returns all tracked objects.
-    /// If generation is Some(n), returns objects in generation n only.
-    pub fn get_objects(&self, generation: Option<i32>) -> Vec<PyObjectRef> {
+    /// Get the objects `owner` tracks (for gc.get_objects), plus the ones no
+    /// interpreter owns.
+    /// If generation is None, returns all such objects.
+    /// If generation is Some(n), returns those in generation n only.
+    pub fn get_objects(&self, generation: Option<i32>, owner: u32) -> Vec<PyObjectRef> {
         fn collect_from_list(
             list: &LinkedList<GcLink, PyObject>,
+            owner: u32,
         ) -> impl Iterator<Item = PyObjectRef> + '_ {
-            list.iter().filter_map(|obj| obj.try_to_owned())
+            list.iter()
+                .filter(move |obj| is_owned_by(obj, owner))
+                .filter_map(|obj| obj.try_to_owned())
         }
 
         match generation {
@@ -417,14 +422,14 @@ impl GcState {
                 // Return all tracked objects from all generations + permanent
                 let mut result = Vec::new();
                 for gen_list in &self.generation_lists {
-                    result.extend(collect_from_list(&gen_list.read()));
+                    result.extend(collect_from_list(&gen_list.read(), owner));
                 }
-                result.extend(collect_from_list(&self.permanent_list.read()));
+                result.extend(collect_from_list(&self.permanent_list.read(), owner));
                 result
             }
             Some(g) if (0..=2).contains(&g) => {
                 let guard = self.generation_lists[g as usize].read();
-                collect_from_list(&guard).collect()
+                collect_from_list(&guard, owner).collect()
             }
             _ => Vec::new(),
         }
@@ -433,14 +438,14 @@ impl GcState {
     /// Check if automatic GC should run and run it if needed.
     /// Called after object allocation.
     /// Returns true if GC was run, false otherwise.
-    pub fn maybe_collect(&self) -> bool {
-        if !self.is_enabled() {
+    fn maybe_collect(&self, gc: &GcInterpreterState) -> bool {
+        if !gc.is_enabled() {
             return false;
         }
 
         // Check gen0 threshold
-        let count0 = self.generations[0].count.load(Ordering::SeqCst) as u32;
-        let threshold0 = self.generations[0].threshold();
+        let count0 = self.counts[0].load(Ordering::SeqCst) as u32;
+        let threshold0 = gc.generations[0].threshold();
         if threshold0 > 0 && count0 >= threshold0 {
             #[cfg(feature = "threading")]
             {
@@ -456,7 +461,7 @@ impl GcState {
             // thread whose frames could be read mid-mutation, so collect inline.
             #[cfg(not(feature = "threading"))]
             {
-                self.collect(0);
+                self.collect_inner(gc, 0, false);
                 return true;
             }
         }
@@ -464,18 +469,13 @@ impl GcState {
         false
     }
 
-    /// Perform garbage collection on the given generation
-    pub fn collect(&self, generation: usize) -> CollectResult {
-        self.collect_inner(generation, false)
-    }
-
-    /// Force collection even if GC is disabled (for manual gc.collect() calls)
-    pub fn collect_force(&self, generation: usize) -> CollectResult {
-        self.collect_inner(generation, true)
-    }
-
-    fn collect_inner(&self, generation: usize, force: bool) -> CollectResult {
-        if !force && !self.is_enabled() {
+    fn collect_inner(
+        &self,
+        gc: &GcInterpreterState,
+        generation: usize,
+        force: bool,
+    ) -> CollectResult {
+        if !force && !gc.is_enabled() {
             return CollectResult::default();
         }
 
@@ -494,7 +494,7 @@ impl GcState {
         core::sync::atomic::fence(Ordering::SeqCst);
 
         let generation = generation.min(2);
-        let debug = self.get_debug();
+        let debug = gc.get_debug();
 
         // Clear the method cache to release strong references that
         // might prevent cycle collection (_PyType_ClearCache).
@@ -532,13 +532,32 @@ impl GcState {
             .map(|i| self.generation_lists[i].read())
             .collect();
 
+        // Only this interpreter's objects, plus the ones no interpreter owns.
+        // Another interpreter's objects stay out of the candidate set, so they
+        // act as external roots: anything they reference survives this pass.
+        let owner = gc.owner;
+        let retired = self.retired.lock().clone();
         let mut collecting: HashSet<GcPtr> = HashSet::new();
         for gen_list in &gen_locks {
             for obj in gen_list.iter() {
-                if obj.strong_count() > 0 {
+                if retired.contains(&obj.gc_owner()) {
+                    obj.set_gc_owner(GC_NO_OWNER);
+                }
+                if obj.strong_count() > 0 && is_owned_by(obj, owner) {
                     collecting.insert(GcPtr(NonNull::from(obj)));
                 }
             }
+        }
+
+        // A full collection is the only one that sees every generation, so it
+        // is where adoption finishes and the tags stop being tracked.
+        if generation == 2 && !retired.is_empty() {
+            for obj in self.permanent_list.read().iter() {
+                if retired.contains(&obj.gc_owner()) {
+                    obj.set_gc_owner(GC_NO_OWNER);
+                }
+            }
+            self.retired.lock().retain(|tag| !retired.contains(tag));
         }
 
         if collecting.is_empty() {
@@ -546,12 +565,12 @@ impl GcState {
             // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for i in 0..reset_end {
-                self.generations[i].count.store(0, Ordering::SeqCst);
+                self.counts[i].store(0, Ordering::SeqCst);
             }
 
             let duration = elapsed_secs(start_time);
 
-            self.generations[generation].update_stats(0, 0, 0, duration);
+            gc.generations[generation].update_stats(0, 0, 0, duration);
             return CollectResult {
                 collected: 0,
                 uncollectable: 0,
@@ -722,12 +741,12 @@ impl GcState {
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for i in 0..reset_end {
-                self.generations[i].count.store(0, Ordering::SeqCst);
+                self.counts[i].store(0, Ordering::SeqCst);
             }
 
             let duration = elapsed_secs(start_time);
 
-            self.generations[generation].update_stats(0, 0, candidates, duration);
+            gc.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
                 collected: 0,
                 uncollectable: 0,
@@ -745,12 +764,12 @@ impl GcState {
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for i in 0..reset_end {
-                self.generations[i].count.store(0, Ordering::SeqCst);
+                self.counts[i].store(0, Ordering::SeqCst);
             }
 
             let duration = elapsed_secs(start_time);
 
-            self.generations[generation].update_stats(0, 0, candidates, duration);
+            gc.generations[generation].update_stats(0, 0, candidates, duration);
             return CollectResult {
                 collected: 0,
                 uncollectable: 0,
@@ -870,7 +889,7 @@ impl GcState {
         }
 
         if debug.contains(GcDebugFlags::SAVEALL) {
-            let mut garbage_guard = self.garbage.lock();
+            let mut garbage_guard = gc.garbage.lock();
             for obj_ref in &truly_dead {
                 garbage_guard.push(obj_ref.clone());
             }
@@ -947,7 +966,10 @@ impl GcState {
                     reason = "Iteration order doesn't matter here"
                 )]
                 for &ptr in &late_resurrected {
-                    unsafe { self.track_object(ptr.0) };
+                    // Re-tracking a resurrected object: it keeps the owner it
+                    // was allocated under.
+                    let owner = unsafe { ptr.0.as_ref() }.gc_owner();
+                    unsafe { self.track_object(ptr.0, owner) };
                 }
             }
             rustpython_common::refcount::with_deferred_drops(|| {
@@ -971,12 +993,12 @@ impl GcState {
         // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
         let reset_end = if generation >= 2 { 2 } else { generation + 1 };
         for i in 0..reset_end {
-            self.generations[i].count.store(0, Ordering::SeqCst);
+            self.counts[i].store(0, Ordering::SeqCst);
         }
 
         let duration = elapsed_secs(start_time);
 
-        self.generations[generation].update_stats(collected, 0, candidates, duration);
+        gc.generations[generation].update_stats(collected, 0, candidates, duration);
 
         CollectResult {
             collected,
@@ -1019,14 +1041,10 @@ impl GcState {
                 }
 
                 if unsafe { src.remove(ptr) }.is_some() {
-                    self.generations[src_gen]
-                        .count
-                        .fetch_sub(1, Ordering::SeqCst);
+                    release_count(&self.counts[src_gen]);
 
                     dst.push_front(ptr);
-                    self.generations[next_gen]
-                        .count
-                        .fetch_add(1, Ordering::SeqCst);
+                    self.counts[next_gen].fetch_add(1, Ordering::SeqCst);
 
                     obj.set_gc_generation(next_gen as u8);
                 }
@@ -1036,45 +1054,66 @@ impl GcState {
 
     /// Get count of frozen objects
     pub fn get_freeze_count(&self) -> usize {
-        self.permanent.count()
+        self.permanent_count.load(Ordering::SeqCst)
     }
 
-    /// Freeze all tracked objects (move to permanent generation).
+    /// Freeze the objects `owner` could collect (move them to the permanent
+    /// generation).
     /// Lock order: generation_lists[i] → permanent_list (consistent with unfreeze).
-    pub fn freeze(&self) {
+    fn freeze(&self, owner: u32) {
         let mut count = 0usize;
 
         for (gen_idx, gen_list) in self.generation_lists.iter().enumerate() {
             let mut list = gen_list.write();
             let mut perm = self.permanent_list.write();
-            while let Some(ptr) = list.pop_front() {
+            let moving: Vec<_> = list
+                .iter()
+                .filter(|obj| is_owned_by(obj, owner))
+                .map(NonNull::from)
+                .collect();
+            for ptr in moving {
+                if unsafe { list.remove(ptr) }.is_none() {
+                    continue;
+                }
                 perm.push_front(ptr);
                 unsafe { ptr.as_ref().set_gc_generation(GC_PERMANENT) };
                 count += 1;
+                release_count(&self.counts[gen_idx]);
             }
-            self.generations[gen_idx].count.store(0, Ordering::SeqCst);
         }
 
-        self.permanent.count.fetch_add(count, Ordering::SeqCst);
+        self.permanent_count.fetch_add(count, Ordering::SeqCst);
     }
 
-    /// Unfreeze all objects (move from permanent to gen2).
+    /// Unfreeze the objects `owner` froze (move them from permanent to gen2).
     /// Lock order: generation_lists[2] → permanent_list (consistent with freeze).
-    pub fn unfreeze(&self) {
+    fn unfreeze(&self, owner: u32) {
         let mut count = 0usize;
 
         {
             let mut gen2 = self.generation_lists[2].write();
             let mut perm_list = self.permanent_list.write();
-            while let Some(ptr) = perm_list.pop_front() {
+            let moving: Vec<_> = perm_list
+                .iter()
+                .filter(|obj| is_owned_by(obj, owner))
+                .map(NonNull::from)
+                .collect();
+            for ptr in moving {
+                if unsafe { perm_list.remove(ptr) }.is_none() {
+                    continue;
+                }
                 gen2.push_front(ptr);
                 unsafe { ptr.as_ref().set_gc_generation(2) };
                 count += 1;
             }
-            self.permanent.count.store(0, Ordering::SeqCst);
+            let _ = self.permanent_count.fetch_update(
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+                |permanent| Some(permanent.saturating_sub(count)),
+            );
         }
 
-        self.generations[2].count.fetch_add(count, Ordering::SeqCst);
+        self.counts[2].fetch_add(count, Ordering::SeqCst);
     }
 
     /// Reset all locks to unlocked state after fork().
@@ -1091,13 +1130,7 @@ impl GcState {
 
         unsafe {
             reinit_mutex_after_fork(&self.collecting);
-            reinit_mutex_after_fork(&self.garbage);
-            reinit_mutex_after_fork(&self.callbacks);
-
-            for generation in &self.generations {
-                generation.reinit_stats_after_fork();
-            }
-            self.permanent.reinit_stats_after_fork();
+            reinit_mutex_after_fork(&self.retired);
 
             for rw in &self.generation_lists {
                 reinit_rwlock_after_fork(rw);
@@ -1107,19 +1140,192 @@ impl GcState {
     }
 }
 
+/// Per-interpreter garbage collector state (≈ `PyInterpreterState.gc`).
+///
+/// The generation lists are process-wide (see [`GcState`]); what an interpreter
+/// owns is the policy applied to them and the results — which objects its
+/// collections consider, whether they run automatically, and where uncollectable
+/// objects end up.
+pub struct GcInterpreterState {
+    /// Tag written into every object this interpreter tracks.
+    owner: u32,
+    /// Per-generation thresholds and statistics.
+    pub generations: [GcGeneration; 3],
+    /// GC enabled flag
+    enabled: AtomicBool,
+    /// Debug flags
+    debug: AtomicU32,
+    /// Uncollectable objects saved by this interpreter's collections, drained
+    /// into `py_garbage` by `gc.collect()`.
+    pub garbage: PyMutex<Vec<PyObjectRef>>,
+    /// `gc.garbage`
+    pub py_garbage: crate::builtins::PyListRef,
+    /// `gc.callbacks`
+    pub py_callbacks: crate::builtins::PyListRef,
+}
+
+impl GcInterpreterState {
+    pub fn new(ctx: &crate::vm::Context) -> Self {
+        Self {
+            owner: gc_state().alloc_owner(),
+            generations: [
+                GcGeneration::new(2000), // young
+                GcGeneration::new(10),   // old[0]
+                GcGeneration::new(0),    // old[1]
+            ],
+            enabled: AtomicBool::new(true),
+            debug: AtomicU32::new(0),
+            garbage: PyMutex::new(Vec::new()),
+            py_garbage: ctx.new_list(Vec::new()),
+            py_callbacks: ctx.new_list(Vec::new()),
+        }
+    }
+
+    /// Check if GC is enabled
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::SeqCst)
+    }
+
+    /// Enable GC
+    pub fn enable(&self) {
+        self.enabled.store(true, Ordering::SeqCst);
+    }
+
+    /// Disable GC
+    pub fn disable(&self) {
+        self.enabled.store(false, Ordering::SeqCst);
+    }
+
+    /// Get debug flags
+    pub fn get_debug(&self) -> GcDebugFlags {
+        GcDebugFlags::from_bits_truncate(self.debug.load(Ordering::SeqCst))
+    }
+
+    /// Set debug flags
+    pub fn set_debug(&self, flags: GcDebugFlags) {
+        self.debug.store(flags.bits(), Ordering::SeqCst);
+    }
+
+    /// Get thresholds for all generations
+    pub fn get_threshold(&self) -> (u32, u32, u32) {
+        (
+            self.generations[0].threshold(),
+            self.generations[1].threshold(),
+            self.generations[2].threshold(),
+        )
+    }
+
+    /// Set thresholds
+    pub fn set_threshold(&self, t0: u32, t1: Option<u32>, t2: Option<u32>) {
+        self.generations[0].set_threshold(t0);
+        if let Some(t1) = t1 {
+            self.generations[1].set_threshold(t1);
+        }
+        if let Some(t2) = t2 {
+            self.generations[2].set_threshold(t2);
+        }
+    }
+
+    /// Get statistics for all generations
+    pub fn get_stats(&self) -> [GcStats; 3] {
+        [
+            self.generations[0].stats(),
+            self.generations[1].stats(),
+            self.generations[2].stats(),
+        ]
+    }
+
+    /// Perform garbage collection on the given generation
+    pub fn collect(&self, generation: usize) -> CollectResult {
+        gc_state().collect_inner(self, generation, false)
+    }
+
+    /// Force collection even if GC is disabled (for manual gc.collect() calls)
+    pub fn collect_force(&self, generation: usize) -> CollectResult {
+        gc_state().collect_inner(self, generation, true)
+    }
+
+    /// The tracked objects this interpreter can reach (for gc.get_objects).
+    pub fn get_objects(&self, generation: Option<i32>) -> Vec<PyObjectRef> {
+        gc_state().get_objects(generation, self.owner)
+    }
+
+    /// Move the objects this interpreter could collect into the permanent
+    /// generation.
+    pub fn freeze(&self) {
+        gc_state().freeze(self.owner);
+    }
+
+    /// Move them back out of it.
+    pub fn unfreeze(&self) {
+        gc_state().unfreeze(self.owner);
+    }
+
+    /// Reset this interpreter's GC locks to unlocked state after fork().
+    ///
+    /// # Safety
+    /// Must only be called after fork() in the child process when no other
+    /// threads exist. The calling thread must NOT hold any of these locks.
+    #[cfg(all(unix, feature = "threading"))]
+    pub unsafe fn reinit_after_fork(&self) {
+        unsafe {
+            crate::common::lock::reinit_mutex_after_fork(&self.garbage);
+            for generation in &self.generations {
+                generation.reinit_stats_after_fork();
+            }
+        }
+    }
+}
+
+impl Drop for GcInterpreterState {
+    fn drop(&mut self) {
+        // Objects this interpreter tracked can outlive it (another interpreter
+        // may still hold one). Clearing the tag hands them to every collection
+        // instead of stranding them, and frees the tag for reuse.
+        gc_state().retire_owner(self.owner);
+    }
+}
+
+/// The tag `track_object` should write for the interpreter running now.
+#[must_use]
+pub fn current_owner() -> u32 {
+    // SAFETY: the pointee is owned by the `PyGlobalState` of the VM on top of
+    // this thread's VM stack, which outlives the section this call runs in.
+    crate::vm::thread::current_gc_state().map_or(GC_NO_OWNER, |gc| unsafe { gc.as_ref() }.owner)
+}
+
+/// Track a freshly allocated object under the interpreter running now, and let
+/// it collect if the allocation pushed gen0 past its threshold.
+///
+/// # Safety
+/// obj must be a valid pointer to a PyObject that is not already tracked.
+pub(crate) unsafe fn track_new_object(obj: NonNull<PyObject>) {
+    let state = gc_state();
+    let Some(gc) = crate::vm::thread::current_gc_state() else {
+        // No interpreter is running: the shared context builds its own objects
+        // this way. They are left unowned, so every interpreter collects them.
+        unsafe { state.track_object(obj, GC_NO_OWNER) };
+        return;
+    };
+    // SAFETY: as in `current_owner`.
+    let gc = unsafe { gc.as_ref() };
+    unsafe { state.track_object(obj, gc.owner) };
+    state.maybe_collect(gc);
+}
+
 /// Get a reference to the GC state.
 ///
 /// In threading mode this is a true global (OnceLock).
 /// In non-threading mode this is thread-local, because PyRwLock/PyMutex
 /// use Cell-based locks that are not Sync.
 ///
-/// The collector is process-wide rather than per-interpreter: every
-/// interpreter's tracked objects live in these generation lists, so a
-/// collection stops and collects across all of them, and `gc.disable()`,
-/// thresholds, `gc.garbage` and `gc.get_objects()` observe process-wide state.
-/// Making the collector per-interpreter additionally requires routing
-/// `untrack_object` (called from `default_dealloc`, where no VM is in scope) to
-/// the owning interpreter's lists.
+/// Every interpreter's tracked objects live in these lists, because untracking
+/// happens in `default_dealloc`, where no interpreter is in scope to route to.
+/// What a collection *acts on* is still one interpreter's own objects, selected
+/// by the `gc_owner` tag; [`GcInterpreterState`] holds the rest of the state
+/// that goes with that. The counts here, and so `gc.get_count()` and
+/// `gc.get_freeze_count()`, stay process-wide: they measure how full these
+/// lists are.
 pub fn gc_state() -> &'static GcState {
     rustpython_common::static_cell! {
         static GC_STATE: GcState;
@@ -1131,18 +1337,21 @@ pub fn gc_state() -> &'static GcState {
 mod tests {
     use super::*;
 
+    fn interpreter_state() -> GcInterpreterState {
+        GcInterpreterState::new(crate::vm::Context::genesis())
+    }
+
     #[test]
     fn gc_state_default() {
-        let state = GcState::new();
+        let state = interpreter_state();
         assert!(state.is_enabled());
         assert_eq!(state.get_debug(), GcDebugFlags::empty());
         assert_eq!(state.get_threshold(), (2000, 10, 0));
-        assert_eq!(state.get_count(), (0, 0, 0));
     }
 
     #[test]
     fn gc_enable_disable() {
-        let state = GcState::new();
+        let state = interpreter_state();
         assert!(state.is_enabled());
         state.disable();
         assert!(!state.is_enabled());
@@ -1152,18 +1361,29 @@ mod tests {
 
     #[test]
     fn gc_threshold() {
-        let state = GcState::new();
+        let state = interpreter_state();
         state.set_threshold(100, Some(20), Some(30));
         assert_eq!(state.get_threshold(), (100, 20, 30));
     }
 
     #[test]
     fn gc_debug_flags() {
-        let state = GcState::new();
+        let state = interpreter_state();
         state.set_debug(GcDebugFlags::STATS | GcDebugFlags::COLLECTABLE);
         assert_eq!(
             state.get_debug(),
             GcDebugFlags::STATS | GcDebugFlags::COLLECTABLE
         );
+    }
+
+    /// Live interpreters never share an owner tag, or their collections would
+    /// reach each other's objects.
+    #[test]
+    fn gc_owner_tags_are_distinct_while_live() {
+        let first = interpreter_state();
+        let second = interpreter_state();
+        assert_ne!(first.owner, second.owner);
+        assert_ne!(first.owner, GC_NO_OWNER);
+        assert_ne!(second.owner, GC_NO_OWNER);
     }
 }
