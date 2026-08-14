@@ -1,15 +1,17 @@
 #[pymodule]
 mod _sha512 {
-    use crate::hashlib::_hashlib::{HashArgs, local_sha384, local_sha512};
-    use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
+    use crate::hashlib::_hashlib::{local_sha384, local_sha512};
+    use crate::vm::{
+        Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule, function::FuncArgs,
+    };
 
     #[pyfunction]
-    fn sha384(args: HashArgs, vm: &VirtualMachine) -> PyResult {
+    fn sha384(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(local_sha384(args, vm)?.into_pyobject(vm))
     }
 
     #[pyfunction]
-    fn sha512(args: HashArgs, vm: &VirtualMachine) -> PyResult {
+    fn sha512(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         Ok(local_sha512(args, vm)?.into_pyobject(vm))
     }
 

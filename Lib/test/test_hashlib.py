@@ -275,7 +275,6 @@ class HashLibTestCase(unittest.TestCase):
                     self._hashlib.new(digest_name, data=b'')
                     self._hashlib.new(digest_name, string=b'')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; needs the callee name in FuncArgs::bind to report "argument for f() given by name (...) and position (...)"
     @unittest.skipIf(get_fips_mode(), "skip in FIPS mode")
     def test_clinic_signature_errors(self):
         nomsg = b''
