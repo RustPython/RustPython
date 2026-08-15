@@ -443,3 +443,43 @@ def test_restricted_view_compares():
 
 
 test_restricted_view_compares()
+
+
+def test_release_during_slice_assignment():
+    # copy_single: acquiring the source runs __buffer__, which can release the
+    # destination view.
+    ba = bytearray(b"abcd")
+    mv = memoryview(ba)
+
+    class Src:
+        def __buffer__(self, flags):
+            mv.release()
+            return memoryview(b"WXYZ")
+
+    try:
+        mv[:] = Src()
+        raise AssertionError("wrote through a released view")
+    except ValueError as e:
+        assert "released memoryview" in str(e), e
+    assert bytes(ba) == b"abcd"
+
+    # The destination of a slice assignment counts as no export, so the source
+    # may resize the exporter once it has released the view.
+    ba = bytearray(b"abcd")
+    mv = memoryview(ba)
+
+    class Shrink:
+        def __buffer__(self, flags):
+            mv.release()
+            ba.clear()
+            return memoryview(b"WXYZ")
+
+    try:
+        mv[:] = Shrink()
+        raise AssertionError("wrote through a released view")
+    except ValueError as e:
+        assert "released memoryview" in str(e), e
+    assert bytes(ba) == b""
+
+
+test_release_during_slice_assignment()

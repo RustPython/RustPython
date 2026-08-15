@@ -177,6 +177,21 @@ impl PyMemoryView {
         }
     }
 
+    /// A view for a temporary that never reaches Python. It counts as no export,
+    /// so the exporter stays exactly as resizable as it already was, the way a
+    /// `Py_buffer dest = *view` copy does.
+    #[must_use]
+    fn borrowed_view(&self) -> Self {
+        Self {
+            buffer: self.buffer.detached(),
+            released: AtomicCell::new(false),
+            restricted: AtomicCell::new(false),
+            format_spec: self.format_spec.clone(),
+            desc: self.desc.clone(),
+            hash: OnceCell::new(),
+        }
+    }
+
     fn try_not_released(&self, vm: &VirtualMachine) -> PyResult<()> {
         if self.released.load() {
             Err(vm.new_value_error("operation forbidden on released memoryview object"))
@@ -582,7 +597,7 @@ impl Py<PyMemoryView> {
             return Err(vm.new_not_implemented_error("sub-view are not implemented"));
         }
 
-        let mut dest = self.new_view();
+        let mut dest = self.borrowed_view();
         dest.init_slice(slice, 0, vm)?;
         dest.init_len();
 
@@ -599,6 +614,9 @@ impl Py<PyMemoryView> {
 
         // PyObject_GetBuffer(value, &src, PyBUF_FULL_RO)
         let src = PyBuffer::try_from_object(vm, src)?;
+        // Acquiring the source ran `__buffer__`, which can release this view.
+        // copy_single: CHECK_RELEASED_INT_AGAIN
+        self.try_not_released(vm)?;
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
             return Err(vm.new_value_error(
