@@ -163,15 +163,16 @@ test_setitem_reentrant()
 
 
 def test_frombytes_of_itself():
-    # Resizing is refused while a buffer is exported, before any lock is taken
-    a = array("i", [1, 2, 3])
+    # Resizing is refused while a buffer is exported, before any lock is taken.
+    # The typecode is "b" so the view's items are bytes and the resize is what
+    # the call is refused for.
+    a = array("b", [1, 2, 3])
     m = memoryview(a)
-    try:
+    with assert_raises(BufferError):
         a.frombytes(m)
-    except (BufferError, TypeError):
-        # Refused either as a resize while exported or as a buffer whose
-        # items are not bytes; which one comes first is not the point here.
-        pass
-    else:
-        raise AssertionError("frombytes of its own exported buffer should be refused")
     del m
+
+    # A view of wider items is not a source of bytes at all.
+    wide = array("i", [1, 2, 3])
+    with assert_raises(TypeError):
+        wide.frombytes(memoryview(wide))

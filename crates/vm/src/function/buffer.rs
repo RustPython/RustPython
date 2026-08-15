@@ -76,6 +76,14 @@ impl ArgBytesLike {
         self.0.desc.len
     }
 
+    /// The width of one item. Callers that read the buffer as bytes rather
+    /// than as whatever it holds have to ask, since a contiguous buffer of
+    /// wider items is contiguous all the same.
+    #[must_use]
+    pub const fn itemsize(&self) -> usize {
+        self.0.desc.itemsize
+    }
+
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0

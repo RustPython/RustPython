@@ -925,6 +925,11 @@ pub mod array {
 
         #[pymethod]
         fn frombytes(&self, b: ArgBytesLike, vm: &VirtualMachine) -> PyResult<()> {
+            // The source is read as bytes, so items of any other width would
+            // be reinterpreted rather than appended.
+            if b.itemsize() != 1 {
+                return Err(vm.new_type_error("a bytes-like object is required"));
+            }
             let b = b.borrow_buf();
             let itemsize = self.read().itemsize();
             self._from_bytes(&b, itemsize, vm)
@@ -1471,6 +1476,12 @@ pub mod array {
             // An export is a borrow someone else still holds, so it is
             // answered before the lock rather than by waiting on it.
             (self.exports.load(atomic::Ordering::SeqCst) == 0).then(|| self.write())
+        }
+
+        fn try_resizable(&self, vm: &VirtualMachine) -> PyResult<Self::Resizable<'_>> {
+            self.try_resizable_opt().ok_or_else(|| {
+                vm.new_buffer_error("cannot resize an array that is exporting buffers")
+            })
         }
     }
 
