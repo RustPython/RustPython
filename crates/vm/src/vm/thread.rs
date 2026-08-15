@@ -5,10 +5,10 @@ use crate::builtins::PyBaseExceptionRef;
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
 
-#[cfg(all(unix, feature = "threading"))]
-use crate::frame::FrameObject;
 use crate::frame::InterpreterFrame;
 use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(all(unix, feature = "threading"))]
+use crate::{Py, frame::FrameObject};
 #[cfg(all(unix, feature = "threading"))]
 use core::sync::atomic::AtomicPtr;
 use core::{
@@ -44,7 +44,7 @@ pub struct ThreadSlot {
     /// thread at a safepoint and supplies the happens-before edge, so the
     /// pointer and the frames it reaches are quiescent and alive at read time.
     #[cfg(unix)]
-    pub top_frame: AtomicPtr<FrameObject>,
+    pub top_frame: AtomicPtr<Py<FrameObject>>,
     /// Raw InterpreterFrame pointer, published alongside top_frame so
     /// cross-thread readers (sys._current_frames) can materialize
     /// stack-allocated frames that have no FrameObject.
@@ -114,7 +114,7 @@ thread_local! {
     /// initialized; the `Arc<ThreadSlot>` in `CURRENT_THREAD_SLOT` keeps the
     /// pointee alive until `cleanup_current_thread_frames` clears this.
     #[cfg(all(unix, feature = "threading"))]
-    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<FrameObject>> =
+    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<Py<FrameObject>>> =
         const { Cell::new(core::ptr::null()) };
 
     /// Cached pointer to this thread's `ThreadSlot::top_iframe` for the hot
@@ -818,11 +818,8 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
                     core::ptr::null_mut()
                 } else {
                     let frame_obj = unsafe { (*frame).frame_obj() };
-                    // The payload address, which is what the cross-thread
-                    // reader hands to `Py::from_payload_ptr`. The `Py` address
-                    // would be off by the object header.
                     frame_obj.map_or(core::ptr::null_mut(), |py| {
-                        core::ptr::from_ref::<FrameObject>(py).cast_mut()
+                        py as *const Py<FrameObject> as *mut Py<FrameObject>
                     })
                 };
                 unsafe { &*slot }.store(fo_ptr, Ordering::Relaxed);
@@ -971,7 +968,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             core::ptr::null_mut()
         } else {
             match unsafe { (*top_iframe).frame_obj() } {
-                Some(fo) => core::ptr::from_ref::<FrameObject>(fo).cast_mut(),
+                Some(fo) => fo as *const Py<FrameObject> as *mut Py<FrameObject>,
                 None => core::ptr::null_mut(),
             }
         }
