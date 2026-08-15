@@ -79,16 +79,26 @@ mod decl {
         }
         let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
 
-        let seq2set = |list: &PyObject| -> PyResult<(Vec<Selectable>, FdSet)> {
-            let v: Vec<Selectable> = list.try_to_value(vm)?;
+        let max_fds: usize = cfg_select! {
+            windows => FD_SETSIZE as usize,
+            _ => FD_SETSIZE,
+        };
 
-            let too_many_fds = cfg_select! {
-                windows => v.len() > FD_SETSIZE as usize,
-                _ => v.len() > FD_SETSIZE,
-            };
-            if too_many_fds {
-                return Err(vm.new_value_error("too many file descriptors in select()"));
-            }
+        let seq2set = |list: &PyObject| -> PyResult<(Vec<Selectable>, FdSet)> {
+            // The limit is answered while the sequence is walked rather than
+            // from the length of the result. fileno() runs Python and can
+            // append to the very list being walked, and a walk that re-reads
+            // the list each step -- which is what `seq2set` does -- then never
+            // reaches a length to check.
+            let seen = core::cell::Cell::new(0usize);
+            let v: Vec<Selectable> = vm.extract_elements_with(list, |obj| {
+                let selectable = Selectable::try_from_object(vm, obj)?;
+                seen.set(seen.get() + 1);
+                if seen.get() > max_fds {
+                    return Err(vm.new_value_error("too many file descriptors in select()"));
+                }
+                Ok(selectable)
+            })?;
 
             let mut fds = FdSet::new();
             for fd in &v {

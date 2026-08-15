@@ -73,11 +73,14 @@ if sys.platform != "win32":
             max_fd = sock.fileno()
             max_fd_sock = sock
     assert_raises(ValueError, select.select, [max_fd_sock], [], [], 0)
+for sock in sockets:
+    sock.close()
 del sockets
 a, b = socket.socketpair()
 # CPython disallows this on *nix systems too.
 assert_raises(ValueError, select.select, [a] * TOO_MANY_SELECT_FDS, [], [], 0)
-del a, b
+a.close()
+b.close()
 
 
 # fileno() runs while the sequence is being read, and it can mutate the very
@@ -99,7 +102,26 @@ class MutatesTheList:
 elements = []
 elements.extend([MutatesTheList(elements, mutable_pair.fileno())] * 40)
 assert select.select(elements, [], [], 0) == ([], [], [])
-del mutable_pair, other_end
+
+
+class GrowsTheList:
+    def __init__(self, elements, fd):
+        self.elements = elements
+        self.fd = fd
+
+    def fileno(self):
+        self.elements.append(self)
+        return self.fd
+
+
+# A list that grows by one on every fileno() never reaches its own end, so the
+# limit has to be answered during the walk rather than from the final length.
+elements = []
+elements.append(GrowsTheList(elements, mutable_pair.fileno()))
+assert_raises(ValueError, select.select, elements, [], [], 0)
+
+mutable_pair.close()
+other_end.close()
 
 # poll() waits with signal handlers able to run, and a handler may register on
 # the same poll object.
@@ -124,4 +146,5 @@ if hasattr(select, "poll") and hasattr(signal, "setitimer"):
         signal.setitimer(signal.ITIMER_REAL, 0)
         signal.signal(signal.SIGALRM, previous)
     assert handled == [signal.SIGALRM], handled
-    del idle, idle_peer
+    idle.close()
+    idle_peer.close()
