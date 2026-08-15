@@ -2798,12 +2798,14 @@ mod _sqlite3 {
             }
             let sql_cstr = sql.to_cstring(vm)?;
 
-            let db = connection.db_lock(vm)?;
-
-            db.sql_limit(sql.byte_len(), vm)?;
+            let raw = {
+                let db = connection.db_lock(vm)?;
+                db.sql_limit(sql.byte_len(), vm)?;
+                **db
+            };
 
             let mut tail = null();
-            let st = db.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
+            let st = raw.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
 
             let Some(st) = st else {
                 return Ok(None);
