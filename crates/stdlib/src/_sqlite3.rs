@@ -31,11 +31,11 @@ mod _sqlite3 {
         sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
         sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
         sqlite3_create_collation_v2, sqlite3_create_function_v2, sqlite3_create_window_function,
-        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
-        sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
-        sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset,
-        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_data_count, sqlite3_db_config, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
+        sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize,
+        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
+        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler,
+        sqlite3_reset, sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
         sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
         sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
         sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
@@ -161,7 +161,14 @@ mod _sqlite3 {
         SQLITE_ALTER_TABLE, SQLITE_ANALYZE, SQLITE_ATTACH, SQLITE_CREATE_INDEX,
         SQLITE_CREATE_TABLE, SQLITE_CREATE_TEMP_INDEX, SQLITE_CREATE_TEMP_TABLE,
         SQLITE_CREATE_TEMP_TRIGGER, SQLITE_CREATE_TEMP_VIEW, SQLITE_CREATE_TRIGGER,
-        SQLITE_CREATE_VIEW, SQLITE_CREATE_VTABLE, SQLITE_DELETE, SQLITE_DENY, SQLITE_DETACH,
+        SQLITE_CREATE_VIEW, SQLITE_CREATE_VTABLE, SQLITE_DBCONFIG_DEFENSIVE,
+        SQLITE_DBCONFIG_DQS_DDL, SQLITE_DBCONFIG_DQS_DML, SQLITE_DBCONFIG_ENABLE_FKEY,
+        SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
+        SQLITE_DBCONFIG_ENABLE_QPSG, SQLITE_DBCONFIG_ENABLE_TRIGGER, SQLITE_DBCONFIG_ENABLE_VIEW,
+        SQLITE_DBCONFIG_LEGACY_ALTER_TABLE, SQLITE_DBCONFIG_LEGACY_FILE_FORMAT,
+        SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, SQLITE_DBCONFIG_RESET_DATABASE,
+        SQLITE_DBCONFIG_TRIGGER_EQP, SQLITE_DBCONFIG_TRUSTED_SCHEMA,
+        SQLITE_DBCONFIG_WRITABLE_SCHEMA, SQLITE_DELETE, SQLITE_DENY, SQLITE_DETACH,
         SQLITE_DROP_INDEX, SQLITE_DROP_TABLE, SQLITE_DROP_TEMP_INDEX, SQLITE_DROP_TEMP_TABLE,
         SQLITE_DROP_TEMP_TRIGGER, SQLITE_DROP_TEMP_VIEW, SQLITE_DROP_TRIGGER, SQLITE_DROP_VIEW,
         SQLITE_DROP_VTABLE, SQLITE_FUNCTION, SQLITE_IGNORE, SQLITE_INSERT, SQLITE_LIMIT_ATTACHED,
@@ -1517,6 +1524,40 @@ mod _sqlite3 {
         #[pymethod]
         fn setlimit(&self, category: c_int, limit: c_int, vm: &VirtualMachine) -> PyResult<c_int> {
             self.db_lock(vm)?.limit(category, limit, vm)
+        }
+
+        #[pymethod]
+        fn setconfig(
+            &self,
+            op: c_int,
+            enable: OptionalArg<bool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let enable = enable.unwrap_or(true) as c_int;
+            if !is_int_dbconfig(op) {
+                return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
+            }
+            let db = self.db_lock(vm)?;
+            let mut actual: c_int = 0;
+            let rc = unsafe { sqlite3_db_config(db.db, op, enable, &mut actual) };
+            db.check(rc, vm)
+                .map_err(|_| new_operational_error(vm, "Unable to set config".to_owned()))?;
+            if enable != actual {
+                return Err(new_operational_error(vm, "Unable to set config".to_owned()));
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn getconfig(&self, op: c_int, vm: &VirtualMachine) -> PyResult<bool> {
+            if !is_int_dbconfig(op) {
+                return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
+            }
+            let db = self.db_lock(vm)?;
+            let mut current: c_int = 0;
+            let rc = unsafe { sqlite3_db_config(db.db, op, -1, &mut current) };
+            db.check(rc, vm)?;
+            Ok(current != 0)
         }
 
         #[pymethod]
@@ -3535,6 +3576,29 @@ mod _sqlite3 {
             ));
         }
         Ok(())
+    }
+
+    fn is_int_dbconfig(op: c_int) -> bool {
+        use libsqlite3_sys::*;
+        matches!(
+            op,
+            SQLITE_DBCONFIG_ENABLE_FKEY
+                | SQLITE_DBCONFIG_ENABLE_TRIGGER
+                | SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER
+                | SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION
+                | SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE
+                | SQLITE_DBCONFIG_ENABLE_QPSG
+                | SQLITE_DBCONFIG_TRIGGER_EQP
+                | SQLITE_DBCONFIG_RESET_DATABASE
+                | SQLITE_DBCONFIG_DEFENSIVE
+                | SQLITE_DBCONFIG_WRITABLE_SCHEMA
+                | SQLITE_DBCONFIG_LEGACY_ALTER_TABLE
+                | SQLITE_DBCONFIG_DQS_DDL
+                | SQLITE_DBCONFIG_DQS_DML
+                | SQLITE_DBCONFIG_ENABLE_VIEW
+                | SQLITE_DBCONFIG_LEGACY_FILE_FORMAT
+                | SQLITE_DBCONFIG_TRUSTED_SCHEMA
+        )
     }
 
     fn ptr_to_str<'a>(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<&'a str> {
