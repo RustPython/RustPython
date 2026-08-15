@@ -3,8 +3,9 @@ pub(crate) use atexit::module_def;
 
 #[pymodule]
 mod atexit {
-    use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine, function::FuncArgs};
-    use alloc::sync::Arc;
+    use crate::{
+        AsObject, PyObjectRef, PyResult, VirtualMachine, common::rc::PyRc, function::FuncArgs,
+    };
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
@@ -12,7 +13,7 @@ mod atexit {
         vm.state
             .atexit_funcs
             .lock()
-            .insert(0, Arc::new((func.clone(), args)));
+            .insert(0, PyRc::new((func.clone(), args)));
         func
     }
 
@@ -49,7 +50,7 @@ mod atexit {
                 let mut funcs = vm.state.atexit_funcs.lock();
                 let mut j = (funcs.len() as isize - 1).min(i);
                 while j >= 0 {
-                    if Arc::ptr_eq(funcs.get(j as usize).unwrap(), &entry) {
+                    if PyRc::ptr_eq(funcs.get(j as usize).unwrap(), &entry) {
                         funcs.remove(j as usize);
                         i = j;
                         break;
@@ -73,7 +74,7 @@ mod atexit {
         let funcs: Vec<_> = core::mem::take(&mut *vm.state.atexit_funcs.lock());
         // Callbacks stored in LIFO order, iterate forward
         for entry in funcs {
-            let (func, args) = Arc::try_unwrap(entry).unwrap_or_else(|e| (*e).clone());
+            let (func, args) = PyRc::try_unwrap(entry).unwrap_or_else(|e| (*e).clone());
             if let Err(e) = func.call(args, vm) {
                 let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                 let msg = func

@@ -44,7 +44,7 @@ use crate::{
     stdlib,
     warn::WarningsState,
 };
-use alloc::{borrow::Cow, collections::BTreeMap, sync::Arc};
+use alloc::{borrow::Cow, collections::BTreeMap};
 #[cfg(all(not(unix), feature = "threading"))]
 use core::ptr::NonNull;
 #[cfg(feature = "threading")]
@@ -762,7 +762,7 @@ pub struct PyGlobalState {
     /// Registered `atexit` callbacks, newest first. Shared ownership so
     /// `atexit.unregister` can keep the entry it is comparing alive while the
     /// list is unlocked, and still recognize it afterwards by identity.
-    pub atexit_funcs: PyMutex<Vec<Arc<(PyObjectRef, FuncArgs)>>>,
+    pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
