@@ -800,13 +800,11 @@ class AuthorizerTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs
     def test_table_access(self):
         with self.assertRaises(sqlite.DatabaseError) as cm:
             self.con.execute("select * from t2")
         self.assertIn('prohibited', str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs
     def test_column_access(self):
         with self.assertRaises(sqlite.DatabaseError) as cm:
             self.con.execute("select c2 from t1")
