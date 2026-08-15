@@ -5826,6 +5826,26 @@ mod fileio {
             Ok(Some(bytes))
         }
 
+        /// One `read()` into `buf`, retried on EINTR (PEP 475). `None` on EAGAIN.
+        fn read_once_into(
+            zelf: &Py<Self>,
+            handle: crt_fd::Borrowed<'_>,
+            buf: &mut [u8],
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
+            loop {
+                match vm.allow_threads(|| host_io::read_once(handle, buf)) {
+                    Ok(n) => return Ok(Some(n)),
+                    Err(e) if host_io::is_interrupted_error(&e) => {
+                        vm.check_signals()?;
+                    }
+                    // Non-blocking mode: return None if EAGAIN
+                    Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
+                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                }
+            }
+        }
+
         #[pymethod]
         fn readinto(
             zelf: &Py<Self>,
@@ -5841,24 +5861,27 @@ mod fileio {
 
             let handle = zelf.get_fd(vm)?;
 
-            let mut buf = obj.borrow_buf_mut();
-            // Loop on EINTR (PEP 475)
-            let ret = loop {
-                match vm.allow_threads(|| host_io::read_once(handle, &mut buf)) {
-                    Ok(n) => break n,
-                    Err(e) if host_io::is_interrupted_error(&e) => {
-                        vm.check_signals()?;
-                        continue;
-                    }
-                    // Non-blocking mode: return None if EAGAIN
-                    Err(e) if host_io::is_would_block_error(&e) => {
-                        return Ok(None);
-                    }
-                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
-                }
-            };
+            if zelf.seekable(vm)? {
+                // The read answers from the file itself, so it returns without
+                // waiting on anyone; write where the caller asked directly.
+                let mut buf = obj.borrow_buf_mut();
+                return Self::read_once_into(zelf, handle, &mut buf, vm);
+            }
 
-            Ok(Some(ret))
+            // A pipe, socket or terminal answers only when the other end
+            // writes, which may be never. Holding the export for the whole
+            // call is what keeps the target from being resized meanwhile, as a
+            // Py_buffer does; but reaching its bytes takes a lock that every
+            // other thread touching the same object waits on, and a thread
+            // waiting on a lock never reaches a safepoint, so holding that one
+            // across the wait stops the world from being stopped at all. Read
+            // aside and take the lock for the copy.
+            let mut scratch = vm.new_zeroed_bytes(obj.len())?;
+            let ret = Self::read_once_into(zelf, handle, &mut scratch, vm)?;
+            if let Some(n) = ret {
+                obj.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
+            }
+            Ok(ret)
         }
 
         #[pymethod]
