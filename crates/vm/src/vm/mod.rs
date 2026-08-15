@@ -384,7 +384,7 @@ impl StopTheWorldState {
     /// is only ever `try_lock`'d. The active requester therefore force-parks
     /// this thread, finishes its whole stop→start span, releases the exclusion,
     /// and only then does this thread resume and acquire it.
-    fn acquire_exclusion(&self) {
+    fn acquire_exclusion(&self, state: &PyGlobalState) {
         if self
             .exclusion
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
@@ -393,7 +393,7 @@ impl StopTheWorldState {
             return;
         }
         loop {
-            crate::vm::thread::suspend_if_needed(self);
+            crate::vm::thread::suspend_if_needed(state);
             std::thread::yield_now();
             if self
                 .exclusion
@@ -421,7 +421,7 @@ impl StopTheWorldState {
     /// drives the stop→start span at a time; it is released by
     /// `start_the_world`/`reset_after_fork`.
     pub fn stop_the_world(&self, state: &PyGlobalState) {
-        self.acquire_exclusion();
+        self.acquire_exclusion(state);
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
@@ -2813,7 +2813,7 @@ impl VirtualMachine {
 
         // Suspend this thread if stop-the-world is in progress
         #[cfg(feature = "threading")]
-        thread::suspend_if_needed(&self.state.stop_the_world);
+        thread::suspend_if_needed(&self.state);
 
         // Pass a QSBR checkpoint if requested (deferred memory reclamation).
         #[cfg(feature = "threading")]
