@@ -77,6 +77,36 @@ impl PyMemoryView {
         FormatSpec::parse(format.as_bytes(), vm)
     }
 
+    /// The single native format character a cast is allowed to name, with an
+    /// optional `@` in front of it. get_native_fmtchar
+    fn native_fmtchar(format: &str) -> Option<u8> {
+        let format = format.strip_prefix('@').unwrap_or(format);
+        let [c] = *format.as_bytes() else {
+            return None;
+        };
+        matches!(
+            c,
+            b'c' | b'b'
+                | b'B'
+                | b'h'
+                | b'H'
+                | b'i'
+                | b'I'
+                | b'l'
+                | b'L'
+                | b'q'
+                | b'Q'
+                | b'n'
+                | b'N'
+                | b'f'
+                | b'd'
+                | b'e'
+                | b'?'
+                | b'P'
+        )
+        .then_some(c)
+    }
+
     /// this should be the main entrance to create the memoryview
     /// to avoid the chained memoryview
     pub fn from_object(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
@@ -296,12 +326,19 @@ impl PyMemoryView {
                 self.desc.format
             ))
         })?;
+        // The conversion, and the index that produced `pos`, could have released
+        // the view; `pos` addresses a buffer that is no longer there.
+        // CHECK_RELEASED_INT_AGAIN
+        self.try_not_released(vm)?;
         let mut bytes = self.buffer.obj_bytes_mut();
         bytes[pos..pos + self.format_spec.size()].copy_from_slice(&data);
         Ok(())
     }
 
     fn unpack_single(&self, pos: usize, vm: &VirtualMachine) -> PyResult {
+        // The index that produced `pos` could have released the view.
+        // CHECK_RELEASED_AGAIN
+        self.try_not_released(vm)?;
         let bytes = self.buffer.obj_bytes();
         // TODO: Optimize
         self.format_spec
@@ -414,15 +451,20 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        if let Some(other) = other.downcast_ref::<Self>()
-            && other.released.load()
-        {
-            return Ok(false);
-        }
-
-        let other = match PyBuffer::try_from_borrowed_object(vm, other) {
-            Ok(buf) => buf,
-            Err(_) => return Ok(false),
+        let other = if let Some(mv) = other.downcast_ref::<Self>() {
+            if mv.released.load() {
+                return Ok(false);
+            }
+            // Another view's buffer is read where it lies rather than acquired,
+            // so that a restricted view still compares. memory_richcompare
+            let mut view = mv.buffer.detached();
+            view.desc = mv.desc.clone();
+            view
+        } else {
+            match PyBuffer::try_from_borrowed_object(vm, other) {
+                Ok(buf) => buf,
+                Err(_) => return Ok(false),
+            }
         };
 
         if !is_equiv_shape(&zelf.desc, &other.desc) {
@@ -880,6 +922,11 @@ impl PyMemoryView {
 
     fn cast_to_1d(&self, format: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Self> {
         let format_str = format.as_str();
+        if Self::native_fmtchar(format_str).is_none() {
+            return Err(vm.new_value_error(
+                "memoryview: destination format must be a native single character format prefixed with an optional '@'",
+            ));
+        }
         let format_spec = Self::parse_format(format_str, vm)?;
         let itemsize = format_spec.size();
         if !self.desc.len.is_multiple_of(itemsize) {
@@ -1368,13 +1415,10 @@ pub(crate) fn release_buffer_from_python(
     mv: PyRef<PyMemoryView>,
     vm: &VirtualMachine,
 ) -> PyResult<()> {
-    if mv.released.load() {
-        // Already released, ignore
-        return Ok(());
-    }
     let view_obj = &mv.buffer.obj;
     if view_obj.downcastable::<PyBufferWindow>() {
-        // A window exports nothing, so there is nothing left to release
+        // A window exports nothing, so there is nothing left to release, as for
+        // a `Py_buffer` whose `obj` is NULL.
         return Ok(());
     }
     let exports_obj = view_obj.is(obj)
@@ -1383,6 +1427,9 @@ pub(crate) fn release_buffer_from_python(
             .is_some_and(|wrapper| wrapper.exporter.is(obj));
     if !exports_obj {
         return Err(vm.new_value_error("memoryview's buffer is not this object"));
+    }
+    if mv.released.load() {
+        return Err(vm.new_value_error("memoryview's buffer has already been released"));
     }
     mv.release();
     Ok(())
@@ -1399,7 +1446,13 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
         let window = PyBuffer::new(window, buffer.desc.clone(), &BUFFER_WINDOW_METHODS);
         let mv = match PyMemoryView::from_buffer(window, vm) {
             Ok(mv) => mv,
-            Err(exc) => return vm.run_unraisable(exc, None, exporter),
+            Err(exc) => {
+                let msg = format!(
+                    "Exception ignored in bf_releasebuffer of {}",
+                    exporter.class().name()
+                );
+                return vm.run_unraisable(exc, Some(msg), vm.ctx.none());
+            }
         };
         // Restricted, so user code cannot keep anything addressing the memory
         // that is about to go away.
@@ -1417,7 +1470,11 @@ fn call_python_release_buffer(exporter: &PyObject, mv: PyRef<PyMemoryView>) {
         if let Ok(Some(method)) = method
             && let Err(exc) = method.invoke((mv,), vm)
         {
-            vm.run_unraisable(exc, None, exporter.to_owned());
+            let msg = format!(
+                "Exception ignored in __release_buffer__ of {}",
+                exporter.class().name()
+            );
+            vm.run_unraisable(exc, Some(msg), vm.ctx.none());
         }
     });
 }

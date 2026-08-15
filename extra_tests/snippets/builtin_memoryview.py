@@ -337,3 +337,109 @@ def test_request_shapes_exported_descriptor():
 
 
 test_request_shapes_exported_descriptor()
+
+
+def test_release_during_index_conversion():
+    # CHECK_RELEASED_AGAIN: the conversion that produces the value, and the one
+    # that produced the index, both run Python that can release the view.
+    ba = bytearray(b"abcdefgh")
+    mv = memoryview(ba)
+
+    class Writer:
+        def __index__(self):
+            mv.release()
+            ba.clear()
+            return 7
+
+    try:
+        mv[7] = Writer()
+        raise AssertionError("write into a released view")
+    except ValueError as e:
+        assert "released memoryview" in str(e), e
+
+    ba = bytearray(b"abcdefgh")
+    mv = memoryview(ba)
+
+    class Reader:
+        def __index__(self):
+            mv.release()
+            ba.clear()
+            return 7
+
+    try:
+        mv[Reader()]
+        raise AssertionError("read from a released view")
+    except ValueError as e:
+        assert "released memoryview" in str(e), e
+
+    # A release that does not resize still forbids the write.
+    ba = bytearray(b"abcd")
+    mv = memoryview(ba)
+
+    class Quiet:
+        def __index__(self):
+            mv.release()
+            return 65
+
+    try:
+        mv[0] = Quiet()
+        raise AssertionError("write into a released view")
+    except ValueError as e:
+        assert "released memoryview" in str(e), e
+    assert bytes(ba) == b"abcd"
+
+
+test_release_during_index_conversion()
+
+
+def test_cast_rejects_non_native_format():
+    # get_native_fmtchar
+    for fmt in ["", "ii", "<i", "z"]:
+        try:
+            memoryview(b"").cast(fmt)
+            raise AssertionError(f"cast accepted {fmt!r}")
+        except ValueError as e:
+            assert "native single character format" in str(e), e
+    assert memoryview(bytes(8)).cast("@i").itemsize == 4
+
+
+test_cast_rejects_non_native_format()
+
+
+def test_release_buffer_called_twice():
+    # wrap_releasebuffer
+    ba = bytearray(b"abc")
+    mv = memoryview(ba)
+    assert ba.__release_buffer__(mv) is None
+    try:
+        ba.__release_buffer__(mv)
+        raise AssertionError("second release accepted")
+    except ValueError as e:
+        assert "already been released" in str(e), e
+
+    mv = memoryview(bytearray(b"abc"))
+    try:
+        bytearray(b"abc").__release_buffer__(mv)
+        raise AssertionError("release by a foreign object accepted")
+    except ValueError as e:
+        assert "not this object" in str(e), e
+
+
+test_release_buffer_called_twice()
+
+
+def test_restricted_view_compares():
+    # memory_richcompare reads another view where it lies rather than acquiring
+    # it, so the restricted view handed to __release_buffer__ still compares.
+    seen = []
+
+    class K(bytearray):
+        def __release_buffer__(self, view):
+            seen.append(memoryview(b"hello") == view)
+            seen.append(view == memoryview(b"hello"))
+
+    memoryview(K(b"hello")).release()
+    assert seen == [True, True], seen
+
+
+test_restricted_view_compares()
