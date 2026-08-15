@@ -9,7 +9,7 @@ use super::{
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
-    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, StringRange, adjust_indices},
     atomic_func,
     bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
@@ -719,6 +719,13 @@ impl PyStr {
         self.data.char_index_to_byte(index)
     }
 
+    /// The character index of the character starting at byte offset `bytepos`,
+    /// which must be a character boundary at or before the end.
+    #[inline]
+    pub fn byte_to_char_index(&self, bytepos: usize) -> usize {
+        self.data.byte_to_char_index(bytepos)
+    }
+
     #[pymethod]
     #[inline(always)]
     pub const fn isascii(&self) -> bool {
@@ -924,11 +931,12 @@ impl PyStr {
 
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let (affix, substr) =
-            match options.prepare(self.as_wtf8(), self.len(), |s, r| s.get_chars(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
+        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
+            &s[self.data.char_range_to_bytes(r)]
+        }) {
+            Some(x) => x,
+            None => return Ok(false),
+        };
         substr.py_starts_ends_with(
             &affix,
             "endswith",
@@ -944,11 +952,12 @@ impl PyStr {
         options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (affix, substr) =
-            match options.prepare(self.as_wtf8(), self.len(), |s, r| s.get_chars(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
+        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
+            &s[self.data.char_range_to_bytes(r)]
+        }) {
+            Some(x) => x,
+            None => return Ok(false),
+        };
         substr.py_starts_ends_with(
             &affix,
             "startswith",
@@ -1167,42 +1176,52 @@ impl PyStr {
         Ok(vm.ctx.new_str(joined))
     }
 
-    // FIXME: two traversals of str is expensive
+    /// The bytes the character range `range` spans and the byte offset it
+    /// starts at, or `None` if the range is inverted.
+    ///
+    /// The bounds go through the string's character index, so reaching a range
+    /// deep in the subject costs a lookup rather than a walk to it.
     #[inline]
-    fn _to_char_idx(r: &Wtf8, byte_idx: usize) -> usize {
-        r[..byte_idx].code_points().count()
+    fn char_range_bytes(&self, range: Range<usize>) -> Option<(usize, &Wtf8)> {
+        if !range.is_normal() {
+            return None;
+        }
+        let bytes = self.data.char_range_to_bytes(range);
+        Some((bytes.start, &self.as_wtf8()[bytes]))
     }
 
+    /// Searches the character range `range` with `find`, which answers in bytes
+    /// relative to the range, and reports the hit as a character index.
     #[inline]
     fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
     where
         F: Fn(&Wtf8, &Wtf8) -> Option<usize>,
     {
         let (sub, range) = args.get_value(self.len());
-        self.as_wtf8().py_find(sub.as_wtf8(), range, find)
+        let (start, haystack) = self.char_range_bytes(range)?;
+        let found = find(haystack, sub.as_wtf8())?;
+        Some(self.byte_to_char_index(start + found))
     }
 
     #[pymethod]
     fn find(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
-            .map_or(-1, |v| v as isize)
+        self._find(args, Wtf8::find).map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn rfind(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
-            .map_or(-1, |v| v as isize)
+        self._find(args, Wtf8::rfind).map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
+        self._find(args, Wtf8::find)
             .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
     fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
+        self._find(args, Wtf8::rfind)
             .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
@@ -1275,8 +1294,18 @@ impl PyStr {
     #[pymethod]
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
-        self.as_wtf8()
-            .py_count(needle.as_wtf8(), range, |h, n| h.find_iter(n).count())
+        let chars = range.len();
+        self.char_range_bytes(range).map_or(0, |(_, haystack)| {
+            if needle.is_empty() {
+                // An empty needle sits between every pair of characters and at
+                // both ends, so it occurs once more than the range holds
+                // characters. Counting it in the bytes would answer in encoded
+                // positions instead.
+                chars + 1
+            } else {
+                haystack.find_iter(needle.as_wtf8()).count()
+            }
+        })
     }
 
     #[pymethod]

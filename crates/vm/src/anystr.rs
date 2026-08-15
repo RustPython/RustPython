@@ -147,7 +147,11 @@ pub(crate) trait AnyStr {
     fn as_bytes(&self) -> &[u8];
     fn elements(&self) -> impl Iterator<Item = Self::Char>;
     fn get_bytes(&self, range: Range<usize>) -> &Self;
-    // FIXME: get_chars is expensive for str
+    /// The characters in `range`, which for a `str` payload means walking to
+    /// both bounds -- the payload does not carry the string's character index.
+    /// `PyStr` therefore converts its own ranges and does not reach the search
+    /// helpers below through this; what remains are the byte strings, where a
+    /// character range is already a byte range.
     fn get_chars(&self, range: Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
     // NOTE: str::chars().count() consumes the O(n) time. But pystr::char_len does cache.

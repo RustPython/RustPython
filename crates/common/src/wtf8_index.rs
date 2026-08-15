@@ -104,6 +104,63 @@ impl Wtf8Index {
         }
     }
 
+    /// The index of the code point starting at byte offset `bytepos`, the
+    /// inverse of [`Self::byte_offset`].
+    ///
+    /// `data` must be the buffer the table was built for, `char_len` its code
+    /// point count, and `bytepos` a code point boundary at or before its end.
+    ///
+    /// Logarithmic rather than constant: the table is keyed by code point
+    /// index, so going the other way is a search through it. The bracketing
+    /// below is what keeps that search short -- a code point occupies one to
+    /// four bytes, which pins the answer to a narrow band around `bytepos`
+    /// before the first comparison.
+    #[must_use]
+    pub fn char_index_at_byte(&self, data: &Wtf8, bytepos: usize, char_len: usize) -> usize {
+        let bytes_remaining = data.len() - bytepos;
+        // At least one byte per remaining code point, and at most four, so the
+        // group holding the answer lies between these.
+        let mut group_min =
+            usize::max(bytepos / 4, char_len.saturating_sub(bytes_remaining + 1)) >> 6;
+        let mut group_max = usize::min(bytepos, char_len.saturating_sub(bytes_remaining / 4)) >> 6;
+        while group_min < group_max {
+            let middle = group_min.midpoint(group_max) + 1;
+            if bytepos < self.groups[middle].base {
+                group_max = middle - 1;
+            } else {
+                group_min = middle;
+            }
+        }
+
+        let base = self.groups[group_min].base;
+        if base == bytepos {
+            return group_min << 6;
+        }
+        // Walk the group's entries to the last one at or before `bytepos`,
+        // then step the remaining code points, of which there are at most
+        // three -- an entry covers four.
+        let entries = if group_min == self.groups.len() - 1 {
+            ((char_len - 1) >> 2) & 0x0F
+        } else {
+            16
+        };
+        let mut index = group_min << 6;
+        let mut pos = base;
+        for entry in 0..entries {
+            let at = base + self.groups[group_min].ofs[entry] as usize;
+            if at >= bytepos {
+                break;
+            }
+            pos = at;
+            index = (group_min << 6) + (entry << 2) + 1;
+        }
+        while pos < bytepos {
+            pos = next_pos(data, pos);
+            index += 1;
+        }
+        index
+    }
+
     /// The table's heap footprint, in bytes.
     #[must_use]
     pub fn byte_size(&self) -> usize {
@@ -153,21 +210,34 @@ mod tests {
     use super::*;
     use crate::wtf8::{CodePoint, Wtf8Buf};
 
-    /// Every index of `s`, against the offsets its own iterator reports.
+    /// Every index of `s`, both ways, against the offsets its own iterator
+    /// reports.
     fn check(s: &Wtf8) {
         let expected: Vec<usize> = s
             .code_point_indices()
             .map(|(byte_offset, _)| byte_offset)
             .collect();
-        let index = Wtf8Index::new(s, expected.len());
+        let char_len = expected.len();
+        let index = Wtf8Index::new(s, char_len);
         for (i, &want) in expected.iter().enumerate() {
             assert_eq!(
                 index.byte_offset(s, i),
                 want,
-                "index {i} of {s:?} ({} code points)",
-                expected.len()
+                "index {i} of {s:?} ({char_len} code points)"
+            );
+            assert_eq!(
+                index.char_index_at_byte(s, want, char_len),
+                i,
+                "byte {want} of {s:?} ({char_len} code points)"
             );
         }
+        // One past the last code point is a boundary too, and the searches that
+        // use this ask for it as an end bound.
+        assert_eq!(
+            index.char_index_at_byte(s, s.len(), char_len),
+            char_len,
+            "end of {s:?}"
+        );
     }
 
     fn wtf8(s: &str) -> Wtf8Buf {

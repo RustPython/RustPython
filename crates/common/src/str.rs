@@ -443,7 +443,8 @@ impl StrData {
         self.char_index_to_byte(index)
     }
 
-    /// The byte range spanned by the code points in `range`.
+    /// The byte range spanned by the code points in `range`, whose end must not
+    /// exceed the string's code point count.
     ///
     /// A range that reaches within [`MAX_WALK_TO_INDEX`] of *both* ends is
     /// walked to for the same reason a single index near one end is -- a slice
@@ -474,6 +475,25 @@ impl StrData {
             return start..end;
         }
         self.char_index_to_byte(range.start)..self.char_index_to_byte(range.end)
+    }
+
+    /// The character index of the character starting at byte offset `bytepos`,
+    /// the inverse of [`Self::char_index_to_byte`].
+    ///
+    /// `bytepos` must be a character boundary at or before the end.
+    ///
+    /// Logarithmic rather than constant, because the index is keyed the other
+    /// way -- but a search whose bounds came from `char_index_to_byte` has the
+    /// table already, and this is what turns a byte offset back into the answer
+    /// a caller asked for in characters.
+    pub fn byte_to_char_index(&self, bytepos: usize) -> usize {
+        if self.kind.is_ascii() {
+            return bytepos;
+        }
+        let char_len = self.char_len();
+        self.index
+            .get_or_build(&self.data, char_len)
+            .char_index_at_byte(&self.data, bytepos, char_len)
     }
 
     pub fn nth_char(&self, index: usize) -> CodePoint {
