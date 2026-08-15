@@ -562,6 +562,19 @@ impl LocalsPlus {
         unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) }
     }
 
+    /// Give every borrowed stack ref its own reference.
+    ///
+    /// A borrowed ref is only sound while whatever it points at is guaranteed
+    /// to outlive it, which stops holding where the frame itself outlives the
+    /// running block — at a yield, where the stack is saved with the frame.
+    fn promote_stack(&mut self) {
+        for idx in 0..self.stack_top as usize {
+            if let Some(stack_ref) = self.stack_index_mut(idx) {
+                stack_ref.promote();
+            }
+        }
+    }
+
     /// Immutable view of the active stack as `Option<PyStackRef>` slice.
     #[inline(always)]
     fn stack_as_slice(&self) -> &[Option<PyStackRef>] {
@@ -5067,6 +5080,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::YieldValue { .. } => {
+                // The frame outlives this block from here on, so nothing it
+                // still holds may be a borrow of something else's slot.
+                self.localsplus.promote_stack();
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
@@ -7264,6 +7280,7 @@ impl ExecutingFrame<'_> {
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::InstrumentedYieldValue => {
+                self.localsplus.promote_stack();
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
