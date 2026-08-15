@@ -1073,6 +1073,16 @@ impl InstanceDict {
         self.d.read().clone()
     }
 
+    /// Run `f` on the dict without cloning it.
+    ///
+    /// For callers that only need to look at the dict — a predicate, a version
+    /// stamp — this drops the refcount round-trip [`Self::get`] pays. `f` runs
+    /// under the read guard, so it must not run Python or take this lock again.
+    #[inline]
+    pub(crate) fn with<R>(&self, f: impl FnOnce(Option<&Py<crate::builtins::PyDict>>) -> R) -> R {
+        f(self.d.read().as_deref())
+    }
+
     #[inline]
     pub(crate) fn set(&self, d: Option<PyDictRef>) {
         self.replace(d);
@@ -1636,6 +1646,28 @@ impl PyObject {
     #[inline(always)]
     pub fn dict(&self) -> Option<PyDictRef> {
         self.instance_dict().and_then(|d| d.get())
+    }
+
+    /// Whether this object currently has an instance dict, without cloning it.
+    ///
+    /// `false` both for an object with no dict slot and for one whose slot is
+    /// still empty, which is what `dict().is_none()` reports.
+    #[inline(always)]
+    pub fn has_instance_dict(&self) -> bool {
+        self.instance_dict()
+            .is_some_and(|d| d.with(|dict| dict.is_some()))
+    }
+
+    /// Run `f` on the instance dict without cloning it; see [`InstanceDict::with`].
+    #[inline(always)]
+    pub(crate) fn with_instance_dict<R>(
+        &self,
+        f: impl FnOnce(Option<&Py<crate::builtins::PyDict>>) -> R,
+    ) -> R {
+        match self.instance_dict() {
+            Some(d) => d.with(f),
+            None => f(None),
+        }
     }
 
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field

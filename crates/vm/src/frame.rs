@@ -5271,7 +5271,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0
                     && owner.class().tp_version_tag.load(Acquire) == type_version
-                    && owner.dict().is_none()
+                    && !owner.has_instance_dict()
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     let owner = self.pop_value();
@@ -8933,13 +8933,19 @@ impl ExecutingFrame<'_> {
         attr_name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
+        let stamp = self.code.instructions.read_cache_ptr(cache_base + 3);
+        // Take the stamp check first, on a borrowed dict: a hit is the whole
+        // fast path, and cloning the dict for it would cost more than the
+        // comparison it exists to make.
+        let stamped = self.top_value().with_instance_dict(|dict| {
+            dict.is_some_and(|d| stamp != 0 && stamp == d.keys_version() as usize)
+        });
+        if stamped {
+            return Ok(None);
+        }
         let Some(dict) = self.top_value().dict() else {
             return Ok(None);
         };
-        let stamp = self.code.instructions.read_cache_ptr(cache_base + 3);
-        if stamp != 0 && stamp == dict.keys_version() as usize {
-            return Ok(None);
-        }
         // Take the stamp before probing so it attests the probed key set.
         let stamp = dict.assign_keys_version(vm);
         if let Some(value) = dict.get_item_opt(attr_name, vm)? {
