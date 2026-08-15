@@ -306,7 +306,7 @@ impl GcState {
     }
 
     /// Reserve a tag for a new interpreter. Tags are never reused; exhausting
-    /// the 32-bit space falls back to `GC_NO_OWNER`, which costs isolation but
+    /// the tag space falls back to `GC_NO_OWNER`, which costs isolation but
     /// stays correct, rather than aliasing a live interpreter.
     fn alloc_owner(&self) -> GcOwner {
         self.next_owner
@@ -536,11 +536,18 @@ impl GcState {
         // Another interpreter's objects stay out of the candidate set, so they
         // act as external roots: anything they reference survives this pass.
         let owner = gc.owner;
-        let retired = self.retired.lock().clone();
+        // Sorted so that the test below, which every scanned object pays for,
+        // stays logarithmic in the number of interpreters that have been
+        // dropped instead of linear.
+        let retired = {
+            let mut retired = self.retired.lock().clone();
+            retired.sort_unstable();
+            retired
+        };
         let mut collecting: HashSet<GcPtr> = HashSet::new();
         for gen_list in &gen_locks {
             for obj in gen_list.iter() {
-                if retired.contains(&obj.gc_owner()) {
+                if retired.binary_search(&obj.gc_owner()).is_ok() {
                     obj.set_gc_owner(GC_NO_OWNER);
                 }
                 if obj.strong_count() > 0 && is_owned_by(obj, owner) {
@@ -553,11 +560,15 @@ impl GcState {
         // is where adoption finishes and the tags stop being tracked.
         if generation == 2 && !retired.is_empty() {
             for obj in self.permanent_list.read().iter() {
-                if retired.contains(&obj.gc_owner()) {
+                if retired.binary_search(&obj.gc_owner()).is_ok() {
                     obj.set_gc_owner(GC_NO_OWNER);
                 }
             }
-            self.retired.lock().retain(|tag| !retired.contains(tag));
+            // Only the tags this scan saw: one retired while it ran still has
+            // objects nobody has adopted.
+            self.retired
+                .lock()
+                .retain(|tag| retired.binary_search(tag).is_err());
         }
 
         if collecting.is_empty() {
@@ -1281,7 +1292,8 @@ impl Drop for GcInterpreterState {
     fn drop(&mut self) {
         // Objects this interpreter tracked can outlive it (another interpreter
         // may still hold one). Clearing the tag hands them to every collection
-        // instead of stranding them, and frees the tag for reuse.
+        // instead of stranding them. The tag itself is not handed back: it stays
+        // retired so that a later interpreter cannot inherit these objects.
         gc_state().retire_owner(self.owner);
     }
 }

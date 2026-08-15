@@ -449,7 +449,10 @@ impl Interpreter {
         self.global_state.whence
     }
 
-    /// Whether this is the process main interpreter.
+    /// Whether this is a top-level interpreter rather than a subinterpreter.
+    ///
+    /// Every top-level interpreter answers `true`; for *the* process main, use
+    /// [`Interpreter::is_process_main`].
     #[inline]
     #[must_use]
     pub fn is_main(&self) -> bool {
@@ -1358,11 +1361,12 @@ mod tests {
         let sub = main.create_subinterpreter();
         let id = sub.id();
 
-        let before = runtime::owned_interpreter_count();
         assert_eq!(runtime::store_owned_interpreter(sub), id);
         assert!(runtime::is_owned_interpreter(id));
         assert!(runtime::lookup_interpreter(id).is_some());
-        assert_eq!(runtime::owned_interpreter_count(), before + 1);
+        // The owned table is process-global and other tests store into it in
+        // parallel, so only this entry's own membership is deterministic.
+        assert!(runtime::owned_interpreter_count() >= 1);
 
         // Reclaiming removes ownership but keeps the interpreter alive while the
         // returned handle is held.

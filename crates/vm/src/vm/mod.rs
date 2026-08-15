@@ -749,7 +749,9 @@ pub struct PyGlobalState {
     pub interpreter_id: i64,
     /// How this interpreter was created.
     pub whence: runtime::InterpreterWhence,
-    /// True only for the process main interpreter.
+    /// True for every top-level (non-sub) interpreter, each of which keeps its
+    /// own signal and main-thread bookkeeping. Only the first one registered
+    /// becomes *the* process main — see [`runtime::main_interpreter_id`].
     pub is_main: bool,
     pub config: PyConfig,
     pub module_defs: BTreeMap<&'static str, &'static builtins::PyModuleDef>,
