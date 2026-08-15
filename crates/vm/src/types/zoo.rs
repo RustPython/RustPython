@@ -109,18 +109,19 @@ pub struct TypeZoo {
 
 impl TypeZoo {
     #[cold]
-    pub(crate) fn init() -> Self {
-        let (type_type, object_type, weakref_type) = crate::object::init_type_hierarchy();
-        // the order matters for type, object, weakref, and int - must be initialized first
-        let type_type = type_::PyType::init_manually(type_type);
-        let object_type = object::PyBaseObject::init_manually(object_type);
-        let weakref_type = weakref::PyWeak::init_manually(weakref_type);
+    pub(crate) fn init() -> (Self, crate::builtins::PyTupleRef) {
+        let hierarchy = crate::object::init_type_hierarchy();
+        // These core types must be published before any other static type is created.
+        let type_type = type_::PyType::init_manually(hierarchy.type_type);
+        let object_type = object::PyBaseObject::init_manually(hierarchy.object_type);
+        let tuple_type = tuple::PyTuple::init_manually(hierarchy.tuple_type);
+        let weakref_type = weakref::PyWeak::init_manually(hierarchy.weakref_type);
         let int_type = int::PyInt::init_builtin_type();
 
         // builtin_function_or_method and builtin_method share the same type (CPython behavior)
         let builtin_function_or_method_type = builtin_func::PyNativeFunction::init_builtin_type();
 
-        Self {
+        let types = Self {
             type_type,
             object_type,
             weakref_type,
@@ -147,7 +148,7 @@ impl TypeZoo {
             staticmethod_type: staticmethod::PyStaticMethod::init_builtin_type(),
             str_type: pystr::PyStr::init_builtin_type(),
             super_type: super_::PySuper::init_builtin_type(),
-            tuple_type: tuple::PyTuple::init_builtin_type(),
+            tuple_type,
             zip_type: zip::PyZip::init_builtin_type(),
 
             // hidden internal types. is this really need to be cached here?
@@ -213,7 +214,8 @@ impl TypeZoo {
             method_wrapper_type: descriptor::PyMethodWrapper::init_builtin_type(),
 
             method_def: crate::function::HeapMethodDef::init_builtin_type(),
-        }
+        };
+        (types, hierarchy.empty_tuple)
     }
 
     /// Fill attributes of builtin types.
