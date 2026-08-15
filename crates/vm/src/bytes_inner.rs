@@ -345,7 +345,12 @@ impl PyBytesInner {
         // but not memoryview, and not equal if compare with unicode str(PyStr)
         PyComparisonValue::from_option(
             other
-                .try_bytes_like(vm, |other| op.eval_ord(self.elements.as_slice().cmp(other)))
+                .try_bytes_like(vm, |other| {
+                    // Equality does not need the ordering, and answers two
+                    // buffers of different length without reading either.
+                    op.eval_eq(|| self.elements.as_slice() == other)
+                        .unwrap_or_else(|| op.eval_ord(self.elements.as_slice().cmp(other)))
+                })
                 .ok(),
         )
     }
