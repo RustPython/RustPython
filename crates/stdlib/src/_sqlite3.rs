@@ -322,7 +322,7 @@ mod _sqlite3 {
                     )))
                 }
             } else {
-                Err(vm.new_type_error(format!(
+                Err(vm.new_value_error(format!(
                     "autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL, not {}",
                     obj.class().name()
                 )))
@@ -1641,6 +1641,47 @@ mod _sqlite3 {
         #[pygetset]
         fn total_changes(&self, vm: &VirtualMachine) -> PyResult<c_int> {
             self._db_lock(vm).map(|x| x.total_changes())
+        }
+
+        #[pygetset(name = "Warning")]
+        fn exc_warning(&self) -> PyTypeRef {
+            warning_type().to_owned()
+        }
+        #[pygetset(name = "Error")]
+        fn exc_error(&self) -> PyTypeRef {
+            error_type().to_owned()
+        }
+        #[pygetset(name = "InterfaceError")]
+        fn exc_interface_error(&self) -> PyTypeRef {
+            interface_error_type().to_owned()
+        }
+        #[pygetset(name = "DatabaseError")]
+        fn exc_database_error(&self) -> PyTypeRef {
+            database_error_type().to_owned()
+        }
+        #[pygetset(name = "DataError")]
+        fn exc_data_error(&self) -> PyTypeRef {
+            data_error_type().to_owned()
+        }
+        #[pygetset(name = "OperationalError")]
+        fn exc_operational_error(&self) -> PyTypeRef {
+            operational_error_type().to_owned()
+        }
+        #[pygetset(name = "IntegrityError")]
+        fn exc_integrity_error(&self) -> PyTypeRef {
+            integrity_error_type().to_owned()
+        }
+        #[pygetset(name = "InternalError")]
+        fn exc_internal_error(&self) -> PyTypeRef {
+            internal_error_type().to_owned()
+        }
+        #[pygetset(name = "ProgrammingError")]
+        fn exc_programming_error(&self) -> PyTypeRef {
+            programming_error_type().to_owned()
+        }
+        #[pygetset(name = "NotSupportedError")]
+        fn exc_not_supported_error(&self) -> PyTypeRef {
+            not_supported_error_type().to_owned()
         }
     }
 
