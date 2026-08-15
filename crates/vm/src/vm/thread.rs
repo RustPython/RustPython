@@ -128,6 +128,15 @@ thread_local! {
     static CURRENT_TOP_IFRAME_SLOT: Cell<*const AtomicUsize> =
         const { Cell::new(core::ptr::null()) };
 
+    /// Cached pointer to this thread's `ThreadSlot::stop_requested`, for the
+    /// safepoint the dispatch loop takes once per instruction. Reading it
+    /// through `CURRENT_THREAD_SLOT` costs a `RefCell` borrow — two stores to
+    /// thread-local memory — where this costs one relaxed load. The slot's Arc
+    /// keeps the pointee alive, as with the frame pointers above.
+    #[cfg(feature = "threading")]
+    static CURRENT_STOP_REQUESTED: Cell<*const core::sync::atomic::AtomicBool> =
+        const { Cell::new(core::ptr::null()) };
+
 }
 
 #[must_use]
@@ -417,6 +426,7 @@ fn set_current_thread_slot(slot: CurrentFrameSlot) {
     #[cfg(unix)]
     CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&slot.top_frame));
     CURRENT_TOP_IFRAME_SLOT.with(|c| c.set(&slot.top_iframe));
+    CURRENT_STOP_REQUESTED.with(|c| c.set(&slot.stop_requested));
     CURRENT_THREAD_SLOT.with(|current| {
         *current.borrow_mut() = Some(slot);
     });
@@ -703,10 +713,12 @@ fn do_suspend(stw: &super::StopTheWorldState) {
 #[inline]
 #[must_use]
 pub fn stop_requested_for_current_thread() -> bool {
-    CURRENT_THREAD_SLOT.with(|slot| {
-        slot.borrow()
-            .as_ref()
-            .is_some_and(|s| s.stop_requested.load(Ordering::Relaxed))
+    CURRENT_STOP_REQUESTED.with(|cached| {
+        let flag = cached.get();
+        // SAFETY: the pointer is non-null only while `CURRENT_THREAD_SLOT`
+        // holds the `Arc<ThreadSlot>` that owns the flag; both are cleared
+        // together in `cleanup_current_thread_frames`.
+        !flag.is_null() && unsafe { &*flag }.load(Ordering::Relaxed)
     })
 }
 
@@ -920,6 +932,8 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
             CURRENT_TOP_FRAME_SLOT.with(|c| c.set(core::ptr::null()));
             #[cfg(feature = "threading")]
             CURRENT_TOP_IFRAME_SLOT.with(|c| c.set(core::ptr::null()));
+            #[cfg(feature = "threading")]
+            CURRENT_STOP_REQUESTED.with(|c| c.set(core::ptr::null()));
         }
     });
 }
@@ -983,6 +997,8 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&new_slot.top_frame));
     #[cfg(feature = "threading")]
     CURRENT_TOP_IFRAME_SLOT.with(|c| c.set(&new_slot.top_iframe));
+    #[cfg(feature = "threading")]
+    CURRENT_STOP_REQUESTED.with(|c| c.set(&new_slot.stop_requested));
 
     // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
     let mut registry = vm.state.thread_frames.lock();

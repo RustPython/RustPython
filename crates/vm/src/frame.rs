@@ -2987,8 +2987,9 @@ impl ExecutingFrame<'_> {
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
             // locations[lasti - 1]) returns the line of the instruction
-            // being traced, not the previous one.
-            self.update_lasti(|i| *i += 1);
+            // being traced, not the previous one. Stored from `idx` rather
+            // than read-modify-written, which would re-load what was just read.
+            self.lasti.store(idx as u32 + 1, Relaxed);
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
@@ -4803,8 +4804,12 @@ impl ExecutingFrame<'_> {
             }
             Instruction::RaiseVarargs { argc: kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } | Instruction::ResumeCheck => {
-                // Lazy quickening: initialize adaptive counters on first execution
-                if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
+                // Lazy quickening: initialize adaptive counters on first execution.
+                // Read before the swap so that the steady state — every call after
+                // the first — costs a load rather than a read-modify-write.
+                if !self.code.quickened.load(atomic::Ordering::Relaxed)
+                    && !self.code.quickened.swap(true, atomic::Ordering::Relaxed)
+                {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
                 }

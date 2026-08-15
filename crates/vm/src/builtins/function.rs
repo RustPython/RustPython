@@ -1658,6 +1658,12 @@ pub(crate) fn vectorcall_function(
         // FAST PATH: simple positional-only call, exact arg count.
         // Move owned args directly into fastlocals — no clone needed.
         args.truncate(nargs);
+        if !vm.use_tracing.get() {
+            // Nothing here can escape the frame, so keep it on the data stack
+            // instead of allocating a `FrameObject`. Tracing needs the heap
+            // frame, since it hands the frame to the trace function.
+            return zelf.invoke_prepared_exact_args(args.into_iter(), vm);
+        }
         let frame = zelf.prepare_exact_args_frame(args.into_iter(), vm);
 
         let result = vm.run_frame(frame.clone());
