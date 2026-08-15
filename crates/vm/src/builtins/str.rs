@@ -1592,6 +1592,11 @@ impl Comparable for PyStr {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
+        // Equality does not need the ordering, and answers two strings of
+        // different length without reading either.
+        if let Some(res) = op.eval_eq(|| zelf.as_wtf8() == other.as_wtf8()) {
+            return Ok(res.into());
+        }
         Ok(op.eval_ord(zelf.as_wtf8().cmp(other.as_wtf8())).into())
     }
 }

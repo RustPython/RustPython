@@ -1995,6 +1995,29 @@ impl PyComparisonOp {
         self.map_eq(|| a.borrow().is(b.borrow()))
     }
 
+    /// The answer to this comparison for two operands that `equal` reports as
+    /// equal or not, or `None` for an ordering operator, which equality alone
+    /// cannot settle -- `equal` is not called in that case.
+    ///
+    /// This is what lets a type answer `==` and `!=` with an equality test
+    /// rather than with an ordering: the two agree on the answer, but equality
+    /// can settle a length mismatch without looking at the contents at all.
+    ///
+    /// The two neighbouring helpers answer different questions: [`Self::map_eq`]
+    /// answers only where its predicate holds, so a caller still handles the
+    /// other side, and [`Self::eq_only`] declares the comparison
+    /// `NotImplemented` for an ordering operator. This one leaves the ordering
+    /// operators to the caller, which is what a type with a real ordering
+    /// needs.
+    #[inline]
+    pub fn eval_eq(self, equal: impl FnOnce() -> bool) -> Option<bool> {
+        match self {
+            Self::Eq => Some(equal()),
+            Self::Ne => Some(!equal()),
+            _ => None,
+        }
+    }
+
     /// Returns `Some(true)` when self is `Eq` and `f()` returns true. Returns `Some(false)` when self
     /// is `Ne` and `f()` returns true. Otherwise returns `None`.
     #[inline]
