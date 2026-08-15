@@ -162,11 +162,14 @@ mod _sqlite3 {
         SQLITE_CREATE_TABLE, SQLITE_CREATE_TEMP_INDEX, SQLITE_CREATE_TEMP_TABLE,
         SQLITE_CREATE_TEMP_TRIGGER, SQLITE_CREATE_TEMP_VIEW, SQLITE_CREATE_TRIGGER,
         SQLITE_CREATE_VIEW, SQLITE_CREATE_VTABLE, SQLITE_DBCONFIG_DEFENSIVE,
-        SQLITE_DBCONFIG_DQS_DDL, SQLITE_DBCONFIG_DQS_DML, SQLITE_DBCONFIG_ENABLE_FKEY,
-        SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER, SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION,
-        SQLITE_DBCONFIG_ENABLE_QPSG, SQLITE_DBCONFIG_ENABLE_TRIGGER, SQLITE_DBCONFIG_ENABLE_VIEW,
+        SQLITE_DBCONFIG_DQS_DDL, SQLITE_DBCONFIG_DQS_DML, SQLITE_DBCONFIG_ENABLE_ATTACH_CREATE,
+        SQLITE_DBCONFIG_ENABLE_ATTACH_WRITE, SQLITE_DBCONFIG_ENABLE_COMMENTS,
+        SQLITE_DBCONFIG_ENABLE_FKEY, SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER,
+        SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, SQLITE_DBCONFIG_ENABLE_QPSG,
+        SQLITE_DBCONFIG_ENABLE_TRIGGER, SQLITE_DBCONFIG_ENABLE_VIEW,
         SQLITE_DBCONFIG_LEGACY_ALTER_TABLE, SQLITE_DBCONFIG_LEGACY_FILE_FORMAT,
         SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, SQLITE_DBCONFIG_RESET_DATABASE,
+        SQLITE_DBCONFIG_REVERSE_SCANORDER, SQLITE_DBCONFIG_STMT_SCANSTATUS,
         SQLITE_DBCONFIG_TRIGGER_EQP, SQLITE_DBCONFIG_TRUSTED_SCHEMA,
         SQLITE_DBCONFIG_WRITABLE_SCHEMA, SQLITE_DELETE, SQLITE_DENY, SQLITE_DETACH,
         SQLITE_DROP_INDEX, SQLITE_DROP_TABLE, SQLITE_DROP_TEMP_INDEX, SQLITE_DROP_TEMP_TABLE,
@@ -1533,15 +1536,14 @@ mod _sqlite3 {
             enable: OptionalArg<bool>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            let enable = enable.unwrap_or(true) as c_int;
+            let db = self.db_lock(vm)?;
             if !is_int_dbconfig(op) {
                 return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
             }
-            let db = self.db_lock(vm)?;
+            let enable = enable.unwrap_or(true) as c_int;
             let mut actual: c_int = 0;
             let rc = unsafe { sqlite3_db_config(db.db, op, enable, &mut actual) };
-            db.check(rc, vm)
-                .map_err(|_| new_operational_error(vm, "Unable to set config".to_owned()))?;
+            db.check(rc, vm)?;
             if enable != actual {
                 return Err(new_operational_error(vm, "Unable to set config".to_owned()));
             }
@@ -1550,10 +1552,10 @@ mod _sqlite3 {
 
         #[pymethod]
         fn getconfig(&self, op: c_int, vm: &VirtualMachine) -> PyResult<bool> {
+            let db = self.db_lock(vm)?;
             if !is_int_dbconfig(op) {
                 return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
             }
-            let db = self.db_lock(vm)?;
             let mut current: c_int = 0;
             let rc = unsafe { sqlite3_db_config(db.db, op, -1, &mut current) };
             db.check(rc, vm)?;
@@ -3598,6 +3600,11 @@ mod _sqlite3 {
                 | SQLITE_DBCONFIG_ENABLE_VIEW
                 | SQLITE_DBCONFIG_LEGACY_FILE_FORMAT
                 | SQLITE_DBCONFIG_TRUSTED_SCHEMA
+                | SQLITE_DBCONFIG_STMT_SCANSTATUS
+                | SQLITE_DBCONFIG_REVERSE_SCANORDER
+                | SQLITE_DBCONFIG_ENABLE_ATTACH_CREATE
+                | SQLITE_DBCONFIG_ENABLE_ATTACH_WRITE
+                | SQLITE_DBCONFIG_ENABLE_COMMENTS
         )
     }
 
