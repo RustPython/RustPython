@@ -909,7 +909,9 @@ def test_huge_width():
         assert_raises(MemoryError, lambda meth=meth: getattr("a", meth)(1 << 62))
     assert_raises(OverflowError, lambda: "\ta".expandtabs(1 << 62))
     assert_raises(OverflowError, lambda: "\ta".expandtabs(2**31))
-    assert "\ta".expandtabs(2**31 - 1)[-1] == "a"
+    # The widest tabsize that still fits is accepted. With no tab to expand
+    # there is nothing to lay out, so the width is never allocated.
+    assert "a".expandtabs(2**31 - 1) == "a"
 
 
 test_huge_width()

@@ -169,5 +169,9 @@ def test_frombytes_of_itself():
     try:
         a.frombytes(m)
     except (BufferError, TypeError):
+        # Refused either as a resize while exported or as a buffer whose
+        # items are not bytes; which one comes first is not the point here.
         pass
+    else:
+        raise AssertionError("frombytes of its own exported buffer should be refused")
     del m

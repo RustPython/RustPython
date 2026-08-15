@@ -180,7 +180,9 @@ with sizes:
     for bufsize in (2**62, 2**48):
         try:
             sizes.recv(bufsize)
-        except (MemoryError, OSError):
+        except (MemoryError, OSError, OverflowError):
+            # A size that does not fit the platform's C int is reported while
+            # converting the argument, before there is anything to reserve.
             pass
     with assert_raises(ValueError):
         sizes.recvfrom(-1)

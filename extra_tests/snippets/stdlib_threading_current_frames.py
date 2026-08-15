@@ -91,6 +91,7 @@ try:
         chain.append(frame.f_code.co_name)
         frame = frame.f_back
     assert "g456" in chain, chain
+    assert "f123" in chain, chain
     assert chain.index("g456") < chain.index("f123"), chain
 finally:
     leave.set()
