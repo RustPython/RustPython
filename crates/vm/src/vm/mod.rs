@@ -100,6 +100,11 @@ pub struct VirtualMachine {
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     recursion_depth: Cell<usize>,
+    /// Depth of native recursion that pushes no Python frame, counted only
+    /// where the stack pointer cannot be read. Everywhere else the native
+    /// stack itself answers, and nothing needs counting.
+    #[cfg(any(miri, target_env = "musl"))]
+    native_recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
@@ -994,6 +999,8 @@ impl VirtualMachine {
             state,
             initialized: false,
             recursion_depth: Cell::new(0),
+            #[cfg(any(miri, target_env = "musl"))]
+            native_recursion_depth: Cell::new(0),
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
@@ -2007,6 +2014,14 @@ impl VirtualMachine {
     const STACK_MARGIN_BYTES: usize =
         (if cfg!(debug_assertions) { 16384 } else { 4096 }) * core::mem::size_of::<usize>();
 
+    /// How deep native recursion may go where the stack cannot be measured
+    /// (`Py_C_RECURSION_LIMIT`). A native step costs far more stack than a
+    /// Python one and debug builds cost more again, so this sits well under
+    /// what a default stack holds rather than at what it would just fit.
+    #[cfg(any(miri, target_env = "musl"))]
+    const NATIVE_RECURSION_LIMIT_UNMEASURED: usize =
+        if cfg!(debug_assertions) { 500 } else { 1500 };
+
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
     #[cfg(all(not(miri), not(target_env = "musl"), windows))]
@@ -2113,11 +2128,29 @@ impl VirtualMachine {
     /// frame limit `sys.setrecursionlimit()` sets, so nesting counted here does
     /// not come out of what Python code has left to call with.
     pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
-        if self.check_c_stack_overflow() {
+        // `check_c_stack_overflow()` answers no unconditionally where the stack
+        // pointer cannot be read, which would leave this guard with nothing to
+        // stop. A count of the nesting stands in for the measurement there.
+        #[cfg(any(miri, target_env = "musl"))]
+        let counted_too_deep =
+            self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
+        #[cfg(not(any(miri, target_env = "musl")))]
+        let counted_too_deep = false;
+
+        if counted_too_deep || self.check_c_stack_overflow() {
             return Err(
                 self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
             );
         }
+
+        #[cfg(any(miri, target_env = "musl"))]
+        let _native_depth_guard = {
+            self.native_recursion_depth.update(|d| d + 1);
+            scopeguard::guard((), |()| {
+                self.native_recursion_depth.update(|d| d.saturating_sub(1))
+            })
+        };
+
         f()
     }
 
