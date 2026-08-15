@@ -83,12 +83,14 @@ impl GcGeneration {
         }
     }
 
+    /// Relaxed: this is policy read once per allocation, and a collection
+    /// racing `gc.set_threshold()` may use either value.
     pub fn threshold(&self) -> u32 {
-        self.threshold.load(Ordering::SeqCst)
+        self.threshold.load(Ordering::Relaxed)
     }
 
     pub fn set_threshold(&self, value: u32) {
-        self.threshold.store(value, Ordering::SeqCst);
+        self.threshold.store(value, Ordering::Relaxed);
     }
 
     pub fn stats(&self) -> GcStats {
@@ -134,9 +136,9 @@ impl GcGeneration {
 /// empties its own interpreter's objects; another interpreter's stay behind with
 /// the count already zeroed, and untracking one of those must not wrap.
 fn release_count(count: &AtomicUsize) {
-    let _ = count.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
-        Some(count.saturating_sub(1))
-    });
+    if count.load(Ordering::Relaxed) > 0 {
+        count.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// Whether `owner`'s collections act on `obj`.
@@ -263,13 +265,16 @@ pub struct GcState {
     /// Frozen/permanent objects (excluded from normal GC)
     permanent_list: PyRwLock<LinkedList<GcLink, PyObject>>,
     /// Number of tracked objects per generation, across all interpreters.
+    ///
+    /// Advisory: they drive the collection threshold and `gc.get_count()`, and
+    /// the generation locks — not these counters — order the list changes they
+    /// describe. Every access is therefore relaxed, which keeps the tracking and
+    /// untracking of every object off the barrier path.
     counts: [AtomicUsize; 3],
-    /// Number of frozen objects.
+    /// Number of frozen objects. Advisory, like `counts`.
     permanent_count: AtomicUsize,
     /// Mutex for collection (prevents concurrent collections)
     collecting: PyMutex<()>,
-    /// Allocation counter for gen0
-    alloc_count: AtomicUsize,
     /// Next `gc_owner` tag to hand to an interpreter.
     next_owner: AtomicU16,
     /// Tags of interpreters that are gone. Their objects outlived them, so a
@@ -308,7 +313,6 @@ impl GcState {
             ],
             permanent_count: AtomicUsize::new(0),
             collecting: PyMutex::new(()),
-            alloc_count: AtomicUsize::new(0),
             next_owner: AtomicU16::new(GC_NO_OWNER + 1),
             retired: PyMutex::new(Vec::new()),
         }
@@ -341,9 +345,9 @@ impl GcState {
     /// per interpreter.
     pub fn get_count(&self) -> (usize, usize, usize) {
         (
-            self.counts[0].load(Ordering::SeqCst),
-            self.counts[1].load(Ordering::SeqCst),
-            self.counts[2].load(Ordering::SeqCst),
+            self.counts[0].load(Ordering::Relaxed),
+            self.counts[1].load(Ordering::Relaxed),
+            self.counts[2].load(Ordering::Relaxed),
         )
     }
 
@@ -359,8 +363,7 @@ impl GcState {
         obj_ref.set_gc_owner(owner);
 
         self.generation_lists[0].write().push_front(obj);
-        self.counts[0].fetch_add(1, Ordering::SeqCst);
-        self.alloc_count.fetch_add(1, Ordering::SeqCst);
+        self.counts[0].fetch_add(1, Ordering::Relaxed);
     }
 
     /// Untrack an object (remove from GC lists).
@@ -453,7 +456,7 @@ impl GcState {
         }
 
         // Check gen0 threshold
-        let count0 = self.counts[0].load(Ordering::SeqCst) as u32;
+        let count0 = self.counts[0].load(Ordering::Relaxed) as u32;
         let threshold0 = gc.generations[0].threshold();
         if threshold0 > 0 && count0 >= threshold0 {
             #[cfg(feature = "threading")]
@@ -585,7 +588,7 @@ impl GcState {
             // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::SeqCst);
+                self.counts[i].store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -761,7 +764,7 @@ impl GcState {
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::SeqCst);
+                self.counts[i].store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -784,7 +787,7 @@ impl GcState {
             self.promote_survivors(generation, &survivor_refs);
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
             for i in 0..reset_end {
-                self.counts[i].store(0, Ordering::SeqCst);
+                self.counts[i].store(0, Ordering::Relaxed);
             }
 
             let duration = elapsed_secs(start_time);
@@ -1013,7 +1016,7 @@ impl GcState {
         // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
         let reset_end = if generation >= 2 { 2 } else { generation + 1 };
         for i in 0..reset_end {
-            self.counts[i].store(0, Ordering::SeqCst);
+            self.counts[i].store(0, Ordering::Relaxed);
         }
 
         let duration = elapsed_secs(start_time);
@@ -1064,7 +1067,7 @@ impl GcState {
                     release_count(&self.counts[src_gen]);
 
                     dst.push_front(ptr);
-                    self.counts[next_gen].fetch_add(1, Ordering::SeqCst);
+                    self.counts[next_gen].fetch_add(1, Ordering::Relaxed);
 
                     obj.set_gc_generation(next_gen as u8);
                 }
@@ -1074,7 +1077,7 @@ impl GcState {
 
     /// Get count of frozen objects
     pub fn get_freeze_count(&self) -> usize {
-        self.permanent_count.load(Ordering::SeqCst)
+        self.permanent_count.load(Ordering::Relaxed)
     }
 
     /// Freeze the objects `owner` could collect (move them to the permanent
@@ -1102,7 +1105,7 @@ impl GcState {
             }
         }
 
-        self.permanent_count.fetch_add(count, Ordering::SeqCst);
+        self.permanent_count.fetch_add(count, Ordering::Relaxed);
     }
 
     /// Unfreeze the objects `owner` froze (move them from permanent to gen2).
@@ -1127,13 +1130,13 @@ impl GcState {
                 count += 1;
             }
             let _ = self.permanent_count.fetch_update(
-                Ordering::SeqCst,
-                Ordering::SeqCst,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
                 |permanent| Some(permanent.saturating_sub(count)),
             );
         }
 
-        self.counts[2].fetch_add(count, Ordering::SeqCst);
+        self.counts[2].fetch_add(count, Ordering::Relaxed);
     }
 
     /// Reset all locks to unlocked state after fork().
@@ -1201,19 +1204,22 @@ impl GcInterpreterState {
         }
     }
 
-    /// Check if GC is enabled
+    /// Check if GC is enabled.
+    ///
+    /// Relaxed, like [`GcGeneration::threshold`]: it is read once per
+    /// allocation, and an allocation racing `gc.disable()` may use either value.
     pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::SeqCst)
+        self.enabled.load(Ordering::Relaxed)
     }
 
     /// Enable GC
     pub fn enable(&self) {
-        self.enabled.store(true, Ordering::SeqCst);
+        self.enabled.store(true, Ordering::Relaxed);
     }
 
     /// Disable GC
     pub fn disable(&self) {
-        self.enabled.store(false, Ordering::SeqCst);
+        self.enabled.store(false, Ordering::Relaxed);
     }
 
     /// Get debug flags
