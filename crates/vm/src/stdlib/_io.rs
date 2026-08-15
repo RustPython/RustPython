@@ -4820,7 +4820,7 @@ mod _io {
             // Reading locks this object, and a destination that views it locks
             // it too, so such a destination is filled after the read is done.
             if obj.source_object().is(zelf.as_object()) {
-                let mut data = vec![0u8; obj.len()];
+                let mut data = vm.new_zeroed_bytes(obj.len())?;
                 let ret = zelf
                     .buffer(vm)?
                     .cursor

@@ -855,7 +855,7 @@ pub(crate) mod _hashlib {
 
         let password_buf = args.password.borrow_buf();
         let salt_buf = args.salt.borrow_buf();
-        let mut dk = vec![0u8; dklen];
+        let mut dk = vm.new_zeroed_bytes(dklen)?;
 
         macro_rules! do_pbkdf2 {
             ($hash_ty:ty) => {{
