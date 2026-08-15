@@ -1635,7 +1635,7 @@ pub(crate) fn vectorcall_function(
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
     if zelf.is_jitted() {
         let func_args = if has_kwargs {
-            FuncArgs::from_vectorcall(&args, nargs, kwnames)
+            FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
         } else {
             args.truncate(nargs);
             FuncArgs::from(args)
@@ -1667,7 +1667,7 @@ pub(crate) fn vectorcall_function(
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
     let func_args = if has_kwargs {
-        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+        FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
     } else {
         args.truncate(nargs);
         FuncArgs::from(args)

@@ -6094,15 +6094,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::O && effective_nargs == 1 {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -6128,15 +6121,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::FASTCALL {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -6164,18 +6150,8 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let (args_vec, effective_nargs) = if let Some(self_val) = self_or_null {
-                        let mut v = Vec::with_capacity(nargs_usize + 1);
-                        v.push(self_val);
-                        v.extend(pos_args);
-                        (v, nargs_usize + 1)
-                    } else {
-                        (pos_args, nargs_usize)
-                    };
+                    let (callable, args_vec) = self.take_call_args(nargs as usize);
+                    let effective_nargs = args_vec.len();
                     let result =
                         vectorcall_function(&callable, args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
@@ -6214,12 +6190,11 @@ impl ExecutingFrame<'_> {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
                         let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                         args_vec.push(bound_self);
-                        args_vec.extend(pos_args);
+                        args_vec.extend(self.pop_multiple(nargs_usize));
+                        self.pop_value_opt(); // null (self_or_null)
+                        self.pop_value(); // callable (bound method)
                         let result = vectorcall_function(
                             &bound_function,
                             args_vec,
@@ -6301,15 +6276,8 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
-                        let positional_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(total_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(positional_args);
+                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
@@ -6348,15 +6316,8 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
-                        let positional_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(total_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(positional_args);
+                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
@@ -6395,15 +6356,8 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(total_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        all_args.push(self_val);
-                    }
-                    all_args.extend(positional_args);
+                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
@@ -6420,22 +6374,9 @@ impl ExecutingFrame<'_> {
                 if let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.slots.vectorcall.load().is_some()
                 {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let self_is_some = self_or_null.is_some();
-                    let mut args_vec = Vec::with_capacity(nargs_usize + usize::from(self_is_some));
-                    if let Some(self_val) = self_or_null {
-                        args_vec.push(self_val);
-                    }
-                    args_vec.extend(pos_args);
-                    let result = callable.vectorcall(
-                        args_vec,
-                        nargs_usize + usize::from(self_is_some),
-                        None,
-                        vm,
-                    )?;
+                    let (callable, args_vec) = self.take_call_args(nargs as usize);
+                    let effective_nargs = args_vec.len();
+                    let result = callable.vectorcall(args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -6520,15 +6461,8 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(total_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        all_args.push(self_val);
-                    }
-                    all_args.extend(positional_args);
+                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
@@ -6557,15 +6491,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS) {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -6589,22 +6516,13 @@ impl ExecutingFrame<'_> {
                 {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                let nargs_usize = nargs as usize;
-                let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                let self_or_null = self.pop_value_opt();
-                let callable = self.pop_value();
-                let mut args_vec =
-                    Vec::with_capacity(nargs_usize + usize::from(self_or_null_is_some));
-                if let Some(self_val) = self_or_null {
-                    args_vec.push(self_val);
-                }
-                args_vec.extend(pos_args);
-                let result = callable.vectorcall(
-                    args_vec,
-                    nargs_usize + usize::from(self_or_null_is_some),
-                    None,
-                    vm,
-                )?;
+                let (callable, args_vec) = self.take_call_args(nargs as usize);
+                debug_assert_eq!(
+                    args_vec.len(),
+                    nargs as usize + usize::from(self_or_null_is_some)
+                );
+                let effective_nargs = args_vec.len();
+                let result = callable.vectorcall(args_vec, effective_nargs, None, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
@@ -11411,6 +11329,49 @@ impl ExecutingFrame<'_> {
                 crate::exceptions::prep_reraise_star(arg1, arg2, vm)
             }
         }
+    }
+
+    /// Take a call's `[self_or_null, arg1, ..., argN]` off the stack as one
+    /// vectorcall argument list, along with the callable underneath them.
+    ///
+    /// The stack already holds the arguments in vectorcall order, so filling a
+    /// single vector by index costs one allocation — collecting the positional
+    /// arguments first and then pushing `self` in front of them costs two plus
+    /// a copy.
+    fn take_call_args(&mut self, nargs: usize) -> (PyObjectRef, Vec<PyObjectRef>) {
+        let stack_len = self.localsplus.stack_len();
+        debug_assert!(
+            stack_len >= nargs + 2,
+            "CALL stack underflow: need callable + self_or_null + {nargs} args, have {stack_len}"
+        );
+        let callable_idx = stack_len - nargs - 2;
+        let self_or_null_idx = callable_idx + 1;
+
+        let self_or_null = self
+            .localsplus
+            .stack_index_mut(self_or_null_idx)
+            .take()
+            .map(|sr| sr.to_pyobj());
+        let mut args = Vec::with_capacity(nargs + usize::from(self_or_null.is_some()));
+        args.extend(self_or_null);
+        for stack_idx in self_or_null_idx + 1..stack_len {
+            let val = self
+                .localsplus
+                .stack_index_mut(stack_idx)
+                .take()
+                .unwrap()
+                .to_pyobj();
+            args.push(val);
+        }
+
+        let callable = self
+            .localsplus
+            .stack_index_mut(callable_idx)
+            .take()
+            .unwrap()
+            .to_pyobj();
+        self.localsplus.stack_truncate(callable_idx);
+        (callable, args)
     }
 
     /// Pop multiple values from the stack. Panics if any slot is NULL.
