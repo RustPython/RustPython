@@ -4,6 +4,7 @@ pub(crate) use atexit::module_def;
 #[pymodule]
 mod atexit {
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine, function::FuncArgs};
+    use alloc::sync::Arc;
 
     #[pyfunction]
     fn register(func: PyObjectRef, args: FuncArgs, vm: &VirtualMachine) -> PyObjectRef {
@@ -11,7 +12,7 @@ mod atexit {
         vm.state
             .atexit_funcs
             .lock()
-            .insert(0, Box::new((func.clone(), args)));
+            .insert(0, Arc::new((func.clone(), args)));
         func
     }
 
@@ -29,24 +30,26 @@ mod atexit {
             funcs.len() as isize - 1
         };
         while i >= 0 {
-            let (cb, entry_ptr) = {
+            let entry = {
                 let funcs = vm.state.atexit_funcs.lock();
                 if i as usize >= funcs.len() {
                     i = funcs.len() as isize;
                     i -= 1;
                     continue;
                 }
-                let entry = &funcs[i as usize];
-                (entry.0.clone(), &**entry as *const (PyObjectRef, FuncArgs))
+                // Keep the entry alive for as long as it is being compared, so
+                // it cannot be dropped and have its address handed to a
+                // callback registered from within __eq__.
+                funcs[i as usize].clone()
             };
             // Lock released: __eq__ can safely call atexit functions
-            let eq = vm.bool_eq(&func, &cb)?;
+            let eq = vm.bool_eq(&func, &entry.0)?;
             if eq {
                 // The entry may have moved during __eq__. Search backward by identity.
                 let mut funcs = vm.state.atexit_funcs.lock();
                 let mut j = (funcs.len() as isize - 1).min(i);
                 while j >= 0 {
-                    if core::ptr::eq(&**funcs.get(j as usize).unwrap(), entry_ptr) {
+                    if Arc::ptr_eq(funcs.get(j as usize).unwrap(), &entry) {
                         funcs.remove(j as usize);
                         i = j;
                         break;
@@ -70,7 +73,7 @@ mod atexit {
         let funcs: Vec<_> = core::mem::take(&mut *vm.state.atexit_funcs.lock());
         // Callbacks stored in LIFO order, iterate forward
         for entry in funcs {
-            let (func, args) = *entry;
+            let (func, args) = Arc::try_unwrap(entry).unwrap_or_else(|e| (*e).clone());
             if let Err(e) = func.call(args, vm) {
                 let exit = e.fast_isinstance(vm.ctx.exceptions.system_exit);
                 let msg = func
