@@ -170,7 +170,6 @@ class FunctionTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for invalid num args
     def test_func_error_on_create(self):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_function("bla", -100, lambda x: 2*x)
@@ -514,7 +513,6 @@ class WindowFunctionTests(unittest.TestCase):
         self.cur.execute(self.query % "sumint")
         self.assertEqual(self.cur.fetchall(), self.expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for invalid num args
     def test_win_error_on_create(self):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_window_function("shouldfail", -100, WindowSumInt)
@@ -649,7 +647,6 @@ class AggregateTests(unittest.TestCase):
     def tearDown(self):
         self.con.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; error message differs for invalid num args
     def test_aggr_error_on_create(self):
         with self.assertRaisesRegex(sqlite.ProgrammingError, "not -100"):
             self.con.create_function("bla", -100, AggrSum)
