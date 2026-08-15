@@ -19,6 +19,12 @@ pub enum MarshalError {
     InvalidLocation,
     /// Bad type marker
     BadType,
+    /// A type marker no reader knows
+    UnknownType,
+    /// A back reference that names nothing
+    InvalidRef,
+    /// A marker that stands for no object at all
+    NullObject,
     /// A container length that is negative or does not fit, named by what it counts
     BadSize(&'static str),
 }
@@ -31,6 +37,9 @@ impl core::fmt::Display for MarshalError {
             Self::InvalidUtf8 => f.write_str("invalid utf8"),
             Self::InvalidLocation => f.write_str("invalid source location"),
             Self::BadType => f.write_str("bad type marker"),
+            Self::UnknownType => f.write_str("unknown type code"),
+            Self::InvalidRef => f.write_str("invalid reference"),
+            Self::NullObject => f.write_str("NULL object in marshal data for object"),
             Self::BadSize(what) => write!(f, "{what} size out of range"),
         }
     }
@@ -114,7 +123,7 @@ impl TryFrom<u8> for Type {
             b'A' => Self::AsciiInterned,
             b'z' => Self::ShortAscii,
             b'Z' => Self::ShortAsciiInterned,
-            _ => return Err(MarshalError::BadType),
+            _ => return Err(MarshalError::UnknownType),
         })
     }
 }
@@ -315,7 +324,7 @@ fn reserve_ref_slot<T>(has_flag: bool, refs: &mut Vec<Option<T>>) -> Option<usiz
 fn resolve_ref<T: Clone>(idx: usize, refs: &[Option<T>]) -> Result<T> {
     refs.get(idx)
         .and_then(|v| v.clone())
-        .ok_or(MarshalError::InvalidBytecode)
+        .ok_or(MarshalError::InvalidRef)
 }
 
 /// Read a marshal bytes object (TYPE_STRING = b's'), resolving TYPE_REF
@@ -844,10 +853,7 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
     // TYPE_REF: return previously stored object
     if type_code == Type::Ref as u8 {
         let idx = rdr.read_u32()? as usize;
-        return refs
-            .get(idx)
-            .and_then(|v| v.clone())
-            .ok_or(MarshalError::InvalidBytecode);
+        return resolve_ref(idx, refs);
     }
 
     // Reserve ref slot before reading (matches write order)
@@ -1084,7 +1090,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             }
         }
         Type::Null => {
-            return Err(MarshalError::BadType);
+            return Err(MarshalError::NullObject);
         }
         Type::Ref => {
             // Handled in deserialize_value_depth before calling this function

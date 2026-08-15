@@ -684,7 +684,10 @@ mod decl {
             Ok(value) => Ok(value),
             Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
                 marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
-                error @ marshal::MarshalError::BadSize(_) => {
+                error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
+                error @ (marshal::MarshalError::BadSize(_)
+                | marshal::MarshalError::UnknownType
+                | marshal::MarshalError::InvalidRef) => {
                     vm.new_value_error(format!("bad marshal data ({error})"))
                 }
                 _ => vm.new_value_error("bad marshal data"),

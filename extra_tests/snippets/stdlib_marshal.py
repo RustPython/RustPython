@@ -136,6 +136,23 @@ class BadDataTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 marshal.loads(data)
 
+    def test_unknown_type_code(self):
+        for data in (b"\x00", b"\x01", b"?", b"\xff"):
+            with self.assertRaises(ValueError):
+                marshal.loads(data)
+
+    def test_null_object(self):
+        # TYPE_NULL stands for no object, which is not a value to hand back
+        with self.assertRaises(TypeError):
+            marshal.loads(b"0")
+
+    def test_invalid_reference(self):
+        import struct
+
+        for index in (0, 0xFFFFFFFF):
+            with self.assertRaises(ValueError):
+                marshal.loads(b"r" + struct.pack("<I", index))
+
 
 if __name__ == "__main__":
     unittest.main()
