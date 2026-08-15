@@ -452,6 +452,22 @@ mod decl {
             }
         }
 
+        /// Room for a container the decoder publishes before it reads what
+        /// goes in it. The length is the input's to choose, so the room is
+        /// asked for rather than assumed: a length no allocator can serve is
+        /// a MemoryError, not an aborted process.
+        fn placeholder_elements(
+            &self,
+            len: usize,
+        ) -> Result<Vec<PyObjectRef>, marshal::MarshalError> {
+            let mut elements = Vec::new();
+            elements
+                .try_reserve_exact(len)
+                .map_err(|_| self.remember_python_error(self.vm.new_memory_error("")))?;
+            elements.resize(len, self.vm.ctx.none());
+            Ok(elements)
+        }
+
         fn remember_python_error(&self, error: PyBaseExceptionRef) -> marshal::MarshalError {
             let mut pending = self.pending_error.borrow_mut();
             if pending.is_none() {
@@ -495,8 +511,12 @@ mod decl {
         fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
             self.vm.ctx.new_tuple(elements.collect()).into()
         }
-        fn make_tuple_placeholder(&self, len: usize) -> Option<Self::Value> {
-            Some(PyTuple::new_marshal_placeholder(len, &self.vm.ctx).into())
+        fn make_tuple_placeholder(
+            &self,
+            len: usize,
+        ) -> Result<Option<Self::Value>, marshal::MarshalError> {
+            let elements = self.placeholder_elements(len)?;
+            Ok(Some(PyTuple::new_ref(elements, &self.vm.ctx).into()))
         }
         fn set_tuple_item(
             &self,
@@ -530,8 +550,12 @@ mod decl {
         ) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.vm.ctx.new_list(it.collect()).into())
         }
-        fn make_list_placeholder(&self, len: usize) -> Option<Self::Value> {
-            Some(self.vm.ctx.new_list(vec![self.vm.ctx.none(); len]).into())
+        fn make_list_placeholder(
+            &self,
+            len: usize,
+        ) -> Result<Option<Self::Value>, marshal::MarshalError> {
+            let elements = self.placeholder_elements(len)?;
+            Ok(Some(self.vm.ctx.new_list(elements).into()))
         }
         fn set_list_item(
             &self,

@@ -593,8 +593,12 @@ pub trait MarshalBag: Copy {
     /// Install partially-built containers in the marshal reference table
     /// before reading their children, as CPython's `r_object()` does.
     /// Runtime bags can opt in; constant bags retain collect-then-construct.
-    fn make_tuple_placeholder(&self, _len: usize) -> Option<Self::Value> {
-        None
+    ///
+    /// `len` comes straight from the input and is only bounded by what a
+    /// length can hold, so a bag that opts in reports the room it cannot get
+    /// rather than taking it for granted.
+    fn make_tuple_placeholder(&self, _len: usize) -> Result<Option<Self::Value>> {
+        Ok(None)
     }
 
     fn set_tuple_item(
@@ -606,8 +610,8 @@ pub trait MarshalBag: Copy {
         Err(MarshalError::BadType)
     }
 
-    fn make_list_placeholder(&self, _len: usize) -> Option<Self::Value> {
-        None
+    fn make_list_placeholder(&self, _len: usize) -> Result<Option<Self::Value>> {
+        Ok(None)
     }
 
     fn set_list_item(&self, _list: &Self::Value, _index: usize, _value: Self::Value) -> Result<()> {
@@ -1066,7 +1070,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let len = rdr.read_u8()? as usize;
             let d = depth - 1;
             if let Some(index) = slot
-                && let Some(tuple) = bag.make_tuple_placeholder(len)
+                && let Some(tuple) = bag.make_tuple_placeholder(len)?
             {
                 refs[index] = Some(tuple.clone());
                 for item_index in 0..len {
@@ -1090,7 +1094,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let len = rdr.read_len("tuple")?;
             let d = depth - 1;
             if let Some(index) = slot
-                && let Some(tuple) = bag.make_tuple_placeholder(len)
+                && let Some(tuple) = bag.make_tuple_placeholder(len)?
             {
                 refs[index] = Some(tuple.clone());
                 for item_index in 0..len {
@@ -1107,7 +1111,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             let len = rdr.read_len("list")?;
             let d = depth - 1;
             if let Some(index) = slot
-                && let Some(list) = bag.make_list_placeholder(len)
+                && let Some(list) = bag.make_list_placeholder(len)?
             {
                 refs[index] = Some(list.clone());
                 for item_index in 0..len {
