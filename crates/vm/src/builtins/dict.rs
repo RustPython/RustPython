@@ -114,11 +114,6 @@ impl PyDict {
         &self.entries
     }
 
-    /// Monotonically increasing version for mutation tracking.
-    pub(crate) fn version(&self) -> u64 {
-        self.entries.version()
-    }
-
     /// Returns all keys as a Vec, atomically under a single read lock.
     /// Thread-safe: prevents "dictionary changed size during iteration" errors.
     pub fn keys_vec(&self) -> Vec<PyObjectRef> {
@@ -821,18 +816,15 @@ impl Py<PyDict> {
         }
     }
 
-    /// Fast lookup using a cached entry index hint.
-    pub(crate) fn get_item_opt_hint<K: DictKey + ?Sized>(
+    /// Read a cached exact-dict entry after validating its key-layout stamp.
+    #[inline]
+    pub(crate) fn get_item_by_index_and_keys_version(
         &self,
-        key: &K,
-        hint: u16,
-        vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
-        if self.exact_dict(vm) {
-            self.entries.get_hint(vm, key, usize::from(hint))
-        } else {
-            self.get_item_opt(key, vm)
-        }
+        version: u16,
+        index: u16,
+    ) -> Option<PyObjectRef> {
+        self.entries
+            .get_index_if_keys_version(u32::from(version), usize::from(index))
     }
 
     /// Lookup trying a cached entry index hint first.

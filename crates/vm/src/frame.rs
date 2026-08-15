@@ -899,6 +899,7 @@ impl InterpreterFrame {
     /// For stack-allocated frames (future), the pointers remain valid for the
     /// frame's lifetime on the native stack.
     #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
     pub(crate) fn new(
         code: &Py<PyCode>,
         globals: &Py<PyDict>,
@@ -968,9 +969,10 @@ impl InterpreterFrame {
     /// Returns a mutable reference whose lifetime is bounded by the data
     /// stack's LIFO discipline. The caller must call
     /// `release_datastack_frame()` (unsafe) when done, then
-    /// `vm.datastack_pop(base)`. The reference must not be used after
+    /// `vm.datastack_pop_frame(base, size)`. The reference must not be used after
     /// `release_datastack_frame` returns.
     #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
     pub(crate) fn new_on_datastack<'a>(
         code: &Py<PyCode>,
         globals: &Py<PyDict>,
@@ -987,7 +989,7 @@ impl InterpreterFrame {
             .expect("LocalsPlus capacity overflow");
 
         let total_bytes = datastack_iframe_total_bytes(nlocalsplus, stacksize);
-        let base = vm.datastack_push(total_bytes);
+        let (base, reused_cleared_frame) = vm.datastack_push_frame(total_bytes);
 
         // InterpreterFrame lives at the start of the allocation.
         let iframe_ptr = base as *mut Self;
@@ -995,8 +997,10 @@ impl InterpreterFrame {
         let localsplus_data_ptr =
             unsafe { base.add(datastack_iframe_localsplus_offset()) } as *mut usize;
 
-        // Zero-initialize localsplus data.
-        unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
+        if !reused_cleared_frame {
+            // Fresh or differently shaped storage may contain old frame data.
+            unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
+        }
 
         let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
         let localsplus = LocalsPlus {
@@ -1038,11 +1042,15 @@ impl InterpreterFrame {
     /// After this call, the InterpreterFrame at `self` is logically dead —
     /// the caller must not use `self` again except to pass the returned
     /// base to `vm.datastack_pop()`.
-    pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<*mut u8> {
+    pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<(*mut u8, usize)> {
         let base = self.datastack_base;
         if base.is_null() {
             return None;
         }
+        let total_bytes = datastack_iframe_total_bytes(
+            self.localsplus.nlocalsplus as usize,
+            self.localsplus.stack_capacity(),
+        );
         self.datastack_base = core::ptr::null_mut();
         // Drop all localsplus values while the backing store is still valid.
         self.localsplus.drop_values();
@@ -1055,7 +1063,7 @@ impl InterpreterFrame {
         // SAFETY: `self` points to valid, initialized memory on the data
         // stack. After this call the memory is logically dead.
         unsafe { core::ptr::drop_in_place(self) };
-        Some(base)
+        Some((base, total_bytes))
     }
 
     /// Get the last instruction index.
@@ -2457,11 +2465,11 @@ pub(crate) struct ExecutingFrame<'a> {
 }
 
 #[inline]
-fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
+fn specialization_compact_int_value(i: &PyInt) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
-    let v = i.try_to_primitive::<i64>(vm).ok()?;
+    let v = i.try_to_i64_fast()?;
     if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
         Some(v as isize)
     } else {
@@ -2472,7 +2480,7 @@ fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<is
 #[inline]
 fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
     obj.downcast_ref_if_exact::<PyInt>(vm)
-        .and_then(|i| specialization_compact_int_value(i, vm))
+        .and_then(|i| specialization_compact_int_value(i))
 }
 
 #[inline]
@@ -4289,9 +4297,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadSmallInt { i: idx } => {
-                // Push small integer (-5..=256) directly without constant table lookup
-                let value = vm.ctx.new_int(idx.get(arg) as i32);
-                self.push_value(value.into());
+                // Cached small integers live for the whole Context, so the value stack can
+                // borrow them without touching the refcount.
+                let value = vm.ctx.cached_int(idx.get(arg) as i32);
+                unsafe { self.push_borrowed(value.as_object()) };
                 Ok(None)
             }
             Instruction::LoadDeref { i } => {
@@ -5686,8 +5695,8 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
@@ -5846,6 +5855,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
                     if !func.has_exact_argcount(effective_nargs) {
                         return self.execute_call_vectorcall(nargs, vm);
@@ -5908,6 +5920,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         if !func.has_exact_argcount(nargs + 1) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
@@ -6143,6 +6158,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
@@ -6189,6 +6207,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
@@ -6601,6 +6622,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_kw_vectorcall(nargs, vm);
+                    }
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_kw_vectorcall(nargs, vm);
                     }
@@ -6659,6 +6683,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_kw_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let kwarg_names_obj = self.pop_value();
                         let kwarg_names_tuple = kwarg_names_obj
@@ -6854,14 +6881,16 @@ impl ExecutingFrame<'_> {
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
                 ) && let (Some(a_val), Some(b_val)) = (
-                    specialization_compact_int_value(a_int, vm),
-                    specialization_compact_int_value(b_int, vm),
+                    specialization_compact_int_value(a_int),
+                    specialization_compact_int_value(b_int),
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     let result = op.eval_ord(a_val.cmp(&b_val));
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.pop_stackref();
+                    if !self.try_fused_compare_int_jump(result, vm) {
+                        self.push_value(vm.ctx.new_bool(result).into());
+                    }
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -7187,17 +7216,16 @@ impl ExecutingFrame<'_> {
                 // Keep specialized opcode on guard miss (JUMP_TO_PREDICTED behavior).
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
-                if let Ok(current_version) = u16::try_from(self.globals.version())
-                    && cached_version == current_version
+                if cached_version != 0
+                    && let Some(x) = self
+                        .globals
+                        .get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = self.globals.get_item_opt_hint(name, cached_index, vm)? {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        return Ok(None);
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
                     }
+                    return Ok(None);
                 }
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -7213,20 +7241,19 @@ impl ExecutingFrame<'_> {
                 let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
-                if let Ok(current_globals_ver) = u16::try_from(self.globals.version())
+                if cached_globals_ver != 0
+                    && cached_builtins_ver != 0
+                    && let Ok(current_globals_ver) = u16::try_from(self.globals.keys_version())
                     && cached_globals_ver == current_globals_ver
                     && let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
-                    && let Ok(current_builtins_ver) = u16::try_from(builtins_dict.version())
-                    && cached_builtins_ver == current_builtins_ver
+                    && let Some(x) = builtins_dict
+                        .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = builtins_dict.get_item_opt_hint(name, cached_index, vm)? {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        return Ok(None);
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
                     }
+                    return Ok(None);
                 }
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -8570,7 +8597,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(Self::int_add(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_add(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Add) {
                     vm._add(a_ref, b_ref)
                 } else {
@@ -8582,7 +8609,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(Self::int_sub(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_sub(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Subtract) {
                     vm._sub(a_ref, b_ref)
                 } else {
@@ -8594,7 +8621,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(Self::int_mul(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_mul(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Multiply) {
                     vm._mul(a_ref, b_ref)
                 } else {
@@ -8660,36 +8687,37 @@ impl ExecutingFrame<'_> {
     /// small-int cache is consulted identically.
     #[inline]
     fn int_fast_op(
-        a: &BigInt,
-        b: &BigInt,
+        a: &PyInt,
+        b: &PyInt,
         vm: &VirtualMachine,
         checked: fn(i64, i64) -> Option<i64>,
         fallback: impl FnOnce(&BigInt, &BigInt) -> BigInt,
     ) -> PyObjectRef {
-        use num_traits::ToPrimitive;
-        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
+        if let (Some(av), Some(bv)) = (a.try_to_i64_fast(), b.try_to_i64_fast())
             && let Some(result) = checked(av, bv)
         {
             return vm.ctx.new_int(result).into();
         }
-        vm.ctx.new_int(fallback(a, b)).into()
+        vm.ctx
+            .new_int(fallback(a.as_bigint(), b.as_bigint()))
+            .into()
     }
 
     /// Int addition with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_add(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_add(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_add, |a, b| a + b)
     }
 
     /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_sub(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_sub(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_sub, |a, b| a - b)
     }
 
     /// Int multiplication with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_mul(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_mul(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_mul, |a, b| a * b)
     }
 
@@ -9834,7 +9862,7 @@ impl ExecutingFrame<'_> {
     fn execute_binary_op_int(
         &mut self,
         vm: &VirtualMachine,
-        op: impl FnOnce(&BigInt, &BigInt, &VirtualMachine) -> PyObjectRef,
+        op: impl FnOnce(&PyInt, &PyInt, &VirtualMachine) -> PyObjectRef,
         deopt_op: bytecode::BinaryOperator,
     ) -> FrameResult {
         let b = self.top_value();
@@ -9843,9 +9871,9 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            let result = op(a_int.as_bigint(), b_int.as_bigint(), vm);
-            self.pop_value();
-            self.pop_value();
+            let result = op(a_int, b_int, vm);
+            self.pop_stackref();
+            self.pop_stackref();
             self.push_value(result);
             Ok(None)
         } else {
@@ -9902,7 +9930,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) {
+            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -9965,7 +9993,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) {
+                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -10260,7 +10288,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) {
+            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10311,7 +10339,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) {
+                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -10454,8 +10482,8 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            if specialization_compact_int_value(a_int, vm).is_some()
-                && specialization_compact_int_value(b_int, vm).is_some()
+            if specialization_compact_int_value(a_int).is_some()
+                && specialization_compact_int_value(b_int).is_some()
             {
                 Some(Instruction::CompareOpInt)
             } else {
@@ -10484,6 +10512,37 @@ impl ExecutingFrame<'_> {
         bytecode::ComparisonOperator::try_from(u32::from(arg))
             .unwrap_or(bytecode::ComparisonOperator::Equal)
             .into()
+    }
+
+    /// Execute an immediately following conditional jump without materializing
+    /// the comparison result as a Python bool. This is the adaptive interpreter
+    /// equivalent of keeping the result virtual across the two-opcode trace.
+    #[inline]
+    fn try_fused_compare_int_jump(&mut self, result: bool, vm: &VirtualMachine) -> bool {
+        if self.specialization_eval_frame_active(vm) {
+            return false;
+        }
+
+        let jump_idx = self.lasti() as usize + Instruction::CompareOpInt.cache_entries();
+        if jump_idx >= self.code.instructions.len() {
+            return false;
+        }
+
+        let jump_op = self.code.instructions.read_op(jump_idx);
+        let jump_on = match jump_op {
+            Instruction::PopJumpIfFalse { .. } => false,
+            Instruction::PopJumpIfTrue { .. } => true,
+            _ => return false,
+        };
+        let jump_delta = self.code.instructions.read_arg(jump_idx).as_u32();
+        let after_jump = jump_idx as u32 + 1 + jump_op.cache_entries() as u32;
+        let target = if result == jump_on {
+            after_jump + jump_delta
+        } else {
+            after_jump
+        };
+        self.update_lasti(|i| *i = target);
+        true
     }
 
     /// Recover the BinaryOperator from the instruction arg byte.
@@ -10686,11 +10745,10 @@ impl ExecutingFrame<'_> {
             }
         }
 
-        // Pop the callable and transfer ownership to the trampoline via
-        // the VM side channel, avoiding a per-frame mutex lock on
-        // temporary_refs.
+        // Pop the callable and transfer ownership to the trampoline. This one
+        // reference keeps every field borrowed by the callee frame alive.
         let callable = self.pop_value();
-        unsafe { &mut *vm.pending_tailcall_refs.get() }.push(callable);
+        vm.set_pending_tailcall_owner(callable);
 
         vm.set_pending_tailcall(callee_iframe);
     }
@@ -10740,13 +10798,13 @@ impl ExecutingFrame<'_> {
             *dst = Some(arg);
         }
         self.pop_value_opt(); // null (self_or_null)
-        let callable = self.pop_value(); // callable (bound method)
+        self.pop_value(); // callable (bound method)
         fastlocals[0] = Some(bound_self);
 
-        // Transfer ownership to the trampoline via the VM side channel.
-        let refs = unsafe { &mut *vm.pending_tailcall_refs.get() };
-        refs.push(bound_function);
-        refs.push(callable);
+        // The function owns every field borrowed by the callee frame.
+        // bound_self is owned by fastlocals; the bound-method object itself is
+        // no longer needed and was dropped above, matching the recursive path.
+        vm.set_pending_tailcall_owner(bound_function);
 
         vm.set_pending_tailcall(callee_iframe);
     }
@@ -10798,7 +10856,7 @@ impl ExecutingFrame<'_> {
             return;
         }
         let name = self.code.names[(oparg >> 1) as usize];
-        let Ok(globals_version) = u16::try_from(self.globals.version()) else {
+        let Ok(globals_version @ 1..) = u16::try_from(self.globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
                     cache_base,
@@ -10826,7 +10884,7 @@ impl ExecutingFrame<'_> {
 
         if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
             && let Ok(Some(builtins_hint)) = builtins_dict.hint_for_key(name, vm)
-            && let Ok(builtins_version) = u16::try_from(builtins_dict.version())
+            && let Ok(builtins_version @ 1..) = u16::try_from(builtins_dict.assign_keys_version(vm))
         {
             unsafe {
                 self.code

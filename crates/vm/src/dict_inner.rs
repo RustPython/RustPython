@@ -20,7 +20,7 @@ use alloc::fmt;
 use core::mem::size_of;
 use core::ops::ControlFlow;
 use core::sync::atomic::{
-    AtomicU32, AtomicU64,
+    AtomicU32,
     Ordering::{AcqRel, Acquire, Relaxed, Release},
 };
 use num_traits::ToPrimitive;
@@ -39,7 +39,6 @@ type EntryIndex = usize;
 
 pub(crate) struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
-    version: AtomicU64,
     /// Keys-version stamp, assigned lazily by `assign_keys_version` and
     /// reset to 0 whenever the key set changes. Value-only updates keep it.
     ///
@@ -202,7 +201,6 @@ impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
         Self {
             inner: PyRwLock::new(self.inner.read().clone()),
-            version: AtomicU64::new(0),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -217,7 +215,6 @@ impl<T> Default for Dict<T> {
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
-            version: AtomicU64::new(0),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -362,16 +359,6 @@ impl<T> DictInner<T> {
 type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
 
 impl<T: Clone> Dict<T> {
-    /// Monotonically increasing version counter for mutation tracking.
-    pub(crate) fn version(&self) -> u64 {
-        self.version.load(Acquire)
-    }
-
-    /// Bump the version counter after any mutation.
-    fn bump_version(&self) {
-        self.version.fetch_add(1, Release);
-    }
-
     /// Current keys-version stamp, or 0 if none has been assigned since the
     /// last key-set change. Equal nonzero stamps guarantee an unchanged key
     /// set (values may differ).
@@ -500,7 +487,6 @@ impl<T: Clone> Dict<T> {
                     )]
                     if entry.index == index_index {
                         let removed = core::mem::replace(&mut entry.value, value);
-                        self.bump_version();
                         // defer dec RC
                         break Some(removed);
                     } else {
@@ -517,7 +503,6 @@ impl<T: Clone> Dict<T> {
                 }
                 self.invalidate_keys_version();
                 inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value, entry_index);
-                self.bump_version();
                 break None;
             }
         };
@@ -616,7 +601,6 @@ impl<T: Clone> Dict<T> {
             match inner.entries.get_mut(hint) {
                 Some(Some(entry)) if key.key_is(&entry.key) => {
                     let removed = core::mem::replace(&mut entry.value, value);
-                    self.bump_version();
                     drop(inner);
                     // defer dec RC until after the lock is released
                     drop(removed);
@@ -654,6 +638,22 @@ impl<T: Clone> Dict<T> {
         } else {
             Ok(None)
         }
+    }
+
+    /// Read an entry directly when a cached keys-version still describes the
+    /// dictionary layout. The version is rechecked while holding the read lock
+    /// so the entry index and value are observed from the same key-set state.
+    #[inline]
+    pub(crate) fn get_index_if_keys_version(&self, version: u32, index: usize) -> Option<T> {
+        let inner = self.read();
+        if self.keys_version.load(Acquire) != version {
+            return None;
+        }
+        inner
+            .entries
+            .get(index)
+            .and_then(Option::as_ref)
+            .map(|entry| entry.value.clone())
     }
 
     fn _get_inner<K: DictKey + ?Sized>(
@@ -701,7 +701,6 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
-            self.bump_version();
             // defer dec rc
             core::mem::take(&mut inner.entries)
         };
@@ -830,7 +829,6 @@ impl<T: Clone> Dict<T> {
             }
             self.invalidate_keys_version();
             inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
-            self.bump_version();
             break None;
         };
         Ok(())
@@ -867,7 +865,6 @@ impl<T: Clone> Dict<T> {
                 value.clone(),
                 index_entry,
             );
-            self.bump_version();
             return Ok(value);
         }
     }
@@ -905,7 +902,6 @@ impl<T: Clone> Dict<T> {
             let ret = (key_obj.clone(), value.clone());
             self.invalidate_keys_version();
             inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
-            self.bump_version();
             return Ok(ret);
         }
     }
@@ -1117,7 +1113,6 @@ impl<T: Clone> Dict<T> {
         } = IndexEntry::DUMMY;
         inner.used -= 1;
         let removed = slot.take();
-        self.bump_version();
         Ok(ControlFlow::Break(removed))
     }
 
@@ -1152,7 +1147,6 @@ impl<T: Clone> Dict<T> {
             // entry.index always refers valid index
             inner.indices.get_unchecked_mut(entry.index)
         } = IndexEntry::DUMMY;
-        self.bump_version();
         Some((entry.key, entry.value))
     }
 

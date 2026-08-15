@@ -434,6 +434,14 @@ impl Context {
         PyInt::from(i).into_ref(self)
     }
 
+    /// Borrow a cached small integer whose lifetime is tied to this context.
+    #[inline(always)]
+    pub(crate) fn cached_int(&self, i: i32) -> &PyIntRef {
+        debug_assert!(Self::INT_CACHE_POOL_RANGE.contains(&i));
+        let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
+        &self.int_cache_pool[inner_idx]
+    }
+
     #[inline]
     pub fn new_bigint(&self, i: &BigInt) -> PyIntRef {
         if let Some(i) = i.to_i32()

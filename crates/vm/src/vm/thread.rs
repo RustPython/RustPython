@@ -122,6 +122,12 @@ thread_local! {
     static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<FrameObject>> =
         const { Cell::new(core::ptr::null()) };
 
+    /// Cached pointer to this thread's `ThreadSlot::top_iframe` for the hot
+    /// light-frame push/pop path. The slot's Arc keeps the pointee alive.
+    #[cfg(feature = "threading")]
+    static CURRENT_TOP_IFRAME_SLOT: Cell<*const AtomicUsize> =
+        const { Cell::new(core::ptr::null()) };
+
 }
 
 #[must_use]
@@ -410,6 +416,7 @@ fn ensure_thread_slot(vm: &VirtualMachine) -> CurrentFrameSlot {
 fn set_current_thread_slot(slot: CurrentFrameSlot) {
     #[cfg(unix)]
     CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&slot.top_frame));
+    CURRENT_TOP_IFRAME_SLOT.with(|c| c.set(&slot.top_iframe));
     CURRENT_THREAD_SLOT.with(|current| {
         *current.borrow_mut() = Some(slot);
     });
@@ -790,27 +797,25 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
     // sys._current_frames).
     #[cfg(feature = "threading")]
     {
-        CURRENT_THREAD_SLOT.with(|slot| {
-            if let Some(s) = slot.borrow().as_ref() {
-                if !frame.is_null() {
-                    #[cfg(unix)]
-                    {
-                        let frame_obj = unsafe { (*frame).frame_obj() };
-                        let fo_ptr = match frame_obj {
-                            Some(py) => {
-                                py as *const Py<FrameObject> as *const FrameObject
-                                    as *mut FrameObject
-                            }
-                            None => core::ptr::null_mut(),
-                        };
-                        s.top_frame.store(fo_ptr, Ordering::Relaxed);
-                    }
-                    s.top_iframe.store(frame as usize, Ordering::Relaxed);
+        CURRENT_TOP_IFRAME_SLOT.with(|slot| {
+            let slot = slot.get();
+            if !slot.is_null() {
+                unsafe { &*slot }.store(frame as usize, Ordering::Relaxed);
+            }
+        });
+        #[cfg(unix)]
+        CURRENT_TOP_FRAME_SLOT.with(|slot| {
+            let slot = slot.get();
+            if !slot.is_null() {
+                let fo_ptr = if frame.is_null() {
+                    core::ptr::null_mut()
                 } else {
-                    #[cfg(unix)]
-                    s.top_frame.store(core::ptr::null_mut(), Ordering::Relaxed);
-                    s.top_iframe.store(0, Ordering::Relaxed);
-                }
+                    let frame_obj = unsafe { (*frame).frame_obj() };
+                    frame_obj.map_or(core::ptr::null_mut(), |py| {
+                        py as *const Py<FrameObject> as *const FrameObject as *mut FrameObject
+                    })
+                };
+                unsafe { &*slot }.store(fo_ptr, Ordering::Relaxed);
             }
         });
     }
@@ -913,6 +918,8 @@ pub fn cleanup_current_thread_frames(vm: &VirtualMachine) {
             *s.borrow_mut() = None;
             #[cfg(all(unix, feature = "threading"))]
             CURRENT_TOP_FRAME_SLOT.with(|c| c.set(core::ptr::null()));
+            #[cfg(feature = "threading")]
+            CURRENT_TOP_IFRAME_SLOT.with(|c| c.set(core::ptr::null()));
         }
     });
 }
@@ -974,6 +981,8 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
     });
     #[cfg(all(unix, feature = "threading"))]
     CURRENT_TOP_FRAME_SLOT.with(|c| c.set(&new_slot.top_frame));
+    #[cfg(feature = "threading")]
+    CURRENT_TOP_IFRAME_SLOT.with(|c| c.set(&new_slot.top_iframe));
 
     // Lock is safe: reinit_locks_after_fork() already reset it to unlocked.
     let mut registry = vm.state.thread_frames.lock();
@@ -1148,7 +1157,7 @@ impl VirtualMachine {
             callable_cache: self.callable_cache.clone(),
             audit_hooks: RefCell::new(vec![]),
             pending_tailcall_frame: Cell::new(None),
-            pending_tailcall_refs: core::cell::UnsafeCell::new(Vec::with_capacity(2)),
+            pending_tailcall_owner: core::cell::UnsafeCell::new(None),
         };
         ThreadedVirtualMachine { vm }
     }
