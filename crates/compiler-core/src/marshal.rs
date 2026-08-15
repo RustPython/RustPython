@@ -418,7 +418,7 @@ fn read_marshal_str_vec<R: Read, Bag: ConstantBag>(
     }
 
     let n = match type_byte {
-        b'(' => rdr.read_u32()? as usize,
+        b'(' => rdr.read_len("tuple")?,
         b')' => rdr.read_u8()? as usize,
         _ => return Err(MarshalError::BadType),
     };
@@ -481,7 +481,7 @@ fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
     }
 
     let n = match type_byte {
-        b'(' => rdr.read_u32()? as usize,
+        b'(' => rdr.read_len("tuple")?,
         b')' => rdr.read_u8()? as usize,
         _ => return Err(MarshalError::BadType),
     };
