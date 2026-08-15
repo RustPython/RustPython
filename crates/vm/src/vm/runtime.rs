@@ -134,10 +134,53 @@ pub(crate) fn alloc_interpreter_id() -> i64 {
     registry().next_id.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Gate between registering an interpreter and a collection's stop-the-world.
+///
+/// A collection snapshots the registry, stops every interpreter in the
+/// snapshot, and then reads tracked objects with those threads parked. An
+/// interpreter that registered after the snapshot was taken would not be in it,
+/// so nothing would stop it, and its bootstrap — which runs Python and mutates
+/// the shared generation lists — would run underneath that scan. Registration
+/// therefore waits for an in-flight stop to end; the next collection's snapshot
+/// then contains the new interpreter.
+fn admission() -> &'static Mutex<()> {
+    static ADMISSION: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    ADMISSION.get_or_init(|| Mutex::new(()))
+}
+
+/// Take the admission gate for the duration of a stop-the-world.
+#[cfg(feature = "threading")]
+pub(crate) fn lock_admission_for_stop() -> parking_lot::MutexGuard<'static, ()> {
+    admission().lock()
+}
+
+/// Add the registry entry, behind the admission gate.
+///
+/// Only ever called with this thread detached, because the gate is held across
+/// a stop-the-world: an attached thread waiting here, or re-attaching while
+/// holding the gate, would leave that stop no safepoint to complete at. Nothing
+/// under the gate blocks or allocates a tracked object, so this cannot re-enter
+/// the collection it waits for.
+fn insert_registry_entry(state: &PyRc<PyGlobalState>) {
+    let _admission = admission().lock();
+    let mut entries = registry().entries.lock();
+    // Entries are weak and an interpreter's lifetime is decided by its last
+    // `PyRc<PyGlobalState>` — which outlives the `Interpreter` handle whenever
+    // `new_thread()` workers are still running — so nothing removes them at a
+    // fixed point. Reap the dead ones here to bound the table instead.
+    entries.retain(|_, entry| entry.state.strong_count() > 0);
+    entries.insert(
+        state.interpreter_id,
+        RegistryEntry {
+            whence: state.whence,
+            state: PyRc::downgrade(state),
+        },
+    );
+}
+
 /// Register an interpreter state in the registry.
 pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
     let id = state.interpreter_id;
-    let whence = state.whence;
     if state.is_main {
         // First `is_main` interpreter defines the main for `get_main()`.
         // Additional top-level Interpreters (embedding) keep their own `is_main`
@@ -149,19 +192,14 @@ pub(crate) fn register_interpreter(state: &PyRc<PyGlobalState>) {
             Ordering::Relaxed,
         );
     }
-    let mut entries = registry().entries.lock();
-    // Entries are weak and an interpreter's lifetime is decided by its last
-    // `PyRc<PyGlobalState>` — which outlives the `Interpreter` handle whenever
-    // `new_thread()` workers are still running — so nothing removes them at a
-    // fixed point. Reap the dead ones here to bound the table instead.
-    entries.retain(|_, entry| entry.state.strong_count() > 0);
-    entries.insert(
-        id,
-        RegistryEntry {
-            whence,
-            state: PyRc::downgrade(state),
-        },
-    );
+    // A subinterpreter is registered by a thread that is running its parent, so
+    // detach for the whole insert rather than only for the wait.
+    let detached = crate::vm::thread::try_with_current_vm(|vm| {
+        vm.allow_threads(|| insert_registry_entry(state))
+    });
+    if detached.is_none() {
+        insert_registry_entry(state);
+    }
 }
 
 /// Look up a live interpreter state by id.
@@ -206,12 +244,13 @@ pub fn interpreter_count() -> usize {
 ///
 /// # Safety
 /// Must only be called after `fork()` in the child process, when no other
-/// threads exist and the calling thread holds neither lock.
+/// threads exist and the calling thread holds none of these locks.
 #[cfg(all(unix, feature = "threading"))]
 pub unsafe fn reinit_after_fork() {
     unsafe {
         crate::common::lock::reinit_mutex_after_fork(&registry().entries);
         crate::common::lock::reinit_mutex_after_fork(owned_interpreters());
+        crate::common::lock::reinit_mutex_after_fork(admission());
     }
 }
 

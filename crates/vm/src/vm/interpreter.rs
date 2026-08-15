@@ -836,6 +836,44 @@ mod tests {
         }
     }
 
+    /// A collection snapshots the registry and then reads tracked objects with
+    /// the interpreters it found parked. An interpreter that registered inside
+    /// that window would be missing from the snapshot, so nothing would stop it
+    /// and its bootstrap would run under the scan; registration therefore waits
+    /// for the stop to end.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn registering_waits_for_an_in_flight_stop() {
+        use core::time::Duration;
+        use std::sync::mpsc;
+
+        // Stands in for a collector between its snapshot and its restart.
+        let admission = runtime::lock_admission_for_stop();
+
+        let (tx, rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let interp = Interpreter::without_stdlib(Default::default());
+            tx.send(interp.id()).expect("receiver is alive");
+            interp
+        });
+
+        assert!(
+            matches!(
+                rx.recv_timeout(Duration::from_millis(200)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "an interpreter registered while a stop-the-world was in flight"
+        );
+
+        drop(admission);
+        let id = rx
+            .recv_timeout(Duration::from_secs(30))
+            .expect("registration proceeds once the world restarts");
+        assert!(runtime::lookup_interpreter(id).is_some());
+        drop(worker.join().expect("worker did not panic"));
+        wait_until_unregistered(id);
+    }
+
     /// Dropping a subinterpreter releases it; main remains.
     #[test]
     fn drop_subinterpreter_unregisters() {

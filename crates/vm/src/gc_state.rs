@@ -180,6 +180,11 @@ struct CollectStopTheWorld {
     /// interpreter's objects, and so removes them from these lists — happens
     /// after the collection has let go of the generation locks.
     stopped: Vec<crate::common::rc::PyRc<crate::vm::PyGlobalState>>,
+    /// Keeps interpreters from registering between the snapshot below and the
+    /// restart. One registered in that window would be missing from `stopped`,
+    /// so its bootstrap would keep running — and mutating the shared generation
+    /// lists — while this collection reads them.
+    admission: Option<parking_lot::MutexGuard<'static, ()>>,
     restarted: bool,
 }
 
@@ -195,6 +200,7 @@ impl CollectStopTheWorld {
         if !crate::vm::thread::current_vm_is_set() {
             return Self {
                 stopped: Vec::new(),
+                admission: None,
                 restarted: true,
             };
         }
@@ -205,6 +211,7 @@ impl CollectStopTheWorld {
         // and their exclusion held forever.
         let mut guard = Self {
             stopped: Vec::new(),
+            admission: Some(crate::vm::runtime::lock_admission_for_stop()),
             restarted: false,
         };
         for state in crate::vm::runtime::live_interpreter_states() {
@@ -225,6 +232,8 @@ impl CollectStopTheWorld {
         for state in self.stopped.iter().rev() {
             state.stop_the_world.start_the_world(state);
         }
+        // Nothing is parked any more, so registration may resume.
+        self.admission = None;
     }
 
     /// Whether this collection actually stopped the world.
