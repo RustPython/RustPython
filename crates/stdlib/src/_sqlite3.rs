@@ -587,10 +587,10 @@ mod _sqlite3 {
         ) -> c_int {
             let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
             let f = || -> PyResult<c_int> {
-                let arg1 = ptr_to_str(arg1, vm)?;
-                let arg2 = ptr_to_str(arg2, vm)?;
-                let db_name = ptr_to_str(db_name, vm)?;
-                let access = ptr_to_str(access, vm)?;
+                let arg1 = ptr_to_str_or_none(arg1, vm)?;
+                let arg2 = ptr_to_str_or_none(arg2, vm)?;
+                let db_name = ptr_to_str_or_none(db_name, vm)?;
+                let access = ptr_to_str_or_none(access, vm)?;
 
                 let val = callable.call((action, arg1, arg2, db_name, access), vm)?;
                 let Some(val) = val.downcast_ref::<PyInt>() else {
@@ -3480,7 +3480,17 @@ mod _sqlite3 {
             return Err(vm.new_memory_error("string pointer is null"));
         }
         unsafe { CStr::from_ptr(p).to_str() }
-            .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint"))
+            .map_err(|_| vm.new_value_error("Invalid UTF-8 codepoint"))
+    }
+
+    fn ptr_to_str_or_none(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if p.is_null() {
+            return Ok(vm.ctx.none());
+        }
+        let s = unsafe { CStr::from_ptr(p) }
+            .to_str()
+            .map_err(|_| vm.new_value_error("Invalid UTF-8 codepoint".to_owned()))?;
+        Ok(vm.ctx.new_str(s).into())
     }
 
     fn ptr_to_string(
