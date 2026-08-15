@@ -303,10 +303,18 @@ bitflags::bitflags! {
 /// GC generation constants
 pub(crate) const GC_UNTRACKED: u8 = 0xFF;
 pub(crate) const GC_PERMANENT: u8 = 3;
+/// Width of an interpreter's `gc_owner` tag.
+///
+/// Sized to the padding the header alignment already forces, so the tag costs
+/// no space on either pointer width. Running out of tags is not an error: an
+/// interpreter that gets none uses [`GC_NO_OWNER`] and its objects stay
+/// collectable by every interpreter, which is how they behaved before tagging.
+pub(crate) type GcOwner = u16;
+
 /// `gc_owner` of an object that belongs to no single interpreter: everything
 /// the shared context allocates, and anything allocated with no interpreter
 /// current. Every interpreter collects these.
-pub(crate) const GC_NO_OWNER: u32 = 0;
+pub(crate) const GC_NO_OWNER: GcOwner = 0;
 
 /// Link implementation for GC intrusive linked list tracking
 pub(crate) struct GcLink;
@@ -396,7 +404,7 @@ pub(super) struct PyInner<T> {
     /// Interpreter that tracked this object, or `GC_NO_OWNER`. Written by
     /// `track_object`; read to scope a collection to one interpreter.
     /// Sits in what would otherwise be padding, so it costs no space.
-    pub(super) gc_owner: PyAtomic<u32>,
+    pub(super) gc_owner: PyAtomic<GcOwner>,
     /// Intrusive linked list pointers for GC generational tracking
     pub(super) gc_pointers: Pointers<PyObject>,
 
@@ -1751,7 +1759,7 @@ impl PyObject {
 
     /// The interpreter whose collections consider this object.
     #[inline]
-    pub(crate) fn gc_owner(&self) -> u32 {
+    pub(crate) fn gc_owner(&self) -> GcOwner {
         self.0.gc_owner.load(Ordering::Relaxed)
     }
 
@@ -1759,7 +1767,7 @@ impl PyObject {
     /// enters a generation list, and reset to `GC_NO_OWNER` when the owning
     /// interpreter goes away.
     #[inline]
-    pub(crate) fn set_gc_owner(&self, owner: u32) {
+    pub(crate) fn set_gc_owner(&self, owner: GcOwner) {
         self.0.gc_owner.store(owner, Ordering::Relaxed);
     }
 

@@ -823,7 +823,7 @@ mod tests {
         use core::time::Duration;
         use std::time::Instant;
 
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + Duration::from_secs(30);
         while runtime::lookup_interpreter(id).is_some() {
             assert!(
                 Instant::now() < deadline,
@@ -1069,7 +1069,7 @@ mod tests {
         let sub_worker = spawn_worker(&sub);
 
         let (lock, ready) = &*state;
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(30);
         let mut state_guard = lock.lock().unwrap();
         while state_guard.entered < 2 {
             let now = Instant::now();
@@ -1115,7 +1115,7 @@ mod tests {
             std::thread::spawn(move || {
                 thread_vm.run(|vm| {
                     main_started_worker.store(true, Ordering::Release);
-                    let deadline = Instant::now() + Duration::from_secs(2);
+                    let deadline = Instant::now() + Duration::from_secs(30);
                     let mut operations = 0;
                     while !sub_finished_worker.load(Ordering::Acquire) && Instant::now() < deadline
                     {

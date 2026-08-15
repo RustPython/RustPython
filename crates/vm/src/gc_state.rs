@@ -4,10 +4,10 @@
 
 use crate::common::linked_list::LinkedList;
 use crate::common::lock::{PyMutex, PyRwLock};
-use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_UNTRACKED, GcLink};
+use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_UNTRACKED, GcLink, GcOwner};
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
 use std::collections::HashSet;
 
 fn elapsed_secs(
@@ -143,7 +143,7 @@ fn release_count(count: &AtomicUsize) {
 ///
 /// Objects with no owner — everything the shared context allocates, and anything
 /// allocated with no interpreter current — belong to all of them.
-fn is_owned_by(obj: &PyObject, owner: u32) -> bool {
+fn is_owned_by(obj: &PyObject, owner: GcOwner) -> bool {
     let obj_owner = obj.gc_owner();
     obj_owner == owner || obj_owner == GC_NO_OWNER
 }
@@ -262,11 +262,11 @@ pub struct GcState {
     /// Allocation counter for gen0
     alloc_count: AtomicUsize,
     /// Next `gc_owner` tag to hand to an interpreter.
-    next_owner: AtomicU32,
+    next_owner: AtomicU16,
     /// Tags of interpreters that are gone. Their objects outlived them, so a
     /// collection adopts them — tags them `GC_NO_OWNER` again — as it walks,
     /// rather than leaving them for a collector that will never come.
-    retired: PyMutex<Vec<u32>>,
+    retired: PyMutex<Vec<GcOwner>>,
 }
 
 // SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
@@ -300,7 +300,7 @@ impl GcState {
             permanent_count: AtomicUsize::new(0),
             collecting: PyMutex::new(()),
             alloc_count: AtomicUsize::new(0),
-            next_owner: AtomicU32::new(GC_NO_OWNER + 1),
+            next_owner: AtomicU16::new(GC_NO_OWNER + 1),
             retired: PyMutex::new(Vec::new()),
         }
     }
@@ -308,7 +308,7 @@ impl GcState {
     /// Reserve a tag for a new interpreter. Tags are never reused; exhausting
     /// the 32-bit space falls back to `GC_NO_OWNER`, which costs isolation but
     /// stays correct, rather than aliasing a live interpreter.
-    fn alloc_owner(&self) -> u32 {
+    fn alloc_owner(&self) -> GcOwner {
         self.next_owner
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
                 next.checked_add(1)
@@ -320,7 +320,7 @@ impl GcState {
     /// whatever it left behind. Retagging the objects here would mean walking
     /// every list under an interpreter drop, which happens while a collection
     /// holds the collecting lock.
-    fn retire_owner(&self, owner: u32) {
+    fn retire_owner(&self, owner: GcOwner) {
         if owner == GC_NO_OWNER {
             return;
         }
@@ -343,7 +343,7 @@ impl GcState {
     ///
     /// # Safety
     /// obj must be a valid pointer to a PyObject
-    pub unsafe fn track_object(&self, obj: NonNull<PyObject>, owner: u32) {
+    pub unsafe fn track_object(&self, obj: NonNull<PyObject>, owner: GcOwner) {
         let obj_ref = unsafe { obj.as_ref() };
         obj_ref.set_gc_tracked();
         obj_ref.set_gc_generation(0);
@@ -407,10 +407,10 @@ impl GcState {
     /// interpreter owns.
     /// If generation is None, returns all such objects.
     /// If generation is Some(n), returns those in generation n only.
-    pub fn get_objects(&self, generation: Option<i32>, owner: u32) -> Vec<PyObjectRef> {
+    pub fn get_objects(&self, generation: Option<i32>, owner: GcOwner) -> Vec<PyObjectRef> {
         fn collect_from_list(
             list: &LinkedList<GcLink, PyObject>,
-            owner: u32,
+            owner: GcOwner,
         ) -> impl Iterator<Item = PyObjectRef> + '_ {
             list.iter()
                 .filter(move |obj| is_owned_by(obj, owner))
@@ -1060,7 +1060,7 @@ impl GcState {
     /// Freeze the objects `owner` could collect (move them to the permanent
     /// generation).
     /// Lock order: generation_lists[i] → permanent_list (consistent with unfreeze).
-    fn freeze(&self, owner: u32) {
+    fn freeze(&self, owner: GcOwner) {
         let mut count = 0usize;
 
         for (gen_idx, gen_list) in self.generation_lists.iter().enumerate() {
@@ -1087,7 +1087,7 @@ impl GcState {
 
     /// Unfreeze the objects `owner` froze (move them from permanent to gen2).
     /// Lock order: generation_lists[2] → permanent_list (consistent with freeze).
-    fn unfreeze(&self, owner: u32) {
+    fn unfreeze(&self, owner: GcOwner) {
         let mut count = 0usize;
 
         {
@@ -1148,7 +1148,7 @@ impl GcState {
 /// objects end up.
 pub struct GcInterpreterState {
     /// Tag written into every object this interpreter tracks.
-    owner: u32,
+    owner: GcOwner,
     /// Per-generation thresholds and statistics.
     pub generations: [GcGeneration; 3],
     /// GC enabled flag
@@ -1288,7 +1288,7 @@ impl Drop for GcInterpreterState {
 
 /// The tag `track_object` should write for the interpreter running now.
 #[must_use]
-pub fn current_owner() -> u32 {
+pub fn current_owner() -> GcOwner {
     // SAFETY: the pointee is owned by the `PyGlobalState` of the VM on top of
     // this thread's VM stack, which outlives the section this call runs in.
     crate::vm::thread::current_gc_state().map_or(GC_NO_OWNER, |gc| unsafe { gc.as_ref() }.owner)
