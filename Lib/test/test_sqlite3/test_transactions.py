@@ -387,7 +387,6 @@ class AutocommitAttribute(unittest.TestCase):
                     cx.autocommit = mode
                     self.assertEqual(cx.autocommit, mode)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; autocommit validation error messages differ
     def test_autocommit_setget_invalid(self):
         msg = "autocommit must be True, False, or.*LEGACY"
         for mode in "a", 12, (), None:

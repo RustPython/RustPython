@@ -364,7 +364,6 @@ class ConnectionTests(unittest.TestCase):
             with self.cx:
                 pass
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_exceptions(self):
         # Optional DB-API extension.
         self.assertEqual(self.cx.Warning, sqlite.Warning)
@@ -401,7 +400,6 @@ class ConnectionTests(unittest.TestCase):
         with self.assertRaises(AttributeError):
             self.cx.in_transaction = True
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_connection_exceptions(self):
         exceptions = [
             "DataError",
