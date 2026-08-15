@@ -5899,9 +5899,14 @@ mod fileio {
 
             let handle = zelf.get_fd(vm)?;
 
+            // A pipe, socket or terminal takes the bytes only when the other
+            // end makes room, which may be never; see readinto above for what
+            // holding the source's lock across that wait costs.
+            let buf = obj.borrow_buf_unlocked(vm)?;
+
             // Loop on EINTR (PEP 475)
             let len = loop {
-                match obj.with_ref(|b| vm.allow_threads(|| host_io::write_once(handle, b))) {
+                match vm.allow_threads(|| host_io::write_once(handle, &buf)) {
                     Ok(n) => break n,
                     Err(e) if host_io::is_interrupted_error(&e) => {
                         vm.check_signals()?;

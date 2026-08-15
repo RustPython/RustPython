@@ -1694,7 +1694,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
                 self.sock()?.send_with_flags(buf, flags)
@@ -1714,7 +1714,7 @@ mod _socket {
 
             let deadline = timeout.map(Deadline::new);
 
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
@@ -1751,7 +1751,7 @@ mod _socket {
                 OptionalArg::Missing => (0, arg2),
             };
             let addr = self.extract_address(address, "sendto", vm)?;
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
                 self.sock()?.send_to_with_flags(buf, &addr, flags)
@@ -1781,8 +1781,8 @@ mod _socket {
 
             let buffers = buffers
                 .iter()
-                .map(|buf| buf.borrow_buf())
-                .collect::<Vec<_>>();
+                .map(|buf| buf.borrow_buf_unlocked(vm))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
