@@ -20,10 +20,10 @@ DELAY = 1.0
 SLACK = DELAY / 2
 
 
-def measure(buf, writable):
+def measure(buf, expected_len, writable):
     """Time the operations on `buf` that do not need the peer."""
     start = time.monotonic()
-    assert len(buf) == len(buf), len(buf)
+    assert len(buf) == expected_len, len(buf)
     assert isinstance(bytes(buf), bytes)
     if writable:
         buf[0] = buf[0]
@@ -33,6 +33,7 @@ def measure(buf, writable):
 
 def run(buf, blocking_call, release_peer, writable):
     started = threading.Event()
+    expected_len = len(buf)
     result = []
 
     def transfer():
@@ -49,7 +50,7 @@ def run(buf, blocking_call, release_peer, writable):
     started.wait()
     time.sleep(0.2)  # the transfer is now waiting on its peer
 
-    elapsed = measure(buf, writable)
+    elapsed = measure(buf, expected_len, writable)
     assert elapsed < SLACK, "waited %.2fs on the peer" % elapsed
 
     # The export is still held either way, so the buffer cannot be resized.
@@ -110,10 +111,12 @@ try:
                 drained.append(len(chunk))
 
     reader = threading.Thread(target=drain, daemon=True)
-    run(source, sink.write, reader.start, writable=True)
+    # One unbuffered write() reports what it transferred, which a signal can
+    # cut short, so the reader is measured against that rather than the source.
+    written = run(source, sink.write, reader.start, writable=True)
     sink.close()
     reader.join()
-    assert sum(drained) == len(source), (sum(drained), len(source))
+    assert sum(drained) == written, (sum(drained), written)
 finally:
     if not sink.closed:
         sink.close()
