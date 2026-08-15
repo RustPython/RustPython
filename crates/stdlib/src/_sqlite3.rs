@@ -1279,6 +1279,7 @@ mod _sqlite3 {
                 SQLITE_UTF8
             };
             let db = self.db_lock(vm)?;
+            check_num_params(&db, args.narg, "narg", vm)?;
             let Some(data) = CallbackData::new(args.func, vm) else {
                 return db.create_function(
                     name.as_ptr(),
@@ -1310,6 +1311,7 @@ mod _sqlite3 {
         fn create_aggregate(&self, args: CreateAggregateArgs, vm: &VirtualMachine) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
+            check_num_params(&db, args.narg, "n_arg", vm)?;
             let Some(data) = CallbackData::new(args.aggregate_class, vm) else {
                 return db.create_function(
                     name.as_ptr(),
@@ -1392,6 +1394,7 @@ mod _sqlite3 {
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
+            check_num_params(&db, narg, "num_params", vm)?;
             let Some(data) = CallbackData::new(aggregate_class, vm) else {
                 unsafe {
                     sqlite3_create_window_function(
@@ -3473,6 +3476,22 @@ mod _sqlite3 {
             }
         };
         Ok(obj)
+    }
+
+    fn check_num_params(
+        db: &Sqlite,
+        n: c_int,
+        param_name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let limit = unsafe { sqlite3_limit(db.db, SQLITE_LIMIT_FUNCTION_ARG, -1) };
+        if n < -1 || n > limit {
+            return Err(new_programming_error(
+                vm,
+                format!("'{param_name}' must be between -1 and {limit}, not {n}"),
+            ));
+        }
+        Ok(())
     }
 
     fn ptr_to_str<'a>(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<&'a str> {
