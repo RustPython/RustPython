@@ -305,6 +305,22 @@ impl PyInt {
         &self.value
     }
 
+    /// Extract the inline magnitude without the generic primitive-conversion path.
+    #[inline(always)]
+    pub(crate) fn try_to_i64_fast(&self) -> Option<i64> {
+        let bits = self.value.bits();
+        if bits > i64::BITS as u64 {
+            return None;
+        }
+        let magnitude = self.value.iter_u64_digits().next().unwrap_or(0);
+        let signed_magnitude = i64::try_from(magnitude).ok();
+        match self.value.sign() {
+            Sign::Minus if magnitude == 1u64 << 63 => Some(i64::MIN),
+            Sign::Minus => signed_magnitude.map(|value| -value),
+            Sign::NoSign | Sign::Plus => signed_magnitude,
+        }
+    }
+
     /// Fast decimal string conversion, using i64 path when possible.
     #[inline]
     #[must_use]

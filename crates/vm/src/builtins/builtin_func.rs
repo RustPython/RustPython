@@ -247,9 +247,9 @@ fn vectorcall_native_function(
         let mut all_args = Vec::with_capacity(args.len() + 1);
         all_args.push(self_obj);
         all_args.extend(args);
-        FuncArgs::from_vectorcall(&all_args, nargs + 1, kwnames)
+        FuncArgs::from_vectorcall_owned(all_args, nargs + 1, kwnames)
     } else {
-        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+        FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
     };
 
     (zelf.value.func)(vm, func_args)

@@ -109,8 +109,8 @@ mod tests {
                             current_vm_is_set(),
                             "This thread did not have a vm attached"
                         );
-                        vm.state.stop_the_world.stop_the_world(vm);
-                        vm.state.stop_the_world.start_the_world(vm);
+                        vm.state.stop_the_world.stop_the_world(&vm.state);
+                        vm.state.stop_the_world.start_the_world(&vm.state);
                     });
                 });
             });

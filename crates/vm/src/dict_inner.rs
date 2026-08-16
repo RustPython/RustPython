@@ -20,7 +20,7 @@ use alloc::fmt;
 use core::mem::size_of;
 use core::ops::ControlFlow;
 use core::sync::atomic::{
-    AtomicU32, AtomicU64,
+    AtomicU32,
     Ordering::{AcqRel, Acquire, Relaxed, Release},
 };
 use num_traits::ToPrimitive;
@@ -39,7 +39,6 @@ type EntryIndex = usize;
 
 pub(crate) struct Dict<T = PyObjectRef> {
     inner: PyRwLock<DictInner<T>>,
-    version: AtomicU64,
     /// Keys-version stamp, assigned lazily by `assign_keys_version` and
     /// reset to 0 whenever the key set changes. Value-only updates keep it.
     ///
@@ -202,7 +201,6 @@ impl<T: Clone> Clone for Dict<T> {
     fn clone(&self) -> Self {
         Self {
             inner: PyRwLock::new(self.inner.read().clone()),
-            version: AtomicU64::new(0),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -217,7 +215,6 @@ impl<T> Default for Dict<T> {
                 indices: vec![IndexEntry::FREE; 8],
                 entries: Vec::new(),
             }),
-            version: AtomicU64::new(0),
             keys_version: AtomicU32::new(0),
         }
     }
@@ -239,6 +236,10 @@ pub struct DictSize {
     pub used: usize,
     filled: usize,
 }
+
+/// The dict was resized under an iterator holding an older [`DictSize`].
+#[derive(Debug)]
+pub(crate) struct DictChanged;
 
 struct GenIndexes {
     idx: HashIndex,
@@ -309,7 +310,7 @@ impl<T> DictInner<T> {
         key: PyObjectRef,
         value: T,
         index_entry: IndexEntry,
-    ) {
+    ) -> usize {
         let entry = DictEntry {
             hash: hash_value,
             key,
@@ -330,6 +331,9 @@ impl<T> DictInner<T> {
                 self.resize(new_size)
             }
         }
+        // A resize keeps entry positions and rewrites only the index-index, so
+        // this stays the entry's index afterwards.
+        entry_index
     }
 
     const fn size(&self) -> DictSize {
@@ -362,16 +366,6 @@ impl<T> DictInner<T> {
 type PopInnerResult<T> = ControlFlow<Option<DictEntry<T>>>;
 
 impl<T: Clone> Dict<T> {
-    /// Monotonically increasing version counter for mutation tracking.
-    pub(crate) fn version(&self) -> u64 {
-        self.version.load(Acquire)
-    }
-
-    /// Bump the version counter after any mutation.
-    fn bump_version(&self) {
-        self.version.fetch_add(1, Release);
-    }
-
     /// Current keys-version stamp, or 0 if none has been assigned since the
     /// last key-set change. Equal nonzero stamps guarantee an unchanged key
     /// set (values may differ).
@@ -481,7 +475,26 @@ impl<T: Clone> Dict<T> {
     where
         K: DictKey + ?Sized,
     {
-        let _removed = loop {
+        self.insert_known_hash_indexed(vm, key, hash, value)?;
+        Ok(())
+    }
+
+    /// [`Self::insert_known_hash`], also reporting the entry index it stored to.
+    ///
+    /// The index doubles as a `hint` for [`Self::get_hint`] /
+    /// [`Self::insert_with_hint`], so a caller that wants one gets it from the
+    /// store itself instead of probing the dict a second time.
+    fn insert_known_hash_indexed<K>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash: HashValue,
+        value: T,
+    ) -> PyResult<usize>
+    where
+        K: DictKey + ?Sized,
+    {
+        let (stored_index, _removed) = loop {
             let (entry_index, index_index) = self.lookup(vm, key, hash, None)?;
             let mut inner = self.write();
             if let Some(index) = entry_index.index() {
@@ -500,9 +513,8 @@ impl<T: Clone> Dict<T> {
                     )]
                     if entry.index == index_index {
                         let removed = core::mem::replace(&mut entry.value, value);
-                        self.bump_version();
                         // defer dec RC
-                        break Some(removed);
+                        break (index, Some(removed));
                     } else {
                         // stuff shifted around, let's try again
                     }
@@ -516,12 +528,17 @@ impl<T: Clone> Dict<T> {
                     continue;
                 }
                 self.invalidate_keys_version();
-                inner.unchecked_push(index_index, hash, key.to_pyobject(vm), value, entry_index);
-                self.bump_version();
-                break None;
+                let stored = inner.unchecked_push(
+                    index_index,
+                    hash,
+                    key.to_pyobject(vm),
+                    value,
+                    entry_index,
+                );
+                break (stored, None);
             }
         };
-        Ok(())
+        Ok(stored_index)
     }
 
     pub(crate) fn contains<K: DictKey + ?Sized>(
@@ -616,7 +633,6 @@ impl<T: Clone> Dict<T> {
             match inner.entries.get_mut(hint) {
                 Some(Some(entry)) if key.key_is(&entry.key) => {
                     let removed = core::mem::replace(&mut entry.value, value);
-                    self.bump_version();
                     drop(inner);
                     // defer dec RC until after the lock is released
                     drop(removed);
@@ -625,8 +641,9 @@ impl<T: Clone> Dict<T> {
                 _ => value,
             }
         };
-        self.insert(vm, key, value)?;
-        self.hint_for_key(vm, key)
+        let hash = key.key_hash(vm)?;
+        let stored = self.insert_known_hash_indexed(vm, key, hash, value)?;
+        Ok(u16::try_from(stored).ok())
     }
 
     /// Fast path lookup using a cached entry index (`hint`).
@@ -656,6 +673,22 @@ impl<T: Clone> Dict<T> {
         }
     }
 
+    /// Read an entry directly when a cached keys-version still describes the
+    /// dictionary layout. The version is rechecked while holding the read lock
+    /// so the entry index and value are observed from the same key-set state.
+    #[inline]
+    pub(crate) fn get_index_if_keys_version(&self, version: u32, index: usize) -> Option<T> {
+        let inner = self.read();
+        if self.keys_version.load(Acquire) != version {
+            return None;
+        }
+        inner
+            .entries
+            .get(index)
+            .and_then(Option::as_ref)
+            .map(|entry| entry.value.clone())
+    }
+
     fn _get_inner<K: DictKey + ?Sized>(
         &self,
         vm: &VirtualMachine,
@@ -663,7 +696,12 @@ impl<T: Clone> Dict<T> {
         hash: HashValue,
     ) -> PyResult<Option<T>> {
         let ret = loop {
-            let (entry, index_index) = self.lookup(vm, key, hash, None)?;
+            let (entry, index_index) =
+                match self.lookup_extract(vm, key, hash, None, |entry| entry.value.clone())? {
+                    // Read under the probe's own guard: nothing to re-check.
+                    (_, Some(value)) => break Some(value),
+                    (lookup, None) => lookup,
+                };
             if let Some(index) = entry.index() {
                 let inner = self.read();
                 if let Some(entry) = inner.get_entry_checked(index, index_index) {
@@ -701,7 +739,6 @@ impl<T: Clone> Dict<T> {
             inner.indices.resize(8, IndexEntry::FREE);
             inner.used = 0;
             inner.filled = 0;
-            self.bump_version();
             // defer dec rc
             core::mem::take(&mut inner.entries)
         };
@@ -830,7 +867,6 @@ impl<T: Clone> Dict<T> {
             }
             self.invalidate_keys_version();
             inner.unchecked_push(index_index, hash, key.to_owned(), value, entry);
-            self.bump_version();
             break None;
         };
         Ok(())
@@ -867,7 +903,6 @@ impl<T: Clone> Dict<T> {
                 value.clone(),
                 index_entry,
             );
-            self.bump_version();
             return Ok(value);
         }
     }
@@ -905,7 +940,6 @@ impl<T: Clone> Dict<T> {
             let ret = (key_obj.clone(), value.clone());
             self.invalidate_keys_version();
             inner.unchecked_push(index_index, hash, key_obj, value, index_entry);
-            self.bump_version();
             return Ok(ret);
         }
     }
@@ -916,6 +950,58 @@ impl<T: Clone> Dict<T> {
 
     pub(crate) fn size(&self) -> DictSize {
         self.read().size()
+    }
+
+    /// Step to the first live entry at or after `position`, verifying the size
+    /// against `old` under the same read guard.
+    ///
+    /// `project` runs under that guard, so it must not run Python or take
+    /// another dict lock; it is there so an iterator clones only the field it
+    /// keeps rather than both the key and the value.
+    pub(crate) fn next_entry_checked<R>(
+        &self,
+        mut position: EntryIndex,
+        old: &DictSize,
+        project: impl FnOnce(&PyObjectRef, &T) -> R,
+    ) -> Result<Option<(usize, R)>, DictChanged> {
+        let inner = self.read();
+        if inner.size() != *old {
+            return Err(DictChanged);
+        }
+        loop {
+            let Some(entry) = inner.entries.get(position) else {
+                return Ok(None);
+            };
+            position += 1;
+            if let Some(entry) = entry {
+                return Ok(Some((position, project(&entry.key, &entry.value))));
+            }
+        }
+    }
+
+    /// [`Self::next_entry_checked`] in reverse.
+    pub(crate) fn prev_entry_checked<R>(
+        &self,
+        mut position: EntryIndex,
+        old: &DictSize,
+        project: impl FnOnce(&PyObjectRef, &T) -> R,
+    ) -> Result<Option<(usize, R)>, DictChanged> {
+        let inner = self.read();
+        if inner.size() != *old {
+            return Err(DictChanged);
+        }
+        loop {
+            let Some(entry) = inner.entries.get(position) else {
+                return Ok(None);
+            };
+            if let Some(entry) = entry {
+                return Ok(Some((position, project(&entry.key, &entry.value))));
+            }
+            if position == 0 {
+                return Ok(None);
+            }
+            position -= 1;
+        }
     }
 
     pub(crate) fn next_entry(&self, mut position: EntryIndex) -> Option<(usize, PyObjectRef, T)> {
@@ -1004,8 +1090,30 @@ impl<T: Clone> Dict<T> {
         vm: &VirtualMachine,
         key: &K,
         hash_value: HashValue,
-        mut lock: Option<PyRwLockReadGuard<'_, DictInner<T>>>,
+        lock: Option<PyRwLockReadGuard<'_, DictInner<T>>>,
     ) -> PyResult<LookupResult> {
+        let (ret, _) = self.lookup_extract(vm, key, hash_value, lock, |_| ())?;
+        Ok(ret)
+    }
+
+    /// [`Self::lookup`], additionally reading the matched entry when the probe
+    /// settles it by key identity.
+    ///
+    /// That is the common case, and it is decided while the read guard is still
+    /// held — so a caller that only wants the entry's value gets it here instead
+    /// of taking the lock a second time to re-find what the probe already had.
+    /// `extract` therefore runs under the guard and must not run Python. It is
+    /// not called when the key had to be compared with `key_eq`, which does run
+    /// Python and so releases the guard first.
+    #[cfg_attr(feature = "flame-it", flame("Dict"))]
+    fn lookup_extract<K: DictKey + ?Sized, R>(
+        &self,
+        vm: &VirtualMachine,
+        key: &K,
+        hash_value: HashValue,
+        mut lock: Option<PyRwLockReadGuard<'_, DictInner<T>>>,
+        extract: impl Fn(&DictEntry<T>) -> R,
+    ) -> PyResult<(LookupResult, Option<R>)> {
         let mut idxs = None;
         let mut free_slot = None;
         let ret = 'outer: loop {
@@ -1035,7 +1143,7 @@ impl<T: Clone> Dict<T> {
                                 Some(free) => (IndexEntry::DUMMY, free),
                                 None => (IndexEntry::FREE, index_index),
                             };
-                            return Ok(idxs);
+                            return Ok((idxs, None));
                         }
                         idx => {
                             let entry = unsafe {
@@ -1051,7 +1159,7 @@ impl<T: Clone> Dict<T> {
                                 reason = "Keeping the empty `else` block here for documentation"
                             )]
                             if key.key_is(&entry.key) {
-                                break 'outer ret;
+                                return Ok((ret, Some(extract(entry))));
                             } else if entry.hash == hash_value {
                                 break (entry.key.clone(), ret);
                             } else {
@@ -1076,7 +1184,7 @@ impl<T: Clone> Dict<T> {
 
             // warn!("Perturb value: {}", i);
         };
-        Ok(ret)
+        Ok((ret, None))
     }
 
     // returns Err(()) if changed since lookup
@@ -1117,7 +1225,6 @@ impl<T: Clone> Dict<T> {
         } = IndexEntry::DUMMY;
         inner.used -= 1;
         let removed = slot.take();
-        self.bump_version();
         Ok(ControlFlow::Break(removed))
     }
 
@@ -1152,7 +1259,6 @@ impl<T: Clone> Dict<T> {
             // entry.index always refers valid index
             inner.indices.get_unchecked_mut(entry.index)
         } = IndexEntry::DUMMY;
-        self.bump_version();
         Some((entry.key, entry.value))
     }
 

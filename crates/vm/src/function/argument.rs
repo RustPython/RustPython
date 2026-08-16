@@ -8,6 +8,7 @@ use crate::{
 use core::ops::{Deref, DerefMut, RangeInclusive};
 use indexmap::IndexMap;
 use itertools::Itertools;
+use std::hash::DefaultHasher;
 
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
@@ -414,16 +415,24 @@ impl<T: TryFromObject> FromArgOptional for T {
 // issue #8228). `PyStr` is WTF-8 backed, and CPython only requires that a
 // keyword key be a `str`, not that it be valid UTF-8.
 #[derive(Clone, Debug)]
-pub struct KwArgs<T = PyObjectRef>(IndexMap<Wtf8Buf, T>);
+pub struct KwArgs<T = PyObjectRef>(KwArgsMap<T>);
+
+/// The map behind [`KwArgs`].
+///
+/// The hasher is zero-sized rather than the randomly seeded default: a
+/// `KwArgs` is built for every call, including the far more common
+/// keyword-less one, and seeding reads a thread-local. Keyword names come
+/// from the program text, so per-process hash randomization buys nothing.
+pub type KwArgsMap<T> = IndexMap<Wtf8Buf, T, core::hash::BuildHasherDefault<DefaultHasher>>;
 
 impl<T> Default for KwArgs<T> {
     fn default() -> Self {
-        Self(IndexMap::new())
+        Self(KwArgsMap::default())
     }
 }
 
 impl<T> Deref for KwArgs<T> {
-    type Target = IndexMap<Wtf8Buf, T>;
+    type Target = KwArgsMap<T>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -447,7 +456,7 @@ where
 
 impl<T> KwArgs<T> {
     #[must_use]
-    pub const fn new(map: IndexMap<Wtf8Buf, T>) -> Self {
+    pub const fn new(map: KwArgsMap<T>) -> Self {
         Self(map)
     }
 
@@ -508,7 +517,7 @@ where
     T: TryFromObject,
 {
     fn from_args(vm: &VirtualMachine, args: &mut FuncArgs) -> Result<Self, ArgumentError> {
-        let mut kwargs = IndexMap::new();
+        let mut kwargs = KwArgsMap::default();
         for (name, value) in args.remaining_keywords() {
             kwargs.insert(name, value.try_into_value(vm)?);
         }

@@ -1,7 +1,6 @@
 use super::base::{CDATA_BUFFER_METHODS, StgInfoFlags};
 use super::{PyCData, PyCField, StgInfo};
 use crate::builtins::{PyList, PyStr, PyTuple, PyType, PyTypeRef, PyUtf8Str};
-use crate::common::wtf8::Wtf8Buf;
 use crate::convert::ToPyObject;
 use crate::function::{ArgBytesLike, FuncArgs, OptionalArg, PySetterValue};
 use crate::protocol::{BufferDescriptor, PyBuffer};
@@ -582,7 +581,7 @@ impl PyCUnion {
         self_obj: &Py<Self>,
         type_obj: &Py<PyType>,
         args: &[PyObjectRef],
-        kwargs: &indexmap::IndexMap<Wtf8Buf, PyObjectRef>,
+        kwargs: &crate::function::KwArgsMap<PyObjectRef>,
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {

@@ -512,7 +512,7 @@ impl FrameObject {
         let live = self.find_live_source_iframe();
         if !live.is_null() {
             // Read live prev_line. Use read_volatile to bypass LLVM noalias
-            // on the &mut InterpreterFrame borrow in with_iframe.
+            // on the &mut InterpreterFrame borrow held by the running frame.
             let prev = unsafe {
                 let field_ptr = core::ptr::addr_of!((*live).prev_line);
                 core::ptr::read_volatile(field_ptr as *const u32)
@@ -897,32 +897,19 @@ impl Py<FrameObject> {
         {
             // Enter STW before dereferencing `prev` — the owning thread may
             // return and free the stack-allocated iframe at any time.
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let prev_ref = unsafe { &*prev };
             // Fast path: already materialized.
             if let Some(fo) = prev_ref.frame_obj() {
                 fo.mark_escaped();
                 return Some(fo.to_owned());
             }
-            // Slow path: materialize the entire chain and link retained_back.
-            let mut cur = prev;
-            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> = None;
-            while !cur.is_null() {
-                let iframe = unsafe { &*cur };
-                let fo = iframe.materialize(vm).to_owned();
-                if let Some(child) = child_fo.take() {
-                    let mut guard = child.iframe().cold().retained_back.lock();
-                    if guard.is_none() {
-                        *guard = Some(fo.clone());
-                    }
-                }
-                child_fo = Some(fo);
-                cur = iframe.previous();
-            }
-            let fo = prev_ref.materialize(vm);
+            // Slow path: copy the whole chain, linked through retained_back.
+            // SAFETY: the world is stopped, so the owning thread is parked.
+            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
             fo.mark_escaped();
-            return Some(fo.to_owned());
+            return Some(fo);
         }
 
         #[allow(unreachable_code)]

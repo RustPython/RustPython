@@ -550,6 +550,20 @@ impl Py<PyFunction> {
         self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
     }
 
+    /// Whether this function currently has native JIT code. Adaptive Python
+    /// call specializations must yield to that entry point.
+    #[inline]
+    pub(crate) fn is_jitted(&self) -> bool {
+        #[cfg(feature = "jit")]
+        {
+            self.jitted_code.lock().is_some()
+        }
+        #[cfg(not(feature = "jit"))]
+        {
+            false
+        }
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
@@ -643,8 +657,8 @@ impl Py<PyFunction> {
             .and_then(|()| vm.run_frame_fast(iframe));
         // Release data stack memory — must happen on both success and error.
         unsafe {
-            if let Some(base) = iframe.release_datastack_frame() {
-                vm.datastack_pop(base);
+            if let Some((base, size)) = iframe.release_datastack_frame() {
+                vm.datastack_pop_frame(base, size);
             }
         }
         result
@@ -669,7 +683,10 @@ impl Py<PyFunction> {
         );
         // SAFETY: the frame is alive (held by `frame`) and untracked.
         unsafe {
-            crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
+            crate::gc_state::gc_state().track_object(
+                core::ptr::NonNull::from(frame.as_object()),
+                crate::gc_state::current_owner(),
+            );
         }
         frame.set_generator(&obj);
         obj
@@ -820,8 +837,8 @@ impl Py<PyFunction> {
 
         let result = vm.run_frame_fast(iframe);
         unsafe {
-            if let Some(base) = iframe.release_datastack_frame() {
-                vm.datastack_pop(base);
+            if let Some((base, size)) = iframe.release_datastack_frame() {
+                vm.datastack_pop_frame(base, size);
             }
         }
         result
@@ -1616,6 +1633,16 @@ pub(crate) fn vectorcall_function(
     let code: &Py<PyCode> = &zelf.code;
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
+    if zelf.is_jitted() {
+        let func_args = if has_kwargs {
+            FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
+        } else {
+            args.truncate(nargs);
+            FuncArgs::from(args)
+        };
+        return zelf.invoke(func_args, vm);
+    }
+
     let is_simple = !has_kwargs
         && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
@@ -1640,7 +1667,7 @@ pub(crate) fn vectorcall_function(
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
     let func_args = if has_kwargs {
-        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+        FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
     } else {
         args.truncate(nargs);
         FuncArgs::from(args)

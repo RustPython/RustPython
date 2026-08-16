@@ -1533,16 +1533,16 @@ impl IterNext for PySetIterator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
         let mut internal = zelf.internal.lock();
         let next = if let IterStatus::Active(dict) = &internal.status {
-            if dict.has_changed_size(&zelf.size) {
-                internal.status = IterStatus::Exhausted;
-                return Err(vm.new_runtime_error("set changed size during iteration"));
-            }
-            match dict.next_entry(internal.position) {
-                Some((position, key, _)) => {
+            match dict.next_entry_checked(internal.position, &zelf.size, |key, ()| key.clone()) {
+                Err(crate::dict_inner::DictChanged) => {
+                    internal.status = IterStatus::Exhausted;
+                    return Err(vm.new_runtime_error("set changed size during iteration"));
+                }
+                Ok(Some((position, key))) => {
                     internal.position = position;
                     PyIterReturn::Return(key)
                 }
-                None => {
+                Ok(None) => {
                     internal.status = IterStatus::Exhausted;
                     PyIterReturn::StopIteration(None)
                 }

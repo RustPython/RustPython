@@ -529,7 +529,7 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
     // Re-instrument all frames on the current thread's stack, including
-    // stack-allocated iframes (with_iframe path) that have no FrameObject.
+    // data stack frames that have no FrameObject.
     {
         let mut cur = crate::vm::thread::get_current_frame();
         while !cur.is_null() {

@@ -4078,7 +4078,10 @@ mod _io {
                     vm.new_runtime_error(format!("reentrant call inside {type_name}.__repr__"))
                 );
             };
-            let Some(data) = zelf.data.lock() else {
+            // Detach while blocked, like `lock_opt`: another thread can be
+            // stopped holding this mutex, and blocking on it while attached
+            // would leave no safepoint for that stop to complete at.
+            let Some(data) = zelf.data.lock_wrapped(|do_lock| vm.allow_threads(do_lock)) else {
                 // Reentrant call
                 return Ok(vm.ctx.new_str(Wtf8Buf::from(format!("<{type_name}>"))));
             };
