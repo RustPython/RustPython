@@ -10,6 +10,7 @@ mod resource {
         convert::{ToPyException, ToPyObject},
         types::PyStructSequence,
     };
+    use num_traits::{Signed, ToPrimitive};
     use rustpython_host_env::resource as host_resource;
     use std::io;
 
@@ -133,11 +134,11 @@ mod resource {
 
     impl<'a> TryFromBorrowedObject<'a> for Limits {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            let seq: Vec<host_resource::rlim_t> = obj.try_to_value(vm)?;
-            match *seq {
+            let seq: Vec<PyIntRef> = obj.try_to_value(vm)?;
+            match seq.as_slice() {
                 [cur, max] => Ok(Self(host_resource::rlimit {
-                    rlim_cur: cur & RLIM_INFINITY,
-                    rlim_max: max & RLIM_INFINITY,
+                    rlim_cur: py2rlim(cur.clone(), vm)?,
+                    rlim_max: py2rlim(max.clone(), vm)?,
                 })),
                 _ => Err(vm.new_value_error("expected a tuple of 2 integers")),
             }
@@ -151,37 +152,50 @@ mod resource {
     }
 
     fn py2rlim(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<host_resource::rlim_t> {
-        let value = obj.try_to_primitive::<isize>(vm)?;
+        let value = obj.as_bigint();
 
+        // CPython converts the int as unsigned native bytes: a negative int is
+        // only accepted when it maps to RLIM_INFINITY, which is exactly -1.
         if value.is_negative() {
-            return Err(vm.new_value_error("Cannot convert negative int"));
+            return if value.to_i64() == Some(-1) {
+                Ok(RLIM_INFINITY)
+            } else {
+                Err(vm.new_value_error("Cannot convert negative int"))
+            };
         }
 
         host_resource::rlim_t::try_from(value)
             .map_err(|_| vm.new_overflow_error("Python int too large to convert to C rlim_t"))
     }
 
-    #[pyfunction]
-    fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
-        let resource = py2rlim(resource, vm)?;
+    // The resource argument is a C int in CPython.
+    fn py2cint(obj: PyIntRef, vm: &VirtualMachine) -> PyResult<i32> {
+        obj.as_bigint()
+            .to_i32()
+            .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))
+    }
 
-        if resource >= RLIM_NLIMITS as host_resource::rlim_t {
+    fn check_resource(resource: i32, vm: &VirtualMachine) -> PyResult<i32> {
+        if !(0..RLIM_NLIMITS).contains(&resource) {
             return Err(vm.new_value_error("invalid resource specified"));
         }
+        Ok(resource)
+    }
 
-        let rlimit = host_resource::getrlimit(resource).map_err(|_| vm.new_last_errno_error())?;
+    #[pyfunction]
+    fn getrlimit(resource: PyIntRef, vm: &VirtualMachine) -> PyResult<Limits> {
+        let resource = check_resource(py2cint(resource, vm)?, vm)?;
+
+        let rlimit = host_resource::getrlimit(resource as host_resource::rlim_t)
+            .map_err(|_| vm.new_last_errno_error())?;
         Ok(Limits(rlimit))
     }
 
     #[pyfunction]
     fn setrlimit(resource: PyIntRef, limits: Limits, vm: &VirtualMachine) -> PyResult<()> {
-        let resource = py2rlim(resource, vm)?;
+        let resource = check_resource(py2cint(resource, vm)?, vm)?;
 
-        if resource >= RLIM_NLIMITS as host_resource::rlim_t {
-            return Err(vm.new_value_error("invalid resource specified"));
-        }
-
-        let res = host_resource::setrlimit(resource, limits.0);
+        let res = host_resource::setrlimit(resource as host_resource::rlim_t, limits.0);
 
         res.map_err(|e| match e.kind() {
             io::ErrorKind::InvalidInput => {

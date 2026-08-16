@@ -8,13 +8,14 @@ use rustpython_vm::{VirtualMachine, builtins::PyBaseExceptionRef, convert::ToPyE
 
 const PAD: u8 = 61u8;
 const MAXLINESIZE: usize = 76; // Excluding the CRLF
+const BASE64_MAXBIN: usize = (isize::MAX as usize - 3) / 2;
 
 #[pymodule(name = "binascii")]
 mod decl {
-    use super::{MAXLINESIZE, PAD};
+    use super::{BASE64_MAXBIN, MAXLINESIZE, PAD};
     use crate::vm::{
-        PyResult, VirtualMachine,
-        builtins::{PyIntRef, PyTypeRef},
+        PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+        builtins::{PyIntRef, PyStr, PyStrRef, PyTypeRef},
         convert::ToPyException,
         function::{ArgAsciiBuffer, ArgBytesLike, OptionalArg},
     };
@@ -34,6 +35,48 @@ mod decl {
     #[pyattr(name = "Incomplete", once)]
     fn incomplete_type(vm: &VirtualMachine) -> PyTypeRef {
         vm.ctx.new_exception_type("binascii", "Incomplete", None)
+    }
+
+    // Like the ascii_buffer converter in CPython.
+    enum AsciiBuffer {
+        String(PyStrRef),
+        Buffer(ArgBytesLike),
+    }
+
+    impl TryFromObject for AsciiBuffer {
+        fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            match obj.downcast::<PyStr>() {
+                Ok(s) => {
+                    if s.as_wtf8().is_ascii() {
+                        Ok(Self::String(s))
+                    } else {
+                        Err(vm.new_value_error(
+                            "string argument should contain only ASCII characters",
+                        ))
+                    }
+                }
+                Err(obj) => ArgBytesLike::try_from_object(vm, obj.clone())
+                    .map(Self::Buffer)
+                    .map_err(|_| {
+                        vm.new_type_error(format!(
+                            "argument should be bytes, buffer or ASCII string, not '{:.100}'",
+                            obj.class().name()
+                        ))
+                    }),
+            }
+        }
+    }
+
+    impl AsciiBuffer {
+        fn with_ref<F, R>(&self, f: F) -> R
+        where
+            F: FnOnce(&[u8]) -> R,
+        {
+            match self {
+                Self::String(s) => f(s.as_bytes()),
+                Self::Buffer(b) => b.with_ref(f),
+            }
+        }
     }
 
     const fn hex_nibble(n: u8) -> u8 {
@@ -174,7 +217,7 @@ mod decl {
 
     #[pyfunction(name = "a2b_hex")]
     #[pyfunction]
-    fn unhexlify(data: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn unhexlify(data: AsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         data.with_ref(|hex_bytes| {
             if hex_bytes.len() % 2 != 0 {
                 return Err(super::new_binascii_error("Odd-length string", vm));
@@ -254,7 +297,7 @@ mod decl {
     #[derive(FromArgs)]
     struct A2bBase64Args {
         #[pyarg(any)]
-        s: ArgAsciiBuffer,
+        s: AsciiBuffer,
         #[pyarg(named, default = false)]
         strict_mode: bool,
     }
@@ -374,15 +417,27 @@ mod decl {
     }
 
     #[pyfunction]
-    fn b2a_base64(data: ArgBytesLike, NewlineArg { newline }: NewlineArg) -> Vec<u8> {
-        // https://stackoverflow.com/questions/63916821
-        let mut encoded = data
-            .with_ref(|b| base64::engine::general_purpose::STANDARD.encode(b))
-            .into_bytes();
-        if newline {
-            encoded.push(b'\n');
-        }
-        encoded
+    fn b2a_base64(
+        data: ArgBytesLike,
+        NewlineArg { newline }: NewlineArg,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        data.with_ref(|b| {
+            if b.len() > BASE64_MAXBIN {
+                return Err(super::new_binascii_error(
+                    "Too much data for base64 line",
+                    vm,
+                ));
+            }
+            // https://stackoverflow.com/questions/63916821
+            let mut encoded = base64::engine::general_purpose::STANDARD
+                .encode(b)
+                .into_bytes();
+            if newline {
+                encoded.push(b'\n');
+            }
+            Ok(encoded)
+        })
     }
 
     #[inline]
@@ -403,7 +458,7 @@ mod decl {
     #[derive(FromArgs)]
     struct A2bQpArgs {
         #[pyarg(any)]
-        data: ArgAsciiBuffer,
+        data: AsciiBuffer,
         #[pyarg(named, default = false)]
         header: bool,
     }
@@ -744,7 +799,7 @@ mod decl {
     }
 
     #[pyfunction]
-    fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn a2b_uu(s: AsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(|b| {
             if b.is_empty() {
                 return Err(super::new_binascii_error("Missing length byte", vm));
@@ -859,13 +914,13 @@ impl ToPyException for Base64DecodeError {
             DecodeError::InvalidLastSymbol(_, PAD) => "Excess data after padding".to_owned(),
             DecodeError::InvalidLastSymbol(length, _) => {
                 format!(
-                    "Invalid base64-encoded string: number of data characters {length} cannot be 1 more than a multiple of 4"
+                    "Invalid base64-encoded string: number of data characters ({length}) cannot be 1 more than a multiple of 4"
                 )
             }
             // TODO: clean up errors
             DecodeError::InvalidLength(_) => "Incorrect padding".to_owned(),
             DecodeError::InvalidPadding => "Incorrect padding".to_owned(),
         };
-        new_binascii_error(format!("error decoding base64: {message}"), vm)
+        new_binascii_error(message, vm)
     }
 }

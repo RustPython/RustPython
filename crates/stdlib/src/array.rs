@@ -17,9 +17,9 @@ pub mod array {
             AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
             atomic_func,
             builtins::{
-                PositionIterInternal, PyByteArray, PyBytes, PyBytesRef, PyDictRef, PyFloat,
-                PyGenericAlias, PyInt, PyList, PyListRef, PyStr, PyStrRef, PyTupleRef, PyType,
-                PyTypeRef, PyUtf8StrRef, builtins_iter,
+                PositionIterInternal, PyByteArray, PyBytes, PyDictRef, PyFloat, PyGenericAlias,
+                PyInt, PyList, PySlice, PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef,
+                PyUtf8StrRef, builtins_iter,
             },
             class_or_notimplemented,
             convert::{ToPyObject, ToPyResult, TryFromBorrowedObject, TryFromObject},
@@ -45,7 +45,7 @@ pub mod array {
     use alloc::fmt;
     use core::cmp::Ordering;
     use itertools::Itertools;
-    use num_traits::ToPrimitive;
+    use num_traits::{Signed, ToPrimitive};
     use rustpython_common::wtf8::{CodePoint, Wtf8, Wtf8Buf};
     use std::os::raw;
     macro_rules! def_array_enum {
@@ -293,7 +293,10 @@ pub mod array {
                 fn getitem_by_index(&self, i: isize, vm: &VirtualMachine) -> PyResult {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.getitem_by_index(vm, i).map(|x| x.to_pyresult(vm))?
+                            let pos = v.wrap_index(i).ok_or_else(|| {
+                                vm.new_index_error("array index out of range")
+                            })?;
+                            v[pos].to_pyresult(vm)
                         })*
                     }
                 }
@@ -330,8 +333,14 @@ pub mod array {
                     vm: &VirtualMachine
                 ) -> PyResult<()> {
                     match (self, item) {
-                        $((ArrayContentType::$n(v), ArrayItem::$n(value)) =>
-                            v.setitem_by_index(vm, i, value),)*
+                        $((ArrayContentType::$n(v), ArrayItem::$n(value)) => {
+                            // CPython names the type in the index error
+                            let pos = v.wrap_index(i).ok_or_else(|| {
+                                vm.new_index_error("array assignment index out of range")
+                            })?;
+                            v[pos] = value;
+                            Ok(())
+                        },)*
                         _ => unreachable!("item was converted for this array"),
                     }
                 }
@@ -344,7 +353,17 @@ pub mod array {
                 ) -> PyResult<()> {
                     match self {
                         $(Self::$n(elements) => if let ArrayContentType::$n(items) = items {
-                            elements.setitem_by_slice(vm, slice, items)
+                            let (_, step, slice_len) = slice.adjust_indices(elements.len());
+                            if step != 1 && slice_len != items.len() {
+                                Err(vm.new_value_error(format!(
+                                    "attempt to assign array of size {} \
+                                     to extended slice of size {}",
+                                    items.len(),
+                                    slice_len
+                                )))
+                            } else {
+                                elements.setitem_by_slice(vm, slice, items)
+                            }
                         } else {
                             Err(vm.new_type_error(
                                 "bad argument type for built-in operation".to_owned()
@@ -373,7 +392,11 @@ pub mod array {
                 fn delitem_by_index(&mut self, i: isize, vm: &VirtualMachine) -> PyResult<()> {
                     match self {
                         $(ArrayContentType::$n(v) => {
-                            v.delitem_by_index(vm, i)
+                            let pos = v.wrap_index(i).ok_or_else(|| {
+                                vm.new_index_error("array assignment index out of range")
+                            })?;
+                            v.remove(pos);
+                            Ok(())
                         })*
                     }
                 }
@@ -551,7 +574,90 @@ pub mod array {
         )*};
     }
 
-    impl_int_element!(i8, u8, i16, u16, i32, u32, i64, u64,);
+    impl_int_element!(u8, i16, i32, i64, u64,);
+
+    // CPython PyLong_AsLong()
+    fn try_to_c_long(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<raw::c_long> {
+        let int = obj.try_index(vm)?;
+        raw::c_long::try_from(int.as_bigint())
+            .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))
+    }
+
+    impl ArrayElement for i8 {
+        fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            // CPython b_setitem: parsed as C long, range-checked as short, then as signed char
+            let x = try_to_c_long(vm, obj)?;
+            let x = i16::try_from(x).map_err(|_| {
+                vm.new_overflow_error(if x < 0 {
+                    "signed short integer is less than minimum"
+                } else {
+                    "signed short integer is greater than maximum"
+                })
+            })?;
+            Self::try_from(x).map_err(|_| {
+                vm.new_overflow_error(if x < 0 {
+                    "signed char is less than minimum"
+                } else {
+                    "signed char is greater than maximum"
+                })
+            })
+        }
+        fn byteswap(self) -> Self {
+            self.swap_bytes()
+        }
+        fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+            self.to_pyobject(vm)
+        }
+    }
+
+    impl ArrayElement for u16 {
+        fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            // CPython HH_setitem: parsed as C long, range-checked as int, then as unsigned short
+            let x = try_to_c_long(vm, obj)?;
+            let x = i32::try_from(x).map_err(|_| {
+                vm.new_overflow_error(if x < 0 {
+                    "signed integer is less than minimum"
+                } else {
+                    "signed integer is greater than maximum"
+                })
+            })?;
+            Self::try_from(x).map_err(|_| {
+                vm.new_overflow_error(if x < 0 {
+                    "unsigned short is less than minimum"
+                } else {
+                    "unsigned short is greater than maximum"
+                })
+            })
+        }
+        fn byteswap(self) -> Self {
+            self.swap_bytes()
+        }
+        fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+            self.to_pyobject(vm)
+        }
+    }
+
+    impl ArrayElement for u32 {
+        fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+            // CPython II_setitem: PyLong_AsUnsignedLong(), then range-checked as unsigned int
+            let int = obj.try_index(vm)?;
+            if int.as_bigint().is_negative() {
+                return Err(vm.new_overflow_error("can't convert negative value to unsigned int"));
+            }
+            let x = raw::c_ulong::try_from(int.as_bigint()).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C unsigned long")
+            })?;
+            Self::try_from(x)
+                .map_err(|_| vm.new_overflow_error("unsigned int is greater than maximum"))
+        }
+        fn byteswap(self) -> Self {
+            self.swap_bytes()
+        }
+        fn to_object(self, vm: &VirtualMachine) -> PyObjectRef {
+            self.to_pyobject(vm)
+        }
+    }
+
     impl_float_element!(
         (
             f32,
@@ -584,12 +690,25 @@ pub mod array {
 
     impl ArrayElement for WideChar {
         fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-            PyUtf8StrRef::try_from_object(vm, obj)?
-                .as_str()
-                .chars()
-                .exactly_one()
-                .map(|ch| Self(ch as _))
-                .map_err(|_| vm.new_type_error("array item must be unicode character"))
+            let s = obj.downcast::<PyStr>().map_err(|obj| {
+                vm.new_type_error(format!(
+                    "array item must be a unicode character, not {}",
+                    obj.class().name()
+                ))
+            })?;
+            let ch = s.as_wtf8().code_points().exactly_one().map_err(|e| {
+                vm.new_type_error(format!(
+                    "array item must be a unicode character, not a string of length {}",
+                    e.count()
+                ))
+            })?;
+            let Ok(w) = ch.to_u32().try_into() else {
+                let repr = s.as_object().repr(vm)?;
+                return Err(vm.new_type_error(format!(
+                    "string {repr} cannot be converted to a single wchar_t character"
+                )));
+            };
+            Ok(Self(w))
         }
         fn byteswap(self) -> Self {
             Self(self.0.swap_bytes())
@@ -1034,7 +1153,10 @@ pub mod array {
         }
 
         #[pymethod]
-        fn fromlist(zelf: &Py<Self>, list: PyListRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn fromlist(zelf: &Py<Self>, list: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let list = list
+                .downcast::<PyList>()
+                .map_err(|_| vm.new_type_error("arg must be list"))?;
             zelf.try_resizable(vm)?.fromlist(&list, vm)
         }
 
@@ -1054,7 +1176,7 @@ pub mod array {
         }
 
         fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
+            match array_sequence_index(vm, needle)? {
                 SequenceIndex::Int(i) => self.read().getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.read().getitem_by_slice(slice, vm),
             }
@@ -1099,7 +1221,15 @@ pub mod array {
                     if let Ok(mut w) = zelf.try_resizable(vm) {
                         w.setitem_by_slice(slice, items, vm)
                     } else {
-                        zelf.write().setitem_by_slice_no_resize(slice, items, vm)
+                        // Issue #4509: fail if the slice assignment would change the size
+                        let mut w = zelf.write();
+                        let (_, _, slice_len) = slice.adjust_indices(w.len());
+                        if items.len() == 0 || slice_len != items.len() {
+                            return Err(vm.new_buffer_error(
+                                "cannot resize an array that is exporting buffers",
+                            ));
+                        }
+                        w.setitem_by_slice_no_resize(slice, items, vm)
                     }
                 }
             }
@@ -1115,7 +1245,7 @@ pub mod array {
         }
 
         fn delitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "array")? {
+            match array_sequence_index(vm, needle)? {
                 SequenceIndex::Int(i) => self.try_resizable(vm)?.delitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.try_resizable(vm)?.delitem_by_slice(slice, vm),
             }
@@ -1198,9 +1328,14 @@ pub mod array {
         #[pymethod]
         fn __reduce_ex__(
             zelf: &Py<Self>,
-            proto: usize,
+            proto: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<(PyObjectRef, PyTupleRef, Option<PyDictRef>)> {
+            let proto = proto
+                .downcast_ref::<PyInt>()
+                .ok_or_else(|| vm.new_type_error("__reduce_ex__ argument should be an integer"))?;
+            let proto = raw::c_long::try_from(proto.as_bigint())
+                .map_err(|_| vm.new_overflow_error("Python int too large to convert to C long"))?;
             if proto < 3 {
                 return Self::__reduce__(zelf, vm);
             }
@@ -1531,13 +1666,13 @@ pub mod array {
     #[derive(FromArgs)]
     struct ReconstructorArgs {
         #[pyarg(positional)]
-        arraytype: PyTypeRef,
+        arraytype: PyObjectRef,
         #[pyarg(positional)]
         typecode: PyUtf8StrRef,
         #[pyarg(positional)]
         mformat_code: MachineFormatCode,
         #[pyarg(positional)]
-        items: PyBytesRef,
+        items: PyObjectRef,
     }
 
     #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -1620,7 +1755,7 @@ pub mod array {
     impl MachineFormatCode {
         fn from_typecode(code: char) -> Option<Self> {
             use core::mem::size_of;
-            let signed = code.is_ascii_uppercase();
+            let signed = code.is_ascii_lowercase();
             let big_endian = cfg!(target_endian = "big");
             let int_size = match code {
                 'b' | 'B' => return Some(Self::Int8 { signed }),
@@ -1673,6 +1808,23 @@ pub mod array {
         }
     }
 
+    // SequenceIndex::try_from_borrowed_object with CPython's array error message
+    fn array_sequence_index(vm: &VirtualMachine, needle: &PyObject) -> PyResult<SequenceIndex> {
+        if let Some(i) = needle.downcast_ref::<PyInt>() {
+            i.try_to_primitive(vm)
+                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
+                .map(SequenceIndex::Int)
+        } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
+            slice.to_saturated(vm).map(SequenceIndex::Slice)
+        } else if let Some(i) = needle.try_index_opt(vm) {
+            i?.try_to_primitive(vm)
+                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
+                .map(SequenceIndex::Int)
+        } else {
+            Err(vm.new_type_error("array indices must be integers"))
+        }
+    }
+
     fn check_array_type(typ: PyTypeRef, vm: &VirtualMachine) -> PyResult<PyTypeRef> {
         if !typ.fast_issubclass(PyArray::class(&vm.ctx)) {
             return Err(
@@ -1717,16 +1869,31 @@ pub mod array {
 
     #[pyfunction]
     fn _array_reconstructor(args: ReconstructorArgs, vm: &VirtualMachine) -> PyResult<PyArrayRef> {
-        let cls = check_array_type(args.arraytype, vm)?;
+        let cls = args.arraytype.downcast::<PyType>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "first argument must be a type object, not {}",
+                obj.class().name()
+            ))
+        })?;
+        let cls = check_array_type(cls, vm)?;
         let mut array = check_type_code(args.typecode, vm)?;
         let format = args.mformat_code;
-        let bytes = args.items.as_bytes();
-        if !bytes.len().is_multiple_of(format.item_size()) {
-            return Err(vm.new_value_error("bytes length not a multiple of item size"));
-        }
+        let items = args.items.downcast::<PyBytes>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "fourth argument should be bytes, not {}",
+                obj.class().name()
+            ))
+        })?;
+        let bytes = items.as_bytes();
         if MachineFormatCode::from_typecode(array.typecode()) == Some(format) {
+            if !bytes.len().is_multiple_of(array.itemsize()) {
+                return Err(vm.new_value_error("bytes length not a multiple of item size"));
+            }
             array.frombytes(bytes);
             return PyArray::from(array).into_ref_with_type(vm, cls);
+        }
+        if !bytes.len().is_multiple_of(format.item_size()) {
+            return Err(vm.new_value_error("string length not a multiple of item size"));
         }
         if !matches!(
             format,
@@ -1760,7 +1927,7 @@ pub mod array {
                     vm.new_unicode_decode_error(
                         vm.ctx
                             .new_str(if big_endian { "utf-16-be" } else { "utf-16-le" }),
-                        args.items.clone(),
+                        items.clone(),
                         index * 2,
                         index * 2 + 2,
                         vm.ctx.new_str(reason),

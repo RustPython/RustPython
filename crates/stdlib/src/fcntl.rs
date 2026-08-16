@@ -7,10 +7,11 @@ mod fcntl {
     use rustpython_host_env::fcntl as host_fcntl;
 
     use crate::vm::{
-        PyResult, VirtualMachine,
+        PyObjectRef, PyResult, VirtualMachine,
         builtins::PyIntRef,
-        convert::ToPyException,
-        function::{ArgMemoryBuffer, ArgStrOrBytesLike, Either, OptionalArg},
+        convert::{ToPyException, TryFromObject},
+        function::{ArgMemoryBuffer, ArgStrOrBytesLike, OptionalArg},
+        identifier,
         stdlib::_io,
     };
 
@@ -64,87 +65,113 @@ mod fcntl {
     fn fcntl(
         _io::Fildes(fd): _io::Fildes,
         cmd: i32,
-        arg: OptionalArg<Either<ArgStrOrBytesLike, PyIntRef>>,
+        arg: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let int = match arg {
-            OptionalArg::Present(Either::A(arg)) => {
-                let mut buf = [0u8; 1024];
-                let arg_len;
-                {
-                    let s = arg.borrow_bytes();
-                    arg_len = s.len();
-                    buf.get_mut(..arg_len)
-                        .ok_or_else(|| vm.new_value_error("fcntl string arg too long"))?
-                        .copy_from_slice(&s)
-                }
-                host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len])
-                    .map_err(|_| vm.new_last_errno_error())?;
-                return Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into());
-            }
-            OptionalArg::Present(Either::B(i)) => i.as_u32_mask(),
-            OptionalArg::Missing => 0,
-        };
-        let ret =
-            host_fcntl::fcntl_int(fd, cmd, int as i32).map_err(|_| vm.new_last_errno_error())?;
-        Ok(vm.new_pyobj(ret))
+        let arg = arg.into_option();
+        // CPython dispatch order: __index__ first, then str/buffer
+        let is_index = arg
+            .as_ref()
+            .is_some_and(|a| a.class().has_attr(identifier!(vm, __index__)));
+        if arg.is_none() || is_index {
+            let int = match &arg {
+                None => 0,
+                Some(a) => a.try_index(vm)?.as_u32_mask(),
+            };
+            let ret = host_fcntl::fcntl_int(fd, cmd, int as i32)
+                .map_err(|_| vm.new_last_errno_error())?;
+            return Ok(vm.new_pyobj(ret));
+        }
+        let arg = arg.unwrap();
+        let arg = ArgStrOrBytesLike::try_from_object(vm, arg.clone()).map_err(|_| {
+            vm.new_type_error(format!(
+                "fcntl() argument 3 must be an integer, a bytes-like object, or a string, not {}",
+                arg.class().name()
+            ))
+        })?;
+        let mut buf = [0u8; 1024];
+        let arg_len;
+        {
+            let s = arg.borrow_bytes();
+            arg_len = s.len();
+            buf.get_mut(..arg_len)
+                .ok_or_else(|| vm.new_value_error("fcntl argument 3 is too long"))?
+                .copy_from_slice(&s)
+        }
+        host_fcntl::fcntl_with_bytes(fd, cmd, &mut buf[..arg_len])
+            .map_err(|_| vm.new_last_errno_error())?;
+        Ok(vm.ctx.new_bytes(buf[..arg_len].to_vec()).into())
     }
 
     #[pyfunction]
     fn ioctl(
         _io::Fildes(fd): _io::Fildes,
         request: i64,
-        arg: OptionalArg<Either<Either<ArgMemoryBuffer, ArgStrOrBytesLike>, i32>>,
+        arg: OptionalArg<PyObjectRef>,
         mutate_flag: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult {
         let request = host_fcntl::normalize_ioctl_request(request);
-        let arg = arg.unwrap_or_else(|| Either::B(0));
-        match arg {
-            Either::A(buf_kind) => {
-                const BUF_SIZE: usize = 1024;
-                let mut buf = [0u8; BUF_SIZE + 1]; // nul byte
-                let mut fill_buf = |b: &[u8]| {
-                    if b.len() > BUF_SIZE {
-                        return Err(vm.new_value_error("fcntl string arg too long"));
-                    }
-                    buf[..b.len()].copy_from_slice(b);
-                    Ok(b.len())
-                };
-                let buf_len = match buf_kind {
-                    Either::A(rw_arg) => {
-                        let mutate_flag = mutate_flag.unwrap_or(true);
-                        let mut arg_buf = rw_arg.borrow_buf_mut();
-                        if mutate_flag {
-                            let ret = unsafe {
-                                host_fcntl::ioctl_ptr(fd, request, arg_buf.as_mut_ptr().cast())
-                            }
-                            .map_err(|_| vm.new_last_errno_error())?;
-                            return Ok(vm.ctx.new_int(ret).into());
-                        }
-                        // treat like an immutable buffer
-                        fill_buf(&arg_buf)?
-                    }
-                    Either::B(ro_buf) => fill_buf(&ro_buf.borrow_bytes())?,
-                };
-                unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) }
-                    .map_err(|_| vm.new_last_errno_error())?;
-                Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
-            }
-            Either::B(i) => {
-                let ret =
-                    host_fcntl::ioctl_int(fd, request, i).map_err(|_| vm.new_last_errno_error())?;
-                Ok(vm.ctx.new_int(ret).into())
-            }
+        let arg = arg.into_option();
+        // CPython dispatch order: __index__ first, then str/buffer
+        let is_index = arg
+            .as_ref()
+            .is_some_and(|a| a.class().has_attr(identifier!(vm, __index__)));
+        if arg.is_none() || is_index {
+            let i = match &arg {
+                None => 0,
+                Some(a) => a.try_index(vm)?.as_u32_mask() as i32,
+            };
+            let ret =
+                host_fcntl::ioctl_int(fd, request, i).map_err(|_| vm.new_last_errno_error())?;
+            return Ok(vm.ctx.new_int(ret).into());
         }
+        let arg = arg.unwrap();
+        let arg_type_name = arg.class().name().to_owned();
+        let type_error = |vm: &VirtualMachine| {
+            vm.new_type_error(format!(
+                "ioctl() argument 3 must be an integer, a bytes-like object, or a string, not {arg_type_name}"
+            ))
+        };
+        const BUF_SIZE: usize = 1024;
+        let mut buf = [0u8; BUF_SIZE + 1]; // nul byte
+        let mut fill_buf = |b: &[u8], vm: &VirtualMachine| {
+            if b.len() > BUF_SIZE {
+                return Err(vm.new_value_error("ioctl argument 3 is too long"));
+            }
+            buf[..b.len()].copy_from_slice(b);
+            Ok(b.len())
+        };
+        let mutate_flag = mutate_flag.unwrap_or(true);
+        let rw_arg = if mutate_flag {
+            ArgMemoryBuffer::try_from_object(vm, arg.clone()).ok()
+        } else {
+            None
+        };
+        let buf_len = match rw_arg {
+            Some(rw_arg) => {
+                let mut arg_buf = rw_arg.borrow_buf_mut();
+                let ret =
+                    unsafe { host_fcntl::ioctl_ptr(fd, request, arg_buf.as_mut_ptr().cast()) }
+                        .map_err(|_| vm.new_last_errno_error())?;
+                return Ok(vm.ctx.new_int(ret).into());
+            }
+            None => {
+                let ro = ArgStrOrBytesLike::try_from_object(vm, arg).map_err(|_| type_error(vm))?;
+                fill_buf(&ro.borrow_bytes(), vm)?
+            }
+        };
+        unsafe { host_fcntl::ioctl_ptr(fd, request, buf.as_mut_ptr().cast()) }
+            .map_err(|_| vm.new_last_errno_error())?;
+        Ok(vm.ctx.new_bytes(buf[..buf_len].to_vec()).into())
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants/function
     #[cfg(not(any(target_os = "wasi", target_os = "redox")))]
     #[pyfunction]
     fn flock(_io::Fildes(fd): _io::Fildes, operation: i32, vm: &VirtualMachine) -> PyResult {
-        let ret = host_fcntl::flock(fd, operation).map_err(|_| vm.new_last_errno_error())?;
-        Ok(vm.ctx.new_int(ret).into())
+        host_fcntl::flock(fd, operation).map_err(|_| vm.new_last_errno_error())?;
+        Ok(vm.ctx.none())
     }
 
     // XXX: at the time of writing, wasi and redox don't have the necessary constants
