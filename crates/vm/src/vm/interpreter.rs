@@ -435,7 +435,7 @@ impl Interpreter {
         Self { global_state, vm }
     }
 
-    /// Process-global interpreter id (main is [`MAIN_INTERPRETER_ID`]).
+    /// Process-global interpreter id (main is [`super::MAIN_INTERPRETER_ID`]).
     #[inline]
     #[must_use]
     pub fn id(&self) -> i64 {

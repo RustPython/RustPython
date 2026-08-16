@@ -74,7 +74,7 @@ pub const MAX_MEMORY_SIZE: usize = isize::MAX as usize;
 /// A `VirtualMachine` holds thread-local eval state (exceptions, recursion, frames,
 /// datastack) plus shared references to interpreter-owned data (`state`,
 /// `builtins`, `sys_module`, `ctx`). Multiple VMs may share the same
-/// [`PyGlobalState`] via [`VirtualMachine::new_thread`]; distinct interpreters
+/// [`PyGlobalState`] via `VirtualMachine::new_thread`; distinct interpreters
 /// each have their own `PyGlobalState` (see [`Interpreter::create_subinterpreter`]).
 ///
 /// To construct the main VM of an interpreter, use [`Interpreter`].
