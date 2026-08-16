@@ -71,7 +71,7 @@ pub struct SlotDef {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SlotAccessor {
-    // Buffer protocol (1-2) - Reserved, not used in RustPython
+    // Buffer protocol (1-2)
     BfGetBuffer = 1,
     BfReleaseBuffer = 2,
 
@@ -173,9 +173,7 @@ impl SlotAccessor {
     pub fn is_reserved(&self) -> bool {
         matches!(
             self,
-            Self::BfGetBuffer
-                | Self::BfReleaseBuffer
-                | Self::TpAlloc
+            Self::TpAlloc
                 | Self::TpBase
                 | Self::TpBases
                 | Self::TpClear
@@ -411,6 +409,10 @@ impl SlotAccessor {
                 )
             }
 
+            // Buffer protocol
+            Self::BfGetBuffer => matches!(slot_func, SlotFunc::GetBuffer(_)),
+            Self::BfReleaseBuffer => matches!(slot_func, SlotFunc::ReleaseBuffer),
+
             // New and reserved slots
             Self::TpNew => false,
             _ => false, // Reserved slots
@@ -538,6 +540,18 @@ impl SlotAccessor {
             Self::MpLength => inherit_mapping!(length),
             Self::MpSubscript => inherit_mapping!(subscript),
             Self::MpAssSubscript => inherit_mapping!(ass_subscript),
+
+            // Buffer protocol
+            Self::BfGetBuffer => {
+                let inherited = mro.iter().find_map(|cls| cls.slots.as_buffer.load());
+                typ.slots.as_buffer.store(inherited);
+            }
+            Self::BfReleaseBuffer => {
+                let has_release = mro.iter().any(|cls| cls.slots.has_release_buffer.load());
+                typ.slots.has_release_buffer.store(has_release);
+                let py_release = mro.iter().any(|cls| cls.slots.python_release_buffer.load());
+                typ.slots.python_release_buffer.store(py_release);
+            }
 
             // Reserved slots - no-op
             _ => {}
@@ -677,6 +691,25 @@ impl SlotAccessor {
             Self::MpSubscript => copy_mapping!(subscript),
             Self::MpAssSubscript => copy_mapping!(ass_subscript),
 
+            // Buffer protocol
+            Self::BfGetBuffer => {
+                if typ.slots.as_buffer.load().is_none()
+                    && let Some(base_val) = base.slots.as_buffer.load()
+                {
+                    typ.slots.as_buffer.store(Some(base_val));
+                }
+            }
+            Self::BfReleaseBuffer => {
+                if !typ.slots.has_release_buffer.load() && base.slots.has_release_buffer.load() {
+                    typ.slots.has_release_buffer.store(true);
+                }
+                if !typ.slots.python_release_buffer.load()
+                    && base.slots.python_release_buffer.load()
+                {
+                    typ.slots.python_release_buffer.store(true);
+                }
+            }
+
             // Reserved slots - no-op
             _ => {}
         }
@@ -815,6 +848,16 @@ impl SlotAccessor {
                 .ass_subscript
                 .load()
                 .map(SlotFunc::MapSetSubscript),
+
+            // Buffer protocol
+            Self::BfGetBuffer => slots.as_buffer.load().map(SlotFunc::GetBuffer),
+            Self::BfReleaseBuffer => {
+                if slots.has_release_buffer.load() || slots.python_release_buffer.load() {
+                    Some(SlotFunc::ReleaseBuffer)
+                } else {
+                    None
+                }
+            }
 
             // Reserved slots
             _ => None,
@@ -973,6 +1016,19 @@ pub const SLOT_DEFS_COUNT: usize = SLOT_DEFS.len();
 
 /// All slot definitions
 pub static SLOT_DEFS: &[SlotDef] = &[
+    // Buffer protocol (bf_*)
+    SlotDef {
+        name: "__buffer__",
+        accessor: SlotAccessor::BfGetBuffer,
+        op: None,
+        doc: "Return a buffer object that exposes the underlying memory of the object.",
+    },
+    SlotDef {
+        name: "__release_buffer__",
+        accessor: SlotAccessor::BfReleaseBuffer,
+        op: None,
+        doc: "Release the buffer object that exposes the underlying memory of the object.",
+    },
     // Type slots (tp_*)
     SlotDef {
         name: "__init__",

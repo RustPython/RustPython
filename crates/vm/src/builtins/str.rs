@@ -23,7 +23,9 @@ use crate::{
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
-    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{
+        BufferFlags, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
+    },
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
@@ -441,15 +443,24 @@ impl Constructor for PyStr {
                     if input.fast_isinstance(vm.ctx.types.str_type) {
                         return Err(vm.new_type_error("decoding str is not supported"));
                     }
-                    if !input.fast_isinstance(vm.ctx.types.bytes_type)
-                        && !input.fast_isinstance(vm.ctx.types.bytearray_type)
-                        && crate::protocol::PyBuffer::try_from_borrowed_object(vm, &input).is_err()
+                    let input = if input.fast_isinstance(vm.ctx.types.bytes_type)
+                        || input.fast_isinstance(vm.ctx.types.bytearray_type)
                     {
-                        return Err(vm.new_type_error(format!(
-                            "decoding to str: need a bytes-like object, {} found",
-                            input.class().name()
-                        )));
-                    }
+                        input
+                    } else {
+                        // PyUnicode_FromEncodedObject: whatever an exporter
+                        // complains about, the argument is simply not bytes-like.
+                        let buffer = PyBuffer::from_object(vm, &input, BufferFlags::SIMPLE)
+                            .map_err(|_| {
+                                vm.new_type_error(format!(
+                                    "decoding to str: need a bytes-like object, {} found",
+                                    input.class().name()
+                                ))
+                            })?;
+                        vm.ctx
+                            .new_bytes(buffer.contiguous_or_collect(<[u8]>::to_vec))
+                            .into()
+                    };
                     let enc_str = encoding.as_ref().map_or("utf-8", |e| e.as_str());
                     let s = vm
                         .state

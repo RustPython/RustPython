@@ -1158,19 +1158,19 @@ mod _ssl {
                 let pwd_result = callable.call((), vm)?;
 
                 // Convert callable result to string
-                let password_from_callable = if let Ok(pwd_str) =
-                    PyUtf8StrRef::try_from_object(vm, pwd_result.clone())
-                {
-                    pwd_str.as_str().to_owned()
-                } else if let Ok(pwd_bytes_like) = ArgBytesLike::try_from_object(vm, pwd_result) {
-                    String::from_utf8(pwd_bytes_like.borrow_buf().to_vec()).map_err(|_| {
-                        vm.new_type_error("password callback returned invalid UTF-8 bytes")
-                    })?
-                } else {
-                    return Err(
-                        vm.new_type_error("password callback must return a string or bytes")
-                    );
-                };
+                let password_from_callable =
+                    if let Ok(pwd_str) = PyUtf8StrRef::try_from_object(vm, pwd_result.clone()) {
+                        pwd_str.as_str().to_owned()
+                    } else if pwd_result.check_buffer() {
+                        let pwd_bytes_like = ArgBytesLike::try_from_object(vm, pwd_result)?;
+                        String::from_utf8(pwd_bytes_like.borrow_buf().to_vec()).map_err(|_| {
+                            vm.new_type_error("password callback returned invalid UTF-8 bytes")
+                        })?
+                    } else {
+                        return Err(
+                            vm.new_type_error("password callback must return a string or bytes")
+                        );
+                    };
 
                 // Validate callable password length
                 if password_from_callable.len() > PEM_BUFSIZE {
@@ -1808,7 +1808,8 @@ mod _ssl {
             // Validate filepath is str or bytes
             let path_str = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, filepath.clone()) {
                 s.as_str().to_owned()
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, filepath) {
+            } else if filepath.check_buffer() {
+                let b = ArgBytesLike::try_from_object(vm, filepath)?;
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("Invalid path encoding"))?
             } else {
@@ -1863,7 +1864,8 @@ mod _ssl {
             // Validate name is str or bytes
             let curve_name = if let Ok(s) = PyUtf8StrRef::try_from_object(vm, name.clone()) {
                 s.as_str().to_owned()
-            } else if let Ok(b) = ArgBytesLike::try_from_object(vm, name) {
+            } else if name.check_buffer() {
+                let b = ArgBytesLike::try_from_object(vm, name)?;
                 String::from_utf8(b.borrow_buf().to_vec())
                     .map_err(|_| vm.new_value_error("Invalid curve name encoding"))?
             } else {
@@ -2106,8 +2108,8 @@ mod _ssl {
                         Ok((Some(pwd_str.as_str().to_owned()), None))
                     }
                     // Try bytes-like
-                    else if let Ok(pwd_bytes_like) = ArgBytesLike::try_from_object(vm, p.clone())
-                    {
+                    else if p.check_buffer() {
+                        let pwd_bytes_like = ArgBytesLike::try_from_object(vm, p.clone())?;
                         let pwd = String::from_utf8(pwd_bytes_like.borrow_buf().to_vec())
                             .map_err(|_| vm.new_type_error("password bytes must be valid UTF-8"))?;
                         Ok((Some(pwd), None))

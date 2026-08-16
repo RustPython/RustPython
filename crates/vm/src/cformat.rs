@@ -22,7 +22,7 @@ use crate::{
         wtf8::{CodePoint, Wtf8, Wtf8Buf},
     },
     function::ArgIntoFloat,
-    protocol::PyBuffer,
+    protocol::{BufferFlags, PyBuffer},
     stdlib::builtins,
 };
 
@@ -39,24 +39,29 @@ fn spec_format_bytes(
                 let b = builtins::ascii(obj, vm)?.as_bytes().to_vec();
                 Ok(b)
             }
+            // format_obj
             CFormatConversion::Str | CFormatConversion::Bytes => {
-                if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &obj) {
-                    Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)))
-                } else {
-                    let bytes = vm
-                        .get_special_method(&obj, identifier!(vm, __bytes__))?
-                        .ok_or_else(|| {
-                            let msg = format!(
-                                "%b requires a bytes-like object, or an object that \
-                                    implements __bytes__, not '{}'",
-                                obj.class().name()
-                            );
-                            vm.new_type_error(msg)
-                        })?
-                        .invoke((), vm)?;
-                    let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
-                    Ok(spec.format_bytes(bytes.as_bytes()))
+                if let Some(bytes) = obj.downcast_ref::<PyBytes>() {
+                    return Ok(spec.format_bytes(bytes.as_bytes()));
                 }
+                if let Some(bytearray) = obj.downcast_ref::<PyByteArray>() {
+                    return Ok(spec.format_bytes(&bytearray.borrow_buf()));
+                }
+                if let Some(method) = vm.get_special_method(&obj, identifier!(vm, __bytes__))? {
+                    let bytes = method.invoke((), vm)?;
+                    let bytes = PyBytes::try_from_borrowed_object(vm, &bytes)?;
+                    return Ok(spec.format_bytes(bytes.as_bytes()));
+                }
+                if obj.check_buffer() {
+                    let buffer = PyBuffer::from_object(vm, &obj, BufferFlags::FULL_RO)?;
+                    return Ok(buffer.contiguous_or_collect(|bytes| spec.format_bytes(bytes)));
+                }
+                let msg = format!(
+                    "%b requires a bytes-like object, or an object that \
+                        implements __bytes__, not '{}'",
+                    obj.class().name()
+                );
+                Err(vm.new_type_error(msg))
             }
         },
         CFormatType::Number(number_type) => match number_type {

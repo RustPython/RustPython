@@ -1,7 +1,7 @@
 //! Implementation of the python bytearray object.
 use super::{
-    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple,
-    PyTupleRef, PyType, PyTypeRef, iter::builtins_iter,
+    PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef,
+    PyType, PyTypeRef, iter::builtins_iter,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -11,7 +11,8 @@ use crate::{
     byte::{bytes_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+        bytes_decode,
     },
     class::PyClassImpl,
     common::{
@@ -23,10 +24,10 @@ use crate::{
     },
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIterable, ArgSize, Either, OptionalArg, OptionalOption, PyComparisonValue,
+        ArgBytesLike, ArgIterable, ArgSize, OptionalArg, OptionalOption, PyComparisonValue,
     },
     protocol::{
-        BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
+        BufferDescriptor, BufferFlags, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn,
         PyMappingMethods, PyNumberMethods, PySequenceMethods,
     },
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
@@ -228,11 +229,8 @@ impl PyByteArray {
         self.inner().add(&other.borrow_buf()).into()
     }
 
-    fn __contains__(
-        &self,
-        needle: Either<PyBytesInner, PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
         self.inner().contains(needle, vm)
     }
 
@@ -613,12 +611,34 @@ impl Py<PyByteArray> {
     #[pymethod]
     fn extend(&self, object: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.is(&object) {
-            PyByteArray::irepeat(self, 2, vm)
-        } else {
-            let items = bytes_from_object(vm, &object)?;
-            self.try_resizable(vm)?.elements.extend(items);
-            Ok(())
+            return PyByteArray::irepeat(self, 2, vm);
         }
+        // bytearray_setslice keeps the export alive across the resize, so a value
+        // looking at this bytearray is what stops it from growing.
+        let buffer = object
+            .check_buffer()
+            .then(|| {
+                PyBuffer::from_object(vm, &object, BufferFlags::SIMPLE).map_err(|_| {
+                    // What an exporter refuses to hand out leaves the value simply
+                    // not usable here, whatever the exporter's own complaint was.
+                    vm.new_type_error(format!(
+                        "can't set bytearray slice from {}",
+                        object.class().name()
+                    ))
+                })
+            })
+            .transpose()?;
+        let items = match &buffer {
+            Some(buffer) => buffer
+                .as_contiguous()
+                .ok_or_else(|| {
+                    vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
+                })?
+                .to_vec(),
+            None => bytes_from_object(vm, &object)?,
+        };
+        self.try_resizable(vm)?.elements.extend(items);
+        Ok(())
     }
 
     #[pymethod]
@@ -731,6 +751,20 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 };
 
 impl AsBuffer for PyByteArray {
+    const RELEASE_BUFFER: bool = true;
+
+    fn slot_as_buffer(
+        zelf: &PyObject,
+        flags: BufferFlags,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBuffer> {
+        let zelf = zelf
+            .downcast_ref::<Self>()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
+        flags.fill_info_check(false, vm)?;
+        Self::as_buffer(zelf, vm)
+    }
+
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         Ok(PyBuffer::new(
             zelf.to_owned().into(),
@@ -801,9 +835,7 @@ impl AsSequence for PyByteArray {
                 }
             }),
             contains: atomic_func!(|seq, other, vm| {
-                let other =
-                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                PyByteArray::sequence_downcast(seq).__contains__(other, vm)
+                PyByteArray::sequence_downcast(seq).__contains__(other.to_owned(), vm)
             }),
             inplace_concat: atomic_func!(|seq, other, vm| {
                 let other = ArgBytesLike::try_from_object(vm, other.to_owned())?;

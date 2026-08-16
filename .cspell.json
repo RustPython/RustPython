@@ -59,6 +59,7 @@
     "alnum",
     "csock",
     "coro",
+    "contig",
     "Crnl",
     "dedentations",
     "dedents",

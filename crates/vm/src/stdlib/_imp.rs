@@ -178,7 +178,6 @@ mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
-        convert::TryFromBorrowedObject,
         function::OptionalArg,
         import, version,
     };
@@ -270,8 +269,14 @@ mod _imp {
                     name.clone().into_wtf8(),
                 )
             };
-            // A non-buffer is a TypeError, not invalid frozen data.
-            crate::protocol::PyBuffer::try_from_borrowed_object(vm, &data)?;
+            // A non-buffer is a TypeError, not invalid frozen data. The request
+            // is the one marshal.loads() makes, so that what passes here is
+            // exactly what it accepts.
+            crate::protocol::PyBuffer::from_object(
+                vm,
+                &data,
+                crate::protocol::BufferFlags::SIMPLE,
+            )?;
             // The data is a marshalled code object: a whole marshal value, which
             // deserialize_code() does not read — it takes the code body alone,
             // without the type byte the writer puts in front of it.

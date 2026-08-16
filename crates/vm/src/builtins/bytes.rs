@@ -1,27 +1,28 @@
 use super::{
-    PositionIterInternal, PyDictRef, PyGenericAlias, PyIntRef, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef, iter::builtins_iter,
+    PositionIterInternal, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType,
+    PyTypeRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, TryFromObject, VirtualMachine,
+    TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
-        ByteInnerSplitOptions, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner, bytes_decode,
+        ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
+        bytes_decode,
     },
     class::PyClassImpl,
     common::{hash::PyHash, lock::PyMutex},
     convert::{ToPyObject, ToPyResult},
     function::{
-        ArgBytesLike, ArgIndex, ArgIterable, Either, FuncArgs, OptionalArg, OptionalOption,
+        ArgBytesLike, ArgIndex, ArgIterable, FuncArgs, OptionalArg, OptionalOption,
         PyComparisonValue,
     },
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods,
-        PySequenceMethods,
+        BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
+        PyNumberMethods, PySequenceMethods,
     },
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
@@ -246,11 +247,8 @@ impl PyBytes {
         self.inner.add(&other.borrow_buf())
     }
 
-    fn __contains__(
-        &self,
-        needle: Either<PyBytesInner, PyIntRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
         self.inner.contains(needle, vm)
     }
 
@@ -627,6 +625,18 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
 };
 
 impl AsBuffer for PyBytes {
+    fn slot_as_buffer(
+        zelf: &PyObject,
+        flags: BufferFlags,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBuffer> {
+        let zelf = zelf
+            .downcast_ref::<Self>()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
+        flags.fill_info_check(true, vm)?;
+        Self::as_buffer(zelf, vm)
+    }
+
     fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
@@ -673,9 +683,7 @@ impl AsSequence for PyBytes {
                     .map(|x| vm.ctx.new_bytes(vec![x]).into())
             }),
             contains: atomic_func!(|seq, other, vm| {
-                let other =
-                    <Either<PyBytesInner, PyIntRef>>::try_from_object(vm, other.to_owned())?;
-                PyBytes::sequence_downcast(seq).__contains__(other, vm)
+                PyBytes::sequence_downcast(seq).__contains__(other.to_owned(), vm)
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

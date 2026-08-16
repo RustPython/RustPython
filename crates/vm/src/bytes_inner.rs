@@ -1,6 +1,7 @@
 // spell-checker:ignore unchunked
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject,
+    VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
@@ -12,7 +13,7 @@ use crate::{
     common::wtf8::is_py_ascii_whitespace,
     function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
     literal::escape::Escape,
-    protocol::PyBuffer,
+    protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
 };
@@ -35,9 +36,10 @@ impl From<Vec<u8>> for PyBytesInner {
     }
 }
 
+/// "y*": any bytes-like object, and nothing else.
 impl<'a> TryFromBorrowedObject<'a> for PyBytesInner {
     fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-        bytes_from_object(vm, obj).map(Self::from)
+        obj.try_bytes_like(vm, <[u8]>::to_vec).map(Self::from)
     }
 }
 
@@ -137,10 +139,50 @@ impl ByteInnerNewOptions {
     }
 }
 
+/// What is searched for: a bytes-like object, or a single byte given as an
+/// integer. parse_args_finds_byte
+pub enum ByteInnerSub {
+    Buffer(PyBytesInner),
+    Byte(PyIntRef),
+}
+
+impl TryFromObject for ByteInnerSub {
+    fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
+        if obj.check_buffer() {
+            return PyBytesInner::try_from_object(vm, obj).map(Self::Buffer);
+        }
+        match obj.try_index_opt(vm) {
+            Some(int) => int.map(Self::Byte),
+            None => Err(vm.new_type_error(format!(
+                "argument should be integer or bytes-like object, not '{}'",
+                obj.class().name()
+            ))),
+        }
+    }
+}
+
+impl ByteInnerSub {
+    /// The needle of a containment test, which is an integer if it is one at
+    /// all and a bytes-like object otherwise. bytes_contains
+    pub fn from_contains_arg(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        match obj.try_index_opt(vm) {
+            Some(int) => int.map(Self::Byte),
+            None => PyBytesInner::try_from_object(vm, obj).map(Self::Buffer),
+        }
+    }
+
+    fn into_vec(self, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        Ok(match self {
+            Self::Buffer(buffer) => buffer.elements,
+            Self::Byte(int) => vec![int.as_bigint().byte_or(vm)?],
+        })
+    }
+}
+
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
-    sub: Either<PyBytesInner, PyIntRef>,
+    sub: ByteInnerSub,
     #[pyarg(positional, default)]
     start: Option<PyIntRef>,
     #[pyarg(positional, default)]
@@ -153,10 +195,7 @@ impl ByteInnerFindOptions {
         len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
-        let sub = match self.sub {
-            Either::A(v) => v.elements.to_vec(),
-            Either::B(int) => vec![int.as_bigint().byte_or(vm)?],
-        };
+        let sub = self.sub.into_vec(vm)?;
         let range = anystr::adjust_indices(self.start, self.end, len);
         Ok((sub, range))
     }
@@ -203,14 +242,11 @@ impl ByteInnerTranslateOptions {
         let table = self.table.map_or_else(
             || Ok((0..=u8::MAX).collect::<Vec<u8>>()),
             |v| {
-                let bytes = v
-                    .try_into_value::<PyBytesInner>(vm)
-                    .ok()
-                    .filter(|v| v.elements.len() == 256)
-                    .ok_or_else(|| {
-                        vm.new_value_error("translation table must be 256 characters long")
-                    })?;
-                Ok(bytes.elements.to_vec())
+                let bytes: PyBytesInner = v.try_into_value(vm)?;
+                if bytes.elements.len() != 256 {
+                    return Err(vm.new_value_error("translation table must be 256 characters long"));
+                }
+                Ok(bytes.elements)
             },
         )?;
 
@@ -363,10 +399,10 @@ impl PyBytesInner {
         self.elements.py_add(other)
     }
 
-    pub fn contains(&self, needle: Either<Self, PyIntRef>, vm: &VirtualMachine) -> PyResult<bool> {
+    pub fn contains(&self, needle: ByteInnerSub, vm: &VirtualMachine) -> PyResult<bool> {
         Ok(match needle {
-            Either::A(byte) => self.elements.contains_str(byte.elements.as_slice()),
-            Either::B(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
+            ByteInnerSub::Buffer(sub) => self.elements.contains_str(sub.elements.as_slice()),
+            ByteInnerSub::Byte(int) => self.elements.contains(&int.as_bigint().byte_or(vm)?),
         })
     }
 
@@ -522,7 +558,8 @@ impl PyBytesInner {
     pub fn fromhex_object(string: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         if let Some(s) = string.downcast_ref::<PyStr>() {
             Self::fromhex(s.as_bytes(), vm)
-        } else if let Ok(buffer) = PyBuffer::try_from_borrowed_object(vm, &string) {
+        } else if string.check_buffer() {
+            let buffer = PyBuffer::from_object(vm, &string, BufferFlags::SIMPLE)?;
             let borrowed = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_buffer_error("fromhex() requires a contiguous buffer"))?;
@@ -974,7 +1011,7 @@ impl PyBytesInner {
     }
 
     pub fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let buffer = PyBuffer::try_from_borrowed_object(vm, other)?;
+        let buffer = PyBuffer::from_object(vm, other, BufferFlags::SIMPLE)?;
         let borrowed = buffer.as_contiguous();
         if let Some(other) = borrowed {
             let mut v = Vec::with_capacity(self.elements.len() + other.len());

@@ -1655,6 +1655,7 @@ impl AsBuffer for PyCFuncPtr {
             (Cow::Borrowed(pointer_format()), pointer_size())
         };
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

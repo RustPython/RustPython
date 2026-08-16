@@ -712,7 +712,8 @@ impl PyCPointer {
             }
 
             // Try bytes
-            if let Ok(bytes) = value.try_bytes_like(vm, |b| b.to_vec()) {
+            if value.check_buffer() {
+                let bytes = value.try_bytes_like(vm, |b| b.to_vec())?;
                 rustpython_host_env::ctypes::write_value_to_address(
                     addr,
                     size,
@@ -776,6 +777,7 @@ impl AsBuffer for PyCPointer {
         let itemsize = stg_info.size;
         // Pointer types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

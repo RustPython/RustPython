@@ -587,7 +587,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         self.ioclass(initial_bytes=buf)
         self.assertRaises(TypeError, self.ioclass, buf, foo=None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_write_concurrent_close(self):
         class B:
             def __buffer__(self, flags):
@@ -601,7 +600,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
     # concurrently mutates (e.g., closes or exports) 'memio'.
     # See: https://github.com/python/cpython/issues/143378.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_writelines_concurrent_close(self):
         class B:
             def __buffer__(self, flags):
@@ -611,7 +609,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio = self.ioclass()
         self.assertRaises(ValueError, memio.writelines, [B()])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_write_concurrent_export(self):
         class B:
             buf = None
@@ -622,7 +619,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio = self.ioclass()
         self.assertRaises(BufferError, memio.write, B())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_writelines_concurrent_export(self):
         class B:
             buf = None
@@ -633,7 +629,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio = self.ioclass()
         self.assertRaises(BufferError, memio.writelines, [B()])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_write_mutating_buffer(self):
         # Test that buffer is exported only once during write().
         # See: https://github.com/python/cpython/issues/143602.
@@ -930,9 +925,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_flags(self):
         return super().test_flags()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by write
-    def test_write(self):
-        return super().test_write()
 
 class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
