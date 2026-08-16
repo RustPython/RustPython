@@ -213,21 +213,6 @@ impl PyMemoryView {
         self.try_not_restricted(vm)
     }
 
-    /// Whether this view is laid out in Fortran order.
-    fn is_fortran_contiguous(&self) -> bool {
-        if self.desc.len == 0 {
-            return true;
-        }
-        let mut sd = self.desc.itemsize;
-        for (shape, stride, _) in self.desc.dim_desc.iter().copied() {
-            if shape > 1 && stride != sd as isize {
-                return false;
-            }
-            sd *= shape;
-        }
-        true
-    }
-
     /// Reject a request this view cannot serve. memory_getbuf
     fn check_buffer_request(&self, flags: BufferFlags, vm: &VirtualMachine) -> PyResult<()> {
         let c_contiguous = self.desc.is_contiguous();
@@ -239,14 +224,14 @@ impl PyMemoryView {
         if flags.contains(BufferFlags::C_CONTIGUOUS) && !c_contiguous {
             return Err(vm.new_buffer_error("memoryview: underlying buffer is not C-contiguous"));
         }
-        if flags.contains(BufferFlags::F_CONTIGUOUS) && !self.is_fortran_contiguous() {
+        if flags.contains(BufferFlags::F_CONTIGUOUS) && !self.desc.is_fortran_contiguous() {
             return Err(
                 vm.new_buffer_error("memoryview: underlying buffer is not Fortran contiguous")
             );
         }
         if flags.contains(BufferFlags::ANY_CONTIGUOUS)
             && !c_contiguous
-            && !self.is_fortran_contiguous()
+            && !self.desc.is_fortran_contiguous()
         {
             return Err(vm.new_buffer_error("memoryview: underlying buffer is not contiguous"));
         }
@@ -775,7 +760,8 @@ impl PyMemoryView {
 
     #[pygetset]
     fn contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_not_released(vm).map(|_| self.desc.is_contiguous())
+        self.try_not_released(vm)
+            .map(|_| self.desc.is_contiguous() || self.desc.is_fortran_contiguous())
     }
 
     #[pygetset]
@@ -785,9 +771,8 @@ impl PyMemoryView {
 
     #[pygetset]
     fn f_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: column-major order
         self.try_not_released(vm)
-            .map(|_| self.desc.ndim() <= 1 && self.desc.is_contiguous())
+            .map(|_| self.desc.is_fortran_contiguous())
     }
 
     #[pymethod]

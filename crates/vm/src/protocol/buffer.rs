@@ -509,6 +509,7 @@ impl BufferDescriptor {
         self.dim_desc.len()
     }
 
+    /// Whether the elements are laid out in row-major order. _IsCContiguous
     #[must_use]
     pub fn is_contiguous(&self) -> bool {
         if self.len == 0 {
@@ -516,6 +517,24 @@ impl BufferDescriptor {
         }
         let mut sd = self.itemsize;
         for (shape, stride, _) in self.dim_desc.iter().copied().rev() {
+            if shape > 1 && stride != sd as isize {
+                return false;
+            }
+            sd *= shape;
+        }
+        true
+    }
+
+    /// Whether the elements are laid out in column-major order. A view whose
+    /// dimensions are all but one of length 1 is laid out both ways at once.
+    /// _IsFortranContiguous
+    #[must_use]
+    pub fn is_fortran_contiguous(&self) -> bool {
+        if self.len == 0 {
+            return true;
+        }
+        let mut sd = self.itemsize;
+        for (shape, stride, _) in self.dim_desc.iter().copied() {
             if shape > 1 && stride != sd as isize {
                 return false;
             }

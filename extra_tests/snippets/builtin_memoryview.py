@@ -483,3 +483,34 @@ def test_release_during_slice_assignment():
 
 
 test_release_during_slice_assignment()
+
+
+def test_fortran_contiguity():
+    # A view whose dimensions are all but one of length 1 is laid out both in
+    # row-major and in column-major order.
+    mv = memoryview(bytearray(range(8)))
+    for shape in [(1, 8), (8, 1), (1, 1, 8), (8,)]:
+        view = mv.cast("B", shape)
+        assert view.c_contiguous, shape
+        assert view.f_contiguous, shape
+        assert view.contiguous, shape
+    for shape in [(2, 4), (1, 2, 4), (2, 1, 4), (2, 2, 2)]:
+        view = mv.cast("B", shape)
+        assert view.c_contiguous, shape
+        assert not view.f_contiguous, shape
+        assert view.contiguous, shape
+
+    # A view with no elements is laid out both ways whatever its shape.
+    empty = memoryview(b"").cast("B")
+    assert empty.c_contiguous and empty.f_contiguous and empty.contiguous
+
+    scalar = memoryview(b"a").cast("B", ())
+    assert scalar.c_contiguous and scalar.f_contiguous and scalar.contiguous
+
+    strided = memoryview(bytearray(b"abcdefgh"))[::2]
+    assert not strided.c_contiguous
+    assert not strided.f_contiguous
+    assert not strided.contiguous
+
+
+test_fortran_contiguity()
