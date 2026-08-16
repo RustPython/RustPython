@@ -1,6 +1,6 @@
 use super::{FromArgs, FuncArgs};
 use crate::{
-    Py, PyPayload, PyRef, PyResult, VirtualMachine, convert::ToPyResult,
+    Py, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine, convert::ToPyResult,
     object::PyThreadingConstraint,
 };
 use core::marker::PhantomData;
@@ -138,10 +138,17 @@ macro_rules! into_py_native_fn_tuple {
             $($T: FromArgs,)*
             R: ToPyResult,
         {
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
-                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
-
-                (self)(&zelf, $($n,)* vm).to_pyresult(vm)
+            fn call_(&self, vm: &VirtualMachine, mut args: FuncArgs) -> PyResult {
+                // Bind the receiver separately so arity errors for the
+                // remaining arguments exclude it, like CPython method calls
+                if let Some(obj) = args.take_front() {
+                    let zelf: PyRef<S> = TryFromObject::try_from_object(vm, obj)?;
+                    let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+                    (self)(&zelf, $($n,)* vm).to_pyresult(vm)
+                } else {
+                    let (zelf, $($n,) *) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+                    (self)(&zelf, $($n,)* vm).to_pyresult(vm)
+                }
             }
         }
 
@@ -152,10 +159,17 @@ macro_rules! into_py_native_fn_tuple {
             $($T: FromArgs,)*
             R: ToPyResult,
         {
-            fn call_(&self, vm: &VirtualMachine, args: FuncArgs) -> PyResult {
-                let (zelf, $($n,)*) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
-
-                (self)(&zelf, $($n,)* vm).to_pyresult(vm)
+            fn call_(&self, vm: &VirtualMachine, mut args: FuncArgs) -> PyResult {
+                // Bind the receiver separately so arity errors for the
+                // remaining arguments exclude it, like CPython method calls
+                if let Some(obj) = args.take_front() {
+                    let zelf: PyRef<S> = TryFromObject::try_from_object(vm, obj)?;
+                    let ($($n,)*) = args.bind::<($($T,)*)>(vm)?;
+                    (self)(&zelf, $($n,)* vm).to_pyresult(vm)
+                } else {
+                    let (zelf, $($n,) *) = args.bind::<(PyRef<S>, $($T,)*)>(vm)?;
+                    (self)(&zelf, $($n,)* vm).to_pyresult(vm)
+                }
             }
         }
 

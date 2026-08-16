@@ -54,6 +54,32 @@ pub struct ByteInnerNewOptions {
 }
 
 impl ByteInnerNewOptions {
+    /// bytes_new/bytearray_new: encoding and errors must be str (not None),
+    /// reported with the constructor's name.
+    pub fn check_encoding_errors(
+        func_args: &crate::function::FuncArgs,
+        name: &str,
+        vm: &crate::VirtualMachine,
+    ) -> crate::PyResult<()> {
+        use crate::AsObject;
+        for (pos, key) in [(1usize, "encoding"), (2, "errors")] {
+            let value = func_args
+                .kwargs
+                .get(key)
+                .cloned()
+                .or_else(|| func_args.args.get(pos).cloned());
+            if let Some(value) = value
+                && !value.fast_isinstance(vm.ctx.types.str_type)
+            {
+                return Err(vm.new_type_error(format!(
+                    "{name}() argument '{key}' must be str, not {}",
+                    value.class().name()
+                )));
+            }
+        }
+        Ok(())
+    }
+
     fn get_value_from_string(
         s: PyStrRef,
         encoding: PyUtf8StrRef,
@@ -64,8 +90,24 @@ impl ByteInnerNewOptions {
         Ok(bytes.as_bytes().to_vec().into())
     }
 
-    fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        bytes_from_object(vm, &source).map(|x| x.into())
+    fn get_value_from_source(
+        source: PyObjectRef,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
+        // PyBytes_FromObject: "cannot convert '%.200s' object to bytes"
+        bytes_from_object(vm, &source)
+            .map_err(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    vm.new_type_error(format!(
+                        "cannot convert '{}' object to {name}",
+                        source.class().name()
+                    ))
+                } else {
+                    e
+                }
+            })
+            .map(|x| x.into())
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -81,19 +123,23 @@ impl ByteInnerNewOptions {
         Ok(vm.new_zeroed_bytes(size)?.into())
     }
 
-    fn handle_object_fallback(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn handle_object_fallback(
+        obj: PyObjectRef,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
                 Self::get_value_from_size(i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, vm)
+                Self::get_value_from_source(obj, name, vm)
             }
         })
     }
 
-    pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    pub fn get_bytearray_inner(self, name: &str, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
@@ -105,7 +151,7 @@ impl ByteInnerNewOptions {
                             // TypeError means the object doesn't support __index__, so fall back
                             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                                 // Fall back to treating as buffer-like object
-                                Self::handle_object_fallback(obj, vm)
+                                Self::handle_object_fallback(obj, name, vm)
                             } else {
                                 // Propagate other exceptions (e.g., ZeroDivisionError)
                                 Err(e)
@@ -113,7 +159,7 @@ impl ByteInnerNewOptions {
                         }
                     }
                 } else {
-                    Self::handle_object_fallback(obj, vm)
+                    Self::handle_object_fallback(obj, name, vm)
                 }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
@@ -1201,9 +1247,9 @@ pub(crate) fn bytes_decode(
 #[derive(FromArgs)]
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
-    pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    pub sep: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    pub bytes_per_sep: OptionalArg<isize>,
+    pub bytes_per_sep: OptionalArg<PyObjectRef>,
 }
 
 impl ByteInnerHexOptions {
@@ -1213,25 +1259,31 @@ impl ByteInnerHexOptions {
     /// bytes to be written out are borrowed. _Py_strhex_impl
     pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
         let Self { sep, bytes_per_sep } = self;
+        // The clinic converts bytes_per_sep before _Py_strhex_impl looks at sep
+        let bytes_per_sep = bytes_per_sep
+            .map(|obj| crate::builtins::to_c_ssize_t(&obj, vm))
+            .transpose()?;
         let OptionalArg::Present(sep) = sep else {
             return Ok((None, bytes_per_sep));
         };
 
-        let s_guard;
-        let b_guard;
-        let (obj, bytes) = match &sep {
-            Either::A(s) => {
-                s_guard = s.as_wtf8();
-                (s.as_object(), s_guard.as_bytes())
-            }
-            Either::B(b) => {
-                b_guard = b.as_bytes();
-                (b.as_object(), b_guard)
-            }
-        };
-        if obj.length(vm)? != 1 {
+        // CPython measures the separator with PyObject_Length before anything
+        // else, so an object without __len__ reports "object of type 'X' has
+        // no len()" even for empty input or bytes_per_sep == 0
+        if sep.length(vm)? != 1 {
             return Err(vm.new_value_error("sep must be length 1."));
         }
+        let s_guard;
+        let b_guard;
+        let bytes = if let Some(s) = sep.downcast_ref::<PyStr>() {
+            s_guard = s.as_wtf8();
+            s_guard.as_bytes()
+        } else if let Some(b) = sep.downcast_ref::<PyBytes>() {
+            b_guard = b.as_bytes();
+            b_guard
+        } else {
+            return Err(vm.new_type_error("sep must be str or bytes."));
+        };
         // An object that claims a length it does not have separates with NUL,
         // which is what reading past the end of its data gives.
         let sep = bytes.first().copied().unwrap_or(0);

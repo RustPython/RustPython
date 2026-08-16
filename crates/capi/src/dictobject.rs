@@ -23,7 +23,7 @@ pub extern "C" fn PyDict_New() -> *mut PyObject {
 pub unsafe extern "C" fn PyDict_Clear(dict: *mut PyObject) {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        dict.clear();
+        dict.clear_inner();
         Ok(())
     })
 }
@@ -209,7 +209,7 @@ pub unsafe extern "C" fn PyDict_Contains(dict: *mut PyObject, key: *mut PyObject
 pub unsafe extern "C" fn PyDict_Copy(dict: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let dict = unsafe { &*dict }.try_downcast_ref::<PyDict>(vm)?;
-        Ok(dict.copy().into_ref(&vm.ctx))
+        Ok(dict.copy_inner().into_ref(&vm.ctx))
     })
 }
 

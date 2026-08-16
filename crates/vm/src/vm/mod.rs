@@ -1935,7 +1935,7 @@ impl VirtualMachine {
         if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
             && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
         {
-            modules_dict.clear();
+            modules_dict.clear_inner();
         }
     }
 

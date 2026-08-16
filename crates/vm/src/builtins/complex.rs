@@ -202,6 +202,12 @@ impl Constructor for PyComplex {
             return Ok(func_args.args[0].clone());
         }
 
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "complex() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
         let args: Self::Args = func_args.bind(vm)?;
         let payload = Self::py_new(&cls, args, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
@@ -216,9 +222,12 @@ impl Constructor for PyComplex {
                     c
                 } else if let Some(s) = val.downcast_ref::<PyStr>() {
                     if args.imag.is_present() {
-                        return Err(vm.new_type_error(
-                            "complex() can't take second arg if first is a string",
-                        ));
+                        // complex_new: strings are only allowed as the sole
+                        // argument
+                        return Err(vm.new_type_error(format!(
+                            "complex() argument 'real' must be a real number, not {}",
+                            val.class().name()
+                        )));
                     }
                     let (re, im) = rustpython_literal::complex::parse_str(
                         &crate::protocol::numeric_literal_from_str(s),
@@ -367,8 +376,8 @@ impl PyComplex {
         if spec.is_empty() {
             return Ok(zelf.as_object().str(vm)?.as_wtf8().to_owned());
         }
-        let format_spec =
-            FormatSpec::parse(spec.as_str()).map_err(|err| err.into_pyexception(vm))?;
+        let format_spec = FormatSpec::parse(spec.as_str())
+            .map_err(|err| crate::format::format_spec_error_with_type(err, zelf.as_object(), vm))?;
         let result = if format_spec.has_locale_format() {
             let locale = crate::format::get_locale_info();
             format_spec.format_complex_locale(&zelf.value, &locale)

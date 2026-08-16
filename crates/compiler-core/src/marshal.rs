@@ -43,8 +43,6 @@ pub enum MarshalError {
     UnknownType,
     /// A back reference that names nothing
     InvalidRef,
-    /// A marker that stands for no object at all
-    NullObject,
     /// A container length that is negative or does not fit, named by what it counts
     BadSize(&'static str),
 }

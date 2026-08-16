@@ -164,7 +164,7 @@ pub(crate) mod _ast {
         };
         let iterable = iterable.clone().try_into_value::<ArgIterable>(vm)?;
         for item in iterable.iter(vm)? {
-            expecting.add(item?, vm)?;
+            expecting.add_element(item?.as_object(), vm)?;
         }
         Ok(())
     }

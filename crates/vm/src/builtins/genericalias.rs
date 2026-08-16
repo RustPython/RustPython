@@ -236,7 +236,7 @@ impl PyGenericAlias {
         let dir = vm.dir(Some(self.__origin__()))?;
         for exc in &ATTR_EXCEPTIONS {
             if !dir.__contains__((*exc).to_pyobject(vm), vm)? {
-                dir.append((*exc).to_pyobject(vm));
+                dir.append_inner((*exc).to_pyobject(vm));
             }
         }
         Ok(dir)

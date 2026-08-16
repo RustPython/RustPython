@@ -98,7 +98,8 @@ impl PathConverter {
                     vm,
                 )?;
             }
-            let fd = int?.try_to_primitive(vm)?;
+            let index = int?;
+            let fd = crate::stdlib::os::fd_converter(&index, vm)?;
             return unsafe { crt_fd::Borrowed::try_borrow_raw(fd) }
                 .map(OsPathOrFd::Fd)
                 .map_err(|e| e.into_pyexception(vm));

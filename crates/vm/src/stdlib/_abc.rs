@@ -130,7 +130,7 @@ mod _abc {
 
         // Create a weak reference to the object
         let weak_ref = obj.downgrade(None, vm)?;
-        set.add(weak_ref.into(), vm)?;
+        set.add_element(weak_ref.as_object(), vm)?;
         Ok(())
     }
 

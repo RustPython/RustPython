@@ -538,6 +538,13 @@ impl PyFunction {
                 if !attr_value.is_callable() {
                     return Err(vm.new_type_error("__annotate__ must be callable"));
                 }
+                // gh-137814: SET_FUNCTION_ATTRIBUTE(MAKE_FUNCTION_ANNOTATE)
+                // fixes up the qualname of the attached __annotate__ function
+                if let Some(annotate) = attr_value.downcast_ref::<Self>() {
+                    let outer_qualname = self.qualname.lock().clone();
+                    let fixed_qualname = vm.ctx.new_str(format!("{outer_qualname}.__annotate__"));
+                    *annotate.qualname.lock() = fixed_qualname;
+                }
                 *self.annotate.lock() = Some(attr_value);
             }
         }
@@ -917,7 +924,15 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___code__(&self, code: PyRef<PyCode>, vm: &VirtualMachine) -> PyResult<()> {
+    fn set___code__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let code = match value {
+            PySetterValue::Assign(value) => value
+                .downcast::<PyCode>()
+                .map_err(|_| vm.new_type_error("__code__ must be set to a code object"))?,
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("__code__ must be set to a code object"));
+            }
+        };
         let n_free = code.freevars.len();
         let n_closure = self.closure.as_ref().map_or(0, |c| c.len());
         if n_closure != n_free {
@@ -944,12 +959,18 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().0.clone()
     }
     #[pygetset(setter)]
-    fn set___defaults__(&self, defaults: PySetterValue<Option<PyTupleRef>>) {
-        self.defaults_and_kwdefaults.lock().0 = match defaults {
-            PySetterValue::Assign(d) => d,
-            PySetterValue::Delete => None,
+    fn set___defaults__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let defaults = match value {
+            PySetterValue::Assign(value) if !vm.is_none(&value) => Some(
+                value
+                    .downcast::<PyTuple>()
+                    .map_err(|_| vm.new_type_error("__defaults__ must be set to a tuple object"))?,
+            ),
+            _ => None,
         };
+        self.defaults_and_kwdefaults.lock().0 = defaults;
         self.func_version.store(0, Relaxed);
+        Ok(())
     }
 
     #[pygetset]
@@ -957,12 +978,18 @@ impl PyFunction {
         self.defaults_and_kwdefaults.lock().1.clone()
     }
     #[pygetset(setter)]
-    fn set___kwdefaults__(&self, kwdefaults: PySetterValue<Option<PyDictRef>>) {
-        self.defaults_and_kwdefaults.lock().1 = match kwdefaults {
-            PySetterValue::Assign(d) => d,
-            PySetterValue::Delete => None,
+    fn set___kwdefaults__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let kwdefaults = match value {
+            PySetterValue::Assign(value) if !vm.is_none(&value) => {
+                Some(value.downcast::<crate::builtins::PyDict>().map_err(|_| {
+                    vm.new_type_error("__kwdefaults__ must be set to a dict object")
+                })?)
+            }
+            _ => None,
         };
+        self.defaults_and_kwdefaults.lock().1 = kwdefaults;
         self.func_version.store(0, Relaxed);
+        Ok(())
     }
 
     // {"__closure__",   T_OBJECT,     OFF(func_closure), READONLY},
@@ -994,8 +1021,17 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___name__(&self, name: PyStrRef) {
+    fn set___name__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let name = match value {
+            PySetterValue::Assign(value) => value
+                .downcast::<PyStr>()
+                .map_err(|_| vm.new_type_error("__name__ must be set to a string object"))?,
+            PySetterValue::Delete => {
+                return Err(vm.new_type_error("__name__ must be set to a string object"));
+            }
+        };
         *self.name.lock() = name;
+        Ok(())
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
@@ -1171,19 +1207,16 @@ impl PyFunction {
     }
 
     #[pygetset(setter)]
-    fn set___type_params__(
-        &self,
-        value: PySetterValue<PyTupleRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        match value {
-            PySetterValue::Assign(value) => {
-                *self.type_params.lock() = value;
-            }
+    fn set___type_params__(&self, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
+        let value = match value {
+            PySetterValue::Assign(value) => value
+                .downcast::<PyTuple>()
+                .map_err(|_| vm.new_type_error("__type_params__ must be set to a tuple"))?,
             PySetterValue::Delete => {
-                return Err(vm.new_type_error("__type_params__ must be set to a tuple object"));
+                return Err(vm.new_type_error("__type_params__ must be set to a tuple"));
             }
-        }
+        };
+        *self.type_params.lock() = value;
         Ok(())
     }
 
@@ -1242,9 +1275,9 @@ impl Representable for PyFunction {
 #[derive(FromArgs)]
 pub struct PyFunctionNewArgs {
     #[pyarg(positional)]
-    code: PyRef<PyCode>,
+    code: PyObjectRef,
     #[pyarg(positional)]
-    globals: PyDictRef,
+    globals: PyObjectRef,
     #[pyarg(any, optional, error_msg = "arg 3 (name) must be None or string")]
     name: OptionalArg<PyStrRef>,
     #[pyarg(any, optional, error_msg = "arg 4 (defaults) must be None or tuple")]
@@ -1259,33 +1292,55 @@ impl Constructor for PyFunction {
     type Args = PyFunctionNewArgs;
 
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
+        let code = args.code.downcast::<PyCode>().map_err(|obj| {
+            vm.new_type_error(format!(
+                "function() argument 'code' must be code, not {}",
+                obj.class().name()
+            ))
+        })?;
+        let globals = args
+            .globals
+            .downcast::<crate::builtins::PyDict>()
+            .map_err(|obj| {
+                vm.new_type_error(format!(
+                    "function() argument 'globals' must be dict, not {}",
+                    obj.class().name()
+                ))
+            })?;
+
         // Handle closure - must be a tuple of cells
         let closure = if let Some(closure_tuple) = args.closure {
             // Check that closure length matches code's free variables
-            if closure_tuple.len() != args.code.freevars.len() {
+            if closure_tuple.len() != code.freevars.len() {
                 return Err(vm.new_value_error(format!(
                     "{} requires closure of length {}, not {}",
-                    args.code.obj_name,
-                    args.code.freevars.len(),
+                    code.obj_name,
+                    code.freevars.len(),
                     closure_tuple.len()
                 )));
             }
 
             // Validate that all items are cells and create typed tuple
+            for elem in closure_tuple.as_slice() {
+                if elem.downcast_ref::<PyCell>().is_none() {
+                    return Err(vm.new_type_error(format!(
+                        "arg 5 (closure) expected cell, found {}",
+                        elem.class().name()
+                    )));
+                }
+            }
             let typed_closure = closure_tuple.try_into_typed::<PyCell>(vm)?;
             Some(typed_closure)
-        } else if !args.code.freevars.is_empty() {
+        } else if !code.freevars.is_empty() {
             return Err(vm.new_type_error("arg 5 (closure) must be tuple"));
         } else {
             None
         };
 
-        let mut func = Self::new(args.code.clone(), args.globals.clone(), vm)?;
+        let mut func = Self::new(code, globals, vm)?;
         // Set function name if provided
         if let Some(name) = args.name.into_option() {
-            *func.name.lock() = name.clone();
-            // Also update qualname to match the name
-            *func.qualname.lock() = name;
+            *func.name.lock() = name;
         }
         // Now set additional attributes directly
         if let Some(closure_tuple) = closure {

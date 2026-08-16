@@ -842,7 +842,7 @@ mod _collections {
             let default_factory = self.default_factory();
 
             Self {
-                dict: self.dict.copy(),
+                dict: self.dict.copy_inner(),
                 default_factory: PyRwLock::new(default_factory),
             }
         }
@@ -883,13 +883,13 @@ mod _collections {
                     return not_implemented();
                 }
 
-                (zelf.default_factory(), zelf.dict.copy())
+                (zelf.default_factory(), zelf.dict.copy_inner())
             } else if let Some(zelf) = rhs.downcast_ref::<Self>() {
                 let Some(dict) = lhs.downcast_ref::<PyDict>() else {
                     return not_implemented();
                 };
 
-                (zelf.default_factory(), dict.copy())
+                (zelf.default_factory(), dict.copy_inner())
             } else {
                 return Err(vm.new_type_error(format!(
                     "unsupported operand type(s) for |: '{}' and '{}'",
@@ -953,7 +953,7 @@ mod _collections {
                 None => String::from("None"),
             };
 
-            let dict_repr = Representable::repr(&zelf.dict.copy().into_ref(&vm.ctx), vm)?;
+            let dict_repr = Representable::repr(&zelf.dict.copy_inner().into_ref(&vm.ctx), vm)?;
 
             Ok(format!(
                 "{}({}, {})",

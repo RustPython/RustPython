@@ -10,6 +10,70 @@ use indexmap::IndexMap;
 use itertools::Itertools;
 use std::hash::DefaultHasher;
 
+/// Mirrors _PyArg_CheckPositional (Python/getargs.c): the message style used
+/// by METH_FASTCALL builtins that validate counts by hand.
+pub fn check_positional(
+    vm: &VirtualMachine,
+    name: &str,
+    nargs: usize,
+    min: usize,
+    max: usize,
+) -> PyResult<()> {
+    if nargs < min {
+        Err(vm.new_type_error(format!(
+            "{name} expected {}{min} argument{}, got {nargs}",
+            if min == max { "" } else { "at least " },
+            if min == 1 { "" } else { "s" },
+        )))
+    } else if nargs > max {
+        Err(vm.new_type_error(format!(
+            "{name} expected {}{max} argument{}, got {nargs}",
+            if min == max { "" } else { "at most " },
+            if max == 1 { "" } else { "s" },
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+/// Mirrors cfunction_vectorcall_O: METH_O builtins take exactly one
+/// positional argument and no keyword arguments.
+pub fn check_meth_o(vm: &VirtualMachine, name: &str, func_args: &FuncArgs) -> PyResult<()> {
+    if let Some(key) = func_args.kwargs.keys().next() {
+        let _ = key;
+        return Err(vm.new_type_error(format!("{name}() takes no keyword arguments")));
+    }
+    let nargs = func_args.args.len();
+    if nargs != 1 {
+        return Err(vm.new_type_error(format!(
+            "{name}() takes exactly one argument ({nargs} given)"
+        )));
+    }
+    Ok(())
+}
+
+/// Mirrors cfunction_vectorcall_NOARGS: no positional or keyword arguments.
+pub fn check_noargs(vm: &VirtualMachine, name: &str, func_args: &FuncArgs) -> PyResult<()> {
+    check_no_kwargs(vm, name, func_args)?;
+    if !func_args.args.is_empty() {
+        return Err(vm.new_type_error(format!(
+            "{name}() takes no arguments ({} given)",
+            func_args.args.len()
+        )));
+    }
+    Ok(())
+}
+
+/// Mirrors cfunction_check_kwargs for METH_FASTCALL builtins without the
+/// METH_KEYWORDS flag.
+pub fn check_no_kwargs(vm: &VirtualMachine, name: &str, func_args: &FuncArgs) -> PyResult<()> {
+    if let Some(key) = func_args.kwargs.keys().next() {
+        let _ = key;
+        return Err(vm.new_type_error(format!("{name}() takes no keyword arguments")));
+    }
+    Ok(())
+}
+
 pub trait IntoFuncArgs: Sized {
     fn into_args(self, vm: &VirtualMachine) -> FuncArgs;
     fn into_method_args(self, obj: PyObjectRef, vm: &VirtualMachine) -> FuncArgs {
@@ -105,6 +169,11 @@ impl FromArgs for FuncArgs {
 }
 
 impl FuncArgs {
+    /// Remove and return the first positional argument, if present.
+    pub(crate) fn take_front(&mut self) -> Option<PyObjectRef> {
+        (!self.args.is_empty()).then(|| self.args.remove(0))
+    }
+
     pub fn new<A, K>(args: A, kwargs: K) -> Self
     where
         A: Into<PosArgs>,
@@ -290,9 +359,16 @@ impl FuncArgs {
             .map_err(|e| e.into_exception(T::arity(), given_args, vm))?;
 
         if !self.args.is_empty() {
+            let arity = T::arity();
             Err(vm.new_type_error(format!(
-                "expected at most {} arguments, got {}",
-                T::arity().end(),
+                "expected {}{} argument{}, got {}",
+                if arity.start() == arity.end() {
+                    ""
+                } else {
+                    "at most "
+                },
+                arity.end(),
+                if *arity.end() == 1 { "" } else { "s" },
                 given_args,
             )))
         } else if let Some(err) = self.check_kwargs_empty(vm) {
@@ -339,15 +415,22 @@ impl ArgumentError {
         num_given: usize,
         vm: &VirtualMachine,
     ) -> PyBaseExceptionRef {
+        // _PyArg_CheckPositional renders the exact form when min == max and
+        // uses singular "argument" for 1
+        let exact = arity.start() == arity.end();
         match self {
             Self::TooFewArgs => vm.new_type_error(format!(
-                "expected at least {} arguments, got {}",
+                "expected {}{} argument{}, got {}",
+                if exact { "" } else { "at least " },
                 arity.start(),
+                if *arity.start() == 1 { "" } else { "s" },
                 num_given
             )),
             Self::TooManyArgs => vm.new_type_error(format!(
-                "expected at most {} arguments, got {}",
+                "expected {}{} argument{}, got {}",
+                if exact { "" } else { "at most " },
                 arity.end(),
+                if *arity.end() == 1 { "" } else { "s" },
                 num_given
             )),
             Self::InvalidKeywordArgument(name) => {

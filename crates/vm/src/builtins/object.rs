@@ -66,22 +66,22 @@ impl Constructor for PyBaseObject {
 
         // Ensure that all abstract methods are implemented before instantiating instance.
         if let Some(abs_methods) = cls.get_attr(identifier!(vm, __abstractmethods__)) {
-            let methods: Vec<PyUtf8StrRef> = abs_methods.try_to_value(vm)?;
-            let unimplemented_abstract_method_count = methods.len();
-            if unimplemented_abstract_method_count > 0 {
+            let mut methods: Vec<PyUtf8StrRef> = abs_methods.try_to_value(vm)?;
+            if !methods.is_empty() {
+                methods.sort_by(|a, b| a.as_str().cmp(b.as_str()));
+                let noun = if methods.len() == 1 {
+                    "method"
+                } else {
+                    "methods"
+                };
                 let methods: String = Itertools::intersperse(
                     methods.iter().map(|name| name.as_str().to_owned()),
                     "', '".to_owned(),
                 )
                 .collect();
                 let name = cls.name().to_string();
-                let noun = if unimplemented_abstract_method_count == 1 {
-                    "method"
-                } else {
-                    "methods"
-                };
                 return Err(vm.new_type_error(format!(
-                    "class {name} without an implementation for abstract {noun} '{methods}'"
+                    "Can't instantiate abstract class {name} without an implementation for abstract {noun} '{methods}'"
                 )));
             }
         }
@@ -424,9 +424,10 @@ impl PyBaseObject {
     #[pygetset(setter)]
     fn set___class__(
         instance: PyObjectRef,
-        value: PyObjectRef,
+        value: PySetterValue,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        let value = value.ok_or_else(|| vm.new_type_error("can't delete __class__ attribute"))?;
         match value.downcast::<PyType>() {
             Ok(cls) => {
                 let current_cls = instance.class();

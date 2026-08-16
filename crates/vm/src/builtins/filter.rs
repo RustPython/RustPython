@@ -2,6 +2,7 @@ use super::{PyType, PyTypeRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
+    function::{FuncArgs, check_no_kwargs, check_positional},
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
@@ -23,6 +24,14 @@ impl PyPayload for PyFilter {
 
 impl Constructor for PyFilter {
     type Args = (PyObjectRef, PyIter);
+
+    fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "filter", &func_args)?;
+        check_positional(vm, "filter", func_args.args.len(), 2, 2)?;
+        let args: Self::Args = func_args.bind(vm)?;
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
 
     fn py_new(
         _cls: &Py<PyType>,
