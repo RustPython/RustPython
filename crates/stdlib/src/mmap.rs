@@ -194,7 +194,8 @@ mod mmap {
         mmap: PyMutex<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
-        #[cfg(unix)]
+        // only read by the linux/netbsd mremap expansion check
+        #[cfg(any(target_os = "linux", target_os = "netbsd"))]
         flags: core::ffi::c_int,
         #[cfg(windows)]
         handle: AtomicCell<isize>, // host_mmap::Handle is isize on Windows
@@ -459,6 +460,7 @@ mod mmap {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(MmapObj::Mapped(mmap))),
                 fd: AtomicCell::new(fd.map_or(-1, |fd| fd.into_raw())),
+                #[cfg(any(target_os = "linux", target_os = "netbsd"))]
                 flags,
                 offset,
                 size: AtomicCell::new(map_size),
