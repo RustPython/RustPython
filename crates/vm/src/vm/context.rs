@@ -54,10 +54,7 @@ pub struct Context {
     pub(crate) string_pool: StringPool,
     pub(crate) slot_new_wrapper: PyMethodDef,
     pub names: ConstName,
-
     // GC module state (callbacks and garbage lists)
-    pub gc_callbacks: PyListRef,
-    pub gc_garbage: PyListRef,
 }
 
 macro_rules! declare_const_name {
@@ -363,8 +360,6 @@ impl Context {
         let empty_bytes = create_object(PyBytes::from(Vec::new()), types.bytes_type);
 
         // GC callbacks and garbage lists
-        let gc_callbacks = PyRef::new_ref(PyList::default(), types.list_type.to_owned(), None);
-        let gc_garbage = PyRef::new_ref(PyList::default(), types.list_type.to_owned(), None);
 
         Self {
             true_value,
@@ -387,9 +382,6 @@ impl Context {
             string_pool,
             slot_new_wrapper,
             names,
-
-            gc_callbacks,
-            gc_garbage,
         }
     }
 
@@ -440,6 +432,14 @@ impl Context {
             return self.int_cache_pool[inner_idx].clone();
         }
         PyInt::from(i).into_ref(self)
+    }
+
+    /// Borrow a cached small integer whose lifetime is tied to this context.
+    #[inline(always)]
+    pub(crate) fn cached_int(&self, i: i32) -> &PyIntRef {
+        debug_assert!(Self::INT_CACHE_POOL_RANGE.contains(&i));
+        let inner_idx = (i - Self::INT_CACHE_POOL_MIN) as usize;
+        &self.int_cache_pool[inner_idx]
     }
 
     #[inline]

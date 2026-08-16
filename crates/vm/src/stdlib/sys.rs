@@ -669,7 +669,8 @@ pub mod sys {
             "_multiarch" => ctx.new_str(multiarch()),
             "version" => PyVersionInfo::from_data(VersionInfoData::IMPLEMENTATION, vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX_IMPL),
-            "supports_isolated_interpreters" => ctx.new_bool(false),
+            "supports_isolated_interpreters" =>
+                ctx.new_bool(crate::vm::runtime::SUPPORTS_ISOLATED_INTERPRETERS),
         })
     }
 

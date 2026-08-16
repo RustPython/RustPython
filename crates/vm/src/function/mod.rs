@@ -11,8 +11,8 @@ mod protocol;
 mod time;
 
 pub use argument::{
-    ArgumentError, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, OptionalArg,
-    OptionalOption, PosArgs,
+    ArgumentError, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
+    OptionalArg, OptionalOption, PosArgs,
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};

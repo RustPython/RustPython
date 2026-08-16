@@ -294,6 +294,16 @@ pub struct HeapTypeExt {
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
     pub specialization_cache: TypeSpecializationCache,
+    /// The interpreter this type was created in, or `None` for the types the
+    /// shared context builds before any interpreter exists.
+    pub interpreter_id: Option<i64>,
+}
+
+impl HeapTypeExt {
+    /// The interpreter a type created right now belongs to.
+    fn creating_interpreter_id() -> Option<i64> {
+        crate::vm::thread::try_with_current_vm(|vm| vm.state.interpreter_id)
+    }
 }
 
 pub struct TypeSpecializationCache {
@@ -553,6 +563,22 @@ impl PyType {
         self.modified_inner();
     }
 
+    /// Whether the interpreter with `interpreter_id` can see this type.
+    ///
+    /// Interpreters share the context, so a subclass of a shared type is
+    /// recorded on an object every interpreter reaches. Only the interpreter
+    /// that created it can name it, so only that one lists it.
+    pub fn is_visible_to_interpreter(&self, interpreter_id: i64) -> bool {
+        match self
+            .heaptype_ext
+            .as_ref()
+            .and_then(|ext| ext.interpreter_id)
+        {
+            Some(owner) => owner == interpreter_id,
+            None => true,
+        }
+    }
+
     pub fn new_simple_heap(
         name: &str,
         base: &Py<Self>,
@@ -589,6 +615,7 @@ impl PyType {
             slots: None,
             type_data: PyRwLock::new(None),
             specialization_cache: TypeSpecializationCache::new(),
+            interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let base = bases[0].clone();
 
@@ -1948,13 +1975,18 @@ impl PyType {
     }
 
     #[pymethod]
-    fn __subclasses__(&self) -> PyList {
+    fn __subclasses__(&self, vm: &VirtualMachine) -> PyList {
         let mut subclasses = self.subclasses.write();
         subclasses.retain(|x| x.upgrade().is_some());
+        let interpreter_id = vm.state.interpreter_id;
         PyList::from(
             subclasses
                 .iter()
-                .map(|x| x.upgrade().unwrap())
+                .filter_map(|x| x.upgrade())
+                .filter(|obj| {
+                    obj.downcast_ref::<Self>()
+                        .is_none_or(|typ| typ.is_visible_to_interpreter(interpreter_id))
+                })
                 .collect::<Vec<_>>(),
         )
     }
@@ -2368,6 +2400,7 @@ impl Constructor for PyType {
                 slots: heaptype_slots.clone(),
                 type_data: PyRwLock::new(None),
                 specialization_cache: TypeSpecializationCache::new(),
+                interpreter_id: HeapTypeExt::creating_interpreter_id(),
             };
             (slots, heaptype_ext)
         };
