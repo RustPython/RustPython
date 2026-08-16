@@ -5861,9 +5861,10 @@ mod fileio {
 
             let handle = zelf.get_fd(vm)?;
 
-            if zelf.seekable(vm)? {
+            if host_io::reads_without_waiting(handle) {
                 // The read answers from the file itself, so it returns without
                 // waiting on anyone; write where the caller asked directly.
+                // Seekability is not the question -- a pipe on Windows seeks.
                 let mut buf = obj.borrow_buf_mut();
                 return Self::read_once_into(zelf, handle, &mut buf, vm);
             }

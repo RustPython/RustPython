@@ -21,14 +21,22 @@ SLACK = DELAY / 2
 
 
 def measure(buf, expected_len, writable):
-    """Time the operations on `buf` that do not need the peer."""
-    start = time.monotonic()
-    assert len(buf) == expected_len, len(buf)
-    assert isinstance(bytes(buf), bytes)
+    """Time each operation on `buf` that does not need the peer, separately, so
+    a failure names the one that waited rather than the group."""
+    elapsed = {}
+
+    def timed(name, operation):
+        start = time.monotonic()
+        value = operation()
+        elapsed[name] = time.monotonic() - start
+        return value
+
+    assert timed("len", lambda: len(buf)) == expected_len, len(buf)
+    assert isinstance(timed("bytes", lambda: bytes(buf)), bytes)
     if writable:
-        buf[0] = buf[0]
-    gc.collect()
-    return time.monotonic() - start
+        timed("setitem", lambda: buf.__setitem__(0, buf[0]))
+    timed("gc.collect", gc.collect)
+    return elapsed
 
 
 def run(buf, blocking_call, release_peer, writable):
@@ -51,9 +59,13 @@ def run(buf, blocking_call, release_peer, writable):
     time.sleep(0.2)  # the transfer is now waiting on its peer
 
     elapsed = measure(buf, expected_len, writable)
-    assert elapsed < SLACK, "waited %.2fs on the peer" % elapsed
+    waited = ["%s %.2fs" % item for item in elapsed.items() if item[1] >= SLACK]
+    assert not waited, "waited on the peer: " + ", ".join(waited)
 
-    # The export is still held either way, so the buffer cannot be resized.
+    # The transfer is still in flight, so its export is still held and the
+    # buffer cannot be resized. An operating system that took the whole
+    # transfer without a peer leaves nothing here to observe.
+    assert not result, "the transfer finished without its peer"
     try:
         buf.append(0)
     except BufferError:
@@ -124,12 +136,26 @@ finally:
 if hasattr(socket, "socketpair"):
     left, right = socket.socketpair()
     try:
-        left.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
-        source = bytearray(4 * 1024 * 1024)
+        # How much a connection holds before it makes the sender wait is the
+        # operating system's to decide, and asking for a small send buffer does
+        # not settle it -- a socketpair is already connected, and on Windows it
+        # is a loopback pair whose receiver has a window of its own. So fill it
+        # until it refuses rather than guess a size that outruns it.
+        left.setblocking(False)
+        filled = 0
+        while True:
+            try:
+                filled += left.send(bytes(1 << 16))
+            except (BlockingIOError, InterruptedError):
+                break
+        left.setblocking(True)
+
+        source = bytearray(1 << 16)
         received = []
 
         def receive():
-            while sum(received) < len(source):
+            wanted = filled + len(source)
+            while sum(received) < wanted:
                 chunk = right.recv(1 << 16)
                 if not chunk:
                     break
@@ -138,7 +164,11 @@ if hasattr(socket, "socketpair"):
         reader = threading.Thread(target=receive, daemon=True)
         run(source, left.sendall, reader.start, writable=True)
         reader.join()
-        assert sum(received) == len(source), (sum(received), len(source))
+        assert sum(received) == filled + len(source), (
+            sum(received),
+            filled,
+            len(source),
+        )
     finally:
         left.close()
         right.close()
