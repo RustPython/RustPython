@@ -78,7 +78,7 @@ impl ByteInnerNewOptions {
         } else {
             size as usize
         };
-        Ok(vec![0; size].into())
+        Ok(vm.new_zeroed_bytes(size)?.into())
     }
 
     fn handle_object_fallback(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -576,16 +576,15 @@ impl PyBytesInner {
     fn _pad(
         &self,
         options: ByteInnerPaddingOptions,
-        pad: fn(&[u8], usize, u8, usize) -> Vec<u8>,
+        pad: PadFn,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
         let (width, fillchar) = options.get_value("center", vm)?;
         let len = self.len();
-        Ok(if len as isize >= width {
-            Vec::from(&self.elements[..])
-        } else {
-            pad(&self.elements, width as usize, fillchar, len)
-        })
+        if len as isize >= width {
+            return Ok(Vec::from(&self.elements[..]));
+        }
+        pad(&self.elements, width as usize, fillchar, len).ok_or_else(|| vm.new_memory_error(""))
     }
 
     pub fn center(
@@ -821,8 +820,10 @@ impl PyBytesInner {
         self.elements.py_bytes_splitlines(options, into_wrapper)
     }
 
-    pub fn zfill(&self, width: isize) -> Vec<u8> {
-        self.elements.py_zfill(width)
+    pub fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        self.elements
+            .py_zfill(width)
+            .ok_or_else(|| vm.new_memory_error(""))
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1
@@ -1077,10 +1078,20 @@ impl AnyStrContainer<[u8]> for Vec<u8> {
         Self::with_capacity(capacity)
     }
 
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut v = Self::new();
+        v.try_reserve_exact(capacity).ok()?;
+        Some(v)
+    }
+
     fn push_str(&mut self, other: &[u8]) {
         self.extend(other)
     }
 }
+
+/// A padding function from `AnyStr`, returning `None` for a width whose result
+/// cannot be allocated.
+type PadFn = fn(&[u8], usize, u8, usize) -> Option<Vec<u8>>;
 
 const ASCII_WHITESPACES: [u8; 6] = [0x20, 0x09, 0x0a, 0x0c, 0x0d, 0x0b];
 

@@ -1957,11 +1957,20 @@ impl PyObject {
     /// and its contents haven't been modified.
     pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<Self>> {
         let mut result = Vec::new();
+        unsafe { self.gc_extend_referent_ptrs(&mut result) };
+        result
+    }
+
+    /// Append this object's referents to `out`, for a caller that holds many
+    /// objects' referents in one buffer rather than one buffer each.
+    ///
+    /// # Safety
+    /// Same as [`Self::gc_get_referent_ptrs`].
+    pub unsafe fn gc_extend_referent_ptrs(&self, out: &mut Vec<NonNull<Self>>) {
         // Traverse the entire object including dict and slots
         self.0.traverse(&mut |child: &Self| {
-            result.push(NonNull::from(child));
+            out.push(NonNull::from(child));
         });
-        result
     }
 
     /// Pop edges from this object for cycle breaking.

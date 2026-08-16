@@ -197,3 +197,48 @@ expect_value_error(
     f"cannot fit '{truncated_non_ascii_type_name}' into an index-sized integer",
     lambda: setattr(textio, "_CHUNK_SIZE", NonAsciiNamedChunkSize()),
 )
+
+
+# A buffer size or read size that cannot be allocated is a MemoryError, not an
+# aborted process.
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a"), buffer_size=2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read(2**62))
+assert_raises(MemoryError, lambda: BufferedReader(BytesIO(b"a")).read1(2**62))
+
+
+def _text_cookie(
+    start_pos=0,
+    dec_flags=0,
+    bytes_to_feed=0,
+    chars_to_skip=0,
+    need_eof=0,
+    bytes_to_skip=0,
+):
+    packed = (
+        start_pos.to_bytes(8, "little", signed=True)
+        + dec_flags.to_bytes(4, "little", signed=True)
+        + bytes_to_feed.to_bytes(4, "little", signed=True)
+        + chars_to_skip.to_bytes(4, "little", signed=True)
+        + bytes([need_eof])
+        + bytes_to_skip.to_bytes(4, "little", signed=True)
+    )
+    return int.from_bytes(packed, "little")
+
+
+# A cookie names a position both in characters and in bytes, and everything
+# read back from it indexes what was decoded, so a position past the end is
+# refused rather than stored.
+for _bad in (
+    _text_cookie(bytes_to_feed=10, chars_to_skip=1000, bytes_to_skip=0),
+    _text_cookie(bytes_to_feed=10, chars_to_skip=100000, bytes_to_skip=3),
+    _text_cookie(bytes_to_feed=10, chars_to_skip=1, bytes_to_skip=1000),
+):
+    _textio = TextIOWrapper(BytesIO(b"hello world " * 20), encoding="utf-8")
+    _textio.read(1)
+    try:
+        _textio.seek(_bad)
+    except (OSError, OverflowError):
+        pass
+    else:
+        assert _textio.read(50) is not None
+        _textio.tell()

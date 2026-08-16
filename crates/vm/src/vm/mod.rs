@@ -100,6 +100,11 @@ pub struct VirtualMachine {
     pub state: PyRc<PyGlobalState>,
     pub initialized: bool,
     recursion_depth: Cell<usize>,
+    /// Depth of native recursion that pushes no Python frame, counted only
+    /// where the stack pointer cannot be read. Everywhere else the native
+    /// stack itself answers, and nothing needs counting.
+    #[cfg(any(miri, target_env = "musl"))]
+    native_recursion_depth: Cell<usize>,
     /// C stack soft limit for detecting stack overflow (like c_stack_soft_limit)
     #[cfg_attr(any(miri, target_env = "musl"), allow(dead_code))]
     c_stack_soft_limit: Cell<usize>,
@@ -384,7 +389,7 @@ impl StopTheWorldState {
     /// is only ever `try_lock`'d. The active requester therefore force-parks
     /// this thread, finishes its whole stop→start span, releases the exclusion,
     /// and only then does this thread resume and acquire it.
-    fn acquire_exclusion(&self) {
+    fn acquire_exclusion(&self, state: &PyGlobalState) {
         if self
             .exclusion
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
@@ -393,7 +398,7 @@ impl StopTheWorldState {
             return;
         }
         loop {
-            crate::vm::thread::suspend_if_needed(self);
+            crate::vm::thread::suspend_if_needed(state);
             std::thread::yield_now();
             if self
                 .exclusion
@@ -421,7 +426,7 @@ impl StopTheWorldState {
     /// drives the stop→start span at a time; it is released by
     /// `start_the_world`/`reset_after_fork`.
     pub fn stop_the_world(&self, state: &PyGlobalState) {
-        self.acquire_exclusion();
+        self.acquire_exclusion(state);
         let start = std::time::Instant::now();
         let requester_ident = crate::stdlib::_thread::get_ident();
         self.requester.store(requester_ident, Ordering::Relaxed);
@@ -759,7 +764,10 @@ pub struct PyGlobalState {
     pub stacksize: AtomicCell<usize>,
     pub thread_count: AtomicCell<usize>,
     pub hash_secret: HashSecret,
-    pub atexit_funcs: PyMutex<Vec<Box<(PyObjectRef, FuncArgs)>>>,
+    /// Registered `atexit` callbacks, newest first. Shared ownership so
+    /// `atexit.unregister` can keep the entry it is comparing alive while the
+    /// list is unlocked, and still recognize it afterwards by identity.
+    pub atexit_funcs: PyMutex<Vec<PyRc<(PyObjectRef, FuncArgs)>>>,
     pub codec_registry: CodecsRegistry,
     pub finalizing: AtomicBool,
     pub warnings: WarningsState,
@@ -991,6 +999,8 @@ impl VirtualMachine {
             state,
             initialized: false,
             recursion_depth: Cell::new(0),
+            #[cfg(any(miri, target_env = "musl"))]
+            native_recursion_depth: Cell::new(0),
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),
@@ -2004,6 +2014,14 @@ impl VirtualMachine {
     const STACK_MARGIN_BYTES: usize =
         (if cfg!(debug_assertions) { 16384 } else { 4096 }) * core::mem::size_of::<usize>();
 
+    /// How deep native recursion may go where the stack cannot be measured
+    /// (`Py_C_RECURSION_LIMIT`). A native step costs far more stack than a
+    /// Python one and debug builds cost more again, so this sits well under
+    /// what a default stack holds rather than at what it would just fit.
+    #[cfg(any(miri, target_env = "musl"))]
+    const NATIVE_RECURSION_LIMIT_UNMEASURED: usize =
+        if cfg!(debug_assertions) { 500 } else { 1500 };
+
     /// Get the stack boundaries using platform-specific APIs.
     /// Returns (base, top) where base is the lowest address and top is the highest.
     #[cfg(all(not(miri), not(target_env = "musl"), windows))]
@@ -2105,16 +2123,34 @@ impl VirtualMachine {
     /// Used to run the body of a (possibly) recursive function. It will raise a
     /// RecursionError if recursive functions are nested far too many times,
     /// preventing a stack overflow.
+    /// `Py_EnterRecursiveCall`: bounds native recursion that pushes no Python
+    /// frame, against the native stack. That is a separate budget from the
+    /// frame limit `sys.setrecursionlimit()` sets, so nesting counted here does
+    /// not come out of what Python code has left to call with.
     pub fn with_recursion<R, F: FnOnce() -> PyResult<R>>(&self, _where: &str, f: F) -> PyResult<R> {
-        self.check_recursive_call(_where)?;
+        // `check_c_stack_overflow()` answers no unconditionally where the stack
+        // pointer cannot be read, which would leave this guard with nothing to
+        // stop. A count of the nesting stands in for the measurement there.
+        #[cfg(any(miri, target_env = "musl"))]
+        let counted_too_deep =
+            self.native_recursion_depth.get() >= Self::NATIVE_RECURSION_LIMIT_UNMEASURED;
+        #[cfg(not(any(miri, target_env = "musl")))]
+        let counted_too_deep = false;
 
-        // Native stack guard: check C stack like _Py_MakeRecCheck
-        if self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(_where.to_string()));
+        if counted_too_deep || self.check_c_stack_overflow() {
+            return Err(
+                self.new_recursion_error(format!("maximum recursion depth exceeded {_where}"))
+            );
         }
 
-        self.recursion_depth.update(|d| d + 1);
-        scopeguard::defer! { self.recursion_depth.update(|d| d - 1) }
+        #[cfg(any(miri, target_env = "musl"))]
+        let _native_depth_guard = {
+            self.native_recursion_depth.update(|d| d + 1);
+            scopeguard::guard((), |()| {
+                self.native_recursion_depth.update(|d| d.saturating_sub(1))
+            })
+        };
+
         f()
     }
 
@@ -2603,12 +2639,28 @@ impl VirtualMachine {
         // Objects/listobject.c. Each branch takes an atomic snapshot to avoid
         // race conditions from concurrent mutation (no GIL).
         let cls = value.class();
-        let list_borrow;
         let slice = if cls.is(self.ctx.types.tuple_type) {
             value.downcast_ref::<PyTuple>().unwrap().as_slice()
         } else if cls.is(self.ctx.types.list_type) {
-            list_borrow = value.downcast_ref::<PyList>().unwrap().borrow_vec();
-            &list_borrow
+            // The list is re-read on every step, the way map_iterable_object()
+            // does it: func() runs Python, which can mutate or even clear the
+            // same list, and a borrow held across that call deadlocks it.
+            let list = value.downcast_ref::<PyList>().unwrap();
+            let mut results = Vec::new();
+            let mut i = 0;
+            loop {
+                let elem = {
+                    let elements = list.borrow_vec();
+                    let Some(elem) = elements.get(i) else {
+                        break;
+                    };
+                    elem.clone()
+                    // free the lock
+                };
+                results.push(func(elem)?);
+                i += 1;
+            }
+            return Ok(results);
         } else if cls.is(self.ctx.types.dict_type) {
             let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
             return keys.into_iter().map(func).collect();
@@ -2797,7 +2849,7 @@ impl VirtualMachine {
 
         // Suspend this thread if stop-the-world is in progress
         #[cfg(feature = "threading")]
-        thread::suspend_if_needed(&self.state.stop_the_world);
+        thread::suspend_if_needed(&self.state);
 
         // Pass a QSBR checkpoint if requested (deferred memory reclamation).
         #[cfg(feature = "threading")]

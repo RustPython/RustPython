@@ -5,10 +5,12 @@ use crate::builtins::PyBaseExceptionRef;
 #[cfg(feature = "threading")]
 use alloc::sync::Arc;
 
-#[cfg(all(unix, feature = "threading"))]
-use crate::frame::FrameObject;
 use crate::frame::InterpreterFrame;
+#[cfg(feature = "threading")]
+use crate::vm::PyGlobalState;
 use crate::{AsObject, PyObject, VirtualMachine};
+#[cfg(all(unix, feature = "threading"))]
+use crate::{Py, frame::FrameObject};
 #[cfg(all(unix, feature = "threading"))]
 use core::sync::atomic::AtomicPtr;
 use core::{
@@ -44,7 +46,7 @@ pub struct ThreadSlot {
     /// thread at a safepoint and supplies the happens-before edge, so the
     /// pointer and the frames it reaches are quiescent and alive at read time.
     #[cfg(unix)]
-    pub top_frame: AtomicPtr<FrameObject>,
+    pub top_frame: AtomicPtr<Py<FrameObject>>,
     /// Raw InterpreterFrame pointer, published alongside top_frame so
     /// cross-thread readers (sys._current_frames) can materialize
     /// stack-allocated frames that have no FrameObject.
@@ -114,7 +116,7 @@ thread_local! {
     /// initialized; the `Arc<ThreadSlot>` in `CURRENT_THREAD_SLOT` keeps the
     /// pointee alive until `cleanup_current_thread_frames` clears this.
     #[cfg(all(unix, feature = "threading"))]
-    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<FrameObject>> =
+    static CURRENT_TOP_FRAME_SLOT: Cell<*const AtomicPtr<Py<FrameObject>>> =
         const { Cell::new(core::ptr::null()) };
 
     /// Cached pointer to this thread's `ThreadSlot::top_iframe` for the hot
@@ -536,9 +538,10 @@ fn attach_thread(vm: &VirtualMachine) {
     // a thread doing rapid allow_threads calls from re-attaching and running
     // past the requester forever, which would stall stop-the-world. Done
     // outside the CURRENT_THREAD_SLOT borrow above because suspend re-borrows
-    // it. Safe against a concurrent start_the_world: suspend_if_needed only
-    // parks while the request is still live and self-recovers otherwise.
-    suspend_if_needed(&vm.state.stop_the_world);
+    // it. Safe against a concurrent start_the_world: suspend_if_needed decides
+    // whether to park under the registry lock, so it never parks after the
+    // request has been withdrawn.
+    suspend_if_needed(&vm.state);
 }
 
 /// Transition ATTACHED → DETACHED (like `_PyThreadState_Detach`).
@@ -605,102 +608,111 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// Transitions ATTACHED → SUSPENDED and waits until released
 /// (like `_PyThreadState_Suspend` + `_PyThreadState_Attach`).
 #[cfg(feature = "threading")]
-pub fn suspend_if_needed(stw: &super::StopTheWorldState) {
+pub fn suspend_if_needed(state: &PyGlobalState) {
     let should_suspend = CURRENT_THREAD_SLOT.with(|slot| {
         slot.borrow()
             .as_ref()
             .is_some_and(|s| s.stop_requested.load(Ordering::Relaxed))
     });
-    if !should_suspend {
-        return;
+    if should_suspend {
+        do_suspend(state);
     }
-
-    if !stw.requested.load(Ordering::Acquire) {
-        CURRENT_THREAD_SLOT.with(|slot| {
-            if let Some(s) = slot.borrow().as_ref() {
-                s.stop_requested.store(false, Ordering::Release);
-            }
-        });
-        return;
-    }
-
-    do_suspend(stw);
 }
 
 #[cfg(feature = "threading")]
 #[cold]
-fn do_suspend(stw: &super::StopTheWorldState) {
+fn do_suspend(state: &PyGlobalState) {
+    let stw = &state.stop_the_world;
     CURRENT_THREAD_SLOT.with(|slot| {
-        if let Some(s) = slot.borrow().as_ref() {
-            // ATTACHED → SUSPENDED
+        let borrowed = slot.borrow();
+        let Some(s) = borrowed.as_ref() else {
+            return;
+        };
+
+        // Decide whether to park while holding the thread registry. Both edges
+        // of `requested` are written under that lock: `init_thread_countdown`
+        // sets it, and `start_the_world` clears it and then releases every
+        // SUSPENDED thread without letting go. Publishing SUSPENDED here is
+        // therefore either seen by that release pass or never reached, which
+        // leaves the requester the only writer that takes a thread out of
+        // SUSPENDED. A completion check that observed this thread parked cannot
+        // then be invalidated by the thread resuming on its own.
+        let park = {
+            let _registry = state.thread_frames.lock();
+            if stw.requested.load(Ordering::Acquire) {
+                Some(s.state.compare_exchange(
+                    THREAD_ATTACHED,
+                    THREAD_SUSPENDED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ))
+            } else {
+                // The stop already ended; this thread's request bit is stale.
+                s.stop_requested.store(false, Ordering::Release);
+                None
+            }
+        };
+
+        match park {
+            None => {
+                super::stw_trace(format_args!("suspend skip not-requested"));
+                return;
+            }
+            Some(Ok(_)) => {
+                // Consumed this thread's stop request bit.
+                s.stop_requested.store(false, Ordering::Release);
+            }
+            Some(Err(THREAD_DETACHED)) => {
+                // Leaving VM; caller will re-check on next entry.
+                super::stw_trace(format_args!("suspend skip DETACHED"));
+                return;
+            }
+            Some(Err(THREAD_SUSPENDED)) => {
+                // Already parked by another path.
+                s.stop_requested.store(false, Ordering::Release);
+                super::stw_trace(format_args!("suspend skip already-suspended"));
+                return;
+            }
+            Some(Err(state)) => {
+                debug_assert!(false, "unexpected thread state in suspend: {state}");
+                return;
+            }
+        }
+        super::stw_trace(format_args!("suspend ATTACHED->SUSPENDED"));
+
+        // Notify the stop-the-world requester that we've parked. The registry
+        // is released first: the requester's wait loop takes the notify mutex
+        // and then the registry, so taking them the other way round here would
+        // invert the order.
+        stw.notify_suspended();
+        super::stw_trace(format_args!("suspend notified-requester"));
+
+        // Wait until start_the_world sets us back to DETACHED
+        let wait_yields = wait_while_suspended(s);
+        stw.add_suspend_wait_yields(wait_yields);
+
+        // Re-attach (DETACHED → ATTACHED), tstate_wait_attach CAS loop.
+        loop {
             match s.state.compare_exchange(
+                THREAD_DETACHED,
                 THREAD_ATTACHED,
-                THREAD_SUSPENDED,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => {
-                    // Consumed this thread's stop request bit.
-                    s.stop_requested.store(false, Ordering::Release);
-                }
-                Err(THREAD_DETACHED) => {
-                    // Leaving VM; caller will re-check on next entry.
-                    super::stw_trace(format_args!("suspend skip DETACHED"));
-                    return;
-                }
+                Ok(_) => break,
                 Err(THREAD_SUSPENDED) => {
-                    // Already parked by another path.
-                    s.stop_requested.store(false, Ordering::Release);
-                    super::stw_trace(format_args!("suspend skip already-suspended"));
-                    return;
+                    let extra_wait = wait_while_suspended(s);
+                    stw.add_suspend_wait_yields(extra_wait);
                 }
+                Err(THREAD_ATTACHED) => break,
                 Err(state) => {
-                    debug_assert!(false, "unexpected thread state in suspend: {state}");
-                    return;
+                    debug_assert!(false, "unexpected post-suspend state: {state}");
+                    break;
                 }
             }
-            super::stw_trace(format_args!("suspend ATTACHED->SUSPENDED"));
-
-            // Re-check: if start_the_world already ran (cleared `requested`),
-            // no one will set us back to DETACHED — we must self-recover.
-            if !stw.requested.load(Ordering::Acquire) {
-                s.state.store(THREAD_ATTACHED, Ordering::Release);
-                s.stop_requested.store(false, Ordering::Release);
-                super::stw_trace(format_args!("suspend abort requested-cleared"));
-                return;
-            }
-
-            // Notify the stop-the-world requester that we've parked
-            stw.notify_suspended();
-            super::stw_trace(format_args!("suspend notified-requester"));
-
-            // Wait until start_the_world sets us back to DETACHED
-            let wait_yields = wait_while_suspended(s);
-            stw.add_suspend_wait_yields(wait_yields);
-
-            // Re-attach (DETACHED → ATTACHED), tstate_wait_attach CAS loop.
-            loop {
-                match s.state.compare_exchange(
-                    THREAD_DETACHED,
-                    THREAD_ATTACHED,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
-                    Ok(_) => break,
-                    Err(THREAD_SUSPENDED) => {
-                        let extra_wait = wait_while_suspended(s);
-                        stw.add_suspend_wait_yields(extra_wait);
-                    }
-                    Err(THREAD_ATTACHED) => break,
-                    Err(state) => {
-                        debug_assert!(false, "unexpected post-suspend state: {state}");
-                        break;
-                    }
-                }
-            }
-            s.stop_requested.store(false, Ordering::Release);
-            super::stw_trace(format_args!("suspend resume -> ATTACHED"));
         }
+        s.stop_requested.store(false, Ordering::Release);
+        super::stw_trace(format_args!("suspend resume -> ATTACHED"));
     });
 }
 
@@ -818,11 +830,8 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
                     core::ptr::null_mut()
                 } else {
                     let frame_obj = unsafe { (*frame).frame_obj() };
-                    // The payload address, which is what the cross-thread
-                    // reader hands to `Py::from_payload_ptr`. The `Py` address
-                    // would be off by the object header.
                     frame_obj.map_or(core::ptr::null_mut(), |py| {
-                        core::ptr::from_ref::<FrameObject>(py).cast_mut()
+                        py as *const Py<FrameObject> as *mut Py<FrameObject>
                     })
                 };
                 unsafe { &*slot }.store(fo_ptr, Ordering::Relaxed);
@@ -971,7 +980,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             core::ptr::null_mut()
         } else {
             match unsafe { (*top_iframe).frame_obj() } {
-                Some(fo) => core::ptr::from_ref::<FrameObject>(fo).cast_mut(),
+                Some(fo) => fo as *const Py<FrameObject> as *mut Py<FrameObject>,
                 None => core::ptr::null_mut(),
             }
         }
@@ -1163,6 +1172,8 @@ impl VirtualMachine {
             state: self.state.clone(),
             initialized: self.initialized,
             recursion_depth: Cell::new(0),
+            #[cfg(any(miri, target_env = "musl"))]
+            native_recursion_depth: Cell::new(0),
             c_stack_soft_limit: Cell::new(Self::calculate_c_stack_soft_limit()),
             async_gen_firstiter: RefCell::new(None),
             async_gen_finalizer: RefCell::new(None),

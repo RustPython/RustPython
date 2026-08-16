@@ -9362,9 +9362,14 @@ impl ExecutingFrame<'_> {
 
             if has_data_descr {
                 // Check for member descriptor (slot access)
+                // The slot offset only means anything on the layout the
+                // descriptor was defined for; the specialized instruction
+                // guards on the type version alone, so what descr_get()
+                // checks on every access has to be checked here instead.
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                     && let MemberGetter::Offset(offset) = member_descr.member.getter
+                    && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
                         self.code
@@ -11099,9 +11104,12 @@ impl ExecutingFrame<'_> {
 
         if has_data_descr {
             // Check for member descriptor (slot access)
+            // As in the load specialization, the offset is only valid for
+            // instances of the type the descriptor belongs to.
             if let Some(ref descr) = cls_attr
                 && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                 && let MemberGetter::Offset(offset) = member_descr.member.getter
+                && cls.fast_issubclass(&member_descr.common.typ)
             {
                 unsafe {
                     self.code

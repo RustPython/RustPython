@@ -143,3 +143,36 @@ class _ReenteringWriter:
 arr = array("b", range(128))
 arr.tofile(_ReenteringWriter(arr))
 assert len(arr) == 129
+
+
+def test_setitem_reentrant():
+    # Converting the value runs Python, which can reach the array, so the
+    # array is not locked while it happens.
+    a = array("i", [1, 2, 3])
+
+    class Index:
+        def __index__(self):
+            a[1] = 9
+            return 7
+
+    a[0] = Index()
+    assert a == array("i", [7, 9, 3]), a
+
+
+test_setitem_reentrant()
+
+
+def test_frombytes_of_itself():
+    # Resizing is refused while a buffer is exported, before any lock is taken.
+    # The typecode is "b" so the view's items are bytes and the resize is what
+    # the call is refused for.
+    a = array("b", [1, 2, 3])
+    m = memoryview(a)
+    with assert_raises(BufferError):
+        a.frombytes(m)
+    del m
+
+    # A view of wider items is not a source of bytes at all.
+    wide = array("i", [1, 2, 3])
+    with assert_raises(TypeError):
+        wide.frombytes(memoryview(wide))

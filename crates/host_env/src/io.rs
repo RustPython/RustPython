@@ -199,6 +199,29 @@ pub fn is_seekable(fd: crt_fd::Borrowed<'_>) -> bool {
     os::seek_fd(fd, 0, libc::SEEK_CUR).is_ok()
 }
 
+/// Whether a read from `fd` answers from data the file already holds, rather
+/// than waiting for whoever writes the other end.
+///
+/// Seeking answers this everywhere but Windows, where a pipe seeks too --
+/// `lseek` on one succeeds and reports a position, so a reader that took
+/// seekability for an answer would wait on a peer while holding whatever it
+/// holds for the length of the call.
+#[cfg(not(windows))]
+pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
+    is_seekable(fd)
+}
+
+#[cfg(windows)]
+pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, GetFileType};
+
+    let Ok(handle) = crt_fd::as_handle(fd) else {
+        return false;
+    };
+    unsafe { GetFileType(handle.as_raw_handle() as _) == FILE_TYPE_DISK }
+}
+
 pub fn validate_whence(whence: i32) -> bool {
     let standard = (0..=2).contains(&whence);
     #[cfg(any(target_os = "dragonfly", target_os = "freebsd", target_os = "linux"))]

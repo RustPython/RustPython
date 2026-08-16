@@ -168,6 +168,27 @@ impl VirtualMachine {
         }
     }
 
+    /// `vec![0; len]` for a length that came from Python, where a request too
+    /// large to satisfy is a `MemoryError` rather than an aborted process.
+    ///
+    /// The bytes are left for the allocator to zero, so a large request costs
+    /// no more than the pages that are actually written to.
+    pub fn new_zeroed_bytes(&self, len: usize) -> PyResult<Vec<u8>> {
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        let layout =
+            core::alloc::Layout::array::<u8>(len).map_err(|_| self.new_memory_error(""))?;
+        // SAFETY: `len` is not zero, so neither is the layout's size.
+        let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
+        if ptr.is_null() {
+            return Err(self.new_memory_error(""));
+        }
+        // SAFETY: `ptr` was just allocated by the global allocator for exactly
+        // this many bytes, and every one of them is initialized to zero.
+        Ok(unsafe { Vec::from_raw_parts(ptr, len, len) })
+    }
+
     /// Calling scheme used for binary operations:
     ///
     /// Order operations are tried until either a valid result or error:

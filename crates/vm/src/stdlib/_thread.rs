@@ -1207,9 +1207,9 @@ pub(crate) mod _thread {
                         // fall back to top_iframe (may be a stack-allocated frame).
                         let top = slot.top_frame.load(Ordering::Relaxed);
                         if let Some(p) = core::ptr::NonNull::new(top) {
-                            let py = unsafe {
-                                &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
-                            };
+                            // SAFETY: world stopped -> the owning thread is parked
+                            // with this frame on its chain, so it is alive.
+                            let py = unsafe { p.as_ref() };
                             Some((*id, py.to_owned()))
                         } else {
                             // Stack-allocated frame: materialize from top_iframe.

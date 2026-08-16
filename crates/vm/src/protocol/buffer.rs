@@ -641,6 +641,47 @@ impl BufferDescriptor {
         }
     }
 
+    /// Visit each item's byte range with the *first* dimension varying
+    /// fastest, which is the order a Fortran-ordered copy is written in.
+    /// `for_each_segment` visits in the opposite order and can hand over whole
+    /// rows at once; here every item is its own range, since consecutive items
+    /// in this order are a row apart.
+    pub fn for_each_segment_fortran<F>(&self, mut f: F)
+    where
+        F: FnMut(Range<isize>),
+    {
+        if self.len == 0 {
+            return;
+        }
+        if self.ndim() == 0 {
+            f(self.offset..self.offset + self.itemsize as isize);
+            return;
+        }
+        let mut indices = vec![0usize; self.ndim()];
+        loop {
+            let pos = self.offset
+                + indices
+                    .iter()
+                    .zip_eq(self.dim_desc.iter())
+                    .map(|(&i, &(_, stride, suboffset))| i as isize * stride + suboffset)
+                    .sum::<isize>();
+            f(pos..pos + self.itemsize as isize);
+
+            let mut dim = 0;
+            loop {
+                indices[dim] += 1;
+                if indices[dim] < self.dim_desc[dim].0 {
+                    break;
+                }
+                indices[dim] = 0;
+                dim += 1;
+                if dim == self.ndim() {
+                    return;
+                }
+            }
+        }
+    }
+
     fn _for_each_segment<F, const CONTIGUOUS: bool>(&self, mut index: isize, dim: usize, f: &mut F)
     where
         F: FnMut(Range<isize>),

@@ -96,5 +96,63 @@ class MarshalTests(unittest.TestCase):
         self.assertIs(loaded_code.co_consts[0], loaded_shared)
 
 
+class AllowCodeTests(unittest.TestCase):
+    """allow_code is answered where a code object is written or read, so a
+    graph that walks back on itself is not a second walk of its own."""
+
+    def test_recursive_value(self):
+        recursive = []
+        recursive.append(recursive)
+        loaded = marshal.loads(
+            marshal.dumps(recursive, allow_code=False), allow_code=False
+        )
+        self.assertIs(loaded[0], loaded)
+
+    def test_too_deeply_nested(self):
+        nested = []
+        for _ in range(100_000):
+            nested = [nested]
+        with self.assertRaises(ValueError):
+            marshal.dumps(nested, allow_code=False)
+
+    def test_code_is_rejected(self):
+        code = compile("1", "", "exec")
+        for value in (code, [code], (code,), {0: code}):
+            with self.assertRaises(ValueError):
+                marshal.dumps(value, allow_code=False)
+            data = marshal.dumps(value)
+            with self.assertRaises(ValueError):
+                marshal.loads(data, allow_code=False)
+
+
+class BadDataTests(unittest.TestCase):
+    def test_container_size_out_of_range(self):
+        import struct
+
+        # a length is signed, so the top bit set is out of range rather than
+        # four billion items to reserve room for
+        for marker in b"([<>":
+            data = bytes([marker | 0x80]) + struct.pack("<I", 0xFFFFFF00)
+            with self.assertRaises(ValueError):
+                marshal.loads(data)
+
+    def test_unknown_type_code(self):
+        for data in (b"\x00", b"\x01", b"?", b"\xff"):
+            with self.assertRaises(ValueError):
+                marshal.loads(data)
+
+    def test_null_object(self):
+        # TYPE_NULL stands for no object, which is not a value to hand back
+        with self.assertRaises(TypeError):
+            marshal.loads(b"0")
+
+    def test_invalid_reference(self):
+        import struct
+
+        for index in (0, 0xFFFFFFFF):
+            with self.assertRaises(ValueError):
+                marshal.loads(b"r" + struct.pack("<I", index))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -49,9 +49,39 @@ impl ArgBytesLike {
         f(&self.borrow_buf())
     }
 
+    /// The bytes to hand to an operation that may wait, and whatever keeps
+    /// them readable while it does.
+    ///
+    /// `borrow_buf` may answer with a lock that every other thread writing to
+    /// the same object waits on, and a thread waiting on a lock never reaches
+    /// a safepoint, so keeping one across a wait for a peer, a pipe or a
+    /// signal stops the world from being stopped at all. Bytes reached that
+    /// way are copied out first. Bytes that lock nothing -- an immutable
+    /// object's -- are borrowed where they lie, which is all CPython holds in
+    /// either case.
+    pub fn borrow_buf_unlocked(&self, vm: &VirtualMachine) -> PyResult<UnlockedBuf<'_>> {
+        let borrowed = self.borrow_buf();
+        if !borrowed.is_locked() {
+            return Ok(UnlockedBuf::Borrowed(borrowed));
+        }
+        let mut copy = Vec::new();
+        copy.try_reserve_exact(borrowed.len())
+            .map_err(|_| vm.new_memory_error(""))?;
+        copy.extend_from_slice(&borrowed);
+        Ok(UnlockedBuf::Copied(copy))
+    }
+
     #[must_use]
     pub const fn len(&self) -> usize {
         self.0.desc.len
+    }
+
+    /// The width of one item. Callers that read the buffer as bytes rather
+    /// than as whatever it holds have to ask, since a contiguous buffer of
+    /// wider items is contiguous all the same.
+    #[must_use]
+    pub const fn itemsize(&self) -> usize {
+        self.0.desc.itemsize
     }
 
     #[must_use]
@@ -62,6 +92,16 @@ impl ArgBytesLike {
     #[must_use]
     pub fn as_object(&self) -> &PyObject {
         &self.0.obj
+    }
+
+    /// The object whose storage is borrowed while this buffer is read: a view
+    /// borrows the object it looks at, not itself.
+    #[must_use]
+    pub fn source_object(&self) -> &PyObject {
+        self.0
+            .obj
+            .downcast_ref::<crate::builtins::PyMemoryView>()
+            .map_or(&self.0.obj, |view| view.viewed_object())
     }
 }
 
@@ -113,6 +153,24 @@ impl<'a> TryFromBorrowedObject<'a> for ArgContiguousBytesLike {
     }
 }
 
+/// Bytes that stay readable across a wait, from [`ArgBytesLike::borrow_buf_unlocked`].
+#[derive(Debug)]
+pub enum UnlockedBuf<'a> {
+    Borrowed(BorrowedValue<'a, [u8]>),
+    Copied(Vec<u8>),
+}
+
+impl core::ops::Deref for UnlockedBuf<'_> {
+    type Target = [u8];
+
+    fn deref(&self) -> &[u8] {
+        match self {
+            Self::Borrowed(b) => b,
+            Self::Copied(v) => v,
+        }
+    }
+}
+
 /// A memory buffer, read-write access. Like the `w*` format code for `PyArg_Parse` in CPython.
 #[derive(Debug, Traverse)]
 pub struct ArgMemoryBuffer(PyBuffer);
@@ -138,6 +196,16 @@ impl ArgMemoryBuffer {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// The object whose storage is borrowed while this buffer is written: a
+    /// view borrows the object it looks at, not itself.
+    #[must_use]
+    pub fn source_object(&self) -> &PyObject {
+        self.0
+            .obj
+            .downcast_ref::<crate::builtins::PyMemoryView>()
+            .map_or(&self.0.obj, |view| view.viewed_object())
     }
 }
 

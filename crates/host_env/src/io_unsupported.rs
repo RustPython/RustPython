@@ -176,6 +176,10 @@ pub fn is_seekable(_fd: crt_fd::Borrowed<'_>) -> bool {
     false
 }
 
+pub fn reads_without_waiting(_fd: crt_fd::Borrowed<'_>) -> bool {
+    false
+}
+
 pub fn validate_whence(whence: i32) -> bool {
     (0..=2).contains(&whence)
 }
