@@ -592,3 +592,86 @@ def test_write_through_same_object():
 
 
 test_write_through_same_object()
+
+
+def test_cast_between_non_byte_formats():
+    # A cast re-divides bytes into items; going from one item type straight to
+    # another would reinterpret what is already there.
+    view = memoryview(b"abcd").cast("i")
+    for fmt in ("h", "i", "f"):
+        try:
+            view.cast(fmt)
+        except TypeError as e:
+            assert "cannot cast between two non-byte formats" in str(e), e
+        else:
+            raise AssertionError(f"expected TypeError for cast to {fmt!r}")
+
+    # Either side being bytes is allowed.
+    assert view.cast("B").tolist() == [97, 98, 99, 100]
+    assert view.cast("b").format == "b"
+    assert view.cast("c").tolist() == [b"a", b"b", b"c", b"d"]
+    assert memoryview(b"abcd").cast("c").cast("i").format == "i"
+
+
+def test_cast_to_zero_dim():
+    # A zero-dimensional view holds exactly one item, so the buffer has to be
+    # that one item and no more.
+    assert memoryview(b"abcd").cast("I", shape=()).tobytes() == b"abcd"
+    assert memoryview(b"a").cast("B", shape=()).tobytes() == b"a"
+
+    for source, fmt in ((b"abcd", "B"), (b"abcdefgh", "I"), (b"ab", "b")):
+        try:
+            memoryview(source).cast(fmt, shape=())
+        except TypeError as e:
+            assert "product(shape) * itemsize != buffer size" in str(e), e
+        else:
+            raise AssertionError(f"expected TypeError for {source!r} as {fmt!r}")
+
+
+def test_hash_restricted_to_byte_formats():
+    # The hash is over the bytes, so it agrees with the hash of those bytes
+    # only where an item is a byte.
+    data = b"abcdefgh"
+    assert hash(memoryview(data)) == hash(data)
+    assert hash(memoryview(data).cast("c")) == hash(data)
+    assert hash(memoryview(data).cast("b")) == hash(data)
+
+    for fmt in ("I", "i", "h", "d"):
+        try:
+            hash(memoryview(data).cast(fmt))
+        except ValueError as e:
+            assert "hashing is restricted to formats" in str(e), e
+        else:
+            raise AssertionError(f"expected ValueError for format {fmt!r}")
+
+
+def test_tobytes_order():
+    view = memoryview(b"abcdefgh")
+    for order in (None, "C", "F", "A"):
+        assert view.tobytes(order=order) == b"abcdefgh", order
+
+    # A multidimensional view is laid out C-contiguously, so a Fortran-ordered
+    # copy walks it down the columns instead.
+    grid = memoryview(b"abcdefgh").cast("B", shape=(2, 4))
+    assert grid.tolist() == [[97, 98, 99, 100], [101, 102, 103, 104]]
+    assert grid.tobytes() == b"abcdefgh"
+    assert grid.tobytes(order="C") == b"abcdefgh"
+    assert grid.tobytes(order="A") == b"abcdefgh"
+    assert grid.tobytes(order="F") == b"aebfcgdh"
+
+    cube = memoryview(b"abcdefgh").cast("B", shape=(2, 2, 2))
+    assert cube.tobytes(order="F") == b"aecgbfdh"
+
+    for order in ("Z", "c", "f", ""):
+        try:
+            view.tobytes(order=order)
+        except ValueError as e:
+            assert str(e) == "order must be 'C', 'F' or 'A'", e
+        else:
+            raise AssertionError(f"expected ValueError for order {order!r}")
+
+
+test_cast_between_non_byte_formats()
+test_cast_to_zero_dim()
+test_hash_restricted_to_byte_formats()
+test_tobytes_order()

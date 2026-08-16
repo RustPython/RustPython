@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -831,10 +831,32 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn tobytes(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+    fn tobytes(&self, args: ToBytesArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         self.try_not_released(vm)?;
+        let order = match &args.order {
+            None => Order::C,
+            Some(order) => match order.to_str() {
+                Some("C") => Order::C,
+                Some("F") => Order::Fortran,
+                Some("A") => Order::Any,
+                _ => return Err(vm.new_value_error("order must be 'C', 'F' or 'A'")),
+            },
+        };
+
         let mut v = vec![];
-        self.append_to(&mut v);
+        // 'A' asks for the memory as it is laid out, which is what appending a
+        // contiguous view does. Only a Fortran walk of a view that is not
+        // already Fortran-contiguous reorders anything, and a view of fewer
+        // than two dimensions has one layout under either name.
+        if order == Order::Fortran && self.desc.ndim() > 1 {
+            v.reserve(self.desc.len);
+            let bytes = &*self.buffer.obj_bytes();
+            self.desc.for_each_segment_fortran(|range| {
+                v.extend_from_slice(&bytes[range.start as usize..range.end as usize]);
+            });
+        } else {
+            self.append_to(&mut v);
+        }
         Ok(PyBytes::from(v).into_ref(&vm.ctx))
     }
 
@@ -930,10 +952,17 @@ impl PyMemoryView {
 
     fn cast_to_1d(&self, format: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Self> {
         let format_str = format.as_str();
-        if Self::native_fmtchar(format_str).is_none() {
+        let Some(dest_char) = Self::native_fmtchar(format_str) else {
             return Err(vm.new_value_error(
                 "memoryview: destination format must be a native single character format prefixed with an optional '@'",
             ));
+        };
+        // One side has to be bytes. Casting between two item types would
+        // reinterpret the items rather than re-divide the memory, and the
+        // source items were written by something that chose their type.
+        let source_is_bytes = Self::native_fmtchar(&self.desc.format).is_some_and(is_byte_fmtchar);
+        if !source_is_bytes && !is_byte_fmtchar(dest_char) {
+            return Err(vm.new_type_error("memoryview: cannot cast between two non-byte formats"));
         }
         let format_spec = Self::parse_format(format_str, vm)?;
         let itemsize = format_spec.size();
@@ -999,7 +1028,7 @@ impl PyMemoryView {
             let mut other = self.cast_to_1d(format, vm)?;
             let itemsize = other.desc.itemsize;
 
-            // 0 ndim is single item
+            // 0 ndim is single item, so the buffer has to be that one item
             if shape_ndim == 0 {
                 if itemsize != other.desc.len {
                     return Err(
@@ -1007,7 +1036,6 @@ impl PyMemoryView {
                     );
                 }
                 other.desc.dim_desc = vec![];
-                other.desc.len = itemsize;
                 return Ok(other.into_ref(&vm.ctx));
             }
 
@@ -1099,6 +1127,20 @@ impl Py<PyMemoryView> {
     fn __reduce__(&self, vm: &VirtualMachine) -> PyResult {
         Err(vm.new_type_error("cannot pickle 'memoryview' object"))
     }
+}
+
+#[derive(FromArgs)]
+struct ToBytesArgs {
+    #[pyarg(any, default)]
+    order: Option<PyStrRef>,
+}
+
+/// The layout a copy of a view is written in.
+#[derive(PartialEq, Eq)]
+enum Order {
+    C,
+    Fortran,
+    Any,
 }
 
 #[derive(FromArgs)]
@@ -1259,7 +1301,9 @@ impl Hashable for PyMemoryView {
         if !zelf.desc.readonly {
             return Err(vm.new_value_error("cannot hash writable memoryview object"));
         }
-        if !matches!(&*zelf.desc.format, "B" | "b" | "c") {
+        // The hash is over the bytes, so it agrees with the hash of the same
+        // bytes only where an item is a byte.
+        if !Self::native_fmtchar(&zelf.desc.format).is_some_and(is_byte_fmtchar) {
             return Err(
                 vm.new_value_error("memoryview: hashing is restricted to formats 'B', 'b' or 'c'")
             );
@@ -1513,6 +1557,10 @@ fn format_unpack(
     })
 }
 
+/// Whether `ch` names a format whose items are single bytes.
+const fn is_byte_fmtchar(ch: u8) -> bool {
+    matches!(ch, b'c' | b'b' | b'B')
+}
 fn is_equiv_shape(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
     if a.ndim() != b.ndim() {
         return false;
