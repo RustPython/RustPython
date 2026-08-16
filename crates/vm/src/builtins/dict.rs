@@ -487,7 +487,6 @@ impl PyDict {
     }
 
     #[pymethod]
-    #[must_use]
     pub fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
         check_noargs(vm, "dict.copy", &func_args)?;
         Ok(self.copy_inner())

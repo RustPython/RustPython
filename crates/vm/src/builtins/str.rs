@@ -1490,6 +1490,16 @@ impl PyStr {
     /// Searches the character range `range` with `find`, which answers in bytes
     /// relative to the range, and reports the hit as a character index.
     #[inline]
+    /// The bytes the character range `range` spans and the byte offset it
+    /// starts at, or `None` if the range is inverted.
+    fn char_range_bytes(&self, range: Range<usize>) -> Option<(usize, &Wtf8)> {
+        if !range.is_normal() {
+            return None;
+        }
+        let bytes = self.data.char_range_to_bytes(range);
+        Some((bytes.start, &self.as_wtf8()[bytes]))
+    }
+
     fn _to_char_idx(r: &Wtf8, byte_idx: usize) -> usize {
         r[..byte_idx].code_points().count()
     }
@@ -1653,9 +1663,18 @@ impl PyStr {
         check_positional(vm, "count", func_args.args.len(), 1, 3)?;
         let args: FindArgs = func_args.bind(vm)?;
         let (needle, range) = args.get_value(self.len(), "count", vm)?;
-        Ok(self
-            .as_wtf8()
-            .py_count(needle.as_wtf8(), range, |h, n| h.find_iter(n).count()))
+        let chars = range.len();
+        Ok(self.char_range_bytes(range).map_or(0, |(_, haystack)| {
+            if needle.is_empty() {
+                // An empty needle sits between every pair of characters and at
+                // both ends, so it occurs once more than the range holds
+                // characters. Counting it in the bytes would answer in encoded
+                // positions instead.
+                chars + 1
+            } else {
+                haystack.find_iter(needle.as_wtf8()).count()
+            }
+        }))
     }
 
     #[pymethod]
@@ -2304,6 +2323,7 @@ impl SplitArgs {
 }
 
 // anystr::AnyStr::py_split with a pre-validated separator
+#[expect(clippy::too_many_arguments, reason = "mirrors py_split's shape")]
 fn py_split_str<S, SP, SN, SW>(
     s: &S,
     sep: Option<PyStrRef>,

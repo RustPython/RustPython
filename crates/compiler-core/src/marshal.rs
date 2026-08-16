@@ -77,7 +77,6 @@ impl core::fmt::Display for MarshalError {
             Self::BadType => f.write_str("bad type marker"),
             Self::UnknownType => f.write_str("unknown type code"),
             Self::InvalidRef => f.write_str("invalid reference"),
-            Self::NullObject => f.write_str("NULL object in marshal data for object"),
             Self::BadSize(what) => write!(f, "{what} size out of range"),
         }
     }
@@ -1286,7 +1285,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
         Type::FrozenSet => {
             let len = rdr.read_len("set")?;
             let d = depth - 1;
-            let it = (0..len as usize).map(|_| {
+            let it = (0..len).map(|_| {
                 deserialize_value_depth(rdr, bag, d, refs)
                     .map_err(|e| e.null_in(MarshalError::NullInSet))
             });
