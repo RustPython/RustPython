@@ -365,7 +365,6 @@ class NamedExpressionInvalidTest(unittest.TestCase):
                 with self.assertRaisesRegex(SyntaxError, msg):
                     exec(f"lambda: {code}", {}) # Function scope
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; wrong error message
     def test_named_expression_invalid_mangled_class_variables(self):
         code = """class Foo:
             def bar(self):
