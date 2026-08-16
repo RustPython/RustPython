@@ -525,7 +525,6 @@ class ConnectionTests(unittest.TestCase):
                                    cx.executemany, "insert into t values(?)",
                                    ((v,) for v in range(3)))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SQLITE_DBCONFIG constants not implemented
     def test_connection_config(self):
         op = sqlite.SQLITE_DBCONFIG_ENABLE_FKEY
         with memory_database() as cx:
