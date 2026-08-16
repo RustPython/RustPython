@@ -8,7 +8,6 @@ use crate::object::{GC_NO_OWNER, GC_PERMANENT, GC_UNTRACKED, GcLink, GcOwner};
 use crate::{AsObject, PyObject, PyObjectRef};
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicUsize, Ordering};
-use std::collections::HashSet;
 
 fn elapsed_secs(
     #[cfg(target_arch = "wasm32")] _start: (),
@@ -154,6 +153,45 @@ fn is_owned_by(obj: &PyObject, owner: GcOwner) -> bool {
 /// Only used within collect_inner, never shared across threads.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct GcPtr(NonNull<PyObject>);
+
+/// Hashing for the tables a collection keys by an object's address.
+///
+/// The default hasher is SipHash, which buys resistance against a caller
+/// choosing keys that collide. Nothing chooses these keys: they are addresses
+/// this process handed out, and the tables live and die inside one collection.
+/// What a collection needs from them is speed -- it hashes every tracked
+/// object and every edge between them -- so this runs the address through a
+/// handful of multiplies and shifts instead. The shifts are what earns the
+/// speed: a table picks its bucket from the low bits, and an address arrives
+/// with its low bits zeroed by alignment, so entropy has to be carried
+/// downward or every object lands in the same few buckets.
+#[derive(Default)]
+struct GcPtrHasher(u64);
+
+impl core::hash::Hasher for GcPtrHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write_usize(&mut self, value: usize) {
+        let mut z = (value as u64).wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        self.0 = z ^ (z >> 31);
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // Addresses reach this hasher through `write_usize`; a key hashed any
+        // other way still has to land somewhere sensible.
+        for &byte in bytes {
+            self.0 = (self.0 ^ u64::from(byte)).wrapping_mul(0x0100_0000_01B3);
+        }
+    }
+}
+
+type GcBuildHasher = core::hash::BuildHasherDefault<GcPtrHasher>;
+type GcSet<T> = std::collections::HashSet<T, GcBuildHasher>;
+type GcMap<K, V> = std::collections::HashMap<K, V, GcBuildHasher>;
 
 /// RAII barrier that parks every other thread for the pointer-reading phases
 /// of a collection and lets them run again before finalizers execute.
@@ -556,7 +594,7 @@ impl GcState {
             retired.sort_unstable();
             retired
         };
-        let mut collecting: HashSet<GcPtr> = HashSet::new();
+        let mut collecting: GcSet<GcPtr> = GcSet::default();
         for gen_list in &gen_locks {
             for obj in gen_list.iter() {
                 if retired.binary_search(&obj.gc_owner()).is_ok() {
@@ -613,7 +651,7 @@ impl GcState {
         }
 
         // Step 2: Build gc_refs map (copy reference counts)
-        let mut gc_refs: std::collections::HashMap<GcPtr, usize> = std::collections::HashMap::new();
+        let mut gc_refs: GcMap<GcPtr, usize> = GcMap::default();
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -630,8 +668,7 @@ impl GcState {
         // of each object's children. Without this, a dict whose write lock is
         // held during one traversal but not the other can yield inconsistent
         // results, causing live objects to be incorrectly collected.
-        let mut referents_map: std::collections::HashMap<GcPtr, Vec<NonNull<PyObject>>> =
-            std::collections::HashMap::new();
+        let mut referents_map: GcMap<GcPtr, Vec<NonNull<PyObject>>> = GcMap::default();
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -643,8 +680,7 @@ impl GcState {
                 continue;
             }
             let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
-            referents_map.insert(ptr, referent_ptrs.clone());
-            for child_ptr in referent_ptrs {
+            for &child_ptr in &referent_ptrs {
                 let gc_ptr = GcPtr(child_ptr);
                 if collecting.contains(&gc_ptr)
                     && let Some(refs) = gc_refs.get_mut(&gc_ptr)
@@ -652,10 +688,11 @@ impl GcState {
                     *refs = refs.saturating_sub(1);
                 }
             }
+            referents_map.insert(ptr, referent_ptrs);
         }
 
         // Step 4: Find reachable objects (gc_refs > 0) and traverse from them
-        let mut reachable: HashSet<GcPtr> = HashSet::new();
+        let mut reachable: GcSet<GcPtr> = GcSet::default();
         let mut worklist: Vec<GcPtr> = Vec::new();
 
         #[expect(
@@ -672,14 +709,19 @@ impl GcState {
         while let Some(ptr) = worklist.pop() {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.is_gc_tracked() {
-                // Reuse the pre-computed referent pointers from step 3.
-                // For objects that were skipped in step 3 (strong_count was 0),
-                // compute them now as a fallback.
-                let referent_ptrs = referents_map
-                    .get(&ptr)
-                    .cloned()
-                    .unwrap_or_else(|| unsafe { obj.gc_get_referent_ptrs() });
-                for child_ptr in referent_ptrs {
+                // Reuse the pre-computed referent pointers from step 3, in
+                // place: copying them out again costs a second pass over every
+                // edge in the heap. Objects skipped in step 3 (strong_count was
+                // 0) have none stored and are traversed here instead.
+                let computed;
+                let referent_ptrs: &[NonNull<PyObject>] = match referents_map.get(&ptr) {
+                    Some(stored) => stored,
+                    None => {
+                        computed = unsafe { obj.gc_get_referent_ptrs() };
+                        &computed
+                    }
+                };
+                for &child_ptr in referent_ptrs {
                     let gc_ptr = GcPtr(child_ptr);
                     if collecting.contains(&gc_ptr) && reachable.insert(gc_ptr) {
                         worklist.push(gc_ptr);
@@ -702,7 +744,7 @@ impl GcState {
         // set_current_frame_nosave), not top_frame.
         #[cfg(all(unix, feature = "threading", debug_assertions))]
         if stw.is_stopped() {
-            let unreachable_set: HashSet<GcPtr> = unreachable.iter().copied().collect();
+            let unreachable_set: GcSet<GcPtr> = unreachable.iter().copied().collect();
             let mut cur = crate::vm::thread::get_current_frame();
             while !cur.is_null() {
                 let iframe = unsafe { &*cur };
@@ -802,7 +844,7 @@ impl GcState {
         }
 
         // 6b: Record initial strong counts (for resurrection detection)
-        let initial_counts: std::collections::HashMap<GcPtr, usize> = unreachable_refs
+        let initial_counts: GcMap<GcPtr, usize> = unreachable_refs
             .iter()
             .map(|obj| {
                 let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
@@ -833,8 +875,8 @@ impl GcState {
         }
 
         // Detect resurrection
-        let mut resurrected_set: HashSet<GcPtr> = HashSet::new();
-        let unreachable_set: HashSet<GcPtr> = unreachable.iter().copied().collect();
+        let mut resurrected_set: GcSet<GcPtr> = GcSet::default();
+        let unreachable_set: GcSet<GcPtr> = unreachable.iter().copied().collect();
 
         for obj in &unreachable_refs {
             let ptr = GcPtr(core::ptr::NonNull::from(obj.as_ref()));
@@ -874,7 +916,7 @@ impl GcState {
 
         // Compute collected count (exclude instance dicts in truly_dead)
         let collected = {
-            let dead_ptrs: HashSet<usize> = truly_dead
+            let dead_ptrs: GcSet<usize> = truly_dead
                 .iter()
                 .map(|obj| obj.as_ref() as *const PyObject as usize)
                 .collect();
@@ -932,10 +974,9 @@ impl GcState {
             // never be observable through the generation lists, or another
             // thread could obtain a strong reference via gc.get_objects()
             // and access the cleared payload.
-            let mut late_resurrected: HashSet<GcPtr> = HashSet::new();
+            let mut late_resurrected: GcSet<GcPtr> = GcSet::default();
             if !save_all {
-                let mut expected_counts: std::collections::HashMap<GcPtr, usize> =
-                    std::collections::HashMap::new();
+                let mut expected_counts: GcMap<GcPtr, usize> = GcMap::default();
                 for obj_ref in &truly_dead {
                     let obj = obj_ref.as_ref();
                     if obj.is_gc_tracked() {
@@ -949,8 +990,7 @@ impl GcState {
                 // the dead set; any surplus in strong_count means another thread
                 // grabbed a reference before untracking (late resurrection) and
                 // the object must not be cleared.
-                let mut referents: std::collections::HashMap<GcPtr, Vec<NonNull<PyObject>>> =
-                    std::collections::HashMap::new();
+                let mut referents: GcMap<GcPtr, Vec<NonNull<PyObject>>> = GcMap::default();
                 for obj_ref in &truly_dead {
                     let referent_ptrs = unsafe { obj_ref.gc_get_referent_ptrs() };
                     for child_ptr in &referent_ptrs {
