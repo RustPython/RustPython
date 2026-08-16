@@ -592,20 +592,21 @@ pub fn codepoint_range_end(s: &Wtf8, n_chars: usize) -> Option<usize> {
 }
 
 #[must_use]
-pub fn zfill(bytes: &[u8], width: usize) -> Vec<u8> {
+/// Returns `None` for a width whose result cannot be allocated.
+pub fn zfill(bytes: &[u8], width: usize) -> Option<Vec<u8>> {
     if width <= bytes.len() {
-        bytes.to_vec()
-    } else {
-        let (sign, s) = match bytes.first() {
-            Some(_sign @ (b'+' | b'-')) => (unsafe { bytes.get_unchecked(..1) }, &bytes[1..]),
-            _ => (&b""[..], bytes),
-        };
-        let mut filled = Vec::new();
-        filled.extend_from_slice(sign);
-        filled.extend(core::iter::repeat_n(b'0', width - bytes.len()));
-        filled.extend_from_slice(s);
-        filled
+        return Some(bytes.to_vec());
     }
+    let (sign, s) = match bytes.first() {
+        Some(_sign @ (b'+' | b'-')) => (unsafe { bytes.get_unchecked(..1) }, &bytes[1..]),
+        _ => (&b""[..], bytes),
+    };
+    let mut filled = Vec::new();
+    filled.try_reserve_exact(width).ok()?;
+    filled.extend_from_slice(sign);
+    filled.extend(core::iter::repeat_n(b'0', width - bytes.len()));
+    filled.extend_from_slice(s);
+    Some(filled)
 }
 
 /// Convert a string to ascii compatible, escaping unicode-s into escape

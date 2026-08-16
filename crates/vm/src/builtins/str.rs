@@ -1320,11 +1320,13 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize) -> Wtf8Buf {
-        unsafe {
-            // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
-            Wtf8Buf::from_bytes_unchecked(self.as_wtf8().py_zfill(width))
-        }
+    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let filled = self
+            .as_wtf8()
+            .py_zfill(width)
+            .ok_or_else(|| vm.new_memory_error(""))?;
+        // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
+        Ok(unsafe { Wtf8Buf::from_bytes_unchecked(filled) })
     }
 
     #[inline]
@@ -1332,7 +1334,7 @@ impl PyStr {
         &self,
         width: isize,
         fillchar: OptionalArg<PyStrRef>,
-        pad: fn(&Wtf8, usize, CodePoint, usize) -> Wtf8Buf,
+        pad: fn(&Wtf8, usize, CodePoint, usize) -> Option<Wtf8Buf>,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {
         let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
@@ -1340,11 +1342,11 @@ impl PyStr {
                 vm.new_type_error("The fill character must be exactly one character long")
             })
         })?;
-        Ok(if self.len() as isize >= width {
-            self.as_wtf8().to_owned()
-        } else {
-            pad(self.as_wtf8(), width as usize, fillchar, self.len())
-        })
+        if self.len() as isize >= width {
+            return Ok(self.as_wtf8().to_owned());
+        }
+        pad(self.as_wtf8(), width as usize, fillchar, self.len())
+            .ok_or_else(|| vm.new_memory_error(""))
     }
 
     #[pymethod]
@@ -2214,6 +2216,12 @@ impl AnyStrContainer<str> for String {
         Self::with_capacity(capacity)
     }
 
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut s = Self::new();
+        s.try_reserve_exact(capacity).ok()?;
+        Some(s)
+    }
+
     fn push_str(&mut self, other: &str) {
         Self::push_str(self, other)
     }
@@ -2325,6 +2333,12 @@ impl AnyStrContainer<Wtf8> for Wtf8Buf {
 
     fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
+    }
+
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut s = Self::new();
+        s.try_reserve_exact(capacity).ok()?;
+        Some(s)
     }
 
     fn push_str(&mut self, other: &Wtf8) {
@@ -2445,6 +2459,12 @@ impl AnyStrContainer<AsciiStr> for AsciiString {
 
     fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
+    }
+
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut v = Vec::new();
+        v.try_reserve_exact(capacity).ok()?;
+        Some(Self::from(v))
     }
 
     fn push_str(&mut self, other: &AsciiStr) {

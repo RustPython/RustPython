@@ -34,6 +34,17 @@ impl_from!('a, T, BorrowedValue<'a, T>,
 );
 
 impl<'a, T: ?Sized> BorrowedValue<'a, T> {
+    /// Whether reaching the value holds a lock that other threads wait on.
+    ///
+    /// An immutable object hands out a plain reference and answers `false`;
+    /// one whose storage can change hands out a guard. A caller about to wait
+    /// for something unrelated -- a peer, a file, a signal -- can use this to
+    /// decide whether it may keep the borrow for the duration.
+    #[must_use]
+    pub const fn is_locked(&self) -> bool {
+        !matches!(self, Self::Ref(_))
+    }
+
     pub fn map<U: ?Sized, F>(s: Self, f: F) -> BorrowedValue<'a, U>
     where
         F: FnOnce(&T) -> &U,

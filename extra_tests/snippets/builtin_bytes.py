@@ -747,3 +747,22 @@ assert not s.istitle(), f"{s}"
 assert "123A".istitle(), f"{s}"
 assert not "123a".istitle(), f"{s}"
 assert not "123A\ta".istitle(), f"{s}"
+
+
+def test_huge_size():
+    # sizes that cannot be allocated are MemoryError, not an aborted process
+    for factory in (bytes, bytearray):
+        assert_raises(MemoryError, lambda factory=factory: factory(2**62))
+        for meth in ("center", "ljust", "rjust", "zfill"):
+            assert_raises(
+                MemoryError,
+                lambda factory=factory, meth=meth: getattr(factory(b"a"), meth)(
+                    1 << 62
+                ),
+            )
+        assert_raises(
+            OverflowError, lambda factory=factory: factory(b"\ta").expandtabs(2**31)
+        )
+
+
+test_huge_size()

@@ -514,3 +514,164 @@ def test_fortran_contiguity():
 
 
 test_fortran_contiguity()
+
+
+def test_cast_arguments():
+    # cast() takes a native single character format, optionally '@'-prefixed;
+    # a zero-size format used to reach a division by zero.
+    assert memoryview(b"abcd").cast("@i").itemsize == 4
+    for fmt in ("0s", "4s", "<i", "", "ss"):
+        assert_raises(ValueError, lambda fmt=fmt: memoryview(b"abcd").cast(fmt))
+
+    # every element of shape is an int > 0; a 0 used to divide by zero while
+    # checking the product against SSIZE_MAX
+    for shape in ([0], [0, 4], [4, 0], [-1, 4], [0, 0]):
+        assert_raises(
+            ValueError, lambda shape=shape: memoryview(b"abcd").cast("B", shape)
+        )
+
+    class Index:
+        def __index__(self):
+            return 4
+
+    for shape in ([2.0, 2], [Index()], ["4"]):
+        assert_raises(
+            TypeError, lambda shape=shape: memoryview(b"abcd").cast("B", shape)
+        )
+
+    assert memoryview(b"abcd").cast("B", [True, 4]).tolist() == [[97, 98, 99, 100]]
+
+
+test_cast_arguments()
+
+
+def test_negative_stride():
+    # A reversed view starts at its last byte, so walking it from there runs
+    # off the front of the exported slice.
+    assert memoryview(b"dcba") == memoryview(b"abcd")[::-1]
+    assert memoryview(b"abcd")[::-1] == memoryview(b"dcba")
+    assert not memoryview(b"abcd") == memoryview(b"abcd")[::-1]
+
+    b = bytearray(b"____")
+    memoryview(b)[0:4] = memoryview(b"abcd")[::-1]
+    assert b == bytearray(b"dcba"), b
+
+    a = array.array("i", [1, 2, 3])
+    assert memoryview(array.array("i", [3, 2, 1])) == memoryview(a)[::-1]
+    assert memoryview(a)[::-1].tolist() == [3, 2, 1]
+
+
+test_negative_stride()
+
+
+def test_write_through_same_object():
+    # Reading the source and writing the destination lock the same object
+    # when they overlap, and converting a value runs Python that can reach it.
+    b = bytearray(b"abcd")
+    memoryview(b)[0:4] = b
+    assert b == bytearray(b"abcd"), b
+
+    b = bytearray(b"abcd")
+    memoryview(b)[0:4] = memoryview(b)[::-1]
+    assert b == bytearray(b"dcba"), b
+
+    b = bytearray(b"abcd")
+    memoryview(b)[0:2] = memoryview(b)[2:4]
+    assert b == bytearray(b"cdcd"), b
+
+    b = bytearray(b"abcd")
+    view = memoryview(b)
+
+    class Index:
+        def __index__(self):
+            view[1] = 66
+            return 65
+
+    view[0] = Index()
+    assert b == bytearray(b"ABcd"), b
+
+
+test_write_through_same_object()
+
+
+def test_cast_between_non_byte_formats():
+    # A cast re-divides bytes into items; going from one item type straight to
+    # another would reinterpret what is already there.
+    view = memoryview(b"abcd").cast("i")
+    for fmt in ("h", "i", "f"):
+        try:
+            view.cast(fmt)
+        except TypeError as e:
+            assert "cannot cast between two non-byte formats" in str(e), e
+        else:
+            raise AssertionError(f"expected TypeError for cast to {fmt!r}")
+
+    # Either side being bytes is allowed.
+    assert view.cast("B").tolist() == [97, 98, 99, 100]
+    assert view.cast("b").format == "b"
+    assert view.cast("c").tolist() == [b"a", b"b", b"c", b"d"]
+    assert memoryview(b"abcd").cast("c").cast("i").format == "i"
+
+
+def test_cast_to_zero_dim():
+    # A zero-dimensional view holds exactly one item, so the buffer has to be
+    # that one item and no more.
+    assert memoryview(b"abcd").cast("I", shape=()).tobytes() == b"abcd"
+    assert memoryview(b"a").cast("B", shape=()).tobytes() == b"a"
+
+    for source, fmt in ((b"abcd", "B"), (b"abcdefgh", "I"), (b"ab", "b")):
+        try:
+            memoryview(source).cast(fmt, shape=())
+        except TypeError as e:
+            assert "product(shape) * itemsize != buffer size" in str(e), e
+        else:
+            raise AssertionError(f"expected TypeError for {source!r} as {fmt!r}")
+
+
+def test_hash_restricted_to_byte_formats():
+    # The hash is over the bytes, so it agrees with the hash of those bytes
+    # only where an item is a byte.
+    data = b"abcdefgh"
+    assert hash(memoryview(data)) == hash(data)
+    assert hash(memoryview(data).cast("c")) == hash(data)
+    assert hash(memoryview(data).cast("b")) == hash(data)
+
+    for fmt in ("I", "i", "h", "d"):
+        try:
+            hash(memoryview(data).cast(fmt))
+        except ValueError as e:
+            assert "hashing is restricted to formats" in str(e), e
+        else:
+            raise AssertionError(f"expected ValueError for format {fmt!r}")
+
+
+def test_tobytes_order():
+    view = memoryview(b"abcdefgh")
+    for order in (None, "C", "F", "A"):
+        assert view.tobytes(order=order) == b"abcdefgh", order
+
+    # A multidimensional view is laid out C-contiguously, so a Fortran-ordered
+    # copy walks it down the columns instead.
+    grid = memoryview(b"abcdefgh").cast("B", shape=(2, 4))
+    assert grid.tolist() == [[97, 98, 99, 100], [101, 102, 103, 104]]
+    assert grid.tobytes() == b"abcdefgh"
+    assert grid.tobytes(order="C") == b"abcdefgh"
+    assert grid.tobytes(order="A") == b"abcdefgh"
+    assert grid.tobytes(order="F") == b"aebfcgdh"
+
+    cube = memoryview(b"abcdefgh").cast("B", shape=(2, 2, 2))
+    assert cube.tobytes(order="F") == b"aecgbfdh"
+
+    for order in ("Z", "c", "f", ""):
+        try:
+            view.tobytes(order=order)
+        except ValueError as e:
+            assert str(e) == "order must be 'C', 'F' or 'A'", e
+        else:
+            raise AssertionError(f"expected ValueError for order {order!r}")
+
+
+test_cast_between_non_byte_formats()
+test_cast_to_zero_dim()
+test_hash_restricted_to_byte_formats()
+test_tobytes_order()

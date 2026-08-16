@@ -527,7 +527,11 @@ pub fn hash_not_implemented(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<Py
 }
 
 fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf, identifier!(vm, __call__), args)
+    // `__call__` can name the object being called, and dispatching it pushes no
+    // Python frame, so nothing else counts the nesting.
+    vm.with_recursion("while calling a Python object", || {
+        vm.call_special_method(zelf, identifier!(vm, __call__), args)
+    })
 }
 
 fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
@@ -616,7 +620,11 @@ fn descr_get_wrapper(
     cls: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    vm.call_special_method(&zelf, identifier!(vm, __get__), (obj, cls))
+    // A descriptor whose `__get__` is the descriptor itself resolves it by
+    // fetching `__get__` again, and none of that pushes a Python frame.
+    vm.with_recursion("while calling a Python object", || {
+        vm.call_special_method(&zelf, identifier!(vm, __get__), (obj, cls))
+    })
 }
 
 fn descr_set_wrapper(

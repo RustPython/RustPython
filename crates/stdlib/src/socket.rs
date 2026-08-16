@@ -40,7 +40,6 @@ mod _socket {
     }
 
     use core::{
-        mem::MaybeUninit,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
         time::Duration,
     };
@@ -1589,7 +1588,10 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let mut buffer = Vec::with_capacity(bufsize);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.new_memory_error(""))?;
             let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
                 sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1608,8 +1610,6 @@ mod _socket {
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
-            let mut buf = buf.borrow_buf_mut();
-            let buf = &mut *buf;
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
@@ -1621,10 +1621,13 @@ mod _socket {
                 buf.len()
             };
 
-            let buf = &mut buf[..read_len];
-            self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(unsafe { slice_as_uninit(buf) }, flags)
-            })
+            let mut scratch = alloc_recv_scratch(read_len, vm)?;
+            let n = self.sock_op(vm, SockWaitKind::Read, || {
+                sock.recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+            })?;
+            unsafe { scratch.set_len(n) };
+            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
+            Ok(n)
         }
 
         #[pymethod]
@@ -1638,7 +1641,10 @@ mod _socket {
             let bufsize = bufsize
                 .to_usize()
                 .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom"))?;
-            let mut buffer = Vec::with_capacity(bufsize);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.new_memory_error(""))?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
                 self.sock()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1655,24 +1661,28 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<(usize, PyObjectRef), IoOrPyException> {
-            let mut buf = buf.borrow_buf_mut();
-            let buf = &mut *buf;
-            let buf = match nbytes {
+            let read_len = match nbytes {
                 OptionalArg::Present(i) => {
                     let i = i.to_usize().ok_or_else(|| {
                         vm.new_value_error("negative buffersize in recvfrom_into")
                     })?;
-                    buf.get_mut(..i).ok_or_else(|| {
-                        vm.new_value_error("nbytes is greater than the length of the buffer")
-                    })?
+                    if i > buf.len() {
+                        return Err(vm
+                            .new_value_error("nbytes is greater than the length of the buffer")
+                            .into());
+                    }
+                    i
                 }
-                OptionalArg::Missing => buf,
+                OptionalArg::Missing => buf.len(),
             };
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
+            let mut scratch = alloc_recv_scratch(read_len, vm)?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_from_with_flags(unsafe { slice_as_uninit(buf) }, flags)
+                sock.recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
+            unsafe { scratch.set_len(n) };
+            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
             Ok((n, get_addr_tuple(&addr, vm)))
         }
 
@@ -1684,7 +1694,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
                 self.sock()?.send_with_flags(buf, flags)
@@ -1704,7 +1714,7 @@ mod _socket {
 
             let deadline = timeout.map(Deadline::new);
 
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
@@ -1741,7 +1751,7 @@ mod _socket {
                 OptionalArg::Missing => (0, arg2),
             };
             let addr = self.extract_address(address, "sendto", vm)?;
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
                 self.sock()?.send_to_with_flags(buf, &addr, flags)
@@ -1771,8 +1781,8 @@ mod _socket {
 
             let buffers = buffers
                 .iter()
-                .map(|buf| buf.borrow_buf())
-                .collect::<Vec<_>>();
+                .map(|buf| buf.borrow_buf_unlocked(vm))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
@@ -2380,8 +2390,21 @@ mod _socket {
         Ok(s.to_string_lossy().into_owned())
     }
 
-    unsafe fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
-        unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
+    /// Room to receive into that belongs to no Python object.
+    ///
+    /// A peer may never send, so the wait for it is unbounded. The export of
+    /// the caller's buffer is held for the whole call, which is what keeps it
+    /// from being resized, but the borrow that reaches its bytes is a lock
+    /// every other thread touching that object waits on, and a thread waiting
+    /// on a lock never reaches a safepoint — holding it across the wait stops
+    /// the world from being stopped at all. The bytes are copied over once
+    /// they have arrived.
+    fn alloc_recv_scratch(len: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut scratch = Vec::new();
+        scratch
+            .try_reserve_exact(len)
+            .map_err(|_| vm.new_memory_error(""))?;
+        Ok(scratch)
     }
 
     enum IoOrPyException {

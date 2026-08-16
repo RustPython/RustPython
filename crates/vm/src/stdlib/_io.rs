@@ -1258,7 +1258,7 @@ mod _io {
 
             let current_size = self.readahead() as usize;
 
-            let mut out = vec![0u8; n];
+            let mut out = vm.new_zeroed_bytes(n)?;
             let mut remaining = n;
             let mut written = 0;
             if current_size > 0 {
@@ -1673,7 +1673,7 @@ mod _io {
                 check_writable(&raw, vm)?;
             }
 
-            data.buffer = vec![0; buffer_size];
+            data.buffer = vm.new_zeroed_bytes(buffer_size)?;
 
             if Self::READABLE {
                 data.reset_read();
@@ -1938,7 +1938,7 @@ mod _io {
             if data.writable() {
                 data.flush_rewind(vm)?;
             }
-            let mut v = vec![0; n];
+            let mut v = vm.new_zeroed_bytes(n)?;
             data.reset_read();
             let r = data
                 .raw_read(Either::A(Some(&mut v)), 0..n, vm)?
@@ -3364,14 +3364,17 @@ mod _io {
                 *snapshot = Some((cookie.dec_flags, input_chunk.clone()));
                 let decoded = vm.call_method(decoder, "decode", (input_chunk, cookie.need_eof))?;
                 let decoded = check_decoded(decoded, vm)?;
-                let pos_is_valid = decoded
-                    .as_wtf8()
-                    .is_code_point_boundary(cookie.bytes_to_skip as usize);
+                // The position is stored both as a count of characters and as
+                // an offset in bytes, so both have to land inside what was
+                // just decoded: everything read back from here indexes it.
+                let num_to_skip = cookie.num_to_skip();
+                let pos_is_valid = num_to_skip.chars <= decoded.char_len()
+                    && decoded.as_wtf8().is_code_point_boundary(num_to_skip.bytes);
                 textio.set_decoded_chars(Some(decoded));
                 if !pos_is_valid {
                     return Err(vm.new_os_error("can't restore logical file position"));
                 }
-                textio.decoded_chars_used = cookie.num_to_skip();
+                textio.decoded_chars_used = num_to_skip;
             } else {
                 textio.snapshot = Some((cookie.dec_flags, PyBytes::from(vec![]).into_ref(&vm.ctx)))
             }
@@ -4813,8 +4816,20 @@ mod _io {
         }
 
         #[pymethod]
-        fn readinto(&self, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
-            let mut buf = self.buffer(vm)?;
+        fn readinto(zelf: &Py<Self>, obj: ArgMemoryBuffer, vm: &VirtualMachine) -> PyResult<usize> {
+            // Reading locks this object, and a destination that views it locks
+            // it too, so such a destination is filled after the read is done.
+            if obj.source_object().is(zelf.as_object()) {
+                let mut data = vm.new_zeroed_bytes(obj.len())?;
+                let ret = zelf
+                    .buffer(vm)?
+                    .cursor
+                    .read(&mut data)
+                    .map_err(|_| vm.new_value_error("Error readinto from Take"))?;
+                obj.borrow_buf_mut()[..ret].copy_from_slice(&data[..ret]);
+                return Ok(ret);
+            }
+            let mut buf = zelf.buffer(vm)?;
             let ret = buf
                 .cursor
                 .read(&mut obj.borrow_buf_mut())
@@ -5767,7 +5782,7 @@ mod fileio {
             }
             let handle = zelf.get_fd(vm)?;
             let bytes = if let Some(read_byte) = read_byte.to_usize() {
-                let mut bytes = vec![0; read_byte];
+                let mut bytes = vm.new_zeroed_bytes(read_byte)?;
                 // Loop on EINTR (PEP 475)
                 let n = loop {
                     match vm.allow_threads(|| host_io::read_once(handle, &mut bytes)) {
@@ -5811,6 +5826,26 @@ mod fileio {
             Ok(Some(bytes))
         }
 
+        /// One `read()` into `buf`, retried on EINTR (PEP 475). `None` on EAGAIN.
+        fn read_once_into(
+            zelf: &Py<Self>,
+            handle: crt_fd::Borrowed<'_>,
+            buf: &mut [u8],
+            vm: &VirtualMachine,
+        ) -> PyResult<Option<usize>> {
+            loop {
+                match vm.allow_threads(|| host_io::read_once(handle, buf)) {
+                    Ok(n) => return Ok(Some(n)),
+                    Err(e) if host_io::is_interrupted_error(&e) => {
+                        vm.check_signals()?;
+                    }
+                    // Non-blocking mode: return None if EAGAIN
+                    Err(e) if host_io::is_would_block_error(&e) => return Ok(None),
+                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
+                }
+            }
+        }
+
         #[pymethod]
         fn readinto(
             zelf: &Py<Self>,
@@ -5826,24 +5861,28 @@ mod fileio {
 
             let handle = zelf.get_fd(vm)?;
 
-            let mut buf = obj.borrow_buf_mut();
-            // Loop on EINTR (PEP 475)
-            let ret = loop {
-                match vm.allow_threads(|| host_io::read_once(handle, &mut buf)) {
-                    Ok(n) => break n,
-                    Err(e) if host_io::is_interrupted_error(&e) => {
-                        vm.check_signals()?;
-                        continue;
-                    }
-                    // Non-blocking mode: return None if EAGAIN
-                    Err(e) if host_io::is_would_block_error(&e) => {
-                        return Ok(None);
-                    }
-                    Err(e) => return Err(Self::io_error(zelf, e, vm)),
-                }
-            };
+            if host_io::reads_without_waiting(handle) {
+                // The read answers from the file itself, so it returns without
+                // waiting on anyone; write where the caller asked directly.
+                // Seekability is not the question -- a pipe on Windows seeks.
+                let mut buf = obj.borrow_buf_mut();
+                return Self::read_once_into(zelf, handle, &mut buf, vm);
+            }
 
-            Ok(Some(ret))
+            // A pipe, socket or terminal answers only when the other end
+            // writes, which may be never. Holding the export for the whole
+            // call is what keeps the target from being resized meanwhile, as a
+            // Py_buffer does; but reaching its bytes takes a lock that every
+            // other thread touching the same object waits on, and a thread
+            // waiting on a lock never reaches a safepoint, so holding that one
+            // across the wait stops the world from being stopped at all. Read
+            // aside and take the lock for the copy.
+            let mut scratch = vm.new_zeroed_bytes(obj.len())?;
+            let ret = Self::read_once_into(zelf, handle, &mut scratch, vm)?;
+            if let Some(n) = ret {
+                obj.borrow_buf_mut()[..n].copy_from_slice(&scratch[..n]);
+            }
+            Ok(ret)
         }
 
         #[pymethod]
@@ -5861,9 +5900,14 @@ mod fileio {
 
             let handle = zelf.get_fd(vm)?;
 
+            // A pipe, socket or terminal takes the bytes only when the other
+            // end makes room, which may be never; see readinto above for what
+            // holding the source's lock across that wait costs.
+            let buf = obj.borrow_buf_unlocked(vm)?;
+
             // Loop on EINTR (PEP 475)
             let len = loop {
-                match obj.with_ref(|b| vm.allow_threads(|| host_io::write_once(handle, b))) {
+                match vm.allow_threads(|| host_io::write_once(handle, &buf)) {
                     Ok(n) => break n,
                     Err(e) if host_io::is_interrupted_error(&e) => {
                         vm.check_signals()?;
