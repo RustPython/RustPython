@@ -64,7 +64,7 @@ mod _csv {
         bytes: &[u8],
         err: core::str::Utf8Error,
     ) -> PyBaseExceptionRef {
-        vm.new_unicode_decode_error_real(
+        vm.new_unicode_decode_error(
             vm.ctx.new_str("utf-8"),
             vm.ctx.new_bytes(bytes.to_vec()),
             err.valid_up_to(),
