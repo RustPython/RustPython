@@ -13,8 +13,8 @@ mod _socket {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyListRef, PyModule,
-            PyOSError, PyStr, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyIntRef, PyListRef, PyModule, PyOSError,
+            PyStr, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef,
         },
         convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{
@@ -1867,6 +1867,7 @@ mod _socket {
         #[cfg(target_os = "linux")]
         #[pymethod]
         fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            use crate::vm::builtins::PyInt;
             use std::os::fd::BorrowedFd;
 
             if self.family.load() != c::AF_ALG {
@@ -2748,7 +2749,13 @@ mod _socket {
             Some(port) if port.try_index_opt(vm).is_some() => {
                 Some(port.try_index(vm)?.as_bigint().to_string())
             }
-            Some(port) if port.class().fast_issubclass(vm.ctx.types.str_type) => {
+            // CPython setipadr: only str and bytes name a service; anything
+            // else is "Int or String expected"
+            Some(port)
+                if port.class().fast_issubclass(vm.ctx.types.str_type)
+                    || port.class().fast_issubclass(vm.ctx.types.bytes_type)
+                    || port.class().fast_issubclass(vm.ctx.types.bytearray_type) =>
+            {
                 let port_str = match crate::vm::function::ArgStrOrBytesLike::try_from_object(
                     vm,
                     port.clone(),
