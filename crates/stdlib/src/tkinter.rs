@@ -162,9 +162,18 @@ mod _tkinter {
 
         if let Some(tcl_obj) = obj.downcast_ref::<TclObject>() {
             let c_str = unsafe { tk_sys::Tcl_GetString(tcl_obj.value) };
-            let varname = unsafe { ffi::CStr::from_ptr(c_str as _) }
-                .to_str()
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?
+            let bytes = unsafe { ffi::CStr::from_ptr(c_str as _) }.to_bytes();
+            let varname = core::str::from_utf8(bytes)
+                .map_err(|e| {
+                    vm.new_unicode_decode_error(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        e.valid_up_to(),
+                        e.error_len()
+                            .map_or(bytes.len(), |len| e.valid_up_to() + len),
+                        vm.ctx.new_str(e.to_string()),
+                    )
+                })?
                 .to_owned();
             return Ok(varname);
         }

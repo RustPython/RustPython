@@ -517,7 +517,7 @@ impl VirtualMachine {
         self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
-    pub fn new_unicode_decode_error_real(
+    pub fn new_unicode_decode_error(
         &self,
         encoding: PyStrRef,
         object: PyBytesRef,
@@ -995,12 +995,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
     define_exception_fn!(fn new_type_error, type_error, TypeError);
     define_exception_fn!(fn new_system_error, system_error, SystemError);
-
-    // TODO: remove & replace with new_unicode_decode_error_real
-    define_exception_fn!(fn new_unicode_decode_error, unicode_decode_error, UnicodeDecodeError);
-
-    // TODO: remove & replace with new_unicode_encode_error_real
-    define_exception_fn!(fn new_unicode_encode_error, unicode_encode_error, UnicodeEncodeError);
 
     define_exception_fn!(fn new_value_error, value_error, ValueError);
 
