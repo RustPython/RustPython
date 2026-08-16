@@ -3,8 +3,10 @@
 pub(crate) use decl::module_def;
 
 use crate::vm::{
-    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyListRef,
+    PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    builtins::{PyFloat, PyListRef},
 };
+use num_traits::ToPrimitive;
 use rustpython_host_env::select::{self as host_select, FdSet, RawFd, platform::FD_SETSIZE};
 use std::io;
 
@@ -29,6 +31,37 @@ impl TryFromObject for Selectable {
     }
 }
 
+// Mirrors CPython's _PyTime_FromSecondsObject / _PyTime_FromMillisecondsObject
+// with _PyTime_ROUND_TIMEOUT; returns the timeout in nanoseconds.
+fn timeout_object_to_ns(
+    obj: &PyObject,
+    unit_to_ns: i64,
+    type_err: &'static str,
+    vm: &VirtualMachine,
+) -> PyResult<i64> {
+    if let Some(float) = obj.downcast_ref::<PyFloat>() {
+        let value = float.to_f64();
+        if value.is_nan() {
+            return Err(vm.new_value_error("Invalid value NaN (not a number)"));
+        }
+        // _PyTime_ROUND_TIMEOUT rounds away from zero
+        let ns = value * unit_to_ns as f64;
+        let ns = if ns >= 0.0 { ns.ceil() } else { ns.floor() };
+        // CPython rejects ns outside of [(double)PyTime_MIN; -(double)PyTime_MIN)
+        if !(-9223372036854775808.0..9223372036854775808.0).contains(&ns) {
+            return Err(vm.new_overflow_error("timestamp out of range for C PyTime_t"));
+        }
+        Ok(ns as i64)
+    } else if let Some(int) = obj.try_index_opt(vm).transpose()? {
+        int.as_bigint()
+            .to_i64()
+            .and_then(|v| v.checked_mul(unit_to_ns))
+            .ok_or_else(|| vm.new_overflow_error("timestamp out of range for C PyTime_t"))
+    } else {
+        Err(vm.new_type_error(type_err))
+    }
+}
+
 #[pymodule(name = "select")]
 mod decl {
     use super::*;
@@ -36,7 +69,7 @@ mod decl {
         Py, PyObjectRef, PyResult, VirtualMachine,
         builtins::{PyModule, PyTypeRef},
         convert::ToPyException,
-        function::{Either, OptionalOption},
+        function::OptionalOption,
         stdlib::time,
     };
 
@@ -65,18 +98,24 @@ mod decl {
         rlist: PyObjectRef,
         wlist: PyObjectRef,
         xlist: PyObjectRef,
-        timeout: OptionalOption<Either<f64, isize>>,
+        timeout: OptionalOption<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<(PyListRef, PyListRef, PyListRef)> {
-        let mut timeout = timeout.flatten().map(|e| match e {
-            Either::A(f) => f,
-            Either::B(i) => i as f64,
-        });
-        if let Some(timeout) = timeout
-            && timeout < 0.0
-        {
-            return Err(vm.new_value_error("timeout must be positive"));
-        }
+        let mut timeout = match timeout.flatten() {
+            Some(obj) => {
+                let ns = timeout_object_to_ns(
+                    &obj,
+                    1_000_000_000,
+                    "timeout must be a float or None",
+                    vm,
+                )?;
+                if ns < 0 {
+                    return Err(vm.new_value_error("timeout must be non-negative"));
+                }
+                Some(ns as f64 / 1e9)
+            }
+            None => None,
+        };
         let deadline = timeout.map(|s| time::time(vm).unwrap() + s);
 
         let max_fds: usize = cfg_select! {
@@ -91,7 +130,7 @@ mod decl {
             // the list each step -- which is what `seq2set` does -- then never
             // reaches a length to check.
             let seen = core::cell::Cell::new(0usize);
-            let v: Vec<Selectable> = vm.extract_elements_with(list, |obj| {
+            let items: Vec<Selectable> = vm.extract_elements_with(list, |obj| {
                 let selectable = Selectable::try_from_object(vm, obj)?;
                 seen.set(seen.get() + 1);
                 if seen.get() > max_fds {
@@ -101,15 +140,29 @@ mod decl {
             })?;
 
             let mut fds = FdSet::new();
-            for fd in &v {
+            for (index, selectable) in items.iter().enumerate() {
                 #[cfg(unix)]
-                if fd.fno as usize >= FD_SETSIZE {
-                    return Err(vm.new_value_error("file descriptor out of range in select()"));
+                {
+                    if selectable.fno < 0 {
+                        return Err(vm.new_value_error(format!(
+                            "file descriptor cannot be a negative integer ({})",
+                            selectable.fno
+                        )));
+                    }
+                    if selectable.fno as usize >= FD_SETSIZE {
+                        return Err(vm.new_value_error("filedescriptor out of range in select()"));
+                    }
                 }
-
-                fds.insert(fd.fno);
+                let too_many_fds = cfg_select! {
+                    windows => index >= FD_SETSIZE as usize,
+                    _ => index >= FD_SETSIZE,
+                };
+                if too_many_fds {
+                    return Err(vm.new_value_error("too many file descriptors in select()"));
+                }
+                fds.insert(selectable.fno);
             }
-            Ok((v, fds))
+            Ok((items, fds))
         };
 
         let (rlist, mut r) = seq2set(&rlist)?;
@@ -186,54 +239,31 @@ mod decl {
     pub(super) mod poll {
         use super::*;
         use crate::vm::{
-            AsObject, PyPayload,
-            builtins::PyFloat,
+            PyPayload,
             common::lock::PyMutex,
             convert::{IntoPyException, ToPyObject},
             function::OptionalArg,
             stdlib::_io::Fildes,
         };
         use core::{convert::TryFrom, time::Duration};
-        use num_traits::{Signed, ToPrimitive};
+        use num_traits::Signed;
         use std::time::Instant;
 
+        /// Timeout in nanoseconds; `None` waits indefinitely.
         #[derive(Default)]
-        pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<Duration>);
+        pub(super) struct TimeoutArg<const MILLIS: bool>(pub Option<i64>);
 
         impl<const MILLIS: bool> TryFromObject for TimeoutArg<MILLIS> {
             fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
                 let timeout = if vm.is_none(&obj) {
                     None
-                } else if let Some(float) = obj.downcast_ref::<PyFloat>() {
-                    let float = float.to_f64();
-                    if float.is_nan() {
-                        return Err(vm.new_value_error("Invalid value NaN (not a number)"));
-                    }
-                    if float.is_sign_negative() {
-                        None
-                    } else {
-                        let secs = if MILLIS { float * 1000.0 } else { float };
-                        Some(Duration::from_secs_f64(secs))
-                    }
-                } else if let Some(int) = obj.try_index_opt(vm).transpose()? {
-                    if int.as_bigint().is_negative() {
-                        None
-                    } else {
-                        let n = int
-                            .as_bigint()
-                            .to_u64()
-                            .ok_or_else(|| vm.new_overflow_error("value out of range"))?;
-                        Some(if MILLIS {
-                            Duration::from_millis(n)
-                        } else {
-                            Duration::from_secs(n)
-                        })
-                    }
                 } else {
-                    return Err(vm.new_type_error(format!(
-                        "expected an int or float for duration, got {}",
-                        obj.class()
-                    )));
+                    Some(timeout_object_to_ns(
+                        &obj,
+                        if MILLIS { 1_000_000 } else { 1_000_000_000 },
+                        "timeout must be an integer or None",
+                        vm,
+                    )?)
                 };
                 Ok(Self(timeout))
             }
@@ -319,12 +349,23 @@ mod decl {
                 // object, and a held lock would deadlock them.
                 let mut fds = self.fds.lock().clone();
                 let TimeoutArg(timeout) = timeout.unwrap_or_default();
+                // CPython: _PyTime_AsMilliseconds(ns, _PyTime_ROUND_TIMEOUT) rounds away from zero
                 let timeout_ms = match timeout {
-                    Some(d) => i32::try_from(d.as_millis())
-                        .map_err(|_| vm.new_overflow_error("value out of range"))?,
-                    None => -1i32,
+                    Some(ns) => {
+                        let mut ms = ns / 1_000_000;
+                        if ns % 1_000_000 != 0 {
+                            ms += if ns >= 0 { 1 } else { -1 };
+                        }
+                        if !(i32::MIN as i64..=i32::MAX as i64).contains(&ms) {
+                            return Err(vm.new_overflow_error("timeout is too large"));
+                        }
+                        if ms < 0 { -1 } else { ms as i32 }
+                    }
+                    None => -1,
                 };
-                let deadline = timeout.map(|d| Instant::now() + d);
+                let deadline = timeout
+                    .filter(|&ns| ns >= 0)
+                    .map(|ns| Instant::now() + Duration::from_nanos(ns as u64));
                 let mut poll_timeout = timeout_ms;
                 loop {
                     match vm.allow_threads(|| host_select::poll_fds(&mut fds, poll_timeout)) {
@@ -381,7 +422,7 @@ mod decl {
             stdlib::_io::Fildes,
             types::Constructor,
         };
-        use core::ops::Deref;
+        use core::{ops::Deref, time::Duration};
         use std::os::fd::{AsRawFd, OwnedFd};
         use std::time::Instant;
 
@@ -416,7 +457,7 @@ mod decl {
         #[derive(FromArgs)]
         struct EpollPollArgs {
             #[pyarg(any, default)]
-            timeout: poll::TimeoutArg<false>,
+            timeout: OptionalArg<PyObjectRef>,
             #[pyarg(any, default = -1)]
             maxevents: i32,
         }
@@ -496,28 +537,47 @@ mod decl {
 
             #[pymethod]
             fn poll(&self, args: EpollPollArgs, vm: &VirtualMachine) -> PyResult<PyListRef> {
-                let poll::TimeoutArg(timeout) = args.timeout;
-                let maxevents = args.maxevents;
+                let epoll = &*self.get_epoll(vm)?;
 
+                let timeout = match args.timeout {
+                    OptionalArg::Present(obj) => {
+                        poll::TimeoutArg::<false>::try_from_object(vm, obj)?.0
+                    }
+                    OptionalArg::Missing => None,
+                };
+                // CPython rejects values for which
+                // _PyTime_AsMilliseconds(timeout, _PyTime_ROUND_CEILING) doesn't fit into an int
+                if let Some(ns) = timeout {
+                    let mut ms = ns / 1_000_000;
+                    if ns >= 0 && ns % 1_000_000 != 0 {
+                        ms += 1;
+                    }
+                    if !(i32::MIN as i64..=i32::MAX as i64).contains(&ms) {
+                        return Err(vm.new_overflow_error("timeout is too large"));
+                    }
+                }
+
+                let timeout = timeout
+                    .filter(|&ns| ns >= 0)
+                    .map(|ns| Duration::from_nanos(ns as u64));
                 let mut poll_timeout = timeout
                     .map(host_select::epoll::Timespec::try_from)
                     .transpose()
                     .map_err(|_| vm.new_overflow_error("timeout is too large"))?;
 
                 let deadline = timeout.map(|d| Instant::now() + d);
+                let maxevents = args.maxevents;
                 let maxevents = match maxevents {
-                    ..-1 => {
+                    -1 => host_select::FD_SETSIZE - 1,
+                    ..=0 => {
                         return Err(vm.new_value_error(format!(
                             "maxevents must be greater than 0, got {maxevents}"
                         )));
                     }
-                    -1 => host_select::FD_SETSIZE - 1,
                     _ => maxevents as usize,
                 };
 
                 let mut events = Vec::<host_select::epoll::Event>::with_capacity(maxevents);
-
-                let epoll = &*self.get_epoll(vm)?;
 
                 loop {
                     match vm.allow_threads(|| {

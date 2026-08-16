@@ -11,7 +11,7 @@ mod mmap {
     use crate::vm::{
         AsObject, FromArgs, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
         TryFromBorrowedObject, VirtualMachine, atomic_func,
-        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PyType, PyTypeRef},
+        builtins::{PyBytes, PyBytesRef, PyInt, PyIntRef, PySlice, PyType, PyTypeRef},
         byte::{bytes_from_object, value_from_object},
         convert::ToPyException,
         function::{ArgBytesLike, FuncArgs, OptionalArg},
@@ -47,14 +47,36 @@ mod mmap {
 
     impl<'a> TryFromBorrowedObject<'a> for AccessMode {
         fn try_from_borrowed_object(vm: &VirtualMachine, obj: &'a PyObject) -> PyResult<Self> {
-            let i = u32::try_from_borrowed_object(vm, obj)?;
+            let i = core::ffi::c_int::try_from_borrowed_object(vm, obj)?;
             Ok(match i {
                 0 => Self::Default,
                 1 => Self::Read,
                 2 => Self::Write,
                 3 => Self::Copy,
-                _ => return Err(vm.new_value_error("Not a valid AccessMode value")),
+                _ => return Err(vm.new_value_error("mmap invalid access parameter.")),
             })
+        }
+    }
+
+    // Like SequenceIndex, but with the error wording used by CPython's mmapmodule.c,
+    // which differs between the get and set/delete paths.
+    fn mmap_sequence_index(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+        err_msg: &'static str,
+    ) -> PyResult<SequenceIndex> {
+        if let Some(i) = obj.downcast_ref::<PyInt>() {
+            i.try_to_primitive(vm)
+                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
+                .map(SequenceIndex::Int)
+        } else if let Some(slice) = obj.downcast_ref::<PySlice>() {
+            slice.to_saturated(vm).map(SequenceIndex::Slice)
+        } else if let Some(i) = obj.try_index_opt(vm) {
+            i?.try_to_primitive(vm)
+                .map_err(|_| vm.new_index_error("cannot fit 'int' into an index-sized integer"))
+                .map(SequenceIndex::Int)
+        } else {
+            Err(vm.new_type_error(err_msg))
         }
     }
 
@@ -172,6 +194,8 @@ mod mmap {
         mmap: PyMutex<Option<MmapObj>>,
         #[cfg(unix)]
         fd: AtomicCell<i32>,
+        #[cfg(unix)]
+        flags: core::ffi::c_int,
         #[cfg(windows)]
         handle: AtomicCell<isize>, // host_mmap::Handle is isize on Windows
         offset: i64,
@@ -365,7 +389,7 @@ mod mmap {
             }
 
             // TODO: memmap2 doesn't support mapping with prot and flags right now
-            let (_flags, _prot, access) = match access {
+            let (flags, _prot, access) = match access {
                 AccessMode::Read => (MAP_SHARED, PROT_READ, access),
                 AccessMode::Write => (MAP_SHARED, PROT_READ | PROT_WRITE, access),
                 AccessMode::Copy => (MAP_PRIVATE, PROT_READ | PROT_WRITE, access),
@@ -435,6 +459,7 @@ mod mmap {
                 closed: AtomicCell::new(false),
                 mmap: PyMutex::new(Some(MmapObj::Mapped(mmap))),
                 fd: AtomicCell::new(fd.map_or(-1, |fd| fd.into_raw())),
+                flags,
                 offset,
                 size: AtomicCell::new(map_size),
                 pos: AtomicCell::new(0),
@@ -457,9 +482,12 @@ mod mmap {
             // Parse tagname: None or a string
             let tag_str: Option<String> = match tagname {
                 Some(ref obj) if !vm.is_none(obj) => {
-                    let s = obj
-                        .try_to_value::<String>(vm)
-                        .map_err(|_| vm.new_type_error("tagname must be a string or None"))?;
+                    let s = obj.try_to_value::<String>(vm).map_err(|_| {
+                        vm.new_type_error(format!(
+                            "expected str or None for 'tagname', not {}",
+                            obj.class().name()
+                        ))
+                    })?;
                     if memchr(b'\0', s.as_bytes()).is_some() {
                         cold_path();
                         return Err(exceptions::nul_char_error(vm));
@@ -636,12 +664,7 @@ mod mmap {
                 }),
                 ass_subscript: atomic_func!(|mapping, needle, value, vm| {
                     let zelf = PyMmap::mapping_downcast(mapping);
-                    if let Some(value) = value {
-                        PyMmap::setitem_inner(zelf, needle, value, vm)
-                    } else {
-                        Err(vm
-                            .new_type_error("mmap object doesn't support item deletion".to_owned()))
-                    }
+                    PyMmap::setitem_inner(zelf, needle, value, vm)
                 }),
             };
             &AS_MAPPING
@@ -659,11 +682,27 @@ mod mmap {
                 }),
                 ass_item: atomic_func!(|seq, i, value, vm| {
                     let zelf = PyMmap::sequence_downcast(seq);
-                    if let Some(value) = value {
-                        PyMmap::setitem_by_index(zelf, i, value, vm)
-                    } else {
-                        Err(vm
-                            .new_type_error("mmap object doesn't support item deletion".to_owned()))
+                    drop(zelf.check_valid(vm)?);
+                    let i = i
+                        .wrapped_at(zelf.__len__())
+                        .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
+                    match value {
+                        Some(value) => {
+                            let b = value
+                                .downcast_ref::<PyBytes>()
+                                .map(|b| b.as_bytes())
+                                .filter(|b| b.len() == 1)
+                                .ok_or_else(|| {
+                                    vm.new_index_error("mmap assignment must be length-1 bytes()")
+                                })?;
+                            zelf.try_writable(vm, |mmap| {
+                                mmap[i] = b[0];
+                            })?;
+                            Ok(())
+                        }
+                        None => Err(vm.new_type_error(
+                            "mmap object doesn't support item deletion".to_owned(),
+                        )),
                     }
                 }),
                 ..PySequenceMethods::NOT_IMPLEMENTED
@@ -762,7 +801,7 @@ mod mmap {
             }
 
             if self.exports.load() > 0 {
-                return Err(vm.new_buffer_error("cannot close exported pointers exist."));
+                return Err(vm.new_buffer_error("cannot close exported pointers exist"));
             }
 
             let mut mmap = self.mmap.lock();
@@ -988,9 +1027,26 @@ mod mmap {
 
         #[cfg(unix)]
         #[pymethod]
-        fn resize(&self, _newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
+        fn resize(&self, newsize: PyIntRef, vm: &VirtualMachine) -> PyResult<()> {
             self.check_resizeable(vm)?;
+
+            let new_size: isize = newsize.try_to_primitive(vm).map_err(|_| {
+                vm.new_overflow_error("Python int too large to convert to C ssize_t")
+            })?;
+
+            // Linux mremap() refuses to grow a shared anonymous mapping, and NetBSD
+            // mremap() returns a mapping whose grown region is not backed.
+            #[cfg(any(target_os = "linux", target_os = "netbsd"))]
+            if self.fd.load() == -1
+                && self.flags & host_mmap::MAP_PRIVATE == 0
+                && new_size > self.size.load() as isize
+            {
+                return Err(vm.new_value_error("mmap: can't expand a shared anonymous mapping"));
+            }
+
             // TODO: implement using mremap on Linux
+            #[cfg(not(any(target_os = "linux", target_os = "netbsd")))]
+            let _ = new_size;
             Err(vm.new_system_error("mmap: resizing not available--no mremap()"))
         }
 
@@ -1215,7 +1271,7 @@ mod mmap {
             value: PyObjectRef,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            Self::setitem_inner(zelf, &needle, value, vm)
+            Self::setitem_inner(zelf, &needle, Some(value), vm)
         }
 
         #[pymethod]
@@ -1316,7 +1372,8 @@ mod mmap {
         }
 
         fn getitem_inner(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
+            drop(self.check_valid(vm)?);
+            match mmap_sequence_index(needle, vm, "mmap indices must be integers")? {
                 SequenceIndex::Int(i) => self.getitem_by_index(i, vm),
                 SequenceIndex::Slice(slice) => self.getitem_by_slice(&slice, vm),
             }
@@ -1325,12 +1382,26 @@ mod mmap {
         fn setitem_inner(
             zelf: &Py<Self>,
             needle: &PyObject,
-            value: PyObjectRef,
+            value: Option<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<()> {
-            match SequenceIndex::try_from_borrowed_object(vm, needle, "mmap")? {
-                SequenceIndex::Int(i) => Self::setitem_by_index(zelf, i, value, vm),
-                SequenceIndex::Slice(slice) => Self::setitem_by_slice(zelf, &slice, value, vm),
+            drop(zelf.check_valid(vm)?);
+            if matches!(zelf.access, AccessMode::Read) {
+                return Err(vm.new_type_error("mmap can't modify a readonly memory map."));
+            }
+            match mmap_sequence_index(needle, vm, "mmap indices must be integer")? {
+                SequenceIndex::Int(i) => match value {
+                    Some(value) => Self::setitem_by_index(zelf, i, value, vm),
+                    None => {
+                        i.wrapped_at(zelf.__len__())
+                            .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
+                        Err(vm.new_type_error("mmap doesn't support item deletion"))
+                    }
+                },
+                SequenceIndex::Slice(slice) => match value {
+                    Some(value) => Self::setitem_by_slice(zelf, &slice, value, vm),
+                    None => Err(vm.new_type_error("mmap object doesn't support slice deletion")),
+                },
             }
         }
 
@@ -1344,10 +1415,18 @@ mod mmap {
                 .wrapped_at(self.__len__())
                 .ok_or_else(|| vm.new_index_error("mmap index out of range"))?;
 
-            let b = value_from_object(vm, &value)?;
+            let Some(value) = value.try_index_opt(vm) else {
+                return Err(vm.new_type_error("mmap item value must be an int"));
+            };
+            let v: isize = value?
+                .try_to_primitive(vm)
+                .map_err(|_| vm.new_type_error("cannot fit 'int' into an index-sized integer"))?;
+            if !(0..=255).contains(&v) {
+                return Err(vm.new_value_error("mmap item value must be in range(0, 256)"));
+            }
 
             self.try_writable(vm, |mmap| {
-                mmap[i] = b;
+                mmap[i] = v as u8;
             })?;
 
             Ok(())

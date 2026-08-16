@@ -715,7 +715,7 @@ pub(crate) mod _asyncio {
                     } else {
                         // Single object - create a Set for the return value
                         let new_set = PySet::default().into_ref(&vm.ctx);
-                        new_set.add(obj, vm)?;
+                        new_set.add_element(&obj, vm)?;
                         Ok(new_set.into())
                     }
                 }
@@ -746,8 +746,8 @@ pub(crate) mod _asyncio {
 
             // Single object - convert to Set
             let new_set = PySet::default().into_ref(&vm.ctx);
-            new_set.add(existing, vm)?;
-            new_set.add(waiter, vm)?;
+            new_set.add_element(existing.as_object(), vm)?;
+            new_set.add_element(waiter.as_object(), vm)?;
             *self.fut_awaited_by.write() = Some(new_set.into());
             self.fut_awaited_by_is_set.store(true, Ordering::Relaxed);
             Ok(())
@@ -2466,7 +2466,7 @@ pub(crate) mod _asyncio {
                         && let Ok(done) = vm.call_method(&task, "done", ())
                         && !done.try_to_bool(vm).unwrap_or(true)
                     {
-                        result_set.add(task, vm)?;
+                        result_set.add_element(&task, vm)?;
                     }
                 }
                 Err(e) if e.fast_isinstance(vm.ctx.exceptions.stop_iteration) => break,

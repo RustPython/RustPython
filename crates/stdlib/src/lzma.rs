@@ -16,8 +16,9 @@ mod _lzma {
     // lzma_check, lzma_mode, lzma_match_finder have platform-dependent signedness
     // (i32 on Windows, u32 elsewhere). Define as fixed-type const to avoid mismatch.
     use rustpython_common::lock::PyMutex;
-    use rustpython_vm::builtins::{PyBaseExceptionRef, PyBytesRef, PyDict, PyType, PyTypeRef};
-    use rustpython_vm::convert::ToPyException;
+    use rustpython_vm::builtins::{
+        PyBaseExceptionRef, PyBytesRef, PyDict, PyStr, PyType, PyTypeRef,
+    };
     use rustpython_vm::function::ArgBytesLike;
     use rustpython_vm::types::Constructor;
     use rustpython_vm::{Py, PyObjectRef, PyPayload, PyResult, VirtualMachine};
@@ -231,38 +232,79 @@ mod _lzma {
         }
     }
 
+    fn check_filter_spec_keys(
+        spec: &PyObjectRef,
+        allowed: &[&str],
+        error: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let dict = spec.downcast_ref::<PyDict>().ok_or_else(|| {
+            vm.new_type_error("Filter specifier must be a dict or dict-like object")
+        })?;
+        for key in dict.keys_vec() {
+            let ok = key.downcast_ref::<PyStr>().is_some_and(|k| {
+                allowed
+                    .iter()
+                    .any(|a| k.as_wtf8().as_bytes() == a.as_bytes())
+            });
+            if !ok {
+                return Err(vm.new_value_error(error.to_owned()));
+            }
+        }
+        Ok(())
+    }
+
     fn parse_filter_spec_lzma(spec: &PyObjectRef, vm: &VirtualMachine) -> PyResult<LzmaOptions> {
-        let preset = get_dict_opt_u32(spec, "preset", vm)?.unwrap_or(PRESET_DEFAULT);
+        const ERR: &str = "Invalid filter specifier for LZMA filter";
+        check_filter_spec_keys(
+            spec,
+            &[
+                "id",
+                "preset",
+                "dict_size",
+                "lc",
+                "lp",
+                "pb",
+                "mode",
+                "nice_len",
+                "mf",
+                "depth",
+            ],
+            ERR,
+            vm,
+        )?;
+        let get = |key: &str| {
+            get_dict_opt_u32(spec, key, vm).map_err(|_| vm.new_value_error(ERR.to_owned()))
+        };
+        let preset = get("preset")?.unwrap_or(PRESET_DEFAULT);
 
         let mut opts = LzmaOptions::new_preset(preset)
             .map_err(|_| new_lzma_error(format!("Invalid compression preset: {preset}"), vm))?;
 
-        if let Some(v) = get_dict_opt_u32(spec, "dict_size", vm)? {
+        if let Some(v) = get("dict_size")? {
             opts.dict_size(v);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "lc", vm)? {
+        if let Some(v) = get("lc")? {
             opts.literal_context_bits(v);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "lp", vm)? {
+        if let Some(v) = get("lp")? {
             opts.literal_position_bits(v);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "pb", vm)? {
+        if let Some(v) = get("pb")? {
             opts.position_bits(v);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "mode", vm)? {
-            let mode = u32_to_mode(v)
-                .ok_or_else(|| vm.new_value_error("Invalid filter specifier for LZMA filter"))?;
+        if let Some(v) = get("mode")? {
+            let mode = u32_to_mode(v).ok_or_else(|| vm.new_value_error(ERR.to_owned()))?;
             opts.mode(mode);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "nice_len", vm)? {
+        if let Some(v) = get("nice_len")? {
             opts.nice_len(v);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "mf", vm)? {
-            let mf = u32_to_mf(v)
-                .ok_or_else(|| vm.new_value_error("Invalid filter specifier for LZMA filter"))?;
+        if let Some(v) = get("mf")? {
+            let mf = u32_to_mf(v).ok_or_else(|| vm.new_value_error(ERR.to_owned()))?;
             opts.match_finder(mf);
         }
-        if let Some(v) = get_dict_opt_u32(spec, "depth", vm)? {
+        if let Some(v) = get("depth")? {
             opts.depth(v);
         }
 
@@ -270,15 +312,19 @@ mod _lzma {
     }
 
     fn parse_filter_spec_delta(spec: &PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        let dist = get_dict_opt_u32(spec, "dist", vm)?.unwrap_or(1);
-        if dist == 0 || dist > 256 {
-            return Err(vm.new_value_error("Invalid filter specifier for delta filter"));
-        }
-        Ok(dist)
+        const ERR: &str = "Invalid filter specifier for delta filter";
+        check_filter_spec_keys(spec, &["id", "dist"], ERR, vm)?;
+        get_dict_opt_u32(spec, "dist", vm)
+            .map_err(|_| vm.new_value_error(ERR.to_owned()))
+            .map(|dist| dist.unwrap_or(1))
     }
 
     fn parse_filter_spec_bcj(spec: &PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        Ok(get_dict_opt_u32(spec, "start_offset", vm)?.unwrap_or(0))
+        const ERR: &str = "Invalid filter specifier for BCJ filter";
+        check_filter_spec_keys(spec, &["id", "start_offset"], ERR, vm)?;
+        get_dict_opt_u32(spec, "start_offset", vm)
+            .map_err(|_| vm.new_value_error(ERR.to_owned()))
+            .map(|off| off.unwrap_or(0))
     }
 
     fn add_bcj_filter(
@@ -367,8 +413,9 @@ mod _lzma {
                 }
                 FILTER_DELTA => {
                     let dist = parse_filter_spec_delta(&spec, vm)?;
+                    // out-of-range values are rejected by the encoder (LZMAError), as in CPython
                     filters
-                        .delta_properties(&[(dist - 1) as u8])
+                        .delta_properties(&[dist.wrapping_sub(1) as u8])
                         .map_err(|e| catch_lzma_error(e, vm))?;
                 }
                 FILTER_X86 | FILTER_POWERPC | FILTER_IA64 | FILTER_ARM | FILTER_ARMTHUMB
@@ -642,7 +689,7 @@ mod _lzma {
                 .decompress(data, max_length, BUFSIZ, vm)
                 .map_err(|e| match e {
                     DecompressError::Decompress(err) => catch_lzma_error(err, vm),
-                    DecompressError::Eof(err) => err.to_pyexception(vm),
+                    DecompressError::Eof(_) => vm.new_eof_error("Already at end of stream"),
                 })
         }
 
@@ -758,8 +805,15 @@ mod _lzma {
             vm: &VirtualMachine,
         ) -> PyResult<Stream> {
             if let Some(filter_specs) = filter_specs {
-                filter_specs.length(vm)?;
-                // TODO: validate single LZMA1 filter and use its options
+                let specs: Vec<PyObjectRef> = filter_specs.try_to_value(vm)?;
+                let single_lzma1 = specs.len() == 1
+                    && get_dict_opt_u64(&specs[0], "id", vm)? == Some(FILTER_LZMA1);
+                if !single_lzma1 {
+                    return Err(vm.new_value_error(
+                        "Invalid filter chain for FORMAT_ALONE - must be a single LZMA1 filter",
+                    ));
+                }
+                // TODO: use the options of the single LZMA1 filter instead of the preset
                 let options = LzmaOptions::new_preset(preset).map_err(|_| {
                     new_lzma_error(format!("Invalid compression preset: {preset}"), vm)
                 })?;

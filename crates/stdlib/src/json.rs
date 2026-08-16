@@ -6,7 +6,7 @@ mod _json {
     use super::machinery;
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyStrRef, PyType},
+        builtins::{PyBaseExceptionRef, PyStr, PyStrRef, PyType},
         convert::ToPyResult,
         function::{IntoFuncArgs, OptionalArg},
         protocol::PyIterReturn,
@@ -708,13 +708,25 @@ mod _json {
     }
 
     #[pyfunction]
-    fn encode_basestring(s: PyStrRef) -> Wtf8Buf {
-        encode_string(s.as_wtf8(), false)
+    fn encode_basestring(s: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let s = s.downcast::<PyStr>().map_err(|o| {
+            vm.new_type_error(format!(
+                "first argument must be a string, not {}",
+                o.class().name()
+            ))
+        })?;
+        Ok(encode_string(s.as_wtf8(), false))
     }
 
     #[pyfunction]
-    fn encode_basestring_ascii(s: PyStrRef) -> Wtf8Buf {
-        encode_string(s.as_wtf8(), true)
+    fn encode_basestring_ascii(s: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let s = s.downcast::<PyStr>().map_err(|o| {
+            vm.new_type_error(format!(
+                "first argument must be a string, not {}",
+                o.class().name()
+            ))
+        })?;
+        Ok(encode_string(s.as_wtf8(), true))
     }
 
     fn py_decode_error(
@@ -734,13 +746,24 @@ mod _json {
 
     #[pyfunction]
     fn scanstring(
-        s: PyStrRef,
-        end: usize,
+        s: PyObjectRef,
+        end: isize,
         strict: OptionalArg<bool>,
         vm: &VirtualMachine,
     ) -> PyResult<(Wtf8Buf, usize)> {
         flame_guard!("_json::scanstring");
+        let s = s.downcast::<PyStr>().map_err(|o| {
+            vm.new_type_error(format!(
+                "first argument must be a string, not {}",
+                o.class().name()
+            ))
+        })?;
         let wtf8 = s.as_wtf8();
+
+        if end < 0 || end as usize > s.char_len() {
+            return Err(vm.new_value_error("end is out of bounds"));
+        }
+        let end = end as usize;
 
         // Convert char index `end` to byte index
         let byte_idx = if end == 0 {
@@ -748,14 +771,7 @@ mod _json {
         } else {
             wtf8.code_point_indices()
                 .nth(end)
-                .map(|(i, _)| i)
-                .ok_or_else(|| {
-                    py_decode_error(
-                        machinery::DecodeError::new("Unterminated string starting at", end - 1),
-                        s.clone(),
-                        vm,
-                    )
-                })?
+                .map_or(wtf8.len(), |(i, _)| i)
         };
 
         let (result, chars_consumed, _bytes_consumed) =

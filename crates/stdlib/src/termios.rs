@@ -230,7 +230,7 @@ mod termios {
                 i.try_to_primitive(vm)?
             } else {
                 return Err(vm.new_type_error(
-                    "tcsetattr: elements of attributes must be characters or integers",
+                    "tcsetattr: elements of attributes must be bytes objects of length 1 or integers",
                 ));
             };
         }
@@ -276,17 +276,22 @@ mod termios {
 
     #[pyfunction]
     fn tcsetwinsize(Fildes(fd): Fildes, size: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let seq = size.try_sequence(vm)?;
+        let arg_err = || vm.new_type_error("tcsetwinsize, arg 2: must be a two-item sequence");
+        let seq = size.try_sequence(vm).map_err(|_| arg_err())?;
         if seq.length(vm)? != 2 {
-            return Err(vm.new_type_error("tcsetwinsize: size must be a 2 element sequence"));
+            return Err(arg_err());
         }
-        let row = seq.get_item(0, vm)?;
-        let col = seq.get_item(1, vm)?;
+        let row: i64 = seq.get_item(0, vm)?.try_index(vm)?.try_to_primitive(vm)?;
+        let col: i64 = seq.get_item(1, vm)?.try_index(vm)?.try_to_primitive(vm)?;
 
-        let row: u16 = row.try_index(vm)?.try_to_primitive(vm)?;
-        let col: u16 = col.try_index(vm)?.try_to_primitive(vm)?;
+        // CPython fetches the old winsize before validating the new values
+        host_termios::tcgetwinsize(fd).map_err(|e| termios_error(e, vm))?;
+        let (r16, c16) = (row as u16, col as u16);
+        if i64::from(r16) != row || i64::from(c16) != col {
+            return Err(vm.new_overflow_error("winsize value(s) out of range."));
+        }
 
-        host_termios::tcsetwinsize(fd, row, col).map_err(|e| termios_error(e, vm))?;
+        host_termios::tcsetwinsize(fd, r16, c16).map_err(|e| termios_error(e, vm))?;
         Ok(())
     }
 

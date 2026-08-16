@@ -401,6 +401,10 @@ mod _ssl {
     type PyNid = (core::ffi::c_int, String, String, Option<String>);
     fn obj2py(obj: &Asn1ObjectRef, vm: &VirtualMachine) -> PyResult<PyNid> {
         let nid = obj.nid();
+        if nid.as_raw() == 0 {
+            // asn1obj2py rejects NID_undef
+            return Err(vm.new_value_error("Unknown object"));
+        }
         let short_name = nid
             .short_name()
             .map_err(|_| vm.new_value_error("NID has no short name"))?
@@ -428,12 +432,20 @@ mod _ssl {
     fn txt2obj(args: Txt2ObjArgs, vm: &VirtualMachine) -> PyResult<PyNid> {
         _txt2obj(&args.txt.to_cstring(vm)?, !args.name)
             .as_deref()
-            .ok_or_else(|| vm.new_value_error(format!("unknown object '{}'", args.txt)))
+            .ok_or_else(|| {
+                // CPython truncates the text with "%.100s"
+                let txt: &str = args.txt.as_ref();
+                let end = txt.char_indices().nth(100).map_or(txt.len(), |(i, _)| i);
+                vm.new_value_error(format!("unknown object '{}'", &txt[..end]))
+            })
             .and_then(|obj| obj2py(obj, vm))
     }
 
     #[pyfunction]
     fn nid2obj(nid: core::ffi::c_int, vm: &VirtualMachine) -> PyResult<PyNid> {
+        if nid < 0 {
+            return Err(vm.new_value_error("NID must be positive."));
+        }
         _nid2obj(Nid::from_raw(nid))
             .as_deref()
             .ok_or_else(|| vm.new_value_error(format!("unknown NID {nid}")))
@@ -913,8 +925,11 @@ mod _ssl {
             proto_version: Self::Args,
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
-            let proto = SslVersion::try_from(proto_version)
-                .map_err(|_| vm.new_value_error("invalid protocol version"))?;
+            let proto = SslVersion::try_from(proto_version).map_err(|_| {
+                vm.new_value_error(format!(
+                    "invalid or unsupported protocol version {proto_version}"
+                ))
+            })?;
             let (method, deprecated_protocol) = match proto {
                 // SslVersion::Ssl3 => unsafe { ssl::SslMethod::from_ptr(sys::SSLv3_method()) },
                 SslVersion::Tls => (ssl::SslMethod::tls(), Some("PROTOCOL_TLS")),
@@ -923,7 +938,11 @@ mod _ssl {
                 SslVersion::Tls1_2 => (ssl::SslMethod::tls(), Some("PROTOCOL_TLSv1_2")),
                 SslVersion::TlsClient => (ssl::SslMethod::tls_client(), None),
                 SslVersion::TlsServer => (ssl::SslMethod::tls_server(), None),
-                _ => return Err(vm.new_value_error("invalid protocol version")),
+                _ => {
+                    return Err(vm.new_value_error(format!(
+                        "invalid or unsupported protocol version {proto_version}"
+                    )));
+                }
             };
             if let Some(protocol_name) = deprecated_protocol {
                 _warnings::warn(
@@ -1039,6 +1058,59 @@ mod _ssl {
             Ok(())
         }
 
+        // CPython set_min_max_proto_version(): contexts with a fixed protocol
+        // reject minimum_version/maximum_version changes before value checks.
+        fn check_version_modification_supported(&self, vm: &VirtualMachine) -> PyResult<()> {
+            if !matches!(
+                self.protocol,
+                SslVersion::Tls | SslVersion::TlsClient | SslVersion::TlsServer
+            ) {
+                return Err(vm.new_value_error(
+                    "The context's protocol doesn't support modification of highest and lowest version.",
+                ));
+            }
+            Ok(())
+        }
+
+        // CPython set_min_max_proto_version(): only TLSVersion enum members are
+        // accepted; anything else is formatted as an unsigned hex version.
+        fn check_supported_tls_version(value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            match value {
+                PROTO_SSLv3
+                | PROTO_TLSv1
+                | PROTO_TLSv1_1
+                | PROTO_MINIMUM_SUPPORTED
+                | PROTO_MAXIMUM_SUPPORTED
+                | PROTO_TLSv1_2
+                | PROTO_TLSv1_3 => Ok(()),
+                _ => Err(
+                    vm.new_value_error(format!("Unsupported TLS/SSL version {:#x}", value as u32))
+                ),
+            }
+        }
+
+        // PyUnicode_FSConverter semantics: os.fspath() conversion with
+        // conversion TypeErrors replaced by err_msg, then reject NULs.
+        fn parse_fs_path(
+            arg: PyObjectRef,
+            err_msg: &'static str,
+            vm: &VirtualMachine,
+        ) -> PyResult<FsPath> {
+            let path =
+                FsPath::try_from(arg, false, "expected str, bytes or os.PathLike object", vm)
+                    .map_err(|e| {
+                        if e.class().is(vm.ctx.exceptions.type_error) {
+                            vm.new_type_error(err_msg)
+                        } else {
+                            e
+                        }
+                    })?;
+            if path.as_bytes().contains(&0) {
+                return Err(vm.new_value_error("embedded null byte"));
+            }
+            Ok(path)
+        }
+
         fn builder(&self) -> PyRwLockWriteGuard<'_, SslContextBuilder> {
             self.ctx.write()
         }
@@ -1116,27 +1188,31 @@ mod _ssl {
         }
 
         #[pymethod]
-        fn set_ecdh_curve(
-            &self,
-            name: Either<PyStrRef, ArgBytesLike>,
-            vm: &VirtualMachine,
-        ) -> PyResult<()> {
+        fn set_ecdh_curve(&self, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             use openssl::ec::{EcGroup, EcKey};
 
-            // Convert name to CString, supporting both str and bytes
-            let name_cstr = match name {
-                Either::A(s) => {
-                    let s: &str = s.as_ref();
-                    s.to_cstring(vm)?
+            // CPython applies PyUnicode_FSConverter and reports the original
+            // object with %R on lookup failure
+            let name_cstr = FsPath::try_from(
+                name.clone(),
+                false,
+                "expected str, bytes or os.PathLike object",
+                vm,
+            )
+            .and_then(|path| {
+                if path.as_bytes().contains(&0) {
+                    return Err(vm.new_value_error("embedded null byte"));
                 }
-                Either::B(b) => std::ffi::CString::new(b.borrow_buf().to_vec())
-                    .map_err(|_| exceptions::nul_char_error(vm))?,
-            };
+                path.to_cstring(vm)
+            })?;
 
             // Find the NID for the curve name using OBJ_sn2nid
             let nid_raw = unsafe { sys::OBJ_sn2nid(name_cstr.as_ptr()) };
             if nid_raw == 0 {
-                return Err(vm.new_value_error("unknown curve name"));
+                return Err(vm.new_value_error(format!(
+                    "unknown elliptic curve name {}",
+                    name.repr(vm)?.to_string_lossy()
+                )));
             }
             let nid = Nid::from_raw(nid_raw);
 
@@ -1292,6 +1368,8 @@ mod _ssl {
         }
         #[pygetset(setter)]
         fn set_minimum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            self.check_version_modification_supported(vm)?;
+            Self::check_supported_tls_version(value, vm)?;
             Self::warn_deprecated_tls_version(value, vm)?;
 
             // Handle special values
@@ -1311,7 +1389,10 @@ mod _ssl {
             let ctx = self.builder();
             let result = unsafe { sys::SSL_CTX_set_min_proto_version(ctx.as_ptr(), proto_version) };
             if result == 0 {
-                return Err(vm.new_value_error("invalid protocol version"));
+                return Err(vm.new_value_error(format!(
+                    "Unsupported protocol version {:#x}",
+                    proto_version as u32
+                )));
             }
             Ok(())
         }
@@ -1328,6 +1409,8 @@ mod _ssl {
         }
         #[pygetset(setter)]
         fn set_maximum_version(&self, value: i32, vm: &VirtualMachine) -> PyResult<()> {
+            self.check_version_modification_supported(vm)?;
+            Self::check_supported_tls_version(value, vm)?;
             Self::warn_deprecated_tls_version(value, vm)?;
 
             // Handle special values
@@ -1346,7 +1429,10 @@ mod _ssl {
             let ctx = self.builder();
             let result = unsafe { sys::SSL_CTX_set_max_proto_version(ctx.as_ptr(), proto_version) };
             if result == 0 {
-                return Err(vm.new_value_error("invalid protocol version"));
+                return Err(vm.new_value_error(format!(
+                    "Unsupported protocol version {:#x}",
+                    proto_version as u32
+                )));
             }
             Ok(())
         }
@@ -1367,7 +1453,7 @@ mod _ssl {
         fn set_num_tickets(&self, value: isize, vm: &VirtualMachine) -> PyResult<()> {
             // Check for negative values
             if value < 0 {
-                return Err(vm.new_value_error("num_tickets must be a non-negative integer"));
+                return Err(vm.new_value_error("value must be non-negative"));
             }
 
             // Check that this is a server context
@@ -1532,6 +1618,17 @@ mod _ssl {
 
             // validate cadata type and load cadata
             if let Some(cadata) = args.cadata {
+                // CPython _add_ca_certs() length checks
+                let cadata_len = match &cadata {
+                    Either::A(s) => s.as_bytes().len(),
+                    Either::B(b) => b.borrow_buf().len(),
+                };
+                if cadata_len == 0 {
+                    return Err(vm.new_value_error("Empty certificate data"));
+                }
+                if cadata_len > i32::MAX as usize {
+                    return Err(vm.new_overflow_error("Certificate data is too long."));
+                }
                 let (certs, is_pem) = match cadata {
                     Either::A(s) => {
                         let s: &str = s.as_ref();
@@ -1569,8 +1666,20 @@ mod _ssl {
             }
 
             if args.cafile.is_some() || args.capath.is_some() {
-                let cafile_path = args.cafile.map(|p| p.to_path_buf(vm)).transpose()?;
-                let capath_path = args.capath.map(|p| p.to_path_buf(vm)).transpose()?;
+                let cafile_path = args
+                    .cafile
+                    .map(|p| {
+                        Self::parse_fs_path(p, "cafile should be a valid filesystem path", vm)
+                            .and_then(|p| p.to_path_buf(vm))
+                    })
+                    .transpose()?;
+                let capath_path = args
+                    .capath
+                    .map(|p| {
+                        Self::parse_fs_path(p, "capath should be a valid filesystem path", vm)
+                            .and_then(|p| p.to_path_buf(vm))
+                    })
+                    .transpose()?;
                 // Check file/directory existence before calling OpenSSL to get proper errno
                 if let Some(ref path) = cafile_path
                     && !path.exists()
@@ -1889,8 +1998,15 @@ mod _ssl {
             } = args;
 
             let mut ctx = self.builder();
-            let key_path = keyfile.map(|path| path.to_path_buf(vm)).transpose()?;
-            let cert_path = certfile.to_path_buf(vm)?;
+            let key_path = keyfile
+                .map(|path| {
+                    Self::parse_fs_path(path, "keyfile should be a valid filesystem path", vm)
+                        .and_then(|p| p.to_path_buf(vm))
+                })
+                .transpose()?;
+            let cert_path =
+                Self::parse_fs_path(certfile, "certfile should be a valid filesystem path", vm)?
+                    .to_path_buf(vm)?;
 
             // Check file existence before calling OpenSSL to get proper errno
             if !cert_path.exists() {
@@ -2303,18 +2419,18 @@ mod _ssl {
     #[derive(FromArgs)]
     struct LoadVerifyLocationsArgs {
         #[pyarg(any, default)]
-        cafile: Option<FsPath>,
+        cafile: Option<PyObjectRef>,
         #[pyarg(any, default)]
-        capath: Option<FsPath>,
+        capath: Option<PyObjectRef>,
         #[pyarg(any, default)]
         cadata: Option<Either<PyStrRef, ArgBytesLike>>,
     }
 
     #[derive(FromArgs)]
     struct LoadCertChainArgs {
-        certfile: FsPath,
+        certfile: PyObjectRef,
         #[pyarg(any, optional)]
-        keyfile: Option<FsPath>,
+        keyfile: Option<PyObjectRef>,
         #[pyarg(any, optional)]
         password: Option<PyObjectRef>,
     }
@@ -2562,7 +2678,10 @@ mod _ssl {
             self.ctx.read().clone()
         }
         #[pygetset(setter)]
-        fn set_context(&self, value: PyRef<PySslContext>, vm: &VirtualMachine) -> PyResult<()> {
+        fn set_context(&self, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+            let value = value
+                .downcast::<PySslContext>()
+                .map_err(|_| vm.new_type_error("The value must be a SSLContext"))?;
             // Get SSL pointer - use thread-local during handshake to avoid deadlock
             // (connection lock is already held during handshake)
             let ssl_ptr = get_ssl_ptr_for_context_change(&self.connection);
@@ -2810,8 +2929,7 @@ mod _ssl {
 
             if cb_type_str != "tls-unique" {
                 return Err(vm.new_value_error(format!(
-                    "Unsupported channel binding type '{}'",
-                    cb_type_str
+                    "'{cb_type_str}' channel binding type not implemented",
                 )));
             }
 
@@ -3217,6 +3335,13 @@ mod _ssl {
                 OptionalArg::Present(buf) => {
                     let buf_len = buf.borrow_buf_mut().len();
                     if n <= 0 || (n as usize) > buf_len {
+                        // CPython truncates the length to a C int and rejects
+                        // buffers too large for that
+                        if buf_len > i32::MAX as usize {
+                            return Err(
+                                vm.new_overflow_error("maximum length can't fit in a C 'int'")
+                            );
+                        }
                         buf_len
                     } else {
                         n as usize

@@ -1353,12 +1353,15 @@ fn build_posix_spawn_file_actions(
 
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 fn build_sigset(signals: &[i32]) -> nix::sys::signal::SigSet {
-    let mut set = nix::sys::signal::SigSet::empty();
+    // Build through libc directly: nix's `Signal` enum has no realtime
+    // signal variants, but the caller validates against [1, NSIG).
+    let mut set = crate::signal::sigemptyset().expect("sigemptyset");
     for &sig in signals {
-        let sig = nix::sys::signal::Signal::try_from(sig).expect("validated signal");
-        set.add(sig);
+        crate::signal::sigaddset(&mut set, sig).expect("validated signal");
     }
-    set
+    // SAFETY: set was initialized by sigemptyset and only valid signal
+    // numbers were added to it.
+    unsafe { nix::sys::signal::SigSet::from_sigset_t_unchecked(set) }
 }
 
 #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]

@@ -51,13 +51,8 @@ pub(crate) mod ssl_error {
                 return strerror.str(vm);
             }
 
-            // Otherwise return str(args)
-            let args = exc.args();
-            if args.len() == 1 {
-                args.as_slice()[0].str(vm)
-            } else {
-                args.as_object().str(vm)
-            }
+            // Otherwise return str(args) like CPython's OSError fallback
+            exc.args().as_object().str(vm)
         }
     }
 
