@@ -594,14 +594,25 @@ impl GcState {
             retired.sort_unstable();
             retired
         };
-        let mut collecting: GcSet<GcPtr> = GcSet::default();
+        // The candidates and their reference counts go in one table, not a set
+        // beside a map: every edge in the heap is looked up here, and the two
+        // held the same keys, so a second table only bought a second hash of
+        // the same address. `candidate_ptrs` keeps them in a walkable order,
+        // since the counts are written while the candidates are read.
+        let mut gc_refs: GcMap<GcPtr, usize> = GcMap::default();
+        let mut candidate_ptrs: Vec<GcPtr> = Vec::new();
         for gen_list in &gen_locks {
             for obj in gen_list.iter() {
                 if retired.binary_search(&obj.gc_owner()).is_ok() {
                     obj.set_gc_owner(GC_NO_OWNER);
                 }
-                if obj.strong_count() > 0 && is_owned_by(obj, owner) {
-                    collecting.insert(GcPtr(NonNull::from(obj)));
+                let strong_count = obj.strong_count();
+                let ptr = GcPtr(NonNull::from(obj));
+                if strong_count > 0
+                    && is_owned_by(obj, owner)
+                    && gc_refs.insert(ptr, strong_count).is_none()
+                {
+                    candidate_ptrs.push(ptr);
                 }
             }
         }
@@ -621,7 +632,7 @@ impl GcState {
                 .retain(|tag| retired.binary_search(tag).is_err());
         }
 
-        if collecting.is_empty() {
+        if candidate_ptrs.is_empty() {
             // Reset counts for generations whose objects were promoted away.
             // For gen2 (oldest), survivors stay in-place so don't reset gen2 count.
             let reset_end = if generation >= 2 { 2 } else { generation + 1 };
@@ -640,26 +651,10 @@ impl GcState {
             };
         }
 
-        let candidates = collecting.len();
+        let candidates = candidate_ptrs.len();
 
         if debug.contains(GcDebugFlags::STATS) {
-            eprintln!(
-                "gc: collecting {} objects from generations 0..={}",
-                collecting.len(),
-                generation
-            );
-        }
-
-        // Step 2: Build gc_refs map (copy reference counts)
-        let mut gc_refs: GcMap<GcPtr, usize> = GcMap::default();
-
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "Iteration order doesn't matter here"
-        )]
-        for &ptr in &collecting {
-            let obj = unsafe { ptr.0.as_ref() };
-            gc_refs.insert(ptr, obj.strong_count());
+            eprintln!("gc: collecting {candidates} objects from generations 0..={generation}");
         }
 
         // Step 3: Subtract internal references
@@ -670,21 +665,14 @@ impl GcState {
         // results, causing live objects to be incorrectly collected.
         let mut referents_map: GcMap<GcPtr, Vec<NonNull<PyObject>>> = GcMap::default();
 
-        #[expect(
-            clippy::iter_over_hash_type,
-            reason = "Iteration order doesn't matter here"
-        )]
-        for &ptr in &collecting {
+        for &ptr in &candidate_ptrs {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.strong_count() == 0 {
                 continue;
             }
             let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
             for &child_ptr in &referent_ptrs {
-                let gc_ptr = GcPtr(child_ptr);
-                if collecting.contains(&gc_ptr)
-                    && let Some(refs) = gc_refs.get_mut(&gc_ptr)
-                {
+                if let Some(refs) = gc_refs.get_mut(&GcPtr(child_ptr)) {
                     *refs = refs.saturating_sub(1);
                 }
             }
@@ -723,7 +711,7 @@ impl GcState {
                 };
                 for &child_ptr in referent_ptrs {
                     let gc_ptr = GcPtr(child_ptr);
-                    if collecting.contains(&gc_ptr) && reachable.insert(gc_ptr) {
+                    if gc_refs.contains_key(&gc_ptr) && reachable.insert(gc_ptr) {
                         worklist.push(gc_ptr);
                     }
                 }
@@ -731,7 +719,11 @@ impl GcState {
         }
 
         // Step 5: Find unreachable objects
-        let unreachable: Vec<GcPtr> = collecting.difference(&reachable).copied().collect();
+        let unreachable: Vec<GcPtr> = candidate_ptrs
+            .iter()
+            .filter(|ptr| !reachable.contains(ptr))
+            .copied()
+            .collect();
 
         // With the world stopped, every frame on any thread's call stack is a
         // live root that is externally referenced and must have been
