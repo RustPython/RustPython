@@ -144,11 +144,19 @@ class TestScanstring:
             with self.assertRaises(self.JSONDecodeError, msg=s):
                 scanstring(s, 1, True)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_overflow(self):
         with self.assertRaises(OverflowError):
             self.json.decoder.scanstring("xxx", sys.maxsize+1)
 
 
-class TestPyScanstring(TestScanstring, PyTest): pass
+class TestPyScanstring(TestScanstring, PyTest):
+    # TODO: RUSTPYTHON; the pure-Python scanner reports Unterminated string
+    # instead of OverflowError for out-of-range indices
+    @unittest.expectedFailure
+    def test_overflow(self):
+        with self.assertRaises(OverflowError):
+            self.json.decoder.scanstring("xxx", sys.maxsize+1)
+
+
+class TestCScanstring(TestScanstring, CTest): pass
 class TestCScanstring(TestScanstring, CTest): pass

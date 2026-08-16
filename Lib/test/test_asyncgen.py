@@ -1835,7 +1835,6 @@ class AsyncGenAsyncioTest(unittest.TestCase):
         res = self.loop.run_until_complete(run())
         self.assertEqual(res, [i * 2 for i in range(1, 10)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: __aiter__
     def test_async_gen_expression_incorrect(self):
         async def ag():
             yield 42

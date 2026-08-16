@@ -493,7 +493,6 @@ class BugsTestCase(unittest.TestCase):
         unicode_string = 'T'
         self.assertRaises(TypeError, marshal.loads, unicode_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bad_reader(self):
         class BadReader(io.BytesIO):
             def readinto(self, buf):

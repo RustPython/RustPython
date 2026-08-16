@@ -529,7 +529,6 @@ class FormatTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, error_msg):
             '{:._,f}'.format(1.1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_better_error_message_format(self):
         # https://bugs.python.org/issue20524
         for value in [12j, 12, 12.0, "12"]:
@@ -551,7 +550,6 @@ class FormatTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, err):
                     eval("f'xx{value:{bad_format_spec}}yy'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode_in_error_message(self):
         str_err = re.escape(
             "Invalid format specifier '%ЫйЯЧ' for object of type 'str'")
@@ -615,7 +613,6 @@ class FormatTest(unittest.TestCase):
         self.assertEqual(f"{-0.:x>z6.1f}", "xxx0.0")
         self.assertEqual(f"{-0.:🖤>z6.1f}", "🖤🖤🖤0.0")  # multi-byte fill char
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_specifier_z_error(self):
         error_msg = re.compile("Invalid format specifier '.*z.*'")
         with self.assertRaisesRegex(ValueError, error_msg):

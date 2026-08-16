@@ -63,7 +63,6 @@ class CompressorDecompressorTestCase(unittest.TestCase):
         lzd.decompress(empty)
         self.assertRaises(EOFError, lzd.decompress, b"quux")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Failed to initialize encoder
     def test_bad_filter_spec(self):
         self.assertRaises(TypeError, LZMACompressor, filters=[b"wobsite"])
         self.assertRaises(ValueError, LZMACompressor, filters=[{"xyzzy": 3}])
@@ -675,7 +674,6 @@ class FileTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             LZMAFile(BytesIO(COMPRESSED_XZ), preset=3)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; lzma.LZMAError: Failed to initialize encoder
     def test_init_bad_filter_spec(self):
         with self.assertRaises(TypeError):
             LZMAFile(BytesIO(), "w", filters=[b"wobsite"])

@@ -3036,7 +3036,6 @@ class TestSpecial(unittest.TestCase):
                 one = '1'
                 two = b'2', 'ascii', 9
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; fails on encoding testing : TypeError: Expected type 'str' but 'builtin_function_or_method' found
     def test_custom_strenum(self):
         class CustomStrEnum(str, Enum):
             pass

@@ -4074,7 +4074,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
             y = x ** 2
         self.assertIn('unsupported operand type(s) for **', str(cm.exception))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_pow_wrapper_error_messages(self):
         self.assertRaisesRegex(TypeError,
                                'expected 1 or 2 arguments, got 0',

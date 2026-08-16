@@ -668,7 +668,6 @@ class PosixTester(unittest.TestCase):
         finally:
             fp.close()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipUnless(hasattr(posix, 'stat'),
                          'test needs posix.stat()')
     @unittest.skipUnless(os.stat in os.supports_follow_symlinks,

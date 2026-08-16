@@ -442,7 +442,7 @@ TypeError if te dictionary is not empty
     ...     False
     True
 
-    >>> id(1, **{'foo': 1}) # TODO: RUSTPYTHON # doctest:+EXPECTED_FAILURE
+    >>> id(1, **{'foo': 1})
     Traceback (most recent call last):
       ...
     TypeError: id() takes no keyword arguments
