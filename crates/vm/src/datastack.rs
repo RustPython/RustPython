@@ -107,11 +107,13 @@ impl DataStack {
     /// a just-cleared frame block.
     #[inline(always)]
     pub fn push_frame(&mut self, size: usize) -> (*mut u8, bool) {
-        let aligned_size = (size + ALIGN - 1) & !(ALIGN - 1);
         let reusable_frame = self.reusable_frame.take();
         let ptr = self.push_inner(size);
-        let reused =
-            reusable_frame.is_some_and(|(base, old_size)| base == ptr && old_size == aligned_size);
+        // Exact sizes, not aligned ones: the caller reads "reused" as "every
+        // slot of this frame was cleared by the last one", and two frames whose
+        // sizes differ by less than ALIGN share an aligned size while the
+        // larger one's tail slots were never touched, let alone cleared.
+        let reused = reusable_frame.is_some_and(|(base, old_size)| base == ptr && old_size == size);
         (ptr, reused)
     }
 
@@ -177,8 +179,7 @@ impl DataStack {
     #[inline(always)]
     pub unsafe fn pop_frame(&mut self, base: *mut u8, size: usize) {
         unsafe { self.pop_inner(base) };
-        let aligned_size = (size + ALIGN - 1) & !(ALIGN - 1);
-        self.reusable_frame = Some((base, aligned_size));
+        self.reusable_frame = Some((base, size));
     }
 
     #[inline(always)]
