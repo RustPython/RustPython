@@ -11,6 +11,11 @@ use core::sync::atomic::AtomicIsize;
 
 use crate::{PyObjectRef, PyResult, TryFromBorrowedObject, TryFromObject, VirtualMachine};
 
+/// One past the highest valid signal number (the platform's NSIG).
+/// On Linux the highest valid signal is SIGRTMAX (64).
+#[cfg(target_os = "linux")]
+pub(crate) const NSIG: usize = 65;
+#[cfg(not(target_os = "linux"))]
 pub(crate) const NSIG: usize = 64;
 
 /// Eval-breaker word: bit flags checked once per bytecode instruction.

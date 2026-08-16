@@ -55,7 +55,7 @@ pub(crate) fn init_importlib_package(vm: &VirtualMachine, importlib: PyObjectRef
             let zipimporter = zipimport.get_attr("zipimporter", vm)?;
             let path_hooks = vm.sys_module.get_attr("path_hooks", vm)?;
             let path_hooks = PyListRef::try_from_object(vm, path_hooks)?;
-            path_hooks.insert(0, zipimporter);
+            path_hooks.insert_inner(0, zipimporter);
             Ok(())
         })();
         if zipimport_res.is_err() {

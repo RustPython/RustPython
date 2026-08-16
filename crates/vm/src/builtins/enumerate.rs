@@ -7,7 +7,7 @@ use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyResult, VirtualMachine,
     class::PyClassImpl,
     convert::ToPyObject,
-    function::OptionalArg,
+    function::{FuncArgs, OptionalArg},
     protocol::{PyIter, PyIterReturn},
     raise_if_stop,
     types::{Constructor, IterNext, Iterable, SelfIter},
@@ -40,6 +40,19 @@ pub struct EnumerateArgs {
 
 impl Constructor for PyEnumerate {
     type Args = EnumerateArgs;
+
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // clinic-generated signature: max 2 positional arguments
+        if args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "enumerate() takes at most 2 arguments ({} given)",
+                args.args.len()
+            )));
+        }
+        let args: Self::Args = args.bind(vm)?;
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
 
     fn py_new(
         _cls: &Py<PyType>,

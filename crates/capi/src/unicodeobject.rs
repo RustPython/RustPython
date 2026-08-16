@@ -451,7 +451,12 @@ pub unsafe extern "C" fn PyUnicode_Partition(
     with_vm(|vm| {
         let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
         let sep = unsafe { &*sep }.try_downcast_ref::<PyStr>(vm)?;
-        s.partition(sep.to_owned(), vm)
+        let sep_obj: rustpython_vm::PyObjectRef = sep.to_owned().into();
+        let args = rustpython_vm::function::FuncArgs::new(
+            vec![sep_obj],
+            rustpython_vm::function::KwArgs::default(),
+        );
+        s.partition(args, vm)
     })
 }
 
@@ -463,7 +468,12 @@ pub unsafe extern "C" fn PyUnicode_RPartition(
     with_vm(|vm| {
         let s = unsafe { &*s }.try_downcast_ref::<PyStr>(vm)?;
         let sep = unsafe { &*sep }.try_downcast_ref::<PyStr>(vm)?;
-        s.rpartition(sep.to_owned(), vm)
+        let sep_obj: rustpython_vm::PyObjectRef = sep.to_owned().into();
+        let args = rustpython_vm::function::FuncArgs::new(
+            vec![sep_obj],
+            rustpython_vm::function::KwArgs::default(),
+        );
+        s.rpartition(args, vm)
     })
 }
 

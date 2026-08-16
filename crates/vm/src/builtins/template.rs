@@ -122,32 +122,36 @@ impl PyTemplate {
         vm.ctx.new_tuple(values)
     }
 
-    fn concat(&self, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        let other = other.downcast_ref::<Self>().ok_or_else(|| {
-            vm.new_type_error(format!(
-                "can only concatenate Template (not '{}') to Template",
+    fn concat(zelf: &Py<Self>, other: &PyObject, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        // _PyTemplate_Concat: only exact Template instances can be combined
+        let template_type = Self::class(&vm.ctx);
+        if !(zelf.class().is(template_type) && other.class().is(template_type)) {
+            return Err(vm.new_type_error(format!(
+                "can only concatenate string.templatelib.Template (not \"{}\") \
+                 to string.templatelib.Template",
                 other.class().name()
-            ))
-        })?;
+            )));
+        }
+        let other = other.downcast_ref::<Self>().unwrap();
 
         // Concatenate the two templates
         let mut new_strings: Vec<PyObjectRef> = Vec::new();
         let mut new_interps: Vec<PyObjectRef> = Vec::new();
 
         // Add all strings from self except the last one
-        let self_strings_len = self.strings.len();
+        let self_strings_len = zelf.strings.len();
         for i in 0..self_strings_len.saturating_sub(1) {
-            new_strings.push(self.strings.get(i).unwrap().clone());
+            new_strings.push(zelf.strings.get(i).unwrap().clone());
         }
 
         // Add all interpolations from self
-        for interp in self.interpolations.iter() {
+        for interp in zelf.interpolations.iter() {
             new_interps.push(interp.clone());
         }
 
         // Concatenate last string of self with first string of other
         let mut buf = Wtf8Buf::new();
-        if let Some(s) = self
+        if let Some(s) = zelf
             .strings
             .get(self_strings_len.saturating_sub(1))
             .and_then(|s| s.downcast_ref::<PyStr>())
@@ -181,8 +185,8 @@ impl PyTemplate {
         Ok(template.into_ref(&vm.ctx))
     }
 
-    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.concat(&other, vm)
+    fn __add__(zelf: &Py<Self>, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
+        Self::concat(zelf, &other, vm)
     }
 
     #[pyclassmethod]
@@ -217,7 +221,7 @@ impl AsSequence for PyTemplate {
         static AS_SEQUENCE: LazyLock<PySequenceMethods> = LazyLock::new(|| PySequenceMethods {
             concat: atomic_func!(|seq, other, vm| {
                 let zelf = PyTemplate::sequence_downcast(seq);
-                zelf.concat(other, vm).map(|t| t.into())
+                PyTemplate::concat(zelf, other, vm).map(|t| t.into())
             }),
             ..PySequenceMethods::NOT_IMPLEMENTED
         });

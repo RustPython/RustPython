@@ -18,7 +18,10 @@ use crate::{
     },
     convert::ToPyResult,
     dict_inner::{self, DictSize},
-    function::{ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgIterable, FuncArgs, OptionalArg, PosArgs, PyArithmeticValue, PyComparisonValue,
+        check_meth_o, check_no_kwargs, check_noargs, check_positional,
+    },
     protocol::{PyIterReturn, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
     types::AsNumber,
@@ -102,7 +105,7 @@ impl PyFrozenSet {
     ) -> PyResult<Self> {
         let inner = PySetInner::default();
         for elem in it {
-            inner.add(elem, vm)?;
+            inner.add(&elem, vm)?;
         }
         // FIXME: empty set check
         Ok(Self {
@@ -190,7 +193,7 @@ impl PySetInner {
     {
         let set = Self::default();
         for item in iter {
-            set.add(item?, vm)?;
+            set.add(item?.as_object(), vm)?;
         }
         Ok(set)
     }
@@ -289,7 +292,7 @@ impl PySetInner {
             return Ok(set);
         }
         for item in other.iter(vm)? {
-            set.add(item?, vm)?;
+            set.add(item?.as_object(), vm)?;
         }
 
         Ok(set)
@@ -308,7 +311,7 @@ impl PySetInner {
         for item in other.iter(vm)? {
             let obj = item?;
             if self.contains(&obj, vm)? {
-                set.add(obj, vm)?;
+                set.add(&obj, vm)?;
             }
         }
         Ok(set)
@@ -390,9 +393,9 @@ impl PySetInner {
         collection_repr(class_name, "{", "}", &empty, self.elements().iter(), vm)
     }
 
-    fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let result = self.content.insert(vm, &*item, ());
-        Self::wrap_unhashable_error(result, &item, vm)
+    pub(super) fn add(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
+        let result = self.content.insert(vm, item, ());
+        Self::wrap_unhashable_error(result, item, vm)
     }
 
     /// [`Self::add`] with a known hash.
@@ -438,7 +441,7 @@ impl PySetInner {
     ) -> PyResult<()> {
         for iterable in others {
             for item in iterable.iter(vm)? {
-                self.add(item?, vm)?;
+                self.add(item?.as_object(), vm)?;
             }
         }
         Ok(())
@@ -454,7 +457,7 @@ impl PySetInner {
         } else {
             // add iterable that is not AnySet or Dict
             for item in iterable.try_into_value::<ArgIterable>(vm)?.iter(vm)? {
-                self.add(item?, vm)?;
+                self.add(item?.as_object(), vm)?;
             }
             Ok(())
         }
@@ -586,6 +589,16 @@ impl PySetInner {
         match result {
             Err(cause) if cause.fast_isinstance(vm.ctx.exceptions.type_error) => {
                 let message = cause.as_object().str(vm)?;
+                // the shared dict storage reports the dict-key wording; the
+                // set message carries the plain hash error
+                let message = {
+                    let text = message.to_str().unwrap_or_default();
+                    let plain = text
+                        .find(" as a dict key (")
+                        .and_then(|i| text[i + " as a dict key (".len()..].strip_suffix(')'))
+                        .unwrap_or(text);
+                    vm.ctx.new_str(plain)
+                };
                 let err = vm.new_type_error(format!(
                     "cannot use '{}' as a set element ({message})",
                     item.class().name()
@@ -782,28 +795,63 @@ impl PySet {
         }
     }
 
-    #[pymethod]
-    pub fn add(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+    /// Add an item without the method-call arity checks (internal use).
+    pub fn add_element(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
         self.inner.add(item, vm)
     }
 
-    #[pymethod]
-    fn remove(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.remove(item, vm)
+    /// Discard an item without the method-call arity checks (internal use).
+    pub fn discard_element(&self, item: &PyObject, vm: &VirtualMachine) -> PyResult<bool> {
+        self.inner.discard(item, vm)
     }
 
-    #[pymethod]
-    pub fn discard(&self, item: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        self.inner.discard(&item, vm).map(|_| ())
+    /// Pop an element without the method-call arity checks (internal use).
+    pub fn pop_element(&self, vm: &VirtualMachine) -> PyResult {
+        self.inner.pop(vm)
     }
 
-    #[pymethod]
-    pub fn clear(&self) {
+    /// Remove all elements without the method-call arity checks (internal use).
+    pub fn clear_elements(&self) {
         self.inner.clear()
     }
 
     #[pymethod]
-    pub fn pop(&self, vm: &VirtualMachine) -> PyResult {
+    pub fn add(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_no_kwargs(vm, "set.add", &func_args)?;
+        if func_args.args.len() != 1 {
+            return Err(vm.new_type_error(format!(
+                "set.add() takes exactly one argument ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let (item,): (PyObjectRef,) = func_args.bind(vm)?;
+        self.inner.add(&item, vm)
+    }
+
+    #[pymethod]
+    fn remove(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "set.remove", &func_args)?;
+        let (item,): (PyObjectRef,) = func_args.bind(vm)?;
+        self.inner.remove(item, vm)
+    }
+
+    #[pymethod]
+    pub fn discard(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_meth_o(vm, "set.discard", &func_args)?;
+        let (item,): (PyObjectRef,) = func_args.bind(vm)?;
+        self.inner.discard(&item, vm).map(|_| ())
+    }
+
+    #[pymethod]
+    pub fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_noargs(vm, "set.clear", &func_args)?;
+        self.inner.clear();
+        Ok(())
+    }
+
+    #[pymethod]
+    pub fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_noargs(vm, "set.pop", &func_args)?;
         self.inner.pop(vm)
     }
 
@@ -897,7 +945,7 @@ impl Initializer for PySet {
     type Args = OptionalArg<PyObjectRef>;
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
-        zelf.clear();
+        zelf.inner.clear();
         if let OptionalArg::Present(it) = iterable {
             zelf.update(PosArgs::new(vec![it]), vm)?;
         }
@@ -1061,6 +1109,9 @@ impl Constructor for PyFrozenSet {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // set_vectorcall: _PyArg_CheckPositional(tp_name, nargs, 0, 1)
+        let name = cls.slot_name().to_string();
+        check_positional(vm, &name, args.args.len(), 0, 1)?;
         let is_exact_frozenset = cls.is(vm.ctx.types.frozenset_type);
         let is_frozenset_init = {
             let cls_init = cls
@@ -1562,6 +1613,9 @@ fn vectorcall_set(
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyType> = zelf_obj.downcast_ref().unwrap();
+    // set_vectorcall: _PyArg_CheckPositional(tp_name, nargs, 0, 1)
+    let name = zelf.slot_name().to_string();
+    check_positional(vm, &name, nargs, 0, 1)?;
     let obj = PySet::default().into_ref_with_type(vm, zelf.to_owned())?;
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     PySet::slot_init(obj.clone().into(), func_args, vm)?;

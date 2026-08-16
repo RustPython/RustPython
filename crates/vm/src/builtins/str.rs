@@ -1,5 +1,5 @@
 use super::{
-    PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
+    PositionIterInternal, PyBytesRef, PyDict, PySlice, PyTuple, PyTupleRef, PyType, PyTypeRef,
     int::{PyInt, PyIntRef},
     iter::{
         IterStatus::{self, Exhausted},
@@ -18,16 +18,19 @@ use crate::{
         lock::LazyLock,
         str::{PyKindStr, StrData, StrKind},
     },
-    convert::{IntoPyException, ToPyException, ToPyObject, ToPyResult},
+    convert::{ToPyException, ToPyObject, ToPyResult, TryFromObject},
     format::{format, format_map},
-    function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{
+        ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue,
+        check_meth_o, check_no_kwargs, check_noargs, check_positional,
+    },
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
     protocol::{
         BufferFlags, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
     },
     sequence::SequenceExt,
-    sliceable::{SequenceIndex, SliceableSequenceOp},
+    sliceable::SliceableSequenceOp,
     types::{
         AsMapping, AsNumber, AsSequence, Comparable, Constructor, Hashable, IterNext, Iterable,
         PyComparisonOp, Representable, SelfIter,
@@ -390,15 +393,60 @@ pub struct StrArgs {
     #[pyarg(any, optional)]
     object: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    encoding: OptionalArg<PyUtf8StrRef>,
+    encoding: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    errors: OptionalArg<PyUtf8StrRef>,
+    errors: OptionalArg<PyObjectRef>,
 }
 
 impl Constructor for PyStr {
     type Args = StrArgs;
 
     fn slot_new(cls: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Mirror CPython: str() without keyword arguments goes through
+        // unicode_vectorcall (_PyArg_CheckPositional), keyword calls fall
+        // back to unicode_new (kwlist {"", "encoding", "errors"}).
+        if func_args.kwargs.is_empty() {
+            if func_args.args.len() > 3 {
+                return Err(vm.new_type_error(format!(
+                    "str expected at most 3 arguments, got {}",
+                    func_args.args.len()
+                )));
+            }
+        } else {
+            let total = func_args.args.len() + func_args.kwargs.len();
+            if total > 3 {
+                return Err(vm.new_type_error(format!(
+                    "str() takes at most 3 {}arguments ({} given)",
+                    if func_args.args.is_empty() {
+                        "keyword "
+                    } else {
+                        ""
+                    },
+                    total
+                )));
+            }
+            // No argument may be given by both name and position
+            for (i, name) in ["object", "encoding", "errors"]
+                .into_iter()
+                .enumerate()
+                .take(func_args.args.len())
+            {
+                if func_args.kwargs.contains_key(name) {
+                    return Err(vm.new_type_error(format!(
+                        "argument for str() given by name ('{name}') and position ({})",
+                        i + 1
+                    )));
+                }
+            }
+            for key in func_args.kwargs.keys() {
+                if !matches!(key.as_str(), Ok("object" | "encoding" | "errors")) {
+                    return Err(vm.new_type_error(format!(
+                        "str() got an unexpected keyword argument '{key}'"
+                    )));
+                }
+            }
+        }
+
         // Optimization: return exact str as-is (only when no encoding/errors provided)
         if cls.is(vm.ctx.types.str_type)
             && func_args.args.len() == 1
@@ -408,7 +456,22 @@ impl Constructor for PyStr {
             return Ok(func_args.args[0].clone());
         }
 
-        let args: Self::Args = func_args.bind(vm)?;
+        // CPython: str() calls with keyword arguments go through the clinic
+        // converter, which renders None as "None" instead of "NoneType".
+        let encoding_kw = func_args.kwargs.contains_key("encoding");
+        let errors_kw = func_args.kwargs.contains_key("errors");
+
+        let mut args: Self::Args = func_args.bind(vm)?;
+
+        if let OptionalArg::Present(encoding) = args.encoding {
+            args.encoding = OptionalArg::Present(
+                str_new_str_arg(encoding, "encoding", encoding_kw, vm)?.into(),
+            );
+        }
+        if let OptionalArg::Present(errors) = args.errors {
+            args.errors =
+                OptionalArg::Present(str_new_str_arg(errors, "errors", errors_kw, vm)?.into());
+        }
 
         // CPython parity: when cls is exactly str, return the __str__ / __repr__
         // result as-is so any str subclass type the user returned is preserved
@@ -432,8 +495,20 @@ impl Constructor for PyStr {
     fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
         match args.object {
             OptionalArg::Present(input) => {
-                let encoding = args.encoding.into_option();
-                let errors = args.errors.into_option();
+                // CPython: arg_as_utf8 validates encoding/errors before the
+                // input object is inspected (unicode_vectorcall).
+                let encoding = match args.encoding {
+                    OptionalArg::Present(encoding) => {
+                        Some(str_new_str_arg(encoding, "encoding", false, vm)?)
+                    }
+                    OptionalArg::Missing => None,
+                };
+                let errors = match args.errors {
+                    OptionalArg::Present(errors) => {
+                        Some(str_new_str_arg(errors, "errors", false, vm)?)
+                    }
+                    OptionalArg::Missing => None,
+                };
                 // CPython parity: presence of `encoding` OR `errors` triggers
                 // decode mode. When `errors` is given alone, the encoding
                 // defaults to UTF-8.
@@ -606,6 +681,15 @@ impl PyStr {
             // This only works for `str` itself, not its subclasses.
             return Ok(zelf);
         }
+        let value_usize = value as usize;
+        if value > 1 && zelf.char_len() > (isize::MAX as usize) / value_usize {
+            // CPython: unicode_repeat
+            return Err(vm.new_overflow_error("repeated string is too long"));
+        }
+        if value > 1 && zelf.byte_len() >= crate::vm::MAX_MEMORY_SIZE / value_usize {
+            // avoid a hard abort on a huge allocation; mirrors SequenceExt::mul
+            return Err(vm.new_memory_error(""));
+        }
         zelf.as_wtf8()
             .as_bytes()
             .mul(vm, value)
@@ -653,12 +737,21 @@ impl PyStr {
             }
             .to_pyobject(vm))
         } else if let Some(radd) = vm.get_method(other.clone(), identifier!(vm, __radd__)) {
-            // hack to get around not distinguishing number add from seq concat
-            radd?.call((zelf,), vm)
+            // str has no nb_add in CPython, so the right operand's reflected
+            // __add__ runs before sq_concat raises
+            let result = radd?.call((zelf,), vm)?;
+            if result.is(&vm.ctx.not_implemented) {
+                Err(vm.new_type_error(format!(
+                    r#"can only concatenate str (not "{}") to str"#,
+                    other.class().slot_name()
+                )))
+            } else {
+                Ok(result)
+            }
         } else {
             Err(vm.new_type_error(format!(
                 r#"can only concatenate str (not "{}") to str"#,
-                other.class().name()
+                other.class().slot_name()
             )))
         }
     }
@@ -679,11 +772,34 @@ impl PyStr {
     }
 
     fn _getitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult {
-        let item = match SequenceIndex::try_from_borrowed_object(vm, needle, "str")? {
-            SequenceIndex::Int(i) => self.getitem_by_index(vm, i)?.to_pyobject(vm),
-            SequenceIndex::Slice(slice) => self.getitem_by_slice(vm, slice)?.to_pyobject(vm),
+        // CPython parity (unicode_subscript): ints and __index__ objects index
+        // single characters, slices slice, anything else is a TypeError.
+        let index = if let Some(i) = needle.downcast_ref::<PyInt>() {
+            Some(i.as_bigint().to_isize())
+        } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
+            return self
+                .getitem_by_slice(vm, slice.to_saturated(vm)?)
+                .to_pyresult(vm);
+        } else if let Some(i) = needle.try_index_opt(vm) {
+            Some(i?.as_bigint().to_isize())
+        } else {
+            None
         };
-        Ok(item)
+        match index {
+            Some(i) => {
+                let i = i.ok_or_else(|| {
+                    vm.new_index_error("cannot fit 'int' into an index-sized integer")
+                })?;
+                let pos = self
+                    .wrap_index(i)
+                    .ok_or_else(|| vm.new_index_error("string index out of range"))?;
+                Ok(self.do_get(pos).to_pyobject(vm))
+            }
+            None => Err(vm.new_type_error(format!(
+                "string indices must be integers, not '{}'",
+                needle.class().name()
+            ))),
+        }
     }
 
     fn __getitem__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -737,10 +853,15 @@ impl PyStr {
         self.data.byte_to_char_index(bytepos)
     }
 
-    #[pymethod]
     #[inline(always)]
     pub const fn isascii(&self) -> bool {
         matches!(self.kind(), StrKind::Ascii)
+    }
+
+    #[pymethod(name = "isascii")]
+    fn isascii_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isascii", &func_args)?;
+        Ok(self.isascii())
     }
 
     #[pymethod]
@@ -762,12 +883,13 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn lower(&self) -> Self {
-        match self.as_str_kind() {
+    fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "str.lower", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
             PyKindStr::Utf8(s) => s.to_lowercase().into(),
             PyKindStr::Wtf8(w) => w.to_lowercase().into(),
-        }
+        })
     }
 
     // Case folding is a Unicode standard operation to erase case differences.
@@ -776,26 +898,29 @@ impl PyStr {
     // differences. For ASCII, case folding is the same as lower case but other scripts have
     // their own, well-defined mappings.
     #[pymethod]
-    fn casefold(&self) -> Self {
-        match self.as_str_kind() {
+    fn casefold(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "str.casefold", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_lowercase().into(),
             PyKindStr::Utf8(s) => unicode::case::casefold_str(s).into(),
             PyKindStr::Wtf8(w) => unicode::case::casefold_wtf8(w).into(),
-        }
+        })
     }
 
     #[pymethod]
-    fn upper(&self) -> Self {
-        match self.as_str_kind() {
+    fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "str.upper", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.to_ascii_uppercase().into(),
             PyKindStr::Utf8(s) => s.to_uppercase().into(),
             PyKindStr::Wtf8(w) => w.to_uppercase().into(),
-        }
+        })
     }
 
     #[pymethod]
-    fn capitalize(&self) -> Wtf8Buf {
-        match self.as_str_kind() {
+    fn capitalize(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_noargs(vm, "str.capitalize", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => {
                 let mut s = s.to_owned();
                 if let [first, rest @ ..] = s.as_mut_slice() {
@@ -806,14 +931,25 @@ impl PyStr {
             }
             PyKindStr::Utf8(s) => case::capitalize_str(s).into(),
             PyKindStr::Wtf8(s) => case::capitalize_wtf8(s),
-        }
+        })
     }
 
     #[pymethod]
-    fn split(zelf: &Py<Self>, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+    fn split(zelf: &Py<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 2 optional arguments
+        let total = args.args.len() + args.kwargs.len();
+        if total > 2 {
+            return Err(
+                vm.new_type_error(format!("split() takes at most 2 arguments ({total} given)"))
+            );
+        }
+        let args: SplitArgs = args.bind(vm)?;
+        let (sep, maxsplit) = args.get_value(vm)?;
         let elements = match zelf.as_str_kind() {
-            PyKindStr::Ascii(s) => s.py_split(
-                args,
+            PyKindStr::Ascii(s) => py_split_str(
+                s,
+                sep,
+                maxsplit,
                 vm,
                 || zelf.as_object().to_owned(),
                 |v, s, vm| {
@@ -834,16 +970,20 @@ impl PyStr {
                     })
                 },
             ),
-            PyKindStr::Utf8(s) => s.py_split(
-                args,
+            PyKindStr::Utf8(s) => py_split_str(
+                s,
+                sep,
+                maxsplit,
                 vm,
                 || zelf.as_object().to_owned(),
                 |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s).into()).collect(),
                 |v, s, n, vm| v.splitn(n, s).map(|s| vm.ctx.new_str(s).into()).collect(),
                 |v, n, vm| v.py_split_whitespace(n, |s| vm.ctx.new_str(s).into()),
             ),
-            PyKindStr::Wtf8(w) => w.py_split(
-                args,
+            PyKindStr::Wtf8(w) => py_split_str(
+                w,
+                sep,
+                maxsplit,
                 vm,
                 || zelf.as_object().to_owned(),
                 |v, s, vm| v.split(s).map(|s| vm.ctx.new_str(s).into()).collect(),
@@ -855,9 +995,24 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn rsplit(zelf: &Py<Self>, args: SplitArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
-        let mut elements = zelf.as_wtf8().py_split(
-            args,
+    fn rsplit(
+        zelf: &Py<Self>,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 2 optional arguments
+        let total = func_args.args.len() + func_args.kwargs.len();
+        if total > 2 {
+            return Err(vm.new_type_error(format!(
+                "rsplit() takes at most 2 arguments ({total} given)"
+            )));
+        }
+        let args: SplitArgs = func_args.bind(vm)?;
+        let (sep, maxsplit) = args.get_value(vm)?;
+        let mut elements = py_split_str(
+            zelf.as_wtf8(),
+            sep,
+            maxsplit,
             vm,
             || zelf.as_object().to_owned(),
             |v, s, vm| v.rsplit(s).map(|s| vm.ctx.new_str(s).into()).collect(),
@@ -871,8 +1026,12 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyStrRef>) -> Self {
-        match self.as_str_kind() {
+    fn strip(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "str.strip", &func_args)?;
+        check_positional(vm, "strip", func_args.args.len(), 0, 1)?;
+        let (chars,): (OptionalOption<PyObjectRef>,) = func_args.bind(vm)?;
+        let chars = strip_chars(chars, "strip", vm)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => s
                 .py_strip(
                     chars,
@@ -899,117 +1058,185 @@ impl PyStr {
                     |s| s.trim(),
                 )
                 .into(),
-        }
+        })
     }
 
     #[pymethod]
     fn lstrip(
         zelf: PyRef<Self>,
-        chars: OptionalOption<PyStrRef>,
+        func_args: FuncArgs,
         vm: &VirtualMachine,
-    ) -> PyRef<Self> {
+    ) -> PyResult<PyRef<Self>> {
+        check_no_kwargs(vm, "str.lstrip", &func_args)?;
+        check_positional(vm, "lstrip", func_args.args.len(), 0, 1)?;
+        let (chars,): (OptionalOption<PyObjectRef>,) = func_args.bind(vm)?;
+        let chars = strip_chars(chars, "lstrip", vm)?;
         let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_start_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_start(),
         );
-        if s == stripped {
+        Ok(if s == stripped {
             zelf
         } else {
             vm.ctx.new_str(stripped)
-        }
+        })
     }
 
     #[pymethod]
     fn rstrip(
         zelf: PyRef<Self>,
-        chars: OptionalOption<PyStrRef>,
+        func_args: FuncArgs,
         vm: &VirtualMachine,
-    ) -> PyRef<Self> {
+    ) -> PyResult<PyRef<Self>> {
+        check_no_kwargs(vm, "str.rstrip", &func_args)?;
+        check_positional(vm, "rstrip", func_args.args.len(), 0, 1)?;
+        let (chars,): (OptionalOption<PyObjectRef>,) = func_args.bind(vm)?;
+        let chars = strip_chars(chars, "rstrip", vm)?;
         let s = zelf.as_wtf8();
         let stripped = s.py_strip(
             chars,
             |s, chars| s.trim_end_matches(|c| chars.contains_code_point(c)),
             |s| s.trim_end(),
         );
-        if s == stripped {
+        Ok(if s == stripped {
             zelf
         } else {
             vm.ctx.new_str(stripped)
-        }
+        })
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
-            &s[self.data.char_range_to_bytes(r)]
-        }) {
-            Some(x) => x,
-            None => return Ok(false),
-        };
-        substr.py_starts_ends_with(
-            &affix,
+    fn endswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "str.endswith", &func_args)?;
+        check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
+        let options: StartsEndsWithArgs = func_args.bind(vm)?;
+        self.tailmatch(
+            options,
             "endswith",
-            "str",
             |s, x: &Py<Self>| s.ends_with(x.as_wtf8()),
             vm,
         )
     }
 
     #[pymethod]
-    fn startswith(
-        &self,
-        options: anystr::StartsEndsWithArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
-        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
-            &s[self.data.char_range_to_bytes(r)]
-        }) {
-            Some(x) => x,
-            None => return Ok(false),
-        };
-        substr.py_starts_ends_with(
-            &affix,
+    fn startswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "str.startswith", &func_args)?;
+        check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
+        let options: StartsEndsWithArgs = func_args.bind(vm)?;
+        self.tailmatch(
+            options,
             "startswith",
-            "str",
             |s, x: &Py<Self>| s.starts_with(x.as_wtf8()),
             vm,
         )
     }
 
+    // CPython: tailmatch over self[start:end], driven like unicode_startswith_impl
+    fn tailmatch(
+        &self,
+        options: StartsEndsWithArgs,
+        func_name: &str,
+        test: impl Fn(&Wtf8, &Py<Self>) -> bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        let start = options
+            .start
+            .map(|o| opt_slice_index(o, vm))
+            .transpose()?
+            .flatten();
+        let end = options
+            .end
+            .map(|o| opt_slice_index(o, vm))
+            .transpose()?
+            .flatten();
+        let hay = self.as_wtf8();
+        let substr = if start.is_some() || end.is_some() {
+            let range = adjust_indices(start, end, self.len());
+            // an empty range matches nothing, but the affix checks below still run
+            range.is_normal().then(|| hay.get_chars(range))
+        } else {
+            Some(hay)
+        };
+        let tailmatch = |affix: &Py<Self>| substr.is_some_and(|substr| test(substr, affix));
+        if let Some(tuple) = options.affix.downcast_ref::<PyTuple>() {
+            for item in tuple.as_slice() {
+                let Some(affix) = item.downcast_ref::<Self>() else {
+                    return Err(vm.new_type_error(format!(
+                        "tuple for {func_name} must only contain str, not {}",
+                        item.class().name()
+                    )));
+                };
+                if tailmatch(affix) {
+                    return Ok(true);
+                }
+            }
+            Ok(false)
+        } else if let Some(affix) = options.affix.downcast_ref::<Self>() {
+            Ok(tailmatch(affix))
+        } else {
+            Err(vm.new_type_error(format!(
+                "{func_name} first arg must be str or a tuple of str, not {}",
+                options.affix.class().name()
+            )))
+        }
+    }
+
     #[pymethod]
-    fn removeprefix(&self, pref: PyStrRef) -> Wtf8Buf {
-        self.as_wtf8()
+    fn removeprefix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_meth_o(vm, "str.removeprefix", &func_args)?;
+        let (pref,): (PyObjectRef,) = func_args.bind(vm)?;
+        let pref = pref.downcast::<Self>().map_err(|pref| {
+            vm.new_type_error(format!(
+                "removeprefix() argument must be str, not {}",
+                bad_arg_type_name(&pref, vm)
+            ))
+        })?;
+        Ok(self
+            .as_wtf8()
             .py_removeprefix(pref.as_wtf8(), pref.byte_len(), |s, p| s.starts_with(p))
-            .to_owned()
+            .to_owned())
     }
 
     #[pymethod]
-    fn removesuffix(&self, suffix: PyStrRef) -> Wtf8Buf {
-        self.as_wtf8()
+    fn removesuffix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_meth_o(vm, "str.removesuffix", &func_args)?;
+        let (suffix,): (PyObjectRef,) = func_args.bind(vm)?;
+        let suffix = suffix.downcast::<Self>().map_err(|suffix| {
+            vm.new_type_error(format!(
+                "removesuffix() argument must be str, not {}",
+                bad_arg_type_name(&suffix, vm)
+            ))
+        })?;
+        Ok(self
+            .as_wtf8()
             .py_removesuffix(suffix.as_wtf8(), suffix.byte_len(), |s, p| s.ends_with(p))
-            .to_owned()
+            .to_owned())
     }
 
     #[pymethod]
-    fn isalnum(&self) -> bool {
-        !self.data.is_empty() && self.char_all(unicode::classify::is_alnum)
+    fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isalnum", &func_args)?;
+        Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_alnum))
     }
 
     #[pymethod]
-    fn isnumeric(&self) -> bool {
-        !self.data.is_empty() && self.char_all(unicode::classify::is_numeric)
+    fn isnumeric(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isnumeric", &func_args)?;
+        Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_numeric))
     }
 
     #[pymethod]
-    fn isdigit(&self) -> bool {
-        !self.data.is_empty() && self.char_all(unicode::classify::is_digit)
+    fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isdigit", &func_args)?;
+        Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_digit))
     }
 
     #[pymethod]
-    fn isdecimal(&self) -> bool {
-        !self.data.is_empty() && self.char_all(unicode::classify::is_decimal)
+    fn isdecimal(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isdecimal", &func_args)?;
+        Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_decimal))
     }
 
     pub fn __mod__(&self, values: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -1024,7 +1251,9 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn format_map(&self, mapping: PyObjectRef, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn format_map(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_meth_o(vm, "str.format_map", &func_args)?;
+        let (mapping,): (PyObjectRef,) = func_args.bind(vm)?;
         let format_string =
             FormatString::from_str(self.as_wtf8()).map_err(|err| err.to_pyexception(vm))?;
         format_map(&format_string, &mapping, vm)
@@ -1048,11 +1277,10 @@ impl PyStr {
             .and_then(|format_spec| {
                 format_spec.format_string(&CharLenStr(zelf.as_str(), zelf.char_len()))
             })
-            .map_err(|err| err.into_pyexception(vm))?;
+            .map_err(|err| crate::format::format_spec_error_with_type(err, zelf.as_object(), vm))?;
         Ok(vm.ctx.new_str(s))
     }
 
-    #[pymethod]
     fn title(&self) -> Wtf8Buf {
         match self.as_str_kind() {
             PyKindStr::Ascii(_) => unsafe {
@@ -1063,31 +1291,70 @@ impl PyStr {
         }
     }
 
+    #[pymethod(name = "title")]
+    fn title_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_noargs(vm, "str.title", &func_args)?;
+        Ok(self.title())
+    }
+
     #[pymethod]
-    fn swapcase(&self) -> Wtf8Buf {
-        match self.as_str_kind() {
+    fn swapcase(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_noargs(vm, "str.swapcase", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => unsafe {
                 // SAFETY: ASCII is valid Unicode and swapcase_ascii does not produce non-ASCII.
                 Wtf8Buf::from_bytes_unchecked(swapcase_ascii(s.as_bytes()))
             },
             PyKindStr::Utf8(s) => case::swapcase_str(s).into(),
             PyKindStr::Wtf8(s) => case::swapcase_wtf8(s),
-        }
+        })
     }
 
     #[pymethod]
-    fn isalpha(&self) -> bool {
-        !self.data.is_empty() && self.char_all(unicode::classify::is_alpha)
+    fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isalpha", &func_args)?;
+        Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_alpha))
     }
 
     #[pymethod]
-    fn replace(&self, args: ReplaceArgs) -> Wtf8Buf {
+    fn replace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
         use core::cmp::Ordering;
 
+        // CPython: unicode_replace parses (old, new, /, count=-1); a shortfall
+        // of positional arguments is reported before keyword validation.
+        let nargs = func_args.args.len();
+        if nargs < 2 {
+            return Err(vm.new_type_error(format!(
+                "replace() takes at least 2 positional arguments ({nargs} given)"
+            )));
+        }
+        let total = nargs + func_args.kwargs.len();
+        if total > 3 {
+            return Err(vm.new_type_error(format!(
+                "replace() takes at most 3 arguments ({total} given)"
+            )));
+        }
+        let args: ReplaceArgs = func_args.bind(vm)?;
         let s = self.as_wtf8();
         let ReplaceArgs { old, new, count } = args;
+        let old = old.downcast::<Self>().map_err(|old| {
+            vm.new_type_error(format!(
+                "replace() argument 1 must be str, not {}",
+                bad_arg_type_name(&old, vm)
+            ))
+        })?;
+        let new = new.downcast::<Self>().map_err(|new| {
+            vm.new_type_error(format!(
+                "replace() argument 2 must be str, not {}",
+                bad_arg_type_name(&new, vm)
+            ))
+        })?;
+        let count = match count {
+            OptionalArg::Present(count) => to_c_ssize_t(&count, vm)?,
+            OptionalArg::Missing => -1,
+        };
 
-        match count.cmp(&0) {
+        Ok(match count.cmp(&0) {
             Ordering::Less => s.replace(old.as_wtf8(), new.as_wtf8()),
             Ordering::Equal => s.to_owned(),
             Ordering::Greater => {
@@ -1102,41 +1369,57 @@ impl PyStr {
                     s.replacen(old.as_wtf8(), new.as_wtf8(), count as usize)
                 }
             }
-        }
+        })
     }
 
-    #[pymethod]
     fn isprintable(&self) -> bool {
         self.char_all(unicode::classify::is_printable)
     }
 
+    #[pymethod(name = "isprintable")]
+    fn isprintable_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isprintable", &func_args)?;
+        Ok(self.isprintable())
+    }
+
     #[pymethod]
-    fn isspace(&self) -> bool {
-        !self.data.is_empty() && self.char_all(unicode::classify::is_space)
+    fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isspace", &func_args)?;
+        Ok(!self.data.is_empty() && self.char_all(unicode::classify::is_space))
     }
 
     // Return true if all cased characters in the string are lowercase and there is at least one cased character, false otherwise.
     #[pymethod]
-    fn islower(&self) -> bool {
-        match self.as_str_kind() {
+    fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.islower", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.py_islower(),
             PyKindStr::Utf8(s) => s.py_islower(),
             PyKindStr::Wtf8(w) => w.py_islower(),
-        }
+        })
     }
 
     // Return true if all cased characters in the string are uppercase and there is at least one cased character, false otherwise.
     #[pymethod]
-    fn isupper(&self) -> bool {
-        match self.as_str_kind() {
+    fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isupper", &func_args)?;
+        Ok(match self.as_str_kind() {
             PyKindStr::Ascii(s) => s.py_isupper(),
             PyKindStr::Utf8(s) => s.py_isupper(),
             PyKindStr::Wtf8(w) => w.py_isupper(),
-        }
+        })
     }
 
     #[pymethod]
-    fn splitlines(&self, args: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
+    fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 1 optional argument
+        let total = func_args.args.len() + func_args.kwargs.len();
+        if total > 1 {
+            return Err(vm.new_type_error(format!(
+                "splitlines() takes at most 1 argument ({total} given)"
+            )));
+        }
+        let args: anystr::SplitLinesArgs = func_args.bind(vm)?;
         let into_wrapper = |s: &Wtf8| self.new_substr(s.to_owned()).to_pyobject(vm);
         let mut elements = Vec::new();
         let mut last_i = 0;
@@ -1164,25 +1447,39 @@ impl PyStr {
         if last_i != self_str.len() {
             elements.push(into_wrapper(&self_str[last_i..]));
         }
-        elements
+        Ok(elements)
     }
 
     #[pymethod]
-    fn join(
-        zelf: PyRef<Self>,
-        iterable: ArgIterable<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<PyStrRef> {
-        let iter = iterable.iter(vm)?;
-        let joined = match iter.exactly_one() {
-            Ok(first) => {
-                let first = first?;
+    fn join(zelf: PyRef<Self>, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // CPython: PyUnicode_Join collects the sequence first, then reports the
+        // index of the first non-str item. The iterable conversion reports
+        // "can only join an iterable" (PySequence_Fast).
+        let iterable = <ArgIterable<PyObjectRef> as TryFromObject>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
+        let items = iterable.iter(vm)?.collect::<PyResult<Vec<_>>>()?;
+        let items = items
+            .into_iter()
+            .enumerate()
+            .map(|(i, item)| {
+                item.downcast::<Self>().map_err(|item| {
+                    vm.new_type_error(format!(
+                        "sequence item {i}: expected str instance, {} found",
+                        item.class().name()
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let joined = match items.as_slice() {
+            [first] => {
                 if first.as_object().class().is(vm.ctx.types.str_type) {
-                    return Ok(first);
+                    return Ok(first.clone());
                 }
                 first.as_wtf8().to_owned()
             }
-            Err(iter) => zelf.as_wtf8().py_join(iter)?,
+            _ => zelf
+                .as_wtf8()
+                .py_join(items.iter().map(|item| Ok(item.clone())))?,
         };
         Ok(vm.ctx.new_str(joined))
     }
@@ -1190,54 +1487,92 @@ impl PyStr {
     /// The bytes the character range `range` spans and the byte offset it
     /// starts at, or `None` if the range is inverted.
     ///
-    /// The bounds go through the string's character index, so reaching a range
-    /// deep in the subject costs a lookup rather than a walk to it.
-    #[inline]
-    fn char_range_bytes(&self, range: Range<usize>) -> Option<(usize, &Wtf8)> {
-        if !range.is_normal() {
-            return None;
-        }
-        let bytes = self.data.char_range_to_bytes(range);
-        Some((bytes.start, &self.as_wtf8()[bytes]))
-    }
-
     /// Searches the character range `range` with `find`, which answers in bytes
     /// relative to the range, and reports the hit as a character index.
     #[inline]
-    fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
+    fn _to_char_idx(r: &Wtf8, byte_idx: usize) -> usize {
+        r[..byte_idx].code_points().count()
+    }
+
+    fn _find<F>(
+        &self,
+        args: FindArgs,
+        func_name: &str,
+        find: F,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>>
     where
         F: Fn(&Wtf8, &Wtf8) -> Option<usize>,
     {
-        let (sub, range) = args.get_value(self.len());
-        let (start, haystack) = self.char_range_bytes(range)?;
-        let found = find(haystack, sub.as_wtf8())?;
-        Some(self.byte_to_char_index(start + found))
+        let (sub, range) = args.get_value(self.len(), func_name, vm)?;
+        Ok(self.as_wtf8().py_find(sub.as_wtf8(), range, find))
     }
 
     #[pymethod]
-    fn find(&self, args: FindArgs) -> isize {
-        self._find(args, Wtf8::find).map_or(-1, |v| v as isize)
+    fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        check_no_kwargs(vm, "str.find", &func_args)?;
+        check_positional(vm, "find", func_args.args.len(), 1, 3)?;
+        let args: FindArgs = func_args.bind(vm)?;
+        Ok(self
+            ._find(
+                args,
+                "find",
+                |r, s| Some(Self::_to_char_idx(r, r.find(s)?)),
+                vm,
+            )?
+            .map_or(-1, |v| v as isize))
     }
 
     #[pymethod]
-    fn rfind(&self, args: FindArgs) -> isize {
-        self._find(args, Wtf8::rfind).map_or(-1, |v| v as isize)
+    fn rfind(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        check_no_kwargs(vm, "str.rfind", &func_args)?;
+        check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
+        let args: FindArgs = func_args.bind(vm)?;
+        Ok(self
+            ._find(
+                args,
+                "rfind",
+                |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)),
+                vm,
+            )?
+            .map_or(-1, |v| v as isize))
     }
 
     #[pymethod]
-    fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, Wtf8::find)
-            .ok_or_else(|| vm.new_value_error("substring not found"))
+    fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "str.index", &func_args)?;
+        check_positional(vm, "index", func_args.args.len(), 1, 3)?;
+        let args: FindArgs = func_args.bind(vm)?;
+        self._find(
+            args,
+            "index",
+            |r, s| Some(Self::_to_char_idx(r, r.find(s)?)),
+            vm,
+        )?
+        .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
-    fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, Wtf8::rfind)
-            .ok_or_else(|| vm.new_value_error("substring not found"))
+    fn rindex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "str.rindex", &func_args)?;
+        check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
+        let args: FindArgs = func_args.bind(vm)?;
+        self._find(
+            args,
+            "rindex",
+            |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)),
+            vm,
+        )?
+        .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
-    pub fn partition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub fn partition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_meth_o(vm, "str.partition", &func_args)?;
+        let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
+        let sep = sep
+            .downcast::<Self>()
+            .map_err(|sep| vm.new_type_error(format!("must be str, not {}", sep.class().name())))?;
         let (front, has_mid, back) = self.as_wtf8().py_partition(
             sep.as_wtf8(),
             || self.as_wtf8().splitn(2, sep.as_wtf8()),
@@ -1256,7 +1591,12 @@ impl PyStr {
     }
 
     #[pymethod]
-    pub fn rpartition(&self, sep: PyStrRef, vm: &VirtualMachine) -> PyResult {
+    pub fn rpartition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_meth_o(vm, "str.rpartition", &func_args)?;
+        let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
+        let sep = sep
+            .downcast::<Self>()
+            .map_err(|sep| vm.new_type_error(format!("must be str, not {}", sep.class().name())))?;
         let (back, has_mid, front) = self.as_wtf8().py_partition(
             sep.as_wtf8(),
             || self.as_wtf8().rsplitn(2, sep.as_wtf8()),
@@ -1274,7 +1614,6 @@ impl PyStr {
             .to_pyobject(vm))
     }
 
-    #[pymethod]
     fn istitle(&self) -> bool {
         if self.data.is_empty() {
             return false;
@@ -1302,25 +1641,28 @@ impl PyStr {
         cased
     }
 
-    #[pymethod]
-    fn count(&self, args: FindArgs) -> usize {
-        let (needle, range) = args.get_value(self.len());
-        let chars = range.len();
-        self.char_range_bytes(range).map_or(0, |(_, haystack)| {
-            if needle.is_empty() {
-                // An empty needle sits between every pair of characters and at
-                // both ends, so it occurs once more than the range holds
-                // characters. Counting it in the bytes would answer in encoded
-                // positions instead.
-                chars + 1
-            } else {
-                haystack.find_iter(needle.as_wtf8()).count()
-            }
-        })
+    #[pymethod(name = "istitle")]
+    fn istitle_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.istitle", &func_args)?;
+        Ok(self.istitle())
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+    fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "str.count", &func_args)?;
+        check_positional(vm, "count", func_args.args.len(), 1, 3)?;
+        let args: FindArgs = func_args.bind(vm)?;
+        let (needle, range) = args.get_value(self.len(), "count", vm)?;
+        Ok(self
+            .as_wtf8()
+            .py_count(needle.as_wtf8(), range, |h, n| h.find_iter(n).count()))
+    }
+
+    #[pymethod]
+    fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_meth_o(vm, "str.zfill", &func_args)?;
+        let (width,): (PyObjectRef,) = func_args.bind(vm)?;
+        let width = to_c_ssize_t(&width, vm)?;
         let filled = self
             .as_wtf8()
             .py_zfill(width)
@@ -1332,16 +1674,31 @@ impl PyStr {
     #[inline]
     fn _pad(
         &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
+        width: PyObjectRef,
+        fillchar: OptionalArg<PyObjectRef>,
         pad: fn(&Wtf8, usize, CodePoint, usize) -> Option<Wtf8Buf>,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {
-        let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
-            s.as_wtf8().code_points().exactly_one().map_err(|_| {
-                vm.new_type_error("The fill character must be exactly one character long")
-            })
-        })?;
+        let width = to_c_ssize_t(&width, vm)?;
+        let fillchar = match fillchar {
+            OptionalArg::Missing => ' '.into(),
+            OptionalArg::Present(fillchar) => {
+                // CPython: convert_uc
+                let fillchar = fillchar.downcast::<Self>().map_err(|fillchar| {
+                    vm.new_type_error(format!(
+                        "The fill character must be a unicode character, not {}",
+                        fillchar.class().name()
+                    ))
+                })?;
+                fillchar
+                    .as_wtf8()
+                    .code_points()
+                    .exactly_one()
+                    .map_err(|_| {
+                        vm.new_type_error("The fill character must be exactly one character long")
+                    })?
+            }
+        };
         if self.len() as isize >= width {
             return Ok(self.as_wtf8().to_owned());
         }
@@ -1350,45 +1707,50 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn center(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
+    fn center(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_no_kwargs(vm, "str.center", &func_args)?;
+        check_positional(vm, "center", func_args.args.len(), 1, 2)?;
+        let (width, fillchar): (PyObjectRef, OptionalArg<PyObjectRef>) = func_args.bind(vm)?;
         self._pad(width, fillchar, AnyStr::py_center, vm)
     }
 
     #[pymethod]
-    fn ljust(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
+    fn ljust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_no_kwargs(vm, "str.ljust", &func_args)?;
+        check_positional(vm, "ljust", func_args.args.len(), 1, 2)?;
+        let (width, fillchar): (PyObjectRef, OptionalArg<PyObjectRef>) = func_args.bind(vm)?;
         self._pad(width, fillchar, AnyStr::py_ljust, vm)
     }
 
     #[pymethod]
-    fn rjust(
-        &self,
-        width: isize,
-        fillchar: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Wtf8Buf> {
+    fn rjust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        check_no_kwargs(vm, "str.rjust", &func_args)?;
+        check_positional(vm, "rjust", func_args.args.len(), 1, 2)?;
+        let (width, fillchar): (PyObjectRef, OptionalArg<PyObjectRef>) = func_args.bind(vm)?;
         self._pad(width, fillchar, AnyStr::py_rjust, vm)
     }
 
     #[pymethod]
-    fn expandtabs(&self, args: anystr::ExpandTabsArgs, vm: &VirtualMachine) -> PyResult<String> {
+    fn expandtabs(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        // clinic signature: max 1 optional argument
+        let total = func_args.args.len() + func_args.kwargs.len();
+        if total > 1 {
+            return Err(vm.new_type_error(format!(
+                "expandtabs() takes at most 1 argument ({total} given)"
+            )));
+        }
+        let args: ExpandTabsArgs = func_args.bind(vm)?;
+        let tabsize = args.tabsize(vm)?;
+        let s = self.try_as_utf8(vm)?;
         // TODO: support WTF-8
-        Ok(rustpython_common::str::expandtabs(
-            self.try_as_utf8(vm)?.as_str(),
-            args.tabsize(),
-        ))
+        Ok(if tabsize == 0 {
+            // a non-positive tab size simply removes the tabs
+            s.as_str().chars().filter(|&c| c != '\t').collect()
+        } else {
+            rustpython_common::str::expandtabs(s.as_str(), tabsize)
+        })
     }
 
-    #[pymethod]
     pub fn isidentifier(&self) -> bool {
         let Some(s) = self.to_str() else { return false };
         let mut chars = s.chars();
@@ -1397,6 +1759,12 @@ impl PyStr {
 
         // a string is not an identifier if it has whitespace or starts with a number
         is_identifier_start && chars.all(unicode::identifier::is_continue)
+    }
+
+    #[pymethod(name = "isidentifier")]
+    fn isidentifier_py(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "str.isidentifier", &func_args)?;
+        Ok(self.isidentifier())
     }
 
     // https://docs.python.org/3/library/stdtypes.html#str.translate
@@ -1427,7 +1795,7 @@ impl PyStr {
                         );
                     }
                 }
-                Err(e) if e.fast_isinstance(vm.ctx.exceptions.key_error) => translated.push(cp),
+                Err(e) if e.fast_isinstance(vm.ctx.exceptions.lookup_error) => translated.push(cp),
                 Err(e) => return Err(e),
             }
         }
@@ -1435,14 +1803,34 @@ impl PyStr {
     }
 
     #[pystaticmethod]
-    fn maketrans(
-        dict_or_str: PyObjectRef,
-        to_str: OptionalArg<PyStrRef>,
-        none_str: OptionalArg<PyStrRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn maketrans(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "str.maketrans", &func_args)?;
+        check_positional(vm, "maketrans", func_args.args.len(), 1, 3)?;
+        type MaketransArgs = (
+            PyObjectRef,
+            OptionalArg<PyObjectRef>,
+            OptionalArg<PyObjectRef>,
+        );
+        let (dict_or_str, to_str, none_str): MaketransArgs = func_args.bind(vm)?;
         let new_dict = vm.ctx.new_dict();
         if let OptionalArg::Present(to_str) = to_str {
+            let to_str = to_str.downcast::<Self>().map_err(|to_str| {
+                vm.new_type_error(format!(
+                    "maketrans() argument 2 must be str, not {}",
+                    bad_arg_type_name(&to_str, vm)
+                ))
+            })?;
+            let none_str = match none_str {
+                OptionalArg::Present(none_str) => {
+                    Some(none_str.downcast::<Self>().map_err(|none_str| {
+                        vm.new_type_error(format!(
+                            "maketrans() argument 3 must be str, not {}",
+                            bad_arg_type_name(&none_str, vm)
+                        ))
+                    })?)
+                }
+                OptionalArg::Missing => None,
+            };
             match dict_or_str.downcast::<Self>() {
                 Ok(from_str) => {
                     if to_str.len() == from_str.len() {
@@ -1457,7 +1845,7 @@ impl PyStr {
                                 vm,
                             )?;
                         }
-                        if let OptionalArg::Present(none_str) = none_str {
+                        if let Some(none_str) = none_str {
                             for c in none_str.as_wtf8().code_points() {
                                 new_dict.set_item(&*vm.new_pyobj(c.to_u32()), vm.ctx.none(), vm)?;
                             }
@@ -1492,18 +1880,20 @@ impl PyStr {
                                 new_dict.set_item(&*num_value.to_pyobject(vm), val, vm)?;
                             } else {
                                 return Err(vm.new_value_error(
-                                    "string keys in translate table must be of length 1",
+                                    // CPython: the missing space is in the original message
+                                    "string keys in translatetable must be of length 1",
                                 ));
                             }
                         } else {
                             return Err(vm.new_type_error(
+                                // CPython: the missing space is in the original message
                                 "keys in translate table must be strings or integers",
                             ));
                         }
                     }
                     Ok(new_dict.to_pyobject(vm))
                 }
-                _ => Err(vm.new_value_error(
+                _ => Err(vm.new_type_error(
                     "if you give only one argument to maketrans it must be a dict",
                 )),
             }
@@ -1511,8 +1901,18 @@ impl PyStr {
     }
 
     #[pymethod]
-    fn encode(zelf: PyRef<Self>, args: EncodeArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        encode_string(zelf, args.encoding, args.errors, vm)
+    fn encode(zelf: PyRef<Self>, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+        // clinic signature: max 2 optional arguments
+        let total = func_args.args.len() + func_args.kwargs.len();
+        if total > 2 {
+            return Err(vm.new_type_error(format!(
+                "encode() takes at most 2 arguments ({total} given)"
+            )));
+        }
+        let args: EncodeArgs = func_args.bind(vm)?;
+        let encoding = encode_str_arg(args.encoding, "encoding", vm)?;
+        let errors = encode_str_arg(args.errors, "errors", vm)?;
+        encode_string(zelf, encoding, errors, vm)
     }
 
     #[pymethod]
@@ -1694,9 +2094,27 @@ impl AsSequence for PyStr {
 #[derive(FromArgs)]
 struct EncodeArgs {
     #[pyarg(any, default)]
-    encoding: Option<PyUtf8StrRef>,
+    encoding: OptionalArg<PyObjectRef>,
     #[pyarg(any, default)]
-    errors: Option<PyUtf8StrRef>,
+    errors: OptionalArg<PyObjectRef>,
+}
+
+// CPython: str.encode's encoding/errors go through the clinic str converter
+fn encode_str_arg(
+    arg: OptionalArg<PyObjectRef>,
+    name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<Option<PyUtf8StrRef>> {
+    let OptionalArg::Present(arg) = arg else {
+        return Ok(None);
+    };
+    let arg = arg.downcast::<PyStr>().map_err(|arg| {
+        vm.new_type_error(format!(
+            "encode() argument '{name}' must be str, not {}",
+            bad_arg_type_name(&arg, vm)
+        ))
+    })?;
+    Ok(Some(arg.try_into_utf8(vm)?))
 }
 
 pub(crate) fn encode_string(
@@ -1800,35 +2218,216 @@ impl ToPyObject for AsciiChar {
     }
 }
 
-type SplitArgs = anystr::SplitArgs<PyStrRef>;
+// Mirrors CPython's _PyArg_BadArgument: None is rendered as "None",
+// everything else by its type name.
+fn bad_arg_type_name(obj: &PyObject, vm: &VirtualMachine) -> String {
+    if vm.is_none(obj) {
+        "None".to_owned()
+    } else {
+        obj.class().name().to_string()
+    }
+}
+
+// CPython: arg_as_utf8; `kw` selects the clinic converter's rendering of None
+fn str_new_str_arg(
+    arg: PyObjectRef,
+    name: &str,
+    kw: bool,
+    vm: &VirtualMachine,
+) -> PyResult<PyUtf8StrRef> {
+    let arg = arg.downcast::<PyStr>().map_err(|arg| {
+        vm.new_type_error(format!(
+            "str() argument '{name}' must be str, not {}",
+            if kw {
+                bad_arg_type_name(&arg, vm)
+            } else {
+                arg.class().name().to_string()
+            }
+        ))
+    })?;
+    arg.try_into_utf8(vm)
+}
+
+// CPython: clinic py_ssize_t converter (PyLong_AsSsize_t)
+pub(crate) fn to_c_ssize_t(obj: &PyObject, vm: &VirtualMachine) -> PyResult<isize> {
+    obj.try_index(vm)?
+        .as_bigint()
+        .to_isize()
+        .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C ssize_t"))
+}
+
+// CPython: clinic int converter (PyLong_AsInt)
+fn to_c_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
+    obj.try_index(vm)?
+        .as_bigint()
+        .to_i32()
+        .ok_or_else(|| vm.new_overflow_error("Python int too large to convert to C int"))
+}
+
+// CPython: clinic slice_index converter
+fn opt_slice_index(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
+    if vm.is_none(&obj) {
+        return Ok(None);
+    }
+    match obj.try_index_opt(vm) {
+        Some(index) => index.map(Some),
+        None => Err(
+            vm.new_type_error("slice indices must be integers or None or have an __index__ method")
+        ),
+    }
+}
+
+#[derive(FromArgs)]
+struct SplitArgs {
+    #[pyarg(any, default)]
+    sep: OptionalOption<PyObjectRef>,
+    #[pyarg(any, default)]
+    maxsplit: OptionalArg<PyObjectRef>,
+}
+
+impl SplitArgs {
+    fn get_value(self, vm: &VirtualMachine) -> PyResult<(Option<PyStrRef>, isize)> {
+        // CPython converts maxsplit (a C ssize_t) while parsing arguments, so
+        // its error precedes the separator type check in unicode_split_impl.
+        let maxsplit = match self.maxsplit {
+            OptionalArg::Present(maxsplit) => to_c_ssize_t(&maxsplit, vm)?,
+            OptionalArg::Missing => -1,
+        };
+        let sep = match self.sep.flatten() {
+            Some(sep) => Some(sep.downcast::<PyStr>().map_err(|sep| {
+                vm.new_type_error(format!("must be str or None, not {}", sep.class().name()))
+            })?),
+            None => None,
+        };
+        Ok((sep, maxsplit))
+    }
+}
+
+// anystr::AnyStr::py_split with a pre-validated separator
+fn py_split_str<S, SP, SN, SW>(
+    s: &S,
+    sep: Option<PyStrRef>,
+    maxsplit: isize,
+    vm: &VirtualMachine,
+    full_obj: impl FnOnce() -> PyObjectRef,
+    split: SP,
+    splitn: SN,
+    split_whitespace: SW,
+) -> PyResult<Vec<PyObjectRef>>
+where
+    S: ?Sized + AnyStr,
+    PyStrRef: AnyStrWrapper<S>,
+    SP: Fn(&S, &S, &VirtualMachine) -> Vec<PyObjectRef>,
+    SN: Fn(&S, &S, usize, &VirtualMachine) -> Vec<PyObjectRef>,
+    SW: Fn(&S, isize, &VirtualMachine) -> Vec<PyObjectRef>,
+{
+    if sep.as_ref().is_some_and(|sep| sep.is_empty()) {
+        return Err(vm.new_value_error("empty separator"));
+    }
+    let splits = if let Some(pattern) = sep {
+        let Some(pattern) = AnyStrWrapper::<S>::as_ref(&pattern) else {
+            return Ok(vec![full_obj()]);
+        };
+        if maxsplit < 0 {
+            split(s, pattern, vm)
+        } else {
+            splitn(s, pattern, (maxsplit + 1) as usize, vm)
+        }
+    } else {
+        split_whitespace(s, maxsplit, vm)
+    };
+    Ok(splits)
+}
+
+// CPython: do_argstrip
+fn strip_chars(
+    chars: OptionalOption<PyObjectRef>,
+    func_name: &str,
+    vm: &VirtualMachine,
+) -> PyResult<OptionalOption<PyStrRef>> {
+    let Some(chars) = chars.flatten() else {
+        return Ok(OptionalArg::Missing);
+    };
+    match chars.downcast::<PyStr>() {
+        Ok(chars) => Ok(OptionalArg::Present(Some(chars))),
+        Err(_) => Err(vm.new_type_error(format!("{func_name} arg must be None or str"))),
+    }
+}
+
+#[derive(FromArgs)]
+struct StartsEndsWithArgs {
+    #[pyarg(positional)]
+    affix: PyObjectRef,
+    #[pyarg(positional, default)]
+    start: Option<PyObjectRef>,
+    #[pyarg(positional, default)]
+    end: Option<PyObjectRef>,
+}
+
+#[derive(FromArgs)]
+struct ExpandTabsArgs {
+    #[pyarg(any, default)]
+    tabsize: OptionalArg<PyObjectRef>,
+}
+
+impl ExpandTabsArgs {
+    fn tabsize(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        match &self.tabsize {
+            OptionalArg::Missing => Ok(8),
+            // a non-positive tab size disables expansion
+            OptionalArg::Present(tabsize) => Ok(to_c_int(tabsize, vm)?.try_into().unwrap_or(0)),
+        }
+    }
+}
 
 #[derive(FromArgs)]
 pub(crate) struct FindArgs {
     #[pyarg(positional)]
-    sub: PyStrRef,
+    sub: PyObjectRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<PyObjectRef>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<PyObjectRef>,
 }
 
 impl FindArgs {
-    fn get_value(self, len: usize) -> (PyStrRef, core::ops::Range<usize>) {
-        let range = adjust_indices(self.start, self.end, len);
-        (self.sub, range)
+    fn get_value(
+        self,
+        len: usize,
+        func_name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyStrRef, Range<usize>)> {
+        let sub = self.sub.downcast::<PyStr>().map_err(|sub| {
+            vm.new_type_error(format!(
+                "{func_name}() argument 1 must be str, not {}",
+                bad_arg_type_name(&sub, vm)
+            ))
+        })?;
+        let start = self
+            .start
+            .map(|o| opt_slice_index(o, vm))
+            .transpose()?
+            .flatten();
+        let end = self
+            .end
+            .map(|o| opt_slice_index(o, vm))
+            .transpose()?
+            .flatten();
+        let range = adjust_indices(start, end, len);
+        Ok((sub, range))
     }
 }
 
 #[derive(FromArgs)]
 struct ReplaceArgs {
     #[pyarg(positional)]
-    old: PyStrRef,
+    old: PyObjectRef,
 
     #[pyarg(positional)]
-    new: PyStrRef,
+    new: PyObjectRef,
 
-    #[pyarg(any, default = -1)]
-    count: isize,
+    #[pyarg(any, default)]
+    count: OptionalArg<PyObjectRef>,
 }
 
 fn vectorcall_str(
@@ -2699,9 +3298,11 @@ mod tests {
             table
                 .set_item("c", vm.ctx.new_str(ascii!("xda")).into(), vm)
                 .unwrap();
-            let translated =
-                PyStr::maketrans(table.into(), OptionalArg::Missing, OptionalArg::Missing, vm)
-                    .unwrap();
+            let translated = PyStr::maketrans(
+                FuncArgs::new(vec![table.into()], crate::function::KwArgs::default()),
+                vm,
+            )
+            .unwrap();
             let text = PyStr::from("abc");
             let translated = text.translate(translated, vm).unwrap();
             assert_eq!(translated, Wtf8Buf::from("🎅xda"));

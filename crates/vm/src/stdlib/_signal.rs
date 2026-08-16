@@ -448,7 +448,8 @@ pub(crate) mod _signal {
         for signum in host_signal::valid_signals(signal::NSIG)
             .map_err(|_| vm.new_os_error("sigfillset failed"))?
         {
-            set.add(vm.ctx.new_int(signum).into(), vm)?;
+            let int_obj: PyObjectRef = vm.ctx.new_int(signum).into();
+            set.add_element(&int_obj, vm)?;
         }
 
         Ok(set.into())
@@ -461,7 +462,8 @@ pub(crate) mod _signal {
         let set = PySet::default().into_ref(&vm.ctx);
         for signum in SignalNum::VALID_RANGE {
             if host_signal::sigset_contains(mask, signum) {
-                set.add(vm.ctx.new_int(signum).into(), vm)?;
+                let int_obj: PyObjectRef = vm.ctx.new_int(signum).into();
+                set.add_element(&int_obj, vm)?;
             }
         }
         Ok(set.into())
@@ -480,21 +482,20 @@ pub(crate) mod _signal {
         // Add signals to the set
         for sig in mask.iter(vm)? {
             let sig = sig?;
-            // Convert to i32
-            // - handling overflow by returning ValueError
-            // - validate signal number is in range [1, NSIG)
-            let signum = sig
-                .try_to_value::<i32>(vm)
-                .ok()
-                .filter(|v| SignalNum::VALID_RANGE.contains(v))
-                .ok_or_else(|| {
-                    vm.new_value_error(format!(
-                        "signal number out of range [1, {}]",
-                        SignalNum::VALID_RANGE.end - 1
-                    ))
-                })?;
+            // Convert to an integer via __index__ (errors propagate, like CPython)
+            let index = sig.try_index(vm)?;
+            // PyLong_AsLongAndOverflow saturates to -1 on overflow
+            let signum = index.try_to_primitive::<i64>(vm).unwrap_or(-1);
+            // validate signal number is in range [1, NSIG)
+            if !(1..signal::NSIG as i64).contains(&signum) {
+                return Err(vm.new_value_error(format!(
+                    "signal number {signum} out of range [1; {}]",
+                    signal::NSIG - 1
+                )));
+            }
 
-            host_signal::sigaddset(&mut sigset, signum).map_err(|e| e.into_pyexception(vm))?;
+            host_signal::sigaddset(&mut sigset, signum as i32)
+                .map_err(|e| e.into_pyexception(vm))?;
         }
 
         let old_mask =

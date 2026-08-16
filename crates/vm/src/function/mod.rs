@@ -12,7 +12,8 @@ mod time;
 
 pub use argument::{
     ArgumentError, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
-    OptionalArg, OptionalOption, PosArgs,
+    OptionalArg, OptionalOption, PosArgs, check_meth_o, check_no_kwargs, check_noargs,
+    check_positional,
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
 pub use buffer::{

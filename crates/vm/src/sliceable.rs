@@ -277,9 +277,9 @@ impl SequenceIndex {
                 .map(Self::Int)
         } else {
             Err(vm.new_type_error(format!(
-                "{} indices must be integers or slices or classes that override __index__ operator, not '{}'",
+                "{} indices must be integers or slices, not {}",
                 type_name,
-                obj.class()
+                obj.class().slot_name()
             )))
         }
     }

@@ -301,7 +301,22 @@ impl Coro {
         drop(claim);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
-                Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
+                let err =
+                    vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm)));
+                // the synthetic error still carries the generator's frame
+                // location so the unraisable report has a traceback
+                let frame = self.frame.iframe();
+                let idx = frame.lasti.load(core::sync::atomic::Ordering::Relaxed) as usize;
+                if let Some((loc, _)) = frame.code().locations.get(idx / 2) {
+                    let tb = crate::builtins::PyTraceback::new(
+                        err.__traceback__(),
+                        self.frame.clone(),
+                        idx as u32 * 2,
+                        loc.line,
+                    );
+                    err.set_traceback_typed(Some(rustpython_vm::PyPayload::into_ref(tb, &vm.ctx)));
+                }
+                Err(err)
             }
             Err(e) if !is_gen_exit(&e, vm) => Err(e),
             Ok(ExecutionResult::Return(value)) => Ok(value),

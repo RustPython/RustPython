@@ -161,12 +161,16 @@ mod decl {
             buf.write_u32(entry.idx);
             Ok(true)
         }
-        fn reserve(&mut self, obj: &PyObjectRef, incomplete: bool) -> u32 {
+        fn reserve(&mut self, obj: &PyObjectRef, incomplete: bool) -> bool {
+            if self.next_idx >= 0x7fff_ffff {
+                // CPython: "too many objects"
+                return false;
+            }
             let idx = self.next_idx;
             self.map
                 .insert(obj.get_id(), WriterRefEntry { idx, incomplete });
             self.next_idx += 1;
-            idx
+            true
         }
         /// `w_complete`: the object's contents are on the stream, so a later
         /// occurrence may reference it.
@@ -237,8 +241,8 @@ mod decl {
         // would name an object that does not exist yet.
         let requires_completion = obj.downcast_ref::<PyCode>().is_some()
             || obj.downcast_ref::<crate::builtins::PySlice>().is_some();
-        if use_ref {
-            refs.as_mut().unwrap().reserve(obj, requires_completion);
+        if use_ref && !refs.as_mut().unwrap().reserve(obj, requires_completion) {
+            return Err(vm.new_value_error("too many objects"));
         }
 
         if vm.is_none(obj) {
@@ -575,7 +579,7 @@ mod decl {
         ) -> Result<Self::Value, marshal::MarshalError> {
             let set = PySet::default().into_ref(&self.vm.ctx);
             for elem in it {
-                set.add(elem, self.vm)
+                set.add_element(&elem, self.vm)
                     .map_err(|error| self.remember_python_error(error))?;
             }
             Ok(set.into())
@@ -591,7 +595,7 @@ mod decl {
             let set = set
                 .downcast_ref::<PySet>()
                 .ok_or(marshal::MarshalError::BadType)?;
-            set.add(value, self.vm)
+            set.add_element(&value, self.vm)
                 .map_err(|error| self.remember_python_error(error))
         }
         fn make_frozenset(
@@ -679,11 +683,28 @@ mod decl {
         allow_code: bool,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
+        deserialize_value_from_file(rdr, allow_code, false, vm)
+    }
+
+    /// `from_file` selects the load() wording for truncated data.
+    fn deserialize_value_from_file(
+        rdr: &mut impl marshal::Read,
+        allow_code: bool,
+        from_file: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyObjectRef> {
         let pending_error = RefCell::new(None);
         match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error, allow_code)) {
             Ok(value) => Ok(value),
             Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
-                marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
+                // every end-of-data shape surfaces as EOFError, as in r_object
+                marshal::MarshalError::Eof
+                | marshal::MarshalError::EofObject
+                | marshal::MarshalError::EofByte => vm.new_eof_error(if from_file {
+                    "EOF read where not expected"
+                } else {
+                    "marshal data too short"
+                }),
                 error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
                 error @ (marshal::MarshalError::BadSize(_)
                 | marshal::MarshalError::UnknownType
@@ -704,6 +725,9 @@ mod decl {
         allow_code: bool,
     }
 
+    /// Map a deserializer error to the exception CPython's marshal raises.
+    /// `from_file` selects the load() wording for truncated data.
+
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
         let LoadsArgs { data, allow_code } = args;
@@ -719,31 +743,66 @@ mod decl {
         allow_code: bool,
     }
 
+    /// Reads exactly the bytes of one object from a file object, mirroring
+    /// CPython's r_string(): every read goes through readinto().
+    struct PyFileReader<'a> {
+        vm: &'a VirtualMachine,
+        readable: &'a PyObjectRef,
+        buf: Vec<u8>,
+        error: Option<PyBaseExceptionRef>,
+    }
+
+    impl marshal::Read for PyFileReader<'_> {
+        fn read_slice(&mut self, n: u32) -> Result<&[u8], marshal::MarshalError> {
+            let buf = self.vm.ctx.new_bytearray(vec![0; n as usize]);
+            let read = self
+                .vm
+                .call_method(self.readable, "readinto", (buf.clone(),))
+                .and_then(|res| {
+                    // CPython: PyNumber_AsSsize_t()
+                    res.try_index(self.vm)
+                        .and_then(|i| i.try_to_primitive::<isize>(self.vm))
+                });
+            let read = match read {
+                Ok(read) => read,
+                Err(err) => {
+                    self.error = Some(err);
+                    return Err(marshal::MarshalError::ReadFailed);
+                }
+            };
+            let Ok(read) = usize::try_from(read) else {
+                // a negative count behaves as a short read
+                return Err(marshal::MarshalError::Eof);
+            };
+            if read > n as usize {
+                self.error = Some(self.vm.new_value_error(format!(
+                    "read() returned too much data: {n} bytes requested, {read} returned"
+                )));
+                return Err(marshal::MarshalError::ReadFailed);
+            }
+            if read < n as usize {
+                return Err(marshal::MarshalError::Eof);
+            }
+            self.buf.clear();
+            self.buf.extend_from_slice(&buf.borrow_buf());
+            Ok(&self.buf)
+        }
+    }
+
     #[pyfunction]
     fn load(args: LoadArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        // Read from file object into a buffer, one object at a time.
-        // We read all available data, deserialize one object, then seek
-        // back to just after the consumed bytes.
-        let tell_before = vm
-            .call_method(&args.f, "tell", ())?
-            .try_into_value::<i64>(vm)?;
-        let read_res = vm.call_method(&args.f, "read", ())?;
-        let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
-
-        // The borrow ends here: seek() below is the caller's, and reaching the
-        // same buffer from it would deadlock on a borrow still held.
-        let (result, consumed) = {
-            let buf = bytes.borrow_buf();
-            let mut rdr: &[u8] = &buf;
-            let len_before = rdr.len();
-            let result = deserialize_value(&mut rdr, args.allow_code, vm)?;
-            (result, len_before - rdr.len())
+        // CPython r_object reads the file through r_string(), i.e. readinto():
+        // a reader whose readinto() lies is an error, not a short read.
+        let mut rdr = PyFileReader {
+            vm,
+            readable: &args.f,
+            buf: Vec::new(),
+            error: None,
         };
-
-        // Seek file to just after the consumed bytes
-        let new_pos = tell_before + consumed as i64;
-        vm.call_method(&args.f, "seek", (new_pos,))?;
-
+        let result = match deserialize_value_from_file(&mut rdr, args.allow_code, true, vm) {
+            Ok(result) => result,
+            Err(err) => return Err(rdr.error.take().unwrap_or(err)),
+        };
         Ok(result)
     }
 

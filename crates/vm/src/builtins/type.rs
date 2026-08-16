@@ -452,11 +452,15 @@ impl PyPayload for PyType {
     }
 }
 
-fn downcast_qualname(value: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyRef<PyStr>> {
+fn downcast_qualname(
+    typ_name: &str,
+    value: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<PyRef<PyStr>> {
     match value.downcast::<PyStr>() {
         Ok(value) => Ok(value),
         Err(value) => Err(vm.new_type_error(format!(
-            "can only assign string to __qualname__, not '{}'",
+            "can only assign string to {typ_name}.__qualname__, not '{}'",
             value.class().name()
         ))),
     }
@@ -1326,7 +1330,22 @@ impl PyType {
 
     // bound method for every type
     pub(crate) fn __new__(zelf: PyRef<Self>, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        let (subtype, args): (PyRef<Self>, FuncArgs) = args.bind(vm)?;
+        // tp_new_wrapper: validate the leading subtype argument before
+        // dispatching to the actual tp_new slot.
+        let mut args = args;
+        if args.args.is_empty() {
+            return Err(
+                vm.new_type_error(format!("{}.__new__(): not enough arguments", zelf.name()))
+            );
+        }
+        let arg0 = args.args.remove(0);
+        let subtype = arg0.downcast::<Self>().map_err(|arg0| {
+            vm.new_type_error(format!(
+                "{}.__new__(X): X is not a type object ({})",
+                zelf.name(),
+                arg0.class().name()
+            ))
+        })?;
         if !subtype.fast_issubclass(&zelf) {
             return Err(vm.new_type_error(format!(
                 "{zelf}.__new__({subtype}): {subtype} is not a subtype of {zelf}",
@@ -1489,7 +1508,7 @@ impl PyType {
         )
     }
     #[pygetset(setter, name = "__bases__")]
-    fn set_bases(zelf: &Py<Self>, bases: Vec<PyTypeRef>, vm: &VirtualMachine) -> PyResult<()> {
+    fn set_bases(zelf: &Py<Self>, value: PySetterValue, vm: &VirtualMachine) -> PyResult<()> {
         // TODO: Assigning to __bases__ is only used in typing.NamedTupleMeta.__new__
         // Rather than correctly re-initializing the class, we are skipping a few steps for now
         if zelf.slots.flags.has_feature(PyTypeFlags::IMMUTABLETYPE) {
@@ -1498,14 +1517,47 @@ impl PyType {
                 zelf.name()
             )));
         }
-        if bases.is_empty() {
+        let value = value.ok_or_else(|| {
+            vm.new_type_error(format!(
+                "cannot delete '__bases__' attribute of immutable type '{}'",
+                zelf.name()
+            ))
+        })?;
+        let new_bases = value
+            .downcast::<crate::builtins::PyTuple>()
+            .map_err(|value| {
+                vm.new_type_error(format!(
+                    "can only assign tuple to {}.__bases__, not {}",
+                    zelf.name(),
+                    value.class().name()
+                ))
+            })?;
+        if new_bases.is_empty() {
             return Err(vm.new_type_error(format!(
                 "can only assign non-empty tuple to {}.__bases__, not ()",
                 zelf.name()
             )));
         }
-
-        // TODO: check for mro cycles
+        let mut bases: Vec<PyTypeRef> = Vec::with_capacity(new_bases.len());
+        for ob in new_bases.iter() {
+            let base = ob.downcast_ref::<Self>().ok_or_else(|| {
+                vm.new_type_error(format!(
+                    "{}.__bases__ must be tuple of classes, not '{}'",
+                    zelf.name(),
+                    ob.class().name()
+                ))
+            })?;
+            // A new base may not be the type itself or one of its subclasses,
+            // both through its mro and through the tp_base chain (the latter
+            // covers reentrance through a custom mro()).
+            if is_subtype_with_mro(&base.mro.read(), base, zelf)
+                || core::iter::successors(base.base.deref(), |base| base.base.deref())
+                    .any(|base| base.is(zelf))
+            {
+                return Err(vm.new_type_error("a __bases__ item causes an inheritance cycle"));
+            }
+            bases.push(base.to_owned());
+        }
 
         // Compute the new solid base before committing anything. This also
         // validates the new bases (BASETYPE flag, no instance layout
@@ -1698,7 +1750,7 @@ impl PyType {
             ))
         })?;
 
-        let str_value = downcast_qualname(value, vm)?;
+        let str_value = downcast_qualname(&self.name(), value, vm)?;
 
         let heap_type = self.heaptype_ext.as_ref().ok_or_else(|| {
             vm.new_type_error(format!(
@@ -2105,24 +2157,36 @@ impl Constructor for PyType {
     fn slot_new(metatype: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         vm_trace!("type.__new__ {:?}", args);
 
-        let is_type_type = metatype.is(vm.ctx.types.type_type);
-        if is_type_type && args.args.len() == 1 && args.kwargs.is_empty() {
-            return Ok(args.args[0].class().to_owned().into());
-        }
-
+        // Unlike type_call/vectorcall, tp_new has no single-argument form:
+        // type.__new__ requires exactly (name, bases, dict).
         if args.args.len() != 3 {
-            return Err(vm.new_type_error(if is_type_type {
-                "type() takes 1 or 3 arguments".to_owned()
-            } else {
-                format!(
-                    "type.__new__() takes exactly 3 arguments ({} given)",
-                    args.args.len()
-                )
-            }));
+            return Err(vm.new_type_error(format!(
+                "type.__new__() takes exactly 3 arguments ({} given)",
+                args.args.len()
+            )));
         }
 
         let (name, bases, dict, kwargs): (PyStrRef, PyTupleRef, PyDictRef, KwArgs) =
-            args.clone().bind(vm)?;
+            args.clone().bind(vm).map_err(|_| {
+                // type_new_init: the clinic converter reports the first
+                // offending positional argument by number
+                for (i, arg) in args.args.iter().take(3).enumerate() {
+                    let expected = match i {
+                        0 => (vm.ctx.types.str_type, "str"),
+                        1 => (vm.ctx.types.tuple_type, "tuple"),
+                        _ => (vm.ctx.types.dict_type, "dict"),
+                    };
+                    if !arg.fast_isinstance(expected.0) {
+                        return vm.new_type_error(format!(
+                            "type.__new__() argument {} must be {}, not {}",
+                            i + 1,
+                            expected.1,
+                            arg.class().name()
+                        ));
+                    }
+                }
+                vm.new_type_error("type.__new__() takes exactly 3 arguments".to_owned())
+            })?;
 
         if name.as_bytes().contains(&0) {
             return Err(vm.new_value_error("type name must not contain null characters"));
@@ -2172,14 +2236,48 @@ impl Constructor for PyType {
 
         let qualname = dict
             .get_item_opt(identifier!(vm, __qualname__), vm)?
-            .map(|obj| downcast_qualname(obj, vm))
+            .map(|obj| {
+                obj.downcast::<PyStr>().map_err(|obj| {
+                    vm.new_type_error(format!(
+                        "type __qualname__ must be a str, not {}",
+                        obj.class().name()
+                    ))
+                })
+            })
             .transpose()?
             .unwrap_or_else(|| {
                 // If __qualname__ is not provided, we can use the name as default
                 name.clone().into_wtf8()
             });
 
-        let mut attributes = dict.to_attributes(vm);
+        // CPython stores non-string keys in the class __dict__ and only warns;
+        // RustPython class attributes are keyed by interned strings, so such
+        // keys are dropped here after emitting the same warning.
+        let mut attributes = PyAttributes::default();
+        let mut has_non_string_key = false;
+        for (key, value) in &dict {
+            match key.downcast_exact::<PyStr>(vm) {
+                Ok(key) => {
+                    attributes.insert(vm.ctx.intern_str(key), value);
+                }
+                Err(key) => {
+                    if let Some(key) = key.downcast_ref::<PyStr>() {
+                        // str subclass: intern an exact str copy of the key
+                        attributes.insert(vm.ctx.intern_str(key.as_wtf8()), value);
+                    } else {
+                        has_non_string_key = true;
+                    }
+                }
+            }
+        }
+        if has_non_string_key {
+            crate::stdlib::_warnings::warn(
+                vm.ctx.exceptions.runtime_warning,
+                format!("non-string key in the __dict__ of class {name}"),
+                1,
+                vm,
+            )?;
+        }
         attributes.shift_remove(identifier!(vm, __qualname__));
 
         // Check __doc__ for surrogates - raises UnicodeEncodeError during type creation
@@ -2453,7 +2551,7 @@ impl Constructor for PyType {
                         cell.class().name()
                     ))
                 })?;
-                cell.set(Some(dict.clone().into()));
+                cell.set(Some(dict.into()));
                 attrs.shift_remove(identifier!(vm, __classdictcell__));
             }
         }
@@ -3252,7 +3350,7 @@ fn best_base<'a>(bases: &'a [PyTypeRef], vm: &VirtualMachine) -> PyResult<&'a Py
             winner = Some(candidate);
             base = Some(&**base_i);
         } else {
-            return Err(vm.new_type_error("multiple bases have instance layout conflict"));
+            return Err(vm.new_type_error("multiple bases have instance lay-out conflict"));
         }
     }
 

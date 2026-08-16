@@ -5,7 +5,7 @@ use crate::{
     class::PyClassImpl,
     common::hash::PyHash,
     convert::{ToPyObject, ToPyResult},
-    function::{ArgSize, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue},
+    function::{ArgSize, FuncArgs, PyMethodDef, PyMethodFlags, PySetterValue, check_no_kwargs},
     protocol::{PyNumberBinaryFunc, PyNumberTernaryFunc, PyNumberUnaryFunc},
     types::{
         Callable, Comparable, DelFunc, DescrGetFunc, DescrSetFunc, GenericMethod, GetDescriptor,
@@ -441,6 +441,15 @@ fn vectorcall_method_descriptor(
     vm: &VirtualMachine,
 ) -> PyResult {
     let zelf: &Py<PyMethodDescriptor> = zelf_obj.downcast_ref().unwrap();
+    // method_vectorcall: an unbound call without a receiver reports the
+    // method and class by name
+    if nargs == 0 {
+        return Err(vm.new_type_error(format!(
+            "unbound method {}.{}() needs an argument",
+            zelf.objclass.name(),
+            zelf.common.name.as_str()
+        )));
+    }
     let func_args = FuncArgs::from_vectorcall_owned(args, nargs, kwnames);
     (zelf.method.func)(vm, func_args)
 }
@@ -661,14 +670,29 @@ impl SlotFunc {
                 })
             }
             Self::DescrGet(func) => {
-                let (instance, owner): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
-                    args.bind(vm)?;
-                let owner = owner.into_option();
+                // CPython: "wrapper" is the tp_name of wrapper_descriptor
+                check_no_kwargs(vm, "wrapper __get__", &args)?;
+                let nargs = args.args.len();
+                if nargs == 0 {
+                    return Err(vm.new_type_error("__get__ expected at least 1 argument, got 0"));
+                }
+                if nargs > 2 {
+                    return Err(vm.new_type_error(format!(
+                        "__get__ expected at most 2 arguments, got {nargs}"
+                    )));
+                }
+                let mut iter = args.args.into_iter();
+                let instance = iter.next().unwrap();
+                let owner = iter.next().filter(|owner| !vm.is_none(owner));
+                // wrap_descr_get: None maps to a missing argument on both sides
                 let instance_opt = if vm.is_none(&instance) {
                     None
                 } else {
                     Some(instance)
                 };
+                if instance_opt.is_none() && owner.is_none() {
+                    return Err(vm.new_type_error("__get__(None, None) is invalid"));
+                }
                 func(obj, instance_opt, owner, vm)
             }
             Self::DescrSet(func) => {
@@ -753,12 +777,26 @@ impl SlotFunc {
                 func(&other, &obj, vm) // Swapped: other op obj
             }
             Self::NumTernary(func) => {
+                // check_pow_args
+                if args.kwargs.is_empty() && !(1..=2).contains(&args.args.len()) {
+                    return Err(vm.new_type_error(format!(
+                        "expected 1 or 2 arguments, got {}",
+                        args.args.len()
+                    )));
+                }
                 let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
                     args.bind(vm)?;
                 let z = z.unwrap_or_else(|| vm.ctx.none());
                 func(&obj, &y, &z, vm)
             }
             Self::NumTernaryRight(func) => {
+                // check_pow_args
+                if args.kwargs.is_empty() && !(1..=2).contains(&args.args.len()) {
+                    return Err(vm.new_type_error(format!(
+                        "expected 1 or 2 arguments, got {}",
+                        args.args.len()
+                    )));
+                }
                 let (y, z): (PyObjectRef, crate::function::OptionalArg<PyObjectRef>) =
                     args.bind(vm)?;
                 let z = z.unwrap_or_else(|| vm.ctx.none());

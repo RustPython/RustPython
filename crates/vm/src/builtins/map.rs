@@ -1,9 +1,9 @@
 use super::PyType;
 use crate::{
     AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::PyTupleRef,
+    builtins::{PyTupleRef, PyTypeRef},
     class::PyClassImpl,
-    function::{ArgIntoBool, OptionalArg, PosArgs},
+    function::{ArgIntoBool, FuncArgs, OptionalArg, PosArgs},
     protocol::{PyIter, PyIterReturn},
     types::{Constructor, IterNext, Iterable, SelfIter},
 };
@@ -33,6 +33,16 @@ pub struct PyMapNewArgs {
 
 impl Constructor for PyMap {
     type Args = (PyObjectRef, PosArgs<PyIter>, PyMapNewArgs);
+
+    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // map() requires a callable and at least one iterable
+        if args.args.len() < 2 {
+            return Err(vm.new_type_error("map() must have at least two arguments."));
+        }
+        let args: Self::Args = args.bind(vm)?;
+        let payload = Self::py_new(&cls, args, vm)?;
+        payload.into_ref_with_type(vm, cls).map(Into::into)
+    }
 
     fn py_new(
         _cls: &Py<PyType>,
