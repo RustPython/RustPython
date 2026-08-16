@@ -1604,7 +1604,6 @@ class CoroutineTest(unittest.TestCase):
         self.assertEqual(buffer, [i for i in range(1, 21)] +
                                  ['what?', 'end'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: __aiter__
     def test_for_2(self):
         tup = (1, 2, 3)
         refs_before = sys.getrefcount(tup)
@@ -1620,7 +1619,6 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(tup), refs_before)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "that does not implement __anext__" does not match "'async for' requires an iterator with __anext__ method, got I"
     def test_for_3(self):
         class I:
             def __aiter__(self):
@@ -1641,7 +1639,6 @@ class CoroutineTest(unittest.TestCase):
 
         self.assertEqual(sys.getrefcount(aiter), refs_before)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "async for' received an invalid object.*__anext__.*tuple" does not match "'tuple' object is not an iterator"
     def test_for_4(self):
         class I:
             def __aiter__(self):
@@ -1789,7 +1786,6 @@ class CoroutineTest(unittest.TestCase):
                 run_async(foo())
         self.assertEqual(CNT, 0)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "an invalid object from __anext__" does not match "'F' object is not an iterator"
     def test_for_11(self):
         class F:
             def __aiter__(self):

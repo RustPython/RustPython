@@ -1960,12 +1960,12 @@ def test_pdb_run_with_incorrect_argument():
     """Testing run and runeval with incorrect first argument.
 
     >>> pti = PdbTestInput(['continue',])
-    >>> with pti:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with pti:
     ...     pdb_invoke('run', lambda x: x)
     Traceback (most recent call last):
     TypeError: exec() arg 1 must be a string, bytes or code object
 
-    >>> with pti:  # TODO: RUSTPYTHON # doctest: +EXPECTED_FAILURE
+    >>> with pti:
     ...     pdb_invoke('runeval', lambda x: x)
     Traceback (most recent call last):
     TypeError: eval() arg 1 must be a string, bytes or code object
