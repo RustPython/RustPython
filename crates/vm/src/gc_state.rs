@@ -663,20 +663,27 @@ impl GcState {
         // of each object's children. Without this, a dict whose write lock is
         // held during one traversal but not the other can yield inconsistent
         // results, causing live objects to be incorrectly collected.
-        let mut referents_map: GcMap<GcPtr, Vec<NonNull<PyObject>>> = GcMap::default();
+        //
+        // Every object's referents go in one buffer, with each object holding
+        // the range that is its own: a vector each would be an allocation per
+        // tracked object, and the collection wants them all at once anyway.
+        let mut referent_ptrs: Vec<NonNull<PyObject>> = Vec::new();
+        let mut referent_ranges: GcMap<GcPtr, (usize, usize)> = GcMap::default();
 
         for &ptr in &candidate_ptrs {
             let obj = unsafe { ptr.0.as_ref() };
             if obj.strong_count() == 0 {
                 continue;
             }
-            let referent_ptrs = unsafe { obj.gc_get_referent_ptrs() };
-            for &child_ptr in &referent_ptrs {
+            let start = referent_ptrs.len();
+            unsafe { obj.gc_extend_referent_ptrs(&mut referent_ptrs) };
+            let end = referent_ptrs.len();
+            for &child_ptr in &referent_ptrs[start..end] {
                 if let Some(refs) = gc_refs.get_mut(&GcPtr(child_ptr)) {
                     *refs = refs.saturating_sub(1);
                 }
             }
-            referents_map.insert(ptr, referent_ptrs);
+            referent_ranges.insert(ptr, (start, end));
         }
 
         // Step 4: Find reachable objects (gc_refs > 0) and traverse from them
@@ -702,14 +709,14 @@ impl GcState {
                 // edge in the heap. Objects skipped in step 3 (strong_count was
                 // 0) have none stored and are traversed here instead.
                 let computed;
-                let referent_ptrs: &[NonNull<PyObject>] = match referents_map.get(&ptr) {
-                    Some(stored) => stored,
+                let children: &[NonNull<PyObject>] = match referent_ranges.get(&ptr) {
+                    Some(&(start, end)) => &referent_ptrs[start..end],
                     None => {
                         computed = unsafe { obj.gc_get_referent_ptrs() };
                         &computed
                     }
                 };
-                for &child_ptr in referent_ptrs {
+                for &child_ptr in children {
                     let gc_ptr = GcPtr(child_ptr);
                     if gc_refs.contains_key(&gc_ptr) && reachable.insert(gc_ptr) {
                         worklist.push(gc_ptr);
