@@ -4,7 +4,7 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 use rustpython_unicode::case;
 
 use crate::{
-    Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
     function::OptionalOption,
@@ -485,19 +485,25 @@ where
     F: Fn(T) -> PyResult<bool>,
     M: Fn(&PyObject) -> String,
 {
-    if let Ok(single) = obj.try_to_value::<T>(vm) {
-        (predicate)(single)
-    } else {
-        let tuple: &Py<PyTuple> = obj
-            .try_to_value(vm)
-            .map_err(|_| vm.new_type_error((message)(obj)))?;
-
-        for obj in tuple {
-            if single_or_tuple_any(obj, predicate, message, vm)? {
+    // _Py_bytes_tailmatch: a tuple is taken apart before anything is converted, and
+    // each item is converted on its own terms, so a tuple of tuples is not an affix.
+    if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+        for item in tuple {
+            if (predicate)(item.try_to_value::<T>(vm)?)? {
                 return Ok(true);
             }
         }
-
-        Ok(false)
+        return Ok(false);
     }
+
+    // Only the argument simply being the wrong kind of object is reported as such;
+    // whatever the conversion itself raised belongs to the caller.
+    let single = obj.try_to_value::<T>(vm).map_err(|exc| {
+        if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            vm.new_type_error((message)(obj))
+        } else {
+            exc
+        }
+    })?;
+    (predicate)(single)
 }

@@ -135,8 +135,8 @@ mod _io {
         convert::ToPyObject,
         exceptions::nul_char_error,
         function::{
-            ArgBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either, FsPath, FuncArgs,
-            IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
+            ArgBytesLike, ArgContiguousBytesLike, ArgIterable, ArgMemoryBuffer, ArgSize, Either,
+            FsPath, FuncArgs, IntoFuncArgs, OptionalArg, OptionalOption, PySetterValue,
         },
         protocol::{
             BufferDescriptor, BufferMethods, BufferResizeGuard, PyBuffer, PyIterReturn, VecBuffer,
@@ -4785,8 +4785,12 @@ mod _io {
         }
 
         #[pymethod]
-        fn write(&self, data: ArgBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
+        fn write(&self, data: ArgContiguousBytesLike, vm: &VirtualMachine) -> PyResult<u64> {
             let mut buffer = self.try_resizable(vm)?;
+            // Acquiring the buffer can run `__buffer__`, which may have closed us.
+            if self.closed.load() {
+                return Err(io_closed_error(vm));
+            }
             data.with_ref(|b| buffer.write(b))
                 .ok_or_else(|| vm.new_type_error("Error Writing Bytes"))
         }

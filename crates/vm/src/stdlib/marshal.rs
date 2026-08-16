@@ -16,7 +16,6 @@ mod decl {
         convert::ToPyObject,
         function::{ArgBytesLike, OptionalArg},
         object::{AsObject, PyPayload},
-        protocol::PyBuffer,
     };
     use core::cell::RefCell;
     use malachite_bigint::BigInt;
@@ -651,20 +650,16 @@ mod decl {
     #[derive(FromArgs)]
     struct LoadsArgs {
         #[pyarg(any)]
-        data: PyBuffer,
+        // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
+        data: ArgBytesLike,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let LoadsArgs {
-            data: pybuffer,
-            allow_code,
-        } = args;
-        let buf = pybuffer.as_contiguous().ok_or_else(|| {
-            vm.new_buffer_error("Buffer provided to marshal.loads() is not contiguous")
-        })?;
+        let LoadsArgs { data, allow_code } = args;
+        let buf = data.borrow_buf();
 
         let result = deserialize_value(&mut &buf[..], vm)?;
         if !allow_code {

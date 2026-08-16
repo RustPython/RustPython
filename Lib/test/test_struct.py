@@ -498,12 +498,10 @@ class StructTest(ComplexesAreIdenticalMixin, unittest.TestCase):
         with self.assertRaises((IndexError, OverflowError)):
             pack_into(writable_buf, -2**1000, test_string)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BufferError: non-contiguous buffer is not a bytes-like object
     def test_pack_into(self):
         s = struct.Struct('21s')
         self._test_pack_into(s.pack_into)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; BufferError: non-contiguous buffer is not a bytes-like object
     def test_pack_into_fn(self):
         pack_into = lambda *args: struct.pack_into('21s', *args)
         self._test_pack_into(pack_into)
