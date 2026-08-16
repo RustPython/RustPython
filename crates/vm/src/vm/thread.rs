@@ -8,11 +8,6 @@ use alloc::sync::Arc;
 #[cfg(all(unix, feature = "threading"))]
 use crate::frame::FrameObject;
 use crate::frame::InterpreterFrame;
-#[cfg(all(unix, feature = "threading"))]
-use crate::{AsObject, Py, PyObject, VirtualMachine};
-#[cfg(all(not(unix), feature = "threading"))]
-use crate::{AsObject, PyObject, VirtualMachine};
-#[cfg(not(feature = "threading"))]
 use crate::{AsObject, PyObject, VirtualMachine};
 #[cfg(all(unix, feature = "threading"))]
 use core::sync::atomic::AtomicPtr;
@@ -823,8 +818,11 @@ pub fn set_current_frame(frame: *const InterpreterFrame) -> *const InterpreterFr
                     core::ptr::null_mut()
                 } else {
                     let frame_obj = unsafe { (*frame).frame_obj() };
+                    // The payload address, which is what the cross-thread
+                    // reader hands to `Py::from_payload_ptr`. The `Py` address
+                    // would be off by the object header.
                     frame_obj.map_or(core::ptr::null_mut(), |py| {
-                        py as *const Py<FrameObject> as *const FrameObject as *mut FrameObject
+                        core::ptr::from_ref::<FrameObject>(py).cast_mut()
                     })
                 };
                 unsafe { &*slot }.store(fo_ptr, Ordering::Relaxed);
@@ -973,7 +971,7 @@ pub fn reinit_frame_slot_after_fork(vm: &VirtualMachine) {
             core::ptr::null_mut()
         } else {
             match unsafe { (*top_iframe).frame_obj() } {
-                Some(fo) => fo as *const Py<FrameObject> as *const FrameObject as *mut FrameObject,
+                Some(fo) => core::ptr::from_ref::<FrameObject>(fo).cast_mut(),
                 None => core::ptr::null_mut(),
             }
         }
