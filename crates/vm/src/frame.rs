@@ -387,33 +387,6 @@ impl LocalsPlus {
         Some(base)
     }
 
-    /// Create a new heap-backed LocalsPlus that is a clone of the
-    /// fastlocals portion of this one.  Stack slots are NOT copied
-    /// (stack_top = 0, stacksize = 0).
-    ///
-    /// # Safety
-    /// The caller must ensure that `self.fastlocals()` is a valid slice
-    /// (backing storage is alive, not concurrently mutated).
-    pub(crate) unsafe fn snapshot_to_heap(&self) -> Self {
-        let n = self.nlocalsplus as usize;
-        let src = self.fastlocals();
-        let mut data = vec![0usize; n];
-        // Clone each Option<PyObjectRef> into the heap buffer.
-        for (i, slot) in src.iter().enumerate() {
-            if let Some(obj) = slot {
-                let cloned: Option<PyObjectRef> = Some(obj.clone());
-                // SAFETY: Option<PyObjectRef> has the same layout as usize.
-                data[i] = unsafe { core::mem::transmute_copy(&cloned) };
-                core::mem::forget(cloned);
-            }
-        }
-        Self {
-            data: LocalsPlusData::Heap(data.into_boxed_slice()),
-            nlocalsplus: self.nlocalsplus,
-            stack_top: 0,
-        }
-    }
-
     /// Update fastlocals in `self` from `src`. For each slot, drops the old
     /// value and clones the new one. `self` must be heap-backed.
     ///
@@ -1114,6 +1087,29 @@ impl InterpreterFrame {
         self.materialize_slow(vm)
     }
 
+    /// Materialize this frame and copy its fast locals into the frame object.
+    ///
+    /// For reading a frame that belongs to another thread: a frame object
+    /// otherwise receives its values when the frame returns (`exit_iframe`),
+    /// which is no help while that thread is parked halfway through.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so that the owning thread is parked
+    /// and its fast locals are not moving while they are read.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_with_locals(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
+        let fo = self.materialize(vm);
+        let dst = unsafe { fo.iframe_mut() };
+        // A heap-allocated frame is its own frame object's frame: it already
+        // holds the values, and copying a buffer onto itself would clear it.
+        if !core::ptr::eq(dst as *const Self, self) {
+            unsafe { dst.localsplus.sync_fastlocals_from(&self.localsplus) };
+        }
+        fo
+    }
+
     /// Create a lightweight FrameObject with empty localsplus, suitable for
     /// f_back chain building (retained_back). Unlike `materialize`, this does
     /// NOT store into `temporary_refs` or set the `materialized` pointer, so
@@ -1138,9 +1134,18 @@ impl InterpreterFrame {
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
-        // Copy localsplus from the stack frame so materialized frames have
-        // usable fastlocals (for locals(), f_locals, tracebacks, etc).
-        let localsplus = unsafe { self.localsplus.snapshot_to_heap() };
+        // Empty localsplus, sized for the code object. While the source frame
+        // runs, every reader resolves it through `find_live_source_iframe`, and
+        // `exit_iframe` fills these slots from the live frame as it returns.
+        // Copying the values here instead would give each of them a second
+        // reference lasting as long as this FrameObject — a frame reached by
+        // one traceback entry would keep all of its locals alive.
+        let nlocalsplus = code.localspluskinds.len() as u32;
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::Heap(vec![0usize; nlocalsplus as usize].into_boxed_slice()),
+            nlocalsplus,
+            stack_top: 0,
+        };
 
         // Copy the locals mapping if it exists.
         let locals = match self.locals.get() {
@@ -1739,10 +1744,29 @@ impl FrameObject {
         self.iframe().lasti.store(val, Relaxed);
     }
 
+    /// Fast-local slots of the live source frame when this frame object's
+    /// frame is still running on this thread, and this frame object's own
+    /// slots otherwise. A running frame's slots live on the data stack; the
+    /// frame object's are empty until `exit_iframe` fills them.
+    ///
+    /// # Safety
+    /// Caller must ensure no concurrent mutable access: either the frame is
+    /// not executing (callers pass through `check_locals_access`), or this is
+    /// a trace callback on the thread that is executing it.
+    unsafe fn live_fastlocals(&self) -> &[Option<PyObjectRef>] {
+        let live = self.find_live_source_iframe();
+        if live.is_null() {
+            unsafe { self.iframe_ref().localsplus.fastlocals() }
+        } else {
+            unsafe { (*live).localsplus.fastlocals() }
+        }
+    }
+
     fn has_active_hidden_locals(&self) -> bool {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
         let code = self.iframe().code();
-        let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
+        // SAFETY: reached from `locals()` on the thread running this frame.
+        let fastlocals = unsafe { self.live_fastlocals() };
         let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
         !is_optimized
             && code.localspluskinds.iter().enumerate().any(|(i, &kind)| {
@@ -1774,15 +1798,7 @@ impl FrameObject {
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
         let code = self.iframe().code();
-        // If this FrameObject has a live source iframe on the TLS chain, read
-        // its localsplus for up-to-date values (the materialized copy is a
-        // stale snapshot from materialize time).
-        let live = self.find_live_source_iframe();
-        let fastlocals = if !live.is_null() {
-            unsafe { (*live).localsplus.fastlocals() }
-        } else {
-            unsafe { self.iframe_ref().localsplus.fastlocals() }
-        };
+        let fastlocals = unsafe { self.live_fastlocals() };
 
         // Iterate through all localsplus slots using localspluskinds
         let nlocalsplus = code.localspluskinds.len();
@@ -1969,13 +1985,7 @@ impl FrameObject {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
         // SAFETY: callers first pass through `check_locals_access`, so the
         // frame is not executing on another thread.
-        // Use live source iframe if available for up-to-date values.
-        let live = self.find_live_source_iframe();
-        let fastlocals = if !live.is_null() {
-            unsafe { (*live).localsplus.fastlocals() }
-        } else {
-            unsafe { self.iframe_ref().localsplus.fastlocals() }
-        };
+        let fastlocals = unsafe { self.live_fastlocals() };
         let obj = fastlocals.get(i)?.as_ref()?;
         let kind = self
             .iframe()

@@ -910,7 +910,8 @@ impl Py<FrameObject> {
             let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> = None;
             while !cur.is_null() {
                 let iframe = unsafe { &*cur };
-                let fo = iframe.materialize(vm).to_owned();
+                // SAFETY: the world is stopped, so the owning thread is parked.
+                let fo = unsafe { iframe.materialize_with_locals(vm) }.to_owned();
                 if let Some(child) = child_fo.take() {
                     let mut guard = child.iframe().cold().retained_back.lock();
                     if guard.is_none() {
@@ -920,7 +921,8 @@ impl Py<FrameObject> {
                 child_fo = Some(fo);
                 cur = iframe.previous();
             }
-            let fo = prev_ref.materialize(vm);
+            // SAFETY: the world is stopped, so the owning thread is parked.
+            let fo = unsafe { prev_ref.materialize_with_locals(vm) };
             fo.mark_escaped();
             return Some(fo.to_owned());
         }

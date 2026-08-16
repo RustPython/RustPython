@@ -1224,7 +1224,9 @@ pub(crate) mod _thread {
                                     None;
                                 while !cur.is_null() {
                                     let iframe = unsafe { &*cur };
-                                    let fo = iframe.materialize(vm).to_owned();
+                                    // SAFETY: world stopped -> owning thread parked.
+                                    let fo =
+                                        unsafe { iframe.materialize_with_locals(vm) }.to_owned();
                                     if let Some(child) = child_fo.take() {
                                         let mut guard = child.iframe().cold().retained_back.lock();
                                         if guard.is_none() {
@@ -1235,7 +1237,8 @@ pub(crate) mod _thread {
                                     cur = iframe.previous();
                                 }
                                 let iframe = unsafe { &*iframe_ptr };
-                                let fo = iframe.materialize(vm);
+                                // SAFETY: world stopped -> owning thread parked.
+                                let fo = unsafe { iframe.materialize_with_locals(vm) };
                                 Some((*id, fo.to_owned()))
                             } else {
                                 None
@@ -1271,7 +1274,8 @@ pub(crate) mod _thread {
                                 None;
                             while !cur.is_null() {
                                 let iframe = unsafe { &*cur };
-                                let fo = iframe.materialize(vm).to_owned();
+                                // SAFETY: world stopped -> owning thread parked.
+                                let fo = unsafe { iframe.materialize_with_locals(vm) }.to_owned();
                                 if let Some(child) = child_fo.take() {
                                     let mut guard = child.iframe().cold().retained_back.lock();
                                     if guard.is_none() {
@@ -1282,7 +1286,8 @@ pub(crate) mod _thread {
                                 cur = iframe.previous();
                             }
                             let iframe = unsafe { &*iframe_ptr };
-                            let fo = iframe.materialize(vm);
+                            // SAFETY: world stopped -> owning thread parked.
+                            let fo = unsafe { iframe.materialize_with_locals(vm) };
                             Some((*id, fo.to_owned()))
                         } else {
                             // Fall back to frames stack for FrameObject-only path
