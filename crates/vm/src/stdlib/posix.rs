@@ -33,10 +33,7 @@ pub mod module {
         target_os = "linux",
         target_os = "openbsd"
     ))]
-    use crate::{
-        builtins::{PyTuple, PyUtf8StrRef},
-        utils::ToCString,
-    };
+    use crate::{builtins::PyUtf8StrRef, utils::ToCString};
     use alloc::ffi::CString;
     use core::ffi::CStr;
     use rustpython_host_env::os::ffi::OsStringExt;
@@ -1578,7 +1575,7 @@ pub mod module {
             if let Some(scheduler) = &self.scheduler
                 && !vm.is_none(scheduler)
             {
-                if !scheduler.downcastable::<PyTuple>() {
+                if !scheduler.downcastable::<crate::builtins::PyTuple>() {
                     return Err(vm.new_type_error(format!(
                         "{func_name}: scheduler must be a tuple or None"
                     )));

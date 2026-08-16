@@ -2719,10 +2719,7 @@ mod _socket {
             Some(host) => {
                 match crate::vm::function::ArgStrOrBytesLike::try_from_object(vm, host.clone())? {
                     crate::vm::function::ArgStrOrBytesLike::Str(s) => {
-                        let encoded =
-                            vm.state
-                                .codec_registry
-                                .encode_text(s.to_owned(), "idna", None, vm)?;
+                        let encoded = vm.state.codec_registry.encode_text(s, "idna", None, vm)?;
                         let host_str = core::str::from_utf8(encoded.as_bytes())
                             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
                         Some(host_str.to_owned())

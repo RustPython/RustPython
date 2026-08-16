@@ -9,6 +9,10 @@ use crate::{
     protocol::PyIterReturn,
 };
 use crossbeam_utils::atomic::AtomicCell;
+// lasti is a PyAtomic: a Cell when built without threading, whose load()
+// comes from the Radium trait
+#[cfg(not(feature = "threading"))]
+use rustpython_common::atomic::Radium;
 
 impl ExecutionResult {
     /// Turn an ExecutionResult into a PyResult that would be returned from a generator or coroutine
