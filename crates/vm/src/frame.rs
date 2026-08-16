@@ -799,6 +799,12 @@ pub(crate) struct FrameColdData {
     pub retained_back: PyMutex<Option<FrameObjectRef>>,
     pub pending_stack_pops: PyAtomic<u32>,
     pub pending_unwind_from_stack: PyAtomic<i64>,
+    /// Thread that is still running the frame this one was materialized from,
+    /// or 0 once that frame has returned (and for every frame object that was
+    /// not materialized from a running frame). Only a thread id, never a
+    /// pointer: reading it can never chase freed memory, so it stays usable
+    /// as the gate for frames that belong to another thread.
+    pub attached_tid: atomic::AtomicU64,
 }
 
 impl Default for FrameColdData {
@@ -814,6 +820,7 @@ impl Default for FrameColdData {
             retained_back: PyMutex::new(None),
             pending_stack_pops: Default::default(),
             pending_unwind_from_stack: Default::default(),
+            attached_tid: atomic::AtomicU64::new(0),
         }
     }
 }
@@ -1087,27 +1094,60 @@ impl InterpreterFrame {
         self.materialize_slow(vm)
     }
 
-    /// Materialize this frame and copy its fast locals into the frame object.
+    /// Take a standalone copy of this frame, values included, for a thread
+    /// that does not own it.
     ///
-    /// For reading a frame that belongs to another thread: a frame object
-    /// otherwise receives its values when the frame returns (`exit_iframe`),
-    /// which is no help while that thread is parked halfway through.
+    /// Nothing links the copy back to this frame: the owning thread will not
+    /// find it at `exit_iframe` and so never writes into it once the world
+    /// restarts. That is the whole point — a linked copy is a buffer the owner
+    /// rewrites slot by slot while the reader clones out of it.
     ///
     /// # Safety
-    /// Caller must hold the world stopped, so that the owning thread is parked
-    /// and its fast locals are not moving while they are read.
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// its fast locals are not moving while they are read.
     #[cfg(feature = "threading")]
     #[cold]
     #[inline(never)]
-    pub(crate) unsafe fn materialize_with_locals(&self, vm: &VirtualMachine) -> &Py<FrameObject> {
-        let fo = self.materialize(vm);
-        let dst = unsafe { fo.iframe_mut() };
-        // A heap-allocated frame is its own frame object's frame: it already
-        // holds the values, and copying a buffer onto itself would clear it.
-        if !core::ptr::eq(dst as *const Self, self) {
-            unsafe { dst.localsplus.sync_fastlocals_from(&self.localsplus) };
-        }
+    pub(crate) unsafe fn materialize_detached(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        // Deliberately not `materialize_chain`: that hands back an existing
+        // linked copy when the owning thread has already made one.
+        let fo = self.materialize_slow_chain(vm);
+        unsafe {
+            fo.iframe_mut()
+                .localsplus
+                .sync_fastlocals_from(&self.localsplus)
+        };
         fo
+    }
+
+    /// Copy this frame and everything it was called from for a thread that
+    /// does not own them, linking `f_back` along the way, and return the copy
+    /// of this frame. The links are `retained_back`, so the chain keeps
+    /// resolving once the world restarts and the real frames return.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// the chain is not being popped while it is walked.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_detached_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        let top = unsafe { self.materialize_detached(vm) };
+        let mut child = top.clone();
+        let mut cur = self.previous();
+        while !cur.is_null() {
+            let caller = unsafe { &*cur };
+            let caller_fo = unsafe { caller.materialize_detached(vm) };
+            {
+                let mut guard = child.iframe().cold().retained_back.lock();
+                if guard.is_none() {
+                    *guard = Some(caller_fo.clone());
+                }
+            }
+            child = caller_fo;
+            cur = caller.previous();
+        }
+        top
     }
 
     /// Create a lightweight FrameObject with empty localsplus, suitable for
@@ -1169,14 +1209,16 @@ impl InterpreterFrame {
             // that become dangling after their call returns. The f_back chain
             // is resolved through the TLS CURRENT_FRAME chain instead.
             previous: Radium::new(0),
-            // Materialized frame is a detached snapshot — always FrameObject-owned.
-            // If we copied Thread from the source iframe, frame.clear() would
-            // reject the frame with "cannot clear an executing frame".
+            // Always FrameObject-owned. If we copied Thread from the source
+            // iframe, frame.clear() would reject the frame with "cannot clear
+            // an executing frame"; `attached_tid` carries the "still running"
+            // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
             datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
             cold: OnceCell::from(Box::new(FrameColdData {
                 escaped: atomic::AtomicBool::new(true),
+                attached_tid: atomic::AtomicU64::new(current_thread_ident()),
                 ..FrameColdData::default()
             })),
         };
@@ -1203,8 +1245,8 @@ impl InterpreterFrame {
         self.materialized.store(fo_ptr, Relaxed);
 
         // Keep the FrameObject alive by storing it in temporary_refs.
-        // GC tracking is deferred to with_iframe cleanup, where the frame
-        // is no longer executing and temporary_refs is cleared — at that
+        // GC tracking is deferred to `exit_iframe`, where the frame is no
+        // longer executing and temporary_refs is cleared — at that
         // point the FrameObject is self-sustaining and GC can safely
         // traverse and collect it.
         self.cold()
@@ -1313,6 +1355,22 @@ impl InterpreterFrame {
     #[inline]
     pub(crate) fn cold_opt(&self) -> Option<&FrameColdData> {
         self.cold.get().map(|b| &**b)
+    }
+
+    /// Thread still running the frame this one was materialized from, or 0.
+    #[inline]
+    pub(crate) fn attached_tid(&self) -> u64 {
+        self.cold_opt()
+            .map_or(0, |c| c.attached_tid.load(atomic::Ordering::Acquire))
+    }
+
+    /// Mark the frame this one was materialized from as returned, so its
+    /// values may be read from here.
+    #[inline]
+    pub(crate) fn detach(&self) {
+        if let Some(cold) = self.cold_opt() {
+            cold.attached_tid.store(0, atomic::Ordering::Release);
+        }
     }
 }
 
@@ -1902,6 +1960,15 @@ impl FrameObject {
     /// builtin, trace callbacks) is fine: the frame sits on the current
     /// thread's frame chain and is at a bytecode boundary.
     pub(crate) fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // A frame object materialized from a running data stack frame is
+        // FrameObject-owned, so the owner test below cannot speak for it: the
+        // thread running that frame fills these slots when it returns.
+        let attached = self.iframe().attached_tid();
+        if attached != 0 && attached != current_thread_ident() {
+            return Err(vm.new_runtime_error(
+                "cannot access frame locals while the frame is executing in another thread",
+            ));
+        }
         let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
         if owner != FrameOwner::Thread {
             return Ok(());
@@ -2325,6 +2392,21 @@ impl Py<FrameObject> {
             frame = f.f_back(vm);
         }
         frame
+    }
+}
+
+/// Identity of the calling thread, or 0 where there is only one thread to be.
+/// 0 doubles as "no thread", which is what `attached_tid` wants for a build
+/// that cannot have a frame running anywhere else.
+#[inline]
+fn current_thread_ident() -> u64 {
+    #[cfg(feature = "threading")]
+    {
+        crate::stdlib::_thread::get_ident()
+    }
+    #[cfg(not(feature = "threading"))]
+    {
+        0
     }
 }
 

@@ -2196,7 +2196,7 @@ impl VirtualMachine {
             self.restore_exception(saved_exc);
         }
         // Clear previous before popping — it may point to a stack-allocated
-        // iframe that will be freed when the caller's with_iframe exits.
+        // iframe that will be freed when the caller releases its frame.
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -2309,6 +2309,9 @@ impl VirtualMachine {
                         core::sync::atomic::Ordering::Relaxed,
                     );
                 }
+                // The slots above are the last write this thread makes into
+                // the frame object, so it is now readable from anywhere.
+                fo.iframe().detach();
                 if !old_chain.is_null() {
                     let prev_iframe = unsafe { &*old_chain };
                     let back_fo = prev_iframe.materialize_chain(self);
@@ -2325,7 +2328,7 @@ impl VirtualMachine {
             self.restore_exception(saved_exc);
         }
         // Clear previous before popping — it may point to a stack-allocated
-        // iframe that will be freed when the caller's with_iframe exits.
+        // iframe that will be freed when the caller releases its frame.
         {
             #[allow(unused_imports)]
             use rustpython_common::atomic::Radium;
@@ -2357,20 +2360,6 @@ impl VirtualMachine {
                 }
             }
         }
-    }
-
-    pub fn with_iframe<R>(
-        &self,
-        iframe: &mut crate::frame::InterpreterFrame,
-        f: impl FnOnce(&mut crate::frame::InterpreterFrame) -> PyResult<R>,
-    ) -> PyResult<R> {
-        let state = self.enter_iframe(iframe)?;
-        // Ensure exit_iframe runs even if f(iframe) panics.
-        let guard = scopeguard::guard(state, |s| self.exit_iframe(s));
-        let result = f(iframe);
-        let state = scopeguard::ScopeGuard::into_inner(guard);
-        self.exit_iframe(state);
-        result
     }
 
     /// FrameObject execution for generator/coroutine resume.
@@ -2414,7 +2403,7 @@ impl VirtualMachine {
             frame.iframe().owner.store(old_owner, core::sync::atomic::Ordering::Release);
             self.pop_exception();
             // Clear previous before popping — it may point to a stack-allocated
-            // iframe that will be freed when the caller's with_iframe exits.
+            // iframe that will be freed when the caller releases its frame.
             {
                 #[allow(unused_imports)]
                 use rustpython_common::atomic::Radium;
