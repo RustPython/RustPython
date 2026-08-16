@@ -206,6 +206,19 @@ impl FfiResult<()> for PyResult<Infallible> {
     }
 }
 
+impl FfiResult<*mut PyObject> for PyResult<Infallible> {
+    const ERR_VALUE: *mut PyObject = core::ptr::null_mut();
+
+    fn into_output(self, vm: &VirtualMachine) -> *mut PyObject {
+        match self {
+            Err(err) => {
+                vm.set_exception(Some(err));
+                Self::ERR_VALUE
+            }
+        }
+    }
+}
+
 impl<Output, T> FfiResult<Output> for PyResult<T>
 where
     T: FfiResult<Output>,
