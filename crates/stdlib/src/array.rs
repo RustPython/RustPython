@@ -646,6 +646,8 @@ pub mod array {
             if int.as_bigint().is_negative() {
                 return Err(vm.new_overflow_error("can't convert negative value to unsigned int"));
             }
+            // (c_ulong is u32 - i.e. Self - on Windows)
+            #[cfg_attr(windows, allow(clippy::use_self))]
             let x = raw::c_ulong::try_from(int.as_bigint()).map_err(|_| {
                 vm.new_overflow_error("Python int too large to convert to C unsigned long")
             })?;
