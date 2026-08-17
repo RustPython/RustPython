@@ -1004,10 +1004,6 @@ class CStringIOTest(PyStringIOTest):
     def test_flags(self):
         return super().test_flags()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
-    def test_newlines_property(self):
-        return super().test_newlines_property()
-
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
 
@@ -1016,10 +1012,6 @@ class CStringIOPickleTest(PyStringIOPickleTest):
             return pickle.loads(pickle.dumps(io.StringIO(*args, **kwargs)))
         def __init__(self, *args, **kwargs):
             pass
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
-    def test_newlines_property(self):
-        return super().test_newlines_property()
 
 if __name__ == '__main__':
     unittest.main()
