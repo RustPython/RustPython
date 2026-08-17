@@ -235,8 +235,11 @@ impl PyByteArray {
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let needle = ByteInnerSub::from_contains_arg(needle, vm)?;
-        self.inner().contains(needle, vm)
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = ByteInnerSub::from_contains_arg(needle, vm)
+            .and_then(|needle| self.inner().contains(needle, vm));
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
     fn __iadd__(
@@ -345,9 +348,13 @@ impl PyByteArray {
             )));
         }
         let options: ByteInnerHexOptions = func_args.bind(vm)?;
-        // Measuring the separator runs Python, so it happens before the buffer
-        // is borrowed.
-        let (sep, bytes_per_sep) = options.resolve(vm)?;
+        // gh-143195: measuring the separator runs Python, so it happens before
+        // the buffer is borrowed, and with the buffer exported so a re-entrant
+        // __len__ that resizes this bytearray raises BufferError
+        self.exports.fetch_add(1, Ordering::Release);
+        let resolved = options.resolve(vm);
+        self.exports.fetch_sub(1, Ordering::Release);
+        let (sep, bytes_per_sep) = resolved?;
         Ok(self.inner().hex(sep, bytes_per_sep))
     }
 
@@ -388,7 +395,11 @@ impl PyByteArray {
         check_no_kwargs(vm, "bytearray.count", &func_args)?;
         check_positional(vm, "count", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
-        self.inner().count(options, vm)
+        // gh-142560: as the find family
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = self.inner().count(options, vm);
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
     #[pymethod]
@@ -408,7 +419,7 @@ impl PyByteArray {
         let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let borrowed = self.borrow_buf();
         let (affix, substr) =
-            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -428,7 +439,7 @@ impl PyByteArray {
         let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let borrowed = self.borrow_buf();
         let (affix, substr) =
-            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(&*borrowed, borrowed.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -441,12 +452,32 @@ impl PyByteArray {
         )
     }
 
+    /// gh-142560: the needle/slice-index conversion can re-enter and resize
+    /// this bytearray; the export guard turns that into BufferError
+    fn find_with_guard(
+        &self,
+        options: ByteInnerFindOptions,
+        rfind: bool,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<usize>> {
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = self.inner().find(
+            options,
+            |h, n| {
+                if rfind { h.rfind(n) } else { h.find(n) }
+            },
+            vm,
+        );
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
+    }
+
     #[pymethod]
     fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
         check_no_kwargs(vm, "bytearray.find", &func_args)?;
         check_positional(vm, "find", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
-        let index = self.inner().find(options, |h, n| h.find(n), vm)?;
+        let index = self.find_with_guard(options, false, vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
@@ -455,7 +486,7 @@ impl PyByteArray {
         check_no_kwargs(vm, "bytearray.index", &func_args)?;
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
-        let index = self.inner().find(options, |h, n| h.find(n), vm)?;
+        let index = self.find_with_guard(options, false, vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
@@ -464,7 +495,7 @@ impl PyByteArray {
         check_no_kwargs(vm, "bytearray.rfind", &func_args)?;
         check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
-        let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
+        let index = self.find_with_guard(options, true, vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
@@ -473,7 +504,7 @@ impl PyByteArray {
         check_no_kwargs(vm, "bytearray.rindex", &func_args)?;
         check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
-        let index = self.inner().find(options, |h, n| h.rfind(n), vm)?;
+        let index = self.find_with_guard(options, true, vm)?;
         index.ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
@@ -526,9 +557,16 @@ impl PyByteArray {
                 func_args.args.len()
             )));
         }
-        let options: ByteInnerSplitOptions = func_args.bind(vm)?;
-        self.inner()
-            .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+        // gh-142560: the separator conversion can re-enter and resize
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = func_args
+            .bind::<ByteInnerSplitOptions>(vm)
+            .and_then(|options| {
+                self.inner()
+                    .split(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+            });
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
     #[pymethod]
@@ -540,9 +578,15 @@ impl PyByteArray {
                 func_args.args.len()
             )));
         }
-        let options: ByteInnerSplitOptions = func_args.bind(vm)?;
-        self.inner()
-            .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+        self.exports.fetch_add(1, Ordering::Release);
+        let result = func_args
+            .bind::<ByteInnerSplitOptions>(vm)
+            .and_then(|options| {
+                self.inner()
+                    .rsplit(options, |s, vm| vm.ctx.new_bytearray(s.to_vec()).into(), vm)
+            });
+        self.exports.fetch_sub(1, Ordering::Release);
+        result
     }
 
     #[pymethod]
@@ -585,7 +629,7 @@ impl PyByteArray {
             )));
         }
         let options: anystr::ExpandTabsArgs = func_args.bind(vm)?;
-        Ok(self.inner().expandtabs(options).into())
+        Ok(self.inner().expandtabs(options, vm)?.into())
     }
 
     #[pymethod]
@@ -691,7 +735,10 @@ impl Py<PyByteArray> {
     fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u8> {
         check_no_kwargs(vm, "bytearray.pop", &func_args)?;
         check_positional(vm, "pop", func_args.args.len(), 0, 1)?;
-        let index: OptionalArg<isize> = func_args.bind(vm)?;
+        let index: OptionalArg<PyObjectRef> = func_args.bind(vm)?;
+        let index = index
+            .map(|obj| crate::builtins::to_c_ssize_t(&obj, vm))
+            .transpose()?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements
             .wrap_index(index.unwrap_or(-1))
@@ -703,7 +750,8 @@ impl Py<PyByteArray> {
     fn insert(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         check_no_kwargs(vm, "bytearray.insert", &func_args)?;
         check_positional(vm, "insert", func_args.args.len(), 2, 2)?;
-        let (index, object): (isize, PyObjectRef) = func_args.bind(vm)?;
+        let (index, object): (PyObjectRef, PyObjectRef) = func_args.bind(vm)?;
+        let index = crate::builtins::to_c_ssize_t(&index, vm)?;
         let value = value_from_object(vm, &object)?;
         let elements = &mut self.try_resizable(vm)?.elements;
         let index = elements.saturate_index(index);

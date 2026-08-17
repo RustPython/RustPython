@@ -1581,7 +1581,7 @@ pub(crate) fn release_buffer_from_python(
     if mv.released.load() {
         return Err(vm.new_value_error("memoryview's buffer has already been released"));
     }
-    mv.release();
+    mv.py_release(vm)?;
     Ok(())
 }
 
@@ -1610,7 +1610,8 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
         let mv = mv.into_ref(&vm.ctx);
         call_python_release_buffer(&exporter, mv.clone());
         // The window does not outlive the release it was made for.
-        mv.release();
+        mv.released.store(true);
+        mv.buffer.release();
     });
 }
 
