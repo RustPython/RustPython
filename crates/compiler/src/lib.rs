@@ -362,7 +362,40 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
+    // `2 <> 3` outside Barry mode: ruff lexes `<` then an unexpected `>` and
+    // reports `ExpectedExpression` starting at the `>`. CPython's tokenizer
+    // treats `<>` as a single obsolete token and points at its start (the
+    // `<`) instead, so shift the reported location back over it.
+    source_error!(barry_flufl_obsolete_operator_error(error, source_text));
+
+    // CPython's PEG parser collapses a bare "expected an expression" failure
+    // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
+    // does this same collapse for its own callers; rustpython-compiler has no
+    // vm dependency, so mirror it here.
+    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError("invalid syntax".into()),
+            loc,
+            end_loc,
+        ));
+    }
+
     None
+}
+
+fn barry_flufl_obsolete_operator_error(
+    error: &parser::ParseError,
+    source: &str,
+) -> Option<(String, usize, usize)> {
+    if !matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+        return None;
+    }
+    let start = error.location.start().to_usize();
+    if start == 0 || source.as_bytes().get(start - 1) != Some(&b'<') {
+        return None;
+    }
+    Some(("invalid syntax".to_string(), start - 1, start + 1))
 }
 
 fn eof_parse_diagnostic(
