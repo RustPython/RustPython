@@ -306,9 +306,9 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.category)
         self.assertRaises(TypeError, self.db.category, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - 'BN' != ''
+    # NOTE: RUSTPYTHON; This test is from 3.15. See RustPython#8548 for motivation.
     def test_bidirectional(self):
-        self.assertEqual(self.db.bidirectional('\uFFFE'), '')
+        self.assertEqual(self.db.bidirectional('\uFFFE'), '' if self.old else 'BN')
         self.assertEqual(self.db.bidirectional(' '), 'WS')
         self.assertEqual(self.db.bidirectional('A'), 'L')
         self.assertEqual(self.db.bidirectional('\U00020000'), 'L')
@@ -329,6 +329,9 @@ class UnicodeFunctionsTest(unittest.TestCase):
         # New in 16.0.0
         self.assertEqual(self.db.bidirectional('\u0897'), '' if self.old else 'NSM')
         self.assertEqual(self.db.bidirectional('\U0001fbef'), '' if self.old else 'ON')
+        # New in 17.0.0
+        self.assertEqual(self.db.bidirectional('\u088f'), '' if self.old else 'AL')
+        self.assertEqual(self.db.bidirectional('\U0001fbfa'), '' if self.old else 'ON')
 
         self.assertRaises(TypeError, self.db.bidirectional)
         self.assertRaises(TypeError, self.db.bidirectional, 'xx')
