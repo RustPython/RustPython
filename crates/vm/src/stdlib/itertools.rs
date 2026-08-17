@@ -1123,7 +1123,7 @@ mod decl {
     #[derive(FromArgs)]
     struct ProductArgs {
         #[pyarg(named, optional)]
-        repeat: OptionalArg<usize>,
+        repeat: OptionalArg<isize>,
     }
 
     impl Constructor for PyItertoolsProduct {
@@ -1135,19 +1135,38 @@ mod decl {
             vm: &VirtualMachine,
         ) -> PyResult<Self> {
             let repeat = args.repeat.unwrap_or(1);
-            let mut pools = Vec::new();
-            for arg in iterables.iter() {
-                pools.push(arg.try_to_value(vm)?);
+            if repeat < 0 {
+                return Err(vm.new_value_error("repeat argument cannot be negative"));
             }
-            let pools = core::iter::repeat_n(pools, repeat)
-                .flatten()
-                .collect::<Vec<Vec<PyObjectRef>>>();
+            let repeat = repeat as usize;
+
+            let mut single: Vec<Vec<PyObjectRef>> = Vec::new();
+            for arg in iterables.iter() {
+                single.push(arg.try_to_value(vm)?);
+            }
+
+            let npools = single
+                .len()
+                .checked_mul(repeat)
+                .filter(|n| *n <= isize::MAX as usize / size_of::<usize>())
+                .ok_or_else(|| vm.new_overflow_error("repeat argument too large"))?;
+
+            let mut pools: Vec<Vec<PyObjectRef>> = Vec::new();
+            pools
+                .try_reserve_exact(npools)
+                .map_err(|_| vm.new_memory_error(""))?;
+            pools.extend(core::iter::repeat_n(single, repeat).flatten());
+
+            let mut idxs = Vec::new();
+            idxs.try_reserve_exact(npools)
+                .map_err(|_| vm.new_memory_error(""))?;
+            idxs.resize(npools, 0);
 
             let l = pools.len();
 
             Ok(Self {
                 pools,
-                idxs: PyRwLock::new(vec![0; l]),
+                idxs: PyRwLock::new(idxs),
                 cur: AtomicCell::new(l.wrapping_sub(1)),
                 stop: AtomicCell::new(false),
             })

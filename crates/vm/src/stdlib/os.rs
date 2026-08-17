@@ -328,7 +328,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let mut buffer = vec![0u8; n];
+        let mut buffer = vm.new_zeroed_bytes(n)?;
         loop {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {

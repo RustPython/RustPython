@@ -492,7 +492,9 @@ impl FormatSpec {
         vm: &VirtualMachine,
     ) -> Result<Vec<u8>, PackError> {
         // Create data vector:
-        let mut data = vec![0; self.size];
+        let mut data = vm
+            .new_zeroed_bytes(self.size)
+            .map_err(|e| PackError::from_exception(e, vm))?;
 
         self.try_pack_into(&mut data, args, vm)?;
 

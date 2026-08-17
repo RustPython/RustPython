@@ -540,3 +540,10 @@ with assert_raises(MemoryError):
     itertools.combinations(range(5), 2**44)
 with assert_raises(MemoryError):
     itertools.combinations_with_replacement(range(5), 2**44)
+
+# repeat is an arbitrary Python int: a negative one is refused, and one whose
+# pool cannot be allocated must raise rather than take the process down.
+with assert_raises(ValueError):
+    itertools.product([1], repeat=-1)
+with assert_raises(OverflowError):
+    itertools.product([1, 2], repeat=2**60)
