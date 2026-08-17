@@ -53,7 +53,8 @@ pub struct ThreadSlot {
     pub top_iframe: AtomicUsize,
     /// Raw frame pointers, valid while the owning thread's call stack is active.
     /// Readers must hold the Mutex and convert to FrameObjectRef inside the lock.
-    /// Used on non-unix threading builds, which have no stop-the-world.
+    /// Stands in for `top_frame` where that field is not built, so a reader
+    /// that finds no `top_iframe` still has the frames to answer from.
     #[cfg(not(unix))]
     pub frames: parking_lot::Mutex<Vec<FramePtr>>,
     pub exception: crate::PyAtomicRef<Option<crate::exceptions::types::PyBaseException>>,
