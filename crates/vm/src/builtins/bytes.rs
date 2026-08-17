@@ -18,7 +18,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, ArgIndex, ArgIterable, FuncArgs, OptionalArg, OptionalOption,
-        PyComparisonValue, check_meth_o, check_no_kwargs, check_positional,
+        PyComparisonValue, check_meth_o, check_no_kwargs, check_noargs, check_positional,
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
@@ -276,53 +276,63 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn isalnum(&self) -> bool {
-        self.inner.isalnum()
+    fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isalnum", &func_args)?;
+        Ok(self.inner.isalnum())
     }
 
     #[pymethod]
-    fn isalpha(&self) -> bool {
-        self.inner.isalpha()
+    fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isalpha", &func_args)?;
+        Ok(self.inner.isalpha())
     }
 
     #[pymethod]
-    fn isascii(&self) -> bool {
-        self.inner.isascii()
+    fn isascii(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isascii", &func_args)?;
+        Ok(self.inner.isascii())
     }
 
     #[pymethod]
-    fn isdigit(&self) -> bool {
-        self.inner.isdigit()
+    fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isdigit", &func_args)?;
+        Ok(self.inner.isdigit())
     }
 
     #[pymethod]
-    fn islower(&self) -> bool {
-        self.inner.islower()
+    fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.islower", &func_args)?;
+        Ok(self.inner.islower())
     }
 
     #[pymethod]
-    fn isspace(&self) -> bool {
-        self.inner.isspace()
+    fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isspace", &func_args)?;
+        Ok(self.inner.isspace())
     }
 
     #[pymethod]
-    fn isupper(&self) -> bool {
-        self.inner.isupper()
+    fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isupper", &func_args)?;
+        Ok(self.inner.isupper())
     }
 
     #[pymethod]
-    fn istitle(&self) -> bool {
-        self.inner.istitle()
+    fn istitle(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.istitle", &func_args)?;
+        Ok(self.inner.istitle())
     }
 
     #[pymethod]
-    fn lower(&self) -> Self {
-        self.inner.lower().into()
+    fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytes.lower", &func_args)?;
+        Ok(self.inner.lower().into())
     }
 
     #[pymethod]
-    fn upper(&self) -> Self {
-        self.inner.upper().into()
+    fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytes.upper", &func_args)?;
+        Ok(self.inner.upper().into())
     }
 
     #[pymethod]
@@ -389,7 +399,10 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn join(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        // PySequence_Fast(seq, "can only join an iterable")
+        let iter = <ArgIterable<PyBytesInner> as TryFromObject>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
         Ok(self.inner.join(iter, vm)?.into())
     }
 
@@ -399,7 +412,7 @@ impl PyBytes {
         check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
         let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let (affix, substr) =
-            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -418,7 +431,7 @@ impl PyBytes {
         check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
         let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let (affix, substr) =
-            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -557,18 +570,30 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
-        self.inner.expandtabs(options).into()
+    fn expandtabs(&self, options: anystr::ExpandTabsArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(self.inner.expandtabs(options, vm)?.into())
     }
 
     #[pymethod]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        self.inner
-            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into())
+    fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 1 optional argument
+        if func_args.args.len() + func_args.kwargs.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "splitlines() takes at most 1 argument ({} given)",
+                func_args.args.len() + func_args.kwargs.len()
+            )));
+        }
+        let options: anystr::SplitLinesArgs = func_args.bind(vm)?;
+        Ok(self
+            .inner
+            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into()))
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Self> {
+    fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytes.zfill", &func_args)?;
+        let (width,): (PyObjectRef,) = func_args.bind(vm)?;
+        let width = crate::builtins::to_c_ssize_t(&width, vm)?;
         Ok(self.inner.zfill(width, vm)?.into())
     }
 
@@ -582,8 +607,9 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn title(&self) -> Self {
-        self.inner.title().into()
+    fn title(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytes.title", &func_args)?;
+        Ok(self.inner.title().into())
     }
 
     fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {

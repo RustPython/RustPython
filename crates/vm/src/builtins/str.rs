@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytesRef, PyDict, PySlice, PyTuple, PyTupleRef, PyType, PyTypeRef,
-    int::{PyInt, PyIntRef},
+    int::PyInt,
     iter::{
         IterStatus::{self, Exhausted},
         builtins_iter,
@@ -1145,11 +1145,13 @@ impl PyStr {
             .start
             .map(|o| opt_slice_index(o, vm))
             .transpose()?
+            .flatten()
             .flatten();
         let end = options
             .end
             .map(|o| opt_slice_index(o, vm))
             .transpose()?
+            .flatten()
             .flatten();
         let hay = self.as_wtf8();
         let substr = if start.is_some() || end.is_some() {
@@ -2284,12 +2286,22 @@ fn to_c_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
 }
 
 // CPython: clinic slice_index converter
-fn opt_slice_index(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<PyIntRef>> {
+fn opt_slice_index(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<Option<Option<isize>>> {
     if vm.is_none(&obj) {
-        return Ok(None);
+        return Ok(Some(None));
     }
     match obj.try_index_opt(vm) {
-        Some(index) => index.map(Some),
+        Some(index) => {
+            let index = index?;
+            // _PyEval_SliceIndex clamps to the ssize_t bounds
+            let big = index.as_bigint();
+            let i = match big.to_isize() {
+                Some(i) => i,
+                None if big.sign() == malachite_bigint::Sign::Minus => isize::MIN,
+                None => isize::MAX,
+            };
+            Ok(Some(Some(i)))
+        }
         None => Err(
             vm.new_type_error("slice indices must be integers or None or have an __index__ method")
         ),
@@ -2427,11 +2439,13 @@ impl FindArgs {
             .start
             .map(|o| opt_slice_index(o, vm))
             .transpose()?
+            .flatten()
             .flatten();
         let end = self
             .end
             .map(|o| opt_slice_index(o, vm))
             .transpose()?
+            .flatten()
             .flatten();
         let range = adjust_indices(start, end, len);
         Ok((sub, range))
