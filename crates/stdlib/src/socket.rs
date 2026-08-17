@@ -21,7 +21,6 @@ mod _socket {
             ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, Either, FsPath, FuncArgs, OptionalArg,
             OptionalOption,
         },
-        protocol::PyIter,
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
     };
@@ -1803,6 +1802,7 @@ mod _socket {
             addr: OptionalOption,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
+            use crate::vm::protocol::PyIter;
             let flags = flags.unwrap_or(0);
             let mut msg = host_socket::raw::MsgHdr::new();
 

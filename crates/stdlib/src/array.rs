@@ -614,6 +614,8 @@ pub mod array {
         fn try_into_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
             // CPython HH_setitem: parsed as C long, range-checked as int, then as unsigned short
             let x = try_to_c_long(vm, obj)?;
+            // (c_long is i32 on Windows, making this conversion a no-op there)
+            #[cfg_attr(windows, allow(clippy::useless_conversion))]
             let x = i32::try_from(x).map_err(|_| {
                 vm.new_overflow_error(if x < 0 {
                     "signed integer is less than minimum"
@@ -647,6 +649,8 @@ pub mod array {
             let x = raw::c_ulong::try_from(int.as_bigint()).map_err(|_| {
                 vm.new_overflow_error("Python int too large to convert to C unsigned long")
             })?;
+            // (c_ulong is u32 on Windows, making this conversion a no-op there)
+            #[cfg_attr(windows, allow(clippy::useless_conversion))]
             Self::try_from(x)
                 .map_err(|_| vm.new_overflow_error("unsigned int is greater than maximum"))
         }
