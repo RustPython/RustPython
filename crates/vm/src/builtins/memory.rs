@@ -6,7 +6,7 @@ use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
-    buffer::FormatSpec,
+    buffer::{FormatSpec, PackErrorKind},
     bytes_inner::{ByteInnerHexOptions, bytes_to_hex},
     class::{PyClassImpl, StaticType},
     common::{
@@ -329,11 +329,22 @@ impl PyMemoryView {
         // conversion runs `__index__` or `__float__`, which can read or write the
         // same buffer.
         // TODO: Optimize
-        let data = self.format_spec.pack(vec![value], vm).map_err(|_| {
-            vm.new_type_error(format!(
-                "memoryview: invalid type for format '{}'",
+        // A value of the wrong kind and a value the format has no room for are
+        // different errors here, though packing reports both the same way.
+        let data = self.format_spec.try_pack(vec![value], vm).map_err(|err| {
+            let what = match err.kind {
+                PackErrorKind::Type => "type",
+                PackErrorKind::Value => "value",
+                PackErrorKind::Raised => return err.exception,
+            };
+            let msg = format!(
+                "memoryview: invalid {what} for format '{}'",
                 self.desc.format
-            ))
+            );
+            match err.kind {
+                PackErrorKind::Type => vm.new_type_error(msg),
+                _ => vm.new_value_error(msg),
+            }
         })?;
         // The conversion, and the index that produced `pos`, could have released
         // the view; `pos` addresses a buffer that is no longer there.
@@ -842,6 +853,9 @@ impl PyMemoryView {
     }
 
     fn __delitem__(&self, _needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_not_released(vm)?;
+        // What cannot be written cannot be deleted from either, and that is
+        // the first thing answered.
         if self.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory"));
         }
@@ -1133,10 +1147,6 @@ impl Py<PyMemoryView> {
         if self.desc.readonly {
             return Err(vm.new_type_error("cannot modify read-only memory"));
         }
-        if value.is(&vm.ctx.none) {
-            return Err(vm.new_type_error("cannot delete memory"));
-        }
-
         if self.desc.ndim() == 0 {
             // TODO: merge branches when we got conditional if let
             if needle.is(&vm.ctx.ellipsis) {
@@ -1291,7 +1301,7 @@ impl AsMapping for PyMemoryView {
                 if let Some(value) = value {
                     zelf.__setitem__(needle.to_owned(), value, vm)
                 } else {
-                    Err(vm.new_type_error("cannot delete memory".to_owned()))
+                    zelf.__delitem__(needle.to_owned(), vm)
                 }
             }),
         };
