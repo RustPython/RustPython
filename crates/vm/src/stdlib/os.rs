@@ -187,6 +187,7 @@ pub(crate) fn path_and_dir_fd_invalid(
 }
 
 /// CPython `dir_fd_and_fd_invalid`.
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(crate) fn dir_fd_and_fd_invalid(
     func: &str,
     path_is_fd: bool,
