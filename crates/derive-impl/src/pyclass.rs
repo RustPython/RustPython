@@ -1077,7 +1077,10 @@ where
         }
 
         let raw = item_meta.raw()?;
-        let sig_doc = text_signature(func.sig(), &py_name);
+        let sig_doc = match item_meta.explicit_text_signature()? {
+            Some(params) => Some(format!("{py_name}{params}")),
+            None => text_signature(func.sig(), &py_name),
+        };
         let has_receiver = func
             .sig()
             .inputs
@@ -1600,7 +1603,7 @@ impl ToTokens for MemberNursery {
 struct MethodItemMeta(ItemMetaInner);
 
 impl ItemMeta for MethodItemMeta {
-    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw"];
+    const ALLOWED_NAMES: &'static [&'static str] = &["name", "raw", "text_signature"];
 
     fn from_inner(inner: ItemMetaInner) -> Self {
         Self(inner)
