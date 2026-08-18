@@ -4445,6 +4445,7 @@ mod _io {
             });
             *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
             zelf.newline.store(newline);
+            zelf.seennl.store(SeenNewline::empty());
             if let Some(object) = object {
                 zelf.observe_newlines(object.as_wtf8(), newline);
             }
@@ -4533,8 +4534,12 @@ mod _io {
         }
 
         #[pygetset]
-        fn newlines(&self, vm: &VirtualMachine) -> PyObjectRef {
-            self.seennl.load().to_pyobject(vm)
+        fn newlines(&self, vm: &VirtualMachine) -> PyResult {
+            if self.closed.load() {
+                Err(io_closed_error(vm))
+            } else {
+                Ok(self.seennl.load().to_pyobject(vm))
+            }
         }
 
         #[pymethod]
