@@ -675,3 +675,59 @@ test_cast_between_non_byte_formats()
 test_cast_to_zero_dim()
 test_hash_restricted_to_byte_formats()
 test_tobytes_order()
+
+
+def test_index_key_goes_through_index():
+    class I:
+        def __index__(self):
+            return 1
+
+    c = memoryview(bytes(range(24))).cast("B", shape=(4, 6))
+    assert c[I(), 2] == 8
+    assert c[1, I()] == 7
+    assert memoryview(b"\x00\x01")[(I(),)] == 1
+
+    w = memoryview(bytearray(range(24))).cast("B", shape=(4, 6))
+    w[I(), 2] = 99
+    assert w[1, 2] == 99
+
+    # What the key is follows from its types, so an item that answers
+    # __index__ but raises reports that rather than the key being invalid.
+    class Boom:
+        def __index__(self):
+            raise RuntimeError("boom")
+
+    for key in [Boom(), (Boom(), 0), (0, Boom())]:
+        try:
+            c[key]
+            raise AssertionError("no error")
+        except RuntimeError as e:
+            assert str(e) == "boom", e
+
+    try:
+        c[object(), 0]
+        raise AssertionError("no error")
+    except TypeError as e:
+        assert "invalid slice key" in str(e), e
+
+
+test_index_key_goes_through_index()
+
+
+def test_index_error_names_the_dimension():
+    c = memoryview(bytearray(range(24))).cast("B", shape=(2, 3, 4))
+    for key, dimension in [((0, 3, 0), 2), ((0, 0, -5), 3), ((2, 0, 0), 1)]:
+        try:
+            c[key]
+            raise AssertionError("no error")
+        except IndexError as e:
+            assert str(e) == f"index out of bounds on dimension {dimension}", e
+
+    try:
+        memoryview(bytearray(range(4)))[100]
+        raise AssertionError("no error")
+    except IndexError as e:
+        assert str(e) == "index out of bounds on dimension 1", e
+
+
+test_index_error_names_the_dimension()

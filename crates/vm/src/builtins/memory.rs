@@ -274,9 +274,10 @@ impl PyMemoryView {
             );
         }
         let (shape, _, _) = self.desc.dim_desc[0];
+        // ptr_from_index
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
+            .ok_or_else(|| vm.new_index_error("index out of bounds on dimension 1"))?;
         self.unpack_single(self.desc.fast_position(&[index]) as usize, vm)
     }
 
@@ -291,12 +292,7 @@ impl PyMemoryView {
 
     fn getitem_by_multi_idx(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult {
         let pos = self.pos_from_multi_index(indexes, vm)?;
-        let bytes = self.buffer.obj_bytes();
-        format_unpack(
-            &self.format_spec,
-            &bytes[pos..pos + self.format_spec.size()],
-            vm,
-        )
+        self.unpack_single(pos, vm)
     }
 
     fn setitem_by_idx(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -304,9 +300,10 @@ impl PyMemoryView {
             return Err(vm.new_not_implemented_error("sub-views are not implemented"));
         }
         let (shape, _, _) = self.desc.dim_desc[0];
+        // ptr_from_index
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
+            .ok_or_else(|| vm.new_index_error("index out of bounds on dimension 1"))?;
         self.pack_single(self.desc.fast_position(&[index]) as usize, value, vm)
     }
 
@@ -1158,34 +1155,36 @@ enum SubscriptNeedle {
     // MultiSlice(Vec<PySliceRef>),
 }
 
+/// memory_subscript
+///
+/// Which kind of key this is follows from the types in it alone, so an item that
+/// answers `__index__` but raises on the way reports that rather than making the
+/// whole key invalid. is_multiindex / is_multislice
 impl TryFromObject for SubscriptNeedle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // TODO: number protocol
-        if let Some(i) = obj.downcast_ref::<PyInt>() {
-            Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else if obj.downcastable::<PySlice>() {
-            Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }))
-        } else if let Ok(i) = obj.try_index(vm) {
-            Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else {
-            if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
-                if tuple.iter().all(|x| x.downcastable::<PyInt>()) {
-                    let v = tuple
-                        .iter()
-                        .map(|x| {
-                            unsafe { x.downcast_unchecked_ref::<PyInt>() }
-                                .try_to_primitive::<isize>(vm)
-                        })
-                        .try_collect()?;
-                    return Ok(Self::MultiIndex(v));
-                } else if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
-                    return Err(vm.new_not_implemented_error(
-                        "multi-dimensional slicing is not implemented",
-                    ));
-                }
-            }
-            Err(vm.new_type_error("memoryview: invalid slice key"))
+        if obj.number().is_index() {
+            return Ok(Self::Index(obj.try_index(vm)?.try_to_primitive(vm)?));
         }
+        if obj.downcastable::<PySlice>() {
+            return Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }));
+        }
+        if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+            if tuple.iter().all(|x| x.number().is_index()) {
+                // ptr_from_tuple: each item is converted where it sits, and the
+                // conversion can run Python that releases the view.
+                let indices = tuple
+                    .iter()
+                    .map(|x| x.try_index(vm)?.try_to_primitive::<isize>(vm))
+                    .try_collect()?;
+                return Ok(Self::MultiIndex(indices));
+            }
+            if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
+                return Err(
+                    vm.new_not_implemented_error("multi-dimensional slicing is not implemented")
+                );
+            }
+        }
+        Err(vm.new_type_error("memoryview: invalid slice key"))
     }
 }
 
