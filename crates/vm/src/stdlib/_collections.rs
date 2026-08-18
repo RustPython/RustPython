@@ -8,6 +8,7 @@ mod _collections {
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
+            locked_next,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -695,7 +696,7 @@ mod _collections {
     impl SelfIter for PyDequeIterator {}
     impl IterNext for PyDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            zelf.internal.lock().next(|deque, pos| {
+            locked_next(&zelf.internal, |deque, pos| {
                 if zelf.state != deque.state.load() {
                     return Err(vm.new_runtime_error("Deque mutated during iteration"));
                 }
@@ -761,7 +762,7 @@ mod _collections {
 
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            zelf.internal.lock().next(|deque, pos| {
+            locked_next(&zelf.internal, |deque, pos| {
                 if deque.state.load() != zelf.state {
                     return Err(vm.new_runtime_error("Deque mutated during iteration"));
                 }

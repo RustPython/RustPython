@@ -1,6 +1,7 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
     PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    locked_next,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -1691,7 +1692,7 @@ impl PyMemoryViewIterator {
 impl SelfIter for PyMemoryViewIterator {}
 impl IterNext for PyMemoryViewIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|mv, pos| {
+        locked_next(&zelf.internal, |mv, pos| {
             let len = mv.__len__(vm)?;
             Ok(if pos >= len {
                 PyIterReturn::StopIteration(None)

@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set, set::PySetInner,
+    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set, set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
@@ -1214,32 +1214,25 @@ macro_rules! dict_view {
 
         impl IterNext for $iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    match dict.entries.next_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        $project_fn,
-                    ) {
-                        Err(dict_inner::DictChanged) => {
-                            internal.status = IterStatus::Exhausted;
-                            return Err(
-                                vm.new_runtime_error("dictionary changed size during iteration")
-                            );
-                        }
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let entry =
+                        dict.entries
+                            .next_entry_checked(internal.position, &zelf.size, $project_fn);
+                    match entry {
+                        Err(dict_inner::DictChanged) => (
+                            Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                            internal.exhaust(),
+                        ),
                         Ok(Some((position, item))) => {
                             internal.position = position;
-                            PyIterReturn::Return(($result_fn)(vm, item))
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
-                        Ok(None) => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
 
@@ -1304,36 +1297,30 @@ macro_rules! dict_view {
 
         impl IterNext for $reverse_iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    match dict.entries.prev_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        $project_fn,
-                    ) {
-                        Err(dict_inner::DictChanged) => {
-                            internal.status = IterStatus::Exhausted;
-                            return Err(
-                                vm.new_runtime_error("dictionary changed size during iteration")
-                            );
-                        }
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let entry =
+                        dict.entries
+                            .prev_entry_checked(internal.position, &zelf.size, $project_fn);
+                    match entry {
+                        Err(dict_inner::DictChanged) => (
+                            Err(vm.new_runtime_error("dictionary changed size during iteration")),
+                            internal.exhaust(),
+                        ),
                         Ok(Some((found_index, item))) => {
-                            if found_index == 0 {
-                                internal.status = IterStatus::Exhausted;
+                            let released = if found_index == 0 {
+                                internal.exhaust()
                             } else {
                                 internal.position = found_index - 1;
-                            }
-                            PyIterReturn::Return(($result_fn)(vm, item))
+                                None
+                            };
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), released)
                         }
-                        Ok(None) => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
     };

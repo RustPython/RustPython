@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType,
-    PyTypeRef, iter::builtins_iter,
+    PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -797,7 +797,7 @@ impl PyBytesIterator {
 impl SelfIter for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|bytes, pos| {
+        locked_next(&zelf.internal, |bytes, pos| {
             Ok(PyIterReturn::from_result(
                 bytes
                     .as_bytes()

@@ -1,6 +1,7 @@
 use super::{
     PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
     iter::{builtins_iter, builtins_reversed},
+    locked_next, locked_rev_next,
 };
 use crate::atomic_func;
 use crate::common::lock::{
@@ -911,24 +912,22 @@ impl PyListIterator {
 impl PyListIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        self.internal
-            .lock()
-            .next(|list, pos| {
-                let vec = list.borrow_vec();
-                Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
-            })
-            .ok()
-            .and_then(|r| match r {
-                PyIterReturn::Return(v) => Some(v),
-                PyIterReturn::StopIteration(_) => None,
-            })
+        locked_next(&self.internal, |list, pos| {
+            let vec = list.borrow_vec();
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
+        })
+        .ok()
+        .and_then(|r| match r {
+            PyIterReturn::Return(v) => Some(v),
+            PyIterReturn::StopIteration(_) => None,
+        })
     }
 }
 
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|list, pos| {
+        locked_next(&zelf.internal, |list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
@@ -977,7 +976,7 @@ impl PyListReverseIterator {
 impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().rev_next(|list, pos| {
+        locked_rev_next(&zelf.internal, |list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })

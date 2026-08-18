@@ -1,10 +1,7 @@
 use super::{
     PositionIterInternal, PyBytesRef, PyDict, PyTupleRef, PyType, PyTypeRef,
     int::{PyInt, PyIntRef},
-    iter::{
-        IterStatus::{self, Exhausted},
-        builtins_iter,
-    },
+    iter::{IterStatus, builtins_iter},
 };
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
@@ -379,7 +376,11 @@ impl IterNext for PyStrIterator {
                 internal.1 += ch.len_wtf8();
                 return Ok(PyIterReturn::Return(ch.to_pyobject(vm)));
             }
-            internal.0.status = Exhausted;
+            let released = internal.0.exhaust();
+            // The string is released after the lock. A `__del__` that iterates
+            // again would otherwise reach for a lock this call still holds.
+            drop(internal);
+            drop(released);
         }
         Ok(PyIterReturn::StopIteration(None))
     }
