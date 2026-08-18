@@ -558,7 +558,6 @@ class FormatTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, str_err):
             "{a:%ЫйЯЧ}".format(a='a')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_negative_zero(self):
         ## default behavior
         self.assertEqual(f"{-0.:.1f}", "-0.0")

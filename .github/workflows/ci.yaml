@@ -526,7 +526,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: cargo-bins/cargo-binstall@ead08b90bd7b2e6d81963fb9cf0b7239f66d5db4 # v1.21.0
+      - uses: cargo-bins/cargo-binstall@e00d2c94cc0067b77737821097a62d91c0301baa # v1.21.1
 
       - name: cargo shear
         run: |
@@ -554,10 +554,10 @@ jobs:
           components: rustfmt
 
       - name: actionlint
-        uses: reviewdog/action-actionlint@6fb7acc99f4a1008869fa8a0f09cfca740837d9d # v1.72.0
+        uses: reviewdog/action-actionlint@d63ba7532e0942965320cd8d73cbae4c7b3c5283 # v1.73.1
 
       - name: zizmor
-        uses: zizmorcore/zizmor-action@192e21d79ab29983730a13d1382995c2307fbcaa # v0.5.7
+        uses: zizmorcore/zizmor-action@3dc1ecc9bcb9e94e9b2c709687979e1298497054 # v0.6.2
 
       - name: restore prek cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -567,7 +567,7 @@ jobs:
 
       - name: install prek
         id: prek
-        uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2.0.5
+        uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece # v3.0.0
         with:
           cache: false
           show-verbose-logs: false
@@ -648,7 +648,10 @@ jobs:
         env:
           # miri-ignore-leaks because the type-object circular reference means that there will always be
           # a memory leak, at least until we have proper cyclic gc
-          MIRIFLAGS: "-Zmiri-ignore-leaks"
+          # miri-permissive-provenance because function pointer identity checks (slot comparisons)
+          # cast fn pointers to usize, which strips provenance — this is the standard pattern for
+          # fn pointer comparison in Rust and not a soundness issue
+          MIRIFLAGS: "-Zmiri-ignore-leaks -Zmiri-permissive-provenance"
 
   wasm:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}

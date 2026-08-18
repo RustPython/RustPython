@@ -39,6 +39,7 @@ impl JitValue {
             JitType::Int => Self::Int(val),
             JitType::Float => Self::Float(val),
             JitType::Bool => Self::Bool(val),
+            JitType::None => unreachable!("None cannot be used as an argument type"),
         }
     }
 
@@ -47,7 +48,8 @@ impl JitValue {
             Self::Int(_) => Some(JitType::Int),
             Self::Float(_) => Some(JitType::Float),
             Self::Bool(_) => Some(JitType::Bool),
-            Self::None | Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
+            Self::None => Some(JitType::None),
+            Self::Null | Self::Tuple(_) | Self::FuncRef(_) => None,
         }
     }
 
@@ -112,8 +114,9 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
         #[expect(clippy::mut_mut, reason = "This seems like a false positive")]
         let builder = &mut self.builder;
         let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+        let cranelift_ty = ty.to_cranelift().ok_or(JitCompileError::NotSupported)?;
         let local = self.variables[idx].get_or_insert_with(|| {
-            let var = builder.declare_var(ty.to_cranelift());
+            let var = builder.declare_var(cranelift_ty);
             Local {
                 var,
                 ty: ty.clone(),
@@ -328,27 +331,27 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
     }
 
     fn return_value(&mut self, val: JitValue) -> Result<(), JitCompileError> {
-        if let Some(ref ty) = self.sig.ret {
-            // If the signature has a return type, enforce it
-            if val.to_jit_type().as_ref() != Some(ty) {
+        let val_type = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
+        if let Some(ref ret_type) = self.sig.ret {
+            if ret_type != &val_type {
                 return Err(JitCompileError::NotSupported);
             }
         } else {
-            // First time we see a return, define it in the signature
-            let ty = val.to_jit_type().ok_or(JitCompileError::NotSupported)?;
-            self.sig.ret = Some(ty.clone());
-            self.builder
-                .func
-                .signature
-                .returns
-                .push(AbiParam::new(ty.to_cranelift()));
+            self.sig.ret = Some(val_type.clone());
+            if let Some(val_type) = val_type.to_cranelift() {
+                self.builder
+                    .func
+                    .signature
+                    .returns
+                    .push(AbiParam::new(val_type));
+            }
         }
 
-        // If this is e.g. an Int, Float, or Bool we have a Cranelift `Value`.
-        // If we have JitValue::None or .Tuple(...) but can't handle that, error out (or handle differently).
-        let cr_val = val.into_value().ok_or(JitCompileError::NotSupported)?;
-
-        self.builder.ins().return_(&[cr_val]);
+        if let Some(cr_val) = val.into_value() {
+            self.builder.ins().return_(&[cr_val]);
+        } else {
+            self.builder.ins().return_(&[]);
+        }
         Ok(())
     }
 
@@ -545,8 +548,22 @@ impl<'a, 'b> FunctionCompiler<'a, 'b> {
                 match self.stack.pop().ok_or(JitCompileError::BadBytecode)? {
                     JitValue::FuncRef(reference) => {
                         let call = self.builder.ins().call(reference, &args);
-                        let returns = self.builder.inst_results(call);
-                        self.stack.push(JitValue::Int(returns[0]));
+                        // The only callable reachable here is this function itself,
+                        // so the result carries the declared return type - it is not
+                        // always an Int. A function whose return type is still
+                        // unknown has no return slot in the signature it was
+                        // declared with, and there is nothing to type the result as.
+                        let ret = match *self.builder.inst_results(call) {
+                            [] => None,
+                            [val] => Some(val),
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+                        let val = match (self.sig.ret.clone(), ret) {
+                            (Some(JitType::None), None) => JitValue::None,
+                            (Some(ty), Some(val)) => JitValue::from_type_and_value(ty, val),
+                            _ => return Err(JitCompileError::NotSupported),
+                        };
+                        self.stack.push(val);
 
                         Ok(())
                     }

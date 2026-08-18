@@ -10,13 +10,11 @@ pub(crate) mod _ast {
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
-        common::wtf8::Wtf8Buf,
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
         types::{Constructor, Initializer},
         warn,
     };
-    use indexmap::IndexMap;
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
     #[derive(Debug, PyPayload)]
@@ -295,7 +293,7 @@ pub(crate) mod _ast {
                     .map_err(|_| vm.new_type_error("keywords must be strings"))?;
                 Ok((key.as_wtf8().to_owned(), value))
             })
-            .collect::<PyResult<IndexMap<Wtf8Buf, PyObjectRef>>>()?;
+            .collect::<PyResult<crate::function::KwArgsMap<PyObjectRef>>>()?;
         let result = type_obj.call(FuncArgs::new(vec![], KwArgs::new(kwargs)), vm)?;
         Ok(result)
     }

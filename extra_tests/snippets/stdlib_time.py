@@ -82,3 +82,16 @@ perf_elapsed = time.perf_counter() - perf_start
 
 assert monotonic_elapsed >= 0.01
 assert perf_elapsed >= 0.01
+
+# The optional second argument fills the fields that are not part of the
+# sequence.
+fields = (2024, 1, 2, 3, 4, 5, 6, 7, 0)
+assert time.struct_time(fields).tm_zone is None
+assert time.struct_time(fields, {"tm_zone": "UTC"}).tm_zone == "UTC"
+assert time.struct_time(fields, {"tm_gmtoff": 60}).tm_gmtoff == 60
+try:
+    time.struct_time(fields, ["tm_zone", "UTC"])
+except TypeError:
+    pass
+else:
+    assert False, "struct_time accepted a non-dict second argument"

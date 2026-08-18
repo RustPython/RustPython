@@ -581,7 +581,11 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                                 ..ctx
                             };
 
-                            for _ in group_start..group_end {
+                            // Walk the group itself rather than counting to its
+                            // width: `g_ctx` is already stepping over exactly
+                            // the characters being compared, so its own cursor
+                            // is the loop bound.
+                            while g_ctx.cursor.position < group_end {
                                 #[allow(clippy::redundant_closure_call)]
                                 if ctx.at_end(req)
                                     || $f(ctx.peek_char::<S>()) != $f(g_ctx.peek_char::<S>())
@@ -998,12 +1002,12 @@ fn search_info_literal<const LITERAL: bool, S: StrDrive>(
                         return true;
                     }
 
+                    // `state.cursor` is `req.start + skip`, the position the
+                    // tail match resumes from; advancing past the prefix
+                    // instead would resume at `req.start + len` and only
+                    // agree when the prefix ends at the skip boundary.
                     let mut next_ctx = ctx;
-                    if skip != 0 {
-                        next_ctx.advance_char::<S>();
-                    } else {
-                        next_ctx.cursor = state.cursor;
-                    }
+                    next_ctx.cursor = state.cursor;
 
                     if _match(req, state, next_ctx) {
                         return true;

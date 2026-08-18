@@ -33,6 +33,7 @@ pub(crate) fn collection_repr<'a, I>(
     class_name: Option<&str>,
     prefix: &str,
     suffix: &str,
+    empty: &str,
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<Wtf8Buf>
@@ -47,10 +48,9 @@ where
     repr.push_str(prefix);
     {
         let mut parts_iter = iter.map(|o| o.repr(vm));
-        let first = parts_iter
-            .next()
-            .transpose()?
-            .expect("this is not called for empty collection");
+        let Some(first) = parts_iter.next().transpose()? else {
+            return Ok(Wtf8Buf::from(empty));
+        };
         repr.push_wtf8(first.as_wtf8());
         for part in parts_iter {
             repr.push_str(", ");

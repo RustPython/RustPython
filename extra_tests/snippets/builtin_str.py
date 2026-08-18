@@ -170,6 +170,15 @@ assert "aaa".count("a", 1, 2) == 1
 assert "aaa".count("a", 2, 2) == 0
 assert "aaa".count("a", 2, 1) == 0
 
+# An empty needle is counted in characters, not in encoded positions.
+assert "".count("") == 1
+assert "abc".count("") == 4
+assert "가나다".count("") == 4
+assert "가나다".count("", 1) == 3
+assert "가나다".count("", 1, 2) == 2
+assert "가나다".count("", 4, 4) == 0
+assert "a\U0001f600b".count("") == 4
+
 assert "___a__".find("a") == 3
 assert "___a__".find("a", -10) == 3
 assert "___a__".find("a", -3) == 3
@@ -901,3 +910,17 @@ for _cp in [1376, 1416, 1519, 2160, 2161, 2162, 2163, 2164, 2165, 2166]:
     _c = chr(_cp)
     assert _c.isalpha(), f"U+{_cp:04X} should be isalpha"
     assert _c.isalnum(), f"U+{_cp:04X} should be isalnum"
+
+def test_huge_width():
+    # A width that cannot be allocated is a MemoryError, not an aborted
+    # process, and a tabsize wider than a C int does not fit at all.
+    for meth in ("center", "ljust", "rjust", "zfill"):
+        assert_raises(MemoryError, lambda meth=meth: getattr("a", meth)(1 << 62))
+    assert_raises(OverflowError, lambda: "\ta".expandtabs(1 << 62))
+    assert_raises(OverflowError, lambda: "\ta".expandtabs(2**31))
+    # The widest tabsize that still fits is accepted. With no tab to expand
+    # there is nothing to lay out, so the width is never allocated.
+    assert "a".expandtabs(2**31 - 1) == "a"
+
+
+test_huge_width()

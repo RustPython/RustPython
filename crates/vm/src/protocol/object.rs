@@ -7,7 +7,7 @@ use crate::{
         PyType, PyTypeRef, PyUtf8Str, int::check_int_to_str_digits, pystr::AsPyStr,
     },
     common::{hash::PyHash, str::to_ascii},
-    convert::{ToPyObject, ToPyResult},
+    convert::ToPyObject,
     dict_inner::DictKey,
     function::{Either, FuncArgs, PyArithmeticValue, PySetterValue},
     object::PyPayload,
@@ -230,7 +230,6 @@ impl PyObject {
         dict: Option<PyDictRef>,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
-        let name = name_str.as_wtf8();
         let obj_cls = self.class();
         let cls_attr_name = vm.ctx.interned_str(name_str);
         let cls_attr = match cls_attr_name.and_then(|name| obj_cls.get_attr(name)) {
@@ -251,7 +250,9 @@ impl PyObject {
         let dict = dict.or_else(|| self.dict());
 
         let attr = if let Some(dict) = dict {
-            dict.get_item_opt(name, vm)?
+            // `Py<PyStr>` rather than its `&Wtf8`: the key type carries the
+            // cached hash and compares interned keys by pointer.
+            dict.get_item_opt(name_str, vm)?
         } else {
             None
         };
@@ -694,7 +695,7 @@ impl PyObject {
 
     pub fn hash(&self, vm: &VirtualMachine) -> PyResult<PyHash> {
         if let Some(hash) = self.class().slots.hash.load() {
-            return hash(self, vm);
+            return vm.with_recursion("while hashing", || hash(self, vm));
         }
 
         Err(vm.new_type_error(format!("unhashable type: '{}'", self.class().name())))
@@ -741,8 +742,8 @@ impl PyObject {
         } else {
             if self.class().fast_issubclass(vm.ctx.types.type_type) {
                 if self.is(vm.ctx.types.type_type) {
-                    return PyGenericAlias::from_args(self.class().to_owned(), needle, vm)
-                        .to_pyresult(vm);
+                    let alias = PyGenericAlias::from_args(self.class().to_owned(), needle, vm)?;
+                    return Ok(alias.to_pyobject(vm));
                 }
 
                 if let Some(class_getitem) =

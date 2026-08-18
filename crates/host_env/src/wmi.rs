@@ -7,15 +7,17 @@
 
 use core::ffi::c_void;
 use core::ptr::{NonNull, null, null_mut};
+use widestring::WideCString;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_BROKEN_PIPE, ERROR_MORE_DATA, ERROR_NOT_ENOUGH_MEMORY, GetLastError, HANDLE,
-    WAIT_OBJECT_0, WAIT_TIMEOUT,
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_INVALID_NAME, ERROR_MORE_DATA, ERROR_NOT_ENOUGH_MEMORY,
+    GetLastError, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Storage::FileSystem::{ReadFile, WriteFile};
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
     CreateEventW, CreateThread, GetExitCodeThread, SetEvent, WaitForSingleObject,
 };
+use windows_sys::w;
 
 use crate::ctypes::wcslen;
 
@@ -256,10 +258,6 @@ const fn failed(hr: HRESULT) -> bool {
     hr < 0
 }
 
-fn wide_str(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(core::iter::once(0)).collect()
-}
-
 unsafe fn wait_event(event: HANDLE, timeout: u32) -> u32 {
     match unsafe { WaitForSingleObject(event, timeout) } {
         WAIT_OBJECT_0 => 0,
@@ -346,8 +344,8 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     }
 
     if succeeded(hr) {
-        let root_cimv2 = wide_str("ROOT\\CIMV2");
-        let bstr_root = unsafe { SysAllocString(root_cimv2.as_ptr()) };
+        let root_cimv2 = w!("ROOT\\CIMV2");
+        let bstr_root = unsafe { SysAllocString(root_cimv2) };
         hr = unsafe {
             locator_connect_server(
                 locator,
@@ -384,8 +382,8 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
         };
     }
     if succeeded(hr) {
-        let wql = wide_str("WQL");
-        let bstr_wql = unsafe { SysAllocString(wql.as_ptr()) };
+        let wql = w!("WQL");
+        let bstr_wql = unsafe { SysAllocString(wql) };
         hr = unsafe {
             services_exec_query(
                 services,
@@ -557,7 +555,9 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
 }
 
 pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
-    let query_wide = wide_str(query_str);
+    let query = WideCString::from_str(query_str)
+        .map_err(|_| ExecQueryError::Code(ERROR_INVALID_NAME))?
+        .into();
 
     let mut h_thread: HANDLE = null_mut();
     let mut err: u32 = 0;
@@ -579,7 +579,7 @@ pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
             err = GetLastError();
         } else {
             let thread_data = Box::new(QueryThreadData {
-                query: query_wide,
+                query,
                 write_pipe,
                 init_event,
                 connect_event,

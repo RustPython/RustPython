@@ -37,9 +37,12 @@ impl Constructor for PyMap {
     fn py_new(
         _cls: &Py<PyType>,
         (mapper, iterators, args): Self::Args,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let iterators = iterators.into_vec();
+        if iterators.is_empty() {
+            return Err(vm.new_type_error("map() must have at least two arguments."));
+        }
         let strict = Radium::new(args.strict.unwrap_or(false));
         Ok(Self {
             mapper,

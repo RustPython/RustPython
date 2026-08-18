@@ -233,7 +233,12 @@ impl VirtualMachine {
         };
 
         // Opcode events are only dispatched when f_trace_opcodes is set.
-        if is_opcode_event && !*frame_ref.iframe().trace_opcodes.lock() {
+        if is_opcode_event
+            && !frame_ref
+                .iframe()
+                .cold_opt()
+                .is_some_and(|c| *c.trace_opcodes.lock())
+        {
             return Ok(None);
         }
 
@@ -261,7 +266,7 @@ impl VirtualMachine {
                     // trace_trampoline behavior: clear per-frame f_trace
                     // and propagate the error.
                     if let Some(frame_ref) = self.current_frame() {
-                        *frame_ref.iframe().trace.lock() = None;
+                        *frame_ref.iframe().cold().trace.lock() = None;
                     }
                     return Err(e);
                 }

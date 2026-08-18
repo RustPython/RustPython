@@ -319,7 +319,6 @@ class BugsTestCase(unittest.TestCase):
         last.append([0])
         self.assertRaises(ValueError, marshal.dumps, head)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_list(self):
         a = []
         a.append(a)
@@ -331,7 +330,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b, list)
             self.assertIs(b[0], b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_dict(self):
         a = {}
         a[None] = a
@@ -343,7 +341,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b, dict)
             self.assertIs(b[None], b)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_reference_loop_tuple(self):
         a = ([],)
         a[0].append(a)
@@ -356,7 +353,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b[0], list)
             self.assertIs(b[0][0], b)
 
-    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_reference_loop_code(self):
         def f():
             return 1234.5
@@ -370,7 +366,6 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, code, v)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by dumps
     def test_reference_loop_slice(self):
         a = slice([], None)
         a.start.append(a)
@@ -387,21 +382,18 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, a, v)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_reference_loop_list(self):
         data = b'\xdb\x01\x00\x00\x00r\x00\x00\x00\x00' # [<R>]
         a = marshal.loads(data)
         self.assertIsInstance(a, list)
         self.assertIs(a[0], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_reference_loop_dict(self):
         data = b'\xfbNr\x00\x00\x00\x000' # {None: <R>}
         a = marshal.loads(data)
         self.assertIsInstance(a, dict)
         self.assertIs(a[None], a)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: bad marshal data
     def test_loads_abnormal_reference_loops(self):
         # Indirect self-references of tuples.
         data = b'\xa8\x01\x00\x00\x00[\x01\x00\x00\x00r\x00\x00\x00\x00' # ([<R>],)
@@ -547,7 +539,6 @@ class BugsTestCase(unittest.TestCase):
                     _, dump_1, _ = assert_python_ok(*args, PYTHONHASHSEED="1")
                     self.assertEqual(dump_0, dump_1)
 
-    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_unmarshallable(self):
         # Check no crash after encountering unmarshallable objects.
         # See https://github.com/python/cpython/issues/106287.
@@ -748,7 +739,6 @@ class InterningTestCase(unittest.TestCase, HelperMixin):
     strobj = "this is an interned string"
     strobj = sys.intern(strobj)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def testIntern(self):
         s = marshal.loads(marshal.dumps(self.strobj))
         self.assertEqual(s, self.strobj)

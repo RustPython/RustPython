@@ -1,3 +1,4 @@
+import itertools
 import os
 import stat
 import sys
@@ -528,3 +529,19 @@ assert os.access("nonexistent_file_12345", os.F_OK) is False
 assert os.access("nonexistent_file_12345", os.W_OK) is False
 assert os.access("README.md", os.F_OK) is True
 assert os.access("README.md", os.R_OK) is True
+
+# argv and the group list are sequences; an arbitrary iterable must be rejected
+# rather than drained.
+if hasattr(os, "posix_spawn"):
+    with assert_raises(TypeError):
+        os.posix_spawn("/bin/true", map(str, itertools.count()), os.environ)
+if hasattr(os, "setgroups"):
+    with assert_raises(TypeError):
+        os.setgroups(itertools.count())
+
+# The optional second argument fills the fields past the visible ones, and the
+# getters must not index past what __new__ stored.
+assert os.stat_result(tuple(range(10))).st_atime == 7
+assert os.stat_result(tuple(range(10)), {"st_atime": 1.5}).st_atime == 1.5
+with assert_raises(TypeError):
+    os.stat_result(tuple(range(10)), ["st_atime"])

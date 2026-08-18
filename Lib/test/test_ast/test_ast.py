@@ -1888,7 +1888,6 @@ Module(
         self.assertRaises(ValueError, ast.literal_eval, '+True')
         self.assertRaises(ValueError, ast.literal_eval, '2+3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError not raised
     def test_literal_eval_str_int_limit(self):
         with support.adjust_int_max_str_digits(4000):
             ast.literal_eval('3'*4000)  # no error

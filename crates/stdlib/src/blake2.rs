@@ -5,7 +5,7 @@ pub(crate) use _blake2::module_def;
 #[pymodule]
 mod _blake2 {
     use crate::hashlib::_hashlib::{BlakeHashArgs, local_blake2b, local_blake2s};
-    use crate::vm::{PyPayload, PyResult, VirtualMachine};
+    use crate::vm::{Py, PyPayload, PyResult, VirtualMachine, builtins::PyModule};
 
     #[pyattr(name = "_GIL_MINSIZE")]
     const GIL_MINSIZE: u16 = 2048;
@@ -42,5 +42,12 @@ mod _blake2 {
     #[pyfunction]
     fn blake2s(args: BlakeHashArgs, vm: &VirtualMachine) -> PyResult {
         Ok(local_blake2s(args, vm)?.into_pyobject(vm))
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        let _ = vm.import("_hashlib", 0);
+        __module_exec(vm, module);
+        Ok(())
     }
 }

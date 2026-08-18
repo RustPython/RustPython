@@ -1366,19 +1366,25 @@ impl PyCode {
             OptionalArg::Missing => self.code.instructions.clone(),
         };
 
+        let intern_all = |objs: Vec<PyObjectRef>, field: &str| -> PyResult<Box<[_]>> {
+            objs.into_iter()
+                .map(|o| {
+                    let s = o.downcast_ref::<super::pystr::PyStr>().ok_or_else(|| {
+                        vm.new_type_error(format!("{field} must be a tuple of strings"))
+                    })?;
+                    Ok(vm.ctx.intern_str(s.as_wtf8()))
+                })
+                .collect::<PyResult<Vec<_>>>()
+                .map(Vec::into_boxed_slice)
+        };
+
         let cellvars = match co_cellvars {
-            OptionalArg::Present(cellvars) => cellvars
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
+            OptionalArg::Present(cellvars) => intern_all(cellvars, "co_cellvars")?,
             OptionalArg::Missing => self.code.cellvars.clone(),
         };
 
         let freevars = match co_freevars {
-            OptionalArg::Present(freevars) => freevars
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
+            OptionalArg::Present(freevars) => intern_all(freevars, "co_freevars")?,
             OptionalArg::Missing => self.code.freevars.clone(),
         };
 
@@ -1411,10 +1417,10 @@ impl PyCode {
             posonlyarg_count,
             arg_count,
             kwonlyarg_count,
-            source_path: source_path.as_object().as_interned_str(vm).unwrap(),
+            source_path: vm.ctx.intern_str(source_path.as_wtf8()),
             first_line_number,
-            obj_name: obj_name.as_object().as_interned_str(vm).unwrap(),
-            qualname: qualname.as_object().as_interned_str(vm).unwrap(),
+            obj_name: vm.ctx.intern_str(obj_name.as_wtf8()),
+            qualname: vm.ctx.intern_str(qualname.as_wtf8()),
 
             max_stackdepth,
             instructions,
@@ -1422,14 +1428,8 @@ impl PyCode {
             // It can be removed once we move every other code to use linetable only.
             locations: self.code.locations.clone(),
             constants: constants.into_iter().map(Literal).collect(),
-            names: names
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
-            varnames: varnames
-                .into_iter()
-                .map(|o| o.as_interned_str(vm).unwrap())
-                .collect(),
+            names: intern_all(names, "co_names")?,
+            varnames: intern_all(varnames, "co_varnames")?,
             cellvars,
             freevars,
             localspluskinds: self.code.localspluskinds.clone(),

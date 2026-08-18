@@ -16,7 +16,11 @@ where
 
 unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.borrow().traverse(tracer_fn);
+        // Report the iterator itself, not its referents: an owner holding a
+        // `PyIter` owns the iterator object, and reporting what the iterator
+        // points at instead leaves the iterator's own reference unaccounted
+        // for, so a cycle running through it is never collected.
+        tracer_fn(self.0.borrow());
     }
 }
 

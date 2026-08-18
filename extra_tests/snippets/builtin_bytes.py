@@ -708,3 +708,61 @@ b = B1.fromhex("a0a1a2")
 assert b.foo == "bar"
 
 skip_if_unsupported(3, 11, test__bytes__)
+
+assert " \f\n\r\t\v".encode("utf-8").isspace()
+assert " \f\n\r\t\v".encode("latin-1").isspace()
+
+# bytes.istitle tests
+s = b"Aa6A"
+assert s.istitle(), f"{s}"
+s = b"Aa6aA"
+assert not s.istitle(), f"{s}"
+s = b"Python Is Fun"
+assert s.istitle(), f"{s}"
+s = b"Python is fun"
+assert not s.istitle(), f"{s}"
+s = b"PYTHON IS FUN"
+assert not s.istitle(), f"{s}"
+s = b"Python 3.9 Is Awesome!"
+assert s.istitle(), f"{s}"
+s = b""
+assert not s.istitle(), f"{s}"
+s = b"Hello Is Amazing"
+assert s.istitle(), f"{s}"
+s = b"Not--a Titlecase String"
+assert not s.istitle(), f"{s}"
+s = b"123A"
+assert s.istitle(), f"{s}"
+s = b"123a"
+assert not s.istitle(), f"{s}"
+s = b"123A\ta"
+assert not s.istitle(), f"{s}"
+SUBSTR = b"123456"
+s = b"".join([b"A", b"a" * 64, SUBSTR])
+assert s.istitle(), f"{s}"
+s += b"A"
+assert s.istitle(), f"{s}"
+s += b"aA"
+assert not s.istitle(), f"{s}"
+assert "123A".istitle(), f"{s}"
+assert not "123a".istitle(), f"{s}"
+assert not "123A\ta".istitle(), f"{s}"
+
+
+def test_huge_size():
+    # sizes that cannot be allocated are MemoryError, not an aborted process
+    for factory in (bytes, bytearray):
+        assert_raises(MemoryError, lambda factory=factory: factory(2**62))
+        for meth in ("center", "ljust", "rjust", "zfill"):
+            assert_raises(
+                MemoryError,
+                lambda factory=factory, meth=meth: getattr(factory(b"a"), meth)(
+                    1 << 62
+                ),
+            )
+        assert_raises(
+            OverflowError, lambda factory=factory: factory(b"\ta").expandtabs(2**31)
+        )
+
+
+test_huge_size()

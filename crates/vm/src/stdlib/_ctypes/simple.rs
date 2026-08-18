@@ -72,6 +72,17 @@ fn new_simple_type(
     Ok(PyCSimple(PyCData::from_bytes(zeroed_bytes(size), None)))
 }
 
+pub(super) fn bigint_to_i128_wrapping(value: &malachite_bigint::BigInt) -> i128 {
+    let bytes = value.to_signed_bytes_le();
+    let fill = bytes
+        .last()
+        .map_or(0, |byte| if *byte & 0x80 == 0 { 0 } else { u8::MAX });
+    let mut wrapped = [fill; 16];
+    let len = bytes.len().min(wrapped.len());
+    wrapped[..len].copy_from_slice(&bytes[..len]);
+    i128::from_le_bytes(wrapped)
+}
+
 fn set_primitive(_type_: &str, value: &PyObject, vm: &VirtualMachine) -> PyResult {
     match _type_ {
         "c" => {
@@ -756,7 +767,7 @@ fn value_to_bytes_endian(
         "b" => {
             // c_byte - signed char (1 byte)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -764,7 +775,7 @@ fn value_to_bytes_endian(
         "B" => {
             // c_ubyte - unsigned char (1 byte)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -772,7 +783,7 @@ fn value_to_bytes_endian(
         "h" => {
             // c_short (2 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -780,7 +791,7 @@ fn value_to_bytes_endian(
         "H" => {
             // c_ushort (2 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -788,7 +799,7 @@ fn value_to_bytes_endian(
         "i" => {
             // c_int (4 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -796,7 +807,7 @@ fn value_to_bytes_endian(
         "I" => {
             // c_uint (4 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -804,7 +815,7 @@ fn value_to_bytes_endian(
         "l" => {
             // c_long (platform dependent)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -812,7 +823,7 @@ fn value_to_bytes_endian(
         "L" => {
             // c_ulong (platform dependent)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -820,7 +831,7 @@ fn value_to_bytes_endian(
         "q" => {
             // c_longlong (8 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -828,7 +839,7 @@ fn value_to_bytes_endian(
         "Q" => {
             // c_ulonglong (8 bytes)
             if let Ok(int_val) = value.try_index(vm) {
-                SimpleStorageValue::Signed(int_val.as_bigint().to_i128().expect("int too large"))
+                SimpleStorageValue::Signed(bigint_to_i128_wrapping(int_val.as_bigint()))
             } else {
                 SimpleStorageValue::Zero
             }
@@ -889,10 +900,7 @@ fn value_to_bytes_endian(
         "P" => {
             // c_void_p - pointer type (platform pointer size)
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_usize()
-                    .expect("int too large for pointer");
+                let v = bigint_to_i128_wrapping(int_val.as_bigint()) as usize;
                 SimpleStorageValue::Pointer(v)
             } else {
                 SimpleStorageValue::Zero
@@ -902,10 +910,7 @@ fn value_to_bytes_endian(
             // c_char_p - pointer to char (stores pointer value from int)
             // PyBytes case is handled in slot_new/set_value with make_z_buffer()
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_usize()
-                    .expect("int too large for pointer");
+                let v = bigint_to_i128_wrapping(int_val.as_bigint()) as usize;
                 SimpleStorageValue::Pointer(v)
             } else {
                 SimpleStorageValue::Zero
@@ -915,10 +920,7 @@ fn value_to_bytes_endian(
             // c_wchar_p - pointer to wchar_t (stores pointer value from int)
             // PyStr case is handled in slot_new/set_value with make_wchar_buffer()
             if let Ok(int_val) = value.try_index(vm) {
-                let v = int_val
-                    .as_bigint()
-                    .to_usize()
-                    .expect("int too large for pointer");
+                let v = bigint_to_i128_wrapping(int_val.as_bigint()) as usize;
                 SimpleStorageValue::Pointer(v)
             } else {
                 SimpleStorageValue::Zero
@@ -1281,6 +1283,7 @@ impl AsBuffer for PyCSimple {
         let itemsize = stg_info.size;
         // Simple types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

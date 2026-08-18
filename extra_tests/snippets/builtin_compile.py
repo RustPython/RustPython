@@ -145,3 +145,8 @@ except _IncompleteInputError as exc:
     assert exc.args[0] == "incomplete input", repr(exc)
 else:
     raise AssertionError("expected _IncompleteInputError")
+
+# The source is encoded before it is parsed, so a lone surrogate has to be
+# reported rather than assumed away.
+with assert_raises(UnicodeEncodeError):
+    compile(chr(0xD800), "<test>", "eval")

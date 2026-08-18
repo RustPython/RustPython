@@ -176,16 +176,18 @@ impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Bind before the fast path so FromArgs::arity decides how many arguments
+        // are acceptable, rather than a count repeated here.
+        let arg: Self::Args = args.bind(vm)?;
+
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
-            && args.kwargs.is_empty()
-            && let Some(first) = args.args.first()
+            && let OptionalArg::Present(first) = &arg
             && first.class().is(vm.ctx.types.float_type)
         {
             return Ok(first.clone());
         }
 
-        let arg: Self::Args = args.bind(vm)?;
         let payload = Self::py_new(&cls, arg, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }

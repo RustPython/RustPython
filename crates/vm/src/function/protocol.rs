@@ -86,6 +86,11 @@ unsafe impl<T: Traverse> Traverse for ArgIterable<T> {
 }
 
 impl<T> ArgIterable<T> {
+    #[must_use]
+    pub(crate) fn as_object(&self) -> &PyObject {
+        &self.iterable
+    }
+
     /// Returns an iterator over this sequence of objects.
     ///
     /// This operation may fail if an exception is raised while invoking the

@@ -797,7 +797,6 @@ class OtherTest(unittest.TestCase):
             m[0] = MyBool()
         self.assertEqual(ba[:8], b'\0'*8)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'memoryview' object has no attribute '__buffer__'
     def test_buffer_reference_loop(self):
         m = memoryview(b'abc').__buffer__(0)
         o = MyObject()

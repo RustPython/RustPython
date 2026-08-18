@@ -605,14 +605,35 @@ pub(crate) mod _thread {
         vm.state.thread_count.fetch_sub(1);
     }
 
+    /// Default stack size for Python threads in **debug builds only**, where
+    /// Rust stack frames are substantially larger than in release. Rust's
+    /// `std::thread::Builder` otherwise defaults to 2 MB, which is too small
+    /// for the call chains the Python stdlib runs on helper threads in debug
+    /// (e.g. the SSL test server, see #7941). Release builds keep the prior
+    /// behavior — leave the stack size unset and let Rust's std default apply
+    /// — to avoid oversized virtual stack mappings when many threads spawn.
+    #[cfg(debug_assertions)]
+    const DEFAULT_THREAD_STACK_SIZE: usize = 8 * 1024 * 1024;
+
+    /// Configure a `thread::Builder` with the stack size to use for a new
+    /// Python thread. Uses the value set via `threading.stack_size(N)` when
+    /// the user has provided one (non-zero). Otherwise, debug builds fall
+    /// back to [`DEFAULT_THREAD_STACK_SIZE`] and release builds leave the
+    /// builder unmodified (Rust's std default applies).
     fn apply_thread_stack_size(
         thread_builder: thread::Builder,
         vm: &VirtualMachine,
     ) -> thread::Builder {
         let configured = vm.state.stacksize.load();
         if configured != 0 {
-            thread_builder.stack_size(configured)
-        } else {
+            return thread_builder.stack_size(configured);
+        }
+        #[cfg(debug_assertions)]
+        {
+            thread_builder.stack_size(DEFAULT_THREAD_STACK_SIZE)
+        }
+        #[cfg(not(debug_assertions))]
+        {
             thread_builder
         }
     }
@@ -635,7 +656,7 @@ pub(crate) mod _thread {
 
     #[pyfunction]
     fn exit(vm: &VirtualMachine) -> PyResult {
-        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![])?)
+        Err(vm.new_system_exit(vec![].into()))
     }
 
     thread_local!(static SENTINELS: RefCell<Vec<PyRef<Lock>>> = const { RefCell::new(Vec::new()) });
@@ -775,9 +796,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn _is_main_interpreter() -> bool {
-        // RustPython only has one interpreter
-        true
+    fn _is_main_interpreter(vm: &VirtualMachine) -> bool {
+        vm.state.is_main_interpreter()
     }
 
     /// Initialize the main thread ident. Should be called once at interpreter startup.
@@ -997,8 +1017,8 @@ pub(crate) mod _thread {
                 .slots
                 .init
                 .load()
-                .map(|init| init as usize);
-            (Some(cls_init as usize) != object_init).then_some(cls_init)
+                .map(|init| crate::types::fn_addr(init));
+            (Some(crate::types::fn_addr(cls_init)) != object_init).then_some(cls_init)
         }
 
         fn create_dict(&self, vm: &VirtualMachine) -> (PyDictRef, bool) {
@@ -1173,8 +1193,8 @@ pub(crate) mod _thread {
         {
             use core::sync::atomic::Ordering;
             let current_ident = get_ident();
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
@@ -1187,9 +1207,9 @@ pub(crate) mod _thread {
                         // fall back to top_iframe (may be a stack-allocated frame).
                         let top = slot.top_frame.load(Ordering::Relaxed);
                         if let Some(p) = core::ptr::NonNull::new(top) {
-                            let py = unsafe {
-                                &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
-                            };
+                            // SAFETY: world stopped -> the owning thread is parked
+                            // with this frame on its chain, so it is alive.
+                            let py = unsafe { p.as_ref() };
                             Some((*id, py.to_owned()))
                         } else {
                             // Stack-allocated frame: materialize from top_iframe.
@@ -1197,26 +1217,10 @@ pub(crate) mod _thread {
                             let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
                                 as *const crate::frame::InterpreterFrame;
                             if !iframe_ptr.is_null() {
-                                // Materialize the entire frame chain and link
-                                // retained_back so f_back works after STW ends.
-                                let mut cur = iframe_ptr;
-                                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
-                                    None;
-                                while !cur.is_null() {
-                                    let iframe = unsafe { &*cur };
-                                    let fo = iframe.materialize(vm).to_owned();
-                                    if let Some(child) = child_fo.take() {
-                                        let mut guard = child.iframe().retained_back.lock();
-                                        if guard.is_none() {
-                                            *guard = Some(fo.clone());
-                                        }
-                                    }
-                                    child_fo = Some(fo);
-                                    cur = iframe.previous();
-                                }
                                 let iframe = unsafe { &*iframe_ptr };
-                                let fo = iframe.materialize(vm);
-                                Some((*id, fo.to_owned()))
+                                // SAFETY: world stopped -> owning thread parked.
+                                let fo = unsafe { iframe.materialize_detached_chain(vm) };
+                                Some((*id, fo))
                             } else {
                                 None
                             }
@@ -1229,8 +1233,8 @@ pub(crate) mod _thread {
         {
             use core::sync::atomic::Ordering;
             let current_ident = get_ident();
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
@@ -1246,24 +1250,10 @@ pub(crate) mod _thread {
                         let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
                             as *const crate::frame::InterpreterFrame;
                         if !iframe_ptr.is_null() {
-                            let mut cur = iframe_ptr;
-                            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
-                                None;
-                            while !cur.is_null() {
-                                let iframe = unsafe { &*cur };
-                                let fo = iframe.materialize(vm).to_owned();
-                                if let Some(child) = child_fo.take() {
-                                    let mut guard = child.iframe().retained_back.lock();
-                                    if guard.is_none() {
-                                        *guard = Some(fo.clone());
-                                    }
-                                }
-                                child_fo = Some(fo);
-                                cur = iframe.previous();
-                            }
                             let iframe = unsafe { &*iframe_ptr };
-                            let fo = iframe.materialize(vm);
-                            Some((*id, fo.to_owned()))
+                            // SAFETY: world stopped -> owning thread parked.
+                            let fo = unsafe { iframe.materialize_detached_chain(vm) };
+                            Some((*id, fo))
                         } else {
                             // Fall back to frames stack for FrameObject-only path
                             let frames = slot.frames.lock();
@@ -1365,6 +1355,19 @@ pub(crate) mod _thread {
         }
     }
 
+    /// Take a thread handle's completion mutex, detaching first.
+    ///
+    /// A joiner holds this mutex across its `allow_threads` wait, so it can
+    /// still hold it when stop-the-world stops it. An attached thread that
+    /// blocked on it would never reach a safepoint, so the stop could never
+    /// complete and the holder would never be resumed to release it.
+    fn lock_done<'a>(
+        lock: &'a parking_lot::Mutex<bool>,
+        vm: &VirtualMachine,
+    ) -> parking_lot::MutexGuard<'a, bool> {
+        vm.allow_threads(|| lock.lock())
+    }
+
     /// Reset a parking_lot::Mutex to unlocked state after fork.
     #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
@@ -1447,7 +1450,7 @@ pub(crate) mod _thread {
             // Wait for thread completion using Condvar (supports timeout)
             // Loop to handle spurious wakeups
             let (lock, cvar) = &**done_event;
-            let mut done = lock.lock();
+            let mut done = lock_done(lock, vm);
 
             // ThreadHandle_join semantics: self-join/finalizing checks
             // apply only while target thread has not reported it is exiting yet.
@@ -1507,7 +1510,7 @@ pub(crate) mod _thread {
                     drop(inner_guard);
                     // Wait on done_event
                     let (lock, cvar) = &**done_event;
-                    let mut done = lock.lock();
+                    let mut done = lock_done(lock, vm);
                     while !*done {
                         vm.allow_threads(|| cvar.wait(&mut done));
                     }
@@ -1569,7 +1572,7 @@ pub(crate) mod _thread {
             remove_from_shutdown_handles(vm, inner, done_event);
 
             let (lock, cvar) = &**done_event;
-            *lock.lock() = true;
+            *lock_done(lock, vm) = true;
             cvar.notify_all();
             Ok(())
         }
@@ -1639,7 +1642,7 @@ pub(crate) mod _thread {
             // before returning True.
             let done = {
                 let (lock, _) = &*self.done_event;
-                *lock.lock()
+                *lock_done(lock, vm)
             };
             if !done {
                 return Ok(false);
@@ -1835,7 +1838,7 @@ pub(crate) mod _thread {
         // Starting a handle always resets the completion event.
         {
             let (done_lock, _) = &*handle.done_event;
-            *done_lock.lock() = false;
+            *lock_done(done_lock, vm) = false;
         }
 
         // Add non-daemon threads to shutdown registry so _shutdown() will wait for them
@@ -1917,7 +1920,7 @@ pub(crate) mod _thread {
                     // This must be LAST to ensure all cleanup is complete before join() returns
                     {
                         let (lock, cvar) = &*done_event_for_cleanup;
-                        *lock.lock() = true;
+                        *lock_done(lock, vm) = true;
                         cvar.notify_all();
                     }
                 }
@@ -1952,7 +1955,7 @@ pub(crate) mod _thread {
                 }
                 {
                     let (done_lock, done_cvar) = &*handle.done_event;
-                    *done_lock.lock() = true;
+                    *lock_done(done_lock, vm) = true;
                     done_cvar.notify_all();
                 }
                 if !daemon {
@@ -1995,5 +1998,56 @@ pub(crate) mod _thread {
         }
 
         Ok(handle_clone)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        use super::*;
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        use crate::Interpreter;
+
+        /// Regression test for #7941: a Python thread started without an
+        /// explicit `threading.stack_size()` must not run on Rust's 2 MiB
+        /// std default in debug builds, where the call chains the stdlib
+        /// runs on helper threads (e.g. the SSL test server) overflowed it.
+        #[test]
+        #[cfg(all(debug_assertions, any(target_os = "linux", target_os = "macos")))]
+        fn default_python_thread_stack_size_debug() {
+            Interpreter::without_stdlib(Default::default()).enter(|vm| {
+                assert_eq!(vm.state.stacksize.load(), 0);
+                let builder = apply_thread_stack_size(thread::Builder::new(), vm);
+                let stack_size = builder
+                    .spawn(current_thread_stack_size)
+                    .expect("failed to spawn thread")
+                    .join()
+                    .expect("thread panicked");
+                assert!(
+                    stack_size >= DEFAULT_THREAD_STACK_SIZE,
+                    "Python thread stack size is {stack_size} bytes, expected at least {DEFAULT_THREAD_STACK_SIZE}"
+                );
+            });
+        }
+
+        #[cfg(all(debug_assertions, target_os = "linux"))]
+        fn current_thread_stack_size() -> usize {
+            use libc::{
+                pthread_attr_destroy, pthread_attr_getstacksize, pthread_attr_t,
+                pthread_getattr_np, pthread_self,
+            };
+            let mut attr: pthread_attr_t = unsafe { core::mem::zeroed() };
+            unsafe {
+                assert_eq!(pthread_getattr_np(pthread_self(), &mut attr), 0);
+                let mut size = 0;
+                assert_eq!(pthread_attr_getstacksize(&attr, &mut size), 0);
+                pthread_attr_destroy(&mut attr);
+                size
+            }
+        }
+
+        #[cfg(all(debug_assertions, target_os = "macos"))]
+        fn current_thread_stack_size() -> usize {
+            unsafe { libc::pthread_get_stacksize_np(libc::pthread_self()) }
+        }
     }
 }

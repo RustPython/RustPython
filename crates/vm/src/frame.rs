@@ -387,33 +387,6 @@ impl LocalsPlus {
         Some(base)
     }
 
-    /// Create a new heap-backed LocalsPlus that is a clone of the
-    /// fastlocals portion of this one.  Stack slots are NOT copied
-    /// (stack_top = 0, stacksize = 0).
-    ///
-    /// # Safety
-    /// The caller must ensure that `self.fastlocals()` is a valid slice
-    /// (backing storage is alive, not concurrently mutated).
-    pub(crate) unsafe fn snapshot_to_heap(&self) -> Self {
-        let n = self.nlocalsplus as usize;
-        let src = self.fastlocals();
-        let mut data = vec![0usize; n];
-        // Clone each Option<PyObjectRef> into the heap buffer.
-        for (i, slot) in src.iter().enumerate() {
-            if let Some(obj) = slot {
-                let cloned: Option<PyObjectRef> = Some(obj.clone());
-                // SAFETY: Option<PyObjectRef> has the same layout as usize.
-                data[i] = unsafe { core::mem::transmute_copy(&cloned) };
-                core::mem::forget(cloned);
-            }
-        }
-        Self {
-            data: LocalsPlusData::Heap(data.into_boxed_slice()),
-            nlocalsplus: self.nlocalsplus,
-            stack_top: 0,
-        }
-    }
-
     /// Update fastlocals in `self` from `src`. For each slot, drops the old
     /// value and clones the new one. `self` must be heap-backed.
     ///
@@ -544,6 +517,13 @@ impl LocalsPlus {
         Ok(())
     }
 
+    /// Push a PyObjectRef onto the evaluation stack.
+    /// Panics on overflow.
+    pub(crate) fn push_stack(&mut self, value: PyObjectRef) {
+        self.stack_try_push(Some(PyStackRef::new_owned(value)))
+            .expect("stack overflow in push_stack");
+    }
+
     /// Pop a value from the evaluation stack.
     #[inline(always)]
     fn stack_pop(&mut self) -> Option<PyStackRef> {
@@ -553,6 +533,19 @@ impl LocalsPlus {
         let data = self.data_as_mut_slice();
         let raw = core::mem::replace(&mut data[idx], 0);
         unsafe { core::mem::transmute::<usize, Option<PyStackRef>>(raw) }
+    }
+
+    /// Give every borrowed stack ref its own reference.
+    ///
+    /// A borrowed ref is only sound while whatever it points at is guaranteed
+    /// to outlive it, which stops holding where the frame itself outlives the
+    /// running block — at a yield, where the stack is saved with the frame.
+    fn promote_stack(&mut self) {
+        for idx in 0..self.stack_top as usize {
+            if let Some(stack_ref) = self.stack_index_mut(idx) {
+                stack_ref.promote();
+            }
+        }
     }
 
     /// Immutable view of the active stack as `Option<PyStackRef>` slice.
@@ -792,6 +785,46 @@ unsafe impl Traverse for FrameLocals {
     }
 }
 
+/// Cold fields of InterpreterFrame that are only accessed during tracing,
+/// debugging, frame inspection, or GC. Lazily allocated on first access
+/// to keep the hot InterpreterFrame small.
+pub(crate) struct FrameColdData {
+    pub trace: PyMutex<Option<PyObjectRef>>,
+    pub trace_lines: PyMutex<bool>,
+    pub trace_opcodes: PyMutex<bool>,
+    pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
+    pub f_locals_hidden_overlay: PyMutex<Option<PyDictRef>>,
+    pub f_extra_locals: PyMutex<Option<PyDictRef>>,
+    pub escaped: atomic::AtomicBool,
+    pub retained_back: PyMutex<Option<FrameObjectRef>>,
+    pub pending_stack_pops: PyAtomic<u32>,
+    pub pending_unwind_from_stack: PyAtomic<i64>,
+    /// Thread that is still running the frame this one was materialized from,
+    /// or 0 once that frame has returned (and for every frame object that was
+    /// not materialized from a running frame). Only a thread id, never a
+    /// pointer: reading it can never chase freed memory, so it stays usable
+    /// as the gate for frames that belong to another thread.
+    pub attached_tid: atomic::AtomicU64,
+}
+
+impl Default for FrameColdData {
+    fn default() -> Self {
+        Self {
+            trace: PyMutex::new(None),
+            trace_lines: PyMutex::new(true),
+            trace_opcodes: PyMutex::new(false),
+            temporary_refs: PyMutex::new(Vec::new()),
+            f_locals_hidden_overlay: PyMutex::new(None),
+            f_extra_locals: PyMutex::new(None),
+            escaped: atomic::AtomicBool::new(false),
+            retained_back: PyMutex::new(None),
+            pending_stack_pops: Default::default(),
+            pending_unwind_from_stack: Default::default(),
+            attached_tid: atomic::AtomicU64::new(0),
+        }
+    }
+}
+
 /// Lightweight execution frame. Not a PyObject.
 /// Analogous to CPython's `_PyInterpreterFrame`.
 ///
@@ -813,18 +846,10 @@ pub struct InterpreterFrame {
 
     /// index of last instruction ran
     pub lasti: PyAtomic<u32>,
-    /// Per-frame tracer function. `None` means no per-frame trace is set
-    /// (equivalent to `f_trace = None` in Python). This avoids a refcounted
-    /// None clone on every frame init.
-    pub trace: PyMutex<Option<PyObjectRef>>,
 
     /// Previous line number for LINE event suppression.
     pub(crate) prev_line: core::cell::Cell<u32>,
 
-    // member
-    pub trace_lines: PyMutex<bool>,
-    pub trace_opcodes: PyMutex<bool>,
-    pub temporary_refs: PyMutex<Vec<PyObjectRef>>,
     /// Back-reference to owning generator/coroutine/async generator.
     /// Borrowed reference (not ref-counted) to avoid Generator↔FrameObject cycle.
     /// Cleared by the generator's Drop impl.
@@ -836,32 +861,17 @@ pub struct InterpreterFrame {
     /// Used by `frame.clear()` to reject clearing an executing frame,
     /// even when called from a different thread.
     pub(crate) owner: atomic::AtomicI8,
-    /// Persistent overlay for `frame.f_locals` when hidden locals need a
-    /// snapshot separate from the backing locals mapping.
-    pub(crate) f_locals_hidden_overlay: PyMutex<Option<PyDictRef>>,
-    /// Side storage for `f_locals` proxy keys that do not name a fast local.
-    /// Lazily created on first non-fast-key write. Mirrors `f_extra_locals`.
-    pub(crate) f_extra_locals: PyMutex<Option<PyDictRef>>,
-    /// Set once a durable Python-level reference to this frame is handed out
-    /// (`f_locals` proxy, `sys._getframe`, `f_back`). A closed generator keeps
-    /// its locals alive while this is set, mirroring `frame_obj` ownership.
-    pub(crate) escaped: atomic::AtomicBool,
-    /// Strong reference to the caller frame, captured when this frame escapes
-    /// its execution so `f_back` still resolves after the caller returns and
-    /// leaves the live frame chain.
-    pub(crate) retained_back: PyMutex<Option<FrameObjectRef>>,
-    /// Number of stack entries to pop after set_f_lineno returns to the
-    /// execution loop.  set_f_lineno cannot pop directly because the
-    /// execution loop holds the state mutex.
-    pub(crate) pending_stack_pops: PyAtomic<u32>,
-    /// The encoded stack state that set_f_lineno wants to unwind *from*.
-    /// Used together with `pending_stack_pops` to identify Except entries
-    /// that need special exception-state handling.
-    pub(crate) pending_unwind_from_stack: PyAtomic<i64>,
+    /// Base pointer of the datastack allocation when this frame and its
+    /// localsplus are bump-allocated together. Null for heap-backed frames.
+    pub(crate) datastack_base: *mut u8,
     /// Pointer to the owning `Py<FrameObject>`, or null for stack-allocated
     /// frames that have not been materialized yet.
     /// Stored as `usize` for `PyAtomic` compatibility.
     pub(crate) materialized: PyAtomic<usize>,
+
+    /// Lazily-allocated cold data (tracing, debugging, frame inspection).
+    /// Not allocated until first access via `cold()`.
+    pub(crate) cold: OnceCell<Box<FrameColdData>>,
 }
 
 // Raw pointers make InterpreterFrame !Send+!Sync by default.
@@ -882,6 +892,7 @@ impl InterpreterFrame {
     /// For stack-allocated frames (future), the pointers remain valid for the
     /// frame's lifetime on the native stack.
     #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
     pub(crate) fn new(
         code: &Py<PyCode>,
         globals: &Py<PyDict>,
@@ -934,21 +945,118 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(0),
             prev_line: core::cell::Cell::new(prev_line),
-            trace: PyMutex::new(None),
-            trace_lines: PyMutex::new(true),
-            trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(owner as i8),
-            f_locals_hidden_overlay: PyMutex::new(None),
-            f_extra_locals: PyMutex::new(None),
-            escaped: atomic::AtomicBool::new(false),
-            retained_back: PyMutex::new(None),
-            pending_stack_pops: Default::default(),
-            pending_unwind_from_stack: Default::default(),
+            datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
+            cold: OnceCell::new(),
         }
+    }
+
+    /// Allocate an InterpreterFrame and its LocalsPlus data together on the
+    /// thread data stack in a single bump allocation.
+    ///
+    /// Layout: `[InterpreterFrame | localsplus usize×capacity]`
+    ///
+    /// Returns a mutable reference whose lifetime is bounded by the data
+    /// stack's LIFO discipline. The caller must call
+    /// `release_datastack_frame()` (unsafe) when done, then
+    /// `vm.datastack_pop_frame(base, size)`. The reference must not be used after
+    /// `release_datastack_frame` returns.
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    pub(crate) fn new_on_datastack<'a>(
+        code: &Py<PyCode>,
+        globals: &Py<PyDict>,
+        builtins: &PyObject,
+        func_obj: Option<&PyObject>,
+        locals: FrameLocals,
+        closure: &[PyCellRef],
+        vm: &VirtualMachine,
+    ) -> &'a mut Self {
+        let nlocalsplus = code.localspluskinds.len();
+        let stacksize = code.max_stackdepth as usize;
+        let capacity = nlocalsplus
+            .checked_add(stacksize)
+            .expect("LocalsPlus capacity overflow");
+
+        let total_bytes = datastack_iframe_total_bytes(nlocalsplus, stacksize);
+        let (base, reused_cleared_frame) = vm.datastack_push_frame(total_bytes);
+
+        // InterpreterFrame lives at the start of the allocation.
+        let iframe_ptr = base as *mut Self;
+        // LocalsPlus data follows the InterpreterFrame, aligned to usize.
+        let localsplus_data_ptr =
+            unsafe { base.add(datastack_iframe_localsplus_offset()) } as *mut usize;
+
+        if !reused_cleared_frame {
+            // Fresh or differently shaped storage may contain old frame data.
+            unsafe { core::ptr::write_bytes(localsplus_data_ptr, 0, capacity) };
+        }
+
+        let nlocalsplus_u32 = u32::try_from(nlocalsplus).expect("nlocalsplus exceeds u32");
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::DataStack {
+                ptr: localsplus_data_ptr,
+                capacity,
+            },
+            nlocalsplus: nlocalsplus_u32,
+            stack_top: 0,
+        };
+
+        let mut iframe = Self::new(
+            code,
+            globals,
+            builtins,
+            func_obj,
+            localsplus,
+            locals,
+            closure,
+            FrameOwner::Thread,
+        );
+        iframe.datastack_base = base;
+
+        // Write the fully initialized InterpreterFrame into the datastack.
+        unsafe {
+            core::ptr::write(iframe_ptr, iframe);
+            &mut *iframe_ptr
+        }
+    }
+
+    /// Release this datastack-allocated frame's resources and return the
+    /// base pointer for `vm.datastack_pop()`.
+    ///
+    /// Drops all localsplus values, runs destructors for all frame fields
+    /// (trace, temporary_refs, retained_back, etc.), and detaches the
+    /// backing store.
+    /// Returns `None` if this frame is not datastack-allocated.
+    ///
+    /// After this call, the InterpreterFrame at `self` is logically dead —
+    /// the caller must not use `self` again except to pass the returned
+    /// base to `vm.datastack_pop()`.
+    pub(crate) unsafe fn release_datastack_frame(&mut self) -> Option<(*mut u8, usize)> {
+        let base = self.datastack_base;
+        if base.is_null() {
+            return None;
+        }
+        let total_bytes = datastack_iframe_total_bytes(
+            self.localsplus.nlocalsplus as usize,
+            self.localsplus.stack_capacity(),
+        );
+        self.datastack_base = core::ptr::null_mut();
+        // Drop all localsplus values while the backing store is still valid.
+        self.localsplus.drop_values();
+        // Detach from the data stack so further accesses see an empty frame.
+        self.localsplus.data = LocalsPlusData::Heap(Box::default());
+        self.localsplus.nlocalsplus = 0;
+        // Drop remaining frame fields (trace, temporary_refs, retained_back,
+        // etc.) by running destructors in place. The localsplus is already
+        // empty/heap-backed, so this only drops non-localsplus fields.
+        // SAFETY: `self` points to valid, initialized memory on the data
+        // stack. After this call the memory is logically dead.
+        unsafe { core::ptr::drop_in_place(self) };
+        Some((base, total_bytes))
     }
 
     /// Get the last instruction index.
@@ -986,6 +1094,62 @@ impl InterpreterFrame {
         self.materialize_slow(vm)
     }
 
+    /// Take a standalone copy of this frame, values included, for a thread
+    /// that does not own it.
+    ///
+    /// Nothing links the copy back to this frame: the owning thread will not
+    /// find it at `exit_iframe` and so never writes into it once the world
+    /// restarts. That is the whole point — a linked copy is a buffer the owner
+    /// rewrites slot by slot while the reader clones out of it.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// its fast locals are not moving while they are read.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_detached(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        // Deliberately not `materialize_chain`: that hands back an existing
+        // linked copy when the owning thread has already made one.
+        let fo = self.materialize_slow_chain(vm);
+        unsafe {
+            fo.iframe_mut()
+                .localsplus
+                .sync_fastlocals_from(&self.localsplus)
+        };
+        fo
+    }
+
+    /// Copy this frame and everything it was called from for a thread that
+    /// does not own them, linking `f_back` along the way, and return the copy
+    /// of this frame. The links are `retained_back`, so the chain keeps
+    /// resolving once the world restarts and the real frames return.
+    ///
+    /// # Safety
+    /// Caller must hold the world stopped, so the owning thread is parked and
+    /// the chain is not being popped while it is walked.
+    #[cfg(feature = "threading")]
+    #[cold]
+    #[inline(never)]
+    pub(crate) unsafe fn materialize_detached_chain(&self, vm: &VirtualMachine) -> FrameObjectRef {
+        let top = unsafe { self.materialize_detached(vm) };
+        let mut child = top.clone();
+        let mut cur = self.previous();
+        while !cur.is_null() {
+            let caller = unsafe { &*cur };
+            let caller_fo = unsafe { caller.materialize_detached(vm) };
+            {
+                let mut guard = child.iframe().cold().retained_back.lock();
+                if guard.is_none() {
+                    *guard = Some(caller_fo.clone());
+                }
+            }
+            child = caller_fo;
+            cur = caller.previous();
+        }
+        top
+    }
+
     /// Create a lightweight FrameObject with empty localsplus, suitable for
     /// f_back chain building (retained_back). Unlike `materialize`, this does
     /// NOT store into `temporary_refs` or set the `materialized` pointer, so
@@ -1010,9 +1174,18 @@ impl InterpreterFrame {
         let builtins: PyObjectRef = self.builtins().to_owned();
         let func_obj: Option<PyObjectRef> = self.func_obj().map(|o| o.to_owned());
 
-        // Copy localsplus from the stack frame so materialized frames have
-        // usable fastlocals (for locals(), f_locals, tracebacks, etc).
-        let localsplus = unsafe { self.localsplus.snapshot_to_heap() };
+        // Empty localsplus, sized for the code object. While the source frame
+        // runs, every reader resolves it through `find_live_source_iframe`, and
+        // `exit_iframe` fills these slots from the live frame as it returns.
+        // Copying the values here instead would give each of them a second
+        // reference lasting as long as this FrameObject — a frame reached by
+        // one traceback entry would keep all of its locals alive.
+        let nlocalsplus = code.localspluskinds.len() as u32;
+        let localsplus = LocalsPlus {
+            data: LocalsPlusData::Heap(vec![0usize; nlocalsplus as usize].into_boxed_slice()),
+            nlocalsplus,
+            stack_top: 0,
+        };
 
         // Copy the locals mapping if it exists.
         let locals = match self.locals.get() {
@@ -1031,26 +1204,23 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: core::cell::Cell::new(self.prev_line.get()),
-            trace: PyMutex::new(None),
-            trace_lines: PyMutex::new(true),
-            trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
             // Do NOT copy previous — it may point to stack-allocated frames
             // that become dangling after their call returns. The f_back chain
             // is resolved through the TLS CURRENT_FRAME chain instead.
             previous: Radium::new(0),
-            // Materialized frame is a detached snapshot — always FrameObject-owned.
-            // If we copied Thread from the source iframe, frame.clear() would
-            // reject the frame with "cannot clear an executing frame".
+            // Always FrameObject-owned. If we copied Thread from the source
+            // iframe, frame.clear() would reject the frame with "cannot clear
+            // an executing frame"; `attached_tid` carries the "still running"
+            // half of that state instead, so the owner field does not have to.
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
-            f_locals_hidden_overlay: PyMutex::new(None),
-            f_extra_locals: PyMutex::new(None),
-            escaped: atomic::AtomicBool::new(true),
-            retained_back: PyMutex::new(None),
-            pending_stack_pops: Default::default(),
-            pending_unwind_from_stack: Default::default(),
+            datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
+            cold: OnceCell::from(Box::new(FrameColdData {
+                escaped: atomic::AtomicBool::new(true),
+                attached_tid: atomic::AtomicU64::new(current_thread_ident()),
+                ..FrameColdData::default()
+            })),
         };
 
         let frame_obj = FrameObject {
@@ -1075,11 +1245,14 @@ impl InterpreterFrame {
         self.materialized.store(fo_ptr, Relaxed);
 
         // Keep the FrameObject alive by storing it in temporary_refs.
-        // GC tracking is deferred to with_iframe cleanup, where the frame
-        // is no longer executing and temporary_refs is cleared — at that
+        // GC tracking is deferred to `exit_iframe`, where the frame is no
+        // longer executing and temporary_refs is cleared — at that
         // point the FrameObject is self-sustaining and GC can safely
         // traverse and collect it.
-        self.temporary_refs.lock().push(frame_ref.clone().into());
+        self.cold()
+            .temporary_refs
+            .lock()
+            .push(frame_ref.clone().into());
 
         // SAFETY: the pointer we stored above remains valid because
         // temporary_refs holds a strong reference.
@@ -1119,20 +1292,15 @@ impl InterpreterFrame {
             locals,
             lasti: Radium::new(self.lasti.load(Relaxed)),
             prev_line: core::cell::Cell::new(self.prev_line.get()),
-            trace: PyMutex::new(None),
-            trace_lines: PyMutex::new(true),
-            trace_opcodes: PyMutex::new(false),
-            temporary_refs: PyMutex::new(vec![]),
             generator: PyAtomicBorrow::new(),
             previous: Radium::new(0),
             owner: atomic::AtomicI8::new(FrameOwner::FrameObject as i8),
-            f_locals_hidden_overlay: PyMutex::new(None),
-            f_extra_locals: PyMutex::new(None),
-            escaped: atomic::AtomicBool::new(true),
-            retained_back: PyMutex::new(None),
-            pending_stack_pops: Default::default(),
-            pending_unwind_from_stack: Default::default(),
+            datastack_base: core::ptr::null_mut(),
             materialized: Radium::new(0),
+            cold: OnceCell::from(Box::new(FrameColdData {
+                escaped: atomic::AtomicBool::new(true),
+                ..FrameColdData::default()
+            })),
         };
 
         let frame_obj = FrameObject {
@@ -1173,6 +1341,35 @@ impl InterpreterFrame {
             None
         } else {
             Some(unsafe { &*self.func_obj })
+        }
+    }
+
+    /// Access the lazily-allocated cold data, allocating on first use.
+    #[inline]
+    pub(crate) fn cold(&self) -> &FrameColdData {
+        self.cold.get_or_init(|| Box::new(FrameColdData::default()))
+    }
+
+    /// Access cold data without allocating. Returns `None` if cold data
+    /// has not been allocated yet.
+    #[inline]
+    pub(crate) fn cold_opt(&self) -> Option<&FrameColdData> {
+        self.cold.get().map(|b| &**b)
+    }
+
+    /// Thread still running the frame this one was materialized from, or 0.
+    #[inline]
+    pub(crate) fn attached_tid(&self) -> u64 {
+        self.cold_opt()
+            .map_or(0, |c| c.attached_tid.load(atomic::Ordering::Acquire))
+    }
+
+    /// Mark the frame this one was materialized from as returned, so its
+    /// values may be read from here.
+    #[inline]
+    pub(crate) fn detach(&self) {
+        if let Some(cold) = self.cold_opt() {
+            cold.attached_tid.store(0, atomic::Ordering::Release);
         }
     }
 }
@@ -1323,11 +1520,13 @@ unsafe impl Traverse for FrameObject {
         };
         iframe.localsplus.traverse(tracer_fn);
         iframe.locals.traverse(tracer_fn);
-        iframe.trace.traverse(tracer_fn);
-        iframe.temporary_refs.traverse(tracer_fn);
-        iframe.f_locals_hidden_overlay.traverse(tracer_fn);
-        iframe.f_extra_locals.traverse(tracer_fn);
-        iframe.retained_back.traverse(tracer_fn);
+        if let Some(cold) = iframe.cold_opt() {
+            cold.trace.traverse(tracer_fn);
+            cold.temporary_refs.traverse(tracer_fn);
+            cold.f_locals_hidden_overlay.traverse(tracer_fn);
+            cold.f_extra_locals.traverse(tracer_fn);
+            cold.retained_back.traverse(tracer_fn);
+        }
     }
 
     fn clear(&mut self, _out: &mut Vec<PyObjectRef>) {
@@ -1346,6 +1545,10 @@ unsafe impl Traverse for FrameObject {
 pub enum ExecutionResult {
     Return(PyObjectRef),
     Yield(PyObjectRef),
+    /// The bytecode loop wants to tail-call into a new frame that has
+    /// already been prepared on the datastack. The trampoline reads the
+    /// pending frame pointer from `vm.pending_tailcall_frame`.
+    TailCall,
 }
 
 /// A valid execution result, or an exception
@@ -1505,8 +1708,8 @@ impl FrameObject {
         for slot in fastlocals.iter_mut() {
             *slot = None;
         }
-        self.iframe().f_locals_hidden_overlay.lock().take();
-        self.iframe().f_extra_locals.lock().take();
+        self.iframe().cold().f_locals_hidden_overlay.lock().take();
+        self.iframe().cold().f_extra_locals.lock().take();
     }
 
     /// Store a borrowed back-reference to the owning generator/coroutine.
@@ -1578,12 +1781,17 @@ impl FrameObject {
 
     /// Record that a durable Python-level reference to this frame escaped.
     pub(crate) fn mark_escaped(&self) {
-        self.iframe().escaped.store(true, atomic::Ordering::Release);
+        self.iframe()
+            .cold()
+            .escaped
+            .store(true, atomic::Ordering::Release);
     }
 
     /// Whether a durable reference to this frame has escaped.
     pub(crate) fn has_escaped(&self) -> bool {
-        self.iframe().escaped.load(atomic::Ordering::Acquire)
+        self.iframe()
+            .cold_opt()
+            .is_some_and(|c| c.escaped.load(atomic::Ordering::Acquire))
     }
 
     pub fn lasti(&self) -> u32 {
@@ -1594,10 +1802,29 @@ impl FrameObject {
         self.iframe().lasti.store(val, Relaxed);
     }
 
+    /// Fast-local slots of the live source frame when this frame object's
+    /// frame is still running on this thread, and this frame object's own
+    /// slots otherwise. A running frame's slots live on the data stack; the
+    /// frame object's are empty until `exit_iframe` fills them.
+    ///
+    /// # Safety
+    /// Caller must ensure no concurrent mutable access: either the frame is
+    /// not executing (callers pass through `check_locals_access`), or this is
+    /// a trace callback on the thread that is executing it.
+    unsafe fn live_fastlocals(&self) -> &[Option<PyObjectRef>] {
+        let live = self.find_live_source_iframe();
+        if live.is_null() {
+            unsafe { self.iframe_ref().localsplus.fastlocals() }
+        } else {
+            unsafe { (*live).localsplus.fastlocals() }
+        }
+    }
+
     fn has_active_hidden_locals(&self) -> bool {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE, CO_FAST_HIDDEN};
         let code = self.iframe().code();
-        let fastlocals = unsafe { self.iframe_ref().localsplus.fastlocals() };
+        // SAFETY: reached from `locals()` on the thread running this frame.
+        let fastlocals = unsafe { self.live_fastlocals() };
         let is_optimized = code.flags.contains(bytecode::CodeFlags::OPTIMIZED);
         !is_optimized
             && code.localspluskinds.iter().enumerate().any(|(i, &kind)| {
@@ -1629,15 +1856,7 @@ impl FrameObject {
         // SAFETY: Either the frame is not executing (caller checked owner),
         // or we're in a trace callback on the same thread that's executing.
         let code = self.iframe().code();
-        // If this FrameObject has a live source iframe on the TLS chain, read
-        // its localsplus for up-to-date values (the materialized copy is a
-        // stale snapshot from materialize time).
-        let live = self.find_live_source_iframe();
-        let fastlocals = if !live.is_null() {
-            unsafe { (*live).localsplus.fastlocals() }
-        } else {
-            unsafe { self.iframe_ref().localsplus.fastlocals() }
-        };
+        let fastlocals = unsafe { self.live_fastlocals() };
 
         // Iterate through all localsplus slots using localspluskinds
         let nlocalsplus = code.localspluskinds.len();
@@ -1670,9 +1889,10 @@ impl FrameObject {
                 }
             }
 
-            // Free variables only included for optimized (function-like) scopes.
-            // Class/module scopes should not expose free vars in locals().
-            if kind == CO_FAST_FREE && !is_optimized {
+            // CPython only syncs fastlocals/cells into locals() for function
+            // scope; class/module scope just returns the namespace dict as-is
+            // (_PyFrame_GetLocals, Objects/frameobject.c).
+            if !is_optimized && kind & (CO_FAST_CELL | CO_FAST_FREE) != 0 {
                 continue;
             }
 
@@ -1740,6 +1960,15 @@ impl FrameObject {
     /// builtin, trace callbacks) is fine: the frame sits on the current
     /// thread's frame chain and is at a bytecode boundary.
     pub(crate) fn check_locals_access(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // A frame object materialized from a running data stack frame is
+        // FrameObject-owned, so the owner test below cannot speak for it: the
+        // thread running that frame fills these slots when it returns.
+        let attached = self.iframe().attached_tid();
+        if attached != 0 && attached != current_thread_ident() {
+            return Err(vm.new_runtime_error(
+                "cannot access frame locals while the frame is executing in another thread",
+            ));
+        }
         let owner = FrameOwner::from_i8(self.iframe().owner.load(atomic::Ordering::Acquire));
         if owner != FrameOwner::Thread {
             return Ok(());
@@ -1769,12 +1998,12 @@ impl FrameObject {
     pub fn f_locals_mapping(&self, vm: &VirtualMachine) -> PyResult<ArgMapping> {
         self.check_locals_access(vm)?;
         if !self.has_active_hidden_locals() {
-            self.iframe().f_locals_hidden_overlay.lock().take();
+            self.iframe().cold().f_locals_hidden_overlay.lock().take();
             return self.locals(vm);
         }
 
         let overlay_dict = {
-            let mut overlay = self.iframe().f_locals_hidden_overlay.lock();
+            let mut overlay = self.iframe().cold().f_locals_hidden_overlay.lock();
             match overlay.as_ref() {
                 Some(dict) => dict.clone(),
                 None => {
@@ -1808,7 +2037,7 @@ impl FrameObject {
     /// Copy the frame's extra-locals side storage (proxy keys that are not
     /// fast locals) into `mapping`. No-op when nothing was ever stored.
     fn fold_extra_locals(&self, mapping: &ArgMapping, vm: &VirtualMachine) -> PyResult<()> {
-        let extra = self.iframe().f_extra_locals.lock().clone();
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
         if let Some(extra) = extra {
             for (key, value) in &extra {
                 mapping.mapping().ass_subscript(&key, Some(value), vm)?;
@@ -1823,13 +2052,7 @@ impl FrameObject {
         use rustpython_compiler_core::bytecode::{CO_FAST_CELL, CO_FAST_FREE};
         // SAFETY: callers first pass through `check_locals_access`, so the
         // frame is not executing on another thread.
-        // Use live source iframe if available for up-to-date values.
-        let live = self.find_live_source_iframe();
-        let fastlocals = if !live.is_null() {
-            unsafe { (*live).localsplus.fastlocals() }
-        } else {
-            unsafe { self.iframe_ref().localsplus.fastlocals() }
-        };
+        let fastlocals = unsafe { self.live_fastlocals() };
         let obj = fastlocals.get(i)?.as_ref()?;
         let kind = self
             .iframe()
@@ -1934,7 +2157,7 @@ impl FrameObject {
         {
             return Ok(value);
         }
-        let extra = self.iframe().f_extra_locals.lock().clone();
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
         if let Some(extra) = extra
             && let Some(value) = extra.get_item_opt(&*key, vm)?
         {
@@ -1953,7 +2176,7 @@ impl FrameObject {
         if self.framelocalsproxy_getkeyindex(&key, true, vm)?.is_some() {
             return Ok(true);
         }
-        let extra = self.iframe().f_extra_locals.lock().clone();
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
         if let Some(extra) = extra {
             return Ok(extra.get_item_opt(&*key, vm)?.is_some());
         }
@@ -1991,7 +2214,7 @@ impl FrameObject {
         {
             return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
         }
-        let extra = self.iframe().f_extra_locals.lock().clone();
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
         if let Some(extra) = extra
             && extra.get_item_opt(&*key, vm)?.is_some()
         {
@@ -2014,7 +2237,7 @@ impl FrameObject {
         {
             return Err(vm.new_value_error("cannot remove local variables from FrameLocalsProxy"));
         }
-        let extra = self.iframe().f_extra_locals.lock().clone();
+        let extra = self.iframe().cold().f_extra_locals.lock().clone();
         if let Some(extra) = extra
             && let Some(value) = extra.pop_item(&*key, vm)?
         {
@@ -2041,7 +2264,7 @@ impl FrameObject {
     }
 
     fn extra_locals_get_or_create(&self, vm: &VirtualMachine) -> PyDictRef {
-        let mut extra = self.iframe().f_extra_locals.lock();
+        let mut extra = self.iframe().cold().f_extra_locals.lock();
         extra.get_or_insert_with(|| vm.ctx.new_dict()).clone()
     }
 }
@@ -2085,6 +2308,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            tailcall_enabled: false,
         };
         f(exec)
     }
@@ -2147,6 +2371,7 @@ impl Py<FrameObject> {
             func_obj,
             prev_line: &iframe.prev_line,
             monitoring_mask: 0,
+            tailcall_enabled: false,
         };
         exec.yield_from_target().map(PyObject::to_owned)
     }
@@ -2168,6 +2393,107 @@ impl Py<FrameObject> {
         }
         frame
     }
+}
+
+/// Identity of the calling thread, or 0 where there is only one thread to be.
+/// 0 doubles as "no thread", which is what `attached_tid` wants for a build
+/// that cannot have a frame running anywhere else.
+#[inline]
+fn current_thread_ident() -> u64 {
+    #[cfg(feature = "threading")]
+    {
+        crate::stdlib::_thread::get_ident()
+    }
+    #[cfg(not(feature = "threading"))]
+    {
+        0
+    }
+}
+
+/// Byte offset from the start of a datastack allocation to the LocalsPlus data,
+/// accounting for alignment padding after the InterpreterFrame header.
+#[inline]
+fn datastack_iframe_localsplus_offset() -> usize {
+    let iframe_size = core::mem::size_of::<InterpreterFrame>();
+    (iframe_size + core::mem::align_of::<usize>() - 1) & !(core::mem::align_of::<usize>() - 1)
+}
+
+/// Total bytes needed to co-allocate an InterpreterFrame and its LocalsPlus
+/// data on the thread data stack.
+pub(crate) fn datastack_iframe_total_bytes(nlocalsplus: usize, stacksize: usize) -> usize {
+    let iframe_padded = datastack_iframe_localsplus_offset();
+    let capacity = nlocalsplus
+        .checked_add(stacksize)
+        .expect("LocalsPlus capacity overflow");
+    let data_bytes = capacity
+        .checked_mul(core::mem::size_of::<usize>())
+        .expect("LocalsPlus byte size overflow");
+    iframe_padded
+        .checked_add(data_bytes)
+        .expect("datastack iframe total size overflow")
+}
+
+/// Handle an exception propagating into a suspended caller frame in the
+/// trampoline. Adds a traceback entry at the caller's call site, then
+/// tries the caller's exception table via `unwind_blocks`.
+///
+/// Returns:
+/// - `Ok(None)` — handler found, the caller's `run_iframe` can be re-entered
+/// - `Ok(Some(result))` — handler returned a result (break from the run loop)
+/// - `Err(exc)` — no handler, exception propagates to the next caller
+pub(crate) fn trampoline_handle_exception(
+    iframe: &mut InterpreterFrame,
+    exception: &PyBaseExceptionRef,
+    vm: &VirtualMachine,
+) -> FrameResult {
+    let code: &Py<PyCode> = unsafe { &*iframe.code };
+    let globals: &Py<PyDict> = unsafe { &*iframe.globals };
+    let builtins: &PyObject = unsafe { &*iframe.builtins };
+    let func_obj: Option<&PyObject> = if iframe.func_obj.is_null() {
+        None
+    } else {
+        Some(unsafe { &*iframe.func_obj })
+    };
+    let builtins_dict = if globals.class().is(vm.ctx.types.dict_type) {
+        builtins
+            .downcast_ref_if_exact::<PyDict>(vm)
+            .map(|d| unsafe { PyExact::ref_unchecked(d) })
+    } else {
+        None
+    };
+    let iframe_ptr = iframe as *const InterpreterFrame;
+    let mut exec = ExecutingFrame {
+        code,
+        localsplus: &mut iframe.localsplus,
+        locals: &iframe.locals,
+        globals,
+        builtins,
+        builtins_dict,
+        lasti: &iframe.lasti,
+        iframe: iframe_ptr,
+        func_obj,
+        prev_line: &mut iframe.prev_line,
+        monitoring_mask: 0,
+        tailcall_enabled: false,
+    };
+
+    // lasti points past the CallPyExactArgs instruction (+ cache entries).
+    // The exception occurred at the previous instruction (the call site).
+    let idx = (exec.lasti() as usize).saturating_sub(1);
+
+    // Add traceback entry at the call site.
+    if let Some((loc, _end_loc)) = exec.code.locations.get(idx) {
+        let next = exception.__traceback__();
+        let new_traceback = PyTraceback::new(next, exec.frame_object(vm), idx as u32 * 2, loc.line);
+        exception.set_traceback_typed(Some(new_traceback.into_ref(&vm.ctx)));
+    }
+
+    exec.unwind_blocks(
+        vm,
+        UnwindReason::Raising {
+            exception: exception.clone(),
+        },
+    )
 }
 
 /// Execute an InterpreterFrame's bytecode directly, without a FrameObject.
@@ -2208,6 +2534,7 @@ pub(crate) fn run_iframe(
         func_obj,
         prev_line: &mut iframe.prev_line,
         monitoring_mask: 0,
+        tailcall_enabled: true,
     };
     exec.run(vm)
 }
@@ -2237,14 +2564,17 @@ pub(crate) struct ExecutingFrame<'a> {
     prev_line: &'a core::cell::Cell<u32>,
     /// Cached monitoring events mask. Reloaded at Resume instruction only,
     monitoring_mask: u32,
+    /// Whether TailCall is allowed. True when running under the trampoline
+    /// (`run_frame_fast`), false for FrameObject-based execution.
+    tailcall_enabled: bool,
 }
 
 #[inline]
-fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<isize> {
+fn specialization_compact_int_value(i: &PyInt) -> Option<isize> {
     // _PyLong_IsCompact(): a one-digit PyLong (base 2^30),
     // i.e. abs(value) <= 2^30 - 1.
     const CPYTHON_COMPACT_LONG_ABS_MAX: i64 = (1i64 << 30) - 1;
-    let v = i.try_to_primitive::<i64>(vm).ok()?;
+    let v = i.try_to_i64_fast()?;
     if (-CPYTHON_COMPACT_LONG_ABS_MAX..=CPYTHON_COMPACT_LONG_ABS_MAX).contains(&v) {
         Some(v as isize)
     } else {
@@ -2255,7 +2585,7 @@ fn specialization_compact_int_value(i: &PyInt, vm: &VirtualMachine) -> Option<is
 #[inline]
 fn compact_int_from_obj(obj: &PyObject, vm: &VirtualMachine) -> Option<isize> {
     obj.downcast_ref_if_exact::<PyInt>(vm)
-        .and_then(|i| specialization_compact_int_value(i, vm))
+        .and_then(|i| specialization_compact_int_value(i))
 }
 
 #[inline]
@@ -2372,7 +2702,7 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
     // executing here (this frame is unwinding back into it), so its payload
     // pointer is live.
     {
-        let mut guard = frame.iframe().retained_back.lock();
+        let mut guard = frame.iframe().cold().retained_back.lock();
         if guard.is_none() {
             let prev = frame.previous_iframe();
             *guard = unsafe { owned_chain_frame(prev) };
@@ -2394,7 +2724,10 @@ pub(crate) fn release_datastack_frame(frame: &Py<FrameObject>, vm: &VirtualMachi
     );
     // SAFETY: the frame is alive (held by `frame` and the escaped reference)
     // and untracked.
-    unsafe { crate::gc_state::gc_state().track_object(NonNull::from(frame_obj)) };
+    unsafe {
+        crate::gc_state::gc_state()
+            .track_object(NonNull::from(frame_obj), crate::gc_state::current_owner())
+    };
 }
 
 type BinaryOpExtendGuard = fn(&PyObject, &PyObject, &VirtualMachine) -> bool;
@@ -2613,31 +2946,39 @@ impl ExecutingFrame<'_> {
     /// Whether this frame has a per-frame trace function set.
     #[inline]
     fn trace_is_set(&self, _vm: &VirtualMachine) -> bool {
-        self.iframe().trace.lock().is_some()
+        self.iframe()
+            .cold_opt()
+            .is_some_and(|c| c.trace.lock().is_some())
     }
 
     /// Access the frame's trace_opcodes lock.
     #[inline]
     fn trace_opcodes_is_set(&self) -> bool {
-        *self.iframe().trace_opcodes.lock()
+        self.iframe()
+            .cold_opt()
+            .is_some_and(|c| *c.trace_opcodes.lock())
     }
 
     /// Get pending_stack_pops from the frame.
     #[inline]
     fn pending_stack_pops(&self) -> u32 {
-        self.iframe().pending_stack_pops.load(Relaxed)
+        self.iframe()
+            .cold_opt()
+            .map_or(0, |c| c.pending_stack_pops.load(Relaxed))
     }
 
     /// Get pending_unwind_from_stack from the frame.
     #[inline]
     fn pending_unwind_from_stack(&self) -> i64 {
-        self.iframe().pending_unwind_from_stack.load(Relaxed)
+        self.iframe()
+            .cold_opt()
+            .map_or(0, |c| c.pending_unwind_from_stack.load(Relaxed))
     }
 
     /// Set pending_stack_pops on the frame.
     #[inline]
     fn set_pending_stack_pops(&self, val: u32) {
-        self.iframe().pending_stack_pops.store(val, Relaxed);
+        self.iframe().cold().pending_stack_pops.store(val, Relaxed);
     }
 
     /// Run `__init__` for the tp_new specialization. `args` holds the
@@ -2656,10 +2997,7 @@ impl ExecutingFrame<'_> {
             .iter_mut()
             .map(|slot| slot.take().expect("arg slot must be filled"));
 
-        let init_frame = init_func.prepare_exact_args_frame(taken, vm);
-        let init_result = vm.run_frame(init_frame.clone());
-        release_datastack_frame(&init_frame, vm);
-        let init_result = init_result?;
+        let init_result = init_func.invoke_prepared_exact_args(taken, vm)?;
 
         if !vm.is_none(&init_result) {
             return Err(vm.new_type_error(format!(
@@ -2754,8 +3092,9 @@ impl ExecutingFrame<'_> {
             // Advance lasti past the current instruction BEFORE firing the
             // line event.  This ensures that f_lineno (which reads
             // locations[lasti - 1]) returns the line of the instruction
-            // being traced, not the previous one.
-            self.update_lasti(|i| *i += 1);
+            // being traced, not the previous one. Stored from `idx` rather
+            // than read-modify-written, which would re-load what was just read.
+            self.lasti.store(idx as u32 + 1, Relaxed);
 
             // Fire 'line' trace event when line number changes.
             // Only fire if this frame has a per-frame trace function set
@@ -2825,6 +3164,7 @@ impl ExecutingFrame<'_> {
                 }
             }
 
+            #[cfg_attr(not(feature = "threading"), allow(clippy::collapsible_if))]
             if vm.eval_breaker_tripped() {
                 if let Err(exception) = vm.check_signals() {
                     #[cold]
@@ -4063,9 +4403,10 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::LoadSmallInt { i: idx } => {
-                // Push small integer (-5..=256) directly without constant table lookup
-                let value = vm.ctx.new_int(idx.get(arg) as i32);
-                self.push_value(value.into());
+                // Cached small integers live for the whole Context, so the value stack can
+                // borrow them without touching the refcount.
+                let value = vm.ctx.cached_int(idx.get(arg) as i32);
+                unsafe { self.push_borrowed(value.as_object()) };
                 Ok(None)
             }
             Instruction::LoadDeref { i } => {
@@ -4568,8 +4909,12 @@ impl ExecutingFrame<'_> {
             }
             Instruction::RaiseVarargs { argc: kind } => self.execute_raise(vm, kind.get(arg)),
             Instruction::Resume { .. } | Instruction::ResumeCheck => {
-                // Lazy quickening: initialize adaptive counters on first execution
-                if !self.code.quickened.swap(true, atomic::Ordering::Relaxed) {
+                // Lazy quickening: initialize adaptive counters on first execution.
+                // Read before the swap so that the steady state — every call after
+                // the first — costs a load rather than a read-modify-write.
+                if !self.code.quickened.load(atomic::Ordering::Relaxed)
+                    && !self.code.quickened.swap(true, atomic::Ordering::Relaxed)
+                {
                     self.code.instructions.quicken();
                     atomic::fence(atomic::Ordering::Release);
                 }
@@ -4827,6 +5172,9 @@ impl ExecutingFrame<'_> {
                 Ok(None)
             }
             Instruction::YieldValue { .. } => {
+                // The frame outlives this block from here on, so nothing it
+                // still holds may be a borrow of something else's slot.
+                self.localsplus.promote_stack();
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
@@ -5036,7 +5384,7 @@ impl ExecutingFrame<'_> {
 
                 if type_version != 0
                     && owner.class().tp_version_tag.load(Acquire) == type_version
-                    && owner.dict().is_none()
+                    && !owner.has_instance_dict()
                     && let Some(func) = self.try_read_cached_descriptor(cache_base, type_version)
                 {
                     let owner = self.pop_value();
@@ -5460,8 +5808,8 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let result = a_str.as_wtf8().py_add(b_str.as_wtf8());
-                    self.pop_value();
-                    self.pop_value();
+                    self.pop_stackref();
+                    self.pop_stackref();
                     self.push_value(result.to_pyobject(vm));
                     Ok(None)
                 } else {
@@ -5620,6 +5968,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     let effective_nargs = nargs + u32::from(self_or_null_is_some);
                     if !func.has_exact_argcount(effective_nargs) {
                         return self.execute_call_vectorcall(nargs, vm);
@@ -5630,7 +5981,11 @@ impl ExecutingFrame<'_> {
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    // Stage args without a per-call Vec: [self?, arg1, ..., argN]
+                    if self.tailcall_enabled && !func.is_generator_like() {
+                        self.tailcall_prepare_frame(nargs, self_or_null_is_some, vm);
+                        return Ok(Some(ExecutionResult::TailCall));
+                    }
+                    // Recursive path: pop args and call.
                     let base = usize::from(self_or_null_is_some);
                     let mut arg_buf = CallArgBuffer::new(nargs as usize + base);
                     let args = arg_buf.slots();
@@ -5678,6 +6033,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         if !func.has_exact_argcount(nargs + 1) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
@@ -5687,7 +6045,16 @@ impl ExecutingFrame<'_> {
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
-                        // Stage args without a per-call Vec:
+                        if self.tailcall_enabled && !func.is_generator_like() {
+                            self.tailcall_prepare_bound_method_frame(
+                                nargs,
+                                bound_function,
+                                bound_self,
+                                vm,
+                            );
+                            return Ok(Some(ExecutionResult::TailCall));
+                        }
+                        // Recursive path: stage args without a per-call Vec.
                         // [bound_self, arg1, ..., argN]
                         let mut arg_buf = CallArgBuffer::new(nargs as usize + 1);
                         let args = arg_buf.slots();
@@ -5840,15 +6207,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::O && effective_nargs == 1 {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -5874,15 +6234,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == PyMethodFlags::FASTCALL {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -5904,21 +6257,14 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_vectorcall(nargs, vm);
+                    }
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_vectorcall(nargs, vm);
                     }
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let (args_vec, effective_nargs) = if let Some(self_val) = self_or_null {
-                        let mut v = Vec::with_capacity(nargs_usize + 1);
-                        v.push(self_val);
-                        v.extend(pos_args);
-                        (v, nargs_usize + 1)
-                    } else {
-                        (pos_args, nargs_usize)
-                    };
+                    let (callable, args_vec) = self.take_call_args(nargs as usize);
+                    let effective_nargs = args_vec.len();
                     let result =
                         vectorcall_function(&callable, args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
@@ -5950,16 +6296,18 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_vectorcall(nargs, vm);
+                        }
                         if self.specialization_call_recursion_guard(vm) {
                             return self.execute_call_vectorcall(nargs, vm);
                         }
                         let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        self.pop_value_opt(); // null (self_or_null)
-                        self.pop_value(); // callable (bound method)
                         let mut args_vec = Vec::with_capacity(nargs_usize + 1);
                         args_vec.push(bound_self);
-                        args_vec.extend(pos_args);
+                        args_vec.extend(self.pop_multiple(nargs_usize));
+                        self.pop_value_opt(); // null (self_or_null)
+                        self.pop_value(); // callable (bound method)
                         let result = vectorcall_function(
                             &bound_function,
                             args_vec,
@@ -6041,15 +6389,8 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
-                        let positional_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(total_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(positional_args);
+                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
@@ -6088,15 +6429,8 @@ impl ExecutingFrame<'_> {
                             .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                     {
                         let func = descr.method.func;
-                        let positional_args: Vec<PyObjectRef> =
-                            self.pop_multiple(nargs as usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        self.pop_value(); // callable
-                        let mut all_args = Vec::with_capacity(total_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            all_args.push(self_val);
-                        }
-                        all_args.extend(positional_args);
+                        let (_callable, all_args) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(all_args.len(), total_nargs as usize);
                         let args = FuncArgs {
                             args: all_args,
                             kwargs: Default::default(),
@@ -6135,15 +6469,8 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(total_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        all_args.push(self_val);
-                    }
-                    all_args.extend(positional_args);
+                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
@@ -6160,22 +6487,9 @@ impl ExecutingFrame<'_> {
                 if let Some(cls) = callable.downcast_ref::<PyType>()
                     && cls.slots.vectorcall.load().is_some()
                 {
-                    let nargs_usize = nargs as usize;
-                    let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    let callable = self.pop_value();
-                    let self_is_some = self_or_null.is_some();
-                    let mut args_vec = Vec::with_capacity(nargs_usize + usize::from(self_is_some));
-                    if let Some(self_val) = self_or_null {
-                        args_vec.push(self_val);
-                    }
-                    args_vec.extend(pos_args);
-                    let result = callable.vectorcall(
-                        args_vec,
-                        nargs_usize + usize::from(self_is_some),
-                        None,
-                        vm,
-                    )?;
+                    let (callable, args_vec) = self.take_call_args(nargs as usize);
+                    let effective_nargs = args_vec.len();
+                    let result = callable.vectorcall(args_vec, effective_nargs, None, vm)?;
                     self.push_value(result);
                     return Ok(None);
                 }
@@ -6260,15 +6574,8 @@ impl ExecutingFrame<'_> {
                         .is_some_and(|self_obj| self_obj.class().is(descr.objclass))
                 {
                     let func = descr.method.func;
-                    let positional_args: Vec<PyObjectRef> =
-                        self.pop_multiple(nargs as usize).collect();
-                    let self_or_null = self.pop_value_opt();
-                    self.pop_value(); // callable
-                    let mut all_args = Vec::with_capacity(total_nargs as usize);
-                    if let Some(self_val) = self_or_null {
-                        all_args.push(self_val);
-                    }
-                    all_args.extend(positional_args);
+                    let (_callable, all_args) = self.take_call_args(nargs as usize);
+                    debug_assert_eq!(all_args.len(), total_nargs as usize);
                     let args = FuncArgs {
                         args: all_args,
                         kwargs: Default::default(),
@@ -6297,15 +6604,8 @@ impl ExecutingFrame<'_> {
                             | PyMethodFlags::O
                             | PyMethodFlags::KEYWORDS);
                     if call_conv == (PyMethodFlags::FASTCALL | PyMethodFlags::KEYWORDS) {
-                        let nargs_usize = nargs as usize;
-                        let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                        let self_or_null = self.pop_value_opt();
-                        let callable = self.pop_value();
-                        let mut args_vec = Vec::with_capacity(effective_nargs as usize);
-                        if let Some(self_val) = self_or_null {
-                            args_vec.push(self_val);
-                        }
-                        args_vec.extend(pos_args);
+                        let (callable, args_vec) = self.take_call_args(nargs as usize);
+                        debug_assert_eq!(args_vec.len(), effective_nargs as usize);
                         let result =
                             callable.vectorcall(args_vec, effective_nargs as usize, None, vm)?;
                         self.push_value(result);
@@ -6329,22 +6629,13 @@ impl ExecutingFrame<'_> {
                 {
                     return self.execute_call_vectorcall(nargs, vm);
                 }
-                let nargs_usize = nargs as usize;
-                let pos_args: Vec<PyObjectRef> = self.pop_multiple(nargs_usize).collect();
-                let self_or_null = self.pop_value_opt();
-                let callable = self.pop_value();
-                let mut args_vec =
-                    Vec::with_capacity(nargs_usize + usize::from(self_or_null_is_some));
-                if let Some(self_val) = self_or_null {
-                    args_vec.push(self_val);
-                }
-                args_vec.extend(pos_args);
-                let result = callable.vectorcall(
-                    args_vec,
-                    nargs_usize + usize::from(self_or_null_is_some),
-                    None,
-                    vm,
-                )?;
+                let (callable, args_vec) = self.take_call_args(nargs as usize);
+                debug_assert_eq!(
+                    args_vec.len(),
+                    nargs as usize + usize::from(self_or_null_is_some)
+                );
+                let effective_nargs = args_vec.len();
+                let result = callable.vectorcall(args_vec, effective_nargs, None, vm)?;
                 self.push_value(result);
                 Ok(None)
             }
@@ -6362,6 +6653,9 @@ impl ExecutingFrame<'_> {
                     && func.func_version() == cached_version
                     && cached_version != 0
                 {
+                    if func.is_jitted() {
+                        return self.execute_call_kw_vectorcall(nargs, vm);
+                    }
                     if self.specialization_call_recursion_guard(vm) {
                         return self.execute_call_kw_vectorcall(nargs, vm);
                     }
@@ -6420,6 +6714,9 @@ impl ExecutingFrame<'_> {
                         && func.func_version() == cached_version
                         && cached_version != 0
                     {
+                        if func.is_jitted() {
+                            return self.execute_call_kw_vectorcall(nargs, vm);
+                        }
                         let nargs_usize = nargs as usize;
                         let kwarg_names_obj = self.pop_value();
                         let kwarg_names_tuple = kwarg_names_obj
@@ -6615,14 +6912,16 @@ impl ExecutingFrame<'_> {
                     a.downcast_ref_if_exact::<PyInt>(vm),
                     b.downcast_ref_if_exact::<PyInt>(vm),
                 ) && let (Some(a_val), Some(b_val)) = (
-                    specialization_compact_int_value(a_int, vm),
-                    specialization_compact_int_value(b_int, vm),
+                    specialization_compact_int_value(a_int),
+                    specialization_compact_int_value(b_int),
                 ) {
                     let op = self.compare_op_from_arg(arg);
                     let result = op.eval_ord(a_val.cmp(&b_val));
-                    self.pop_value();
-                    self.pop_value();
-                    self.push_value(vm.ctx.new_bool(result).into());
+                    self.pop_stackref();
+                    self.pop_stackref();
+                    if !self.try_fused_compare_int_jump(result, vm) {
+                        self.push_value(vm.ctx.new_bool(result).into());
+                    }
                     Ok(None)
                 } else {
                     self.execute_compare(vm, arg)
@@ -6658,10 +6957,13 @@ impl ExecutingFrame<'_> {
                     b.downcast_ref_if_exact::<PyStr>(vm),
                 ) {
                     let op = self.compare_op_from_arg(arg);
-                    if op != PyComparisonOp::Eq && op != PyComparisonOp::Ne {
+                    // The same two shortcuts the unspecialized comparison takes:
+                    // one object is equal to itself, and equality answers two
+                    // strings of different length without reading either.
+                    let Some(result) = op.eval_eq(|| a.is(b) || a_str.as_wtf8() == b_str.as_wtf8())
+                    else {
                         return self.execute_compare(vm, arg);
-                    }
-                    let result = op.eval_ord(a_str.as_wtf8().cmp(b_str.as_wtf8()));
+                    };
                     self.pop_value();
                     self.pop_value();
                     self.push_value(vm.ctx.new_bool(result).into());
@@ -6945,17 +7247,16 @@ impl ExecutingFrame<'_> {
                 // Keep specialized opcode on guard miss (JUMP_TO_PREDICTED behavior).
                 let cached_version = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
-                if let Ok(current_version) = u16::try_from(self.globals.version())
-                    && cached_version == current_version
+                if cached_version != 0
+                    && let Some(x) = self
+                        .globals
+                        .get_item_by_index_and_keys_version(cached_version, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = self.globals.get_item_opt_hint(name, cached_index, vm)? {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        return Ok(None);
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
                     }
+                    return Ok(None);
                 }
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -6971,20 +7272,19 @@ impl ExecutingFrame<'_> {
                 let cached_globals_ver = self.code.instructions.read_cache_u16(cache_base + 1);
                 let cached_builtins_ver = self.code.instructions.read_cache_u16(cache_base + 2);
                 let cached_index = self.code.instructions.read_cache_u16(cache_base + 3);
-                if let Ok(current_globals_ver) = u16::try_from(self.globals.version())
+                if cached_globals_ver != 0
+                    && cached_builtins_ver != 0
+                    && let Ok(current_globals_ver) = u16::try_from(self.globals.keys_version())
                     && cached_globals_ver == current_globals_ver
                     && let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
-                    && let Ok(current_builtins_ver) = u16::try_from(builtins_dict.version())
-                    && cached_builtins_ver == current_builtins_ver
+                    && let Some(x) = builtins_dict
+                        .get_item_by_index_and_keys_version(cached_builtins_ver, cached_index)
                 {
-                    let name = self.code.names[(oparg >> 1) as usize];
-                    if let Some(x) = builtins_dict.get_item_opt_hint(name, cached_index, vm)? {
-                        self.push_value(x);
-                        if (oparg & 1) != 0 {
-                            self.push_value_opt(None);
-                        }
-                        return Ok(None);
+                    self.push_value(x);
+                    if (oparg & 1) != 0 {
+                        self.push_value_opt(None);
                     }
+                    return Ok(None);
                 }
                 let name = self.code.names[(oparg >> 1) as usize];
                 let x = self.load_global_or_builtin(name, vm)?;
@@ -7072,6 +7372,7 @@ impl ExecutingFrame<'_> {
                 self.unwind_blocks(vm, UnwindReason::Returning { value })
             }
             Instruction::InstrumentedYieldValue => {
+                self.localsplus.promote_stack();
                 debug_assert!(
                     self.localsplus
                         .stack_as_slice()
@@ -8328,7 +8629,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(Self::int_add(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_add(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Add) {
                     vm._add(a_ref, b_ref)
                 } else {
@@ -8340,7 +8641,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(Self::int_sub(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_sub(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Subtract) {
                     vm._sub(a_ref, b_ref)
                 } else {
@@ -8352,7 +8653,7 @@ impl ExecutingFrame<'_> {
                     a_ref.downcast_ref_if_exact::<PyInt>(vm),
                     b_ref.downcast_ref_if_exact::<PyInt>(vm),
                 ) {
-                    Ok(Self::int_mul(a.as_bigint(), b.as_bigint(), vm))
+                    Ok(Self::int_mul(a, b, vm))
                 } else if matches!(op, bytecode::BinaryOperator::Multiply) {
                     vm._mul(a_ref, b_ref)
                 } else {
@@ -8418,36 +8719,37 @@ impl ExecutingFrame<'_> {
     /// small-int cache is consulted identically.
     #[inline]
     fn int_fast_op(
-        a: &BigInt,
-        b: &BigInt,
+        a: &PyInt,
+        b: &PyInt,
         vm: &VirtualMachine,
         checked: fn(i64, i64) -> Option<i64>,
         fallback: impl FnOnce(&BigInt, &BigInt) -> BigInt,
     ) -> PyObjectRef {
-        use num_traits::ToPrimitive;
-        if let (Some(av), Some(bv)) = (a.to_i64(), b.to_i64())
+        if let (Some(av), Some(bv)) = (a.try_to_i64_fast(), b.try_to_i64_fast())
             && let Some(result) = checked(av, bv)
         {
             return vm.ctx.new_int(result).into();
         }
-        vm.ctx.new_int(fallback(a, b)).into()
+        vm.ctx
+            .new_int(fallback(a.as_bigint(), b.as_bigint()))
+            .into()
     }
 
     /// Int addition with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_add(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_add(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_add, |a, b| a + b)
     }
 
     /// Int subtraction with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_sub(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_sub(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_sub, |a, b| a - b)
     }
 
     /// Int multiplication with i64 fast path to avoid BigInt heap allocation.
     #[inline]
-    fn int_mul(a: &BigInt, b: &BigInt, vm: &VirtualMachine) -> PyObjectRef {
+    fn int_mul(a: &PyInt, b: &PyInt, vm: &VirtualMachine) -> PyObjectRef {
         Self::int_fast_op(a, b, vm, i64::checked_mul, |a, b| a * b)
     }
 
@@ -8745,13 +9047,19 @@ impl ExecutingFrame<'_> {
         attr_name: &'static PyStrInterned,
         vm: &VirtualMachine,
     ) -> PyResult<Option<PyObjectRef>> {
+        let stamp = self.code.instructions.read_cache_ptr(cache_base + 3);
+        // Take the stamp check first, on a borrowed dict: a hit is the whole
+        // fast path, and cloning the dict for it would cost more than the
+        // comparison it exists to make.
+        let stamped = self.top_value().with_instance_dict(|dict| {
+            dict.is_some_and(|d| stamp != 0 && stamp == d.keys_version() as usize)
+        });
+        if stamped {
+            return Ok(None);
+        }
         let Some(dict) = self.top_value().dict() else {
             return Ok(None);
         };
-        let stamp = self.code.instructions.read_cache_ptr(cache_base + 3);
-        if stamp != 0 && stamp == dict.keys_version() as usize {
-            return Ok(None);
-        }
         // Take the stamp before probing so it attests the probed key set.
         let stamp = dict.assign_keys_version(vm);
         if let Some(value) = dict.get_item_opt(attr_name, vm)? {
@@ -8932,11 +9240,10 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if getattro is the default (PyBaseObject::getattro)
-        let is_default_getattro = cls
-            .slots
-            .getattro
-            .load()
-            .is_some_and(|f| f as usize == PyBaseObject::getattro as *const () as usize);
+        let is_default_getattro = cls.slots.getattro.load().is_some_and(|f| {
+            crate::types::fn_addr(f)
+                == crate::types::fn_addr(PyBaseObject::getattro as crate::types::GetattroFunc)
+        });
         if !is_default_getattro {
             let getattribute = cls.get_attr(identifier!(_vm, __getattribute__));
             if !oparg.is_method()
@@ -9055,9 +9362,14 @@ impl ExecutingFrame<'_> {
 
             if has_data_descr {
                 // Check for member descriptor (slot access)
+                // The slot offset only means anything on the layout the
+                // descriptor was defined for; the specialized instruction
+                // guards on the type version alone, so what descr_get()
+                // checks on every access has to be checked here instead.
                 if let Some(ref descr) = cls_attr
                     && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                     && let MemberGetter::Offset(offset) = member_descr.member.getter
+                    && cls.fast_issubclass(&member_descr.common.typ)
                 {
                     unsafe {
                         self.code
@@ -9593,7 +9905,7 @@ impl ExecutingFrame<'_> {
     fn execute_binary_op_int(
         &mut self,
         vm: &VirtualMachine,
-        op: impl FnOnce(&BigInt, &BigInt, &VirtualMachine) -> PyObjectRef,
+        op: impl FnOnce(&PyInt, &PyInt, &VirtualMachine) -> PyObjectRef,
         deopt_op: bytecode::BinaryOperator,
     ) -> FrameResult {
         let b = self.top_value();
@@ -9602,9 +9914,9 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            let result = op(a_int.as_bigint(), b_int.as_bigint(), vm);
-            self.pop_value();
-            self.pop_value();
+            let result = op(a_int, b_int, vm);
+            self.pop_stackref();
+            self.pop_stackref();
             self.push_value(result);
             Ok(None)
         } else {
@@ -9661,7 +9973,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 1);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) {
+            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -9724,7 +10036,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) {
+                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -9953,8 +10265,8 @@ impl ExecutingFrame<'_> {
                 let cls_alloc = cls.slots.alloc.load();
                 if let (Some(cls_new_fn), Some(obj_new_fn), Some(cls_alloc_fn), Some(obj_alloc_fn)) =
                     (cls_new, object_new, cls_alloc, object_alloc)
-                    && cls_new_fn as usize == obj_new_fn as usize
-                    && cls_alloc_fn as usize == obj_alloc_fn as usize
+                    && crate::types::fn_addr(cls_new_fn) == crate::types::fn_addr(obj_new_fn)
+                    && crate::types::fn_addr(cls_alloc_fn) == crate::types::fn_addr(obj_alloc_fn)
                 {
                     if type_version == 0 {
                         unsafe {
@@ -10019,7 +10331,7 @@ impl ExecutingFrame<'_> {
         let callable = self.nth_value(nargs + 2);
 
         if let Some(func) = callable.downcast_ref_if_exact::<PyFunction>(vm) {
-            if self.specialization_eval_frame_active(vm) {
+            if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                 unsafe {
                     self.code.instructions.write_adaptive_counter(
                         cache_base,
@@ -10070,7 +10382,7 @@ impl ExecutingFrame<'_> {
                 .function_obj()
                 .downcast_ref_if_exact::<PyFunction>(vm)
             {
-                if self.specialization_eval_frame_active(vm) {
+                if self.specialization_eval_frame_active(vm) || func.is_jitted() {
                     unsafe {
                         self.code.instructions.write_adaptive_counter(
                             cache_base,
@@ -10213,8 +10525,8 @@ impl ExecutingFrame<'_> {
             a.downcast_ref_if_exact::<PyInt>(vm),
             b.downcast_ref_if_exact::<PyInt>(vm),
         ) {
-            if specialization_compact_int_value(a_int, vm).is_some()
-                && specialization_compact_int_value(b_int, vm).is_some()
+            if specialization_compact_int_value(a_int).is_some()
+                && specialization_compact_int_value(b_int).is_some()
             {
                 Some(Instruction::CompareOpInt)
             } else {
@@ -10243,6 +10555,37 @@ impl ExecutingFrame<'_> {
         bytecode::ComparisonOperator::try_from(u32::from(arg))
             .unwrap_or(bytecode::ComparisonOperator::Equal)
             .into()
+    }
+
+    /// Execute an immediately following conditional jump without materializing
+    /// the comparison result as a Python bool. This is the adaptive interpreter
+    /// equivalent of keeping the result virtual across the two-opcode trace.
+    #[inline]
+    fn try_fused_compare_int_jump(&mut self, result: bool, vm: &VirtualMachine) -> bool {
+        if self.specialization_eval_frame_active(vm) {
+            return false;
+        }
+
+        let jump_idx = self.lasti() as usize + Instruction::CompareOpInt.cache_entries();
+        if jump_idx >= self.code.instructions.len() {
+            return false;
+        }
+
+        let jump_op = self.code.instructions.read_op(jump_idx);
+        let jump_on = match jump_op {
+            Instruction::PopJumpIfFalse { .. } => false,
+            Instruction::PopJumpIfTrue { .. } => true,
+            _ => return false,
+        };
+        let jump_delta = self.code.instructions.read_arg(jump_idx).as_u32();
+        let after_jump = jump_idx as u32 + 1 + jump_op.cache_entries() as u32;
+        let target = if result == jump_on {
+            after_jump + jump_delta
+        } else {
+            after_jump
+        };
+        self.update_lasti(|i| *i = target);
+        true
     }
 
     /// Recover the BinaryOperator from the instruction arg byte.
@@ -10387,6 +10730,128 @@ impl ExecutingFrame<'_> {
             >= vm.recursion_limit.get()
     }
 
+    /// Prepare a callee frame on the datastack for a TailCall.
+    /// Pops args, self_or_null, and callable from the caller's stack,
+    /// builds the callee InterpreterFrame, and stores its pointer in
+    /// `vm.pending_tailcall_frame`.
+    ///
+    /// The callable must be at stack position `nargs + 1` (already validated).
+    fn tailcall_prepare_frame(
+        &mut self,
+        nargs: u32,
+        self_or_null_is_some: bool,
+        vm: &VirtualMachine,
+    ) {
+        let base = usize::from(self_or_null_is_some);
+        let effective_nargs = nargs as usize + base;
+
+        // Peek at the callable (still on the stack) to build the callee
+        // frame. The callable stays on the caller's stack until we're done
+        // constructing the callee.
+        let callable = self.nth_value(nargs + 1);
+        let func = callable.downcast_ref_if_exact::<PyFunction>(vm).unwrap();
+
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = InterpreterFrame::new_on_datastack(
+            code,
+            &func.globals,
+            &func.builtins,
+            Some(func.as_object()),
+            locals,
+            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Move args directly from the caller's stack into callee fastlocals,
+        // avoiding an intermediate buffer.
+        {
+            let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+            for (dst, arg) in fastlocals[base..effective_nargs]
+                .iter_mut()
+                .zip(self.pop_multiple(nargs as usize))
+            {
+                *dst = Some(arg);
+            }
+            let self_or_null = self.pop_value_opt();
+            debug_assert_eq!(self_or_null.is_some(), self_or_null_is_some);
+            if self_or_null.is_some() {
+                fastlocals[0] = self_or_null;
+            }
+        }
+
+        // Pop the callable and transfer ownership to the trampoline. This one
+        // reference keeps every field borrowed by the callee frame alive.
+        let callable = self.pop_value();
+        vm.set_pending_tailcall_owner(callable);
+
+        vm.set_pending_tailcall(callee_iframe);
+    }
+
+    /// Prepare a callee frame for a bound method TailCall.
+    /// Pops args, self_or_null (null), and callable from the caller's stack,
+    /// builds the callee InterpreterFrame with bound_self prepended, and
+    /// stores its pointer in `vm.pending_tailcall_frame`.
+    fn tailcall_prepare_bound_method_frame(
+        &mut self,
+        nargs: u32,
+        bound_function: PyObjectRef,
+        bound_self: PyObjectRef,
+        vm: &VirtualMachine,
+    ) {
+        let effective_nargs = nargs as usize + 1; // +1 for bound_self
+
+        let func = bound_function
+            .downcast_ref_if_exact::<PyFunction>(vm)
+            .unwrap();
+        let code: &Py<PyCode> = &func.code;
+
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            FrameLocals::lazy()
+        } else {
+            FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                func.globals.clone(),
+            ))
+        };
+
+        let callee_iframe = InterpreterFrame::new_on_datastack(
+            code,
+            &func.globals,
+            &func.builtins,
+            Some(func.as_object()),
+            locals,
+            func.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Move args directly from the caller's stack into callee fastlocals.
+        let fastlocals = callee_iframe.localsplus.fastlocals_mut();
+        for (dst, arg) in fastlocals[1..effective_nargs]
+            .iter_mut()
+            .zip(self.pop_multiple(nargs as usize))
+        {
+            *dst = Some(arg);
+        }
+        self.pop_value_opt(); // null (self_or_null)
+        self.pop_value(); // callable (bound method)
+        fastlocals[0] = Some(bound_self);
+
+        // The function owns every field borrowed by the callee frame.
+        // bound_self is owned by fastlocals; the bound-method object itself is
+        // no longer needed and was dropped above, matching the recursive path.
+        vm.set_pending_tailcall_owner(bound_function);
+
+        vm.set_pending_tailcall(callee_iframe);
+    }
+
     #[inline]
     fn for_iter_has_end_for_shape(&self, instr_idx: usize, jump_delta: u32) -> bool {
         let target_idx = instr_idx
@@ -10434,7 +10899,7 @@ impl ExecutingFrame<'_> {
             return;
         }
         let name = self.code.names[(oparg >> 1) as usize];
-        let Ok(globals_version) = u16::try_from(self.globals.version()) else {
+        let Ok(globals_version @ 1..) = u16::try_from(self.globals.assign_keys_version(vm)) else {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
                     cache_base,
@@ -10462,7 +10927,7 @@ impl ExecutingFrame<'_> {
 
         if let Some(builtins_dict) = self.builtins.downcast_ref_if_exact::<PyDict>(vm)
             && let Ok(Some(builtins_hint)) = builtins_dict.hint_for_key(name, vm)
-            && let Ok(builtins_version) = u16::try_from(builtins_dict.version())
+            && let Ok(builtins_version @ 1..) = u16::try_from(builtins_dict.assign_keys_version(vm))
         {
             unsafe {
                 self.code
@@ -10614,11 +11079,10 @@ impl ExecutingFrame<'_> {
         }
 
         // Only specialize if setattr is the default (generic_setattr)
-        let is_default_setattr = cls
-            .slots
-            .setattro
-            .load()
-            .is_some_and(|f| f as usize == PyBaseObject::slot_setattro as *const () as usize);
+        let is_default_setattr = cls.slots.setattro.load().is_some_and(|f| {
+            crate::types::fn_addr(f)
+                == crate::types::fn_addr(PyBaseObject::slot_setattro as crate::types::SetattroFunc)
+        });
         if !is_default_setattr {
             unsafe {
                 self.code.instructions.write_adaptive_counter(
@@ -10640,9 +11104,12 @@ impl ExecutingFrame<'_> {
 
         if has_data_descr {
             // Check for member descriptor (slot access)
+            // As in the load specialization, the offset is only valid for
+            // instances of the type the descriptor belongs to.
             if let Some(ref descr) = cls_attr
                 && let Some(member_descr) = descr.downcast_ref::<PyMemberDescriptor>()
                 && let MemberGetter::Offset(offset) = member_descr.member.getter
+                && cls.fast_issubclass(&member_descr.common.typ)
             {
                 unsafe {
                     self.code
@@ -10990,6 +11457,49 @@ impl ExecutingFrame<'_> {
                 crate::exceptions::prep_reraise_star(arg1, arg2, vm)
             }
         }
+    }
+
+    /// Take a call's `[self_or_null, arg1, ..., argN]` off the stack as one
+    /// vectorcall argument list, along with the callable underneath them.
+    ///
+    /// The stack already holds the arguments in vectorcall order, so filling a
+    /// single vector by index costs one allocation — collecting the positional
+    /// arguments first and then pushing `self` in front of them costs two plus
+    /// a copy.
+    fn take_call_args(&mut self, nargs: usize) -> (PyObjectRef, Vec<PyObjectRef>) {
+        let stack_len = self.localsplus.stack_len();
+        debug_assert!(
+            stack_len >= nargs + 2,
+            "CALL stack underflow: need callable + self_or_null + {nargs} args, have {stack_len}"
+        );
+        let callable_idx = stack_len - nargs - 2;
+        let self_or_null_idx = callable_idx + 1;
+
+        let self_or_null = self
+            .localsplus
+            .stack_index_mut(self_or_null_idx)
+            .take()
+            .map(|sr| sr.to_pyobj());
+        let mut args = Vec::with_capacity(nargs + usize::from(self_or_null.is_some()));
+        args.extend(self_or_null);
+        for stack_idx in self_or_null_idx + 1..stack_len {
+            let val = self
+                .localsplus
+                .stack_index_mut(stack_idx)
+                .take()
+                .unwrap()
+                .to_pyobj();
+            args.push(val);
+        }
+
+        let callable = self
+            .localsplus
+            .stack_index_mut(callable_idx)
+            .take()
+            .unwrap()
+            .to_pyobj();
+        self.localsplus.stack_truncate(callable_idx);
+        (callable, args)
     }
 
     /// Pop multiple values from the stack. Panics if any slot is NULL.

@@ -9,7 +9,7 @@ pub unsafe extern "C" fn PyObject_GC_Track(op: *mut PyObject) {
     with_vm(|_vm| {
         let obj = unsafe { &*op };
         if !obj.is_gc_tracked() {
-            unsafe { gc_state::gc_state().track_object(obj.into()) };
+            unsafe { gc_state::gc_state().track_object(obj.into(), gc_state::current_owner()) };
         }
     })
 }
@@ -36,29 +36,33 @@ pub unsafe extern "C" fn PyObject_GC_IsFinalized(op: *mut PyObject) -> c_int {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGC_Collect() -> isize {
-    let result = gc_state::gc_state().collect(2);
-    (result.collected + result.uncollectable) as isize
+    with_vm(|vm| {
+        let result = vm.state.gc.collect(2);
+        (result.collected + result.uncollectable) as isize
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGC_Enable() -> c_int {
-    let gc = gc_state::gc_state();
-    let was_enabled = gc.is_enabled();
-    gc.enable();
-    was_enabled.into()
+    with_vm(|vm| {
+        let was_enabled: c_int = vm.state.gc.is_enabled().into();
+        vm.state.gc.enable();
+        was_enabled
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGC_Disable() -> c_int {
-    let gc = gc_state::gc_state();
-    let was_enabled = gc.is_enabled();
-    gc.disable();
-    was_enabled.into()
+    with_vm(|vm| {
+        let was_enabled: c_int = vm.state.gc.is_enabled().into();
+        vm.state.gc.disable();
+        was_enabled
+    })
 }
 
 #[unsafe(no_mangle)]
 pub extern "C" fn PyGC_IsEnabled() -> c_int {
-    gc_state::gc_state().is_enabled().into()
+    with_vm(|vm| -> c_int { vm.state.gc.is_enabled().into() })
 }
 
 #[unsafe(no_mangle)]

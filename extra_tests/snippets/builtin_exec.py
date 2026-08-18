@@ -1,3 +1,5 @@
+from testutils import assert_raises
+
 exec("def square(x):\n return x * x\n")
 assert 16 == square(4)  # noqa: F821
 
@@ -71,3 +73,8 @@ def f():
 
 
 f()
+
+# The source is encoded before it is parsed, so a lone surrogate has to be
+# reported rather than assumed away.
+with assert_raises(UnicodeEncodeError):
+    exec(chr(0xD800))

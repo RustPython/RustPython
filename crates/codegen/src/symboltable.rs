@@ -312,19 +312,8 @@ bitflags! {
             Self::DEF_LOCAL.bits()
             | Self::DEF_PARAM.bits()
             | Self::DEF_IMPORT.bits()
-            | Self::ITER.bits()
             | Self::DEF_TYPE_PARAM.bits()
         );
-
-
-        // TODO: Remove these, RustPython specific
-
-        // indicates if the symbol gets a value assigned by a named expression in a comprehension
-        // this is required to correct the scope in the analysis.
-        const ASSIGNED_IN_COMPREHENSION = 2 << 11;
-        // indicates that the symbol is used a bound iterator variable. We distinguish this case
-        // from normal assignment to detect disallowed re-assignment to iterator variables.
-        const ITER = 2 << 12;
     }
 }
 
@@ -1030,7 +1019,6 @@ enum SymbolUsage {
     AnnotationAssigned,
     Parameter,
     AnnotationParameter,
-    AssignedNamedExprInComprehension,
     Iter,
     TypeParam,
 }
@@ -1048,8 +1036,6 @@ struct SymbolTableBuilder {
     varnames_stack: Vec<Vec<String>>,
     // Track if we're inside an iterable definition expression (for nested comprehensions)
     in_iter_def_exp: bool,
-    // Track if we're scanning an inner loop iteration target (not the first generator)
-    in_comp_inner_loop_target: bool,
     // yield/yield from inside comprehension scopes is rejected with a
     // message that names the comprehension kind.
     comprehension_yield_context: Option<&'static str>,
@@ -1084,7 +1070,6 @@ impl SymbolTableBuilder {
             current_varnames: Vec::new(),
             varnames_stack: Vec::new(),
             in_iter_def_exp: false,
-            in_comp_inner_loop_target: false,
             comprehension_yield_context: None,
             in_conditional_block: false,
             recursion_depth: 0,
@@ -2525,24 +2510,8 @@ impl SymbolTableBuilder {
 
                     self.scan_expression(value, ExpressionContext::Load)?;
 
-                    // special handling for assigned identifier in named expressions
-                    // that are used in comprehensions. This required to correctly
-                    // propagate the scope of the named assigned named and not to
-                    // propagate inner names.
                     if let Some((id, target_range)) = named_target {
-                        let table = self.tables.last().unwrap();
-                        if table.typ == CompilerScope::Comprehension {
-                            self.register_name(
-                                id,
-                                SymbolUsage::AssignedNamedExprInComprehension,
-                                target_range,
-                            )?;
-                        } else {
-                            // omit one recursion. When the handling of an store changes for
-                            // Identifiers this needs adapted - more forward safe would be
-                            // calling scan_expression directly.
-                            self.register_name(id, SymbolUsage::Assigned, target_range)?;
-                        }
+                        self.register_name(id, SymbolUsage::Assigned, target_range)?;
                     } else {
                         self.scan_expression(target, ExpressionContext::Store)?;
                     }
@@ -2613,9 +2582,7 @@ impl SymbolTableBuilder {
         }
 
         for generator in &generators[1..] {
-            self.in_comp_inner_loop_target = true;
             self.scan_expression(&generator.target, ExpressionContext::Iter)?;
-            self.in_comp_inner_loop_target = false;
             let was_in_iter_def_exp = self.in_iter_def_exp;
             self.in_iter_def_exp = true;
             self.scan_expression(&generator.iter, ExpressionContext::IterDefinitionExp)?;
@@ -3037,11 +3004,15 @@ impl SymbolTableBuilder {
                 if self.tables[table_idx]
                     .symbols
                     .get(mangled.as_str())
-                    .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::ITER))
+                    .is_some_and(|symbol| {
+                        symbol
+                            .flags
+                            .contains(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_COMP_ITER)
+                    })
                 {
                     return Err(SymbolTableError {
                         error: format!(
-                            "assignment expression cannot rebind comprehension iteration variable '{mangled}'"
+                            "assignment expression cannot rebind comprehension iteration variable '{name}'"
                         ),
                         location,
                     });
@@ -3151,7 +3122,6 @@ impl SymbolTableBuilder {
                 | SymbolUsage::AnnotationAssigned
                 | SymbolUsage::Parameter
                 | SymbolUsage::AnnotationParameter
-                | SymbolUsage::AssignedNamedExprInComprehension
                 | SymbolUsage::Iter
                 | SymbolUsage::TypeParam
         ) {
@@ -3179,16 +3149,16 @@ impl SymbolTableBuilder {
         let symbol = if let Some(symbol) = table.symbols.get_mut(name.as_ref()) {
             let flags = &symbol.flags;
 
-            // INNER_LOOP_CONFLICT: comprehension inner loop cannot rebind
-            // a variable that was used as a named expression target
+            // Mirrors CPython's INNER_LOOP_CONFLICT check. extend_namedexpr_scope()
+            // marks named-expression targets as global or nonlocal in the comprehension.
             // Example: [i for i in range(5) if (j := 0) for j in range(5)]
             // Here 'j' is used in named expr first, then as inner loop iter target
-            if self.in_comp_inner_loop_target
-                && flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
+            if matches!(role, SymbolUsage::Iter)
+                && flags.intersects(SymbolFlags::DEF_GLOBAL | SymbolFlags::DEF_NONLOCAL)
             {
                 return Err(SymbolTableError {
                     error: format!(
-                        "comprehension inner loop cannot rebind assignment expression target '{name}'"
+                        "comprehension inner loop cannot rebind assignment expression target '{original_name}'"
                     ),
                     location,
                 });
@@ -3345,9 +3315,6 @@ impl SymbolTableBuilder {
             SymbolUsage::Assigned => {
                 flags.insert(SymbolFlags::DEF_LOCAL);
             }
-            SymbolUsage::AssignedNamedExprInComprehension => {
-                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::ASSIGNED_IN_COMPREHENSION);
-            }
             SymbolUsage::Global => {
                 symbol.scope = SymbolScope::GlobalExplicit;
                 flags.insert(SymbolFlags::DEF_GLOBAL);
@@ -3356,33 +3323,13 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::USE);
             }
             SymbolUsage::Iter => {
-                // CPython symtable_add_def_helper() records an inlined
-                // comprehension target as a local definition as well as a
-                // comprehension iterator.  Keep ITER as the internal
-                // re-assignment check marker; DEF_LOCAL is part of the public
-                // ste_symbols flags exposed by _symtable.
-                flags.insert(
-                    SymbolFlags::DEF_LOCAL | SymbolFlags::ITER | SymbolFlags::DEF_COMP_ITER,
-                );
+                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_COMP_ITER);
             }
             SymbolUsage::TypeParam => {
                 flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_TYPE_PARAM);
             }
         }
 
-        // and even more checking
-        // it is not allowed to assign to iterator variables (by named expressions)
-        if flags.contains(SymbolFlags::ITER)
-            && flags.contains(SymbolFlags::ASSIGNED_IN_COMPREHENSION)
-        {
-            return Err(SymbolTableError {
-                error: format!(
-                    "assignment expression cannot rebind comprehension iteration variable '{}'",
-                    symbol.name
-                ),
-                location,
-            });
-        }
         Ok(())
     }
 }

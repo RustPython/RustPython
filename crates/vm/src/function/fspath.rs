@@ -3,7 +3,6 @@ use crate::{
     builtins::{PyBytes, PyBytesRef, PyStrRef},
     convert::{IntoPyException, ToPyObject},
     function::PyStr,
-    protocol::PyBuffer,
 };
 use alloc::borrow::Cow;
 use core::hint::cold_path;
@@ -126,7 +125,7 @@ impl FsPath {
 
     pub fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
         rustpython_host_env::os::bytes_as_os_str(b).map_err(|e| {
-            vm.new_unicode_decode_error_real(
+            vm.new_unicode_decode_error(
                 vm.ctx.new_str("utf-8"),
                 vm.ctx.new_bytes(b.to_vec()),
                 e.valid_up_to(),
@@ -147,16 +146,9 @@ impl ToPyObject for FsPath {
 }
 
 impl TryFromObject for FsPath {
-    // PyUnicode_FSDecoder in CPython
+    // PyUnicode_FSDecoder, which takes what PyOS_FSPath takes: str, bytes, or an
+    // object with __fspath__, and nothing that merely exports a buffer.
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        let obj = match obj.try_to_value::<PyBuffer>(vm) {
-            Ok(buffer) => {
-                let mut bytes = vec![];
-                buffer.append_to(&mut bytes);
-                vm.ctx.new_bytes(bytes).into()
-            }
-            Err(_) => obj,
-        };
         Self::try_from_path_like(obj, true, vm)
     }
 }

@@ -3,7 +3,7 @@ use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
     builtins::PyUtf8StrRef,
-    bytes_inner::PyBytesInner,
+    byte::bytes_from_object,
     class::PyClassImpl,
     common::{
         format::FormatSpec,
@@ -305,6 +305,22 @@ impl PyInt {
         &self.value
     }
 
+    /// Extract the inline magnitude without the generic primitive-conversion path.
+    #[inline(always)]
+    pub(crate) fn try_to_i64_fast(&self) -> Option<i64> {
+        let bits = self.value.bits();
+        if bits > i64::BITS as u64 {
+            return None;
+        }
+        let magnitude = self.value.iter_u64_digits().next().unwrap_or(0);
+        let signed_magnitude = i64::try_from(magnitude).ok();
+        match self.value.sign() {
+            Sign::Minus if magnitude == 1u64 << 63 => Some(i64::MIN),
+            Sign::Minus => signed_magnitude.map(|value| -value),
+            Sign::NoSign | Sign::Plus => signed_magnitude,
+        }
+    }
+
     /// Fast decimal string conversion, using i64 path when possible.
     #[inline]
     #[must_use]
@@ -487,7 +503,9 @@ impl PyInt {
                 return vm.ctx.new_int(rounded);
             }
         }
-        zelf
+        // No rounding to do, but an int subclass must still be normalized to an
+        // exact int, the way CPython's long_long() does.
+        zelf.__int__(vm).into_pyref()
     }
 
     #[pymethod]
@@ -554,13 +572,13 @@ impl PyInt {
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
         let signed = args.signed.map_or(false, Into::into);
+        // PyObject_Bytes, so an iterable of ints is as good as a buffer
+        let bytes = bytes_from_object(vm, &args.bytes)?;
         let value = match (args.byteorder, signed) {
-            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(args.bytes.as_bytes()),
-            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, args.bytes.as_bytes()),
-            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(args.bytes.as_bytes()),
-            (ArgByteOrder::Little, false) => {
-                BigInt::from_bytes_le(Sign::Plus, args.bytes.as_bytes())
-            }
+            (ArgByteOrder::Big, true) => BigInt::from_signed_bytes_be(&bytes),
+            (ArgByteOrder::Big, false) => BigInt::from_bytes_be(Sign::Plus, &bytes),
+            (ArgByteOrder::Little, true) => BigInt::from_signed_bytes_le(&bytes),
+            (ArgByteOrder::Little, false) => BigInt::from_bytes_le(Sign::Plus, &bytes),
         };
         Self::with_value(cls, value, vm)
     }
@@ -784,7 +802,7 @@ pub(crate) struct IntOptions {
 
 #[derive(FromArgs)]
 struct IntFromByteArgs {
-    bytes: PyBytesInner,
+    bytes: PyObjectRef,
     #[pyarg(any, default = ArgByteOrder::Big)]
     byteorder: ArgByteOrder,
     #[pyarg(named, optional)]
