@@ -731,3 +731,47 @@ def test_index_error_names_the_dimension():
 
 
 test_index_error_names_the_dimension()
+
+
+def test_release_refuses_while_exported():
+    ba = bytearray(b"abc")
+    mv = memoryview(ba)
+    exported = mv.__buffer__(0)
+    for release in [lambda: mv.release(), lambda: mv.__exit__()]:
+        try:
+            release()
+            raise AssertionError("released while exported")
+        except BufferError as e:
+            assert str(e) == "memoryview has 1 exported buffer", e
+    del exported
+    mv.release()
+    mv.release()
+
+
+test_release_refuses_while_exported()
+
+
+def test_hash_asks_the_exporter():
+    # A view is no more hashable than what it looks at.
+    assert hash(memoryview(b"abc")) == hash(b"abc")
+    try:
+        hash(memoryview(bytearray(b"abc")).toreadonly())
+        raise AssertionError("hashed a view on an unhashable exporter")
+    except TypeError as e:
+        assert "unhashable type: 'bytearray'" in str(e), e
+
+    # Releasing the view from inside that hash is refused rather than obeyed.
+    class E(bytes):
+        def __hash__(self):
+            mv.release()
+            return 123
+
+    mv = memoryview(E(b"abcd"))
+    try:
+        hash(mv)
+        raise AssertionError("released the view being hashed")
+    except BufferError as e:
+        assert str(e) == "memoryview has 1 exported buffer", e
+
+
+test_hash_asks_the_exporter()

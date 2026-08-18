@@ -59,9 +59,10 @@ pub struct PyMemoryView {
     // memoryview's options could be different from buffer's options
     desc: BufferDescriptor,
     hash: OnceCell<PyHash>,
-    // exports
-    // memoryview has no exports count by itself
-    // instead it relay on the buffer it viewing to maintain the count
+    /// Buffers handed out of this view that have not been given back yet. The
+    /// view cannot be released while any of them is outstanding, so that what
+    /// reads them keeps reading memory that is still there. self->exports
+    exports: AtomicCell<usize>,
 }
 
 impl Constructor for PyMemoryView {
@@ -146,6 +147,7 @@ impl PyMemoryView {
             format_spec,
             desc,
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         })
     }
 
@@ -174,6 +176,7 @@ impl PyMemoryView {
             format_spec: self.format_spec.clone(),
             desc: self.desc.clone(),
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         }
     }
 
@@ -189,6 +192,7 @@ impl PyMemoryView {
             format_spec: self.format_spec.clone(),
             desc: self.desc.clone(),
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         }
     }
 
@@ -670,11 +674,35 @@ impl PyMemoryView {
         Self::from_object_with_flags(&args.object, flags, vm).map(|mv| mv.into_ref(&vm.ctx))
     }
 
-    #[pymethod]
+    #[pymethod(name = "release")]
+    fn py_release(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // _memory_release: what still reads this view holds it open.
+        let exports = self.exports.load();
+        if !self.released.load() && exports > 0 {
+            let plural = if exports == 1 { "" } else { "s" };
+            return Err(
+                vm.new_buffer_error(format!("memoryview has {exports} exported buffer{plural}"))
+            );
+        }
+        self.release();
+        Ok(())
+    }
+
+    /// Give up the view's share without asking whether anything is reading it.
+    /// The teardown paths have nowhere to report a refusal.
     pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
             self.buffer.release();
         }
+    }
+
+    /// Count this view as exported while `f` runs, so Python reached from inside
+    /// it cannot release the memory being read out from under it.
+    fn while_exported<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.exports.fetch_add(1);
+        let result = f();
+        self.exports.fetch_sub(1);
+        result
     }
 
     #[pygetset]
@@ -782,9 +810,10 @@ impl PyMemoryView {
         zelf.try_not_released(vm).map(|_| zelf)
     }
 
+    // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs) {
-        self.release();
+    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        self.py_release(vm)
     }
 
     fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -981,6 +1010,7 @@ impl PyMemoryView {
                 dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
             },
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         };
         Ok(zelf)
     }
@@ -1192,9 +1222,18 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes_mut(),
     // memory_releasebuf / memory_getbuf: a consumer's export of this view is a
-    // share of the acquisition the view is looking at.
-    release: |buffer| buffer.obj_as::<PyMemoryView>().buffer.release_share(),
-    retain: |buffer| buffer.obj_as::<PyMemoryView>().buffer.retain_share(),
+    // share of the acquisition the view is looking at, and one more reason the
+    // view itself cannot be released.
+    release: |buffer| {
+        let mv = buffer.obj_as::<PyMemoryView>();
+        mv.exports.fetch_sub(1);
+        mv.buffer.release_share();
+    },
+    retain: |buffer| {
+        let mv = buffer.obj_as::<PyMemoryView>();
+        mv.exports.fetch_add(1);
+        mv.buffer.retain_share();
+    },
 };
 
 impl AsBuffer for PyMemoryView {
@@ -1306,6 +1345,12 @@ impl Hashable for PyMemoryView {
             return Err(
                 vm.new_value_error("memoryview: hashing is restricted to formats 'B', 'b' or 'c'")
             );
+        }
+        // A view is no more hashable than what it looks at, and asking that runs
+        // Python, which must not release the memory the hash is taken over.
+        // memory_hash
+        if !zelf.buffer.obj.downcastable::<PyBufferWindow>() {
+            zelf.while_exported(|| zelf.buffer.obj.hash(vm))?;
         }
         let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
         let _ = zelf.hash.set(val);
