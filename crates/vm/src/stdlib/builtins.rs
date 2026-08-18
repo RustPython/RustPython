@@ -1007,7 +1007,7 @@ mod builtins {
     #[pyfunction]
     // builtin_ord
     fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
-        let bytes = if let Some(string) = c.downcast_ref::<PyStr>() {
+        let bytes = if let Some(string) = character.downcast_ref::<PyStr>() {
             return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
@@ -1017,14 +1017,14 @@ mod builtins {
                     )))
                 }
             };
-        } else if let Some(bytes) = c.downcast_ref::<PyBytes>() {
+        } else if let Some(bytes) = character.downcast_ref::<PyBytes>() {
             bytes.as_bytes().to_vec()
-        } else if let Some(bytearray) = c.downcast_ref::<PyByteArray>() {
+        } else if let Some(bytearray) = character.downcast_ref::<PyByteArray>() {
             bytearray.borrow_buf().to_vec()
         } else {
             return Err(vm.new_type_error(format!(
                 "ord() expected string of length 1, but {} found",
-                c.class().name()
+                character.class().name()
             )));
         };
         let bytes_len = bytes.len();
