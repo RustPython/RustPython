@@ -30,9 +30,10 @@ pub struct ExpandTabsArgs {
 
 impl ExpandTabsArgs {
     pub fn tabsize(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        // CPython converts tabsize with PyNumber_AsSsize_t, clamping at 0
+        // CPython's clinic signature is `tabsize: int`, so the value converts
+        // with PyLong_AsInt and a non-positive tab size disables expansion
         let n = match &self.tabsize {
-            crate::function::OptionalArg::Present(obj) => crate::builtins::to_c_ssize_t(obj, vm)?,
+            crate::function::OptionalArg::Present(obj) => crate::builtins::to_c_int(obj, vm)?,
             crate::function::OptionalArg::Missing => 8,
         };
         Ok(n.max(0) as usize)
