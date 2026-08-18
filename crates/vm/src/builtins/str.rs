@@ -1760,7 +1760,7 @@ impl PyStr {
                 "expandtabs() takes at most 1 argument ({total} given)"
             )));
         }
-        let args: ExpandTabsArgs = func_args.bind(vm)?;
+        let args: anystr::ExpandTabsArgs = func_args.bind(vm)?;
         let tabsize = args.tabsize(vm)?;
         let s = self.try_as_utf8(vm)?;
         // TODO: support WTF-8
@@ -2278,7 +2278,7 @@ pub(crate) fn to_c_ssize_t(obj: &PyObject, vm: &VirtualMachine) -> PyResult<isiz
 }
 
 // CPython: clinic int converter (PyLong_AsInt)
-fn to_c_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
+pub(crate) fn to_c_int(obj: &PyObject, vm: &VirtualMachine) -> PyResult<i32> {
     obj.try_index(vm)?
         .as_bigint()
         .to_i32()
@@ -2394,22 +2394,6 @@ struct StartsEndsWithArgs {
     start: Option<PyObjectRef>,
     #[pyarg(positional, default)]
     end: Option<PyObjectRef>,
-}
-
-#[derive(FromArgs)]
-struct ExpandTabsArgs {
-    #[pyarg(any, default)]
-    tabsize: OptionalArg<PyObjectRef>,
-}
-
-impl ExpandTabsArgs {
-    fn tabsize(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        match &self.tabsize {
-            OptionalArg::Missing => Ok(8),
-            // a non-positive tab size disables expansion
-            OptionalArg::Present(tabsize) => Ok(to_c_int(tabsize, vm)?.try_into().unwrap_or(0)),
-        }
-    }
 }
 
 #[derive(FromArgs)]
