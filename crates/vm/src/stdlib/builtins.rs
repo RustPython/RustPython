@@ -42,7 +42,7 @@ mod builtins {
     const CODEGEN_NOT_SUPPORTED: &str =
         "can't compile() to bytecode when the `codegen` feature of rustpython is disabled";
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(x, /)")]
     fn abs(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_meth_o(vm, "abs", &func_args)?;
         let (x,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -73,14 +73,14 @@ mod builtins {
         obj.ascii(vm)
     }
 
-    #[pyfunction(name = "ascii")]
+    #[pyfunction(name = "ascii", text_signature = "(obj, /)")]
     fn py_ascii(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         check_meth_o(vm, "ascii", &func_args)?;
         let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
         ascii(obj, vm)
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(number, /)")]
     fn bin(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         check_meth_o(vm, "bin", &func_args)?;
         let (x,): (ArgIndex,) = func_args.bind(vm)?;
@@ -93,14 +93,14 @@ mod builtins {
         })
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(obj, /)")]
     fn callable(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_meth_o(vm, "callable", &func_args)?;
         let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
         Ok(obj.is_callable())
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(i, /)")]
     fn chr(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<CodePoint> {
         check_meth_o(vm, "chr", &func_args)?;
         let (i,): (ArgIndex,) = func_args.bind(vm)?;
@@ -431,7 +431,7 @@ mod builtins {
         vm.dir(obj.into_option())
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(x, y, /)")]
     fn divmod(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_no_kwargs(vm, "divmod", &func_args)?;
         check_positional(vm, "divmod", func_args.args.len(), 2, 2)?;
@@ -771,7 +771,7 @@ mod builtins {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "()")]
     fn globals(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictRef> {
         check_noargs(vm, "globals", &func_args)?;
         Ok(vm.current_globals())
@@ -788,7 +788,7 @@ mod builtins {
         Ok(vm.get_attribute_opt(obj, attr)?.is_some())
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(obj, /)")]
     fn hash(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyHash> {
         check_meth_o(vm, "hash", &func_args)?;
         let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -806,7 +806,7 @@ mod builtins {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(number, /)")]
     fn hex(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
         check_meth_o(vm, "hex", &func_args)?;
         let (number,): (ArgIndex,) = func_args.bind(vm)?;
@@ -815,7 +815,7 @@ mod builtins {
         Ok(format!("{n:#x}"))
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(obj, /)")]
     fn id(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_meth_o(vm, "id", &func_args)?;
         let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -889,7 +889,7 @@ mod builtins {
         false
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(obj, class_or_tuple, /)")]
     fn isinstance(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "isinstance", &func_args)?;
         check_positional(vm, "isinstance", func_args.args.len(), 2, 2)?;
@@ -897,7 +897,7 @@ mod builtins {
         obj.is_instance(&typ, vm)
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(cls, class_or_tuple, /)")]
     fn issubclass(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
         check_no_kwargs(vm, "issubclass", &func_args)?;
         check_positional(vm, "issubclass", func_args.args.len(), 2, 2)?;
@@ -955,14 +955,14 @@ mod builtins {
         }
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(obj, /)")]
     fn len(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
         check_meth_o(vm, "len", &func_args)?;
         let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
         obj.length(vm)
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "()")]
     fn locals(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<ArgMapping> {
         check_noargs(vm, "locals", &func_args)?;
         vm.current_locals()
@@ -1062,7 +1062,7 @@ mod builtins {
             })
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(number, /)")]
     fn oct(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         check_meth_o(vm, "oct", &func_args)?;
         let (number,): (ArgIndex,) = func_args.bind(vm)?;
@@ -1077,7 +1077,7 @@ mod builtins {
         Ok(vm.ctx.new_str(s).into())
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(character, /)")]
     // builtin_ord
     fn ord(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<u32> {
         check_meth_o(vm, "ord", &func_args)?;
@@ -1217,7 +1217,7 @@ mod builtins {
         Ok(())
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(obj, /)")]
     fn repr(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         check_meth_o(vm, "repr", &func_args)?;
         let (obj,): (PyObjectRef,) = func_args.bind(vm)?;
@@ -1252,7 +1252,7 @@ mod builtins {
         ndigits: OptionalOption<PyObjectRef>,
     }
 
-    #[pyfunction]
+    #[pyfunction(text_signature = "(number, ndigits=None)")]
     fn round(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
         if func_args.args.is_empty() && !func_args.kwargs.contains_key("number") {
             return Err(vm.new_type_error("round() missing required argument 'number' (pos 1)"));
