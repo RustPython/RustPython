@@ -2161,13 +2161,12 @@ impl VirtualMachine {
     ) -> PyResult<R> {
         self.check_recursive_call("")?;
 
-        // Check the native C stack periodically.  The sampling interval
-        // (every 8th call) balances overhead against the risk of missing
-        // an overflow between checks, especially when light and heavy
-        // frames alternate (each recursion step uses different native
-        // stack amounts).
-        let depth = self.recursion_depth.get();
-        if depth & 7 == 0 && self.check_c_stack_overflow() {
+        // Every entry, not every eighth. The margin only has to cover what a
+        // single frame takes if the check runs each time; sampling asks it to
+        // cover eight, and a recursion whose steps re-enter through native
+        // code -- an `__add__` chain, a sort key that sorts -- takes more than
+        // the margin in that many.
+        if self.check_c_stack_overflow() {
             return Err(self.new_recursion_error(String::new()));
         }
 
@@ -2261,11 +2260,7 @@ impl VirtualMachine {
     ) -> PyResult<IframeEntryState> {
         self.check_recursive_call("")?;
 
-        let depth = self.recursion_depth.get();
-        if depth & 7 == 0 && self.check_c_stack_overflow() {
-            return Err(self.new_recursion_error(String::new()));
-        }
-
+        // The C stack is checked by `enter_iframe_unchecked` below.
         self.enter_iframe_unchecked(iframe)
     }
 
@@ -2278,8 +2273,7 @@ impl VirtualMachine {
         &self,
         iframe: &mut crate::frame::InterpreterFrame,
     ) -> PyResult<IframeEntryState> {
-        let depth = self.recursion_depth.get();
-        if depth & 7 == 0 && self.check_c_stack_overflow() {
+        if self.check_c_stack_overflow() {
             return Err(self.new_recursion_error(String::new()));
         }
 
