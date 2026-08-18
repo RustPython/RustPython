@@ -187,7 +187,10 @@ impl PyList {
 
     #[pymethod]
     pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut new_elements = x.try_to_value(vm)?;
+        // What is already here decides whether the iterable's length hint is
+        // believable, so it goes along with the request for the elements.
+        let held = self.borrow_vec().len();
+        let mut new_elements = vm.extract_elements_sized(&x, held, Ok)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
@@ -221,8 +224,7 @@ impl PyList {
         other: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let mut seq = extract_cloned(other, Ok, vm)?;
-        zelf.borrow_vec_mut().append(&mut seq);
+        zelf.extend(other.to_owned(), vm)?;
         Ok(zelf.to_owned().into())
     }
 
@@ -231,8 +233,7 @@ impl PyList {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let mut seq = extract_cloned(&other, Ok, vm)?;
-        zelf.borrow_vec_mut().append(&mut seq);
+        zelf.extend(other, vm)?;
         Ok(zelf)
     }
 
@@ -481,7 +482,7 @@ impl Initializer for PyList {
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            iterable.try_to_value(vm)?
+            vm.extract_elements_sized(&iterable, 0, Ok)?
         } else {
             vec![]
         };

@@ -2629,6 +2629,49 @@ impl VirtualMachine {
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
+        self.extract_elements_inner(value, None, func)
+    }
+
+    /// [`Self::extract_elements_with`] for a caller that allocates the
+    /// iterable's length hint up front, joining `held` elements it already
+    /// has. `list` does this, so a hint it cannot honour is a `MemoryError`
+    /// there; `tuple` does not, and finds out by filling up.
+    pub fn extract_elements_sized<T, F>(
+        &self,
+        value: &PyObject,
+        held: usize,
+        func: F,
+    ) -> PyResult<Vec<T>>
+    where
+        F: Fn(PyObjectRef) -> PyResult<T>,
+    {
+        self.extract_elements_inner(value, Some(held), func)
+    }
+
+    fn extract_elements_inner<T, F>(
+        &self,
+        value: &PyObject,
+        held: Option<usize>,
+        func: F,
+    ) -> PyResult<Vec<T>>
+    where
+        F: Fn(PyObjectRef) -> PyResult<T>,
+    {
+        // A count known up front is taken in one go. Collecting into a
+        // `Result` instead would drop it: the adapter that carries the error
+        // may stop early, so it reports no lower bound and the vector grows a
+        // step at a time.
+        fn map_known_len<T, R>(
+            items: impl ExactSizeIterator<Item = T>,
+            func: impl Fn(T) -> PyResult<R>,
+        ) -> PyResult<Vec<R>> {
+            let mut results = Vec::with_capacity(items.len());
+            for item in items {
+                results.push(func(item)?);
+            }
+            Ok(results)
+        }
+
         // Type-specific fast paths corresponding to _list_extend() in CPython
         // Objects/listobject.c. Each branch takes an atomic snapshot to avoid
         // race conditions from concurrent mutation (no GIL).
@@ -2638,9 +2681,11 @@ impl VirtualMachine {
         } else if cls.is(self.ctx.types.list_type) {
             // The list is re-read on every step, the way map_iterable_object()
             // does it: func() runs Python, which can mutate or even clear the
-            // same list, and a borrow held across that call deadlocks it.
+            // same list, and a borrow held across that call deadlocks it. Its
+            // length at the start is only how much room to take, not how far
+            // the loop runs.
             let list = value.downcast_ref::<PyList>().unwrap();
-            let mut results = Vec::new();
+            let mut results = Vec::with_capacity(list.borrow_vec().len());
             let mut i = 0;
             loop {
                 let elem = {
@@ -2657,31 +2702,30 @@ impl VirtualMachine {
             return Ok(results);
         } else if cls.is(self.ctx.types.dict_type) {
             let keys = value.downcast_ref::<PyDict>().unwrap().keys_vec();
-            return keys.into_iter().map(func).collect();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_keys_type) {
             let keys = value.downcast_ref::<PyDictKeys>().unwrap().dict.keys_vec();
-            return keys.into_iter().map(func).collect();
+            return map_known_len(keys.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_values_type) {
             let values = value
                 .downcast_ref::<PyDictValues>()
                 .unwrap()
                 .dict
                 .values_vec();
-            return values.into_iter().map(func).collect();
+            return map_known_len(values.into_iter(), func);
         } else if cls.is(self.ctx.types.dict_items_type) {
             let items = value
                 .downcast_ref::<PyDictItems>()
                 .unwrap()
                 .dict
                 .items_vec();
-            return items
-                .into_iter()
-                .map(|(k, v)| func(self.ctx.new_tuple(vec![k, v]).into()))
-                .collect();
+            return map_known_len(items.into_iter(), |(k, v)| {
+                func(self.ctx.new_tuple(vec![k, v]).into())
+            });
         } else {
-            return self.map_py_iter(value, func);
+            return self.map_py_iter(value, held, func);
         };
-        slice.iter().map(|obj| func(obj.clone())).collect()
+        map_known_len(slice.iter(), |obj| func(obj.clone()))
     }
 
     pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>
@@ -2713,33 +2757,42 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                Ok(self.map_py_iter(obj, f))
+                Ok(self.map_py_iter(obj, None, f))
             }
         })
     }
 
-    fn map_py_iter<F, R>(&self, value: &PyObject, mut f: F) -> PyResult<Vec<R>>
+    fn map_py_iter<F, R>(&self, value: &PyObject, held: Option<usize>, mut f: F) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         let iter = value.to_owned().get_iter(self)?;
-        let cap = match self.length_hint_opt(value.to_owned()) {
-            Err(e) if e.class().is(self.ctx.exceptions.runtime_error) => return Err(e),
-            Ok(Some(value)) => Some(value),
-            // Use a power of 2 as a default capacity.
-            _ => None,
-        };
-        // TODO: fix extend to do this check (?), see test_extend in Lib/test/list_tests.py,
-        // https://github.com/python/cpython/blob/v3.9.0/Objects/listobject.c#L922-L928
-        if let Some(cap) = cap
-            && cap >= isize::MAX as usize
-        {
-            return Ok(Vec::new());
-        }
+        // `length_hint_opt` already answers `None` for the iterable that
+        // declines to guess; anything else it reports is the iterable's own
+        // error and belongs to the caller.
+        let cap = self.length_hint_opt(value.to_owned())?;
 
-        let mut results = PyIterIter::new(self, iter.as_ref(), cap)
-            .map(|element| f(element?))
-            .collect::<PyResult<Vec<_>>>()?;
+        // Take the room the iterable asks for up front, for the callers that
+        // do. Collecting into a `Result` drops the iterator's lower bound --
+        // the adapter may stop early -- so without this the vector grows a step
+        // at a time and an iterable claiming more elements than can be held is
+        // found out by running out of memory rather than by saying so.
+        //
+        // A hint that does not leave room for what is already held is one the
+        // iterable cannot be telling the truth about, so it is passed over
+        // rather than refused: if it was honest the loop runs out of memory on
+        // its own, and if it lied there was nothing wrong to report.
+        let mut results: Vec<R> = Vec::new();
+        if let (Some(held), Some(cap)) = (held, cap)
+            && held <= (isize::MAX as usize) - cap
+        {
+            results
+                .try_reserve_exact(cap)
+                .map_err(|_| self.new_memory_error(""))?;
+        }
+        for element in PyIterIter::new(self, iter.as_ref(), cap) {
+            results.push(f(element?)?);
+        }
         results.shrink_to_fit();
         Ok(results)
     }

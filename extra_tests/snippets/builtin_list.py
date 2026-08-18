@@ -930,3 +930,35 @@ assert list1 == []
 # that product must raise instead of wrapping into a short allocation.
 with assert_raises(MemoryError):
     [1] * sys.maxsize
+
+
+# A list takes the length an iterable reports before reading it, so one that
+# reports more than can be held says so instead of filling memory.
+class Reports:
+    def __init__(self, hint):
+        self.hint = hint
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __length_hint__(self):
+        return self.hint
+
+
+with assert_raises(MemoryError):
+    list(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    [].extend(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    empty = []
+    empty += Reports(sys.maxsize)
+
+# A report that leaves no room for what the list already holds cannot be true,
+# so it is passed over rather than refused.
+held = [1, 2, 3, 4]
+held.extend(Reports(sys.maxsize))
+assert held == [1, 2, 3, 4, 1, 2, 3]
+
+# A report the list can act on is acted on.
+assert list(Reports(3)) == [1, 2, 3]
+assert list(Reports(0)) == [1, 2, 3]
