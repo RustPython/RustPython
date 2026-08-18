@@ -1096,7 +1096,10 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
+        let doc = args.attrs.doc().map(|doc| match &sig_doc {
+            Some(sig_doc) => format_doc(sig_doc, &doc),
+            None => doc,
+        });
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
