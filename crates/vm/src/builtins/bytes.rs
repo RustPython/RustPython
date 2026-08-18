@@ -327,8 +327,8 @@ impl PyBytes {
         options: ByteInnerHexOptions,
         vm: &VirtualMachine,
     ) -> PyResult<String> {
-        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
-        self.inner.hex(sep, bytes_per_sep, vm)
+        let (sep, bytes_per_sep) = options.resolve(vm)?;
+        Ok(self.inner.hex(sep, bytes_per_sep))
     }
 
     #[pyclassmethod]

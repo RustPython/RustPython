@@ -32,6 +32,9 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
 
+/// The most dimensions a view can describe. PyBUF_MAX_NDIM
+const MAX_NDIM: usize = 64;
+
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,
@@ -59,9 +62,10 @@ pub struct PyMemoryView {
     // memoryview's options could be different from buffer's options
     desc: BufferDescriptor,
     hash: OnceCell<PyHash>,
-    // exports
-    // memoryview has no exports count by itself
-    // instead it relay on the buffer it viewing to maintain the count
+    /// Buffers handed out of this view that have not been given back yet. The
+    /// view cannot be released while any of them is outstanding, so that what
+    /// reads them keeps reading memory that is still there. self->exports
+    exports: AtomicCell<usize>,
 }
 
 impl Constructor for PyMemoryView {
@@ -146,6 +150,7 @@ impl PyMemoryView {
             format_spec,
             desc,
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         })
     }
 
@@ -174,6 +179,7 @@ impl PyMemoryView {
             format_spec: self.format_spec.clone(),
             desc: self.desc.clone(),
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         }
     }
 
@@ -189,6 +195,7 @@ impl PyMemoryView {
             format_spec: self.format_spec.clone(),
             desc: self.desc.clone(),
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         }
     }
 
@@ -274,9 +281,10 @@ impl PyMemoryView {
             );
         }
         let (shape, _, _) = self.desc.dim_desc[0];
+        // ptr_from_index
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
+            .ok_or_else(|| vm.new_index_error("index out of bounds on dimension 1"))?;
         self.unpack_single(self.desc.fast_position(&[index]) as usize, vm)
     }
 
@@ -291,12 +299,7 @@ impl PyMemoryView {
 
     fn getitem_by_multi_idx(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult {
         let pos = self.pos_from_multi_index(indexes, vm)?;
-        let bytes = self.buffer.obj_bytes();
-        format_unpack(
-            &self.format_spec,
-            &bytes[pos..pos + self.format_spec.size()],
-            vm,
-        )
+        self.unpack_single(pos, vm)
     }
 
     fn setitem_by_idx(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
@@ -304,9 +307,10 @@ impl PyMemoryView {
             return Err(vm.new_not_implemented_error("sub-views are not implemented"));
         }
         let (shape, _, _) = self.desc.dim_desc[0];
+        // ptr_from_index
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
+            .ok_or_else(|| vm.new_index_error("index out of bounds on dimension 1"))?;
         self.pack_single(self.desc.fast_position(&[index]) as usize, value, vm)
     }
 
@@ -673,11 +677,35 @@ impl PyMemoryView {
         Self::from_object_with_flags(&args.object, flags, vm).map(|mv| mv.into_ref(&vm.ctx))
     }
 
-    #[pymethod]
+    #[pymethod(name = "release")]
+    fn py_release(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // _memory_release: what still reads this view holds it open.
+        let exports = self.exports.load();
+        if !self.released.load() && exports > 0 {
+            let plural = if exports == 1 { "" } else { "s" };
+            return Err(
+                vm.new_buffer_error(format!("memoryview has {exports} exported buffer{plural}"))
+            );
+        }
+        self.release();
+        Ok(())
+    }
+
+    /// Give up the view's share without asking whether anything is reading it.
+    /// The teardown paths have nowhere to report a refusal.
     pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
             self.buffer.release();
         }
+    }
+
+    /// Count this view as exported while `f` runs, so Python reached from inside
+    /// it cannot release the memory being read out from under it.
+    fn while_exported<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.exports.fetch_add(1);
+        let result = f();
+        self.exports.fetch_sub(1);
+        result
     }
 
     #[pygetset]
@@ -785,9 +813,10 @@ impl PyMemoryView {
         zelf.try_not_released(vm).map(|_| zelf)
     }
 
+    // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs) {
-        self.release();
+    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        self.py_release(vm)
     }
 
     fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -888,9 +917,12 @@ impl PyMemoryView {
 
     #[pymethod]
     fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
-        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.try_not_released(vm)?;
-        self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep, vm))
+        // Measuring the separator runs Python, which must not release the bytes
+        // being written out. memoryview_hex_impl
+        let (sep, bytes_per_sep) = self.while_exported(|| options.resolve(vm))?;
+        self.try_not_released(vm)?;
+        Ok(self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep)))
     }
 
     #[pymethod]
@@ -984,6 +1016,7 @@ impl PyMemoryView {
                 dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
             },
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         };
         Ok(zelf)
     }
@@ -1020,7 +1053,11 @@ impl PyMemoryView {
             };
 
             let shape_ndim = shape.len();
-            // TODO: MAX_NDIM
+            if shape_ndim > MAX_NDIM {
+                return Err(vm.new_value_error(format!(
+                    "memoryview: number of dimensions must not exceed {MAX_NDIM}"
+                )));
+            }
             if self.desc.ndim() != 1 && shape_ndim != 1 {
                 return Err(vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D"));
             }
@@ -1158,34 +1195,36 @@ enum SubscriptNeedle {
     // MultiSlice(Vec<PySliceRef>),
 }
 
+/// memory_subscript
+///
+/// Which kind of key this is follows from the types in it alone, so an item that
+/// answers `__index__` but raises on the way reports that rather than making the
+/// whole key invalid. is_multiindex / is_multislice
 impl TryFromObject for SubscriptNeedle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // TODO: number protocol
-        if let Some(i) = obj.downcast_ref::<PyInt>() {
-            Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else if obj.downcastable::<PySlice>() {
-            Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }))
-        } else if let Ok(i) = obj.try_index(vm) {
-            Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else {
-            if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
-                if tuple.iter().all(|x| x.downcastable::<PyInt>()) {
-                    let v = tuple
-                        .iter()
-                        .map(|x| {
-                            unsafe { x.downcast_unchecked_ref::<PyInt>() }
-                                .try_to_primitive::<isize>(vm)
-                        })
-                        .try_collect()?;
-                    return Ok(Self::MultiIndex(v));
-                } else if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
-                    return Err(vm.new_not_implemented_error(
-                        "multi-dimensional slicing is not implemented",
-                    ));
-                }
-            }
-            Err(vm.new_type_error("memoryview: invalid slice key"))
+        if obj.number().is_index() {
+            return Ok(Self::Index(obj.try_index(vm)?.try_to_primitive(vm)?));
         }
+        if obj.downcastable::<PySlice>() {
+            return Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }));
+        }
+        if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+            if tuple.iter().all(|x| x.number().is_index()) {
+                // ptr_from_tuple: each item is converted where it sits, and the
+                // conversion can run Python that releases the view.
+                let indices = tuple
+                    .iter()
+                    .map(|x| x.try_index(vm)?.try_to_primitive::<isize>(vm))
+                    .try_collect()?;
+                return Ok(Self::MultiIndex(indices));
+            }
+            if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
+                return Err(
+                    vm.new_not_implemented_error("multi-dimensional slicing is not implemented")
+                );
+            }
+        }
+        Err(vm.new_type_error("memoryview: invalid slice key"))
     }
 }
 
@@ -1193,9 +1232,18 @@ static BUFFER_METHODS: BufferMethods = BufferMethods {
     obj_bytes: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes(),
     obj_bytes_mut: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes_mut(),
     // memory_releasebuf / memory_getbuf: a consumer's export of this view is a
-    // share of the acquisition the view is looking at.
-    release: |buffer| buffer.obj_as::<PyMemoryView>().buffer.release_share(),
-    retain: |buffer| buffer.obj_as::<PyMemoryView>().buffer.retain_share(),
+    // share of the acquisition the view is looking at, and one more reason the
+    // view itself cannot be released.
+    release: |buffer| {
+        let mv = buffer.obj_as::<PyMemoryView>();
+        mv.exports.fetch_sub(1);
+        mv.buffer.release_share();
+    },
+    retain: |buffer| {
+        let mv = buffer.obj_as::<PyMemoryView>();
+        mv.exports.fetch_add(1);
+        mv.buffer.retain_share();
+    },
 };
 
 impl AsBuffer for PyMemoryView {
@@ -1307,6 +1355,12 @@ impl Hashable for PyMemoryView {
             return Err(
                 vm.new_value_error("memoryview: hashing is restricted to formats 'B', 'b' or 'c'")
             );
+        }
+        // A view is no more hashable than what it looks at, and asking that runs
+        // Python, which must not release the memory the hash is taken over.
+        // memory_hash
+        if !zelf.buffer.obj.downcastable::<PyBufferWindow>() {
+            zelf.while_exported(|| zelf.buffer.obj.hash(vm))?;
         }
         let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
         let _ = zelf.hash.set(val);
