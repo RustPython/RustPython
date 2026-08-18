@@ -320,8 +320,10 @@ impl PyByteArray {
 
     #[pymethod]
     fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
-        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
-        self.inner().hex(sep, bytes_per_sep, vm)
+        // Measuring the separator runs Python, so it happens before the buffer
+        // is borrowed.
+        let (sep, bytes_per_sep) = options.resolve(vm)?;
+        Ok(self.inner().hex(sep, bytes_per_sep))
     }
 
     #[pyclassmethod]

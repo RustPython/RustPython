@@ -670,7 +670,7 @@ pub mod array {
 
     #[pyattr]
     #[pyattr(name = "ArrayType")]
-    #[pyclass(name = "array")]
+    #[pyclass(name = "array", unhashable = true)]
     #[derive(Debug, PyPayload)]
     pub struct PyArray {
         array: PyRwLock<ArrayContentType>,
