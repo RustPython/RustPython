@@ -4,7 +4,6 @@ use crate::{
     PyObjectRef, PyResult, VirtualMachine,
     builtins::{PyStr, PyUtf8Str},
     convert::{ToPyException, ToPyObject},
-    exceptions::nul_char_error,
 };
 
 pub fn hash_iter<'a, I: IntoIterator<Item = &'a PyObjectRef>>(
@@ -24,13 +23,6 @@ pub trait ToCString: AsRef<Wtf8> {
     fn to_cstring(&self, vm: &VirtualMachine) -> PyResult<alloc::ffi::CString> {
         alloc::ffi::CString::new(self.as_ref().as_bytes()).map_err(|err| err.to_pyexception(vm))
     }
-    fn ensure_no_nul(&self, vm: &VirtualMachine) -> PyResult<()> {
-        if self.as_ref().as_bytes().contains(&b'\0') {
-            Err(nul_char_error(vm))
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl ToCString for &str {}
@@ -41,6 +33,7 @@ pub(crate) fn collection_repr<'a, I>(
     class_name: Option<&str>,
     prefix: &str,
     suffix: &str,
+    empty: &str,
     iter: I,
     vm: &VirtualMachine,
 ) -> PyResult<Wtf8Buf>
@@ -55,10 +48,9 @@ where
     repr.push_str(prefix);
     {
         let mut parts_iter = iter.map(|o| o.repr(vm));
-        let first = parts_iter
-            .next()
-            .transpose()?
-            .expect("this is not called for empty collection");
+        let Some(first) = parts_iter.next().transpose()? else {
+            return Ok(Wtf8Buf::from(empty));
+        };
         repr.push_wtf8(first.as_wtf8());
         for part in parts_iter {
             repr.push_str(", ");

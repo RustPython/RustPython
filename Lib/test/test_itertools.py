@@ -1136,7 +1136,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(repr(repeat('a', times=-1)), "repeat('a', 0)")
         self.assertEqual(repr(repeat('a', times=-2)), "repeat('a', 0)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_map(self):
         self.assertEqual(list(map(operator.pow, range(3), range(1,7))),
                          [0**1, 1**2, 2**3])
@@ -1261,7 +1260,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertEqual(list(t), [1, 1, 1])
         self.assertRaises(StopIteration, next, t)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_dropwhile(self):
         data = [1, 3, 5, 20, 2, 4, 6, 8]
         self.assertEqual(list(dropwhile(underten, data)), [20, 2, 4, 6, 8])
@@ -1272,7 +1270,6 @@ class TestBasicOps(unittest.TestCase):
         self.assertRaises(TypeError, next, dropwhile(10, [(4,5)]))
         self.assertRaises(ValueError, next, dropwhile(errfunc, [(4,5)]))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_tee(self):
         n = 200
 

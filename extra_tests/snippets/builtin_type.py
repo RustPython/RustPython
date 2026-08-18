@@ -687,3 +687,33 @@ def foo():
 
 code = compile(stmts, "<test>", "exec")
 assert code.co_names == ("blah", "foo")
+
+
+# A slot descriptor carries the layout it was defined for. Reached from another
+# class, it has to report that rather than read the slot at its own offset,
+# whether the access is fresh or has been seen often enough to be specialized.
+
+
+class WideSlots:
+    __slots__ = ("s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7")
+
+
+class NarrowSlots:
+    __slots__ = ("only",)
+
+
+class NoSlots:
+    __slots__ = ()
+
+
+NarrowSlots.borrowed = WideSlots.__dict__["s7"]
+NoSlots.borrowed = WideSlots.__dict__["s7"]
+
+for owner in (NarrowSlots(), NoSlots()):
+    for _ in range(1000):
+        with assert_raises(TypeError):
+            owner.borrowed
+        with assert_raises(TypeError):
+            owner.borrowed = 1
+        with assert_raises(TypeError):
+            del owner.borrowed

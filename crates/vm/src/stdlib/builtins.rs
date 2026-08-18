@@ -21,9 +21,9 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgPrimitiveIndex, ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
-            OptionalOption, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+            PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -126,12 +126,12 @@ mod builtins {
     fn merge_compile_future_features(
         flags: i32,
         dont_inherit: bool,
-        vm: &VirtualMachine,
+        _vm: &VirtualMachine,
     ) -> bytecode::CodeFlags {
         let mut future_features = compile_future_features_from_flags(flags);
-        if !dont_inherit && let Some(frame) = vm.current_frame() {
+        if !dont_inherit && let Some(code) = crate::frame::current_code() {
             future_features |= bytecode::CodeFlags::from_bits_truncate(
-                frame.code.flags.bits() & compile_future_feature_mask().bits(),
+                code.flags.bits() & compile_future_feature_mask().bits(),
             );
         }
         future_features
@@ -341,6 +341,7 @@ mod builtins {
                 };
                 match &source {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
@@ -548,13 +549,14 @@ mod builtins {
             Either::A(either) => {
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
                                 "source code string cannot contain null bytes".into(),
                             ));
                         }
-                        let source = source.expect_str().trim_start_matches([' ', '\t']);
+                        let source = source.trim_start_matches([' ', '\t']);
                         audit_compile_source(vm, source.as_bytes(), "<string>")?;
                         source.to_owned()
                     }
@@ -597,6 +599,7 @@ mod builtins {
                 }
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
@@ -604,7 +607,7 @@ mod builtins {
                             ));
                         }
                         audit_compile_source(vm, source.as_bytes(), "<string>")?;
-                        source.expect_str().to_owned()
+                        source.to_owned()
                     }
                     ArgStrOrBytesLike::Buf(source) => {
                         let source: &[u8] = &source.borrow_buf();
@@ -649,9 +652,9 @@ mod builtins {
             Either::A(string) => {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
-                if let Some(frame) = vm.current_frame() {
+                if let Some(code) = crate::frame::current_code() {
                     opts.future_features = bytecode::CodeFlags::from_bits_truncate(
-                        frame.code.flags.bits() & compile_future_feature_mask().bits(),
+                        code.flags.bits() & compile_future_feature_mask().bits(),
                     );
                 }
                 vm.compile_with_opts(source, mode, "<string>", opts)
@@ -994,18 +997,10 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn ord(string: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
-        match string {
-            Either::A(bytes) => bytes.with_ref(|bytes| {
-                let bytes_len = bytes.len();
-                if bytes_len != 1 {
-                    return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {bytes_len} found"
-                    )));
-                }
-                Ok(u32::from(bytes[0]))
-            }),
-            Either::B(string) => match string.as_wtf8().code_points().exactly_one() {
+    // builtin_ord
+    fn ord(c: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let bytes = if let Some(string) = c.downcast_ref::<PyStr>() {
+            return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
                     let string_len = string.char_len();
@@ -1013,8 +1008,24 @@ mod builtins {
                         "ord() expected a character, but string of length {string_len} found"
                     )))
                 }
-            },
+            };
+        } else if let Some(bytes) = c.downcast_ref::<PyBytes>() {
+            bytes.as_bytes().to_vec()
+        } else if let Some(bytearray) = c.downcast_ref::<PyByteArray>() {
+            bytearray.borrow_buf().to_vec()
+        } else {
+            return Err(vm.new_type_error(format!(
+                "ord() expected string of length 1, but {} found",
+                c.class().name()
+            )));
+        };
+        let bytes_len = bytes.len();
+        if bytes_len != 1 {
+            return Err(vm.new_type_error(format!(
+                "ord() expected a character, but string of length {bytes_len} found"
+            )));
         }
+        Ok(u32::from(bytes[0]))
     }
 
     #[derive(FromArgs)]
@@ -1041,7 +1052,7 @@ mod builtins {
     #[pyfunction]
     pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
-        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![code])?)
+        Err(vm.new_system_exit(vec![code].into()))
     }
 
     #[derive(Debug, Default, FromArgs)]

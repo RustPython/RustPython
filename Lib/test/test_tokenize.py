@@ -1922,7 +1922,6 @@ class TestTokenize(TestCase):
         tokens = list(tokenize.tokenize(BytesIO(source.encode('utf-8')).readline))
         self.assertEqual(tokens, expected_tokens)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: b'SyntaxError' not found in b'OSError: stream did not contain valid UTF-8\n'
     def test_invalid_character_in_fstring_middle(self):
         # See gh-103824
         script = b'''F"""

@@ -211,7 +211,7 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
     }
 
     // Extract child references to break circular refs (tp_clear), then drop
-    // them. Some payloads (e.g. Frame) drop children in place inside clear_fn
+    // them. Some payloads (e.g. FrameObject) drop children in place inside clear_fn
     // instead of extracting them, so user code (`__del__`) may run here.
     let mut edges = Vec::new();
     if let Some(clear_fn) = vtable.clear {
@@ -303,6 +303,18 @@ bitflags::bitflags! {
 /// GC generation constants
 pub(crate) const GC_UNTRACKED: u8 = 0xFF;
 pub(crate) const GC_PERMANENT: u8 = 3;
+/// Width of an interpreter's `gc_owner` tag.
+///
+/// Sized to the padding the header alignment already forces, so the tag costs
+/// no space on either pointer width. Running out of tags is not an error: an
+/// interpreter that gets none uses [`GC_NO_OWNER`] and its objects stay
+/// collectable by every interpreter, which is how they behaved before tagging.
+pub(crate) type GcOwner = u16;
+
+/// `gc_owner` of an object that belongs to no single interpreter: everything
+/// the shared context allocates, and anything allocated with no interpreter
+/// current. Every interpreter collects these.
+pub(crate) const GC_NO_OWNER: GcOwner = 0;
 
 /// Link implementation for GC intrusive linked list tracking
 pub(crate) struct GcLink;
@@ -389,6 +401,10 @@ pub(super) struct PyInner<T> {
     /// GC generation index (0-2=gen, GC_PERMANENT=permanent, GC_UNTRACKED=not tracked).
     /// Uses PyAtomic for interior mutability (writes happen through &self under list locks).
     pub(super) gc_generation: PyAtomic<u8>,
+    /// Interpreter that tracked this object, or `GC_NO_OWNER`. Written by
+    /// `track_object`; read to scope a collection to one interpreter.
+    /// Sits in what would otherwise be padding, so it costs no space.
+    pub(super) gc_owner: PyAtomic<GcOwner>,
     /// Intrusive linked list pointers for GC generational tracking
     pub(super) gc_pointers: Pointers<PyObject>,
 
@@ -397,6 +413,11 @@ pub(super) struct PyInner<T> {
     pub(super) payload: T,
 }
 pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
+
+// ref_count, vtable, gc_pointers (two) and typ are one word each; the gc bits,
+// generation and owner share the word of padding their alignment forces. Adding
+// to that group is free only while this holds.
+const _: () = assert!(SIZEOF_PYOBJECT_HEAD == 6 * core::mem::size_of::<usize>());
 
 impl<T> PyInner<T> {
     /// Read type flags and member_count via raw pointers to avoid Stacked Borrows
@@ -1052,6 +1073,16 @@ impl InstanceDict {
         self.d.read().clone()
     }
 
+    /// Run `f` on the dict without cloning it.
+    ///
+    /// For callers that only need to look at the dict — a predicate, a version
+    /// stamp — this drops the refcount round-trip [`Self::get`] pays. `f` runs
+    /// under the read guard, so it must not run Python or take this lock again.
+    #[inline]
+    pub(crate) fn with<R>(&self, f: impl FnOnce(Option<&Py<crate::builtins::PyDict>>) -> R) -> R {
+        f(self.d.read().as_deref())
+    }
+
     #[inline]
     pub(crate) fn set(&self, d: Option<PyDictRef>) {
         self.replace(d);
@@ -1216,6 +1247,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                     vtable: PyObjVTable::of::<T>(),
                     gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
+                    gc_owner: Radium::new(GC_NO_OWNER),
                     gc_pointers: Pointers::new(),
                     typ: PyAtomicRef::from(typ),
                     payload,
@@ -1228,6 +1260,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 vtable: PyObjVTable::of::<T>(),
                 gc_bits: Radium::new(0),
                 gc_generation: Radium::new(GC_UNTRACKED),
+                gc_owner: Radium::new(GC_NO_OWNER),
                 gc_pointers: Pointers::new(),
                 typ: PyAtomicRef::from(typ),
                 payload,
@@ -1615,6 +1648,28 @@ impl PyObject {
         self.instance_dict().and_then(|d| d.get())
     }
 
+    /// Whether this object currently has an instance dict, without cloning it.
+    ///
+    /// `false` both for an object with no dict slot and for one whose slot is
+    /// still empty, which is what `dict().is_none()` reports.
+    #[inline(always)]
+    pub fn has_instance_dict(&self) -> bool {
+        self.instance_dict()
+            .is_some_and(|d| d.with(|dict| dict.is_some()))
+    }
+
+    /// Run `f` on the instance dict without cloning it; see [`InstanceDict::with`].
+    #[inline(always)]
+    pub(crate) fn with_instance_dict<R>(
+        &self,
+        f: impl FnOnce(Option<&Py<crate::builtins::PyDict>>) -> R,
+    ) -> R {
+        match self.instance_dict() {
+            Some(d) => d.with(f),
+            None => f(None),
+        }
+    }
+
     /// Set the dict field. Returns `Err(dict)` if this object does not have a dict field
     /// in the first place.
     pub fn set_dict(&self, dict: Option<PyDictRef>) -> Result<(), Option<PyDictRef>> {
@@ -1732,6 +1787,20 @@ impl PyObject {
     #[inline]
     pub(crate) fn set_gc_generation(&self, generation: u8) {
         self.0.gc_generation.store(generation, Ordering::Relaxed);
+    }
+
+    /// The interpreter whose collections consider this object.
+    #[inline]
+    pub(crate) fn gc_owner(&self) -> GcOwner {
+        self.0.gc_owner.load(Ordering::Relaxed)
+    }
+
+    /// Set the owning interpreter. Written by `track_object` before the object
+    /// enters a generation list, and reset to `GC_NO_OWNER` when the owning
+    /// interpreter goes away.
+    #[inline]
+    pub(crate) fn set_gc_owner(&self, owner: GcOwner) {
+        self.0.gc_owner.store(owner, Ordering::Relaxed);
     }
 
     /// _PyObject_GC_TRACK
@@ -1888,11 +1957,20 @@ impl PyObject {
     /// and its contents haven't been modified.
     pub unsafe fn gc_get_referent_ptrs(&self) -> Vec<NonNull<Self>> {
         let mut result = Vec::new();
+        unsafe { self.gc_extend_referent_ptrs(&mut result) };
+        result
+    }
+
+    /// Append this object's referents to `out`, for a caller that holds many
+    /// objects' referents in one buffer rather than one buffer each.
+    ///
+    /// # Safety
+    /// Same as [`Self::gc_get_referent_ptrs`].
+    pub unsafe fn gc_extend_referent_ptrs(&self, out: &mut Vec<NonNull<Self>>) {
         // Traverse the entire object including dict and slots
         self.0.traverse(&mut |child: &Self| {
-            result.push(NonNull::from(child));
+            out.push(NonNull::from(child));
         });
-        result
     }
 
     /// Pop edges from this object for cycle breaking.
@@ -2191,6 +2269,7 @@ impl<T: PyPayload> Py<T> {
     /// obtained by dereferencing a `Py<T>`), and the object must outlive the
     /// returned pointer's use.
     #[inline]
+    #[cfg_attr(not(feature = "threading"), allow(dead_code))]
     pub(crate) unsafe fn from_payload_ptr(payload: *const T) -> *const Self {
         let offset = core::mem::offset_of!(PyInner<T>, payload);
         // `Py<T>` is a newtype over `PyInner<T>`, so their addresses coincide.
@@ -2391,12 +2470,11 @@ impl<T: PyPayload + crate::object::MaybeTraverse + core::fmt::Debug> PyRef<T> {
         if (<T as crate::object::MaybeTraverse>::HAS_TRAVERSE || has_dict || is_heaptype)
             && !T::NEW_REF_UNTRACKED
         {
-            let gc = crate::gc_state::gc_state();
+            // Tracks under the interpreter running now and collects if this
+            // allocation pushed gen0 past its threshold.
             unsafe {
-                gc.track_object(ptr.cast());
+                crate::gc_state::track_new_object(ptr.cast());
             }
-            // Check if automatic GC should run
-            gc.maybe_collect();
         }
 
         Self { ptr }
@@ -2644,6 +2722,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                     vtable: PyObjVTable::of::<PyType>(),
                     gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
+                    gc_owner: Radium::new(GC_NO_OWNER),
                     gc_pointers: Pointers::new(),
                     payload: type_payload,
                 },
@@ -2659,6 +2738,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                     vtable: PyObjVTable::of::<PyType>(),
                     gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
+                    gc_owner: Radium::new(GC_NO_OWNER),
                     gc_pointers: Pointers::new(),
                     payload: object_payload,
                 },

@@ -86,10 +86,10 @@ libz-rs-sys = { workspace = true }
 bzip2 = { workspace = true }
 
 # tkinter
+jiff = { workspace = true }
 tk-sys = { workspace = true, optional = true }
 tcl-sys = { workspace = true, optional = true }
 widestring = { workspace = true, optional = true }
-chrono.workspace = true
 
 # uuid
 [target.'cfg(not(any(target_os = "ios", target_os = "android", target_os = "windows", target_arch = "wasm32", target_os = "redox")))'.dependencies]

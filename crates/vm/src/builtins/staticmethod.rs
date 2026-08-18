@@ -163,7 +163,11 @@ impl PyStaticMethod {
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
@@ -179,7 +183,7 @@ impl Callable for PyStaticMethod {
 
 impl Representable for PyStaticMethod {
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.lock().repr(vm).unwrap();
+        let callable = zelf.callable.lock().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         match (

@@ -4,6 +4,10 @@
 use crate::crt_fd;
 #[cfg(windows)]
 use crate::fs;
+#[cfg(windows)]
+pub use crate::posix::rename;
+#[cfg(any(unix, target_os = "wasi"))]
+pub use crate::posix_unix_like::rename;
 #[cfg(any(unix, windows))]
 use core::ffi::CStr;
 use core::str::Utf8Error;
@@ -27,6 +31,23 @@ use {
         System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
 };
+
+#[cfg(not(any(unix, windows, target_os = "wasi")))]
+pub fn rename(
+    from: impl AsRef<std::path::Path>,
+    from_fd: Option<crt_fd::Borrowed<'_>>,
+    to: impl AsRef<std::path::Path>,
+    to_fd: Option<crt_fd::Borrowed<'_>>,
+) -> io::Result<()> {
+    if from_fd.is_none() && to_fd.is_none() {
+        std::fs::rename(from, to)
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "renameat is not available on this platform",
+        ))
+    }
+}
 
 /// Convert exit code to std::process::ExitCode
 ///
@@ -498,13 +519,14 @@ pub fn set_errno(value: i32) {
 #[cfg(not(any(unix, windows, target_os = "wasi")))]
 pub fn set_errno(_value: i32) {}
 
-#[cfg(unix)]
+// WASIp1, like Unix, provides byte-preserving OsStr conversions.
+#[cfg(any(unix, all(target_os = "wasi", not(target_env = "p2"))))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
-    use std::os::unix::ffi::OsStrExt;
+    use self::ffi::OsStrExt;
     Ok(std::ffi::OsStr::from_bytes(b))
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, all(target_os = "wasi", not(target_env = "p2")))))]
 pub fn bytes_as_os_str(b: &[u8]) -> Result<&std::ffi::OsStr, Utf8Error> {
     Ok(core::str::from_utf8(b)?.as_ref())
 }

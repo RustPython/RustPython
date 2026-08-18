@@ -5987,7 +5987,6 @@ class TestSignaturePrivateHelpers(unittest.TestCase):
         self.assertEqual(computed_clean_signature, clean_signature)
         self.assertEqual(computed_self_parameter, self_parameter)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; + (module, /, path, mode, *, dir_fd=None, effective_ids=False, follow_symlinks=True)
     def test_signature_strip_non_python_syntax(self):
         self._strip_non_python_syntax(
             "($module, /, path, mode, *, dir_fd=None, " +
@@ -6318,7 +6317,6 @@ class TestSignatureDefinitions(unittest.TestCase):
         no_signature = {'ReferenceType', 'ref'}
         self._test_module_has_signatures(weakref, no_signature)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: <function TestSignatureDefinitions.test_python_function_override_signature.<locals>.func at 0xa4c07a580> builtin has invalid signature
     def test_python_function_override_signature(self):
         def func(*args, **kwargs):
             pass

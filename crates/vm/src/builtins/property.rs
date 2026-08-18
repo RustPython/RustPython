@@ -1,7 +1,7 @@
 /*! Python `property` descriptor class.
 
 */
-use super::{PyStrRef, PyType};
+use super::PyType;
 use crate::common::lock::PyRwLock;
 use crate::function::{IntoFuncArgs, PosArgs};
 use crate::{
@@ -41,8 +41,6 @@ pub struct PropertyArgs {
     fdel: Option<PyObjectRef>,
     #[pyarg(any, default)]
     doc: Option<PyObjectRef>,
-    #[pyarg(any, default)]
-    name: Option<PyStrRef>,
 }
 
 impl GetDescriptor for PyProperty {
@@ -221,7 +219,6 @@ impl PyProperty {
             fset: new_setter.or_else(|| zelf.fset()),
             fdel: new_deleter.or_else(|| zelf.fdel()),
             doc,
-            name: None,
         };
 
         // Create new property using py_new and init
@@ -401,7 +398,6 @@ impl Initializer for PyProperty {
         *zelf.getter.write() = args.fget;
         *zelf.setter.write() = args.fset;
         *zelf.deleter.write() = args.fdel;
-        *zelf.name.write() = args.name.map(|a| a.as_object().to_owned());
         zelf.getter_doc.store(getter_doc, Ordering::Relaxed);
 
         Ok(())

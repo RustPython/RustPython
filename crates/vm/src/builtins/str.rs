@@ -9,7 +9,7 @@ use super::{
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromBorrowedObject, VirtualMachine,
-    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, adjust_indices},
+    anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper, StringRange, adjust_indices},
     atomic_func,
     bytes_inner::{swapcase_ascii, title_ascii},
     cformat::cformat_string,
@@ -23,7 +23,9 @@ use crate::{
     function::{ArgIterable, ArgSize, FuncArgs, OptionalArg, OptionalOption, PyComparisonValue},
     intern::PyInterned,
     object::{MaybeTraverse, Traverse, TraverseFn},
-    protocol::{PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
+    protocol::{
+        BufferFlags, PyBuffer, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods,
+    },
     sequence::SequenceExt,
     sliceable::{SequenceIndex, SliceableSequenceOp},
     types::{
@@ -37,6 +39,7 @@ use bstr::ByteSlice;
 use core::ffi::CStr;
 use core::{char, mem, ops::Range};
 use itertools::Itertools;
+use memchr::memchr;
 use num_traits::ToPrimitive;
 use rustpython_common::{
     ascii,
@@ -440,15 +443,24 @@ impl Constructor for PyStr {
                     if input.fast_isinstance(vm.ctx.types.str_type) {
                         return Err(vm.new_type_error("decoding str is not supported"));
                     }
-                    if !input.fast_isinstance(vm.ctx.types.bytes_type)
-                        && !input.fast_isinstance(vm.ctx.types.bytearray_type)
-                        && crate::protocol::PyBuffer::try_from_borrowed_object(vm, &input).is_err()
+                    let input = if input.fast_isinstance(vm.ctx.types.bytes_type)
+                        || input.fast_isinstance(vm.ctx.types.bytearray_type)
                     {
-                        return Err(vm.new_type_error(format!(
-                            "decoding to str: need a bytes-like object, {} found",
-                            input.class().name()
-                        )));
-                    }
+                        input
+                    } else {
+                        // PyUnicode_FromEncodedObject: whatever an exporter
+                        // complains about, the argument is simply not bytes-like.
+                        let buffer = PyBuffer::from_object(vm, &input, BufferFlags::SIMPLE)
+                            .map_err(|_| {
+                                vm.new_type_error(format!(
+                                    "decoding to str: need a bytes-like object, {} found",
+                                    input.class().name()
+                                ))
+                            })?;
+                        vm.ctx
+                            .new_bytes(buffer.contiguous_or_collect(<[u8]>::to_vec))
+                            .into()
+                    };
                     let enc_str = encoding.as_ref().map_or("utf-8", |e| e.as_str());
                     let s = vm
                         .state
@@ -543,6 +555,13 @@ impl PyStr {
                 vm.ctx.new_str("surrogates not allowed"),
             ))
         }
+    }
+
+    /// Check string bytes for interior NULs.
+    #[inline]
+    #[must_use]
+    pub fn contains_nuls(&self) -> bool {
+        memchr(b'\0', self.as_bytes()).is_some()
     }
 
     pub fn to_string_lossy(&self) -> Cow<'_, str> {
@@ -702,6 +721,20 @@ impl PyStr {
     #[inline]
     pub fn char_len(&self) -> usize {
         self.data.char_len()
+    }
+
+    /// The byte offset the `index`-th character starts at, or the string's byte
+    /// length if `index` is at or past its end.
+    #[inline]
+    pub fn char_index_to_byte(&self, index: usize) -> usize {
+        self.data.char_index_to_byte(index)
+    }
+
+    /// The character index of the character starting at byte offset `bytepos`,
+    /// which must be a character boundary at or before the end.
+    #[inline]
+    pub fn byte_to_char_index(&self, bytepos: usize) -> usize {
+        self.data.byte_to_char_index(bytepos)
     }
 
     #[pymethod]
@@ -909,11 +942,12 @@ impl PyStr {
 
     #[pymethod]
     fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
-        let (affix, substr) =
-            match options.prepare(self.as_wtf8(), self.len(), |s, r| s.get_chars(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
+        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
+            &s[self.data.char_range_to_bytes(r)]
+        }) {
+            Some(x) => x,
+            None => return Ok(false),
+        };
         substr.py_starts_ends_with(
             &affix,
             "endswith",
@@ -929,11 +963,12 @@ impl PyStr {
         options: anystr::StartsEndsWithArgs,
         vm: &VirtualMachine,
     ) -> PyResult<bool> {
-        let (affix, substr) =
-            match options.prepare(self.as_wtf8(), self.len(), |s, r| s.get_chars(r)) {
-                Some(x) => x,
-                None => return Ok(false),
-            };
+        let (affix, substr) = match options.prepare(self.as_wtf8(), self.len(), |s, r| {
+            &s[self.data.char_range_to_bytes(r)]
+        }) {
+            Some(x) => x,
+            None => return Ok(false),
+        };
         substr.py_starts_ends_with(
             &affix,
             "startswith",
@@ -1152,42 +1187,52 @@ impl PyStr {
         Ok(vm.ctx.new_str(joined))
     }
 
-    // FIXME: two traversals of str is expensive
+    /// The bytes the character range `range` spans and the byte offset it
+    /// starts at, or `None` if the range is inverted.
+    ///
+    /// The bounds go through the string's character index, so reaching a range
+    /// deep in the subject costs a lookup rather than a walk to it.
     #[inline]
-    fn _to_char_idx(r: &Wtf8, byte_idx: usize) -> usize {
-        r[..byte_idx].code_points().count()
+    fn char_range_bytes(&self, range: Range<usize>) -> Option<(usize, &Wtf8)> {
+        if !range.is_normal() {
+            return None;
+        }
+        let bytes = self.data.char_range_to_bytes(range);
+        Some((bytes.start, &self.as_wtf8()[bytes]))
     }
 
+    /// Searches the character range `range` with `find`, which answers in bytes
+    /// relative to the range, and reports the hit as a character index.
     #[inline]
     fn _find<F>(&self, args: FindArgs, find: F) -> Option<usize>
     where
         F: Fn(&Wtf8, &Wtf8) -> Option<usize>,
     {
         let (sub, range) = args.get_value(self.len());
-        self.as_wtf8().py_find(sub.as_wtf8(), range, find)
+        let (start, haystack) = self.char_range_bytes(range)?;
+        let found = find(haystack, sub.as_wtf8())?;
+        Some(self.byte_to_char_index(start + found))
     }
 
     #[pymethod]
     fn find(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
-            .map_or(-1, |v| v as isize)
+        self._find(args, Wtf8::find).map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn rfind(&self, args: FindArgs) -> isize {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
-            .map_or(-1, |v| v as isize)
+        self._find(args, Wtf8::rfind).map_or(-1, |v| v as isize)
     }
 
     #[pymethod]
     fn index(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.find(s)?)))
+        self._find(args, Wtf8::find)
             .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
     #[pymethod]
     fn rindex(&self, args: FindArgs, vm: &VirtualMachine) -> PyResult<usize> {
-        self._find(args, |r, s| Some(Self::_to_char_idx(r, r.rfind(s)?)))
+        self._find(args, Wtf8::rfind)
             .ok_or_else(|| vm.new_value_error("substring not found"))
     }
 
@@ -1260,16 +1305,28 @@ impl PyStr {
     #[pymethod]
     fn count(&self, args: FindArgs) -> usize {
         let (needle, range) = args.get_value(self.len());
-        self.as_wtf8()
-            .py_count(needle.as_wtf8(), range, |h, n| h.find_iter(n).count())
+        let chars = range.len();
+        self.char_range_bytes(range).map_or(0, |(_, haystack)| {
+            if needle.is_empty() {
+                // An empty needle sits between every pair of characters and at
+                // both ends, so it occurs once more than the range holds
+                // characters. Counting it in the bytes would answer in encoded
+                // positions instead.
+                chars + 1
+            } else {
+                haystack.find_iter(needle.as_wtf8()).count()
+            }
+        })
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize) -> Wtf8Buf {
-        unsafe {
-            // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
-            Wtf8Buf::from_bytes_unchecked(self.as_wtf8().py_zfill(width))
-        }
+    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
+        let filled = self
+            .as_wtf8()
+            .py_zfill(width)
+            .ok_or_else(|| vm.new_memory_error(""))?;
+        // SAFETY: this is safe-guaranteed because the original self.as_wtf8() is valid wtf8
+        Ok(unsafe { Wtf8Buf::from_bytes_unchecked(filled) })
     }
 
     #[inline]
@@ -1277,7 +1334,7 @@ impl PyStr {
         &self,
         width: isize,
         fillchar: OptionalArg<PyStrRef>,
-        pad: fn(&Wtf8, usize, CodePoint, usize) -> Wtf8Buf,
+        pad: fn(&Wtf8, usize, CodePoint, usize) -> Option<Wtf8Buf>,
         vm: &VirtualMachine,
     ) -> PyResult<Wtf8Buf> {
         let fillchar = fillchar.map_or(Ok(' '.into()), |ref s| {
@@ -1285,11 +1342,11 @@ impl PyStr {
                 vm.new_type_error("The fill character must be exactly one character long")
             })
         })?;
-        Ok(if self.len() as isize >= width {
-            self.as_wtf8().to_owned()
-        } else {
-            pad(self.as_wtf8(), width as usize, fillchar, self.len())
-        })
+        if self.len() as isize >= width {
+            return Ok(self.as_wtf8().to_owned());
+        }
+        pad(self.as_wtf8(), width as usize, fillchar, self.len())
+            .ok_or_else(|| vm.new_memory_error(""))
     }
 
     #[pymethod]
@@ -1548,6 +1605,11 @@ impl Comparable for PyStr {
             return Ok(res.into());
         }
         let other = class_or_notimplemented!(Self, other);
+        // Equality does not need the ordering, and answers two strings of
+        // different length without reading either.
+        if let Some(res) = op.eval_eq(|| zelf.as_wtf8() == other.as_wtf8()) {
+            return Ok(res.into());
+        }
         Ok(op.eval_ord(zelf.as_wtf8().cmp(other.as_wtf8())).into())
     }
 }
@@ -1792,6 +1854,31 @@ pub(crate) fn init(ctx: &'static Context) {
     PyStrIterator::extend_class(ctx, ctx.types.str_iterator_type);
 }
 
+impl PyStr {
+    /// The code points at `indices`, in that order, as a new string.
+    ///
+    /// Each index is resolved through the string's own index table, so the
+    /// cost is one lookup per collected character rather than a walk to the
+    /// furthest one. The iterator's length is the result's character count,
+    /// which is why it has to be exact.
+    fn gather_chars(&self, indices: impl ExactSizeIterator<Item = usize>) -> Self {
+        let char_len = indices.len();
+        // Not ascii, so the code points are at least two bytes each.
+        let mut out = Wtf8Buf::with_capacity(2 * char_len);
+        let s = self.as_wtf8();
+        for index in indices {
+            out.push(
+                s[self.data.char_index_to_byte(index)..]
+                    .code_points()
+                    .next()
+                    .expect("index is below the character count"),
+            );
+        }
+        // SAFETY: char_len is accurate
+        unsafe { Self::new_with_char_len(out, char_len) }
+    }
+}
+
 impl SliceableSequenceOp for PyStr {
     type Item = CodePoint;
     type Sliced = Self;
@@ -1801,125 +1888,56 @@ impl SliceableSequenceOp for PyStr {
     }
 
     fn do_slice(&self, range: Range<usize>) -> Self::Sliced {
-        match self.as_str_kind() {
-            PyKindStr::Ascii(s) => s[range].into(),
-            PyKindStr::Utf8(s) => {
-                let char_len = range.len();
-                let out = rustpython_common::str::get_chars(s, range);
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
-            PyKindStr::Wtf8(w) => {
-                let char_len = range.len();
-                let out = rustpython_common::str::get_codepoints(w, range);
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
+        if let PyKindStr::Ascii(s) = self.as_str_kind() {
+            return s[range].into();
         }
+        // Both ends resolve through the string's own index, so the slice is a
+        // byte reslice rather than a walk to `range.start` and another to
+        // `range.end`.
+        let char_len = range.len();
+        let bytes = self.data.char_range_to_bytes(range);
+        let out = &self.as_wtf8()[bytes];
+        // SAFETY: char_len is accurate
+        unsafe { Self::new_with_char_len(out.to_owned(), char_len) }
     }
 
     fn do_slice_reverse(&self, range: Range<usize>) -> Self::Sliced {
-        match self.as_str_kind() {
-            PyKindStr::Ascii(s) => {
-                let mut out = s[range].to_owned();
-                out.as_mut_slice().reverse();
-                out.into()
-            }
-            PyKindStr::Utf8(s) => {
-                let char_len = range.len();
-                let mut out = String::with_capacity(2 * char_len);
-                out.extend(
-                    s.chars()
-                        .rev()
-                        .skip(self.char_len() - range.end)
-                        .take(range.len()),
-                );
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, range.len()) }
-            }
-            PyKindStr::Wtf8(w) => {
-                let char_len = range.len();
-                let mut out = Wtf8Buf::with_capacity(2 * char_len);
-                out.extend(
-                    w.code_points()
-                        .rev()
-                        .skip(self.char_len() - range.end)
-                        .take(range.len()),
-                );
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
+        if let PyKindStr::Ascii(s) = self.as_str_kind() {
+            let mut out = s[range].to_owned();
+            out.as_mut_slice().reverse();
+            return out.into();
         }
+        let char_len = range.len();
+        let bytes = self.data.char_range_to_bytes(range);
+        let mut out = Wtf8Buf::with_capacity(bytes.len());
+        out.extend(self.as_wtf8()[bytes].code_points().rev());
+        // SAFETY: char_len is accurate
+        unsafe { Self::new_with_char_len(out, char_len) }
     }
 
     fn do_stepped_slice(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        match self.as_str_kind() {
-            PyKindStr::Ascii(s) => s[range]
+        if let PyKindStr::Ascii(s) = self.as_str_kind() {
+            return s[range]
                 .as_slice()
                 .iter()
                 .copied()
                 .step_by(step)
                 .collect::<AsciiString>()
-                .into(),
-            PyKindStr::Utf8(s) => {
-                let char_len = (range.len() / step) + 1;
-                let mut out = String::with_capacity(2 * char_len);
-                out.extend(s.chars().skip(range.start).take(range.len()).step_by(step));
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
-            PyKindStr::Wtf8(w) => {
-                let char_len = (range.len() / step) + 1;
-                let mut out = Wtf8Buf::with_capacity(2 * char_len);
-                out.extend(
-                    w.code_points()
-                        .skip(range.start)
-                        .take(range.len())
-                        .step_by(step),
-                );
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
+                .into();
         }
+        self.gather_chars(range.step_by(step))
     }
 
     fn do_stepped_slice_reverse(&self, range: Range<usize>, step: usize) -> Self::Sliced {
-        match self.as_str_kind() {
-            PyKindStr::Ascii(s) => s[range]
+        if let PyKindStr::Ascii(s) = self.as_str_kind() {
+            return s[range]
                 .chars()
                 .rev()
                 .step_by(step)
                 .collect::<AsciiString>()
-                .into(),
-            PyKindStr::Utf8(s) => {
-                let char_len = (range.len() / step) + 1;
-                // not ascii, so the codepoints have to be at least 2 bytes each
-                let mut out = String::with_capacity(2 * char_len);
-                out.extend(
-                    s.chars()
-                        .rev()
-                        .skip(self.char_len() - range.end)
-                        .take(range.len())
-                        .step_by(step),
-                );
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
-            PyKindStr::Wtf8(w) => {
-                let char_len = (range.len() / step) + 1;
-                // not ascii, so the codepoints have to be at least 2 bytes each
-                let mut out = Wtf8Buf::with_capacity(2 * char_len);
-                out.extend(
-                    w.code_points()
-                        .rev()
-                        .skip(self.char_len() - range.end)
-                        .take(range.len())
-                        .step_by(step),
-                );
-                // SAFETY: char_len is accurate
-                unsafe { Self::new_with_char_len(out, char_len) }
-            }
+                .into();
         }
+        self.gather_chars(range.rev().step_by(step))
     }
 
     fn empty() -> Self::Sliced {
@@ -2150,7 +2168,7 @@ impl PyUtf8Str {
 
 impl Py<PyUtf8Str> {
     /// Upcast to PyStr.
-    pub fn as_pystr(&self) -> &Py<PyStr> {
+    pub const fn as_pystr(&self) -> &Py<PyStr> {
         unsafe {
             // Safety: PyUtf8Str is a wrapper around PyStr, so this cast is safe.
             &*(self as *const Self as *const Py<PyStr>)
@@ -2196,6 +2214,12 @@ impl AnyStrContainer<str> for String {
 
     fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
+    }
+
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut s = Self::new();
+        s.try_reserve_exact(capacity).ok()?;
+        Some(s)
     }
 
     fn push_str(&mut self, other: &str) {
@@ -2309,6 +2333,12 @@ impl AnyStrContainer<Wtf8> for Wtf8Buf {
 
     fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
+    }
+
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut s = Self::new();
+        s.try_reserve_exact(capacity).ok()?;
+        Some(s)
     }
 
     fn push_str(&mut self, other: &Wtf8) {
@@ -2429,6 +2459,12 @@ impl AnyStrContainer<AsciiStr> for AsciiString {
 
     fn with_capacity(capacity: usize) -> Self {
         Self::with_capacity(capacity)
+    }
+
+    fn try_with_capacity(capacity: usize) -> Option<Self> {
+        let mut v = Vec::new();
+        v.try_reserve_exact(capacity).ok()?;
+        Some(Self::from(v))
     }
 
     fn push_str(&mut self, other: &AsciiStr) {

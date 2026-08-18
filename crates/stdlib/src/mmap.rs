@@ -24,9 +24,9 @@ mod mmap {
     use core::ops::{Deref, DerefMut};
     use crossbeam_utils::atomic::AtomicCell;
     use num_traits::Signed;
-    #[cfg(windows)]
-    use std::io;
     use std::io::Write;
+    #[cfg(windows)]
+    use {core::hint::cold_path, memchr::memchr, rustpython_vm::exceptions, std::io};
 
     #[cfg(unix)]
     use rustpython_host_env::crt_fd;
@@ -460,8 +460,9 @@ mod mmap {
                     let s = obj
                         .try_to_value::<String>(vm)
                         .map_err(|_| vm.new_type_error("tagname must be a string or None"))?;
-                    if s.contains('\0') {
-                        return Err(vm.new_value_error("tagname must not contain null characters"));
+                    if memchr(b'\0', s.as_bytes()).is_some() {
+                        cold_path();
+                        return Err(exceptions::nul_char_error(vm));
                     }
                     Some(s)
                 }
@@ -610,6 +611,8 @@ mod mmap {
     };
 
     impl AsBuffer for PyMmap {
+        const RELEASE_BUFFER: bool = true;
+
         fn as_buffer(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyBuffer> {
             let readonly = matches!(zelf.access, AccessMode::Read);
             let buf = PyBuffer::new(
@@ -776,7 +779,10 @@ mod mmap {
             let start = options
                 .start
                 .map_or_else(|| self.pos(), |start| start.saturated_at(size));
-            let end = options.end.map_or(size, |end| end.saturated_at(size));
+            let end = options
+                .end
+                .map_or(size, |end| end.saturated_at(size))
+                .max(start);
             (start, end)
         }
 
@@ -885,7 +891,7 @@ mod mmap {
                 let dest = dest.try_to_primitive(vm).ok()?;
                 let src = src.try_to_primitive(vm).ok()?;
                 let cnt = cnt.try_to_primitive(vm).ok()?;
-                if size - dest < cnt || size - src < cnt {
+                if dest > size || src > size || size - dest < cnt || size - src < cnt {
                     return None;
                 }
                 Some((dest, src, cnt))
@@ -1141,24 +1147,40 @@ mod mmap {
         }
 
         #[pymethod]
-        fn write(&self, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
-            let pos = self.pos();
-            let size = self.__len__();
+        fn seekable(&self) -> bool {
+            true
+        }
 
-            let data = bytes.borrow_buf();
+        #[pymethod]
+        fn write(zelf: &Py<Self>, bytes: ArgBytesLike, vm: &VirtualMachine) -> PyResult<PyIntRef> {
+            let self_ = &**zelf;
+            let pos = self_.pos();
+            let size = self_.__len__();
+
+            // Writing locks the map, and reading a source that views this same
+            // map locks it too, so such a source is copied out first.
+            let copied;
+            let borrowed;
+            let data: &[u8] = if bytes.source_object().is(zelf.as_object()) {
+                copied = bytes.borrow_buf().to_vec();
+                &copied
+            } else {
+                borrowed = bytes.borrow_buf();
+                &borrowed
+            };
 
             if pos > size || size - pos < data.len() {
                 return Err(vm.new_value_error("data out of range"));
             }
 
-            let len = self.try_writable(vm, |mmap| {
+            let len = self_.try_writable(vm, |mmap| {
                 (&mut mmap[pos..(pos + data.len())])
-                    .write(&data)
+                    .write(data)
                     .map_err(|err| err.to_pyexception(vm))?;
                 Ok(data.len())
             })??;
 
-            self.advance_pos(len);
+            self_.advance_pos(len);
 
             Ok(PyInt::from(len).into_ref(&vm.ctx))
         }

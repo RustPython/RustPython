@@ -275,7 +275,6 @@ class DictTest(unittest.TestCase):
 
         self.assertRaises(ValueError, {}.update, [(1, 2, 3)])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_update_type_error(self):
         with self.assertRaises(TypeError) as cm:
             {}.update([object() for _ in range(3)])
