@@ -161,7 +161,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
     // 9. Python bytes -> null-terminated buffer pointer
     // Need to ensure null termination like c_char_p
     if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-        let buffer = rustpython_host_env::ctypes::null_terminated_bytes(bytes.as_bytes());
+        let buffer = rustpython_host_env::ctypes::clone_as_null_terminated(bytes.as_bytes());
         let keep = vm.ctx.new_bytes(buffer);
         let addr = keep.as_bytes().as_ptr() as usize;
         return Ok(Argument {

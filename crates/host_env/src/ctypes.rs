@@ -502,7 +502,7 @@ pub fn encode_wtf8_to_wchar_padded(s: &Wtf8, size: usize) -> Vec<u8> {
     wchar_bytes
 }
 
-pub fn wchar_null_terminated_bytes(s: &Wtf8) -> Vec<u8> {
+pub fn clone_wchar_null_terminated(s: &Wtf8) -> Vec<u8> {
     if size_of::<WChar>() == 2 {
         // We can't cast u32 to WChar because it would truncate the value on platforms where WChar
         // is two bytes. Wtf8::encode_wide does all of the hard work for us, so all we have to do
@@ -1093,7 +1093,7 @@ pub fn utf16z_bytes(s: &Wtf8) -> Vec<u8> {
 /// Return a NUL terminated copy of `bytes`.
 ///
 /// The input may contain interior NULs.
-pub fn null_terminated_bytes(bytes: &[u8]) -> Vec<u8> {
+pub fn clone_as_null_terminated(bytes: &[u8]) -> Vec<u8> {
     if bytes.last() == Some(&0) {
         bytes.to_vec()
     } else {

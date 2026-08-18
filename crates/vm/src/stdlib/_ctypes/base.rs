@@ -18,8 +18,8 @@ use num_traits::{Signed, ToPrimitive};
 use rustpython_common::lock::PyRwLock;
 use rustpython_common::wtf8::Wtf8;
 use rustpython_host_env::ctypes::{
-    CTypeLayout, char_array_assignment_bytes, char_array_field_value, wchar_array_field_value,
-    wchar_null_terminated_bytes, write_cow_bytes_at_offset,
+    CTypeLayout, char_array_assignment_bytes, char_array_field_value, clone_wchar_null_terminated,
+    wchar_array_field_value, write_cow_bytes_at_offset,
 };
 
 // StgInfo - Storage information for ctypes types
@@ -387,7 +387,7 @@ pub(super) fn ensure_z_null_terminated(
     bytes: &PyBytes,
     vm: &VirtualMachine,
 ) -> (PyObjectRef, usize) {
-    let buffer = rustpython_host_env::ctypes::null_terminated_bytes(bytes.as_bytes());
+    let buffer = rustpython_host_env::ctypes::clone_as_null_terminated(bytes.as_bytes());
     let ptr = buffer.as_ptr() as usize;
     let kept_alive: PyObjectRef = vm.ctx.new_bytes(buffer).into();
     (kept_alive, ptr)
@@ -395,7 +395,7 @@ pub(super) fn ensure_z_null_terminated(
 
 /// Convert str to null-terminated wchar_t buffer. Returns (PyBytes holder, pointer).
 pub(super) fn str_to_wchar_bytes(s: &Wtf8, vm: &VirtualMachine) -> (PyObjectRef, usize) {
-    let bytes = wchar_null_terminated_bytes(s);
+    let bytes = clone_wchar_null_terminated(s);
     let ptr = bytes.as_ptr() as usize;
     let holder: PyObjectRef = vm.ctx.new_bytes(bytes).into();
     (holder, ptr)
