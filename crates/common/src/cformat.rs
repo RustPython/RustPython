@@ -20,7 +20,8 @@ pub enum CFormatErrorType {
     MissingModuloSign,
     UnsupportedFormatChar(CodePoint),
     IncompleteFormat,
-    IntTooBig,
+    WidthTooBig,
+    PrecisionTooBig,
     // Unimplemented,
 }
 
@@ -45,7 +46,8 @@ impl fmt::Display for CFormatError {
                 c.to_u32(),
                 self.index
             ),
-            CFormatErrorType::IntTooBig => write!(f, "width/precision too big"),
+            CFormatErrorType::WidthTooBig => write!(f, "width too big"),
+            CFormatErrorType::PrecisionTooBig => write!(f, "precision too big"),
             _ => write!(f, "unexpected error parsing format string"),
         }
     }
@@ -307,7 +309,8 @@ impl<T: FormatBuf> CFormatSpecKeyed<T> {
     {
         let mapping_key = parse_spec_mapping_key(iter)?;
         let flags = parse_flags(iter);
-        let min_field_width = parse_quantity(iter)?;
+        let min_field_width =
+            parse_quantity(iter, isize::MAX as usize, CFormatErrorType::WidthTooBig)?;
         let precision = parse_precision(iter)?;
         consume_length(iter);
         let format_type = parse_format_type(iter)?;
@@ -649,7 +652,11 @@ where
     })
 }
 
-fn parse_quantity<C, I>(iter: &mut ParseIter<I>) -> Result<Option<CFormatQuantity>, ParsingError>
+fn parse_quantity<C, I>(
+    iter: &mut ParseIter<I>,
+    max_value: usize,
+    too_big: CFormatErrorType,
+) -> Result<Option<CFormatQuantity>, ParsingError>
 where
     C: FormatChar,
     I: Iterator<Item = C>,
@@ -660,20 +667,21 @@ where
             return Ok(Some(CFormatQuantity::FromValuesTuple));
         }
         if let Some(i) = c.to_char_lossy().to_digit(10) {
-            let mut num = i as i32;
+            let mut num = i as usize;
             iter.next().unwrap();
             while let Some(&(index, c)) = iter.peek() {
                 if let Some(i) = c.to_char_lossy().to_digit(10) {
                     num = num
                         .checked_mul(10)
-                        .and_then(|num| num.checked_add(i as i32))
-                        .ok_or((CFormatErrorType::IntTooBig, index))?;
+                        .and_then(|num| num.checked_add(i as usize))
+                        .filter(|&num| num <= max_value)
+                        .ok_or((too_big, index))?;
                     iter.next().unwrap();
                 } else {
                     break;
                 }
             }
-            return Ok(Some(CFormatQuantity::Amount(num.unsigned_abs() as usize)));
+            return Ok(Some(CFormatQuantity::Amount(num)));
         }
     }
     Ok(None)
@@ -685,7 +693,7 @@ where
     I: Iterator<Item = C>,
 {
     if iter.next_if(|(_, c)| c.eq_char('.')).is_some() {
-        let quantity = parse_quantity(iter)?;
+        let quantity = parse_quantity(iter, i32::MAX as usize, CFormatErrorType::PrecisionTooBig)?;
         let precision = quantity.map_or(CFormatPrecision::Dot, CFormatPrecision::Quantity);
         return Ok(Some(precision));
     }
@@ -959,6 +967,40 @@ mod tests {
                 index: 7
             })
         );
+    }
+
+    #[test]
+    fn width_and_precision_have_distinct_limits_and_errors() {
+        let precision = "%.2147483648f".parse::<CFormatSpec>().unwrap_err();
+        assert_eq!(precision.0, CFormatErrorType::PrecisionTooBig);
+        assert_eq!(
+            CFormatError {
+                typ: precision.0,
+                index: precision.1,
+            }
+            .to_string(),
+            "precision too big"
+        );
+
+        let oversized_width = format!("%{}f", isize::MAX as u128 + 1);
+        let width = oversized_width.parse::<CFormatSpec>().unwrap_err();
+        assert_eq!(width.0, CFormatErrorType::WidthTooBig);
+        assert_eq!(
+            CFormatError {
+                typ: width.0,
+                index: width.1,
+            }
+            .to_string(),
+            "width too big"
+        );
+
+        if usize::BITS > 32 {
+            let spec = "%2147483648f".parse::<CFormatSpec>().unwrap();
+            assert_eq!(
+                spec.min_field_width,
+                Some(CFormatQuantity::Amount(2_147_483_648))
+            );
+        }
     }
 
     #[test]
