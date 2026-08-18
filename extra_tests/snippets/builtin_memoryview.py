@@ -829,3 +829,24 @@ def test_hex_measures_the_separator():
 
 
 test_hex_measures_the_separator()
+
+
+def test_cast_bounds_the_dimensions():
+    mv = memoryview(bytearray(range(8)))
+    assert mv.cast("B", (1,) * 63 + (8,)).ndim == 64
+    for shape in [(1,) * 64 + (8,), (1,) * 99 + (8,), [1] * 64 + [8]]:
+        try:
+            mv.cast("B", shape)
+            raise AssertionError("cast past the limit")
+        except ValueError as e:
+            assert str(e) == "memoryview: number of dimensions must not exceed 64", e
+
+    # The limit is answered before the shape is looked at any further.
+    try:
+        mv.cast("B", (2, 4)).cast("B", (1,) * 64 + (8,))
+        raise AssertionError("cast past the limit")
+    except ValueError as e:
+        assert str(e) == "memoryview: number of dimensions must not exceed 64", e
+
+
+test_cast_bounds_the_dimensions()

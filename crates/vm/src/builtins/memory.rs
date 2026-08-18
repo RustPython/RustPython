@@ -32,6 +32,9 @@ use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
 
+/// The most dimensions a view can describe. PyBUF_MAX_NDIM
+const MAX_NDIM: usize = 64;
+
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,
@@ -1050,7 +1053,11 @@ impl PyMemoryView {
             };
 
             let shape_ndim = shape.len();
-            // TODO: MAX_NDIM
+            if shape_ndim > MAX_NDIM {
+                return Err(vm.new_value_error(format!(
+                    "memoryview: number of dimensions must not exceed {MAX_NDIM}"
+                )));
+            }
             if self.desc.ndim() != 1 && shape_ndim != 1 {
                 return Err(vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D"));
             }
