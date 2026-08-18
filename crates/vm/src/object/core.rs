@@ -297,6 +297,9 @@ bitflags::bitflags! {
         const SHARED_INLINE = 1 << 5;
         /// Use deferred reference counting
         const DEFERRED = 1 << 6;
+        /// In the candidate set of the collection that is running, so its
+        /// `gc_refs` is meaningful. `_PyGC_PREV_MASK_COLLECTING`.
+        const COLLECTING = 1 << 7;
     }
 }
 
@@ -315,6 +318,11 @@ pub(crate) type GcOwner = u16;
 /// the shared context allocates, and anything allocated with no interpreter
 /// current. Every interpreter collects these.
 pub(crate) const GC_NO_OWNER: GcOwner = 0;
+
+/// `gc_refs` of an object a running collection has proved reachable. One past
+/// the largest count [`PyObject::start_gc_refs`] stores, so no real count can
+/// be taken for it.
+pub(crate) const GC_REACHABLE: u32 = u32::MAX;
 
 /// Link implementation for GC intrusive linked list tracking
 pub(crate) struct GcLink;
@@ -405,6 +413,11 @@ pub(super) struct PyInner<T> {
     /// `track_object`; read to scope a collection to one interpreter.
     /// Sits in what would otherwise be padding, so it costs no space.
     pub(super) gc_owner: PyAtomic<GcOwner>,
+    /// The count a running collection is working with: the strong count with
+    /// the references held from inside the candidate set taken off, or
+    /// [`GC_REACHABLE`] once the object has been proved reachable. Only
+    /// meaningful while `gc_bits` has [`GcBits::COLLECTING`].
+    pub(super) gc_refs: PyAtomic<u32>,
     /// Intrusive linked list pointers for GC generational tracking
     pub(super) gc_pointers: Pointers<PyObject>,
 
@@ -415,9 +428,11 @@ pub(super) struct PyInner<T> {
 pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>();
 
 // ref_count, vtable, gc_pointers (two) and typ are one word each; the gc bits,
-// generation and owner share the word of padding their alignment forces. Adding
-// to that group is free only while this holds.
-const _: () = assert!(SIZEOF_PYOBJECT_HEAD == 6 * core::mem::size_of::<usize>());
+// generation, owner and refs take eight bytes between them. A 64-bit header had
+// those eight as the padding its alignment forces, so they cost it nothing; a
+// 32-bit header spends a word on them. Adding to that group is free only while
+// this holds.
+const _: () = assert!(SIZEOF_PYOBJECT_HEAD == 5 * core::mem::size_of::<usize>() + 8);
 
 impl<T> PyInner<T> {
     /// Read type flags and member_count via raw pointers to avoid Stacked Borrows
@@ -1248,6 +1263,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                     gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_owner: Radium::new(GC_NO_OWNER),
+                    gc_refs: Radium::new(0),
                     gc_pointers: Pointers::new(),
                     typ: PyAtomicRef::from(typ),
                     payload,
@@ -1261,6 +1277,7 @@ impl<T: PyPayload + core::fmt::Debug> PyInner<T> {
                 gc_bits: Radium::new(0),
                 gc_generation: Radium::new(GC_UNTRACKED),
                 gc_owner: Radium::new(GC_NO_OWNER),
+                gc_refs: Radium::new(0),
                 gc_pointers: Pointers::new(),
                 typ: PyAtomicRef::from(typ),
                 payload,
@@ -1801,6 +1818,57 @@ impl PyObject {
     #[inline]
     pub(crate) fn set_gc_owner(&self, owner: GcOwner) {
         self.0.gc_owner.store(owner, Ordering::Relaxed);
+    }
+
+    /// Enter the running collection's candidate set, with `strong_count` as the
+    /// count to subtract internal references from. Counts that do not fit stop
+    /// one short of [`GC_REACHABLE`], which only ever keeps the object alive.
+    #[inline]
+    pub(crate) fn start_gc_refs(&self, strong_count: usize) {
+        let refs = strong_count.min(GC_REACHABLE as usize - 1) as u32;
+        self.0.gc_refs.store(refs, Ordering::Relaxed);
+        self.set_gc_bit(GcBits::COLLECTING);
+    }
+
+    /// The count the running collection is working with.
+    #[inline]
+    pub(crate) fn gc_refs(&self) -> u32 {
+        self.0.gc_refs.load(Ordering::Relaxed)
+    }
+
+    /// Whether this object is in the running collection's candidate set.
+    #[inline]
+    pub(crate) fn is_gc_collecting(&self) -> bool {
+        GcBits::from_bits_retain(self.0.gc_bits.load(Ordering::Relaxed))
+            .contains(GcBits::COLLECTING)
+    }
+
+    /// Take off one reference held from inside the candidate set.
+    #[inline]
+    pub(crate) fn subtract_gc_ref(&self) {
+        let refs = self.0.gc_refs.load(Ordering::Relaxed);
+        self.0
+            .gc_refs
+            .store(refs.saturating_sub(1), Ordering::Relaxed);
+    }
+
+    /// Mark the object reachable, answering whether this call was the one that
+    /// did it.
+    #[inline]
+    pub(crate) fn mark_gc_reachable(&self) -> bool {
+        if self.0.gc_refs.load(Ordering::Relaxed) == GC_REACHABLE {
+            return false;
+        }
+        self.0.gc_refs.store(GC_REACHABLE, Ordering::Relaxed);
+        true
+    }
+
+    /// Leave the candidate set, whatever the collection concluded.
+    #[inline]
+    pub(crate) fn end_gc_refs(&self) {
+        self.0
+            .gc_bits
+            .fetch_and(!GcBits::COLLECTING.bits(), Ordering::Relaxed);
     }
 
     /// _PyObject_GC_TRACK
@@ -2723,6 +2791,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                     gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_owner: Radium::new(GC_NO_OWNER),
+                    gc_refs: Radium::new(0),
                     gc_pointers: Pointers::new(),
                     payload: type_payload,
                 },
@@ -2739,6 +2808,7 @@ pub(crate) fn init_type_hierarchy() -> (PyTypeRef, PyTypeRef, PyTypeRef) {
                     gc_bits: Radium::new(0),
                     gc_generation: Radium::new(GC_UNTRACKED),
                     gc_owner: Radium::new(GC_NO_OWNER),
+                    gc_refs: Radium::new(0),
                     gc_pointers: Pointers::new(),
                     payload: object_payload,
                 },
