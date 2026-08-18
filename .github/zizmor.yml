@@ -1,4 +1,9 @@
 rules:
+  dangerous-triggers:
+    ignore:
+      # pull_request_target is needed to label and assign PRs from forks with issues: write.
+      # The workflow does not check out or execute pull request code.
+      - oscca-pr.yml:3
   excessive-permissions:
     ignore:
       # pull_request_target is needed to post PR comments with pull-requests: write.

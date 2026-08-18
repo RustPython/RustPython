@@ -1582,7 +1582,6 @@ class TestDescriptions(unittest.TestCase):
         self.assertEqual(self._get_summary_line(os.stat),
             "stat(path, *, dir_fd=None, follow_symlinks=True)")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_module_level_callable_noargs(self):
         self.assertEqual(self._get_summary_line(time.time),
             "time()")

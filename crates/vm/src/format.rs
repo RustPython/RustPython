@@ -77,6 +77,12 @@ impl IntoPyException for FormatSpecError {
             Self::AlignmentFlag => {
                 vm.new_value_error("'=' alignment flag is not allowed in complex format specifier")
             }
+            Self::NegativeZeroCoercionNotAllowed(type_name) => {
+                let msg = format!(
+                    "Negative zero coercion (z) not allowed in {type_name} format specifier"
+                );
+                vm.new_value_error(msg)
+            }
             Self::StringAlignmentFlag => {
                 vm.new_value_error("'=' alignment not allowed in string format specifier")
             }

@@ -1,32 +1,25 @@
 // Python/fileutils.c in CPython
 #![allow(non_snake_case)]
 
+use alloc::ffi::CString;
+
 #[cfg(not(windows))]
-pub use libc::stat as StatStruct;
+pub use rustix::fs::Stat as StatStruct;
 
 #[cfg(windows)]
 pub use windows::{StatStruct, fstat};
 
 #[cfg(not(windows))]
 pub fn fstat(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<StatStruct> {
-    let mut stat = core::mem::MaybeUninit::uninit();
-    unsafe {
-        let ret = libc::fstat(fd.as_raw(), stat.as_mut_ptr());
-        if ret == -1 {
-            Err(crate::os::errno_io_error())
-        } else {
-            Ok(stat.assume_init())
-        }
-    }
+    rustix::fs::fstat(fd).map_err(Into::into)
 }
 
 #[cfg(windows)]
 pub mod windows {
     use crate::crt_fd;
     use crate::windows::ToWideString;
-    use alloc::ffi::CString;
     use libc::{S_IFCHR, S_IFDIR, S_IFMT};
-    use std::ffi::{OsStr, OsString};
+    use std::ffi::OsStr;
     use std::os::windows::io::AsRawHandle;
     use std::sync::OnceLock;
     use windows_sys::Win32::Foundation::{
@@ -41,6 +34,7 @@ pub mod windows {
     use windows_sys::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
     use windows_sys::Win32::System::SystemServices::IO_REPARSE_TAG_SYMLINK;
     use windows_sys::core::PCWSTR;
+    use windows_sys::w;
 
     pub const S_IFIFO: libc::c_int = 0o010000;
     pub const S_IFLNK: libc::c_int = 0o120000;
@@ -310,16 +304,13 @@ pub mod windows {
 
         let GetFileInformationByName = GET_FILE_INFORMATION_BY_NAME
             .get_or_init(|| {
-                let library_name =
-                    OsString::from("api-ms-win-core-file-l2-1-4.dll").to_wide_with_nul();
-                let module = unsafe { LoadLibraryW(library_name.as_ptr()) };
+                let library_name = w!("api-ms-win-core-file-l2-1-4.dll");
+                let module = unsafe { LoadLibraryW(library_name) };
                 if module.is_null() {
                     return None;
                 }
-                let name = CString::new("GetFileInformationByName").unwrap();
-                if let Some(proc) =
-                    unsafe { GetProcAddress(module, name.as_bytes_with_nul().as_ptr()) }
-                {
+                let name = c"GetFileInformationByName";
+                if let Some(proc) = unsafe { GetProcAddress(module, name.as_ptr().cast()) } {
                     Some(unsafe {
                         core::mem::transmute::<
                             unsafe extern "system" fn() -> isize,
@@ -466,7 +457,6 @@ pub unsafe fn fclose(fp: *mut CFile) -> core::ffi::c_int {
     reason = "false positive: core::io::ErrorKind is unstable (core_io)"
 )]
 pub fn fopen(path: &std::path::Path, mode: &str) -> std::io::Result<*mut CFile> {
-    use alloc::ffi::CString;
     use std::fs::File;
 
     // Currently only supports read mode

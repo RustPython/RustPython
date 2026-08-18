@@ -15,7 +15,7 @@ use crate::{
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
     frame::{FrameObject, FrameObjectRef},
-    function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
@@ -550,6 +550,20 @@ impl Py<PyFunction> {
         self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
     }
 
+    /// Whether this function currently has native JIT code. Adaptive Python
+    /// call specializations must yield to that entry point.
+    #[inline]
+    pub(crate) fn is_jitted(&self) -> bool {
+        #[cfg(feature = "jit")]
+        {
+            self.jitted_code.lock().is_some()
+        }
+        #[cfg(not(feature = "jit"))]
+        {
+            false
+        }
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
@@ -643,8 +657,8 @@ impl Py<PyFunction> {
             .and_then(|()| vm.run_frame_fast(iframe));
         // Release data stack memory — must happen on both success and error.
         unsafe {
-            if let Some(base) = iframe.release_datastack_frame() {
-                vm.datastack_pop(base);
+            if let Some((base, size)) = iframe.release_datastack_frame() {
+                vm.datastack_pop_frame(base, size);
             }
         }
         result
@@ -669,7 +683,10 @@ impl Py<PyFunction> {
         );
         // SAFETY: the frame is alive (held by `frame`) and untracked.
         unsafe {
-            crate::gc_state::gc_state().track_object(core::ptr::NonNull::from(frame.as_object()));
+            crate::gc_state::gc_state().track_object(
+                core::ptr::NonNull::from(frame.as_object()),
+                crate::gc_state::current_owner(),
+            );
         }
         frame.set_generator(&obj);
         obj
@@ -820,8 +837,8 @@ impl Py<PyFunction> {
 
         let result = vm.run_frame_fast(iframe);
         unsafe {
-            if let Some(base) = iframe.release_datastack_frame() {
-                vm.datastack_pop(base);
+            if let Some((base, size)) = iframe.release_datastack_frame() {
+                vm.datastack_pop_frame(base, size);
             }
         }
         result
@@ -1507,7 +1524,7 @@ impl Representable for PyBoundMethod {
     }
 }
 
-#[pyclass(module = false, name = "cell", traverse)]
+#[pyclass(module = false, name = "cell", unhashable = true, traverse)]
 #[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
@@ -1530,8 +1547,26 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, Representable))]
 impl PyCell {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        // compare cells by contents; empty cells come before anything else
+        match (zelf.get(), other.get()) {
+            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
+        }
+    }
+
     pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
@@ -1561,6 +1596,30 @@ impl PyCell {
     }
 }
 
+impl Representable for PyCell {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let id = zelf.get_id();
+        Ok(match zelf.get() {
+            Some(value) => {
+                let type_name = value.class().slot_name();
+                // CPython renders the type name with "%.80s", which reads at
+                // most 80 bytes and drops a character left incomplete by the cut.
+                let mut end = type_name.len().min(80);
+                while !type_name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!(
+                    "<cell at {id:#x}: {} object at {:#x}>",
+                    &type_name[..end],
+                    value.get_id()
+                )
+            }
+            None => format!("<cell at {id:#x}: empty>"),
+        })
+    }
+}
+
 /// Vectorcall implementation for PyFunction (PEP 590).
 /// Takes owned args to avoid cloning when filling fastlocals.
 pub(crate) fn vectorcall_function(
@@ -1574,6 +1633,16 @@ pub(crate) fn vectorcall_function(
     let code: &Py<PyCode> = &zelf.code;
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
+    if zelf.is_jitted() {
+        let func_args = if has_kwargs {
+            FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
+        } else {
+            args.truncate(nargs);
+            FuncArgs::from(args)
+        };
+        return zelf.invoke(func_args, vm);
+    }
+
     let is_simple = !has_kwargs
         && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
@@ -1598,7 +1667,7 @@ pub(crate) fn vectorcall_function(
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
     let func_args = if has_kwargs {
-        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+        FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
     } else {
         args.truncate(nargs);
         FuncArgs::from(args)

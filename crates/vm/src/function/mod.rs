@@ -11,11 +11,13 @@ mod protocol;
 mod time;
 
 pub use argument::{
-    ArgumentError, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, OptionalArg,
-    OptionalOption, PosArgs,
+    ArgumentError, FromArgOptional, FromArgs, FuncArgs, IntoFuncArgs, KwArgs, KwArgsMap,
+    OptionalArg, OptionalOption, PosArgs,
 };
 pub use arithmetic::{PyArithmeticValue, PyComparisonValue};
-pub use buffer::{ArgAsciiBuffer, ArgBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike};
+pub use buffer::{
+    ArgAsciiBuffer, ArgBytesLike, ArgContiguousBytesLike, ArgMemoryBuffer, ArgStrOrBytesLike,
+};
 pub use builtin::{IntoPyNativeFn, PyNativeFn, static_func, static_raw_func};
 pub use either::Either;
 pub use fspath::FsPath;

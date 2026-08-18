@@ -1,3 +1,4 @@
+import _csv
 import csv
 import io
 
@@ -307,3 +308,8 @@ def test_reader_skipinitialspace_preserves_quoted_spaces():
 
 
 test_reader_skipinitialspace_preserves_quoted_spaces()
+
+# The reader is built with the default dialect, which it has to look up itself.
+
+with assert_raises(StopIteration):
+    next(_csv.reader([]))

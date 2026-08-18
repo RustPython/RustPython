@@ -4556,7 +4556,6 @@ class ThreadedTests(unittest.TestCase):
                     s.sendfile(file)
                     self.assertEqual(s.recv(1024), TEST_DATA)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_session(self):
         client_context, server_context, hostname = testing_context()
         # TODO: sessions aren't compatible with TLSv1.3 yet
@@ -4614,7 +4613,6 @@ class ThreadedTests(unittest.TestCase):
         self.assertEqual(sess_stat['accept'], 4)
         self.assertEqual(sess_stat['hits'], 2)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: False != True
     def test_session_handling(self):
         client_context, server_context, hostname = testing_context()
         client_context2, _, _ = testing_context()

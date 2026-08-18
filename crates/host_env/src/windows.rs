@@ -4,24 +4,27 @@ use std::{
     io,
     os::windows::ffi::{OsStrExt, OsStringExt},
 };
-use windows_sys::Win32::{
-    Foundation::{
-        E_POINTER, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FLAGS, ERROR_NO_UNICODE_TRANSLATION,
-        MAX_PATH, S_OK,
-    },
-    Networking::WinSock::WSAStartup,
-    Storage::FileSystem::{
-        GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
-    },
-    System::{
-        Diagnostics::Debug::{
-            FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
-            FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+use windows_sys::{
+    Win32::{
+        Foundation::{
+            E_POINTER, ERROR_INSUFFICIENT_BUFFER, ERROR_INVALID_FLAGS,
+            ERROR_NO_UNICODE_TRANSLATION, MAX_PATH, S_OK,
         },
-        LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
-        SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
-        Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
+        Networking::WinSock::WSAStartup,
+        Storage::FileSystem::{
+            GetFileVersionInfoSizeW, GetFileVersionInfoW, VS_FIXEDFILEINFO, VerQueryValueW,
+        },
+        System::{
+            Diagnostics::Debug::{
+                FORMAT_MESSAGE_ALLOCATE_BUFFER, FORMAT_MESSAGE_FROM_SYSTEM,
+                FORMAT_MESSAGE_IGNORE_INSERTS, FormatMessageW,
+            },
+            LibraryLoader::{GetModuleFileNameW, GetModuleHandleW},
+            SystemInformation::{GetVersionExW, OSVERSIONINFOEXW, OSVERSIONINFOW},
+            Threading::{GetCurrentThreadStackLimits, SetThreadStackGuarantee},
+        },
     },
+    w,
 };
 
 /// _MAX_ENV from Windows CRT stdlib.h - maximum environment variable size
@@ -154,8 +157,8 @@ pub struct WindowsVersionInfo {
 
 fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
     unsafe {
-        let module_name: Vec<u16> = OsStr::new("kernel32.dll").to_wide_with_nul();
-        let h_kernel32 = GetModuleHandleW(module_name.as_ptr()).check_nonnull()?;
+        let module_name = w!("kernel32.dll");
+        let h_kernel32 = GetModuleHandleW(module_name).check_nonnull()?;
 
         let mut kernel32_path = [0u16; MAX_PATH as usize];
         let len = GetModuleFileNameW(
@@ -181,13 +184,13 @@ fn get_kernel32_version() -> io::Result<(u32, u32, u32)> {
         )
         .check_win32_bool()?;
 
-        let sub_block: Vec<u16> = OsStr::new("").to_wide_with_nul();
+        let sub_block = w!("");
 
         let mut ffi_ptr: *mut VS_FIXEDFILEINFO = core::ptr::null_mut();
         let mut ffi_len: u32 = 0;
         VerQueryValueW(
             ver_block.as_ptr() as *const _,
-            sub_block.as_ptr(),
+            sub_block,
             &mut ffi_ptr as *mut *mut VS_FIXEDFILEINFO as *mut *mut _,
             &mut ffi_len as *mut u32,
         )

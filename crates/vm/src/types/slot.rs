@@ -9,7 +9,7 @@ use crate::{
     convert::ToPyObject,
     function::{Either, FromArgs, FuncArgs, PyComparisonValue, PyMethodDef, PySetterValue},
     protocol::{
-        PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
+        BufferFlags, PyBuffer, PyIterReturn, PyMapping, PyMappingMethods, PyMappingSlots, PyNumber,
         PyNumberMethods, PyNumberSlots, PySequence, PySequenceMethods, PySequenceSlots,
     },
     types::slot_defs::{SlotAccessor, find_slot_defs_by_name},
@@ -149,7 +149,12 @@ pub struct PyTypeSlots {
     pub setattro: AtomicCell<Option<SetattroFunc>>,
 
     // Functions to access object as input/output buffer
-    pub as_buffer: Option<AsBufferFunc>,
+    pub as_buffer: AtomicCell<Option<AsBufferFunc>>,
+    /// bf_releasebuffer: releasing an export of this type is observable, so the
+    /// type exposes `__release_buffer__`.
+    pub has_release_buffer: AtomicCell<bool>,
+    /// True when a Python-level `__release_buffer__` must be invoked on release.
+    pub python_release_buffer: AtomicCell<bool>,
 
     // Assigned meaning in release 2.1
     // rich comparisons
@@ -296,7 +301,8 @@ pub(crate) type StringifyFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyRef
 pub(crate) type GetattroFunc = fn(&PyObject, &Py<PyStr>, &VirtualMachine) -> PyResult;
 pub(crate) type SetattroFunc =
     fn(&PyObject, &Py<PyStr>, PySetterValue, &VirtualMachine) -> PyResult<()>;
-pub(crate) type AsBufferFunc = fn(&PyObject, &VirtualMachine) -> PyResult<PyBuffer>;
+/// bf_getbuffer
+pub(crate) type AsBufferFunc = fn(&PyObject, BufferFlags, &VirtualMachine) -> PyResult<PyBuffer>;
 pub(crate) type RichCompareFunc = fn(
     &PyObject,
     &PyObject,
@@ -328,6 +334,15 @@ pub(crate) type MapLenFunc = fn(PyMapping<'_>, &VirtualMachine) -> PyResult<usiz
 pub(crate) type MapSubscriptFunc = fn(PyMapping<'_>, &PyObject, &VirtualMachine) -> PyResult;
 pub(crate) type MapAssSubscriptFunc =
     fn(PyMapping<'_>, &PyObject, Option<PyObjectRef>, &VirtualMachine) -> PyResult<()>;
+
+// slot_bf_getbuffer
+pub(crate) fn python_as_buffer(
+    obj: &PyObject,
+    flags: BufferFlags,
+    vm: &VirtualMachine,
+) -> PyResult<PyBuffer> {
+    crate::builtins::memory::buffer_from_python_getbuffer(obj, flags, vm)
+}
 
 // slot_sq_length
 pub(crate) fn len_wrapper(obj: &PyObject, vm: &VirtualMachine) -> PyResult<usize> {
@@ -512,7 +527,11 @@ pub fn hash_not_implemented(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<Py
 }
 
 fn call_wrapper(zelf: &PyObject, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-    vm.call_special_method(zelf, identifier!(vm, __call__), args)
+    // `__call__` can name the object being called, and dispatching it pushes no
+    // Python frame, so nothing else counts the nesting.
+    vm.with_recursion("while calling a Python object", || {
+        vm.call_special_method(zelf, identifier!(vm, __call__), args)
+    })
 }
 
 fn getattro_wrapper(zelf: &PyObject, name: &Py<PyStr>, vm: &VirtualMachine) -> PyResult {
@@ -601,7 +620,11 @@ fn descr_get_wrapper(
     cls: Option<PyObjectRef>,
     vm: &VirtualMachine,
 ) -> PyResult {
-    vm.call_special_method(&zelf, identifier!(vm, __get__), (obj, cls))
+    // A descriptor whose `__get__` is the descriptor itself resolves it by
+    // fetching `__get__` again, and none of that pushes a Python frame.
+    vm.with_recursion("while calling a Python object", || {
+        vm.call_special_method(&zelf, identifier!(vm, __get__), (obj, cls))
+    })
 }
 
 fn descr_set_wrapper(
@@ -1579,6 +1602,58 @@ impl PyType {
                 }
             }
 
+            // === Buffer protocol ===
+            SlotAccessor::BfGetBuffer => {
+                if ADD {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if let SlotFunc::GetBuffer(f) = sf {
+                            Some(*f)
+                        } else {
+                            None
+                        }
+                    }) {
+                        SlotLookupResult::NativeSlot(func) => {
+                            self.slots.as_buffer.store(Some(func));
+                        }
+                        SlotLookupResult::PythonMethod => {
+                            self.slots.as_buffer.store(Some(python_as_buffer));
+                        }
+                        SlotLookupResult::NotFound => {
+                            accessor.inherit_from_mro(self);
+                        }
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
+            }
+            SlotAccessor::BfReleaseBuffer => {
+                // Which of the two implementations `__release_buffer__` resolves to
+                // decides whether buffer release has to call back into Python.
+                if ADD {
+                    match self.lookup_slot_in_mro(name, ctx, |sf| {
+                        if matches!(sf, SlotFunc::ReleaseBuffer) {
+                            Some(())
+                        } else {
+                            None
+                        }
+                    }) {
+                        SlotLookupResult::NativeSlot(()) => {
+                            self.slots.python_release_buffer.store(false);
+                            self.slots.has_release_buffer.store(true);
+                        }
+                        SlotLookupResult::PythonMethod => {
+                            self.slots.python_release_buffer.store(true);
+                            self.slots.has_release_buffer.store(true);
+                        }
+                        SlotLookupResult::NotFound => {
+                            accessor.inherit_from_mro(self);
+                        }
+                    }
+                } else {
+                    accessor.inherit_from_mro(self);
+                }
+            }
+
             // Reserved slots - no-op
             _ => {}
         }
@@ -1995,6 +2070,29 @@ impl PyComparisonOp {
         self.map_eq(|| a.borrow().is(b.borrow()))
     }
 
+    /// The answer to this comparison for two operands that `equal` reports as
+    /// equal or not, or `None` for an ordering operator, which equality alone
+    /// cannot settle -- `equal` is not called in that case.
+    ///
+    /// This is what lets a type answer `==` and `!=` with an equality test
+    /// rather than with an ordering: the two agree on the answer, but equality
+    /// can settle a length mismatch without looking at the contents at all.
+    ///
+    /// The two neighbouring helpers answer different questions: [`Self::map_eq`]
+    /// answers only where its predicate holds, so a caller still handles the
+    /// other side, and [`Self::eq_only`] declares the comparison
+    /// `NotImplemented` for an ordering operator. This one leaves the ordering
+    /// operators to the caller, which is what a type with a real ordering
+    /// needs.
+    #[inline]
+    pub fn eval_eq(self, equal: impl FnOnce() -> bool) -> Option<bool> {
+        match self {
+            Self::Eq => Some(equal()),
+            Self::Ne => Some(!equal()),
+            _ => None,
+        }
+    }
+
     /// Returns `Some(true)` when self is `Eq` and `f()` returns true. Returns `Some(false)` when self
     /// is `Ne` and `f()` returns true. Otherwise returns `None`.
     #[inline]
@@ -2047,14 +2145,29 @@ pub trait SetAttr: PyPayload {
 
 #[pyclass]
 pub trait AsBuffer: PyPayload {
-    // TODO: `flags` parameter
+    /// bf_releasebuffer: set when releasing an export of this type is observable,
+    /// i.e. the exporter counts exports. Such types expose `__release_buffer__`.
+    const RELEASE_BUFFER: bool = false;
+
     #[inline]
     #[pyslot]
-    fn slot_as_buffer(zelf: &PyObject, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+    fn slot_as_buffer(
+        zelf: &PyObject,
+        flags: BufferFlags,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBuffer> {
         let zelf = zelf
             .downcast_ref()
             .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
-        Self::as_buffer(zelf, vm)
+        let buffer = Self::as_buffer(zelf, vm)?;
+        if let Err(exc) = flags.check_writable(buffer.desc.readonly, "Object is not writable.", vm)
+        {
+            // An acquisition that cannot be served never happened, so the
+            // exporter's release is undone without running the Python hook.
+            buffer.abort_acquisition();
+            return Err(exc);
+        }
+        Ok(buffer)
     }
 
     fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer>;

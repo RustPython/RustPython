@@ -21,9 +21,9 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgPrimitiveIndex, ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
-            OptionalOption, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+            PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -74,8 +74,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn bin(x: PyIntRef) -> String {
-        let x = x.as_bigint();
+    fn bin(number: PyIntRef) -> String {
+        let x = number.as_bigint();
         if x.is_negative() {
             format!("-0b{:b}", x.abs())
         } else {
@@ -341,6 +341,7 @@ mod builtins {
                 };
                 match &source {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
@@ -391,11 +392,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn delattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn delattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.del_attr(attr, vm)
@@ -407,8 +408,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn divmod(a: PyObjectRef, b: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        vm._divmod(&a, &b)
+    fn divmod(x: PyObjectRef, y: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        vm._divmod(&x, &y)
     }
 
     #[derive(FromArgs)]
@@ -548,13 +549,14 @@ mod builtins {
             Either::A(either) => {
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
                                 "source code string cannot contain null bytes".into(),
                             ));
                         }
-                        let source = source.expect_str().trim_start_matches([' ', '\t']);
+                        let source = source.trim_start_matches([' ', '\t']);
                         audit_compile_source(vm, source.as_bytes(), "<string>")?;
                         source.to_owned()
                     }
@@ -597,6 +599,7 @@ mod builtins {
                 }
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
@@ -604,7 +607,7 @@ mod builtins {
                             ));
                         }
                         audit_compile_source(vm, source.as_bytes(), "<string>")?;
-                        source.expect_str().to_owned()
+                        source.to_owned()
                     }
                     ArgStrOrBytesLike::Buf(source) => {
                         let source: &[u8] = &source.borrow_buf();
@@ -712,11 +715,11 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn hasattr(obj: PyObjectRef, attr: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+    fn hasattr(obj: PyObjectRef, name: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         Ok(vm.get_attribute_opt(obj, attr)?.is_some())
@@ -818,13 +821,21 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn isinstance(obj: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        obj.is_instance(&typ, vm)
+    fn isinstance(
+        obj: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        obj.is_instance(&class_or_tuple, vm)
     }
 
     #[pyfunction]
-    fn issubclass(subclass: PyObjectRef, typ: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
-        subclass.is_subclass(&typ, vm)
+    fn issubclass(
+        cls: PyObjectRef,
+        class_or_tuple: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<bool> {
+        cls.is_subclass(&class_or_tuple, vm)
     }
 
     #[pyfunction]
@@ -845,8 +856,8 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn aiter(iter_target: PyObjectRef, vm: &VirtualMachine) -> PyResult {
-        iter_target.get_aiter(vm)
+    fn aiter(async_iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult {
+        async_iterable.get_aiter(vm)
     }
 
     #[pyfunction]
@@ -994,18 +1005,10 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn ord(string: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
-        match string {
-            Either::A(bytes) => bytes.with_ref(|bytes| {
-                let bytes_len = bytes.len();
-                if bytes_len != 1 {
-                    return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {bytes_len} found"
-                    )));
-                }
-                Ok(u32::from(bytes[0]))
-            }),
-            Either::B(string) => match string.as_wtf8().code_points().exactly_one() {
+    // builtin_ord
+    fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let bytes = if let Some(string) = character.downcast_ref::<PyStr>() {
+            return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
                     let string_len = string.char_len();
@@ -1013,8 +1016,24 @@ mod builtins {
                         "ord() expected a character, but string of length {string_len} found"
                     )))
                 }
-            },
+            };
+        } else if let Some(bytes) = character.downcast_ref::<PyBytes>() {
+            bytes.as_bytes().to_vec()
+        } else if let Some(bytearray) = character.downcast_ref::<PyByteArray>() {
+            bytearray.borrow_buf().to_vec()
+        } else {
+            return Err(vm.new_type_error(format!(
+                "ord() expected string of length 1, but {} found",
+                character.class().name()
+            )));
+        };
+        let bytes_len = bytes.len();
+        if bytes_len != 1 {
+            return Err(vm.new_type_error(format!(
+                "ord() expected a character, but string of length {bytes_len} found"
+            )));
         }
+        Ok(u32::from(bytes[0]))
     }
 
     #[derive(FromArgs)]
@@ -1041,7 +1060,7 @@ mod builtins {
     #[pyfunction]
     pub(super) fn exit(exit_code_arg: OptionalArg<PyObjectRef>, vm: &VirtualMachine) -> PyResult {
         let code = exit_code_arg.unwrap_or_else(|| vm.ctx.new_int(0).into());
-        Err(vm.invoke_exception(vm.ctx.exceptions.system_exit, vec![code])?)
+        Err(vm.new_system_exit(vec![code].into()))
     }
 
     #[derive(Debug, Default, FromArgs)]
@@ -1138,14 +1157,14 @@ mod builtins {
     #[pyfunction]
     fn setattr(
         obj: PyObjectRef,
-        attr: PyObjectRef,
+        name: PyObjectRef,
         value: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let attr = attr.try_to_ref::<PyStr>(vm).map_err(|_e| {
+        let attr = name.try_to_ref::<PyStr>(vm).map_err(|_e| {
             vm.new_type_error(format!(
                 "attribute name must be string, not '{}'",
-                attr.class().name()
+                name.class().name()
             ))
         })?;
         obj.set_attr(attr, value, vm)?;

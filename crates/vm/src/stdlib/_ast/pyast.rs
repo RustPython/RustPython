@@ -1718,12 +1718,16 @@ fn populate_field_types(vm: &VirtualMachine, module: &Py<PyModule>) {
                 FieldType::ListOf(name) => {
                     let elem = resolve_node(name);
                     let args = PyTuple::new_ref(vec![elem], &vm.ctx);
-                    PyGenericAlias::new(list_type.clone(), args, false, vm).to_pyobject(vm)
+                    PyGenericAlias::new(list_type.clone(), args, false, vm)
+                        .expect("static field types are not nested, so no recursion is possible")
+                        .to_pyobject(vm)
                 }
                 FieldType::ListOfBuiltin(name) => {
                     let elem = resolve_builtin(name);
                     let args = PyTuple::new_ref(vec![elem], &vm.ctx);
-                    PyGenericAlias::new(list_type.clone(), args, false, vm).to_pyobject(vm)
+                    PyGenericAlias::new(list_type.clone(), args, false, vm)
+                        .expect("static field types are not nested, so no recursion is possible")
+                        .to_pyobject(vm)
                 }
                 FieldType::Optional(name) => {
                     let base = resolve_node(name);

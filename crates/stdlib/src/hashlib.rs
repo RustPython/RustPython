@@ -847,15 +847,15 @@ pub(crate) mod _hashlib {
                 if len < 1 {
                     return Err(vm.new_value_error("key length must be greater than 0."));
                 }
-                usize::try_from(len)
-                    .map_err(|_| vm.new_overflow_error("key length is too great."))?
+                i32::try_from(len).map_err(|_| vm.new_overflow_error("key length is too great."))?
+                    as usize
             }
             None => hash_digest_size(&name).ok_or_else(|| unsupported_hash(&name, vm))?,
         };
 
         let password_buf = args.password.borrow_buf();
         let salt_buf = args.salt.borrow_buf();
-        let mut dk = vec![0u8; dklen];
+        let mut dk = vm.new_zeroed_bytes(dklen)?;
 
         macro_rules! do_pbkdf2 {
             ($hash_ty:ty) => {{

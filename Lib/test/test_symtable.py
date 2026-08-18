@@ -247,7 +247,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(self.top.get_lineno(), 0)
         self.assertEqual(self.spam.get_lineno(), 14)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: Lists differ: [] != ['a', 'b', 'internal', 'kw', 'other_internal', 'some_var', 'var', 'x']
     def test_function_info(self):
         func = self.spam
         self.assertEqual(sorted(func.get_parameters()), ["a", "b", "kw", "var"])
@@ -256,7 +255,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(sorted(func.get_globals()), ["bar", "glob", "some_assigned_global_var"])
         self.assertEqual(self.internal.get_frees(), ("x",))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_globals(self):
         self.assertTrue(self.spam.lookup("glob").is_global())
         self.assertFalse(self.spam.lookup("glob").is_declared_global())
@@ -275,7 +273,6 @@ class SymtableTest(unittest.TestCase):
         expected = ("some_var",)
         self.assertEqual(self.other_internal.get_nonlocals(), expected)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_local(self):
         self.assertTrue(self.spam.lookup("x").is_local())
         self.assertFalse(self.spam.lookup("bar").is_local())
@@ -283,7 +280,6 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.top.lookup("some_non_assigned_global_var").is_local())
         self.assertTrue(self.top.lookup("some_assigned_global_var").is_local())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_free(self):
         self.assertTrue(self.internal.lookup("x").is_free())
 
@@ -328,7 +324,6 @@ class SymtableTest(unittest.TestCase):
         self.assertTrue(self.Mine.lookup("a_method").is_assigned())
         self.assertFalse(self.internal.lookup("x").is_assigned())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: list index out of range
     def test_annotated(self):
         st1 = symtable.symtable('def f():\n    x: int\n', 'test', 'exec')
         st2 = st1.get_children()[1]
@@ -493,7 +488,6 @@ class SymtableTest(unittest.TestCase):
         self.assertEqual(str(self.top), "<SymbolTable for module ?>")
         self.assertEqual(str(self.spam), "<Function SymbolTable for spam in ?>")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: AssertionError: "<symbol 'glob': 0, DEF_GLOBAL>" != "<symbol 'glob': GLOBAL_IMPLICIT, USE>"
     def test_symbol_repr(self):
         self.assertEqual(repr(self.spam.lookup("glob")),
                          "<symbol 'glob': GLOBAL_IMPLICIT, USE>")
