@@ -624,7 +624,9 @@ impl PyCData {
 
         // Get buffer pointer - the memory is owned by source
         let ptr = {
-            let bytes = buffer.obj_bytes();
+            // Contiguity is checked above, so this is the view's own bytes rather
+            // than the whole exporter's.
+            let bytes = unsafe { buffer.contiguous_unchecked() };
             bytes.as_ptr().wrapping_add(offset)
         };
 
@@ -1939,7 +1941,7 @@ fn struct_union_paramfunc(obj: &PyObject, stg_info: &StgInfo, _vm: &VirtualMachi
 
 /// A foreign-call argument in a form the unified `call` entry point accepts: a
 /// simple-typed scalar (its ctypes code plus a native-endian bytes snapshot),
-/// an untyped int/float, or an address. Any object whose memory an address
+/// an untyped int, or an address. Any object whose memory an address
 /// refers to is kept alive by the enclosing `Argument`/`CArgObject`, not here.
 #[derive(Debug, Clone)]
 pub enum CArgValue {
@@ -1947,8 +1949,6 @@ pub enum CArgValue {
     Typed { code: char, bytes: Vec<u8> },
     /// Untyped Python int (ConvParam default: C int).
     Int(i32),
-    /// Untyped Python float (ConvParam default: C double).
-    Double(f64),
     /// Address-valued argument (pointer decay, byref, buffer copies, NULL = 0).
     Pointer(usize),
     /// By-value aggregate: its call layout plus a snapshot of its bytes.
@@ -1985,7 +1985,6 @@ impl CArgValue {
                 buffer: bytes,
             },
             Self::Int(value) => CallArg::Int(*value),
-            Self::Double(value) => CallArg::Double(*value),
             Self::Pointer(value) => CallArg::Pointer(*value),
             Self::Aggregate { layout, bytes } => CallArg::Aggregate {
                 layout,

@@ -1,0 +1,70 @@
+name: Manage OSCCA pull requests
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  label-and-assign:
+    name: Label and assign OSCCA pull request
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Label and assign pull request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const osccaUsers = new Set(
+              [
+                "2jiyong",
+                "chestnut1717",
+                "devyubin",
+                "fregataa",
+                "hyoinandout",
+                "HyoJongPark",
+                "JaceJung-dev",
+                "jinmay",
+                "jiwahn",
+                "kangdora",
+                "kim-jaedeok",
+                "kyokuping",
+                "leehanjeong",
+                "lms0806",
+                "lsahn-gh",
+                "moreal",
+                "name-of-okja",
+                "rlaisqls",
+                "seungje0612",
+                "shAn-kor",
+                "sigmaith",
+                "teddygood",
+                "widehyo1",
+                "YangSiJun528",
+                "zzarbttoo",
+              ].map((login) => login.toLowerCase()),
+            );
+            const pullRequest = context.payload.pull_request;
+            const author = pullRequest.user.login;
+
+            if (!osccaUsers.has(author.toLowerCase())) {
+              core.info(`${author} is not an OSCCA participant; skipping.`);
+              return;
+            }
+
+            const issue = {
+              ...context.repo,
+              issue_number: pullRequest.number,
+            };
+
+            await github.rest.issues.addLabels({
+              ...issue,
+              labels: ["z-ca-2026"],
+            });
+            await github.rest.issues.addAssignees({
+              ...issue,
+              assignees: [author],
+            });

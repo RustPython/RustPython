@@ -106,3 +106,11 @@ if __name__ == "__main__":
     test_05()
     test_06()
     test_07()
+
+
+# Reading into a buffer that views this same object locks it twice unless the
+# read finishes first.
+_bio = BytesIO(b"x" * 60)
+assert _bio.readinto(_bio.getbuffer()) == 60
+_bio = BytesIO(b"x" * 60)
+assert _bio.readinto(memoryview(_bio.getbuffer())) == 60

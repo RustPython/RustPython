@@ -21,9 +21,9 @@ mod builtins {
         bytecode,
         common::hash::PyHash,
         function::{
-            ArgBytesLike, ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping,
-            ArgPrimitiveIndex, ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg,
-            OptionalOption, PosArgs,
+            ArgCallable, ArgIndex, ArgIntoBool, ArgIterable, ArgMapping, ArgPrimitiveIndex,
+            ArgStrOrBytesLike, Either, FsPath, FuncArgs, KwArgs, OptionalArg, OptionalOption,
+            PosArgs,
         },
         protocol::{PyIter, PyIterReturn},
         py_io,
@@ -341,6 +341,7 @@ mod builtins {
                 };
                 match &source {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
@@ -548,13 +549,14 @@ mod builtins {
             Either::A(either) => {
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
                                 "source code string cannot contain null bytes".into(),
                             ));
                         }
-                        let source = source.expect_str().trim_start_matches([' ', '\t']);
+                        let source = source.trim_start_matches([' ', '\t']);
                         audit_compile_source(vm, source.as_bytes(), "<string>")?;
                         source.to_owned()
                     }
@@ -597,6 +599,7 @@ mod builtins {
                 }
                 let source = match &either {
                     ArgStrOrBytesLike::Str(source) => {
+                        let source = source.try_as_utf8(vm)?.as_str();
                         if source.as_bytes().contains(&0) {
                             return Err(vm.new_exception_msg(
                                 vm.ctx.exceptions.syntax_error.to_owned(),
@@ -604,7 +607,7 @@ mod builtins {
                             ));
                         }
                         audit_compile_source(vm, source.as_bytes(), "<string>")?;
-                        source.expect_str().to_owned()
+                        source.to_owned()
                     }
                     ArgStrOrBytesLike::Buf(source) => {
                         let source: &[u8] = &source.borrow_buf();
@@ -1002,18 +1005,10 @@ mod builtins {
     }
 
     #[pyfunction]
-    fn ord(character: Either<ArgBytesLike, PyStrRef>, vm: &VirtualMachine) -> PyResult<u32> {
-        match character {
-            Either::A(bytes) => bytes.with_ref(|bytes| {
-                let bytes_len = bytes.len();
-                if bytes_len != 1 {
-                    return Err(vm.new_type_error(format!(
-                        "ord() expected a character, but string of length {bytes_len} found"
-                    )));
-                }
-                Ok(u32::from(bytes[0]))
-            }),
-            Either::B(string) => match string.as_wtf8().code_points().exactly_one() {
+    // builtin_ord
+    fn ord(character: PyObjectRef, vm: &VirtualMachine) -> PyResult<u32> {
+        let bytes = if let Some(string) = c.downcast_ref::<PyStr>() {
+            return match string.as_wtf8().code_points().exactly_one() {
                 Ok(character) => Ok(character.to_u32()),
                 Err(_) => {
                     let string_len = string.char_len();
@@ -1021,8 +1016,24 @@ mod builtins {
                         "ord() expected a character, but string of length {string_len} found"
                     )))
                 }
-            },
+            };
+        } else if let Some(bytes) = c.downcast_ref::<PyBytes>() {
+            bytes.as_bytes().to_vec()
+        } else if let Some(bytearray) = c.downcast_ref::<PyByteArray>() {
+            bytearray.borrow_buf().to_vec()
+        } else {
+            return Err(vm.new_type_error(format!(
+                "ord() expected string of length 1, but {} found",
+                c.class().name()
+            )));
+        };
+        let bytes_len = bytes.len();
+        if bytes_len != 1 {
+            return Err(vm.new_type_error(format!(
+                "ord() expected a character, but string of length {bytes_len} found"
+            )));
         }
+        Ok(u32::from(bytes[0]))
     }
 
     #[derive(FromArgs)]
