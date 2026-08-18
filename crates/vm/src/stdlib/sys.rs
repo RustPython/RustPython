@@ -669,7 +669,8 @@ pub mod sys {
             "_multiarch" => ctx.new_str(multiarch()),
             "version" => PyVersionInfo::from_data(VersionInfoData::IMPLEMENTATION, vm),
             "hexversion" => ctx.new_int(version::VERSION_HEX_IMPL),
-            "supports_isolated_interpreters" => ctx.new_bool(false),
+            "supports_isolated_interpreters" =>
+                ctx.new_bool(crate::vm::runtime::SUPPORTS_ISOLATED_INTERPRETERS),
         })
     }
 
@@ -776,8 +777,7 @@ pub mod sys {
         } else {
             vec![status]
         };
-        let exc = vm.invoke_exception(vm.ctx.exceptions.system_exit, args)?;
-        Err(exc)
+        Err(vm.new_system_exit(args.into()))
     }
 
     #[pyfunction]
@@ -818,8 +818,27 @@ pub mod sys {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let stderr = super::get_stderr(vm)?;
+        // Keep runtime SyntaxErrors on the normal traceback path.
+        let has_traceback = !vm.is_none(&exc_tb);
         match vm.normalize_exception(exc_type, exc_val.clone(), exc_tb) {
             Ok(exc) => {
+                let native_syntax_error_display = !has_traceback
+                    && exc.fast_isinstance(vm.ctx.exceptions.syntax_error)
+                    && exc
+                        .as_object()
+                        .get_attr("msg", vm)
+                        .ok()
+                        .and_then(|msg| msg.downcast::<PyStr>().ok())
+                        .is_some_and(|msg| msg.to_string_lossy() == "unexpected EOF while parsing")
+                    && exc
+                        .as_object()
+                        .get_attr("text", vm)
+                        .ok()
+                        .and_then(|text| text.downcast::<PyStr>().ok())
+                        .is_some_and(|text| text.to_string_lossy().trim_end() == "\\");
+                if native_syntax_error_display {
+                    return vm.write_exception(&mut crate::py_io::PyWriter(stderr, vm), &exc);
+                }
                 // PyErr_Display: try traceback._print_exception_bltin first
                 if let Ok(tb_mod) = vm.import("traceback", 0)
                     && let Ok(print_exc_builtin) = tb_mod.get_attr("_print_exception_bltin", vm)
@@ -870,8 +889,7 @@ pub mod sys {
                 format!("Ignoring unimportable $PYTHONBREAKPOINT: \"{env_var}\"",),
                 0,
                 vm,
-            )
-            .unwrap();
+            )?;
             Ok(vm.ctx.none())
         };
 

@@ -15,7 +15,6 @@ mod _functools {
         recursion::ReprGuard,
         types::{Callable, Constructor, GetDescriptor, Representable},
     };
-    use indexmap::IndexMap;
     use rustpython_common::wtf8::Wtf8Buf;
 
     #[derive(FromArgs)]
@@ -302,7 +301,7 @@ mod _functools {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -432,7 +431,7 @@ mod _functools {
             combined_args.extend(new_args_iter.cloned());
 
             // Merge keywords from self.keywords and args.kwargs
-            let mut final_kwargs = IndexMap::new();
+            let mut final_kwargs = crate::function::KwArgsMap::default();
 
             // Add keywords from self.keywords
             for (key, value) in &*keywords {

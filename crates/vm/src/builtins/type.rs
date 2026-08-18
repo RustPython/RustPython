@@ -294,6 +294,16 @@ pub struct HeapTypeExt {
     pub slots: Option<PyRef<PyTuple<PyStrRef>>>,
     pub type_data: PyRwLock<Option<TypeDataSlot>>,
     pub specialization_cache: TypeSpecializationCache,
+    /// The interpreter this type was created in, or `None` for the types the
+    /// shared context builds before any interpreter exists.
+    pub interpreter_id: Option<i64>,
+}
+
+impl HeapTypeExt {
+    /// The interpreter a type created right now belongs to.
+    fn creating_interpreter_id() -> Option<i64> {
+        crate::vm::thread::try_with_current_vm(|vm| vm.state.interpreter_id)
+    }
 }
 
 pub struct TypeSpecializationCache {
@@ -553,6 +563,22 @@ impl PyType {
         self.modified_inner();
     }
 
+    /// Whether the interpreter with `interpreter_id` can see this type.
+    ///
+    /// Interpreters share the context, so a subclass of a shared type is
+    /// recorded on an object every interpreter reaches. Only the interpreter
+    /// that created it can name it, so only that one lists it.
+    pub fn is_visible_to_interpreter(&self, interpreter_id: i64) -> bool {
+        match self
+            .heaptype_ext
+            .as_ref()
+            .and_then(|ext| ext.interpreter_id)
+        {
+            Some(owner) => owner == interpreter_id,
+            None => true,
+        }
+    }
+
     pub fn new_simple_heap(
         name: &str,
         base: &Py<Self>,
@@ -589,6 +615,7 @@ impl PyType {
             slots: None,
             type_data: PyRwLock::new(None),
             specialization_cache: TypeSpecializationCache::new(),
+            interpreter_id: HeapTypeExt::creating_interpreter_id(),
         };
         let base = bases[0].clone();
 
@@ -794,8 +821,6 @@ impl PyType {
             slots.basicsize = base.slots.basicsize;
         }
 
-        Self::inherit_readonly_slots(&mut slots, &base);
-
         // Normalize: any type with HAS_WEAKREF gets MANAGED_WEAKREF
         if slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
             slots.flags |= PyTypeFlags::MANAGED_WEAKREF;
@@ -863,8 +888,6 @@ impl PyType {
         if slots.basicsize == 0 {
             slots.basicsize = base.slots.basicsize;
         }
-
-        Self::inherit_readonly_slots(&mut slots, &base);
 
         // Normalize: any type with HAS_WEAKREF gets MANAGED_WEAKREF
         if slots.flags.has_feature(PyTypeFlags::HAS_WEAKREF) {
@@ -991,18 +1014,9 @@ impl PyType {
         }
     }
 
-    /// Inherit readonly slots from base type at creation time.
-    /// These slots are not AtomicCell and must be set before the type is used.
-    fn inherit_readonly_slots(slots: &mut PyTypeSlots, base: &Self) {
-        if slots.as_buffer.is_none() {
-            slots.as_buffer = base.slots.as_buffer;
-        }
-    }
-
     /// Inherit slots from base type. inherit_slots
     pub(crate) fn inherit_slots(&self, base: &Self) {
         // Use SLOT_DEFS to iterate all slots
-        // Note: as_buffer is handled in inherit_readonly_slots (not AtomicCell)
         for def in SLOT_DEFS {
             def.accessor.copyslot_if_none(self, base);
         }
@@ -1513,7 +1527,12 @@ impl PyType {
         // temporary refs so they never see a dangling pointer.
         let keep_alive = |type_ref: PyTypeRef, retired: &mut Vec<PyObjectRef>| {
             if let Some(frame) = vm.current_frame() {
-                frame.iframe().temporary_refs.lock().push(type_ref.into());
+                frame
+                    .iframe()
+                    .cold()
+                    .temporary_refs
+                    .lock()
+                    .push(type_ref.into());
             } else {
                 retired.push(type_ref.into());
             }
@@ -1943,13 +1962,18 @@ impl PyType {
     }
 
     #[pymethod]
-    fn __subclasses__(&self) -> PyList {
+    fn __subclasses__(&self, vm: &VirtualMachine) -> PyList {
         let mut subclasses = self.subclasses.write();
         subclasses.retain(|x| x.upgrade().is_some());
+        let interpreter_id = vm.state.interpreter_id;
         PyList::from(
             subclasses
                 .iter()
-                .map(|x| x.upgrade().unwrap())
+                .filter_map(|x| x.upgrade())
+                .filter(|obj| {
+                    obj.downcast_ref::<Self>()
+                        .is_none_or(|typ| typ.is_visible_to_interpreter(interpreter_id))
+                })
                 .collect::<Vec<_>>(),
         )
     }
@@ -2363,6 +2387,7 @@ impl Constructor for PyType {
                 slots: heaptype_slots.clone(),
                 type_data: PyRwLock::new(None),
                 specialization_cache: TypeSpecializationCache::new(),
+                interpreter_id: HeapTypeExt::creating_interpreter_id(),
             };
             (slots, heaptype_ext)
         };
@@ -2829,7 +2854,8 @@ impl Callable for PyType {
             // path incorrectly.
             if zelf.slots.init.load().is_none()
                 && !zelf.is(vm.ctx.types.type_type)
-                && slot_new as usize != crate::types::new_wrapper as crate::types::NewFunc as usize
+                && crate::types::fn_addr(slot_new)
+                    != crate::types::fn_addr(crate::types::new_wrapper as crate::types::NewFunc)
             {
                 return slot_new(zelf.to_owned(), args, vm);
             }
@@ -3066,7 +3092,8 @@ pub(crate) fn call_slot_new(
     // Check if staticbase's tp_new differs from typ's tp_new
     let typ_new = typ.slots.new.load();
     let staticbase_new = staticbase.slots.new.load();
-    if typ_new.map(|f| f as usize) != staticbase_new.map(|f| f as usize) {
+    if typ_new.map(|f| crate::types::fn_addr(f)) != staticbase_new.map(|f| crate::types::fn_addr(f))
+    {
         return Err(vm.new_type_error(format!(
             "{}.__new__({}) is not safe, use {}.__new__()",
             typ.slot_name(),

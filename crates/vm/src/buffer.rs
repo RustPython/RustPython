@@ -16,7 +16,7 @@ use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
 use std::os::raw;
 
-type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
+type PackFunc = fn(&VirtualMachine, FormatType, PyObjectRef, &mut [u8]) -> PyResult<()>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
 
 static OVERFLOW_MSG: &str = "total struct size too long"; // not a const to reduce code size
@@ -490,7 +490,7 @@ impl FormatSpec {
                     let pack = code.info.pack.unwrap();
                     for arg in args.by_ref().take(code.repeat) {
                         let (item_buf, rest) = buffer.split_at_mut(code.info.size);
-                        pack(vm, arg, item_buf)?;
+                        pack(vm, code.code, arg, item_buf)?;
                         buffer = rest;
                     }
                 }
@@ -549,7 +549,12 @@ impl FormatSpec {
 }
 
 trait Packable {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()>;
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> PyResult<()>;
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef;
 }
 
@@ -576,10 +581,11 @@ macro_rules! make_pack_prim_int {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
+                code: FormatType,
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> PyResult<()> {
-                let i: $T = get_int_or_index(vm, arg)?;
+                let i: $T = get_int_or_index(vm, code, arg)?;
                 i.pack_int::<E>(data);
                 Ok(())
             }
@@ -592,16 +598,28 @@ macro_rules! make_pack_prim_int {
     };
 }
 
-fn get_int_or_index<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
+fn get_int_or_index<T>(vm: &VirtualMachine, code: FormatType, arg: PyObjectRef) -> PyResult<T>
 where
-    T: PrimInt + for<'a> TryFrom<&'a BigInt>,
+    T: PrimInt + fmt::Display + for<'a> TryFrom<&'a BigInt>,
 {
     let index = arg
         .try_index_opt(vm)
         .unwrap_or_else(|| Err(new_struct_error(vm, "required argument is not an integer")))?;
-    index
-        .try_to_primitive(vm)
-        .map_err(|_| new_struct_error(vm, "argument out of range"))
+    index.try_to_primitive(vm).map_err(|_| {
+        // A pointer is converted rather than checked against the range of a
+        // named format, so what it reports is the conversion failing.
+        let msg = if code == FormatType::VoidP {
+            "int too large to convert".to_owned()
+        } else {
+            format!(
+                "'{}' format requires {} <= number <= {}",
+                code as u8 as char,
+                T::min_value(),
+                T::max_value()
+            )
+        };
+        new_struct_error(vm, msg)
+    })
 }
 
 make_pack_prim_int!(i8);
@@ -620,6 +638,7 @@ macro_rules! make_pack_float {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
+                _code: FormatType,
                 arg: PyObjectRef,
                 data: &mut [u8],
             ) -> PyResult<()> {
@@ -648,7 +667,12 @@ make_pack_float!(f32, "f");
 make_pack_float!(f64, "d");
 
 impl Packable for f16 {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        _code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> PyResult<()> {
         let f_64 = ArgIntoFloat::try_from_object(vm, arg)?.into_float();
         // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
         let f_16 = Self::from_f64_const(f_64);
@@ -666,8 +690,13 @@ impl Packable for f16 {
 }
 
 impl Packable for *mut raw::c_void {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        usize::pack::<E>(vm, arg, data)
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> PyResult<()> {
+        usize::pack::<E>(vm, code, arg, data)
     }
 
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
@@ -676,7 +705,12 @@ impl Packable for *mut raw::c_void {
 }
 
 impl Packable for bool {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        _code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> PyResult<()> {
         let v = ArgIntoBool::try_from_object(vm, arg)?.into_bool() as u8;
         v.pack_int::<E>(data);
         Ok(())
@@ -688,7 +722,12 @@ impl Packable for bool {
     }
 }
 
-fn pack_char(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
+fn pack_char(
+    vm: &VirtualMachine,
+    _code: FormatType,
+    arg: PyObjectRef,
+    data: &mut [u8],
+) -> PyResult<()> {
     let v = PyBytesRef::try_from_object(vm, arg)?;
     let ch = *v
         .as_bytes()

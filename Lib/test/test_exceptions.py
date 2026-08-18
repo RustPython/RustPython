@@ -2145,7 +2145,6 @@ class AssertionErrorTests(unittest.TestCase):
     def tearDown(self):
         unlink(TESTFN)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_assertion_error_location(self):
         cases = [
