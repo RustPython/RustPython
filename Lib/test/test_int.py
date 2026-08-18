@@ -247,7 +247,6 @@ class IntTestCases(unittest.TestCase):
         with self.assertRaises(ValueError):
             int(' + 1 ')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_unicode(self):
         self.assertEqual(int("१२३४५६७८९०1234567890"), 12345678901234567890)
         self.assertEqual(int('١٢٣٤٥٦٧٨٩٠'), 1234567890)

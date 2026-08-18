@@ -16,7 +16,7 @@ use crate::{
         ArgByteOrder, ArgIntoBool, FuncArgs, OptionalArg, OptionalOption, PyArithmeticValue,
         PyComparisonValue,
     },
-    protocol::{PyNumberMethods, handle_bytes_to_int_err},
+    protocol::{PyNumberMethods, handle_bytes_to_int_err, numeric_literal_from_str},
     types::{AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, Representable},
 };
 use alloc::fmt;
@@ -822,7 +822,7 @@ struct IntToByteArgs {
 fn try_int_radix(obj: &PyObject, base: u32, vm: &VirtualMachine) -> PyResult<BigInt> {
     match_class!(match obj.to_owned() {
         string @ PyStr => {
-            let s = string.as_wtf8().trim();
+            let s = numeric_literal_from_str(&string);
             bytes_to_int(s.as_bytes(), base, vm.state.int_max_str_digits.load())
                 .map_err(|e| handle_bytes_to_int_err(e, obj, vm))
         }

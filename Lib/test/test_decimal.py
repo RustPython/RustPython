@@ -854,10 +854,6 @@ class CExplicitConstructionTest(ExplicitConstructionTest, unittest.TestCase):
 class PyExplicitConstructionTest(ExplicitConstructionTest, unittest.TestCase):
     decimal = P
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
-    def test_unicode_digits(self):
-        return super().test_unicode_digits()
-
 class ImplicitConstructionTest:
     '''Unit tests for Implicit Construction cases of Decimal.'''
 

@@ -8,11 +8,34 @@ use crate::{
     builtins::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyComplex, PyFloat, PyInt, PyIntRef, PyStr, int,
     },
-    common::int::{BytesToIntError, bytes_to_int},
+    common::{
+        int::{BytesToIntError, bytes_to_int},
+        str::{PyKindStr, transform_decimal_and_space_to_ascii},
+    },
     function::ArgBytesLike,
     object::{Traverse, TraverseFn},
     stdlib::_warnings,
 };
+use alloc::borrow::Cow;
+
+/// Normalize a `str` for the byte-oriented numeric parsers: Unicode decimal digits
+/// and whitespace fold to their ASCII equivalents, the way CPython runs every
+/// numeric constructor's string argument through
+/// `_PyUnicode_TransformDecimalAndSpaceToASCII` first.
+///
+/// `int`, `float` and `complex` share this step and nothing else — only `int` takes
+/// a base, and only `int` and `float` accept bytes-like input, so each keeps its own
+/// entry point around this one.
+///
+/// A string holding surrogates can never be a valid literal, so it folds to an
+/// empty — and therefore invalid — one.
+pub fn numeric_literal_from_str(s: &PyStr) -> Cow<'_, str> {
+    match s.as_str_kind() {
+        PyKindStr::Ascii(s) => Cow::Borrowed(s.trim().as_str()),
+        PyKindStr::Utf8(s) => transform_decimal_and_space_to_ascii(s.trim()),
+        PyKindStr::Wtf8(_) => Cow::Borrowed(""),
+    }
+}
 
 pub type PyNumberUnaryFunc<R = PyObjectRef> = fn(PyNumber<'_>, &VirtualMachine) -> PyResult<R>;
 pub type PyNumberBinaryFunc = fn(&PyObject, &PyObject, &VirtualMachine) -> PyResult;
@@ -59,7 +82,7 @@ impl PyObject {
         } else if let Some(i) = self.number().int(vm).or_else(|| self.try_index_opt(vm)) {
             i
         } else if let Some(s) = self.downcast_ref::<PyStr>() {
-            try_convert(self, s.as_wtf8().trim().as_bytes(), vm)
+            try_convert(self, numeric_literal_from_str(s).as_bytes(), vm)
         } else if let Some(bytes) = self.downcast_ref::<PyBytes>() {
             try_convert(self, bytes, vm)
         } else if let Some(bytearray) = self.downcast_ref::<PyByteArray>() {
