@@ -586,6 +586,33 @@ pub trait MarshalBag: Copy {
         self.make_code(code)
     }
 
+    /// Decode the public `co_code` byte string into the execution-oriented
+    /// instruction storage.
+    ///
+    /// Runtime code-object implementations may accept byte values that the
+    /// compiler's `Instruction` enum cannot represent, retaining those bytes
+    /// separately and substituting a non-executable placeholder here.  The
+    /// default remains the strict compiler representation.
+    fn code_units_from_bytes(&self, code_bytes: &[u8]) -> Result<CodeUnits> {
+        CodeUnits::try_from(code_bytes)
+    }
+
+    /// Construct a runtime code object while retaining both its exact public
+    /// `co_code` bytes and the exact values read from `co_consts`.
+    ///
+    /// The default ignores the redundant byte spelling because ordinary
+    /// compiler code is represented losslessly by `CodeUnits`.  Runtime bags
+    /// that accepted otherwise unrepresentable opcode bytes in
+    /// [`MarshalBag::code_units_from_bytes`] can preserve them here.
+    fn make_code_with_constants_and_bytes(
+        &self,
+        code: CodeObject<<Self::ConstantBag as ConstantBag>::Constant>,
+        constants: Vec<Self::Value>,
+        _code_bytes: Vec<u8>,
+    ) -> Result<Self::Value> {
+        self.make_code_with_constants(code, constants)
+    }
+
     fn make_stop_iter(&self) -> Result<Self::Value>;
 
     fn make_list(&self, it: impl Iterator<Item = Self::Value>) -> Result<Self::Value>;
@@ -967,7 +994,7 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         kwonlyarg_count,
         flags,
     )?;
-    let instructions = CodeUnits::try_from(code_bytes.as_slice())?;
+    let instructions = bag.code_units_from_bytes(&code_bytes)?;
     let locations = linetable_to_locations(&linetable, first_line_raw, instructions.len());
     let constant_bag = bag.constant_bag();
     let code = CodeObject {
@@ -1006,7 +1033,7 @@ fn deserialize_code_value_inner<R: Read, Bag: MarshalBag>(
         linetable,
         exceptiontable,
     };
-    bag.make_code_with_constants(code, constant_values)
+    bag.make_code_with_constants_and_bytes(code, constant_values, code_bytes)
 }
 
 fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
