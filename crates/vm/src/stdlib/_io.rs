@@ -6274,7 +6274,10 @@ mod winconsoleio {
                 }
 
                 let name_str = nameobj.str(vm)?;
-                let wide = name_str.as_wtf8().to_wide_cstring();
+                let wide = name_str
+                    .as_wtf8()
+                    .to_wide_cstring()
+                    .map_err(|e| e.to_pyexception(vm))?;
 
                 fd = host_nt::open_console_path_fd(&wide, writable)
                     .map_err(|err| err.to_pyexception(vm))?;

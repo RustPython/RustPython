@@ -6,7 +6,7 @@ pub(crate) use winsound::module_def;
 #[pymodule]
 mod winsound {
     use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
-    use crate::convert::{IntoPyException, ToPyException};
+    use crate::convert::{IntoPyException, ToPyException, TryFromBorrowedObject};
     use crate::exceptions;
     use crate::host_env::windows::ToWideString;
     use crate::protocol::{BufferFlags, PyBuffer};
@@ -106,7 +106,12 @@ mod winsound {
 
         // os.fspath(sound)
         let path = match sound.downcast_ref::<PyStr>() {
-            Some(s) => s.as_wtf8().to_owned(),
+            Some(s) => {
+                let s = s.as_wtf8();
+                let mut buf = Vec::with_capacity(s.len() + 1);
+                buf.extend(s.encode_wide());
+                buf
+            }
             None => {
                 let fspath = vm.get_method_or_type_error(
                     sound.clone(),
@@ -129,27 +134,27 @@ mod winsound {
                     return Err(vm.new_type_error("'sound' must resolve to str, not bytes"));
                 }
 
-                let s: &PyStr = result.downcast_ref().ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "expected {}.__fspath__() to return str or bytes, not {}",
-                        sound.class().name(),
-                        result.class().name()
-                    ))
-                })?;
+                let s = result
+                    .downcast_ref::<PyStr>()
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "expected {}.__fspath__() to return str or bytes, not {}",
+                            sound.class().name(),
+                            result.class().name()
+                        ))
+                    })?
+                    .as_wtf8();
 
-                s.as_wtf8().to_owned()
+                let mut buf = Vec::with_capacity(s.len() + 1);
+                buf.extend(s.encode_wide());
+                buf
             }
         };
 
         // Check for embedded null characters
-        if path.as_bytes().contains(&0) {
-            return Err(exceptions::nul_char_error(vm));
-        }
-
-        let wide = path.to_wide_with_nul();
         let wide_cstr =
-            widestring::WideCStr::from_slice_truncate(&wide).map_err(|e| e.to_pyexception(vm))?;
-        play_sound(PlaySoundSource::Name(wide_cstr), flags).map_err(map_play_err(vm))
+            widestring::WideCString::from_vec(path).map_err(|e| e.to_pyexception(vm))?;
+        play_sound(PlaySoundSource::Name(&wide_cstr), flags).map_err(map_play_err(vm))
     }
 
     #[derive(FromArgs)]
