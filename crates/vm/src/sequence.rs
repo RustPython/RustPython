@@ -137,11 +137,11 @@ where
             self.as_vec_mut().clear();
         } else if n != 1 {
             let mut sample = self.as_vec_mut().clone();
-            if n != 2 {
-                self.as_vec_mut().reserve(sample.len() * (n - 1));
-                for _ in 0..n - 2 {
-                    self.as_vec_mut().extend_from_slice(&sample);
-                }
+            self.as_vec_mut()
+                .try_reserve_exact(sample.len() * (n - 1))
+                .map_err(|_| vm.no_memory_error())?;
+            for _ in 0..n - 2 {
+                self.as_vec_mut().extend_from_slice(&sample);
             }
             self.as_vec_mut().append(&mut sample);
         }
