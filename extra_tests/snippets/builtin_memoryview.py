@@ -775,3 +775,57 @@ def test_hash_asks_the_exporter():
 
 
 test_hash_asks_the_exporter()
+
+
+def test_hex_measures_the_separator():
+    # The separator is measured the way len() measures it, and read where it lies.
+    class One(bytes):
+        def __len__(self):
+            return 1
+
+    class Two(bytes):
+        def __len__(self):
+            return 2
+
+    for target in [b"abcd", bytearray(b"abcd"), memoryview(b"abcd")]:
+        assert target.hex(One(b"::")) == "61:62:63:64"
+        assert target.hex(b":") == "61:62:63:64"
+        # An object claiming a length it does not have separates with NUL.
+        assert target.hex(One(b"")) == "61\x0062\x0063\x0064"
+        for bad in [Two(b":"), b"::"]:
+            try:
+                target.hex(bad)
+                raise AssertionError("no error")
+            except ValueError as e:
+                assert str(e) == "sep must be length 1.", e
+        # The separator is checked before anything is written out.
+        try:
+            target.hex(b"::", 0)
+            raise AssertionError("no error")
+        except ValueError as e:
+            assert str(e) == "sep must be length 1.", e
+
+    assert b"".hex(b":") == ""
+    try:
+        b"".hex(b"::")
+        raise AssertionError("no error")
+    except ValueError as e:
+        assert str(e) == "sep must be length 1.", e
+
+    # Releasing the view from inside that measurement is refused.
+    ba = bytearray(b"A" * 8)
+    mv = memoryview(ba)
+
+    class S(bytes):
+        def __len__(self):
+            mv.release()
+            return 1
+
+    try:
+        mv.hex(S(b":"))
+        raise AssertionError("released the view being written out")
+    except BufferError as e:
+        assert str(e) == "memoryview has 1 exported buffer", e
+
+
+test_hex_measures_the_separator()

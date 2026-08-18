@@ -914,9 +914,12 @@ impl PyMemoryView {
 
     #[pymethod]
     fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
-        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.try_not_released(vm)?;
-        self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep, vm))
+        // Measuring the separator runs Python, which must not release the bytes
+        // being written out. memoryview_hex_impl
+        let (sep, bytes_per_sep) = self.while_exported(|| options.resolve(vm))?;
+        self.try_not_released(vm)?;
+        Ok(self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep)))
     }
 
     #[pymethod]
