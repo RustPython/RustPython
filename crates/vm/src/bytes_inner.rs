@@ -584,7 +584,7 @@ impl PyBytesInner {
         if len as isize >= width {
             return Ok(Vec::from(&self.elements[..]));
         }
-        pad(&self.elements, width as usize, fillchar, len).ok_or_else(|| vm.new_memory_error(""))
+        pad(&self.elements, width as usize, fillchar, len).ok_or_else(|| vm.no_memory_error())
     }
 
     pub fn center(
@@ -823,7 +823,7 @@ impl PyBytesInner {
     pub fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         self.elements
             .py_zfill(width)
-            .ok_or_else(|| vm.new_memory_error(""))
+            .ok_or_else(|| vm.no_memory_error())
     }
 
     // len(self)>=1, from="", len(to)>=1, max_count>=1

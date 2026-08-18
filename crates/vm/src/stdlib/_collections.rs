@@ -342,7 +342,7 @@ mod _collections {
             let mul_len = n * deque.len();
             let result_len = self.maxlen.map_or(mul_len, |maxlen| mul_len.min(maxlen));
             if n > 1 && result_len.saturating_mul(size_of::<PyObjectRef>()) >= MAX_MEMORY_SIZE {
-                return Err(vm.new_memory_error(""));
+                return Err(vm.no_memory_error());
             }
             let iter = deque.iter().cycle().take(mul_len);
             let skipped = self

@@ -1083,7 +1083,7 @@ mod decl {
         let mut tee_vec: Vec<PyObjectRef> = Vec::new();
         tee_vec
             .try_reserve_exact(n)
-            .map_err(|_| vm.new_memory_error(""))?;
+            .map_err(|_| vm.no_memory_error())?;
         for _ in 0..n {
             tee_vec.push(vm.call_special_method(&copyable, identifier!(vm, __copy__), ())?);
         }
@@ -1256,7 +1256,7 @@ mod decl {
             let mut indices = Vec::new();
             indices
                 .try_reserve_exact(r)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             indices.extend(0..r);
 
             Ok(Self {
@@ -1368,7 +1368,7 @@ mod decl {
             let mut indices = Vec::new();
             indices
                 .try_reserve_exact(r)
-                .map_err(|_| vm.new_memory_error(""))?;
+                .map_err(|_| vm.no_memory_error())?;
             indices.resize(r, 0);
 
             Ok(Self {

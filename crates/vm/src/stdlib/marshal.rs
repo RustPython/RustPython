@@ -463,7 +463,7 @@ mod decl {
             let mut elements = Vec::new();
             elements
                 .try_reserve_exact(len)
-                .map_err(|_| self.remember_python_error(self.vm.new_memory_error("")))?;
+                .map_err(|_| self.remember_python_error(self.vm.no_memory_error()))?;
             elements.resize(len, self.vm.ctx.none());
             Ok(elements)
         }

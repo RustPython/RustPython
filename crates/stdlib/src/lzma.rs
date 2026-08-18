@@ -97,7 +97,7 @@ mod _lzma {
     fn catch_lzma_error(err: Error, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match err {
             Error::UnsupportedCheck => new_lzma_error("Unsupported integrity check", vm),
-            Error::Mem => vm.new_memory_error(""),
+            Error::Mem => vm.no_memory_error(),
             Error::MemLimit => new_lzma_error("Memory usage limit exceeded", vm),
             Error::Format => new_lzma_error("Input format not supported by decoder", vm),
             Error::Options => new_lzma_error("Invalid or unsupported options", vm),
