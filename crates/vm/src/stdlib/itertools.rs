@@ -1140,22 +1140,31 @@ mod decl {
             }
             let repeat = repeat as usize;
 
-            let mut single: Vec<Vec<PyObjectRef>> = Vec::new();
-            for arg in iterables.iter() {
-                single.push(arg.try_to_value(vm)?);
-            }
-
-            let npools = single
+            // The count is settled before the arguments are read, the way
+            // `product_new()` settles it before it calls `PySequence_Tuple()`
+            // on any of them, so a repeat too large to serve does not run their
+            // code first.
+            let npools = iterables
+                .iter()
                 .len()
                 .checked_mul(repeat)
                 .filter(|n| *n <= isize::MAX as usize / size_of::<usize>())
                 .ok_or_else(|| vm.new_overflow_error("repeat argument too large"))?;
 
+            let mut single: Vec<Vec<PyObjectRef>> = Vec::new();
+            for arg in iterables.iter() {
+                single.push(arg.try_to_value(vm)?);
+            }
+
             let mut pools: Vec<Vec<PyObjectRef>> = Vec::new();
             pools
                 .try_reserve_exact(npools)
                 .map_err(|_| vm.new_memory_error(""))?;
-            pools.extend(core::iter::repeat_n(single, repeat).flatten());
+            // Filled by index, the way `product_new()` fills a tuple of
+            // `npools`. Repeating the arguments `repeat` times instead walks
+            // that many steps even when there are no arguments to repeat, so
+            // `product(repeat=2**62)` would spin rather than answer `[()]`.
+            pools.extend((0..npools).map(|i| single[i % single.len()].clone()));
 
             let mut idxs = Vec::new();
             idxs.try_reserve_exact(npools)
