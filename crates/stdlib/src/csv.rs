@@ -851,28 +851,9 @@ mod _csv {
                     quoting: QuoteStyle::Minimal,
                     strict: false,
                 })),
-            }
-        }
-
-        fn get_quoting(&self) -> QuoteStyle {
-            let mut quoting = match &self.dialect {
-                DialectItem::Str(name) => {
-                    let g = GLOBAL_HASHMAP.lock();
-                    if let Some(dialect) = g.get(name) {
-                        dialect.quoting
-                    } else {
-                        QuoteStyle::Minimal
-                    }
-                }
-                DialectItem::Obj(obj) => obj.quoting,
-                _ => QuoteStyle::Minimal,
-            };
-
-            if let Some(attr) = self.quoting {
-                quoting = attr
-            }
-
-            quoting
+            }?;
+            validate_dialect(vm, &dialect)?;
+            Ok(dialect)
         }
 
         fn to_writer(dialect: &PyDialect) -> csv_core::Writer {
