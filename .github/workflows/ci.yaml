@@ -302,8 +302,7 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          env_polluting_tests:
-            - test_set
+          env_polluting_tests: []
           skips: []
           timeout: 50
         - os: ubuntu-latest
@@ -311,8 +310,7 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          env_polluting_tests:
-            - test_set
+          env_polluting_tests: []
           skips: []
           timeout: 60
         - os: windows-2025
@@ -320,8 +318,7 @@ jobs:
             - '-u all'
             - '--timeout 600'
             - '--dont-add-python-opts'
-          env_polluting_tests:
-            - test_set
+          env_polluting_tests: []
           skips: []
           timeout: 50
       fail-fast: false
