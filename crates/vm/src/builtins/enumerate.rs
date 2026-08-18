@@ -57,7 +57,11 @@ impl Constructor for PyEnumerate {
 #[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }

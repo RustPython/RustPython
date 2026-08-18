@@ -69,9 +69,25 @@ def test_05():
     assert f.readline() == ""
 
 
+def test_06():
+    f = StringIO(newline=None)
+    f.write("\r")
+    f.__init__("x\n", newline=None)
+    assert f.newlines == "\n"
+
+    f.close()
+    try:
+        f.newlines
+    except ValueError:
+        pass
+    else:
+        assert False
+
+
 if __name__ == "__main__":
     test_01()
     test_02()
     test_03()
     test_04()
     test_05()
+    test_06()

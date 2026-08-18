@@ -524,3 +524,19 @@ assert next(it) == (1, 3)
 assert next(it) == (2, None)
 with assert_raises(StopIteration):
     next(it)
+
+# r is an arbitrary Python int: one too large for an index must raise
+# OverflowError, and a representable one that cannot be allocated must raise
+# MemoryError.
+for factory in (
+    itertools.combinations,
+    itertools.combinations_with_replacement,
+    itertools.permutations,
+):
+    with assert_raises(OverflowError):
+        factory(range(5), 2**64)
+
+with assert_raises(MemoryError):
+    itertools.combinations(range(5), 2**44)
+with assert_raises(MemoryError):
+    itertools.combinations_with_replacement(range(5), 2**44)

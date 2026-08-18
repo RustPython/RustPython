@@ -581,7 +581,11 @@ fn _match<S: StrDrive>(req: &Request<'_, S>, state: &mut State, mut ctx: MatchCo
                                 ..ctx
                             };
 
-                            for _ in group_start..group_end {
+                            // Walk the group itself rather than counting to its
+                            // width: `g_ctx` is already stepping over exactly
+                            // the characters being compared, so its own cursor
+                            // is the loop bound.
+                            while g_ctx.cursor.position < group_end {
                                 #[allow(clippy::redundant_closure_call)]
                                 if ctx.at_end(req)
                                     || $f(ctx.peek_char::<S>()) != $f(g_ctx.peek_char::<S>())

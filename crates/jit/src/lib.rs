@@ -61,19 +61,12 @@ impl Jit {
         ret: Option<JitType>,
     ) -> Result<(FuncId, JitSig), JitCompileError> {
         for arg in args {
-            self.ctx
-                .func
-                .signature
-                .params
-                .push(AbiParam::new(arg.to_cranelift()));
+            let arg = arg.to_cranelift().ok_or(JitCompileError::NotSupported)?;
+            self.ctx.func.signature.params.push(AbiParam::new(arg));
         }
 
-        if ret.is_some() {
-            self.ctx
-                .func
-                .signature
-                .returns
-                .push(AbiParam::new(ret.clone().unwrap().to_cranelift()));
+        if let Some(ret) = ret.as_ref().and_then(JitType::to_cranelift) {
+            self.ctx.func.signature.returns.push(AbiParam::new(ret));
         }
 
         let id = self.module.declare_function(
@@ -167,7 +160,10 @@ impl CompiledCode {
                 libffi::middle::CodePtr::from_ptr(self.code as *const _),
                 cif_args,
             );
-            self.sig.ret.as_ref().map(|ty| value.to_typed(ty))
+            match self.sig.ret.as_ref() {
+                Some(JitType::None) | None => None,
+                Some(ty) => Some(value.to_typed(ty)),
+            }
         }
     }
 }
@@ -193,14 +189,16 @@ pub enum JitType {
     Int,
     Float,
     Bool,
+    None,
 }
 
 impl JitType {
-    fn to_cranelift(&self) -> types::Type {
+    fn to_cranelift(&self) -> Option<types::Type> {
         match self {
-            Self::Int => types::I64,
-            Self::Float => types::F64,
-            Self::Bool => types::I8,
+            Self::Int => Some(types::I64),
+            Self::Float => Some(types::F64),
+            Self::Bool => Some(types::I8),
+            Self::None => None,
         }
     }
 
@@ -209,6 +207,7 @@ impl JitType {
             Self::Int => libffi::middle::Type::i64(),
             Self::Float => libffi::middle::Type::f64(),
             Self::Bool => libffi::middle::Type::u8(),
+            Self::None => libffi::middle::Type::void(),
         }
     }
 }
@@ -306,6 +305,7 @@ impl UnTypedAbiValue {
                 JitType::Int => AbiValue::Int(self.int),
                 JitType::Float => AbiValue::Float(self.float),
                 JitType::Bool => AbiValue::Bool(self.boolean != 0),
+                JitType::None => unreachable!("None has no ABI value"),
             }
         }
     }

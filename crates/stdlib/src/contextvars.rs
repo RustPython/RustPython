@@ -15,16 +15,16 @@ mod _contextvars {
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
         builtins::{PyGenericAlias, PyList, PyStrRef, PyType, PyTypeRef},
         class::StaticType,
-        common::{hash::PyHash, lock::LazyLock, wtf8::Wtf8Buf},
+        common::{
+            hash::PyHash,
+            lock::{LazyLock, PyMutex},
+            wtf8::Wtf8Buf,
+        },
         function::{ArgCallable, FuncArgs, OptionalArg},
         protocol::{PyMappingMethods, PySequenceMethods},
         types::{AsMapping, AsSequence, Constructor, Hashable, Iterable, Representable},
     };
-    use core::{
-        cell::{Cell, RefCell, UnsafeCell},
-        sync::atomic::Ordering,
-    };
-    use crossbeam_utils::atomic::AtomicCell;
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicUsize, Ordering};
     use indexmap::IndexMap;
 
     // TODO: Real hamt implementation
@@ -33,7 +33,7 @@ mod _contextvars {
     #[pyclass(no_attr, name = "Hamt", module = "contextvars")]
     #[derive(Debug, PyPayload)]
     pub(crate) struct HamtObject {
-        hamt: RefCell<Hamt>,
+        hamt: PyMutex<Hamt>,
     }
 
     #[pyclass]
@@ -42,22 +42,18 @@ mod _contextvars {
     impl Default for HamtObject {
         fn default() -> Self {
             Self {
-                hamt: RefCell::new(Hamt::default()),
+                hamt: PyMutex::new(Hamt::default()),
             }
         }
     }
 
-    unsafe impl Sync for HamtObject {}
-
     #[derive(Debug)]
     struct ContextInner {
-        idx: Cell<usize>,
+        idx: AtomicUsize,
         vars: PyRef<HamtObject>,
         // PyObject *ctx_weakreflist;
-        entered: Cell<bool>,
+        entered: AtomicBool,
     }
-
-    unsafe impl Sync for ContextInner {}
 
     #[pyattr]
     #[pyclass(name = "Context")]
@@ -71,23 +67,30 @@ mod _contextvars {
         fn empty(vm: &VirtualMachine) -> Self {
             Self {
                 inner: ContextInner {
-                    idx: Cell::new(usize::MAX),
+                    idx: AtomicUsize::new(usize::MAX),
                     vars: HamtObject::default().into_ref(&vm.ctx),
-                    entered: Cell::new(false),
+                    entered: AtomicBool::new(false),
                 },
             }
         }
 
-        fn borrow_vars(&self) -> impl core::ops::Deref<Target = Hamt> + '_ {
-            self.inner.vars.hamt.borrow()
+        fn borrow_vars(&self) -> impl core::ops::DerefMut<Target = Hamt> + '_ {
+            self.inner.vars.hamt.lock()
         }
 
         fn borrow_vars_mut(&self) -> impl core::ops::DerefMut<Target = Hamt> + '_ {
-            self.inner.vars.hamt.borrow_mut()
+            self.inner.vars.hamt.lock()
         }
 
         fn enter(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            if zelf.inner.entered.get() {
+            // A context is entered by one thread at a time, so the check and the
+            // claim have to be a single step.
+            if zelf
+                .inner
+                .entered
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+            {
                 return Err(vm.new_runtime_error(format!(
                     "cannot enter context: {} is already entered",
                     zelf.as_object().repr(vm)?
@@ -95,16 +98,15 @@ mod _contextvars {
             }
 
             super::CONTEXTS.with_borrow_mut(|ctxs| {
-                zelf.inner.idx.set(ctxs.len());
+                zelf.inner.idx.store(ctxs.len(), Ordering::Relaxed);
                 ctxs.push(zelf.to_owned());
             });
-            zelf.inner.entered.set(true);
 
             Ok(())
         }
 
         fn exit(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            if !zelf.inner.entered.get() {
+            if !zelf.inner.entered.load(Ordering::Acquire) {
                 return Err(vm.new_runtime_error(format!(
                     "cannot exit context: {} is not entered",
                     zelf.as_object().repr(vm)?
@@ -120,7 +122,7 @@ mod _contextvars {
                         )
                     })
             })?;
-            zelf.inner.entered.set(false);
+            zelf.inner.entered.store(false, Ordering::Release);
 
             Ok(())
         }
@@ -131,8 +133,8 @@ mod _contextvars {
                     ctx.clone()
                 } else {
                     let ctx = Self::empty(vm);
-                    ctx.inner.idx.set(0);
-                    ctx.inner.entered.set(true);
+                    ctx.inner.idx.store(0, Ordering::Relaxed);
+                    ctx.inner.entered.store(true, Ordering::Release);
                     let ctx = ctx.into_ref(&vm.ctx);
                     ctxs.push(ctx);
                     ctxs[0].clone()
@@ -170,13 +172,13 @@ mod _contextvars {
         fn copy(&self, vm: &VirtualMachine) -> Self {
             // Deep copy the vars - clone the underlying Hamt data, not just the PyRef
             let vars_copy = HamtObject {
-                hamt: RefCell::new(self.inner.vars.hamt.borrow().clone()),
+                hamt: PyMutex::new(self.inner.vars.hamt.lock().clone()),
             };
             Self {
                 inner: ContextInner {
-                    idx: Cell::new(usize::MAX),
+                    idx: AtomicUsize::new(usize::MAX),
                     vars: vars_copy.into_ref(&vm.ctx),
-                    entered: Cell::new(false),
+                    entered: AtomicBool::new(false),
                 },
             }
         }
@@ -186,11 +188,8 @@ mod _contextvars {
             var: PyRef<ContextVar>,
             vm: &VirtualMachine,
         ) -> PyResult<PyObjectRef> {
-            let vars = self.borrow_vars();
-            let item = vars
-                .get(&*var)
-                .ok_or_else(|| vm.new_key_error(var.into()))?;
-            Ok(item.to_owned())
+            let item = self.borrow_vars().get(&*var).map(|item| item.to_owned());
+            item.ok_or_else(|| vm.new_key_error(var.into()))
         }
 
         fn __len__(&self) -> usize {
@@ -290,11 +289,11 @@ mod _contextvars {
         name: String,
         default: Option<PyObjectRef>,
         #[pytraverse(skip)]
-        cached: AtomicCell<Option<ContextVarCache>>,
+        cached: PyMutex<Option<ContextVarCache>>,
         #[pytraverse(skip)]
-        cached_id: core::sync::atomic::AtomicUsize, // cached_tsid in CPython
+        cached_id: AtomicUsize, // cached_tsid in CPython
         #[pytraverse(skip)]
-        hash: UnsafeCell<PyHash>,
+        hash: AtomicI64,
     }
 
     impl core::fmt::Debug for ContextVar {
@@ -302,8 +301,6 @@ mod _contextvars {
             f.debug_struct("ContextVar").finish()
         }
     }
-
-    unsafe impl Sync for ContextVar {}
 
     impl PartialEq for ContextVar {
         fn eq(&self, other: &Self) -> bool {
@@ -320,12 +317,15 @@ mod _contextvars {
 
     impl ContextVar {
         fn delete(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
-            zelf.cached.store(None);
+            let cached = zelf.cached.lock().take();
+            drop(cached);
 
             let ctx = PyContext::current(vm);
 
-            let mut vars = ctx.borrow_vars_mut();
-            if vars.swap_remove(zelf).is_none() {
+            let removed = ctx.borrow_vars_mut().swap_remove(zelf);
+            let existed = removed.is_some();
+            drop(removed);
+            if !existed {
                 // TODO:
                 // PyErr_SetObject(PyExc_LookupError, (PyObject *)var);
                 return Err(vm.new_lookup_error(zelf.as_object().repr(vm)?.as_wtf8().to_owned()));
@@ -338,16 +338,17 @@ mod _contextvars {
         fn set_inner(zelf: &Py<Self>, value: PyObjectRef, vm: &VirtualMachine) {
             let ctx = PyContext::current(vm);
 
-            let mut vars = ctx.borrow_vars_mut();
-            vars.insert(zelf.to_owned(), value.clone());
+            let replaced = ctx.borrow_vars_mut().insert(zelf.to_owned(), value.clone());
+            drop(replaced);
 
             zelf.cached_id.store(ctx.get_id(), Ordering::SeqCst);
 
             let cache = ContextVarCache {
                 object: value,
-                idx: ctx.inner.idx.get(),
+                idx: ctx.inner.idx.load(Ordering::Relaxed),
             };
-            zelf.cached.store(Some(cache));
+            let replaced = zelf.cached.lock().replace(cache);
+            drop(replaced);
         }
 
         fn generate_hash(zelf: &Py<Self>, vm: &VirtualMachine) -> PyHash {
@@ -370,28 +371,32 @@ mod _contextvars {
             default: OptionalArg<PyObjectRef>,
             vm: &VirtualMachine,
         ) -> PyResult<Option<PyObjectRef>> {
-            let found = super::CONTEXTS.with_borrow(|ctxs| {
-                let ctx = ctxs.last()?;
-                let cached_ptr = zelf.cached.as_ptr();
-                debug_assert!(!cached_ptr.is_null());
-                if let Some(cached) = unsafe { &*cached_ptr }
+            // The replaced cache entry comes back out so that dropping it, which
+            // can run a __del__ that calls back in, happens with no lock held.
+            let (found, replaced) = super::CONTEXTS.with_borrow(|ctxs| {
+                let Some(ctx) = ctxs.last() else {
+                    return (None, None);
+                };
+                let mut cached = zelf.cached.lock();
+                if let Some(cached) = &*cached
                     && zelf.cached_id.load(Ordering::SeqCst) == ctx.get_id()
                     && cached.idx + 1 == ctxs.len()
                 {
-                    return Some(cached.object.clone());
+                    return (Some(cached.object.clone()), None);
                 }
-                let vars = ctx.borrow_vars();
-                let obj = vars.get(zelf)?;
+                let Some(obj) = ctx.borrow_vars().get(zelf).map(|obj| obj.to_owned()) else {
+                    return (None, None);
+                };
                 zelf.cached_id.store(ctx.get_id(), Ordering::SeqCst);
 
-                // TODO: ensure cached is not changed
-                let _removed = zelf.cached.swap(Some(ContextVarCache {
+                let replaced = cached.replace(ContextVarCache {
                     object: obj.clone(),
                     idx: ctxs.len() - 1,
-                }));
+                });
 
-                Some(obj.clone())
+                (Some(obj), replaced)
             });
+            drop(replaced);
 
             let value = if let Some(value) = found {
                 value
@@ -425,7 +430,7 @@ mod _contextvars {
 
         #[pymethod]
         fn reset(zelf: &Py<Self>, token: PyRef<ContextToken>, vm: &VirtualMachine) -> PyResult<()> {
-            if token.used.get() {
+            if token.used.load(Ordering::Acquire) {
                 return Err(vm.new_runtime_error(format!(
                     "{} has already been used once",
                     token.as_object().repr(vm)?
@@ -447,7 +452,7 @@ mod _contextvars {
                 )));
             }
 
-            token.used.set(true);
+            token.used.store(true, Ordering::Release);
 
             if let Some(old_value) = &token.old_value {
                 Self::set_inner(zelf, old_value.clone(), vm);
@@ -462,7 +467,7 @@ mod _contextvars {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -484,15 +489,13 @@ mod _contextvars {
                 name: args.name.to_string(),
                 default: args.default.into_option(),
                 cached_id: 0.into(),
-                cached: AtomicCell::new(None),
-                hash: UnsafeCell::new(0),
+                cached: PyMutex::new(None),
+                hash: AtomicI64::new(0),
             };
             let py_var = var.into_ref_with_type(vm, cls)?;
 
-            unsafe {
-                // SAFETY: py_var is not exposed to python memory model yet
-                *py_var.hash.get() = Self::generate_hash(&py_var, vm)
-            };
+            let hash = Self::generate_hash(&py_var, vm);
+            py_var.hash.store(hash, Ordering::Relaxed);
             Ok(py_var.into())
         }
 
@@ -504,14 +507,14 @@ mod _contextvars {
     impl core::hash::Hash for ContextVar {
         #[inline]
         fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
-            unsafe { *self.hash.get() }.hash(state)
+            self.hash.load(Ordering::Relaxed).hash(state)
         }
     }
 
     impl Hashable for ContextVar {
         #[inline]
         fn hash(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyHash> {
-            Ok(unsafe { *zelf.hash.get() })
+            Ok(zelf.hash.load(Ordering::Relaxed))
         }
     }
 
@@ -537,10 +540,8 @@ mod _contextvars {
         ctx: PyRef<PyContext>,          // tok_ctx in CPython
         var: PyRef<ContextVar>,         // tok_var in CPython
         old_value: Option<PyObjectRef>, // tok_oldval in CPython
-        used: Cell<bool>,
+        used: AtomicBool,
     }
-
-    unsafe impl Sync for ContextToken {}
 
     #[pyclass(with(Constructor, Representable))]
     impl ContextToken {
@@ -562,7 +563,7 @@ mod _contextvars {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
 
@@ -598,7 +599,11 @@ mod _contextvars {
     impl Representable for ContextToken {
         #[inline]
         fn repr_wtf8(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
-            let used = if zelf.used.get() { " used" } else { "" };
+            let used = if zelf.used.load(Ordering::Acquire) {
+                " used"
+            } else {
+                ""
+            };
             let var = Representable::repr_wtf8(&zelf.var, vm)?;
             let ptr = zelf.as_object().get_id() as *const u8;
             let mut result = Wtf8Buf::from(format!("<Token{used} var="));

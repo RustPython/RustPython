@@ -178,7 +178,6 @@ mod _imp {
     use crate::{
         PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{PyBytesRef, PyCode, PyMemoryView, PyModule, PyStrRef, PyUtf8StrRef},
-        convert::TryFromBorrowedObject,
         function::OptionalArg,
         import, version,
     };
@@ -264,21 +263,26 @@ mod _imp {
         if let OptionalArg::Present(data) = data
             && !vm.is_none(&data)
         {
-            let buf = crate::protocol::PyBuffer::try_from_borrowed_object(vm, &data)?;
-            let contiguous = buf.as_contiguous().ok_or_else(|| {
-                vm.new_buffer_error("get_frozen_object() requires a contiguous buffer")
-            })?;
             let invalid_err = || {
                 vm.new_import_error(
                     format!("Frozen object named '{}' is invalid", name.as_str()),
                     name.clone().into_wtf8(),
                 )
             };
-            let bag = crate::builtins::code::PyVmBag(vm);
-            let code =
-                rustpython_compiler_core::marshal::deserialize_code(&mut &contiguous[..], bag)
-                    .map_err(|_| invalid_err())?;
-            return Ok(PyCode::new_ref_with_bag(vm, code));
+            // A non-buffer is a TypeError, not invalid frozen data. The request
+            // is the one marshal.loads() makes, so that what passes here is
+            // exactly what it accepts.
+            crate::protocol::PyBuffer::from_object(
+                vm,
+                &data,
+                crate::protocol::BufferFlags::SIMPLE,
+            )?;
+            // The data is a marshalled code object: a whole marshal value, which
+            // deserialize_code() does not read — it takes the code body alone,
+            // without the type byte the writer puts in front of it.
+            let loads = vm.import("marshal", 0)?.get_attr("loads", vm)?;
+            let code = loads.call((data,), vm).map_err(|_| invalid_err())?;
+            return code.downcast::<PyCode>().map_err(|_| invalid_err());
         }
         import::make_frozen(vm, name.as_str())
     }
@@ -317,17 +321,21 @@ mod _imp {
             .collect()
     }
 
+    #[derive(FromArgs)]
+    struct FindFrozenArgs {
+        #[pyarg(positional)]
+        name: PyUtf8StrRef,
+        #[pyarg(named, default = false)]
+        withdata: bool,
+    }
+
     #[allow(clippy::type_complexity)]
     #[pyfunction]
     fn find_frozen(
-        name: PyUtf8StrRef,
-        withdata: OptionalArg<bool>,
+        args: FindFrozenArgs,
         vm: &VirtualMachine,
     ) -> PyResult<Option<(Option<PyRef<PyMemoryView>>, bool, Option<PyStrRef>)>> {
-        if withdata.into_option().is_some() {
-            // this is keyword-only argument in CPython
-            unimplemented!();
-        }
+        let FindFrozenArgs { name, withdata } = args;
 
         let name_str = name.as_str();
         let info = match super::find_frozen(name_str, vm) {
@@ -338,6 +346,18 @@ mod _imp {
             Err(e) => return Err(e.to_pyexception(name_str, vm)),
         };
 
+        // The data is what get_frozen_object() takes back, i.e. marshalled code.
+        // Frozen modules are stored in their own encoding, so it has to be
+        // re-serialized rather than handed out as a view of the stored bytes.
+        let data = if withdata {
+            let code = PyCode::new_ref_from_frozen(vm, info.code);
+            let dumps = vm.import("marshal", 0)?.get_attr("dumps", vm)?;
+            let bytes = dumps.call((code,), vm)?;
+            Some(PyMemoryView::from_object(&bytes, vm)?.into_ref(&vm.ctx))
+        } else {
+            None
+        };
+
         // When origname is empty (e.g. __hello_only__), return None.
         // Otherwise return the resolved alias name.
         let origname_str = super::resolve_frozen_alias(name_str);
@@ -346,7 +366,7 @@ mod _imp {
         } else {
             Some(vm.ctx.new_utf8_str(origname_str).into())
         };
-        Ok(Some((None, info.package, origname)))
+        Ok(Some((data, info.package, origname)))
     }
 
     #[pyfunction]

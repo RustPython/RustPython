@@ -12,17 +12,18 @@ use rustpython_compiler::{CompileError, ParseError};
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError, PyStrRef,
-        PyType, PyTypeRef,
+        PyBaseException, PyBaseExceptionRef, PyBytesRef, PyDictRef, PyModule, PyOSError,
+        PyStopIteration, PyStrRef, PySystemExit, PyType, PyTypeRef,
         builtin_func::PyNativeFunction,
         descriptor::PyMethodDescriptor,
         tuple::{IntoPyTuple, PyTupleRef},
     },
     convert::{ToPyException, ToPyObject},
     exceptions::OSErrorBuilder,
-    function::{IntoPyNativeFn, PyMethodFlags},
+    function::{FuncArgs, IntoPyNativeFn, PyMethodFlags},
     scope::Scope,
     set_attrs,
+    types::{Constructor, Initializer},
     vm::VirtualMachine,
 };
 
@@ -353,6 +354,26 @@ impl VirtualMachine {
             .expect("vm.new_exception() called with an invalid exception type")
     }
 
+    /// Construct a built-in exception type that carries a payload, directly
+    /// (`py_new` + `slot_init`), without routing through `PyType::call`.
+    /// Only valid for a built-in `T` whose exact type is known at compile time.
+    pub fn new_payload_exception<T>(&self, cls: PyTypeRef, args: FuncArgs) -> PyResult<PyRef<T>>
+    where
+        T: Constructor<Args = FuncArgs> + Initializer,
+    {
+        debug_assert_eq!(
+            cls.slots.basicsize,
+            size_of::<T>(),
+            "vm.new_payload_exception::<{}>() called with mismatched type '{}'",
+            core::any::type_name::<T>(),
+            cls.name()
+        );
+        let payload = T::py_new(&cls, args.clone(), self)?;
+        let exc = payload.into_ref_with_type_lazy_dict(self, cls)?;
+        T::slot_init(exc.as_object().to_owned(), args, self)?;
+        Ok(exc)
+    }
+
     pub fn new_os_error(&self, msg: impl ToPyObject) -> PyRef<PyBaseException> {
         self.new_os_subtype_error(self.ctx.exceptions.os_error.to_owned(), None, msg)
             .upcast()
@@ -496,7 +517,7 @@ impl VirtualMachine {
         self.new_os_subtype_error(exc_type.to_owned(), Some(errno), msg)
     }
 
-    pub fn new_unicode_decode_error_real(
+    pub fn new_unicode_decode_error(
         &self,
         encoding: PyStrRef,
         object: PyBytesRef,
@@ -905,16 +926,20 @@ impl VirtualMachine {
         exc
     }
 
-    pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
-        let stop_iteration_error = self.ctx.exceptions.stop_iteration;
-        let args = if let Some(value) = value {
-            vec![value]
-        } else {
-            Vec::new()
-        };
-        let exc = self.invoke_exception(stop_iteration_error, args);
+    pub fn new_system_exit(&self, args: FuncArgs) -> PyBaseExceptionRef {
+        self.new_payload_exception::<PySystemExit>(self.ctx.exceptions.system_exit.to_owned(), args)
+            .expect("SystemExit construction from internal args is infallible")
+            .upcast()
+    }
 
-        exc.expect("StopIteration is a BaseException Subclass.")
+    pub fn new_stop_iteration(&self, value: Option<PyObjectRef>) -> PyBaseExceptionRef {
+        let args: FuncArgs = value.map(|v| vec![v]).unwrap_or_default().into();
+        self.new_payload_exception::<PyStopIteration>(
+            self.ctx.exceptions.stop_iteration.to_owned(),
+            args,
+        )
+        .expect("StopIteration construction from internal args is infallible")
+        .upcast()
     }
 
     fn new_downcast_error(
@@ -970,12 +995,6 @@ impl VirtualMachine {
     define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);
     define_exception_fn!(fn new_type_error, type_error, TypeError);
     define_exception_fn!(fn new_system_error, system_error, SystemError);
-
-    // TODO: remove & replace with new_unicode_decode_error_real
-    define_exception_fn!(fn new_unicode_decode_error, unicode_decode_error, UnicodeDecodeError);
-
-    // TODO: remove & replace with new_unicode_encode_error_real
-    define_exception_fn!(fn new_unicode_encode_error, unicode_encode_error, UnicodeEncodeError);
 
     define_exception_fn!(fn new_value_error, value_error, ValueError);
 

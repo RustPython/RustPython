@@ -234,7 +234,7 @@ pub(crate) fn or_op(zelf: PyObjectRef, other: PyObjectRef, vm: &VirtualMachine) 
 }
 
 fn make_parameters(args: &Py<PyTuple>, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
-    let parameters = genericalias::make_parameters(args, vm);
+    let parameters = genericalias::make_parameters(args, vm)?;
     let result = dedup_and_flatten_args(&parameters, vm)?;
     Ok(result.args)
 }

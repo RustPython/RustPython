@@ -131,7 +131,7 @@ pub(super) struct FollowSymlinks(
 #[cfg(not(windows))]
 fn bytes_as_os_str<'a>(b: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a std::ffi::OsStr> {
     rustpython_host_env::os::bytes_as_os_str(b).map_err(|e| {
-        vm.new_unicode_decode_error_real(
+        vm.new_unicode_decode_error(
             vm.ctx.new_str("utf-8"),
             vm.ctx.new_bytes(b.to_vec()),
             e.valid_up_to(),
@@ -206,7 +206,10 @@ pub(super) mod _os {
         ospath::{OsPath, OsPathOrFd, OutputMode, PathConverter},
         protocol::PyIterReturn,
         recursion::ReprGuard,
-        types::{Destructor, IterNext, Iterable, PyStructSequence, Representable, SelfIter},
+        types::{
+            Destructor, IterNext, Iterable, PyStructSequence, PyStructSequenceData, Representable,
+            SelfIter,
+        },
         vm::VirtualMachine,
     };
     #[cfg(not(windows))]
@@ -883,7 +886,7 @@ pub(super) mod _os {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
 
@@ -1314,8 +1317,12 @@ pub(super) mod _os {
     impl PyStatResult {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let seq: PyObjectRef = args.bind(vm)?;
-            let result = crate::types::struct_sequence_new(cls.clone(), seq, vm)?;
+            let result = crate::types::struct_sequence_new(
+                cls.clone(),
+                args.bind(vm)?,
+                StatResultData::OPTIONAL_FIELD_NAMES,
+                vm,
+            )?;
             let tuple = result.downcast_ref::<PyTuple>().unwrap();
             let mut items: Vec<PyObjectRef> = tuple.to_vec();
 
@@ -1964,8 +1971,12 @@ pub(super) mod _os {
     impl PyStatvfsResult {
         #[pyslot]
         fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-            let seq: PyObjectRef = args.bind(vm)?;
-            crate::types::struct_sequence_new(cls, seq, vm)
+            crate::types::struct_sequence_new(
+                cls,
+                args.bind(vm)?,
+                StatvfsResultData::OPTIONAL_FIELD_NAMES,
+                vm,
+            )
         }
     }
 
