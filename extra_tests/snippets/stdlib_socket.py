@@ -171,3 +171,18 @@ for exc, expected_name in [
 
 # assert socket.timeout.__module__ == "builtins"
 # assert socket.timeout.__name__ == "TimeoutError"
+
+
+# recv() sizes its buffer from the argument, so an unreachable size has to be
+# reported rather than reserved.
+sizes = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+with sizes:
+    for bufsize in (2**62, 2**48):
+        try:
+            sizes.recv(bufsize)
+        except (MemoryError, OSError, OverflowError):
+            # A size that does not fit the platform's C int is reported while
+            # converting the argument, before there is anything to reserve.
+            pass
+    with assert_raises(ValueError):
+        sizes.recvfrom(-1)

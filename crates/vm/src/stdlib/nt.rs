@@ -19,7 +19,7 @@ pub(crate) mod module {
     use libc::intptr_t;
     use rustpython_common::wtf8::Wtf8Buf;
     use rustpython_host_env::nt as host_nt;
-    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
 
     #[pyattr]
@@ -48,6 +48,26 @@ pub(crate) mod module {
     // Maximum number of temporary files
     #[pyattr]
     const TMP_MAX: i32 = i32::MAX;
+
+    fn utf8_from_bytes<'a>(bytes: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a str> {
+        core::str::from_utf8(bytes).map_err(|err| {
+            let reason = match err.error_len() {
+                None => "unexpected end of data",
+                Some(_) => match bytes[err.valid_up_to()] {
+                    0xc2..=0xf4 => "invalid continuation byte",
+                    _ => "invalid start byte",
+                },
+            };
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(bytes.to_vec()),
+                err.valid_up_to(),
+                err.error_len()
+                    .map_or(bytes.len(), |len| err.valid_up_to() + len),
+                vm.ctx.new_str(reason),
+            )
+        })
+    }
 
     #[pyattr]
     use host_nt::{
@@ -215,11 +235,8 @@ pub(crate) mod module {
         let wide = path.to_wide_cstring(vm)?;
         let filename = host_nt::find_first_file_name(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        let filename_str = filename
-            .to_str()
-            .ok_or_else(|| vm.new_unicode_decode_error("filename contains invalid UTF-8"))?;
-
-        Ok(vm.ctx.new_str(filename_str))
+        let filename_wide: Vec<_> = filename.encode_wide().collect();
+        Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&filename_wide)))
     }
 
     #[derive(FromArgs)]
@@ -687,17 +704,7 @@ pub(crate) mod module {
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
             // On Windows, bytes must be valid UTF-8 - this raises UnicodeDecodeError if not
-            let s = core::str::from_utf8(b.as_bytes()).map_err(|e| {
-                vm.new_exception_msg(
-                    vm.ctx.exceptions.unicode_decode_error.to_owned(),
-                    format!(
-                        "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
-                        b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
-                        e.valid_up_to()
-                    )
-                    .into(),
-                )
-            })?;
+            let s = utf8_from_bytes(b.as_bytes(), vm)?;
             let wide: Vec<u16> = s.encode_utf16().collect();
             (wide, true)
         } else {
@@ -718,16 +725,13 @@ pub(crate) mod module {
         // Return as bytes if input was bytes, preserving the original content
         if is_bytes {
             // Convert UTF-16 back to UTF-8 for bytes output
-            let drv = String::from_utf16(&wide[..drv_size])
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
-            let root = String::from_utf16(&wide[drv_size..drv_size + root_size])
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
-            let tail = String::from_utf16(&wide[drv_size + root_size..])
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+            let drv = Wtf8Buf::from_wide(&wide[..drv_size]).into_bytes();
+            let root = Wtf8Buf::from_wide(&wide[drv_size..drv_size + root_size]).into_bytes();
+            let tail = Wtf8Buf::from_wide(&wide[drv_size + root_size..]).into_bytes();
             Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_bytes(drv.into_bytes()).into(),
-                vm.ctx.new_bytes(root.into_bytes()).into(),
-                vm.ctx.new_bytes(tail.into_bytes()).into(),
+                vm.ctx.new_bytes(drv).into(),
+                vm.ctx.new_bytes(root).into(),
+                vm.ctx.new_bytes(tail).into(),
             ]))
         } else {
             // For str output, use WTF-8 to handle surrogates
@@ -913,17 +917,7 @@ pub(crate) mod module {
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
-            let s = core::str::from_utf8(b.as_bytes()).map_err(|e| {
-                vm.new_exception_msg(
-                    vm.ctx.exceptions.unicode_decode_error.to_owned(),
-                    format!(
-                        "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
-                        b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
-                        e.valid_up_to()
-                    )
-                    .into(),
-                )
-            })?;
+            let s = utf8_from_bytes(b.as_bytes(), vm)?;
             let wide: Vec<u16> = s.encode_utf16().collect();
             (wide, true)
         } else {
@@ -936,9 +930,8 @@ pub(crate) mod module {
         let normalized = normpath_wide(&wide);
 
         if is_bytes {
-            let s = String::from_utf16(&normalized)
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
-            Ok(vm.ctx.new_bytes(s.into_bytes()).into())
+            let bytes = Wtf8Buf::from_wide(&normalized).into_bytes();
+            Ok(vm.ctx.new_bytes(bytes).into())
         } else {
             let s = Wtf8Buf::from_wide(&normalized);
             Ok(vm.ctx.new_str(s).into())

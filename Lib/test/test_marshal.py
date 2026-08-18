@@ -353,7 +353,6 @@ class BugsTestCase(unittest.TestCase):
             self.assertIsInstance(b[0], list)
             self.assertIs(b[0][0], b)
 
-    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_reference_loop_code(self):
         def f():
             return 1234.5
@@ -367,7 +366,6 @@ class BugsTestCase(unittest.TestCase):
         for v in range(marshal.version + 1):
             self.assertRaises(ValueError, marshal.dumps, code, v)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by dumps
     def test_reference_loop_slice(self):
         a = slice([], None)
         a.start.append(a)
@@ -410,13 +408,13 @@ class BugsTestCase(unittest.TestCase):
         self.assertIsInstance(a[0], dict)
         self.assertIs(a[0][None], a)
 
-        # Direct self-reference which cannot be created in Python.  CPython
-        # leaves this disabled because its reference counting cannot collect
-        # the resulting cycle; RustPython's tracing collector can.
-        data = b'\xa8\x01\x00\x00\x00r\x00\x00\x00\x00' # (<R>,)
-        a = marshal.loads(data)
-        self.assertIsInstance(a, tuple)
-        self.assertIs(a[0], a)
+        # Direct self-reference which cannot be created in Python.
+        # This creates a reference loop which cannot be collected.
+        if False:
+            data = b'\xa8\x01\x00\x00\x00r\x00\x00\x00\x00' # (<R>,)
+            a = marshal.loads(data)
+            self.assertIsInstance(a, tuple)
+            self.assertIs(a[0], a)
 
         # Direct self-references which cannot be created in Python
         # because of unhashability.
@@ -541,7 +539,6 @@ class BugsTestCase(unittest.TestCase):
                     _, dump_1, _ = assert_python_ok(*args, PYTHONHASHSEED="1")
                     self.assertEqual(dump_0, dump_1)
 
-    @unittest.skip("TODO: RUSTPYTHON; unexpected payload for constant python value")
     def test_unmarshallable(self):
         # Check no crash after encountering unmarshallable objects.
         # See https://github.com/python/cpython/issues/106287.

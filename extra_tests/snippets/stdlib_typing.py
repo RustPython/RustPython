@@ -45,3 +45,21 @@ class ClassWithUnionParams:
 assert _typing._idfunc(1) == 1
 with assert_raises(TypeError):
     _typing._idfunc()
+
+
+# ParamSpecArgs shows a non-ParamSpec origin by its repr, which is where the
+# recursion guard lives; nesting them deeply must not walk the native stack.
+
+from typing import ParamSpec, ParamSpecArgs
+
+spec = ParamSpec("spec")
+assert repr(spec.args) == "spec.args"
+assert repr(spec.kwargs) == "spec.kwargs"
+
+nested = object()
+for _ in range(2000):
+    nested = ParamSpecArgs(nested)
+try:
+    repr(nested)
+except RecursionError:
+    pass

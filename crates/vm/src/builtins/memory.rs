@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -8,7 +8,7 @@ use crate::{
     TryFromBorrowedObject, TryFromObject, VirtualMachine, atomic_func,
     buffer::FormatSpec,
     bytes_inner::{ByteInnerHexOptions, bytes_to_hex},
-    class::PyClassImpl,
+    class::{PyClassImpl, StaticType},
     common::{
         borrow::{BorrowedValue, BorrowedValueMut},
         hash::PyHash,
@@ -16,9 +16,9 @@ use crate::{
     },
     convert::ToPyObject,
     function::Either,
-    function::{FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgIndex, FuncArgs, OptionalArg, PyComparisonValue},
     protocol::{
-        BufferDescriptor, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
+        BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
         PySequenceMethods, VecBuffer,
     },
     sliceable::SequenceIndexOp,
@@ -27,35 +27,45 @@ use crate::{
         PyComparisonOp, Representable, SelfIter,
     },
 };
-use core::{cmp::Ordering, fmt::Debug, mem::ManuallyDrop, ops::Range};
+use core::{cmp::Ordering, fmt::Debug, ops::Range};
 use crossbeam_utils::atomic::AtomicCell;
 use itertools::Itertools;
 use rustpython_common::lock::PyMutex;
+
+/// The most dimensions a view can describe. PyBUF_MAX_NDIM
+const MAX_NDIM: usize = 64;
 
 #[derive(FromArgs)]
 pub struct PyMemoryViewNewArgs {
     object: PyObjectRef,
 }
 
+#[derive(FromArgs)]
+struct PyMemoryViewFromFlagsArgs {
+    object: PyObjectRef,
+    flags: ArgIndex,
+}
+
 #[pyclass(module = false, name = "memoryview")]
 #[derive(Debug)]
 pub struct PyMemoryView {
-    // avoid double release when memoryview had released the buffer before drop
-    buffer: ManuallyDrop<PyBuffer>,
+    /// One share of the acquisition this view is looking at, given up when the
+    /// view is released or dropped.
+    buffer: PyBuffer,
     // the released memoryview does not mean the buffer is destroyed
     // because the possible another memoryview is viewing from it
     released: AtomicCell<bool>,
-    // start does NOT mean the bytes before start will not be visited,
-    // it means the point we starting to get the absolute position via
-    // the needle
-    start: usize,
+    /// Forbids handing out anything that outlives this view, for the window
+    /// passed to `__release_buffer__`.
+    restricted: AtomicCell<bool>,
     format_spec: FormatSpec,
     // memoryview's options could be different from buffer's options
     desc: BufferDescriptor,
     hash: OnceCell<PyHash>,
-    // exports
-    // memoryview has no exports count by itself
-    // instead it relay on the buffer it viewing to maintain the count
+    /// Buffers handed out of this view that have not been given back yet. The
+    /// view cannot be released while any of them is outstanding, so that what
+    /// reads them keeps reading memory that is still there. self->exports
+    exports: AtomicCell<usize>,
 }
 
 impl Constructor for PyMemoryView {
@@ -71,13 +81,54 @@ impl PyMemoryView {
         FormatSpec::parse(format.as_bytes(), vm)
     }
 
+    /// The single native format character a cast is allowed to name, with an
+    /// optional `@` in front of it. get_native_fmtchar
+    fn native_fmtchar(format: &str) -> Option<u8> {
+        let format = format.strip_prefix('@').unwrap_or(format);
+        let [c] = *format.as_bytes() else {
+            return None;
+        };
+        matches!(
+            c,
+            b'c' | b'b'
+                | b'B'
+                | b'h'
+                | b'H'
+                | b'i'
+                | b'I'
+                | b'l'
+                | b'L'
+                | b'q'
+                | b'Q'
+                | b'n'
+                | b'N'
+                | b'f'
+                | b'd'
+                | b'e'
+                | b'?'
+                | b'P'
+        )
+        .then_some(c)
+    }
+
     /// this should be the main entrance to create the memoryview
     /// to avoid the chained memoryview
     pub fn from_object(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        Self::from_object_with_flags(obj, BufferFlags::FULL_RO, vm)
+    }
+
+    // PyMemoryView_FromObjectAndFlags
+    pub fn from_object_with_flags(
+        obj: &PyObject,
+        flags: BufferFlags,
+        vm: &VirtualMachine,
+    ) -> PyResult<Self> {
         if let Some(other) = obj.downcast_ref::<Self>() {
+            other.try_not_released(vm)?;
+            other.try_not_restricted(vm)?;
             Ok(other.new_view())
         } else {
-            let buffer = PyBuffer::try_from_borrowed_object(vm, obj)?;
+            let buffer = PyBuffer::from_object(vm, obj, flags)?;
             Self::from_buffer(buffer, vm)
         }
     }
@@ -93,12 +144,13 @@ impl PyMemoryView {
         let desc = buffer.desc.clone();
 
         Ok(Self {
-            buffer: ManuallyDrop::new(buffer),
+            buffer,
             released: AtomicCell::new(false),
-            start: 0,
+            restricted: AtomicCell::new(false),
             format_spec,
             desc,
             hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
         })
     }
 
@@ -120,16 +172,36 @@ impl PyMemoryView {
     /// this should be the only way to create a memoryview from another memoryview.
     #[must_use]
     pub fn new_view(&self) -> Self {
-        let zelf = Self {
+        Self {
             buffer: self.buffer.clone(),
             released: AtomicCell::new(false),
-            start: self.start,
+            restricted: AtomicCell::new(false),
             format_spec: self.format_spec.clone(),
             desc: self.desc.clone(),
             hash: OnceCell::new(),
-        };
-        zelf.buffer.retain();
-        zelf
+            exports: AtomicCell::new(0),
+        }
+    }
+
+    /// A view for a temporary that never reaches Python. It counts as no export,
+    /// so the exporter stays exactly as resizable as it already was, the way a
+    /// `Py_buffer dest = *view` copy does.
+    #[must_use]
+    fn borrowed_view(&self) -> Self {
+        Self {
+            buffer: self.buffer.detached(),
+            released: AtomicCell::new(false),
+            restricted: AtomicCell::new(false),
+            format_spec: self.format_spec.clone(),
+            desc: self.desc.clone(),
+            hash: OnceCell::new(),
+            exports: AtomicCell::new(0),
+        }
+    }
+
+    /// The object this view looks at, whose storage it borrows.
+    pub fn viewed_object(&self) -> &PyObject {
+        &self.buffer.obj
     }
 
     fn try_not_released(&self, vm: &VirtualMachine) -> PyResult<()> {
@@ -140,22 +212,84 @@ impl PyMemoryView {
         }
     }
 
+    fn try_not_restricted(&self, vm: &VirtualMachine) -> PyResult<()> {
+        if self.restricted.load() {
+            Err(vm.new_value_error("cannot create new view on restricted memoryview"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn try_usable(&self, vm: &VirtualMachine) -> PyResult<()> {
+        self.try_not_released(vm)?;
+        self.try_not_restricted(vm)
+    }
+
+    /// Reject a request this view cannot serve. memory_getbuf
+    fn check_buffer_request(&self, flags: BufferFlags, vm: &VirtualMachine) -> PyResult<()> {
+        let c_contiguous = self.desc.is_contiguous();
+        flags.check_writable(
+            self.desc.readonly,
+            "memoryview: underlying buffer is not writable",
+            vm,
+        )?;
+        if flags.contains(BufferFlags::C_CONTIGUOUS) && !c_contiguous {
+            return Err(vm.new_buffer_error("memoryview: underlying buffer is not C-contiguous"));
+        }
+        if flags.contains(BufferFlags::F_CONTIGUOUS) && !self.desc.is_fortran_contiguous() {
+            return Err(
+                vm.new_buffer_error("memoryview: underlying buffer is not Fortran contiguous")
+            );
+        }
+        if flags.contains(BufferFlags::ANY_CONTIGUOUS)
+            && !c_contiguous
+            && !self.desc.is_fortran_contiguous()
+        {
+            return Err(vm.new_buffer_error("memoryview: underlying buffer is not contiguous"));
+        }
+        // No exporter here produces a suboffset, so this is a guard rather than a
+        // reachable rejection.
+        if !flags.contains(BufferFlags::INDIRECT) && self.desc.has_suboffsets() {
+            return Err(vm.new_buffer_error("memoryview: underlying buffer requires suboffsets"));
+        }
+        if !flags.contains(BufferFlags::STRIDES) && !c_contiguous {
+            return Err(vm.new_buffer_error("memoryview: underlying buffer is not C-contiguous"));
+        }
+        if !flags.contains(BufferFlags::ND) && flags.intersects(BufferFlags::FORMAT) {
+            return Err(vm.new_buffer_error(
+                "memoryview: cannot cast to unsigned bytes if the format flag is present",
+            ));
+        }
+        Ok(())
+    }
+
+    /// The descriptor this view exports for `flags`, or an error if it cannot
+    /// serve the request. memory_getbuf
+    fn requested_desc(
+        &self,
+        flags: BufferFlags,
+        vm: &VirtualMachine,
+    ) -> PyResult<BufferDescriptor> {
+        self.check_buffer_request(flags, vm)?;
+        Ok(self.desc.projected(flags))
+    }
+
     fn getitem_by_idx(&self, i: isize, vm: &VirtualMachine) -> PyResult {
         if self.desc.ndim() != 1 {
             return Err(
                 vm.new_not_implemented_error("multi-dimensional sub-views are not implemented")
             );
         }
-        let (shape, stride, suboffset) = self.desc.dim_desc[0];
+        let (shape, _, _) = self.desc.dim_desc[0];
+        // ptr_from_index
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
-        let index = index as isize * stride + suboffset;
-        let pos = (index + self.start as isize) as usize;
-        self.unpack_single(pos, vm)
+            .ok_or_else(|| vm.new_index_error("index out of bounds on dimension 1"))?;
+        self.unpack_single(self.desc.fast_position(&[index]) as usize, vm)
     }
 
     fn getitem_by_slice(&self, slice: &PySlice, vm: &VirtualMachine) -> PyResult {
+        self.try_not_restricted(vm)?;
         let mut other = self.new_view();
         other.init_slice(slice, 0, vm)?;
         other.init_len();
@@ -165,21 +299,19 @@ impl PyMemoryView {
 
     fn getitem_by_multi_idx(&self, indexes: &[isize], vm: &VirtualMachine) -> PyResult {
         let pos = self.pos_from_multi_index(indexes, vm)?;
-        let bytes = self.buffer.obj_bytes();
-        format_unpack(&self.format_spec, &bytes[pos..pos + self.desc.itemsize], vm)
+        self.unpack_single(pos, vm)
     }
 
     fn setitem_by_idx(&self, i: isize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         if self.desc.ndim() != 1 {
             return Err(vm.new_not_implemented_error("sub-views are not implemented"));
         }
-        let (shape, stride, suboffset) = self.desc.dim_desc[0];
+        let (shape, _, _) = self.desc.dim_desc[0];
+        // ptr_from_index
         let index = i
             .wrapped_at(shape)
-            .ok_or_else(|| vm.new_index_error("index out of range"))?;
-        let index = index as isize * stride + suboffset;
-        let pos = (index + self.start as isize) as usize;
-        self.pack_single(pos, value, vm)
+            .ok_or_else(|| vm.new_index_error("index out of bounds on dimension 1"))?;
+        self.pack_single(self.desc.fast_position(&[index]) as usize, value, vm)
     }
 
     fn setitem_by_multi_idx(
@@ -193,7 +325,9 @@ impl PyMemoryView {
     }
 
     fn pack_single(&self, pos: usize, value: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut bytes = self.buffer.obj_bytes_mut();
+        // The value is converted before the destination is borrowed, because the
+        // conversion runs `__index__` or `__float__`, which can read or write the
+        // same buffer.
         // TODO: Optimize
         let data = self.format_spec.pack(vec![value], vm).map_err(|_| {
             vm.new_type_error(format!(
@@ -201,15 +335,23 @@ impl PyMemoryView {
                 self.desc.format
             ))
         })?;
-        bytes[pos..pos + self.desc.itemsize].copy_from_slice(&data);
+        // The conversion, and the index that produced `pos`, could have released
+        // the view; `pos` addresses a buffer that is no longer there.
+        // CHECK_RELEASED_INT_AGAIN
+        self.try_not_released(vm)?;
+        let mut bytes = self.buffer.obj_bytes_mut();
+        bytes[pos..pos + self.format_spec.size()].copy_from_slice(&data);
         Ok(())
     }
 
     fn unpack_single(&self, pos: usize, vm: &VirtualMachine) -> PyResult {
+        // The index that produced `pos` could have released the view.
+        // CHECK_RELEASED_AGAIN
+        self.try_not_released(vm)?;
         let bytes = self.buffer.obj_bytes();
         // TODO: Optimize
         self.format_spec
-            .unpack(&bytes[pos..pos + self.desc.itemsize], vm)
+            .unpack(&bytes[pos..pos + self.format_spec.size()], vm)
             .map(|x| {
                 if x.len() == 1 {
                     x[0].to_owned()
@@ -234,9 +376,7 @@ impl PyMemoryView {
             Ordering::Equal => (),
         }
 
-        let pos = self.desc.position(indexes, vm)?;
-        let pos = (pos + self.start as isize) as usize;
-        Ok(pos)
+        Ok(self.desc.position(indexes, vm)? as usize)
     }
 
     fn init_len(&mut self) {
@@ -244,50 +384,38 @@ impl PyMemoryView {
         self.desc.len = product * self.desc.itemsize;
     }
 
+    /// Move this view by `delta` bytes. The offset moves, unless a dimension
+    /// outside `dim` is reached through a pointer, in which case its suboffset
+    /// does.
+    fn adjust_position(&mut self, dim: usize, delta: isize) {
+        match self.desc.dim_desc[..dim]
+            .iter()
+            .rposition(|&(_, _, suboffset)| suboffset != 0)
+        {
+            Some(n) => self.desc.dim_desc[n].2 += delta,
+            None => self.desc.offset += delta,
+        }
+    }
+
     fn init_range(&mut self, range: Range<usize>, dim: usize) {
         let (shape, stride, _) = self.desc.dim_desc[dim];
         debug_assert!(shape >= range.len());
 
-        let mut is_adjusted = false;
-        for (_, _, suboffset) in self.desc.dim_desc.iter_mut().rev() {
-            if *suboffset != 0 {
-                *suboffset += stride * range.start as isize;
-                is_adjusted = true;
-                break;
-            }
-        }
-        if !is_adjusted {
-            // no suboffset set, stride must be positive
-            self.start += stride as usize * range.start;
-        }
-        let new_len = range.len();
-        self.desc.dim_desc[dim].0 = new_len;
+        self.adjust_position(dim, stride * range.start as isize);
+        self.desc.dim_desc[dim].0 = range.len();
     }
 
+    // init_slice
     fn init_slice(&mut self, slice: &PySlice, dim: usize, vm: &VirtualMachine) -> PyResult<()> {
         let (shape, stride, _) = self.desc.dim_desc[dim];
         let slice = slice.to_saturated(vm)?;
-        let (range, step, slice_len) = slice.adjust_indices(shape);
+        let (start, slice_len) = slice.adjust_indices_start(shape);
 
-        let mut is_adjusted_suboffset = false;
-        for (_, _, suboffset) in self.desc.dim_desc.iter_mut().rev() {
-            if *suboffset != 0 {
-                *suboffset += stride * range.start as isize;
-                is_adjusted_suboffset = true;
-                break;
-            }
-        }
-        if !is_adjusted_suboffset {
-            // no suboffset set, stride must be positive
-            self.start += stride as usize
-                * if step.is_negative() {
-                    range.end - 1
-                } else {
-                    range.start
-                };
-        }
+        // Repeated slicing multiplies the stride by the step every time, which
+        // overflows after about twenty rounds; C wraps there and so does this.
+        self.adjust_position(dim, stride.wrapping_mul(start));
         self.desc.dim_desc[dim].0 = slice_len;
-        self.desc.dim_desc[dim].1 *= step;
+        self.desc.dim_desc[dim].1 = stride.wrapping_mul(slice.step());
 
         Ok(())
     }
@@ -303,10 +431,12 @@ impl PyMemoryView {
         if dim + 1 == self.desc.ndim() {
             let mut v = Vec::with_capacity(shape);
             for _ in 0..shape {
-                let pos = index + suboffset;
-                let pos = (pos + self.start as isize) as usize;
-                let obj =
-                    format_unpack(&self.format_spec, &bytes[pos..pos + self.desc.itemsize], vm)?;
+                let pos = (index + suboffset) as usize;
+                let obj = format_unpack(
+                    &self.format_spec,
+                    &bytes[pos..pos + self.format_spec.size()],
+                    vm,
+                )?;
                 v.push(obj);
                 index += stride;
             }
@@ -330,29 +460,42 @@ impl PyMemoryView {
             return Ok(false);
         }
 
-        if let Some(other) = other.downcast_ref::<Self>()
-            && other.released.load()
-        {
-            return Ok(false);
-        }
-
-        let other = match PyBuffer::try_from_borrowed_object(vm, other) {
-            Ok(buf) => buf,
-            Err(_) => return Ok(false),
+        let other = if let Some(mv) = other.downcast_ref::<Self>() {
+            if mv.released.load() {
+                return Ok(false);
+            }
+            // Another view's buffer is read where it lies rather than acquired,
+            // so that a restricted view still compares. memory_richcompare
+            let mut view = mv.buffer.detached();
+            view.desc = mv.desc.clone();
+            view
+        } else {
+            match PyBuffer::try_from_borrowed_object(vm, other) {
+                Ok(buf) => buf,
+                Err(_) => return Ok(false),
+            }
         };
 
         if !is_equiv_shape(&zelf.desc, &other.desc) {
             return Ok(false);
         }
 
-        let a_itemsize = zelf.desc.itemsize;
-        let b_itemsize = other.desc.itemsize;
         let a_format_spec = &zelf.format_spec;
         let b_format_spec = &Self::parse_format(&other.desc.format, vm)?;
+        // An element is as wide as its format, which a projected descriptor can
+        // make narrower than the item size it steps by.
+        let a_itemsize = a_format_spec.size();
+        let b_itemsize = b_format_spec.size();
 
         if zelf.desc.ndim() == 0 {
-            let a_val = format_unpack(a_format_spec, &zelf.buffer.obj_bytes()[..a_itemsize], vm)?;
-            let b_val = format_unpack(b_format_spec, &other.obj_bytes()[..b_itemsize], vm)?;
+            let a_pos = zelf.desc.offset as usize;
+            let b_pos = other.desc.offset as usize;
+            let a_bytes = zelf.buffer.obj_bytes();
+            let a_val = format_unpack(a_format_spec, &a_bytes[a_pos..a_pos + a_itemsize], vm)?;
+            drop(a_bytes);
+            let b_bytes = other.obj_bytes();
+            let b_val = format_unpack(b_format_spec, &b_bytes[b_pos..b_pos + b_itemsize], vm)?;
+            drop(b_bytes);
             return vm.bool_eq(&a_val, &b_val);
         }
 
@@ -361,9 +504,8 @@ impl PyMemoryView {
         let a_bytes = zelf.buffer.obj_bytes();
         let b_bytes = other.obj_bytes();
         zelf.desc.zip_eq(&other.desc, false, |a_range, b_range| {
-            let a_range = (a_range.start + zelf.start as isize) as usize
-                ..(a_range.end + zelf.start as isize) as usize;
-            let b_range = b_range.start as usize..b_range.end as usize;
+            let a_range = a_range.start as usize..a_range.start as usize + a_itemsize;
+            let b_range = b_range.start as usize..b_range.start as usize + b_itemsize;
             let a_val = match format_unpack(a_format_spec, &a_bytes[a_range], vm) {
                 Ok(val) => val,
                 Err(e) => {
@@ -384,39 +526,17 @@ impl PyMemoryView {
         ret
     }
 
-    fn obj_bytes(&self) -> BorrowedValue<'_, [u8]> {
-        if self.desc.is_contiguous() {
-            BorrowedValue::map(self.buffer.obj_bytes(), |x| {
-                &x[self.start..self.start + self.desc.len]
-            })
-        } else {
-            BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[self.start..])
-        }
-    }
-
-    fn obj_bytes_mut(&self) -> BorrowedValueMut<'_, [u8]> {
-        if self.desc.is_contiguous() {
-            BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
-                &mut x[self.start..self.start + self.desc.len]
-            })
-        } else {
-            BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| &mut x[self.start..])
-        }
-    }
-
     fn as_contiguous(&self) -> Option<BorrowedValue<'_, [u8]>> {
         self.desc.is_contiguous().then(|| {
-            BorrowedValue::map(self.buffer.obj_bytes(), |x| {
-                &x[self.start..self.start + self.desc.len]
-            })
+            let range = self.desc.contiguous_range();
+            BorrowedValue::map(self.buffer.obj_bytes(), |x| &x[range])
         })
     }
 
     fn _as_contiguous_mut(&self) -> Option<BorrowedValueMut<'_, [u8]>> {
         self.desc.is_contiguous().then(|| {
-            BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| {
-                &mut x[self.start..self.start + self.desc.len]
-            })
+            let range = self.desc.contiguous_range();
+            BorrowedValueMut::map(self.buffer.obj_bytes_mut(), |x| &mut x[range])
         })
     }
 
@@ -427,9 +547,7 @@ impl PyMemoryView {
             buf.reserve(self.desc.len);
             let bytes = &*self.buffer.obj_bytes();
             self.desc.for_each_segment(true, |range| {
-                let start = (range.start + self.start as isize) as usize;
-                let end = (range.end + self.start as isize) as usize;
-                buf.extend_from_slice(&bytes[start..end]);
+                buf.extend_from_slice(&bytes[range.start as usize..range.end as usize]);
             })
         }
     }
@@ -454,27 +572,7 @@ impl PyMemoryView {
         let mut data = vec![];
         self.append_to(&mut data);
 
-        if self.desc.ndim() == 0 {
-            return VecBuffer::from(data)
-                .into_ref(&vm.ctx)
-                .into_pybuffer_with_descriptor(self.desc.clone());
-        }
-
-        let mut dim_desc = self.desc.dim_desc.clone();
-        dim_desc.last_mut().unwrap().1 = self.desc.itemsize as isize;
-        dim_desc.last_mut().unwrap().2 = 0;
-        for i in (0..dim_desc.len() - 1).rev() {
-            dim_desc[i].1 = dim_desc[i + 1].1 * dim_desc[i + 1].0 as isize;
-            dim_desc[i].2 = 0;
-        }
-
-        let desc = BufferDescriptor {
-            len: self.desc.len,
-            readonly: self.desc.readonly,
-            itemsize: self.desc.itemsize,
-            format: self.desc.format.clone(),
-            dim_desc,
-        };
+        let desc = self.desc.contiguous();
 
         VecBuffer::from(data)
             .into_ref(&vm.ctx)
@@ -493,7 +591,7 @@ impl Py<PyMemoryView> {
             return Err(vm.new_not_implemented_error("sub-view are not implemented"));
         }
 
-        let mut dest = self.new_view();
+        let mut dest = self.borrowed_view();
         dest.init_slice(slice, 0, vm)?;
         dest.init_len();
 
@@ -508,15 +606,11 @@ impl Py<PyMemoryView> {
             };
         };
 
-        let src = if let Some(src) = src.downcast_ref::<PyMemoryView>() {
-            if self.buffer.obj.is(&src.buffer.obj) {
-                src.to_contiguous(vm)
-            } else {
-                AsBuffer::as_buffer(src, vm)?
-            }
-        } else {
-            PyBuffer::try_from_object(vm, src)?
-        };
+        // PyObject_GetBuffer(value, &src, PyBUF_FULL_RO)
+        let src = PyBuffer::try_from_object(vm, src)?;
+        // Acquiring the source ran `__buffer__`, which can release this view.
+        // copy_single: CHECK_RELEASED_INT_AGAIN
+        self.try_not_released(vm)?;
 
         if !is_equiv_structure(&src.desc, &dest.desc) {
             return Err(vm.new_value_error(
@@ -524,11 +618,21 @@ impl Py<PyMemoryView> {
             ));
         }
 
+        // copy_buffer reads the source as it stood before the copy began, which an
+        // overlapping assignment depends on and which also keeps the two borrows
+        // below off the same storage.
+        let src = if root_exporter(&src).is(&root_exporter(&dest.buffer)) {
+            let owned = src.to_contiguous(vm);
+            drop(src);
+            owned
+        } else {
+            src
+        };
+
         let mut bytes_mut = dest.buffer.obj_bytes_mut();
         let src_bytes = src.obj_bytes();
         dest.desc.zip_eq(&src.desc, true, |a_range, b_range| {
-            let a_range = (a_range.start + dest.start as isize) as usize
-                ..(a_range.end + dest.start as isize) as usize;
+            let a_range = a_range.start as usize..a_range.end as usize;
             let b_range = b_range.start as usize..b_range.end as usize;
             bytes_mut[a_range].copy_from_slice(&src_bytes[b_range]);
             false
@@ -562,16 +666,58 @@ impl PyMemoryView {
         PyGenericAlias::from_args(cls, args, vm)
     }
 
-    #[pymethod]
+    #[pyclassmethod]
+    fn _from_flags(
+        _cls: PyTypeRef,
+        args: PyMemoryViewFromFlagsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyRef<Self>> {
+        let flags =
+            BufferFlags::from_bits_retain(args.flags.as_ref().try_to_primitive::<i32>(vm)? as u32);
+        Self::from_object_with_flags(&args.object, flags, vm).map(|mv| mv.into_ref(&vm.ctx))
+    }
+
+    #[pymethod(name = "release")]
+    fn py_release(&self, vm: &VirtualMachine) -> PyResult<()> {
+        // _memory_release: what still reads this view holds it open.
+        let exports = self.exports.load();
+        if !self.released.load() && exports > 0 {
+            let plural = if exports == 1 { "" } else { "s" };
+            return Err(
+                vm.new_buffer_error(format!("memoryview has {exports} exported buffer{plural}"))
+            );
+        }
+        self.release();
+        Ok(())
+    }
+
+    /// Give up the view's share without asking whether anything is reading it.
+    /// The teardown paths have nowhere to report a refusal.
     pub fn release(&self) {
         if self.released.compare_exchange(false, true).is_ok() {
             self.buffer.release();
         }
     }
 
+    /// Count this view as exported while `f` runs, so Python reached from inside
+    /// it cannot release the memory being read out from under it.
+    fn while_exported<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.exports.fetch_add(1);
+        let result = f();
+        self.exports.fetch_sub(1);
+        result
+    }
+
     #[pygetset]
     fn obj(&self, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        self.try_not_released(vm).map(|_| self.buffer.obj.clone())
+        self.try_not_released(vm)?;
+        // A window over a buffer being released exposes no exporter, like a
+        // Py_buffer whose obj is NULL.
+        Ok(if self.buffer.obj.downcastable::<PyBufferWindow>() {
+            vm.ctx.none()
+        } else {
+            self.buffer.obj.clone()
+        })
     }
 
     #[pygetset]
@@ -647,7 +793,8 @@ impl PyMemoryView {
 
     #[pygetset]
     fn contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        self.try_not_released(vm).map(|_| self.desc.is_contiguous())
+        self.try_not_released(vm)
+            .map(|_| self.desc.is_contiguous() || self.desc.is_fortran_contiguous())
     }
 
     #[pygetset]
@@ -657,9 +804,8 @@ impl PyMemoryView {
 
     #[pygetset]
     fn f_contiguous(&self, vm: &VirtualMachine) -> PyResult<bool> {
-        // TODO: column-major order
         self.try_not_released(vm)
-            .map(|_| self.desc.ndim() <= 1 && self.desc.is_contiguous())
+            .map(|_| self.desc.is_fortran_contiguous())
     }
 
     #[pymethod]
@@ -667,9 +813,10 @@ impl PyMemoryView {
         zelf.try_not_released(vm).map(|_| zelf)
     }
 
+    // memory_exit
     #[pymethod]
-    fn __exit__(&self, _args: FuncArgs) {
-        self.release();
+    fn __exit__(&self, _args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        self.py_release(vm)
     }
 
     fn __getitem__(zelf: PyRef<Self>, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult {
@@ -682,7 +829,7 @@ impl PyMemoryView {
             if let Some(tuple) = needle.downcast_ref::<PyTuple>()
                 && tuple.is_empty()
             {
-                return zelf.unpack_single(0, vm);
+                return zelf.unpack_single(zelf.desc.offset as usize, vm);
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
         }
@@ -713,30 +860,56 @@ impl PyMemoryView {
     }
 
     #[pymethod]
-    fn tobytes(&self, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
+    fn tobytes(&self, args: ToBytesArgs, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
         self.try_not_released(vm)?;
+        let order = match &args.order {
+            None => Order::C,
+            Some(order) => match order.to_str() {
+                Some("C") => Order::C,
+                Some("F") => Order::Fortran,
+                Some("A") => Order::Any,
+                _ => return Err(vm.new_value_error("order must be 'C', 'F' or 'A'")),
+            },
+        };
+
         let mut v = vec![];
-        self.append_to(&mut v);
+        // 'A' asks for the memory as it is laid out, which is what appending a
+        // contiguous view does. Only a Fortran walk of a view that is not
+        // already Fortran-contiguous reorders anything, and a view of fewer
+        // than two dimensions has one layout under either name.
+        if order == Order::Fortran && self.desc.ndim() > 1 {
+            v.reserve(self.desc.len);
+            let bytes = &*self.buffer.obj_bytes();
+            self.desc.for_each_segment_fortran(|range| {
+                v.extend_from_slice(&bytes[range.start as usize..range.end as usize]);
+            });
+        } else {
+            self.append_to(&mut v);
+        }
         Ok(PyBytes::from(v).into_ref(&vm.ctx))
     }
 
     #[pymethod]
-    fn tolist(&self, vm: &VirtualMachine) -> PyResult<PyListRef> {
+    // memory_tolist
+    fn tolist(&self, vm: &VirtualMachine) -> PyResult {
         self.try_not_released(vm)?;
         let bytes = self.buffer.obj_bytes();
         if self.desc.ndim() == 0 {
-            return Ok(vm.ctx.new_list(vec![format_unpack(
+            // A 0-dim view holds one element, which is what it unpacks to.
+            let pos = self.desc.offset as usize;
+            return format_unpack(
                 &self.format_spec,
-                &bytes[..self.desc.itemsize],
+                &bytes[pos..pos + self.format_spec.size()],
                 vm,
-            )?]));
+            );
         }
-        self._to_list(&bytes, 0, 0, vm)
+        self._to_list(&bytes, self.desc.offset, 0, vm)
+            .map(Into::into)
     }
 
     #[pymethod]
     fn toreadonly(&self, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.try_not_released(vm)?;
+        self.try_usable(vm)?;
         let mut other = self.new_view();
         other.desc.readonly = true;
         Ok(other.into_ref(&vm.ctx))
@@ -744,9 +917,12 @@ impl PyMemoryView {
 
     #[pymethod]
     fn hex(&self, options: ByteInnerHexOptions, vm: &VirtualMachine) -> PyResult<String> {
-        let ByteInnerHexOptions { sep, bytes_per_sep } = options;
         self.try_not_released(vm)?;
-        self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep, vm))
+        // Measuring the separator runs Python, which must not release the bytes
+        // being written out. memoryview_hex_impl
+        let (sep, bytes_per_sep) = self.while_exported(|| options.resolve(vm))?;
+        self.try_not_released(vm)?;
+        Ok(self.contiguous_or_collect(|x| bytes_to_hex(x, sep, bytes_per_sep)))
     }
 
     #[pymethod]
@@ -808,31 +984,46 @@ impl PyMemoryView {
 
     fn cast_to_1d(&self, format: PyUtf8StrRef, vm: &VirtualMachine) -> PyResult<Self> {
         let format_str = format.as_str();
+        let Some(dest_char) = Self::native_fmtchar(format_str) else {
+            return Err(vm.new_value_error(
+                "memoryview: destination format must be a native single character format prefixed with an optional '@'",
+            ));
+        };
+        // One side has to be bytes. Casting between two item types would
+        // reinterpret the items rather than re-divide the memory, and the
+        // source items were written by something that chose their type.
+        let source_is_bytes = Self::native_fmtchar(&self.desc.format).is_some_and(is_byte_fmtchar);
+        if !source_is_bytes && !is_byte_fmtchar(dest_char) {
+            return Err(vm.new_type_error("memoryview: cannot cast between two non-byte formats"));
+        }
         let format_spec = Self::parse_format(format_str, vm)?;
         let itemsize = format_spec.size();
         if !self.desc.len.is_multiple_of(itemsize) {
             return Err(vm.new_type_error("memoryview: length is not a multiple of itemsize"));
         }
 
-        Ok(Self {
+        let zelf = Self {
             buffer: self.buffer.clone(),
             released: AtomicCell::new(false),
-            start: self.start,
+            restricted: AtomicCell::new(false),
             format_spec,
             desc: BufferDescriptor {
                 len: self.desc.len,
+                offset: self.desc.offset,
                 readonly: self.desc.readonly,
                 itemsize,
                 format: format_str.to_owned().into(),
                 dim_desc: vec![(self.desc.len / itemsize, itemsize as isize, 0)],
             },
             hash: OnceCell::new(),
-        })
+            exports: AtomicCell::new(0),
+        };
+        Ok(zelf)
     }
 
     #[pymethod]
     fn cast(&self, args: CastArgs, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
-        self.try_not_released(vm)?;
+        self.try_usable(vm)?;
         if !self.desc.is_contiguous() {
             return Err(vm.new_type_error("memoryview: casts are restricted to C-contiguous views"));
         }
@@ -862,7 +1053,11 @@ impl PyMemoryView {
             };
 
             let shape_ndim = shape.len();
-            // TODO: MAX_NDIM
+            if shape_ndim > MAX_NDIM {
+                return Err(vm.new_value_error(format!(
+                    "memoryview: number of dimensions must not exceed {MAX_NDIM}"
+                )));
+            }
             if self.desc.ndim() != 1 && shape_ndim != 1 {
                 return Err(vm.new_type_error("memoryview: cast must be 1D -> ND or ND -> 1D"));
             }
@@ -870,10 +1065,14 @@ impl PyMemoryView {
             let mut other = self.cast_to_1d(format, vm)?;
             let itemsize = other.desc.itemsize;
 
-            // 0 ndim is single item
+            // 0 ndim is single item, so the buffer has to be that one item
             if shape_ndim == 0 {
+                if itemsize != other.desc.len {
+                    return Err(
+                        vm.new_type_error("memoryview: product(shape) * itemsize != buffer size")
+                    );
+                }
                 other.desc.dim_desc = vec![];
-                other.desc.len = itemsize;
                 return Ok(other.into_ref(&vm.ctx));
             }
 
@@ -881,7 +1080,19 @@ impl PyMemoryView {
             let mut dim_descriptor = Vec::with_capacity(shape_ndim);
 
             for x in shape {
-                let x = usize::try_from_borrowed_object(vm, x)?;
+                let x = x
+                    .downcast_ref::<PyInt>()
+                    .ok_or_else(|| {
+                        vm.new_type_error("memoryview.cast(): elements of shape must be integers")
+                    })?
+                    .try_to_primitive::<usize>(vm)
+                    .ok()
+                    .filter(|x| *x > 0)
+                    .ok_or_else(|| {
+                        vm.new_value_error(
+                            "memoryview.cast(): elements of shape must be integers > 0",
+                        )
+                    })?;
 
                 if x > isize::MAX as usize / product_shape {
                     return Err(vm.new_value_error("memoryview.cast(): product(shape) > SSIZE_MAX"));
@@ -929,11 +1140,11 @@ impl Py<PyMemoryView> {
         if self.desc.ndim() == 0 {
             // TODO: merge branches when we got conditional if let
             if needle.is(&vm.ctx.ellipsis) {
-                return self.pack_single(0, value, vm);
+                return self.pack_single(self.desc.offset as usize, value, vm);
             } else if let Some(tuple) = needle.downcast_ref::<PyTuple>()
                 && tuple.is_empty()
             {
-                return self.pack_single(0, value, vm);
+                return self.pack_single(self.desc.offset as usize, value, vm);
             }
             return Err(vm.new_type_error("invalid indexing of 0-dim memory"));
         }
@@ -956,6 +1167,20 @@ impl Py<PyMemoryView> {
 }
 
 #[derive(FromArgs)]
+struct ToBytesArgs {
+    #[pyarg(any, default)]
+    order: Option<PyStrRef>,
+}
+
+/// The layout a copy of a view is written in.
+#[derive(PartialEq, Eq)]
+enum Order {
+    C,
+    Fortran,
+    Any,
+}
+
+#[derive(FromArgs)]
 struct CastArgs {
     #[pyarg(any)]
     format: PyUtf8StrRef,
@@ -970,65 +1195,86 @@ enum SubscriptNeedle {
     // MultiSlice(Vec<PySliceRef>),
 }
 
+/// memory_subscript
+///
+/// Which kind of key this is follows from the types in it alone, so an item that
+/// answers `__index__` but raises on the way reports that rather than making the
+/// whole key invalid. is_multiindex / is_multislice
 impl TryFromObject for SubscriptNeedle {
     fn try_from_object(vm: &VirtualMachine, obj: PyObjectRef) -> PyResult<Self> {
-        // TODO: number protocol
-        if let Some(i) = obj.downcast_ref::<PyInt>() {
-            Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else if obj.downcastable::<PySlice>() {
-            Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }))
-        } else if let Ok(i) = obj.try_index(vm) {
-            Ok(Self::Index(i.try_to_primitive(vm)?))
-        } else {
-            if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
-                if tuple.iter().all(|x| x.downcastable::<PyInt>()) {
-                    let v = tuple
-                        .iter()
-                        .map(|x| {
-                            unsafe { x.downcast_unchecked_ref::<PyInt>() }
-                                .try_to_primitive::<isize>(vm)
-                        })
-                        .try_collect()?;
-                    return Ok(Self::MultiIndex(v));
-                } else if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
-                    return Err(vm.new_not_implemented_error(
-                        "multi-dimensional slicing is not implemented",
-                    ));
-                }
-            }
-            Err(vm.new_type_error("memoryview: invalid slice key"))
+        if obj.number().is_index() {
+            return Ok(Self::Index(obj.try_index(vm)?.try_to_primitive(vm)?));
         }
+        if obj.downcastable::<PySlice>() {
+            return Ok(Self::Slice(unsafe { obj.downcast_unchecked::<PySlice>() }));
+        }
+        if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+            if tuple.iter().all(|x| x.number().is_index()) {
+                // ptr_from_tuple: each item is converted where it sits, and the
+                // conversion can run Python that releases the view.
+                let indices = tuple
+                    .iter()
+                    .map(|x| x.try_index(vm)?.try_to_primitive::<isize>(vm))
+                    .try_collect()?;
+                return Ok(Self::MultiIndex(indices));
+            }
+            if tuple.iter().all(|x| x.downcastable::<PySlice>()) {
+                return Err(
+                    vm.new_not_implemented_error("multi-dimensional slicing is not implemented")
+                );
+            }
+        }
+        Err(vm.new_type_error("memoryview: invalid slice key"))
     }
 }
 
 static BUFFER_METHODS: BufferMethods = BufferMethods {
-    obj_bytes: |buffer| buffer.obj_as::<PyMemoryView>().obj_bytes(),
-    obj_bytes_mut: |buffer| buffer.obj_as::<PyMemoryView>().obj_bytes_mut(),
-    release: |buffer| buffer.obj_as::<PyMemoryView>().buffer.release(),
-    retain: |buffer| buffer.obj_as::<PyMemoryView>().buffer.retain(),
+    obj_bytes: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes(),
+    obj_bytes_mut: |buffer| buffer.obj_as::<PyMemoryView>().buffer.obj_bytes_mut(),
+    // memory_releasebuf / memory_getbuf: a consumer's export of this view is a
+    // share of the acquisition the view is looking at, and one more reason the
+    // view itself cannot be released.
+    release: |buffer| {
+        let mv = buffer.obj_as::<PyMemoryView>();
+        mv.exports.fetch_sub(1);
+        mv.buffer.release_share();
+    },
+    retain: |buffer| {
+        let mv = buffer.obj_as::<PyMemoryView>();
+        mv.exports.fetch_add(1);
+        mv.buffer.retain_share();
+    },
 };
 
 impl AsBuffer for PyMemoryView {
-    fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
-        if zelf.released.load() {
-            Err(vm.new_value_error("operation forbidden on released memoryview object"))
-        } else {
-            Ok(PyBuffer::new(
-                zelf.to_owned().into(),
-                zelf.desc.clone(),
-                &BUFFER_METHODS,
-            ))
-        }
-    }
-}
+    const RELEASE_BUFFER: bool = true;
 
-impl Drop for PyMemoryView {
-    fn drop(&mut self) {
-        if self.released.load() {
-            unsafe { self.buffer.drop_without_release() };
-        } else {
-            unsafe { ManuallyDrop::drop(&mut self.buffer) };
-        }
+    // memory_getbuf
+    fn slot_as_buffer(
+        zelf: &PyObject,
+        flags: BufferFlags,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBuffer> {
+        let zelf = zelf
+            .downcast_ref::<Self>()
+            .ok_or_else(|| vm.new_type_error("unexpected payload for as_buffer"))?;
+        zelf.try_usable(vm)?;
+        Ok(PyBuffer::new(
+            zelf.to_owned().into(),
+            zelf.requested_desc(flags, vm)?,
+            &BUFFER_METHODS,
+        ))
+    }
+
+    fn as_buffer(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyBuffer> {
+        zelf.try_usable(vm)?;
+        // memory_getbuf: *view = *base — the descriptor already says where the
+        // view starts.
+        Ok(PyBuffer::new(
+            zelf.to_owned().into(),
+            zelf.desc.clone(),
+            &BUFFER_METHODS,
+        ))
     }
 }
 
@@ -1103,6 +1349,19 @@ impl Hashable for PyMemoryView {
         if !zelf.desc.readonly {
             return Err(vm.new_value_error("cannot hash writable memoryview object"));
         }
+        // The hash is over the bytes, so it agrees with the hash of the same
+        // bytes only where an item is a byte.
+        if !Self::native_fmtchar(&zelf.desc.format).is_some_and(is_byte_fmtchar) {
+            return Err(
+                vm.new_value_error("memoryview: hashing is restricted to formats 'B', 'b' or 'c'")
+            );
+        }
+        // A view is no more hashable than what it looks at, and asking that runs
+        // Python, which must not release the memory the hash is taken over.
+        // memory_hash
+        if !zelf.buffer.obj.downcastable::<PyBufferWindow>() {
+            zelf.while_exported(|| zelf.buffer.obj.hash(vm))?;
+        }
         let val = zelf.contiguous_or_collect(|bytes| vm.state.hash_secret.hash_bytes(bytes));
         let _ = zelf.hash.set(val);
         Ok(*zelf.hash.get().unwrap())
@@ -1131,6 +1390,211 @@ impl Representable for PyMemoryView {
 pub(crate) fn init(ctx: &'static Context) {
     PyMemoryView::extend_class(ctx, ctx.types.memoryview_type);
     PyMemoryViewIterator::extend_class(ctx, ctx.types.memoryviewiterator_type);
+    let wrapper_type = PyBufferWrapper::init_builtin_type();
+    // bufferwrapper_as_buffer: bf_releasebuffer and no bf_getbuffer, so the type
+    // has `__release_buffer__` but no `__buffer__`.
+    wrapper_type.slots.has_release_buffer.store(true);
+    PyBufferWrapper::extend_class(ctx, wrapper_type);
+    PyBufferWindow::extend_class(ctx, PyBufferWindow::init_builtin_type());
+}
+
+#[pyclass(module = false, name = "_buffer_wrapper")]
+#[derive(Debug)]
+struct PyBufferWrapper {
+    // bw->obj: the object whose `__buffer__` produced the view
+    exporter: PyObjectRef,
+    // bw->mv: the memoryview `__buffer__` returned, dropped with the last export
+    returned_mv: PyMutex<Option<PyRef<PyMemoryView>>>,
+    /// Memory of `returned_mv`, held on behalf of every live export. The wrapper
+    /// forwards shares of it rather than owning one.
+    view: PyBuffer,
+    /// Exports handed out for this wrapper; the wrapper is spent at zero.
+    exports: AtomicCell<usize>,
+}
+
+impl PyPayload for PyBufferWrapper {
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        Self::static_type()
+    }
+}
+
+#[pyclass(flags(DISALLOW_INSTANTIATION))]
+impl PyBufferWrapper {}
+
+static BUFFER_WRAPPER_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| buffer.obj_as::<PyBufferWrapper>().view.obj_bytes(),
+    obj_bytes_mut: |buffer| buffer.obj_as::<PyBufferWrapper>().view.obj_bytes_mut(),
+    retain: |buffer| {
+        let wrapper = buffer.obj_as::<PyBufferWrapper>();
+        wrapper.exports.fetch_add(1);
+        wrapper.view.retain_share();
+    },
+    // bufferwrapper_releasebuf
+    release: |buffer| {
+        let wrapper = buffer.obj_as::<PyBufferWrapper>();
+        wrapper.view.release_share();
+        if wrapper.exports.fetch_sub(1) != 1 {
+            return;
+        }
+        let Some(mv) = wrapper.returned_mv.lock().take() else {
+            return;
+        };
+        // A native release runs when the memoryview itself is torn down; only a
+        // Python-level hook on a foreign exporter has to be called here.
+        if !mv.buffer.obj.is(&wrapper.exporter)
+            && wrapper.exporter.class().slots.python_release_buffer.load()
+        {
+            call_python_release_buffer(&wrapper.exporter, mv.clone());
+        }
+        // Py_CLEAR(bw->mv): the view outlives this only if user code kept it.
+        drop(mv);
+    },
+};
+
+// Read-only window over an exporter, handed to `__release_buffer__`. It owns no
+// export, like a `Py_buffer` whose `obj` is NULL, so releasing it is inert and
+// cannot recurse back into the hook.
+#[pyclass(module = false, name = "_buffer_window")]
+#[derive(Debug)]
+struct PyBufferWindow {
+    source: PyBuffer,
+}
+
+impl PyPayload for PyBufferWindow {
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        Self::static_type()
+    }
+}
+
+#[pyclass(flags(DISALLOW_INSTANTIATION))]
+impl PyBufferWindow {}
+
+static BUFFER_WINDOW_METHODS: BufferMethods = BufferMethods {
+    obj_bytes: |buffer| buffer.obj_as::<PyBufferWindow>().source.obj_bytes(),
+    obj_bytes_mut: |buffer| buffer.obj_as::<PyBufferWindow>().source.obj_bytes_mut(),
+    retain: |_buffer| {},
+    release: |_buffer| {},
+};
+
+/// The object that ultimately owns the bytes a buffer reads, seen through the
+/// payloads that only forward to another export: a view, the wrapper holding what
+/// a `__buffer__` returned, and the window handed to `__release_buffer__`.
+///
+/// Two buffers that resolve to the same object address the same storage, so
+/// borrowing one for writing while the other is borrowed for reading would
+/// deadlock on it.
+fn root_exporter(buffer: &PyBuffer) -> PyObjectRef {
+    let mut obj = buffer.obj.clone();
+    loop {
+        let next = if let Some(view) = obj.downcast_ref::<PyMemoryView>() {
+            view.buffer.obj.clone()
+        } else if let Some(wrapper) = obj.downcast_ref::<PyBufferWrapper>() {
+            wrapper.view.obj.clone()
+        } else if let Some(window) = obj.downcast_ref::<PyBufferWindow>() {
+            window.source.obj.clone()
+        } else {
+            return obj;
+        };
+        obj = next;
+    }
+}
+
+// slot_bf_getbuffer
+pub(crate) fn buffer_from_python_getbuffer(
+    obj: &PyObject,
+    flags: BufferFlags,
+    vm: &VirtualMachine,
+) -> PyResult<PyBuffer> {
+    let flags_obj = vm.ctx.new_int(flags.bits() as i32);
+    let ret = vm.call_special_method(obj, identifier!(vm, __buffer__), (flags_obj,))?;
+    let mv = ret
+        .downcast::<PyMemoryView>()
+        .map_err(|_| vm.new_type_error("__buffer__ returned non-memoryview object"))?;
+
+    // PyObject_GetBuffer(ret, buffer, flags): the returned view has to satisfy
+    // the request in its own right.
+    mv.try_usable(vm)?;
+    let desc = mv.requested_desc(flags, vm)?;
+    let wrapper = PyBufferWrapper {
+        exporter: obj.to_owned(),
+        view: mv.buffer.detached(),
+        returned_mv: PyMutex::new(Some(mv)),
+        exports: AtomicCell::new(0),
+    }
+    .into_pyobject(vm);
+
+    // PyBuffer::new retains once through BUFFER_WRAPPER_METHODS.
+    Ok(PyBuffer::new(wrapper, desc, &BUFFER_WRAPPER_METHODS))
+}
+
+// wrap_releasebuffer
+pub(crate) fn release_buffer_from_python(
+    obj: &PyObject,
+    mv: PyRef<PyMemoryView>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
+    let view_obj = &mv.buffer.obj;
+    if view_obj.downcastable::<PyBufferWindow>() {
+        // A window exports nothing, so there is nothing left to release, as for
+        // a `Py_buffer` whose `obj` is NULL.
+        return Ok(());
+    }
+    let exports_obj = view_obj.is(obj)
+        || view_obj
+            .downcast_ref::<PyBufferWrapper>()
+            .is_some_and(|wrapper| wrapper.exporter.is(obj));
+    if !exports_obj {
+        return Err(vm.new_value_error("memoryview's buffer is not this object"));
+    }
+    if mv.released.load() {
+        return Err(vm.new_value_error("memoryview's buffer has already been released"));
+    }
+    mv.release();
+    Ok(())
+}
+
+// releasebuffer_call_python, for a buffer acquired from a native exporter
+pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
+    crate::vm::thread::try_with_current_vm(|vm| {
+        let exporter = buffer.obj.clone();
+        let window = PyBufferWindow {
+            source: buffer.detached(),
+        }
+        .into_pyobject(vm);
+        let window = PyBuffer::new(window, buffer.desc.clone(), &BUFFER_WINDOW_METHODS);
+        let mv = match PyMemoryView::from_buffer(window, vm) {
+            Ok(mv) => mv,
+            Err(exc) => {
+                let msg = format!(
+                    "Exception ignored in bf_releasebuffer of {}",
+                    exporter.class().name()
+                );
+                return vm.run_unraisable(exc, Some(msg), vm.ctx.none());
+            }
+        };
+        // Restricted, so user code cannot keep anything addressing the memory
+        // that is about to go away.
+        mv.restricted.store(true);
+        let mv = mv.into_ref(&vm.ctx);
+        call_python_release_buffer(&exporter, mv.clone());
+        // The window does not outlive the release it was made for.
+        mv.release();
+    });
+}
+
+fn call_python_release_buffer(exporter: &PyObject, mv: PyRef<PyMemoryView>) {
+    crate::vm::thread::try_with_current_vm(|vm| {
+        let method = vm.get_special_method(exporter, identifier!(vm, __release_buffer__));
+        if let Ok(Some(method)) = method
+            && let Err(exc) = method.invoke((mv,), vm)
+        {
+            let msg = format!(
+                "Exception ignored in __release_buffer__ of {}",
+                exporter.class().name()
+            );
+            vm.run_unraisable(exc, Some(msg), vm.ctx.none());
+        }
+    });
 }
 
 fn format_unpack(
@@ -1147,6 +1611,10 @@ fn format_unpack(
     })
 }
 
+/// Whether `ch` names a format whose items are single bytes.
+const fn is_byte_fmtchar(ch: u8) -> bool {
+    matches!(ch, b'c' | b'b' | b'B')
+}
 fn is_equiv_shape(a: &BufferDescriptor, b: &BufferDescriptor) -> bool {
     if a.ndim() != b.ndim() {
         return false;

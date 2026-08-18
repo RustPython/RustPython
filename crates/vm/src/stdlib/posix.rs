@@ -626,10 +626,17 @@ pub mod module {
         crate::stdlib::_imp::acquire_imp_lock_for_fork(vm);
 
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.stop_the_world(vm);
+        vm.state.stop_the_world.stop_the_world(&vm.state);
     }
 
     fn py_os_after_fork_child(vm: &VirtualMachine) {
+        // The interpreter registry is reachable from every thread, so repair it
+        // before anything enumerates interpreters.
+        #[cfg(all(unix, feature = "threading"))]
+        unsafe {
+            crate::vm::runtime::reinit_after_fork()
+        };
+
         #[cfg(feature = "threading")]
         vm.state.stop_the_world.reset_after_fork();
 
@@ -638,6 +645,12 @@ pub mod module {
         // if we try to acquire them. This must happen before anything else.
         #[cfg(feature = "threading")]
         reinit_locks_after_fork(vm);
+
+        // The collector stops every interpreter, so interpreters other than the
+        // forking one must be repaired too; otherwise the child's first
+        // collection waits for threads that did not survive the fork.
+        #[cfg(all(unix, feature = "threading"))]
+        reinit_other_interpreters_after_fork(vm);
 
         // Reinit per-object IO buffer locks on std streams.
         // BufferedReader/Writer/TextIOWrapper use PyThreadMutex which can be
@@ -719,17 +732,67 @@ pub mod module {
             // Codec registry RwLock
             vm.state.codec_registry.reinit_after_fork();
 
-            // GC state (multiple Mutex + RwLock)
+            // GC state (multiple Mutex + RwLock), shared lists and this
+            // interpreter's own policy state.
             crate::gc_state::gc_state().reinit_after_fork();
+            vm.state.gc.reinit_after_fork();
 
             // Import lock (RawReentrantMutex<RawMutex, RawThreadId>)
             crate::stdlib::_imp::reinit_imp_lock_after_fork();
         }
     }
 
+    /// Repair every live interpreter other than the forking one after `fork()`.
+    ///
+    /// Only the forking thread survives, so each other interpreter is left with
+    /// slots for threads that no longer exist (still ATTACHED if they were
+    /// running bytecode) and possibly locks or stop-the-world flags held by
+    /// them. Since a collection stops all interpreters, that state would hang
+    /// the child's first collection.
+    ///
+    /// # Safety
+    /// Must only be called after `fork()` in the child, when no other threads exist.
+    #[cfg(all(unix, feature = "threading"))]
+    fn reinit_other_interpreters_after_fork(vm: &VirtualMachine) {
+        use rustpython_common::lock::reinit_mutex_after_fork;
+
+        for state in crate::vm::runtime::live_interpreter_states() {
+            if state.interpreter_id == vm.state.interpreter_id {
+                continue;
+            }
+
+            unsafe {
+                reinit_mutex_after_fork(&state.before_forkers);
+                reinit_mutex_after_fork(&state.after_forkers_child);
+                reinit_mutex_after_fork(&state.after_forkers_parent);
+                reinit_mutex_after_fork(&state.atexit_funcs);
+                reinit_mutex_after_fork(&state.global_trace_func);
+                reinit_mutex_after_fork(&state.global_profile_func);
+                reinit_mutex_after_fork(&state.type_mutex);
+                reinit_mutex_after_fork(&state.monitoring);
+                reinit_mutex_after_fork(&state.thread_frames);
+                reinit_mutex_after_fork(&state.thread_handles);
+                reinit_mutex_after_fork(&state.shutdown_handles);
+
+                state.codec_registry.reinit_after_fork();
+                state.gc.reinit_after_fork();
+            }
+
+            state.stop_the_world.reset_after_fork();
+
+            // Every thread registered here belongs to the parent, including any
+            // slot the forking thread itself registered before the fork.
+            state.thread_frames.lock().clear();
+            state.thread_handles.lock().clear();
+            state.shutdown_handles.lock().clear();
+        }
+
+        crate::vm::thread::purge_other_interpreter_slots_after_fork(vm.state.interpreter_id);
+    }
+
     fn py_os_after_fork_parent(vm: &VirtualMachine) {
         #[cfg(feature = "threading")]
-        vm.state.stop_the_world.start_the_world(vm);
+        vm.state.stop_the_world.start_the_world(&vm.state);
 
         #[cfg(feature = "threading")]
         crate::stdlib::_imp::release_imp_lock_after_fork_parent();
@@ -1277,8 +1340,20 @@ pub mod module {
 
     #[pyfunction]
     fn uname(vm: &VirtualMachine) -> PyResult<_os::UnameResultData> {
-        let info = rustpython_host_env::posix::uname_info()
-            .map_err(|err| vm.new_unicode_decode_error(err.to_string()))?;
+        let info = rustpython_host_env::posix::uname_info().map_err(|err| {
+            let start = err.error.valid_up_to();
+            let end = err
+                .error
+                .error_len()
+                .map_or(err.bytes.len(), |len| start + len);
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(err.bytes),
+                start,
+                end,
+                vm.ctx.new_str(err.error.to_string()),
+            )
+        })?;
         Ok(_os::UnameResultData {
             sysname: info.sysname,
             nodename: info.nodename,
@@ -1728,7 +1803,7 @@ pub mod module {
             return Err(vm.new_os_error("unable to determine login name"));
         };
         login.to_str().map(|s| s.to_owned()).map_err(|e| {
-            vm.new_unicode_decode_error_real(
+            vm.new_unicode_decode_error(
                 vm.ctx.new_str("utf-8"),
                 vm.ctx.new_bytes(login.as_bytes().to_vec()),
                 e.valid_up_to(),

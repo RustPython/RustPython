@@ -1,5 +1,4 @@
 use alloc::ffi::CString;
-#[cfg(all(unix, not(target_os = "redox")))]
 use alloc::vec::Vec;
 use core::ffi::CStr;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -20,6 +19,12 @@ pub struct UnameInfo {
     pub release: String,
     pub version: String,
     pub machine: String,
+}
+
+#[derive(Debug)]
+pub struct UnameDecodeError {
+    pub bytes: Vec<u8>,
+    pub error: core::str::Utf8Error,
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -354,14 +359,23 @@ pub fn fchownat(
     .map_err(std::io::Error::from)
 }
 
-pub fn uname_info() -> Result<UnameInfo, core::str::Utf8Error> {
+pub fn uname_info() -> Result<UnameInfo, UnameDecodeError> {
+    fn decode(value: &CStr) -> Result<String, UnameDecodeError> {
+        core::str::from_utf8(value.to_bytes())
+            .map(str::to_owned)
+            .map_err(|error| UnameDecodeError {
+                bytes: value.to_bytes().to_vec(),
+                error,
+            })
+    }
+
     let info = rustix::system::uname();
     Ok(UnameInfo {
-        sysname: info.sysname().to_str()?.into(),
-        nodename: info.nodename().to_str()?.into(),
-        release: info.release().to_str()?.into(),
-        version: info.version().to_str()?.into(),
-        machine: info.machine().to_str()?.into(),
+        sysname: decode(info.sysname())?,
+        nodename: decode(info.nodename())?,
+        release: decode(info.release())?,
+        version: decode(info.version())?,
+        machine: decode(info.machine())?,
     })
 }
 

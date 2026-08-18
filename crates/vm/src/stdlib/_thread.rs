@@ -796,9 +796,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn _is_main_interpreter() -> bool {
-        // RustPython only has one interpreter
-        true
+    fn _is_main_interpreter(vm: &VirtualMachine) -> bool {
+        vm.state.is_main_interpreter()
     }
 
     /// Initialize the main thread ident. Should be called once at interpreter startup.
@@ -1194,8 +1193,8 @@ pub(crate) mod _thread {
         {
             use core::sync::atomic::Ordering;
             let current_ident = get_ident();
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
@@ -1208,9 +1207,9 @@ pub(crate) mod _thread {
                         // fall back to top_iframe (may be a stack-allocated frame).
                         let top = slot.top_frame.load(Ordering::Relaxed);
                         if let Some(p) = core::ptr::NonNull::new(top) {
-                            let py = unsafe {
-                                &*Py::<crate::frame::FrameObject>::from_payload_ptr(p.as_ptr())
-                            };
+                            // SAFETY: world stopped -> the owning thread is parked
+                            // with this frame on its chain, so it is alive.
+                            let py = unsafe { p.as_ref() };
                             Some((*id, py.to_owned()))
                         } else {
                             // Stack-allocated frame: materialize from top_iframe.
@@ -1218,26 +1217,10 @@ pub(crate) mod _thread {
                             let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
                                 as *const crate::frame::InterpreterFrame;
                             if !iframe_ptr.is_null() {
-                                // Materialize the entire frame chain and link
-                                // retained_back so f_back works after STW ends.
-                                let mut cur = iframe_ptr;
-                                let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
-                                    None;
-                                while !cur.is_null() {
-                                    let iframe = unsafe { &*cur };
-                                    let fo = iframe.materialize(vm).to_owned();
-                                    if let Some(child) = child_fo.take() {
-                                        let mut guard = child.iframe().cold().retained_back.lock();
-                                        if guard.is_none() {
-                                            *guard = Some(fo.clone());
-                                        }
-                                    }
-                                    child_fo = Some(fo);
-                                    cur = iframe.previous();
-                                }
                                 let iframe = unsafe { &*iframe_ptr };
-                                let fo = iframe.materialize(vm);
-                                Some((*id, fo.to_owned()))
+                                // SAFETY: world stopped -> owning thread parked.
+                                let fo = unsafe { iframe.materialize_detached_chain(vm) };
+                                Some((*id, fo))
                             } else {
                                 None
                             }
@@ -1250,8 +1233,8 @@ pub(crate) mod _thread {
         {
             use core::sync::atomic::Ordering;
             let current_ident = get_ident();
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
             let registry = vm.state.thread_frames.lock();
             registry
                 .iter()
@@ -1267,24 +1250,10 @@ pub(crate) mod _thread {
                         let iframe_ptr = slot.top_iframe.load(Ordering::Relaxed)
                             as *const crate::frame::InterpreterFrame;
                         if !iframe_ptr.is_null() {
-                            let mut cur = iframe_ptr;
-                            let mut child_fo: Option<crate::PyRef<crate::frame::FrameObject>> =
-                                None;
-                            while !cur.is_null() {
-                                let iframe = unsafe { &*cur };
-                                let fo = iframe.materialize(vm).to_owned();
-                                if let Some(child) = child_fo.take() {
-                                    let mut guard = child.iframe().cold().retained_back.lock();
-                                    if guard.is_none() {
-                                        *guard = Some(fo.clone());
-                                    }
-                                }
-                                child_fo = Some(fo);
-                                cur = iframe.previous();
-                            }
                             let iframe = unsafe { &*iframe_ptr };
-                            let fo = iframe.materialize(vm);
-                            Some((*id, fo.to_owned()))
+                            // SAFETY: world stopped -> owning thread parked.
+                            let fo = unsafe { iframe.materialize_detached_chain(vm) };
+                            Some((*id, fo))
                         } else {
                             // Fall back to frames stack for FrameObject-only path
                             let frames = slot.frames.lock();
@@ -1386,6 +1355,19 @@ pub(crate) mod _thread {
         }
     }
 
+    /// Take a thread handle's completion mutex, detaching first.
+    ///
+    /// A joiner holds this mutex across its `allow_threads` wait, so it can
+    /// still hold it when stop-the-world stops it. An attached thread that
+    /// blocked on it would never reach a safepoint, so the stop could never
+    /// complete and the holder would never be resumed to release it.
+    fn lock_done<'a>(
+        lock: &'a parking_lot::Mutex<bool>,
+        vm: &VirtualMachine,
+    ) -> parking_lot::MutexGuard<'a, bool> {
+        vm.allow_threads(|| lock.lock())
+    }
+
     /// Reset a parking_lot::Mutex to unlocked state after fork.
     #[cfg(all(unix, feature = "host_env"))]
     fn reinit_parking_lot_mutex<T: ?Sized>(mutex: &parking_lot::Mutex<T>) {
@@ -1468,7 +1450,7 @@ pub(crate) mod _thread {
             // Wait for thread completion using Condvar (supports timeout)
             // Loop to handle spurious wakeups
             let (lock, cvar) = &**done_event;
-            let mut done = lock.lock();
+            let mut done = lock_done(lock, vm);
 
             // ThreadHandle_join semantics: self-join/finalizing checks
             // apply only while target thread has not reported it is exiting yet.
@@ -1528,7 +1510,7 @@ pub(crate) mod _thread {
                     drop(inner_guard);
                     // Wait on done_event
                     let (lock, cvar) = &**done_event;
-                    let mut done = lock.lock();
+                    let mut done = lock_done(lock, vm);
                     while !*done {
                         vm.allow_threads(|| cvar.wait(&mut done));
                     }
@@ -1590,7 +1572,7 @@ pub(crate) mod _thread {
             remove_from_shutdown_handles(vm, inner, done_event);
 
             let (lock, cvar) = &**done_event;
-            *lock.lock() = true;
+            *lock_done(lock, vm) = true;
             cvar.notify_all();
             Ok(())
         }
@@ -1660,7 +1642,7 @@ pub(crate) mod _thread {
             // before returning True.
             let done = {
                 let (lock, _) = &*self.done_event;
-                *lock.lock()
+                *lock_done(lock, vm)
             };
             if !done {
                 return Ok(false);
@@ -1856,7 +1838,7 @@ pub(crate) mod _thread {
         // Starting a handle always resets the completion event.
         {
             let (done_lock, _) = &*handle.done_event;
-            *done_lock.lock() = false;
+            *lock_done(done_lock, vm) = false;
         }
 
         // Add non-daemon threads to shutdown registry so _shutdown() will wait for them
@@ -1938,7 +1920,7 @@ pub(crate) mod _thread {
                     // This must be LAST to ensure all cleanup is complete before join() returns
                     {
                         let (lock, cvar) = &*done_event_for_cleanup;
-                        *lock.lock() = true;
+                        *lock_done(lock, vm) = true;
                         cvar.notify_all();
                     }
                 }
@@ -1973,7 +1955,7 @@ pub(crate) mod _thread {
                 }
                 {
                     let (done_lock, done_cvar) = &*handle.done_event;
-                    *done_lock.lock() = true;
+                    *lock_done(done_lock, vm) = true;
                     done_cvar.notify_all();
                 }
                 if !daemon {

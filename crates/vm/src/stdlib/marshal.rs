@@ -16,7 +16,6 @@ mod decl {
         convert::ToPyObject,
         function::{ArgBytesLike, OptionalArg},
         object::{AsObject, PyPayload},
-        protocol::PyBuffer,
     };
     use core::cell::RefCell;
     use malachite_bigint::BigInt;
@@ -117,9 +116,6 @@ mod decl {
             )?;
         }
 
-        if !allow_code {
-            check_no_code(&value, vm)?;
-        }
         check_exact_type(&value, vm)?;
         let mut buf = Vec::new();
         let mut refs = if version >= 3 {
@@ -127,12 +123,19 @@ mod decl {
         } else {
             None
         };
-        write_object(&mut buf, &value, &mut refs, version, vm)?;
+        write_object(&mut buf, &value, &mut refs, version, allow_code, vm)?;
         Ok(PyBytes::from(buf))
     }
 
+    struct WriterRefEntry {
+        idx: u32,
+        /// Set between `reserve` and `complete` for the object kinds whose
+        /// immutable representation cannot be rebuilt from a back-reference.
+        incomplete: bool,
+    }
+
     struct WriterRefTable {
-        map: std::collections::HashMap<usize, u32>,
+        map: std::collections::HashMap<usize, WriterRefEntry>,
         next_idx: u32,
     }
 
@@ -143,22 +146,34 @@ mod decl {
                 next_idx: 0,
             }
         }
-        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObjectRef) -> bool {
+        /// `w_ref`: write a back-reference to an object already in the table.
+        /// Reaching an entry that is still being written is a recursion the
+        /// reader could not rebuild, so it is an error rather than a `TYPE_REF`.
+        fn try_ref(&mut self, buf: &mut Vec<u8>, obj: &PyObjectRef) -> Result<bool, ()> {
             use marshal::Write;
-            let id = obj.get_id();
-            if let Some(&idx) = self.map.get(&id) {
-                buf.write_u8(b'r');
-                buf.write_u32(idx);
-                true
-            } else {
-                false
+            let Some(entry) = self.map.get(&obj.get_id()) else {
+                return Ok(false);
+            };
+            if entry.incomplete {
+                return Err(());
             }
+            buf.write_u8(b'r');
+            buf.write_u32(entry.idx);
+            Ok(true)
         }
-        fn reserve(&mut self, obj: &PyObjectRef) -> u32 {
+        fn reserve(&mut self, obj: &PyObjectRef, incomplete: bool) -> u32 {
             let idx = self.next_idx;
-            self.map.insert(obj.get_id(), idx);
+            self.map
+                .insert(obj.get_id(), WriterRefEntry { idx, incomplete });
             self.next_idx += 1;
             idx
+        }
+        /// `w_complete`: the object's contents are on the stream, so a later
+        /// occurrence may reference it.
+        fn complete(&mut self, obj: &PyObjectRef) {
+            if let Some(entry) = self.map.get_mut(&obj.get_id()) {
+                entry.incomplete = false;
+            }
         }
     }
 
@@ -167,6 +182,7 @@ mod decl {
         obj: &PyObjectRef,
         refs: &mut Option<WriterRefTable>,
         version: i32,
+        allow_code: bool,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         write_object_depth(
@@ -174,6 +190,7 @@ mod decl {
             obj,
             refs,
             version,
+            allow_code,
             vm,
             marshal::MAX_MARSHAL_STACK_DEPTH,
         )
@@ -184,6 +201,7 @@ mod decl {
         obj: &PyObjectRef,
         refs: &mut Option<WriterRefTable>,
         version: i32,
+        allow_code: bool,
         vm: &VirtualMachine,
         depth: usize,
     ) -> PyResult<()> {
@@ -199,16 +217,28 @@ mod decl {
             || obj.downcast_ref::<crate::builtins::PyEllipsis>().is_some();
 
         // FLAG_REF: check if already written, otherwise reserve slot
-        if !is_singleton
-            && let Some(rt) = refs.as_mut()
-            && rt.try_ref(buf, obj)
-        {
-            return Ok(());
+        if !is_singleton && let Some(rt) = refs.as_mut() {
+            match rt.try_ref(buf, obj) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(()) => {
+                    return Err(vm.new_value_error(format!(
+                        "cannot marshal recursion {} objects",
+                        obj.class().name()
+                    )));
+                }
+            }
         }
         let type_pos = buf.len();
         let use_ref = refs.is_some() && !is_singleton;
+        // A code or slice entry stays incomplete until its contents are
+        // written: the reader rebuilds both from their fields, so a
+        // back-reference issued while those fields are still being emitted
+        // would name an object that does not exist yet.
+        let requires_completion = obj.downcast_ref::<PyCode>().is_some()
+            || obj.downcast_ref::<crate::builtins::PySlice>().is_some();
         if use_ref {
-            refs.as_mut().unwrap().reserve(obj);
+            refs.as_mut().unwrap().reserve(obj, requires_completion);
         }
 
         if vm.is_none(obj) {
@@ -292,20 +322,20 @@ mod decl {
             buf.write_u8(b'(');
             buf.write_u32(t.len() as u32);
             for elem in t.as_slice() {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(l) = obj.downcast_ref::<PyList>() {
             buf.write_u8(b'[');
             let items = l.borrow_vec();
             buf.write_u32(items.len() as u32);
             for elem in items.iter() {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(d) = obj.downcast_ref::<PyDict>() {
             buf.write_u8(b'{');
             for (k, v) in d {
-                write_object_depth(buf, &k, refs, version, vm, depth - 1)?;
-                write_object_depth(buf, &v, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, &k, refs, version, allow_code, vm, depth - 1)?;
+                write_object_depth(buf, &v, refs, version, allow_code, vm, depth - 1)?;
             }
             buf.write_u8(b'0'); // TYPE_NULL terminator
         } else if let Some(s) = obj.downcast_ref::<PySet>() {
@@ -313,18 +343,28 @@ mod decl {
             let elems = s.elements();
             buf.write_u32(elems.len() as u32);
             for elem in &elems {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(s) = obj.downcast_ref::<PyFrozenSet>() {
             buf.write_u8(b'>');
             let elems = s.elements();
             buf.write_u32(elems.len() as u32);
             for elem in &elems {
-                write_object_depth(buf, elem, refs, version, vm, depth - 1)?;
+                write_object_depth(buf, elem, refs, version, allow_code, vm, depth - 1)?;
             }
         } else if let Some(co) = obj.downcast_ref::<PyCode>() {
+            if !allow_code {
+                return Err(vm.new_value_error("marshalling code objects is disallowed"));
+            }
             buf.write_u8(b'c');
-            marshal::serialize_code(buf, &co.code);
+            // `Literal` holds the exact object a constant was built from, so
+            // route `co_consts` back through the object writer: it reaches the
+            // values `BorrowedConstant` cannot describe and shares the one
+            // reference table the reader indexes against.
+            marshal::serialize_code_with(buf, &co.code, |buf, constant| {
+                let constant = PyObjectRef::from(constant.clone());
+                write_object_depth(buf, &constant, refs, version, allow_code, vm, depth - 1)
+            })?;
         } else if let Some(sl) = obj.downcast_ref::<crate::builtins::PySlice>() {
             if version < 5 {
                 return Err(vm.new_value_error("unmarshallable object"));
@@ -336,15 +376,17 @@ mod decl {
                 sl.start.as_ref().unwrap_or(&none),
                 refs,
                 version,
+                allow_code,
                 vm,
                 depth - 1,
             )?;
-            write_object_depth(buf, &sl.stop, refs, version, vm, depth - 1)?;
+            write_object_depth(buf, &sl.stop, refs, version, allow_code, vm, depth - 1)?;
             write_object_depth(
                 buf,
                 sl.step.as_ref().unwrap_or(&none),
                 refs,
                 version,
+                allow_code,
                 vm,
                 depth - 1,
             )?;
@@ -359,6 +401,9 @@ mod decl {
 
         if use_ref {
             buf[type_pos] |= marshal::FLAG_REF;
+            if requires_completion {
+                refs.as_mut().unwrap().complete(obj);
+            }
         }
         Ok(())
     }
@@ -391,14 +436,36 @@ mod decl {
     struct PyMarshalBag<'a> {
         vm: &'a VirtualMachine,
         pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
+        allow_code: bool,
     }
 
     impl<'a> PyMarshalBag<'a> {
         fn new(
             vm: &'a VirtualMachine,
             pending_error: &'a RefCell<Option<PyBaseExceptionRef>>,
+            allow_code: bool,
         ) -> Self {
-            Self { vm, pending_error }
+            Self {
+                vm,
+                pending_error,
+                allow_code,
+            }
+        }
+
+        /// Room for a container the decoder publishes before it reads what
+        /// goes in it. The length is the input's to choose, so the room is
+        /// asked for rather than assumed: a length no allocator can serve is
+        /// a MemoryError, not an aborted process.
+        fn placeholder_elements(
+            &self,
+            len: usize,
+        ) -> Result<Vec<PyObjectRef>, marshal::MarshalError> {
+            let mut elements = Vec::new();
+            elements
+                .try_reserve_exact(len)
+                .map_err(|_| self.remember_python_error(self.vm.new_memory_error("")))?;
+            elements.resize(len, self.vm.ctx.none());
+            Ok(elements)
         }
 
         fn remember_python_error(&self, error: PyBaseExceptionRef) -> marshal::MarshalError {
@@ -444,8 +511,12 @@ mod decl {
         fn make_tuple(&self, elements: impl Iterator<Item = Self::Value>) -> Self::Value {
             self.vm.ctx.new_tuple(elements.collect()).into()
         }
-        fn make_tuple_placeholder(&self, len: usize) -> Option<Self::Value> {
-            Some(PyTuple::new_marshal_placeholder(len, &self.vm.ctx).into())
+        fn make_tuple_placeholder(
+            &self,
+            len: usize,
+        ) -> Result<Option<Self::Value>, marshal::MarshalError> {
+            let elements = self.placeholder_elements(len)?;
+            Ok(Some(PyTuple::new_ref(elements, &self.vm.ctx).into()))
         }
         fn set_tuple_item(
             &self,
@@ -461,8 +532,14 @@ mod decl {
             unsafe { tuple.set_marshal_item(index, value) };
             Ok(())
         }
-        fn make_code(&self, code: CodeObject) -> Self::Value {
-            crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into()
+        fn make_code(&self, code: CodeObject) -> Result<Self::Value, marshal::MarshalError> {
+            if !self.allow_code {
+                return Err(self.remember_python_error(
+                    self.vm
+                        .new_value_error("unmarshalling code objects is disallowed"),
+                ));
+            }
+            Ok(crate::builtins::PyCode::new_ref_with_bag(self.vm, code).into())
         }
         fn make_stop_iter(&self) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.vm.ctx.exceptions.stop_iteration.to_owned().into())
@@ -473,8 +550,12 @@ mod decl {
         ) -> Result<Self::Value, marshal::MarshalError> {
             Ok(self.vm.ctx.new_list(it.collect()).into())
         }
-        fn make_list_placeholder(&self, len: usize) -> Option<Self::Value> {
-            Some(self.vm.ctx.new_list(vec![self.vm.ctx.none(); len]).into())
+        fn make_list_placeholder(
+            &self,
+            len: usize,
+        ) -> Result<Option<Self::Value>, marshal::MarshalError> {
+            let elements = self.placeholder_elements(len)?;
+            Ok(Some(self.vm.ctx.new_list(elements).into()))
         }
         fn set_list_item(
             &self,
@@ -570,17 +651,45 @@ mod decl {
         fn constant_bag(self) -> Self::ConstantBag {
             PyVmBag(self.vm)
         }
+        /// `Literal` wraps any object, so a decoded `co_consts` entry is
+        /// already its own compiler-side constant — no placeholder is needed
+        /// and `make_code_with_constants` keeps the default.
+        fn constant_ref_from_value(&self, value: &Self::Value) -> Option<Literal> {
+            Some(Literal::from(value.clone()))
+        }
+        fn bytes_from_value(&self, value: &Self::Value) -> Option<Vec<u8>> {
+            value
+                .downcast_ref::<PyBytes>()
+                .map(|bytes| bytes.as_bytes().to_vec())
+        }
+        fn str_from_value(&self, value: &Self::Value) -> Option<String> {
+            value
+                .downcast_ref::<PyStr>()
+                .map(|str| str.to_string_lossy().into_owned())
+        }
+        fn tuple_elements_from_value(&self, value: &Self::Value) -> Option<Vec<Self::Value>> {
+            value
+                .downcast_ref::<PyTuple>()
+                .map(|tuple| tuple.as_slice().to_vec())
+        }
     }
 
     fn deserialize_value(
         rdr: &mut impl marshal::Read,
+        allow_code: bool,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
         let pending_error = RefCell::new(None);
-        match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error)) {
+        match marshal::deserialize_value(rdr, PyMarshalBag::new(vm, &pending_error, allow_code)) {
             Ok(value) => Ok(value),
             Err(error) => Err(pending_error.into_inner().unwrap_or_else(|| match error {
                 marshal::MarshalError::Eof => vm.new_eof_error("marshal data too short"),
+                error @ marshal::MarshalError::NullObject => vm.new_type_error(error.to_string()),
+                error @ (marshal::MarshalError::BadSize(_)
+                | marshal::MarshalError::UnknownType
+                | marshal::MarshalError::InvalidRef) => {
+                    vm.new_value_error(format!("bad marshal data ({error})"))
+                }
                 _ => vm.new_value_error("bad marshal data"),
             })),
         }
@@ -589,26 +698,18 @@ mod decl {
     #[derive(FromArgs)]
     struct LoadsArgs {
         #[pyarg(any)]
-        data: PyBuffer,
+        // marshal_loads_impl takes `bytes: Py_buffer`, a y* argument.
+        data: ArgBytesLike,
         #[pyarg(named, default = true)]
         allow_code: bool,
     }
 
     #[pyfunction]
     fn loads(args: LoadsArgs, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
-        let LoadsArgs {
-            data: pybuffer,
-            allow_code,
-        } = args;
-        let buf = pybuffer.as_contiguous().ok_or_else(|| {
-            vm.new_buffer_error("Buffer provided to marshal.loads() is not contiguous")
-        })?;
+        let LoadsArgs { data, allow_code } = args;
+        let buf = data.borrow_buf();
 
-        let result = deserialize_value(&mut &buf[..], vm)?;
-        if !allow_code {
-            check_no_code(&result, vm)?;
-        }
-        Ok(result)
+        deserialize_value(&mut &buf[..], allow_code, vm)
     }
 
     #[derive(FromArgs)]
@@ -628,54 +729,25 @@ mod decl {
             .try_into_value::<i64>(vm)?;
         let read_res = vm.call_method(&args.f, "read", ())?;
         let bytes = ArgBytesLike::try_from_object(vm, read_res)?;
-        let buf = bytes.borrow_buf();
 
-        let mut rdr: &[u8] = &buf;
-        let len_before = rdr.len();
-        let result = deserialize_value(&mut rdr, vm)?;
-        let consumed = len_before - rdr.len();
+        // The borrow ends here: seek() below is the caller's, and reaching the
+        // same buffer from it would deadlock on a borrow still held.
+        let (result, consumed) = {
+            let buf = bytes.borrow_buf();
+            let mut rdr: &[u8] = &buf;
+            let len_before = rdr.len();
+            let result = deserialize_value(&mut rdr, args.allow_code, vm)?;
+            (result, len_before - rdr.len())
+        };
 
         // Seek file to just after the consumed bytes
         let new_pos = tell_before + consumed as i64;
         vm.call_method(&args.f, "seek", (new_pos,))?;
 
-        if !args.allow_code {
-            check_no_code(&result, vm)?;
-        }
         Ok(result)
     }
 
     /// Reject subclasses of marshallable types (int, float, complex, tuple, etc.).
-    /// Recursively check that no code objects are present.
-    fn check_no_code(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        if obj.downcast_ref::<PyCode>().is_some() {
-            return Err(vm.new_value_error("unmarshalling code objects is disallowed"));
-        }
-        if let Some(tup) = obj.downcast_ref::<PyTuple>() {
-            for elem in tup.as_slice() {
-                check_no_code(elem, vm)?;
-            }
-        } else if let Some(list) = obj.downcast_ref::<PyList>() {
-            for elem in list.borrow_vec().iter() {
-                check_no_code(elem, vm)?;
-            }
-        } else if let Some(set) = obj.downcast_ref::<PySet>() {
-            for elem in set.elements() {
-                check_no_code(&elem, vm)?;
-            }
-        } else if let Some(fset) = obj.downcast_ref::<PyFrozenSet>() {
-            for elem in fset.elements() {
-                check_no_code(&elem, vm)?;
-            }
-        } else if let Some(dict) = obj.downcast_ref::<PyDict>() {
-            for (k, v) in dict {
-                check_no_code(&k, vm)?;
-                check_no_code(&v, vm)?;
-            }
-        }
-        Ok(())
-    }
-
     fn check_exact_type(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         let cls = obj.class();
         // bool is a subclass of int but is marshallable

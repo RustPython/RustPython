@@ -724,47 +724,56 @@ pub(crate) mod _asyncio {
 
         /// Add waiter to fut_awaited_by with single-object optimization
         fn awaited_by_add(&self, waiter: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-            let mut awaited_by = self.fut_awaited_by.write();
-            if awaited_by.is_none() {
-                // First waiter - store directly
-                *awaited_by = Some(waiter);
-                return Ok(());
-            }
+            // Storing a waiter in the set runs its __hash__ and __eq__, which can
+            // come back to this future, so the field is locked only while it is
+            // read or written.
+            let existing = {
+                let mut awaited_by = self.fut_awaited_by.write();
+                match awaited_by.as_ref() {
+                    // First waiter - store directly
+                    None => {
+                        *awaited_by = Some(waiter);
+                        return Ok(());
+                    }
+                    Some(existing) => existing.clone(),
+                }
+            };
 
             if self.fut_awaited_by_is_set.load(Ordering::Relaxed) {
                 // Already a Set - add to it
-                let set = awaited_by.as_ref().unwrap();
-                vm.call_method(set, "add", (waiter,))?;
-            } else {
-                // Single object - convert to Set
-                let existing = awaited_by.take().unwrap();
-                let new_set = PySet::default().into_ref(&vm.ctx);
-                new_set.add(existing, vm)?;
-                new_set.add(waiter, vm)?;
-                *awaited_by = Some(new_set.into());
-                self.fut_awaited_by_is_set.store(true, Ordering::Relaxed);
+                return vm.call_method(&existing, "add", (waiter,)).map(drop);
             }
+
+            // Single object - convert to Set
+            let new_set = PySet::default().into_ref(&vm.ctx);
+            new_set.add(existing, vm)?;
+            new_set.add(waiter, vm)?;
+            *self.fut_awaited_by.write() = Some(new_set.into());
+            self.fut_awaited_by_is_set.store(true, Ordering::Relaxed);
             Ok(())
         }
 
         /// Discard waiter from fut_awaited_by with single-object optimization
         fn awaited_by_discard(&self, waiter: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
-            let mut awaited_by = self.fut_awaited_by.write();
-            if awaited_by.is_none() {
-                return Ok(());
-            }
-
-            let obj = awaited_by.as_ref().unwrap();
-            if !self.fut_awaited_by_is_set.load(Ordering::Relaxed) {
-                // Single object - check if it matches
-                if obj.is(waiter) {
-                    *awaited_by = None;
+            // As in awaited_by_add, discarding from the set runs Python.
+            let set = {
+                let mut awaited_by = self.fut_awaited_by.write();
+                let Some(obj) = awaited_by.as_ref() else {
+                    return Ok(());
+                };
+                if !self.fut_awaited_by_is_set.load(Ordering::Relaxed) {
+                    // Single object - check if it matches
+                    if obj.is(waiter) {
+                        *awaited_by = None;
+                    }
+                    return Ok(());
                 }
-            } else {
-                // It's a Set - use discard
-                vm.call_method(obj, "discard", (waiter.to_owned(),))?;
-            }
-            Ok(())
+                obj.clone()
+            };
+
+            // It's a Set - use discard
+            vm.call_method(&set, "discard", (waiter.to_owned(),))
+                .map(drop)
         }
 
         #[pymethod]
@@ -2745,16 +2754,20 @@ pub(crate) mod _asyncio {
         }
     }
 
+    fn get_invalid_state_error_type(vm: &VirtualMachine) -> PyResult<PyTypeRef> {
+        let module = vm.import("asyncio.exceptions", 0)?;
+        let exc_type = vm
+            .get_attribute_opt(module, vm.ctx.intern_str("InvalidStateError"))?
+            .ok_or_else(|| vm.new_attribute_error("InvalidStateError not found"))?;
+        exc_type
+            .downcast()
+            .map_err(|_| vm.new_type_error("InvalidStateError is not a type"))
+    }
+
     fn new_invalid_state_error(vm: &VirtualMachine, msg: &str) -> PyBaseExceptionRef {
-        match vm.import("asyncio.exceptions", 0) {
-            Ok(module) => {
-                match vm.get_attribute_opt(module, vm.ctx.intern_str("InvalidStateError")) {
-                    Ok(Some(exc_type)) => match exc_type.call((msg,), vm) {
-                        Ok(exc) => exc.downcast().unwrap(),
-                        Err(_) => vm.new_runtime_error(msg.to_string()),
-                    },
-                    _ => vm.new_runtime_error(msg.to_string()),
-                }
+        match get_invalid_state_error_type(vm) {
+            Ok(invalid_state_error) => {
+                vm.new_exception_msg(invalid_state_error, msg.to_string().into())
             }
             Err(_) => vm.new_runtime_error(msg.to_string()),
         }

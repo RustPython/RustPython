@@ -7,7 +7,9 @@ pub(crate) use winsound::module_def;
 mod winsound {
     use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
     use crate::convert::{IntoPyException, ToPyException, TryFromBorrowedObject};
-    use crate::protocol::PyBuffer;
+    use crate::exceptions;
+    use crate::host_env::windows::ToWideString;
+    use crate::protocol::{BufferFlags, PyBuffer};
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
     use rustpython_host_env::winsound::{PlaySoundError, PlaySoundSource, play_sound};
 
@@ -88,7 +90,7 @@ mod winsound {
         }
 
         if flags & SND_MEMORY != 0 {
-            let buffer = PyBuffer::try_from_borrowed_object(vm, &sound)?;
+            let buffer = PyBuffer::from_object(vm, &sound, BufferFlags::SIMPLE)?;
             let buf = buffer
                 .as_contiguous()
                 .ok_or_else(|| vm.new_type_error("a bytes-like object is required, not 'str'"))?;

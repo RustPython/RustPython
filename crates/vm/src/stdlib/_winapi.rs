@@ -8,7 +8,7 @@ mod _winapi {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
-        common::lock::PyMutex,
+        common::lock::{PyMutex, PyMutexGuard},
         convert::ToPyException,
         exceptions::nul_char_error,
         function::{ArgMapping, ArgSequence, OptionalArg},
@@ -583,9 +583,18 @@ mod _winapi {
                 .map_err(|e| e.to_pyexception(vm))
         }
 
+        /// Take `inner`, detaching while blocked.
+        ///
+        /// `GetOverlappedResult` holds this mutex across its `allow_threads`
+        /// wait, so a stopped thread can still be holding it. Blocking on it
+        /// while attached would leave no safepoint for that stop to complete at.
+        fn lock_inner(&self, vm: &VirtualMachine) -> PyMutexGuard<'_, host_overlapped::Operation> {
+            vm.allow_threads(|| self.inner.lock())
+        }
+
         #[pymethod]
         fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
-            let mut inner = self.inner.lock();
+            let mut inner = self.lock_inner(vm);
             vm.allow_threads(|| inner.get_result(wait))
                 .map(|result| (result.transferred, result.error))
                 .map_err(|e| e.to_pyexception(vm))
@@ -593,7 +602,7 @@ mod _winapi {
 
         #[pymethod]
         fn getbuffer(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-            let inner = self.inner.lock();
+            let inner = self.lock_inner(vm);
             if !inner.is_completed() {
                 return Err(vm.new_value_error(
                     "can't get read buffer before GetOverlappedResult() signals the operation completed",
@@ -606,13 +615,13 @@ mod _winapi {
 
         #[pymethod]
         fn cancel(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let mut inner = self.inner.lock();
+            let mut inner = self.lock_inner(vm);
             inner.cancel().map_err(|e| e.to_pyexception(vm))
         }
 
         #[pygetset]
-        fn event(&self) -> isize {
-            let inner = self.inner.lock();
+        fn event(&self, vm: &VirtualMachine) -> isize {
+            let inner = self.lock_inner(vm);
             inner.event() as isize
         }
     }

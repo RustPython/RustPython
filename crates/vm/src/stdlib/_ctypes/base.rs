@@ -625,7 +625,9 @@ impl PyCData {
 
         // Get buffer pointer - the memory is owned by source
         let ptr = {
-            let bytes = buffer.obj_bytes();
+            // Contiguity is checked above, so this is the view's own bytes rather
+            // than the whole exporter's.
+            let bytes = unsafe { buffer.contiguous_unchecked() };
             bytes.as_ptr().wrapping_add(offset)
         };
 

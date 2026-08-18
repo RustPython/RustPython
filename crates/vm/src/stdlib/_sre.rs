@@ -3,8 +3,8 @@ pub(crate) use _sre::module_def;
 #[pymodule]
 mod _sre {
     use crate::{
-        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
-        TryFromObject, VirtualMachine, atomic_func,
+        Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+        atomic_func,
         builtins::{
             PyCallableIterator, PyDictRef, PyGenericAlias, PyInt, PyList, PyListRef, PyStr,
             PyStrRef, PyTuple, PyTupleRef, PyTypeRef,
@@ -13,7 +13,7 @@ mod _sre {
         common::{ascii, hash::PyHash},
         convert::ToPyObject,
         function::{ArgCallable, OptionalArg, PosArgs, PyComparisonValue},
-        protocol::{PyBuffer, PyCallable, PyMappingMethods},
+        protocol::{BufferFlags, PyBuffer, PyCallable, PyMappingMethods},
         stdlib::sys,
         types::{AsMapping, Comparable, Hashable, Representable},
     };
@@ -22,7 +22,7 @@ mod _sre {
     use itertools::Itertools;
     use num_traits::ToPrimitive;
     use rustpython_sre_engine::{
-        Request, SearchIter, SreFlag, State, StrDrive,
+        Request, SearchIter, SreFlag, State, StrDrive, StringCursor,
         string::{lower_ascii, lower_unicode},
     };
 
@@ -70,16 +70,143 @@ mod _sre {
         }
     }
 
-    impl SreStr for &Wtf8 {
+    /// A `str` subject with non-ASCII characters, driven through the string's
+    /// own character-index table.
+    ///
+    /// The `&Wtf8` drive answers `count` and `create_cursor` by decoding from
+    /// the start of the subject, so both are O(n) and a scan that restarts at
+    /// successive positions walks the subject once per position. `PyStr`
+    /// already caches its character length and can resolve a character index to
+    /// a byte offset in constant time, so this drive asks the string instead of
+    /// re-deriving: the table it builds on the first lookup is shared by every
+    /// later one, including by `Match` objects that outlive the scan and have
+    /// no cursor of their own to move relative to.
+    ///
+    /// Stepping is the `&Wtf8` drive's, unchanged -- the subject is the same
+    /// buffer, decoded the same way. Only the two operations that resolve a
+    /// position from scratch differ.
+    #[derive(Clone, Copy)]
+    struct Utf8Str<'a>(&'a Py<PyStr>);
+
+    impl StrDrive for Utf8Str<'_> {
+        fn count(&self) -> usize {
+            self.0.char_len()
+        }
+
+        fn create_cursor(&self, n: usize) -> StringCursor {
+            // `StringCursor`'s pointer is private to the engine, so the cursor
+            // is taken from the `&Wtf8` drive at the start of the suffix that
+            // begins at `n` -- an O(1) reslice -- rather than built here.
+            let suffix = &self.0.as_wtf8()[self.0.char_index_to_byte(n)..];
+            let mut cursor = <&Wtf8 as StrDrive>::create_cursor(&suffix, 0);
+            cursor.position = n;
+            cursor
+        }
+
+        fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize) {
+            // Rebuilding is O(1), so it is never the slower branch and the
+            // `&Wtf8` drive's walk-or-restart choice does not apply.
+            *cursor = self.create_cursor(n);
+        }
+
+        fn advance(cursor: &mut StringCursor) -> u32 {
+            <&Wtf8 as StrDrive>::advance(cursor)
+        }
+
+        fn peek(cursor: &StringCursor) -> u32 {
+            <&Wtf8 as StrDrive>::peek(cursor)
+        }
+
+        fn skip(cursor: &mut StringCursor, n: usize) {
+            <&Wtf8 as StrDrive>::skip(cursor, n)
+        }
+
+        fn back_advance(cursor: &mut StringCursor) -> u32 {
+            <&Wtf8 as StrDrive>::back_advance(cursor)
+        }
+
+        fn back_peek(cursor: &StringCursor) -> u32 {
+            <&Wtf8 as StrDrive>::back_peek(cursor)
+        }
+
+        fn back_skip(cursor: &mut StringCursor, n: usize) {
+            <&Wtf8 as StrDrive>::back_skip(cursor, n)
+        }
+    }
+
+    impl SreStr for Utf8Str<'_> {
         fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
+            let end = self.0.char_index_to_byte(end);
+            let start = self.0.char_index_to_byte(start).min(end);
             vm.ctx
-                .new_str(
-                    self.code_points()
-                        .take(end)
-                        .skip(start)
-                        .collect::<Wtf8Buf>(),
-                )
+                .new_str(self.0.as_wtf8()[start..end].to_owned())
                 .into()
+        }
+    }
+
+    /// An all-ASCII `str` subject, driven over its bytes.
+    ///
+    /// For ASCII a character index *is* a byte index, so `&[u8]`'s cursor
+    /// arithmetic is already the right arithmetic: `count` is the byte length
+    /// and `create_cursor` is a pointer offset. The `&Wtf8` drive has to count
+    /// code points from the start of the subject to answer either, once per
+    /// `Request`, which makes a scan that restarts at successive positions --
+    /// `finditer`, or `re` module functions called in a loop -- walk the
+    /// subject again on every call.
+    ///
+    /// Matching is unaffected: `StrDrive` carries no unicode semantics of its
+    /// own, because the engine keys every unicode decision on the compiled
+    /// pattern's opcode rather than on the subject type. Only `slice` differs
+    /// from the `&[u8]` impl, to hand back `str` instead of `bytes`.
+    #[derive(Clone, Copy)]
+    struct AsciiStr<'a>(&'a [u8]);
+
+    impl StrDrive for AsciiStr<'_> {
+        fn count(&self) -> usize {
+            <&[u8] as StrDrive>::count(&self.0)
+        }
+
+        fn create_cursor(&self, n: usize) -> StringCursor {
+            <&[u8] as StrDrive>::create_cursor(&self.0, n)
+        }
+
+        fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize) {
+            <&[u8] as StrDrive>::adjust_cursor(&self.0, cursor, n)
+        }
+
+        fn advance(cursor: &mut StringCursor) -> u32 {
+            <&[u8] as StrDrive>::advance(cursor)
+        }
+
+        fn peek(cursor: &StringCursor) -> u32 {
+            <&[u8] as StrDrive>::peek(cursor)
+        }
+
+        fn skip(cursor: &mut StringCursor, n: usize) {
+            <&[u8] as StrDrive>::skip(cursor, n)
+        }
+
+        fn back_advance(cursor: &mut StringCursor) -> u32 {
+            <&[u8] as StrDrive>::back_advance(cursor)
+        }
+
+        fn back_peek(cursor: &StringCursor) -> u32 {
+            <&[u8] as StrDrive>::back_peek(cursor)
+        }
+
+        fn back_skip(cursor: &mut StringCursor, n: usize) {
+            <&[u8] as StrDrive>::back_skip(cursor, n)
+        }
+    }
+
+    impl SreStr for AsciiStr<'_> {
+        fn slice(&self, start: usize, end: usize, vm: &VirtualMachine) -> PyObjectRef {
+            let end = end.min(self.0.len());
+            let start = start.min(end);
+            // The subject is ASCII, so any span of it is valid UTF-8 and the
+            // span is a reslice rather than a walk from the subject's start.
+            let s = str::from_utf8(&self.0[start..end]).expect("ascii subject");
+            vm.ctx.new_str(s).into()
         }
     }
 
@@ -200,32 +327,66 @@ mod _sre {
     }
 
     macro_rules! with_sre_str {
-        ($pattern:expr, $string:expr, $vm:expr, $f:expr) => {
+        ($pattern:expr, $string:expr, $vm:expr, $f:expr) => {{
+            // Bind once: the branches only borrow the subject, and callers pass
+            // a temporary (`&x.clone()`) that would otherwise be rebuilt per arm.
+            let subject = $string;
             if $pattern.isbytes {
-                Pattern::with_bytes($string, $vm, $f)
+                Pattern::with_bytes(subject, $vm, $f)
+            } else if Pattern::is_ascii_str(subject) {
+                Pattern::with_ascii_str(subject, $vm, $f)
             } else {
-                Pattern::with_str($string, $vm, $f)
+                Pattern::with_utf8_str(subject, $vm, $f)
             }
-        };
+        }};
     }
 
     #[pyclass(with(Hashable, Comparable, Representable), flags(HAS_WEAKREF))]
     impl Pattern {
+        fn downcast_str<'a>(string: &'a PyObject, vm: &VirtualMachine) -> PyResult<&'a Py<PyStr>> {
+            string.downcast_ref::<PyStr>().ok_or_else(|| {
+                vm.new_type_error(format!("expected string got '{}'", string.class()))
+            })
+        }
+
         fn with_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
         where
             F: FnOnce(&Wtf8) -> PyResult<R>,
         {
-            let string = string.downcast_ref::<PyStr>().ok_or_else(|| {
-                vm.new_type_error(format!("expected string got '{}'", string.class()))
-            })?;
-            f(string.as_wtf8())
+            f(Self::downcast_str(string, vm)?.as_wtf8())
+        }
+
+        /// Whether a `str` subject can take the [`AsciiStr`] drive.
+        ///
+        /// `PyStr` already knows: `StrKind` is decided when the string is
+        /// built, so this is a field load rather than a scan. A non-`str`
+        /// argument answers `false` and is reported by [`Self::with_utf8_str`].
+        fn is_ascii_str(string: &PyObject) -> bool {
+            string
+                .downcast_ref::<PyStr>()
+                .is_some_and(|s| s.kind().is_ascii())
+        }
+
+        fn with_ascii_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
+        where
+            F: FnOnce(AsciiStr<'_>) -> PyResult<R>,
+        {
+            let string = Self::downcast_str(string, vm)?;
+            f(AsciiStr(string.as_wtf8().as_bytes()))
+        }
+
+        fn with_utf8_str<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
+        where
+            F: FnOnce(Utf8Str<'_>) -> PyResult<R>,
+        {
+            f(Utf8Str(Self::downcast_str(string, vm)?))
         }
 
         fn with_bytes<F, R>(string: &PyObject, vm: &VirtualMachine, f: F) -> PyResult<R>
         where
             F: FnOnce(&[u8]) -> PyResult<R>,
         {
-            PyBuffer::try_from_borrowed_object(vm, string)?.contiguous_or_collect(f)
+            PyBuffer::from_object(vm, string, BufferFlags::SIMPLE)?.contiguous_or_collect(f)
         }
 
         #[pymethod(name = "match")]

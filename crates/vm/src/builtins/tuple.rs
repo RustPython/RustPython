@@ -342,10 +342,6 @@ impl PyTuple<PyObjectRef> {
         }
     }
 
-    pub(crate) fn new_marshal_placeholder(len: usize, ctx: &Context) -> PyRef<Self> {
-        Self::new_ref(vec![ctx.none(); len], ctx)
-    }
-
     /// # Safety
     /// This tuple must be a marshal placeholder which has not escaped the
     /// decoder, and `index` must not have been replaced previously.

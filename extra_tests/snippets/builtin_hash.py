@@ -35,9 +35,10 @@ with assert_raises(TypeError):
 # slot dispatch is what recurses, so that is where the depth is checked.
 
 if sys.implementation.name == "rustpython":
-    # CPython, which also runs this snippet, survives this depth unguarded.
+    # Deep enough to reach the native stack guard; CPython, which also runs
+    # this snippet, dies on the same value.
     deep_tuple = ()
-    for _ in range(sys.getrecursionlimit() * 2):
+    for _ in range(100_000):
         deep_tuple = (deep_tuple,)
     with assert_raises(RecursionError):
         hash(deep_tuple)

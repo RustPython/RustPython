@@ -10919,9 +10919,7 @@ impl<'warnings> Compiler<'warnings> {
                 if sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
                 }
-                let is_local = sym
-                    .flags
-                    .intersects(SymbolFlags::DEF_LOCAL | SymbolFlags::ITER)
+                let is_local = sym.flags.contains(SymbolFlags::DEF_LOCAL)
                     && !sym.flags.contains(SymbolFlags::DEF_NONLOCAL);
                 if is_local {
                     pushed_locals.push(name.clone());

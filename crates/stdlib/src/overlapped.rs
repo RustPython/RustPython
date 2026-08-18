@@ -12,7 +12,7 @@ mod _overlapped {
         builtins::{PyBaseExceptionRef, PyBytesRef, PyModule, PyStrRef, PyTupleRef, PyType},
         common::lock::PyMutex,
         convert::{ToPyException, ToPyObject},
-        function::OptionalArg,
+        function::{ArgBytesLike, ArgMemoryBuffer, OptionalArg},
         object::{Traverse, TraverseFn},
         protocol::PyBuffer,
         types::{Constructor, Destructor},
@@ -435,12 +435,14 @@ mod _overlapped {
         fn ReadFileInto(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // w*, as _overlapped.Overlapped.ReadFileInto takes
+            buf: ArgMemoryBuffer,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -537,13 +539,15 @@ mod _overlapped {
         fn WSARecvInto(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // w*, as _overlapped.Overlapped.WSARecvInto takes
+            buf: ArgMemoryBuffer,
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -590,10 +594,12 @@ mod _overlapped {
         fn WriteFile(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // y*, as _overlapped.Overlapped.WriteFile takes
+            buf: ArgBytesLike,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -636,11 +642,13 @@ mod _overlapped {
         fn WSASend(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // y*, as _overlapped.Overlapped.WSASend takes
+            buf: ArgBytesLike,
             flags: u32,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -877,12 +885,14 @@ mod _overlapped {
         fn WSASendTo(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // y*, as _overlapped.Overlapped.WSASendTo takes
+            buf: ArgBytesLike,
             flags: u32,
             address: PyTupleRef,
             vm: &VirtualMachine,
         ) -> PyResult {
             use host_winapi::{ERROR_IO_PENDING, ERROR_SUCCESS};
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
@@ -1008,7 +1018,8 @@ mod _overlapped {
         fn WSARecvFromInto(
             zelf: &Py<Self>,
             handle: isize,
-            buf: PyBuffer,
+            // w*, as _overlapped.Overlapped.WSARecvFromInto takes
+            buf: ArgMemoryBuffer,
             size: u32,
             flags: OptionalArg<u32>,
             vm: &VirtualMachine,
@@ -1016,6 +1027,7 @@ mod _overlapped {
             use host_winapi::{
                 ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_SUCCESS,
             };
+            let buf: PyBuffer = buf.into();
 
             let mut inner = zelf.inner.lock();
             if !matches!(inner.data, OverlappedData::None) {
