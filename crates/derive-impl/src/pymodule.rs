@@ -524,7 +524,7 @@ struct FunctionNurseryItem {
     py_names: Vec<String>,
     cfgs: Vec<Attribute>,
     ident: Ident,
-    doc: String,
+    doc: Option<String>,
     call_flags: TokenStream,
 }
 
@@ -556,8 +556,10 @@ impl ToTokens for ValidatedFunctionNursery {
             let cfgs = &item.cfgs;
             let cfgs = quote!(#(#cfgs)*);
             let py_names = &item.py_names;
-            let doc = &item.doc;
-            let doc = quote!(Some(#doc));
+            let doc = match &item.doc {
+                Some(doc) => quote!(Some(#doc)),
+                None => quote!(None),
+            };
             let flags = &item.call_flags;
 
             inner_tokens.extend(quote![
@@ -671,10 +673,10 @@ impl ModuleItem for FunctionItem {
                 .copied()
                 .map(str::to_owned)
         });
-        let doc = if let Some(doc) = doc {
-            format_doc(&sig_doc, &doc)
-        } else {
-            sig_doc
+        let doc = match (sig_doc, doc) {
+            (Some(sig_doc), Some(doc)) => Some(format_doc(&sig_doc, &doc)),
+            (Some(sig_doc), None) => Some(sig_doc),
+            (None, doc) => doc,
         };
 
         let py_names = {
