@@ -4193,6 +4193,37 @@ mod _io {
         }
     }
 
+    impl SeenNewline {
+        fn observe(&mut self, text: &Wtf8) {
+            let bytes = text.as_bytes();
+            let mut matches = memchr::memchr2_iter(b'\r', b'\n', bytes);
+            while !self.is_all() {
+                let Some(i) = matches.next() else { break };
+                match bytes[i] {
+                    b'\n' => self.insert(Self::LF),
+                    _ if bytes.get(i + 1) == Some(&b'\n') => {
+                        matches.next();
+                        self.insert(Self::CRLF);
+                    }
+                    _ => self.insert(Self::CR),
+                }
+            }
+        }
+
+        fn to_pyobject(self, vm: &VirtualMachine) -> PyObjectRef {
+            match self.bits() {
+                1 => "\n".to_pyobject(vm),
+                2 => "\r".to_pyobject(vm),
+                3 => ("\r", "\n").to_pyobject(vm),
+                4 => "\r\n".to_pyobject(vm),
+                5 => ("\n", "\r\n").to_pyobject(vm),
+                6 => ("\r", "\r\n").to_pyobject(vm),
+                7 => ("\r", "\n", "\r\n").to_pyobject(vm),
+                _ => vm.ctx.none(),
+            }
+        }
+    }
+
     impl DefaultConstructor for IncrementalNewlineDecoder {}
 
     #[derive(FromArgs)]
@@ -4284,16 +4315,7 @@ mod _io {
         #[pygetset]
         fn newlines(&self, vm: &VirtualMachine) -> PyResult {
             let data = self.lock(vm)?;
-            Ok(match data.seennl.bits() {
-                1 => "\n".to_pyobject(vm),
-                2 => "\r".to_pyobject(vm),
-                3 => ("\r", "\n").to_pyobject(vm),
-                4 => "\r\n".to_pyobject(vm),
-                5 => ("\n", "\r\n").to_pyobject(vm),
-                6 => ("\r", "\r\n").to_pyobject(vm),
-                7 => ("\r", "\n", "\r\n").to_pyobject(vm),
-                _ => vm.ctx.none(),
-            })
+            Ok(data.seennl.to_pyobject(vm))
         }
     }
 
@@ -4340,20 +4362,7 @@ mod _io {
                     self.seennl.insert(SeenNewline::LF);
                 }
             } else if !self.translate {
-                let output = output.as_bytes();
-                let mut matches = memchr::memchr2_iter(b'\r', b'\n', output);
-                while !self.seennl.is_all() {
-                    let Some(i) = matches.next() else { break };
-                    match output[i] {
-                        b'\n' => self.seennl.insert(SeenNewline::LF),
-                        // if c isn't \n, it can only be \r
-                        _ if output.get(i + 1) == Some(&b'\n') => {
-                            matches.next();
-                            self.seennl.insert(SeenNewline::CRLF);
-                        }
-                        _ => self.seennl.insert(SeenNewline::CR),
-                    }
-                }
+                self.seennl.observe(&output);
             } else {
                 let bytes = output.as_bytes();
                 let mut matches = memchr::memchr2_iter(b'\r', b'\n', bytes);
@@ -4396,6 +4405,7 @@ mod _io {
         _base: _TextIOBase,
         buffer: PyRwLock<BufferedIO>,
         newline: AtomicCell<Newlines>,
+        seennl: AtomicCell<SeenNewline>,
         closed: AtomicCell<bool>,
     }
 
@@ -4416,6 +4426,7 @@ mod _io {
                 _base: Default::default(),
                 buffer: PyRwLock::new(BufferedIO::new(Cursor::new(Vec::new()))),
                 newline: AtomicCell::new(Newlines::Lf),
+                seennl: AtomicCell::new(SeenNewline::empty()),
                 closed: AtomicCell::new(false),
             })
         }
@@ -4434,11 +4445,16 @@ mod _io {
                 OptionalArg::Present(None) => Newlines::Universal,
                 OptionalArg::Present(Some(newline)) => newline,
             };
-            let raw_bytes = object.flatten().map_or_else(Vec::new, |v| {
+            let object = object.flatten();
+            let raw_bytes = object.as_ref().map_or_else(Vec::new, |v| {
                 Self::translate_newlines(v.as_wtf8(), newline).into_bytes()
             });
             *zelf.buffer.write() = BufferedIO::new(Cursor::new(raw_bytes));
             zelf.newline.store(newline);
+            zelf.seennl.store(SeenNewline::empty());
+            if let Some(object) = object {
+                zelf.observe_newlines(object.as_wtf8(), newline);
+            }
             Ok(())
         }
     }
@@ -4460,6 +4476,14 @@ mod _io {
                 Newlines::Cr => data.replace("\n".as_ref(), "\r".as_ref()),
                 Newlines::Crlf => data.replace("\n".as_ref(), "\r\n".as_ref()),
                 Newlines::Passthrough | Newlines::Lf => data.to_owned(),
+            }
+        }
+
+        fn observe_newlines(&self, data: &Wtf8, newline: Newlines) {
+            if matches!(newline, Newlines::Universal | Newlines::Passthrough) {
+                let mut seennl = self.seennl.load();
+                seennl.observe(data);
+                self.seennl.store(seennl);
             }
         }
 
@@ -4515,6 +4539,15 @@ mod _io {
             self.closed.load()
         }
 
+        #[pygetset]
+        fn newlines(&self, vm: &VirtualMachine) -> PyResult {
+            if self.closed.load() {
+                Err(io_closed_error(vm))
+            } else {
+                Ok(self.seennl.load().to_pyobject(vm))
+            }
+        }
+
         #[pymethod]
         fn close(&self) {
             self.closed.store(true);
@@ -4523,8 +4556,11 @@ mod _io {
         // write string to underlying vector
         #[pymethod]
         fn write(&self, data: PyStrRef, vm: &VirtualMachine) -> PyResult<u64> {
-            let bytes = Self::translate_newlines(data.as_wtf8(), self.newline.load()).into_bytes();
-            self.buffer(vm)?
+            let newline = self.newline.load();
+            let bytes = Self::translate_newlines(data.as_wtf8(), newline).into_bytes();
+            let mut buffer = self.buffer(vm)?;
+            self.observe_newlines(data.as_wtf8(), newline);
+            buffer
                 .write(&bytes)
                 .ok_or_else(|| vm.new_type_error("Error Writing String"))?;
             Ok(data.char_len() as u64)
@@ -4684,6 +4720,11 @@ mod _io {
                 .map_err(|err| os_err(vm, err))?;
             drop(buffer);
             zelf.newline.store(newline);
+            let mut seennl = SeenNewline::empty();
+            if matches!(newline, Newlines::Universal | Newlines::Passthrough) {
+                seennl.observe(content.as_wtf8());
+            }
+            zelf.seennl.store(seennl);
 
             // Set __dict__ if provided
             if !vm.is_none(dict) {
