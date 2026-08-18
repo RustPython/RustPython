@@ -1,3 +1,6 @@
+extern crate alloc;
+
+use alloc::borrow::Cow;
 pub use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::ParseErrorType;
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
@@ -5258,8 +5261,28 @@ fn _compile_with_syntax_warning_handler<'a>(
         Mode::Single | Mode::BlockExpr => parser::Mode::Module,
     };
     let parser_options = parser::ParseOptions::from(parser_mode);
-    let parsed = parser::parse(source_file.source_text(), parser_options)
-        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
+    let barry_source = prepare_barry_as_flufl_source(
+        source_file.source_text(),
+        parser_options.clone(),
+        opts.future_features
+            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse(barry_source.source(), parser_options);
+    if let Some(range) = parsed
+        .as_ref()
+        .err()
+        .and_then(|error| barry_source.invalid_legacy_operator(error))
+    {
+        return Err(barry_as_flufl_invalid_legacy_operator_error(
+            &source_file,
+            range,
+        ));
+    }
+    if let Some(range) = barry_source.not_equal_before(parsed.as_ref().err()) {
+        return Err(barry_as_flufl_not_equal_error(&source_file, range));
+    }
+    let parsed =
+        parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
@@ -5285,6 +5308,144 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     Ok(code)
+}
+
+#[doc(hidden)]
+pub struct BarrySource<'a> {
+    source: Cow<'a, str>,
+    not_equal: Option<ruff_text_size::TextRange>,
+    legacy_not_equal: Vec<ruff_text_size::TextRange>,
+}
+
+impl BarrySource<'_> {
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    #[must_use]
+    pub fn not_equal_before(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+    ) -> Option<ruff_text_size::TextRange> {
+        self.not_equal.filter(|range| {
+            parse_error.is_none_or(|error| {
+                let diagnostic_start = if matches!(
+                    &error.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
+                ) {
+                    find_unclosed_bracket(&self.source).map_or_else(
+                        || error.location.start(),
+                        |(_, offset)| TextSize::new(offset as u32),
+                    )
+                } else {
+                    error.location.start()
+                };
+                range.start() <= diagnostic_start
+            })
+        })
+    }
+
+    #[must_use]
+    pub fn invalid_legacy_operator(
+        &self,
+        parse_error: &parser::ParseError,
+    ) -> Option<ruff_text_size::TextRange> {
+        let location = parse_error.location.start();
+        self.legacy_not_equal
+            .iter()
+            .copied()
+            .find(|range| range.contains(location) || range.start() == location)
+    }
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_not_equal_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        "with Barry as BDFL, use '<>' instead of '!='".to_owned(),
+        range.start().to_usize(),
+        range.end().to_usize(),
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_invalid_legacy_operator_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        "invalid syntax".to_owned(),
+        range.start().to_usize(),
+        range.end().to_usize(),
+    )
+}
+
+#[doc(hidden)]
+pub fn prepare_barry_as_flufl_source(
+    source: &str,
+    parser_options: parser::ParseOptions,
+    inherited: bool,
+) -> BarrySource<'_> {
+    if !inherited && !source.contains("barry_as_FLUFL") {
+        return BarrySource {
+            source: Cow::Borrowed(source),
+            not_equal: None,
+            legacy_not_equal: Vec::new(),
+        };
+    }
+
+    let scanned = parser::parse_unchecked(source, parser_options);
+    let enabled = inherited
+        || codegen::preprocess::future_features(scanned.syntax())
+            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
+    if !enabled {
+        return BarrySource {
+            source: Cow::Borrowed(source),
+            not_equal: None,
+            legacy_not_equal: Vec::new(),
+        };
+    }
+
+    let not_equal = scanned
+        .tokens()
+        .iter()
+        .find(|token| token.kind() == TokenKind::NotEqual)
+        .map(Ranged::range);
+    let replacements = scanned
+        .tokens()
+        .windows(2)
+        .filter_map(|tokens| {
+            let [less, greater] = tokens else {
+                return None;
+            };
+            (less.kind() == TokenKind::Less
+                && greater.kind() == TokenKind::Greater
+                && less.end() == greater.start())
+            .then(|| ruff_text_size::TextRange::new(less.start(), greater.end()))
+        })
+        .collect::<Vec<_>>();
+
+    let source = if replacements.is_empty() {
+        Cow::Borrowed(source)
+    } else {
+        let mut rewritten = source.to_owned();
+        for range in replacements.iter().rev() {
+            rewritten.replace_range(range.start().to_usize()..range.end().to_usize(), "!=");
+        }
+        Cow::Owned(rewritten)
+    };
+    BarrySource {
+        source,
+        not_equal,
+        legacy_not_equal: replacements,
+    }
 }
 
 pub fn compile_with_syntax_warning_handler<'a>(
@@ -5315,16 +5476,37 @@ pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let parser_mode = match mode {
+        Mode::Exec | Mode::Single | Mode::BlockExpr => parser::Mode::Module,
+        Mode::Eval => parser::Mode::Expression,
+    };
+    let parser_options = parser::ParseOptions::from(parser_mode);
+    let barry_source =
+        prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            let ast = ruff_python_parser::parse_module(source_file.source_text())
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
+            if let Some(range) = parsed
+                .as_ref()
+                .err()
+                .and_then(|error| barry_source.invalid_legacy_operator(error))
+            {
+                return Err(barry_as_flufl_invalid_legacy_operator_error(
+                    &source_file,
+                    range,
+                ));
+            }
+            if let Some(range) = barry_source.not_equal_before(parsed.as_ref().err()) {
+                return Err(barry_as_flufl_not_equal_error(&source_file, range));
+            }
+            let ast =
+                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
                 return Err(error);
             }
-            let ast = ast.into_syntax();
+            let ast = ast.into_syntax().expect_module();
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_body_error(&ast.body, &source_file)
             {
@@ -5333,11 +5515,22 @@ pub fn _compile_symtable(
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
-            let ast = ruff_python_parser::parse(
-                source_file.source_text(),
-                parser::Mode::Expression.into(),
-            )
-            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
+            if let Some(range) = parsed
+                .as_ref()
+                .err()
+                .and_then(|error| barry_source.invalid_legacy_operator(error))
+            {
+                return Err(barry_as_flufl_invalid_legacy_operator_error(
+                    &source_file,
+                    range,
+                ));
+            }
+            if let Some(range) = barry_source.not_equal_before(parsed.as_ref().err()) {
+                return Err(barry_as_flufl_not_equal_error(&source_file, range));
+            }
+            let ast =
+                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
             if let Some(error) =
                 post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
             {
@@ -5376,6 +5569,84 @@ mod tests {
 
         compile("if True:\n    pass\n", Mode::Single, "<>", opts).expect("compile error");
         compile(code, Mode::Single, "<>", CompileOpts::default()).expect("compile error");
+    }
+
+    #[test]
+    fn barry_as_flufl_rewrites_legacy_not_equal_after_future_import() {
+        let code = compile(
+            "from __future__ import barry_as_FLUFL\nresult = 2 <> 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry comparison should compile");
+        assert!(
+            code.flags
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+        );
+    }
+
+    #[test]
+    fn inherited_barry_as_flufl_rewrites_legacy_not_equal() {
+        let opts = CompileOpts {
+            future_features: core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL,
+            ..CompileOpts::default()
+        };
+        compile("2 <> 3", Mode::Single, "<barry>", opts)
+            .expect("inherited Barry comparison should compile");
+    }
+
+    #[test]
+    fn barry_as_flufl_rejects_modern_not_equal() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("Barry mode should reject !=");
+        assert_eq!(
+            err.to_string(),
+            "with Barry as BDFL, use '<>' instead of '!='"
+        );
+        assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn barry_as_flufl_does_not_rewrite_strings_or_comments() {
+        compile(
+            "from __future__ import barry_as_FLUFL\nx = '<>'\n# <>\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry markers in strings and comments should stay untouched");
+    }
+
+    #[test]
+    fn syntax_error_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n<>\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier invalid comparison should fail");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (2, 1));
+    }
+
+    #[test]
+    fn unclosed_bracket_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n(\n2 != 3",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier unclosed bracket should fail");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (2, 1));
     }
 
     #[test]

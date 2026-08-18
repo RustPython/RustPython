@@ -7,6 +7,7 @@ use rustpython_compiler::{
 use rustpython_vm::{
     AsObject, PyResult, VirtualMachine,
     builtins::PyBaseExceptionRef,
+    bytecode::CodeFlags,
     compiler::{self},
     readline::{Readline, ReadlineResult},
     scope::Scope,
@@ -26,6 +27,7 @@ fn shell_exec(
     scope: Scope,
     empty_line_given: bool,
     continuing_block: bool,
+    future_features: &mut CodeFlags,
 ) -> ShellExecResult {
     // compiling expects only UNIX style line endings, and will replace windows line endings
     // internally. Since we might need to analyze the source to determine if an error could be
@@ -33,8 +35,21 @@ fn shell_exec(
     // was actually compiled.
     #[cfg(windows)]
     let source = &source.replace("\r\n", "\n");
-    match vm.compile(source, compiler::Mode::Single, "<stdin>") {
+    let opts = compiler::CompileOpts {
+        future_features: *future_features,
+        ..vm.compile_opts()
+    };
+    match vm.compile_with_opts(source, compiler::Mode::Single, "<stdin>", opts) {
         Ok(code) => {
+            *future_features |= code.code.flags
+                & (CodeFlags::FUTURE_DIVISION
+                    | CodeFlags::FUTURE_ABSOLUTE_IMPORT
+                    | CodeFlags::FUTURE_WITH_STATEMENT
+                    | CodeFlags::FUTURE_PRINT_FUNCTION
+                    | CodeFlags::FUTURE_UNICODE_LITERALS
+                    | CodeFlags::FUTURE_BARRY_AS_BDFL
+                    | CodeFlags::FUTURE_GENERATOR_STOP
+                    | CodeFlags::FUTURE_ANNOTATIONS);
             if empty_line_given || !continuing_block {
                 // We want to execute the full code
                 match vm.run_code_obj(code, scope) {
@@ -131,6 +146,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
     // valid.
     let mut continuing_block = false;
     let mut continuing_line = false;
+    let mut future_features = CodeFlags::empty();
 
     loop {
         let prompt_name = if continuing_block || continuing_line {
@@ -170,6 +186,7 @@ pub fn run_shell(vm: &VirtualMachine, scope: Scope) -> PyResult<()> {
                     scope.clone(),
                     empty_line_given,
                     continuing_block,
+                    &mut future_features,
                 ) {
                     ShellExecResult::Ok => {
                         if continuing_block {

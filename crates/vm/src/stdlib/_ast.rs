@@ -1803,7 +1803,7 @@ pub(crate) fn parse(
     type_comments: bool,
     optimized_ast: bool,
     interactive: bool,
-    explicit_future_annotations: bool,
+    explicit_future_features: crate::bytecode::CodeFlags,
     dont_imply_dedent: bool,
 ) -> Result<PyObjectRef, CompileError> {
     let source_file = SourceFileBuilder::new("".to_owned(), source.to_owned()).finish();
@@ -1813,7 +1813,12 @@ pub(crate) fn parse(
         return Err(error);
     }
     options = options.with_target_version(target_version);
-    let parsed = parser::parse_unchecked(source, options);
+    let barry_source = rustpython_compiler::prepare_barry_as_flufl_source(
+        source,
+        options.clone(),
+        explicit_future_features.contains(crate::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse_unchecked(barry_source.source(), options);
     let type_comment_source =
         type_comments.then(|| TypeCommentSource::new(source, parsed.tokens()));
     if let Some(lines) = &type_comment_source
@@ -1823,6 +1828,20 @@ pub(crate) fn parse(
     }
     if let Err(errors) = parsed.as_result() {
         let parse_error = errors[0].clone();
+        if let Some(range) = barry_source.invalid_legacy_operator(&parse_error) {
+            return Err(
+                rustpython_compiler::barry_as_flufl_invalid_legacy_operator_error(
+                    &source_file,
+                    range,
+                ),
+            );
+        }
+        if let Some(range) = barry_source.not_equal_before(Some(&parse_error)) {
+            return Err(rustpython_compiler::barry_as_flufl_not_equal_error(
+                &source_file,
+                range,
+            ));
+        }
         let range = text_range_to_source_range(&source_file, parse_error.location);
         return Err(ParseError {
             error: parse_error.error,
@@ -1833,6 +1852,12 @@ pub(crate) fn parse(
             is_unclosed_bracket: false,
         }
         .into());
+    }
+    if let Some(range) = barry_source.not_equal_before(None) {
+        return Err(rustpython_compiler::barry_as_flufl_not_equal_error(
+            &source_file,
+            range,
+        ));
     }
     if dont_imply_dedent
         && interactive
@@ -1880,7 +1905,8 @@ pub(crate) fn parse(
     {
         let future_features = codegen::preprocess::checked_future_features(&top)
             .map_err(|err| future_feature_compile_error(&source_file, err))?;
-        let future_annotations = explicit_future_annotations
+        let future_annotations = explicit_future_features
+            .contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS)
             || future_features.contains(crate::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
         if interactive && let ast::Mod::Module(module) = &mut top {
             codegen::preprocess::preprocess_statements(

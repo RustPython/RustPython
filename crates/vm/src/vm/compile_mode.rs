@@ -68,12 +68,12 @@ pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = CompilerFlags::ALLOW_INCOMP
 pub(crate) const PY_CF_OPTIMIZED_AST: i32 = CompilerFlags::OPTIMIZED_AST.bits();
 
 pub(crate) fn compile_future_feature_mask() -> bytecode::CodeFlags {
-    // RustPython accepts barry_as_FLUFL but leaves its parser mode disabled.
     bytecode::CodeFlags::FUTURE_DIVISION
         | bytecode::CodeFlags::FUTURE_ABSOLUTE_IMPORT
         | bytecode::CodeFlags::FUTURE_WITH_STATEMENT
         | bytecode::CodeFlags::FUTURE_PRINT_FUNCTION
         | bytecode::CodeFlags::FUTURE_UNICODE_LITERALS
+        | bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL
         | bytecode::CodeFlags::FUTURE_GENERATOR_STOP
         | bytecode::CodeFlags::FUTURE_ANNOTATIONS
 }
