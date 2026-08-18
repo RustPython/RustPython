@@ -1251,7 +1251,14 @@ impl<C> ToPyException for widestring::error::ContainsNul<C> {
 #[cfg(windows)]
 impl ToPyException for widestring::error::MissingNulTerminator {
     fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
-        vm.new_value_error(self.to_string())
+        nul_char_error(vm)
+    }
+}
+
+#[cfg(windows)]
+impl<C> ToPyException for widestring::error::NulError<C> {
+    fn to_pyexception(&self, vm: &VirtualMachine) -> PyBaseExceptionRef {
+        nul_char_error(vm)
     }
 }
 

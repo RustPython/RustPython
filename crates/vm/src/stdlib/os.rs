@@ -218,7 +218,8 @@ pub(super) mod _os {
     use crossbeam_utils::atomic::AtomicCell;
     use rustpython_common::wtf8::Wtf8Buf;
     #[cfg(windows)]
-    use rustpython_host_env::nt as host_nt;
+    use rustpython_host_env::{nt as host_nt, windows::ToWideString};
+
     #[cfg(all(any(unix, target_os = "wasi"), not(target_os = "redox")))]
     use rustpython_host_env::posix as host_posix;
     use std::{fs, io, path::PathBuf, time::SystemTime};
@@ -873,7 +874,9 @@ pub(super) mod _os {
         #[cfg(windows)]
         #[pymethod]
         fn is_junction(&self, _vm: &VirtualMachine) -> bool {
-            host_nt::test_file_type_by_name(&self.pathval, host_nt::TestType::Junction)
+            self.pathval.to_wide_cstring().is_ok_and(|path| {
+                host_nt::test_file_type_by_name(&path, host_nt::TestType::Junction)
+            })
         }
 
         #[pymethod]
@@ -1007,8 +1010,8 @@ pub(super) mod _os {
                             #[cfg(windows)]
                             let lstat = {
                                 let cell = OnceCell::new();
-                                if let Ok(stat_struct) =
-                                    host_nt::win32_xstat(pathval.as_os_str(), false)
+                                if let Ok(wide) = pathval.as_os_str().to_wide_cstring()
+                                    && let Ok(stat_struct) = host_nt::win32_xstat(&wide, false)
                                 {
                                     let stat_obj =
                                         StatResultData::from_stat(&stat_struct, vm).to_pyobject(vm);
@@ -1350,7 +1353,10 @@ pub(super) mod _os {
     ) -> io::Result<Option<StatStruct>> {
         let [] = dir_fd.0;
         match file {
-            OsPathOrFd::Path(path) => host_nt::win32_xstat(&path.path, follow_symlinks.0),
+            OsPathOrFd::Path(path) => {
+                let path = path.path.to_wide_cstring()?;
+                host_nt::win32_xstat(&path, follow_symlinks.0)
+            }
             OsPathOrFd::Fd(fd) => crate::host_env::fileutils::fstat(fd),
         }
         .map(Some)

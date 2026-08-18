@@ -2,8 +2,9 @@ use rustpython_wtf8::Wtf8;
 use std::{
     ffi::{OsStr, OsString},
     io,
-    os::windows::ffi::{OsStrExt, OsStringExt},
+    os::windows::ffi::OsStringExt,
 };
+use widestring::WideCString;
 use windows_sys::{
     Win32::{
         Foundation::{
@@ -397,54 +398,39 @@ pub fn multi_byte_to_wide(
     }
 }
 
+/// [`OsStr`] to [`WideCString`] for Windows FFI.
+///
+/// Prefer using this trait when encoding bytes to pass to Windows. Interior NULs are memory safe
+/// but possibly a security hazard for FFI.
+///
+/// https://github.com/python/cpython/issues/111656
 pub trait ToWideString {
-    fn to_wide(&self) -> Vec<u16>;
-    fn to_wide_with_nul(&self) -> Vec<u16>;
-    fn to_wide_cstring(&self) -> widestring::WideCString {
-        widestring::WideCString::from_vec_truncate(self.to_wide())
-    }
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error>;
 }
 
 impl<T> ToWideString for T
 where
     T: AsRef<OsStr>,
 {
-    fn to_wide(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.as_ref().encode_wide().chain(Some(0)).collect()
-    }
-}
-
-impl ToWideString for OsStr {
-    fn to_wide(&self) -> Vec<u16> {
-        self.encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.encode_wide().chain(Some(0)).collect()
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
+        WideCString::from_os_str(self).map_err(|_| io::Error::other("embedded null character"))
     }
 }
 
 impl ToWideString for Wtf8 {
-    fn to_wide(&self) -> Vec<u16> {
-        self.encode_wide().collect()
-    }
-    fn to_wide_with_nul(&self) -> Vec<u16> {
-        self.encode_wide().chain(Some(0)).collect()
-    }
-}
+    fn to_wide_cstring(&self) -> Result<WideCString, io::Error> {
+        // CPython's "test_invalid_cmd" test calls Popen with "pass#\0" as a command line.
+        // That's technically valid since it caps the string, but CString and WideCString differ
+        // in how they handle it. Rust's CString rejects any NULs whereas WideCString accepts a NUL
+        // only if it appears at the end of a buffer.
+        //
+        // For the sake of that behavior, fail on trailing NUL.
+        if self.as_bytes().last().is_some_and(|&b| b == 0) {
+            return Err(io::Error::other("embedded null character"));
+        }
 
-pub trait FromWideString
-where
-    Self: Sized,
-{
-    fn from_wides_until_nul(wide: &[u16]) -> Self;
-}
-
-impl FromWideString for OsString {
-    fn from_wides_until_nul(wide: &[u16]) -> Self {
-        let len = wide.iter().take_while(|&&c| c != 0).count();
-        Self::from_wide(&wide[..len])
+        let mut buf = Vec::with_capacity(self.len() + 1);
+        buf.extend(self.encode_wide());
+        WideCString::from_vec(buf).map_err(|_| io::Error::other("embedded null character"))
     }
 }

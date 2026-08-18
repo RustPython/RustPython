@@ -149,7 +149,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
 
     // 4. Python str -> wide string pointer (like PyUnicode_AsWideCharString)
     if let Some(s) = value.downcast_ref::<PyStr>() {
-        let wide_bytes = rustpython_host_env::ctypes::utf16z_bytes(s.as_wtf8());
+        let wide_bytes: Vec<u8> = rustpython_host_env::ctypes::utf16z_bytes(s.as_wtf8());
         let keep = vm.ctx.new_bytes(wide_bytes);
         let addr = keep.as_bytes().as_ptr() as usize;
         return Ok(Argument {
@@ -161,7 +161,7 @@ fn conv_param(value: &PyObject, vm: &VirtualMachine) -> PyResult<Argument> {
     // 9. Python bytes -> null-terminated buffer pointer
     // Need to ensure null termination like c_char_p
     if let Some(bytes) = value.downcast_ref::<PyBytes>() {
-        let buffer = rustpython_host_env::ctypes::null_terminated_bytes(bytes.as_bytes());
+        let buffer = rustpython_host_env::ctypes::clone_as_null_terminated(bytes.as_bytes());
         let keep = vm.ctx.new_bytes(buffer);
         let addr = keep.as_bytes().as_ptr() as usize;
         return Ok(Argument {
