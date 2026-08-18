@@ -379,4 +379,18 @@ mod tests {
         assert_eq!(float_lte(f64::NAN, f64::NAN), Ok(false));
         assert_eq!(float_lte(f64::INFINITY, f64::NEG_INFINITY), Ok(false));
     }
+
+    #[test]
+    fn recursive_float() {
+        let recursive_float = jit_function! { recursive_float(n: i64) -> f64 => r##"
+        def recursive_float(n: int) -> float:
+            if n == 0:
+                return 1.0
+            return recursive_float(n - 1) / 2.0
+    "## };
+
+        assert_eq!(recursive_float(0), Ok(1.0));
+        assert_eq!(recursive_float(1), Ok(0.5));
+        assert_eq!(recursive_float(4), Ok(0.0625));
+    }
 }

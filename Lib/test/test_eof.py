@@ -18,7 +18,6 @@ class EOFTestCase(unittest.TestCase):
             self.assertEqual(str(cm.exception), expect)
             self.assertEqual(cm.exception.offset, 1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_EOFS(self):
         expect = ("unterminated triple-quoted string literal (detected at line 3) (<string>, line 1)")
         with self.assertRaises(SyntaxError) as cm:
@@ -45,7 +44,6 @@ class EOFTestCase(unittest.TestCase):
         self.assertEqual(cm.exception.text, "ä = '''thîs is ")
         self.assertEqual(cm.exception.offset, 5)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @force_not_colorized
     def test_EOFS_with_file(self):
         expect = ("(<string>, line 1)")
@@ -86,7 +84,6 @@ class EOFTestCase(unittest.TestCase):
                 '        ^',
                 'SyntaxError: unterminated triple-quoted string literal (detected at line 4)'])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @warnings_helper.ignore_warnings(category=SyntaxWarning)
     def test_eof_with_line_continuation(self):
         expect = "unexpected EOF while parsing (<string>, line 1)"
@@ -94,7 +91,6 @@ class EOFTestCase(unittest.TestCase):
             compile('"\\Xhh" \\', '<string>', 'exec')
         self.assertEqual(str(cm.exception), expect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_line_continuation_EOF(self):
         """A continuation at the end of input must be an error; bpo2180."""
         expect = 'unexpected EOF while parsing (<string>, line 1)'
@@ -127,7 +123,6 @@ class EOFTestCase(unittest.TestCase):
             exec('\\')
         self.assertEqual(str(cm.exception), expect)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @unittest.skipIf(not sys.executable, "sys.executable required")
     @force_not_colorized
     def test_line_continuation_EOF_from_file_bpo2180(self):

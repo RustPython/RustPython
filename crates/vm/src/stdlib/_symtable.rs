@@ -185,8 +185,9 @@ mod _symtable {
         fn symbols(&self, vm: &VirtualMachine) -> PyDictRef {
             let dict = vm.ctx.new_dict();
             for (name, symbol) in &self.symtable.symbols {
-                dict.set_item(name, vm.new_pyobj(symbol.flags.bits()), vm)
-                    .unwrap();
+                let packed_flags =
+                    i32::from(symbol.flags.bits()) | (symbol.scope.as_i32() << SCOPE_OFFSET);
+                dict.set_item(name, vm.new_pyobj(packed_flags), vm).unwrap();
             }
             dict
         }

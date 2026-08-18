@@ -3,6 +3,9 @@ use core::ffi::CStr;
 use std::io;
 
 #[cfg(any(unix, target_os = "wasi"))]
+use rustix::{fs::FileType, io::Errno};
+
+#[cfg(any(unix, target_os = "wasi"))]
 use crate::fileutils;
 use crate::{crt_fd, os};
 
@@ -148,8 +151,8 @@ pub struct FileTargetInfo {
 #[cfg(any(unix, target_os = "wasi"))]
 pub fn inspect_file_target(fd: crt_fd::Borrowed<'_>) -> io::Result<FileTargetInfo> {
     let status = fileutils::fstat(fd)?;
-    if (status.st_mode & libc::S_IFMT) == libc::S_IFDIR {
-        return Err(io::Error::from_raw_os_error(libc::EISDIR));
+    if FileType::from_raw_mode(status.st_mode).is_dir() {
+        return Err(io::Error::from(Errno::ISDIR));
     }
     #[allow(clippy::useless_conversion, reason = "needed for 32-bit platforms")]
     let blksize = (status.st_blksize > 1).then(|| i64::from(status.st_blksize));
@@ -194,6 +197,29 @@ pub fn seek_to_end(fd: crt_fd::Borrowed<'_>) -> io::Result<crt_fd::Offset> {
 
 pub fn is_seekable(fd: crt_fd::Borrowed<'_>) -> bool {
     os::seek_fd(fd, 0, libc::SEEK_CUR).is_ok()
+}
+
+/// Whether a read from `fd` answers from data the file already holds, rather
+/// than waiting for whoever writes the other end.
+///
+/// Seeking answers this everywhere but Windows, where a pipe seeks too --
+/// `lseek` on one succeeds and reports a position, so a reader that took
+/// seekability for an answer would wait on a peer while holding whatever it
+/// holds for the length of the call.
+#[cfg(not(windows))]
+pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
+    is_seekable(fd)
+}
+
+#[cfg(windows)]
+pub fn reads_without_waiting(fd: crt_fd::Borrowed<'_>) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{FILE_TYPE_DISK, GetFileType};
+
+    let Ok(handle) = crt_fd::as_handle(fd) else {
+        return false;
+    };
+    unsafe { GetFileType(handle.as_raw_handle() as _) == FILE_TYPE_DISK }
 }
 
 pub fn validate_whence(whence: i32) -> bool {

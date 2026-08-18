@@ -23,12 +23,60 @@ use crate::{
     vm::VirtualMachine,
 };
 use alloc::fmt;
-use core::cell::Cell;
+use core::cell::{Cell, UnsafeCell};
 use core::ptr::NonNull;
 
 #[pyclass(module = false, name = "tuple", traverse = "manual")]
 pub struct PyTuple<R = PyObjectRef> {
-    elements: Box<[R]>,
+    elements: TupleElements<R>,
+}
+
+/// Tuple storage is immutable after publication, but marshal must publish a
+/// tuple in its reference table before recursively reading its children.
+/// This mirrors CPython's `PyTuple_New` followed by `PyTuple_SET_ITEM`.
+struct TupleElements<R>(UnsafeCell<Box<[R]>>);
+
+unsafe impl<R: Send> Send for TupleElements<R> {}
+unsafe impl<R: Sync> Sync for TupleElements<R> {}
+
+impl<R> TupleElements<R> {
+    const fn new(elements: Box<[R]>) -> Self {
+        Self(UnsafeCell::new(elements))
+    }
+
+    fn as_slice(&self) -> &[R] {
+        // SAFETY: initialization writes happen only while the tuple is owned by
+        // the synchronous marshal decoder; afterwards the storage is immutable.
+        unsafe { &*self.0.get() }
+    }
+
+    fn get_mut(&mut self) -> &mut Box<[R]> {
+        self.0.get_mut()
+    }
+
+    /// # Safety
+    /// The tuple must still be in its private initialization phase, and each
+    /// placeholder index must be replaced at most once before it is observable.
+    unsafe fn set_initializing(&self, index: usize, value: R) {
+        unsafe { (*self.0.get())[index] = value };
+    }
+}
+
+impl<R> core::ops::Deref for TupleElements<R> {
+    type Target = [R];
+
+    fn deref(&self) -> &Self::Target {
+        self.as_slice()
+    }
+}
+
+impl<'a, R> IntoIterator for &'a TupleElements<R> {
+    type Item = &'a R;
+    type IntoIter = core::slice::Iter<'a, R>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
 }
 
 impl<R> fmt::Debug for PyTuple<R> {
@@ -42,11 +90,11 @@ impl<R> fmt::Debug for PyTuple<R> {
 // Note: Only impl for PyTuple<PyObjectRef> (the default)
 unsafe impl Traverse for PyTuple {
     fn traverse(&self, traverse_fn: &mut TraverseFn<'_>) {
-        self.elements.traverse(traverse_fn);
+        self.elements.as_slice().traverse(traverse_fn);
     }
 
     fn clear(&mut self, out: &mut Vec<PyObjectRef>) {
-        let elements = core::mem::take(&mut self.elements);
+        let elements = core::mem::take(self.elements.get_mut());
         out.extend(elements.into_vec());
     }
 }
@@ -206,7 +254,7 @@ impl Constructor for PyTuple {
 
     fn py_new(_cls: &Py<PyType>, elements: Self::Args, _vm: &VirtualMachine) -> PyResult<Self> {
         Ok(Self {
-            elements: elements.into_boxed_slice(),
+            elements: TupleElements::new(elements.into_boxed_slice()),
         })
     }
 }
@@ -245,19 +293,19 @@ impl<'a, R> core::iter::IntoIterator for &'a Py<PyTuple<R>> {
 
 impl<R> PyTuple<R> {
     #[must_use]
-    pub const fn as_slice(&self) -> &[R] {
+    pub fn as_slice(&self) -> &[R] {
         &self.elements
     }
 
     #[inline]
     #[must_use]
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.elements.len()
     }
 
     #[inline]
     #[must_use]
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.elements.is_empty()
     }
 
@@ -274,7 +322,13 @@ impl PyTuple<PyObjectRef> {
             ctx.empty_tuple.clone()
         } else {
             let elements = elements.into_boxed_slice();
-            PyRef::new_ref(Self { elements }, ctx.types.tuple_type.to_owned(), None)
+            PyRef::new_ref(
+                Self {
+                    elements: TupleElements::new(elements),
+                },
+                ctx.types.tuple_type.to_owned(),
+                None,
+            )
         }
     }
 
@@ -283,7 +337,16 @@ impl PyTuple<PyObjectRef> {
     /// Calling this function implies trying micro optimization for non-zero-sized tuple.
     #[must_use]
     pub const fn new_unchecked(elements: Box<[PyObjectRef]>) -> Self {
-        Self { elements }
+        Self {
+            elements: TupleElements::new(elements),
+        }
+    }
+
+    /// # Safety
+    /// This tuple must be a marshal placeholder which has not escaped the
+    /// decoder, and `index` must not have been replaced previously.
+    pub(crate) unsafe fn set_marshal_item(&self, index: usize, value: PyObjectRef) {
+        unsafe { self.elements.set_initializing(index, value) };
     }
 
     fn repeat(zelf: PyRef<Self>, value: isize, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -298,7 +361,10 @@ impl PyTuple<PyObjectRef> {
         } else {
             let v = zelf.elements.mul(vm, value)?;
             let elements = v.into_boxed_slice();
-            Self { elements }.into_ref(&vm.ctx)
+            Self {
+                elements: TupleElements::new(elements),
+            }
+            .into_ref(&vm.ctx)
         })
     }
 
@@ -341,7 +407,10 @@ impl PyTuple {
                     .chain(other.as_slice())
                     .cloned()
                     .collect::<Box<[_]>>();
-                Self { elements }.into_ref(&vm.ctx)
+                Self {
+                    elements: TupleElements::new(elements),
+                }
+                .into_ref(&vm.ctx)
             }
         });
         PyArithmeticValue::from_option(added.ok())
@@ -360,7 +429,7 @@ impl PyTuple {
 
     #[inline]
     #[must_use]
-    pub const fn __len__(&self) -> usize {
+    pub fn __len__(&self) -> usize {
         self.elements.len()
     }
 
@@ -425,13 +494,17 @@ impl PyTuple {
         let tup_arg = if zelf.class().is(vm.ctx.types.tuple_type) {
             zelf
         } else {
-            Self::new_ref(zelf.elements.clone().into_vec(), &vm.ctx)
+            Self::new_ref(zelf.elements.as_slice().to_vec(), &vm.ctx)
         };
         (tup_arg,)
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
@@ -536,7 +609,7 @@ impl Representable for PyTuple {
             let s = if zelf.len() == 1 {
                 wtf8_concat!("(", zelf.elements[0].repr(vm)?.as_wtf8(), ",)")
             } else {
-                collection_repr(None, "(", ")", zelf.elements.iter(), vm)?
+                collection_repr(None, "(", ")", "()", zelf.elements.iter(), vm)?
             };
             vm.ctx.new_str(s)
         } else {

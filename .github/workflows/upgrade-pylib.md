@@ -52,7 +52,7 @@ cache:
     - cpython-lib-
 
 env:
-  PYTHON_VERSION: "v3.14.6"
+  PYTHON_VERSION: "v3.14.7"
   ISSUE_ID: "6839"
 ---
 

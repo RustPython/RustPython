@@ -14,8 +14,8 @@ use crate::{
     bytecode,
     class::PyClassImpl,
     common::wtf8::{Wtf8Buf, wtf8_concat},
-    frame::{Frame, FrameRef},
-    function::{FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
+    frame::{FrameObject, FrameObjectRef},
+    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PySetterValue},
     scope::Scope,
     types::{
         Callable, Comparable, Constructor, GetAttr, GetDescriptor, Hashable, PyComparisonOp,
@@ -64,9 +64,9 @@ fn format_missing_args(
 #[pyclass(module = false, name = "function", traverse = "manual")]
 #[derive(Debug)]
 pub struct PyFunction {
-    code: PyAtomicRef<PyCode>,
-    globals: PyDictRef,
-    builtins: PyObjectRef,
+    pub(crate) code: PyAtomicRef<PyCode>,
+    pub(crate) globals: PyDictRef,
+    pub(crate) builtins: PyObjectRef,
     pub(crate) closure: Option<PyRef<PyTuple<PyCellRef>>>,
     defaults_and_kwdefaults: PyMutex<(Option<PyTupleRef>, Option<PyDictRef>)>,
     name: PyMutex<PyStrRef>,
@@ -182,11 +182,7 @@ impl PyFunction {
         let module = vm.unwrap_or_none(globals.get_item_opt(identifier!(vm, __name__), vm)?);
         let builtins = globals.get_item("__builtins__", vm).unwrap_or_else(|_| {
             // If not in globals, inherit from current execution context
-            if let Some(frame) = vm.current_frame() {
-                frame.builtins.clone()
-            } else {
-                vm.builtins.dict().into()
-            }
+            crate::frame::current_builtins().unwrap_or_else(|| vm.builtins.dict().into())
         });
         // If builtins is a module, use its __dict__ instead
         let builtins = if let Some(module) = builtins.downcast_ref::<PyModule>() {
@@ -228,7 +224,28 @@ impl PyFunction {
 
     fn fill_locals_from_args(
         &self,
-        frame: &Frame,
+        frame: &FrameObject,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        // SAFETY: FrameObject was just created and not yet executing.
+        let fastlocals = unsafe { frame.fastlocals_mut() };
+        self.fill_locals_from_args_inner(fastlocals, func_args, vm)
+    }
+
+    fn fill_locals_from_args_iframe(
+        &self,
+        iframe: &mut crate::frame::InterpreterFrame,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let fastlocals = iframe.localsplus.fastlocals_mut();
+        self.fill_locals_from_args_inner(fastlocals, func_args, vm)
+    }
+
+    fn fill_locals_from_args_inner(
+        &self,
+        fastlocals: &mut [Option<PyObjectRef>],
         func_args: FuncArgs,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
@@ -236,16 +253,6 @@ impl PyFunction {
         let nargs = func_args.args.len();
         let n_expected_args = code.arg_count as usize;
         let total_args = code.arg_count as usize + code.kwonlyarg_count as usize;
-        // let arg_names = self.code.arg_names();
-
-        // This parses the arguments from args and kwargs into
-        // the proper variables keeping into account default values
-        // and star-args and kwargs.
-        // See also: PyEval_EvalCodeWithName in cpython:
-        // https://github.com/python/cpython/blob/main/Python/ceval.c#L3681
-
-        // SAFETY: Frame was just created and not yet executing.
-        let fastlocals = unsafe { frame.fastlocals_mut() };
 
         let mut args_iter = func_args.args.into_iter();
 
@@ -337,8 +344,13 @@ impl PyFunction {
         let mut posonly_passed_as_kwarg = Vec::new();
         // Handle keyword arguments
         for (name, value) in func_args.kwargs {
+            // Parameter names are plain identifiers, so a non-UTF-8 (surrogate) key
+            // can never match one and just falls through to **kwargs / the error path.
+            let name_str = name.as_str().ok();
             // Check if we have a parameter with this name:
-            if let Some(pos) = arg_pos(code.posonlyarg_count as usize..total_args, &name) {
+            if let Some(pos) =
+                name_str.and_then(|s| arg_pos(code.posonlyarg_count as usize..total_args, s))
+            {
                 let slot = &mut fastlocals[pos];
                 if slot.is_some() {
                     return Err(vm.new_type_error(format!(
@@ -350,7 +362,9 @@ impl PyFunction {
                 *slot = Some(value);
             } else if let Some(kwargs) = kwargs.as_ref() {
                 kwargs.set_item(&name, value, vm)?;
-            } else if arg_pos(0..code.posonlyarg_count as usize, &name).is_some() {
+            } else if name_str
+                .is_some_and(|s| arg_pos(0..code.posonlyarg_count as usize, s).is_some())
+            {
                 posonly_passed_as_kwarg.push(name);
             } else {
                 return Err(vm.new_type_error(format!(
@@ -536,6 +550,20 @@ impl Py<PyFunction> {
         self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
     }
 
+    /// Whether this function currently has native JIT code. Adaptive Python
+    /// call specializations must yield to that entry point.
+    #[inline]
+    pub(crate) fn is_jitted(&self) -> bool {
+        #[cfg(feature = "jit")]
+        {
+            self.jitted_code.lock().is_some()
+        }
+        #[cfg(not(feature = "jit"))]
+        {
+            false
+        }
+    }
+
     pub fn invoke_with_locals(
         &self,
         func_args: FuncArgs,
@@ -557,69 +585,111 @@ impl Py<PyFunction> {
             }
         }
 
-        let code: PyRef<PyCode> = (*self.code).to_owned();
-
-        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
-            None
-        } else if let Some(locals) = locals {
-            Some(locals)
-        } else {
-            Some(ArgMapping::from_dict_exact(self.globals.clone()))
-        };
+        let code = &*self.code;
 
         let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
         let is_coro = code.flags.contains(bytecode::CodeFlags::COROUTINE);
         let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
-        let use_datastack = !(is_gen || is_coro || is_async_gen);
 
-        // Construct frame:
-        let frame = Frame::new(
-            code,
-            Scope::new(locals, self.globals.clone()),
-            self.builtins.clone(),
-            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
-            Some(self.to_owned().into()),
-            use_datastack,
-            vm,
-        )
-        .into_ref(&vm.ctx);
+        let needs_heap_frame = is_gen || is_coro || is_async_gen || vm.use_tracing.get();
 
-        self.fill_locals_from_args(&frame, func_args, vm)?;
-        if use_datastack {
-            let result = vm.run_frame(frame.clone());
-            // Release data stack memory after frame execution completes.
-            crate::frame::release_datastack_frame(&frame, vm);
-            result
-        } else {
-            let obj = if is_async_gen {
-                PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm)
-            } else if is_gen {
-                PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm)
+        if needs_heap_frame {
+            // Heap-allocate FrameObject for generators/coroutines (lifetime
+            // exceeds call stack) or when tracing is active (trace callbacks
+            // need a FrameObject).
+            let code_owned: PyRef<PyCode> = code.to_owned();
+            let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+                None
+            } else if let Some(locals) = locals {
+                Some(locals)
             } else {
-                PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__())
-                    .into_pyobject(vm)
+                Some(ArgMapping::from_dict_exact(self.globals.clone()))
             };
-            // Generator/coroutine frames outlive this call and can join a
-            // reference cycle through their owning generator, so they must
-            // participate in the GC. They were created untracked
-            // (NEW_REF_UNTRACKED); track them now, before the back-reference
-            // is installed. Their localsplus is heap-backed by construction
-            // (use_datastack == false), so a collector never reads data-stack
-            // storage when it traverses them.
-            debug_assert!(
-                !frame.localsplus_is_datastack_backed(),
-                "generator frame is data-stack-backed"
+            let use_datastack = !is_gen && !is_coro && !is_async_gen;
+            let frame = FrameObject::new_ref(
+                code_owned,
+                Scope::new(locals, self.globals.clone()),
+                self.builtins.clone(),
+                self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+                Some(self.to_owned().into()),
+                use_datastack,
+                vm,
             );
-            // SAFETY: the frame is alive (held by `frame`) and untracked.
-            unsafe {
-                crate::gc_state::gc_state()
-                    .track_object(core::ptr::NonNull::from(frame.as_object()));
+            self.fill_locals_from_args(&frame, func_args, vm)?;
+            if is_gen || is_coro || is_async_gen {
+                return Ok(self.make_generator_or_coro(frame, vm));
             }
-            frame.set_generator(&obj);
-            Ok(obj)
+            // Tracing active: use heap frame with full trace support.
+            let result = vm.run_frame(frame.clone());
+            unsafe {
+                if let Some(base) = frame.iframe_mut().localsplus.release_datastack() {
+                    vm.datastack_pop(base);
+                }
+            }
+            return result;
         }
+
+        // Fast path: stack-allocated InterpreterFrame, no FrameObject.
+        // No refcount inc for code — it's alive via self.code for the call duration.
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            crate::frame::FrameLocals::lazy()
+        } else if let Some(locals) = locals {
+            crate::frame::FrameLocals::with_locals(locals)
+        } else {
+            crate::frame::FrameLocals::with_locals(crate::function::ArgMapping::from_dict_exact(
+                self.globals.clone(),
+            ))
+        };
+
+        // Use self.as_object() as raw pointer — no refcount inc/dec.
+        // The function is alive on the caller's stack for the call duration.
+        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
+            &self.code,
+            &self.globals,
+            &self.builtins,
+            Some(self.as_object()),
+            locals,
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+        let result = self
+            .fill_locals_from_args_iframe(iframe, func_args, vm)
+            .and_then(|()| vm.run_frame_fast(iframe));
+        // Release data stack memory — must happen on both success and error.
+        unsafe {
+            if let Some((base, size)) = iframe.release_datastack_frame() {
+                vm.datastack_pop_frame(base, size);
+            }
+        }
+        result
+    }
+
+    /// Create generator, coroutine, or async generator from a FrameObject.
+    fn make_generator_or_coro(&self, frame: FrameObjectRef, vm: &VirtualMachine) -> PyObjectRef {
+        let code = frame.iframe().code();
+        let is_async_gen = code.flags.contains(bytecode::CodeFlags::ASYNC_GENERATOR);
+        let is_gen = code.flags.contains(bytecode::CodeFlags::GENERATOR);
+
+        let obj = if is_async_gen {
+            PyAsyncGen::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
+        } else if is_gen {
+            PyGenerator::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
+        } else {
+            PyCoroutine::new(frame.clone(), self.__name__(), self.__qualname__()).into_pyobject(vm)
+        };
+        debug_assert!(
+            !frame.localsplus_is_datastack_backed(),
+            "generator frame is data-stack-backed"
+        );
+        // SAFETY: the frame is alive (held by `frame`) and untracked.
+        unsafe {
+            crate::gc_state::gc_state().track_object(
+                core::ptr::NonNull::from(frame.as_object()),
+                crate::gc_state::current_owner(),
+            );
+        }
+        frame.set_generator(&obj);
+        obj
     }
 
     #[inline(always)]
@@ -689,7 +759,7 @@ impl Py<PyFunction> {
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
-    ) -> FrameRef {
+    ) -> FrameObjectRef {
         let code: PyRef<PyCode> = (*self.code).to_owned();
 
         debug_assert_eq!(args.len(), code.arg_count as usize);
@@ -712,7 +782,7 @@ impl Py<PyFunction> {
             Some(ArgMapping::from_dict_exact(self.globals.clone()))
         };
 
-        let frame = Frame::new(
+        let frame = FrameObject::new_ref(
             code,
             Scope::new(locals, self.globals.clone()),
             self.builtins.clone(),
@@ -720,8 +790,7 @@ impl Py<PyFunction> {
             Some(self.to_owned().into()),
             true, // Exact-args fast path is only used for non-gen/coro functions.
             vm,
-        )
-        .into_ref(&vm.ctx);
+        );
 
         {
             let fastlocals = unsafe { frame.fastlocals_mut() };
@@ -733,15 +802,45 @@ impl Py<PyFunction> {
         frame
     }
 
-    fn invoke_prepared_exact_args(
+    pub(crate) fn invoke_prepared_exact_args(
         &self,
         args: impl ExactSizeIterator<Item = PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult {
-        let frame = self.prepare_exact_args_frame(args, vm);
+        let code = &*self.code;
 
-        let result = vm.run_frame(frame.clone());
-        crate::frame::release_datastack_frame(&frame, vm);
+        let locals = if code.flags.contains(bytecode::CodeFlags::NEWLOCALS) {
+            crate::frame::FrameLocals::lazy()
+        } else {
+            crate::frame::FrameLocals::with_locals(ArgMapping::from_dict_exact(
+                self.globals.clone(),
+            ))
+        };
+
+        let iframe = crate::frame::InterpreterFrame::new_on_datastack(
+            code,
+            &self.globals,
+            &self.builtins,
+            Some(self.as_object()),
+            locals,
+            self.closure.as_ref().map_or(&[], |c| c.as_slice()),
+            vm,
+        );
+
+        // Fill arguments directly into fastlocals
+        {
+            let fastlocals = iframe.localsplus.fastlocals_mut();
+            for (slot, arg) in fastlocals.iter_mut().zip(args) {
+                *slot = Some(arg);
+            }
+        }
+
+        let result = vm.run_frame_fast(iframe);
+        unsafe {
+            if let Some((base, size)) = iframe.release_datastack_frame() {
+                vm.datastack_pop_frame(base, size);
+            }
+        }
         result
     }
 
@@ -794,8 +893,10 @@ pub(crate) fn datastack_frame_size_bytes_for_code(code: &Py<PyCode>) -> Option<u
         return None;
     }
     let nlocalsplus = code.localspluskinds.len();
-    let capacity = nlocalsplus.checked_add(code.max_stackdepth as usize)?;
-    capacity.checked_mul(core::mem::size_of::<usize>())
+    Some(crate::frame::datastack_iframe_total_bytes(
+        nlocalsplus,
+        code.max_stackdepth as usize,
+    ))
 }
 
 impl PyPayload for PyFunction {
@@ -1423,7 +1524,7 @@ impl Representable for PyBoundMethod {
     }
 }
 
-#[pyclass(module = false, name = "cell", traverse)]
+#[pyclass(module = false, name = "cell", unhashable = true, traverse)]
 #[derive(Debug, Default)]
 pub(crate) struct PyCell {
     contents: PyMutex<Option<PyObjectRef>>,
@@ -1446,8 +1547,26 @@ impl Constructor for PyCell {
     }
 }
 
-#[pyclass(with(Constructor))]
+#[pyclass(with(Constructor, Representable))]
 impl PyCell {
+    #[pyslot]
+    fn slot_richcompare(
+        zelf: &PyObject,
+        other: &PyObject,
+        op: PyComparisonOp,
+        vm: &VirtualMachine,
+    ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+        let (Some(zelf), Some(other)) = (zelf.downcast_ref::<Self>(), other.downcast_ref::<Self>())
+        else {
+            return Ok(Either::B(PyComparisonValue::NotImplemented));
+        };
+        // compare cells by contents; empty cells come before anything else
+        match (zelf.get(), other.get()) {
+            (Some(a), Some(b)) => a.rich_compare(b, op, vm).map(Either::A),
+            (a, b) => Ok(Either::B(op.eval_ord(b.is_none().cmp(&a.is_none())).into())),
+        }
+    }
+
     pub(crate) const fn new(contents: Option<PyObjectRef>) -> Self {
         Self {
             contents: PyMutex::new(contents),
@@ -1477,6 +1596,30 @@ impl PyCell {
     }
 }
 
+impl Representable for PyCell {
+    #[inline]
+    fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
+        let id = zelf.get_id();
+        Ok(match zelf.get() {
+            Some(value) => {
+                let type_name = value.class().slot_name();
+                // CPython renders the type name with "%.80s", which reads at
+                // most 80 bytes and drops a character left incomplete by the cut.
+                let mut end = type_name.len().min(80);
+                while !type_name.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!(
+                    "<cell at {id:#x}: {} object at {:#x}>",
+                    &type_name[..end],
+                    value.get_id()
+                )
+            }
+            None => format!("<cell at {id:#x}: empty>"),
+        })
+    }
+}
+
 /// Vectorcall implementation for PyFunction (PEP 590).
 /// Takes owned args to avoid cloning when filling fastlocals.
 pub(crate) fn vectorcall_function(
@@ -1490,6 +1633,16 @@ pub(crate) fn vectorcall_function(
     let code: &Py<PyCode> = &zelf.code;
 
     let has_kwargs = kwnames.is_some_and(|kw| !kw.is_empty());
+    if zelf.is_jitted() {
+        let func_args = if has_kwargs {
+            FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
+        } else {
+            args.truncate(nargs);
+            FuncArgs::from(args)
+        };
+        return zelf.invoke(func_args, vm);
+    }
+
     let is_simple = !has_kwargs
         && code.flags.contains(bytecode::CodeFlags::OPTIMIZED)
         && !code.flags.contains(bytecode::CodeFlags::VARARGS)
@@ -1514,7 +1667,7 @@ pub(crate) fn vectorcall_function(
 
     // SLOW PATH: construct FuncArgs from owned Vec and delegate to invoke()
     let func_args = if has_kwargs {
-        FuncArgs::from_vectorcall(&args, nargs, kwnames)
+        FuncArgs::from_vectorcall_owned(args, nargs, kwnames)
     } else {
         args.truncate(nargs);
         FuncArgs::from(args)

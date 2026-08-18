@@ -4,7 +4,7 @@ use num_traits::{cast::ToPrimitive, sign::Signed};
 use rustpython_unicode::case;
 
 use crate::{
-    Py, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyIntRef, PyTuple},
     convert::TryFromBorrowedObject,
     function::OptionalOption,
@@ -27,7 +27,7 @@ pub struct SplitLinesArgs {
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
     #[pyarg(any, default = 8)]
-    tabsize: isize,
+    tabsize: i32,
 }
 
 impl ExpandTabsArgs {
@@ -132,6 +132,11 @@ where
 {
     fn new() -> Self;
     fn with_capacity(capacity: usize) -> Self;
+    /// `with_capacity`, reporting a capacity that cannot be allocated instead
+    /// of aborting the process on it.
+    fn try_with_capacity(capacity: usize) -> Option<Self>
+    where
+        Self: Sized;
     fn push_str(&mut self, s: &S);
 }
 
@@ -147,7 +152,11 @@ pub(crate) trait AnyStr {
     fn as_bytes(&self) -> &[u8];
     fn elements(&self) -> impl Iterator<Item = Self::Char>;
     fn get_bytes(&self, range: Range<usize>) -> &Self;
-    // FIXME: get_chars is expensive for str
+    /// The characters in `range`, which for a `str` payload means walking to
+    /// both bounds -- the payload does not carry the string's character index.
+    /// `PyStr` therefore converts its own ranges and does not reach the search
+    /// helpers below through this; what remains are the byte strings, where a
+    /// character range is already a byte range.
     fn get_chars(&self, range: Range<usize>) -> &Self;
     fn bytes_len(&self) -> usize;
     // NOTE: str::chars().count() consumes the O(n) time. But pystr::char_len does cache.
@@ -281,27 +290,29 @@ pub(crate) trait AnyStr {
         }
     }
 
-    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Self::Container {
-        let mut u = Self::Container::with_capacity(
-            (left + right) * fillchar.bytes_len() + self.bytes_len(),
-        );
+    fn py_pad(&self, left: usize, right: usize, fillchar: Self::Char) -> Option<Self::Container> {
+        let capacity = left
+            .checked_add(right)?
+            .checked_mul(fillchar.bytes_len())?
+            .checked_add(self.bytes_len())?;
+        let mut u = Self::Container::try_with_capacity(capacity)?;
         u.extend(core::iter::repeat_n(fillchar, left));
         u.push_str(self);
         u.extend(core::iter::repeat_n(fillchar, right));
-        u
+        Some(u)
     }
 
-    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_center(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         let marg = width - len;
         let left = marg / 2 + (marg & width & 1);
         self.py_pad(left, marg - left, fillchar)
     }
 
-    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_ljust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(0, width - len, fillchar)
     }
 
-    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Self::Container {
+    fn py_rjust(&self, width: usize, fillchar: Self::Char, len: usize) -> Option<Self::Container> {
         self.py_pad(width - len, 0, fillchar)
     }
 
@@ -398,7 +409,7 @@ pub(crate) trait AnyStr {
         elements
     }
 
-    fn py_zfill(&self, width: isize) -> Vec<u8> {
+    fn py_zfill(&self, width: isize) -> Option<Vec<u8>> {
         let width = width.to_usize().unwrap_or(0);
         let char_len = self.elements().count();
         let width = self
@@ -481,19 +492,25 @@ where
     F: Fn(T) -> PyResult<bool>,
     M: Fn(&PyObject) -> String,
 {
-    if let Ok(single) = obj.try_to_value::<T>(vm) {
-        (predicate)(single)
-    } else {
-        let tuple: &Py<PyTuple> = obj
-            .try_to_value(vm)
-            .map_err(|_| vm.new_type_error((message)(obj)))?;
-
-        for obj in tuple {
-            if single_or_tuple_any(obj, predicate, message, vm)? {
+    // _Py_bytes_tailmatch: a tuple is taken apart before anything is converted, and
+    // each item is converted on its own terms, so a tuple of tuples is not an affix.
+    if let Some(tuple) = obj.downcast_ref::<PyTuple>() {
+        for item in tuple {
+            if (predicate)(item.try_to_value::<T>(vm)?)? {
                 return Ok(true);
             }
         }
-
-        Ok(false)
+        return Ok(false);
     }
+
+    // Only the argument simply being the wrong kind of object is reported as such;
+    // whatever the conversion itself raised belongs to the caller.
+    let single = obj.try_to_value::<T>(vm).map_err(|exc| {
+        if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            vm.new_type_error((message)(obj))
+        } else {
+            exc
+        }
+    })?;
+    (predicate)(single)
 }

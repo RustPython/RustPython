@@ -104,7 +104,12 @@ where
             return Err(vm.new_memory_error(""));
         }
 
-        let mut v = Vec::with_capacity(n * self.as_ref().len());
+        let total = n
+            .checked_mul(self.as_ref().len())
+            .ok_or_else(|| vm.new_memory_error(""))?;
+        let mut v = Vec::new();
+        v.try_reserve_exact(total)
+            .map_err(|_| vm.new_memory_error(""))?;
         for _ in 0..n {
             v.extend_from_slice(self.as_ref());
         }

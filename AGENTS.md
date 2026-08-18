@@ -1,6 +1,6 @@
-# GitHub Copilot Instructions for RustPython
+# AI Agent Instructions for RustPython
 
-This document provides guidelines for working with GitHub Copilot when contributing to the RustPython project.
+This document provides guidelines for AI coding agents (GitHub Copilot, Claude Code, Gemini, etc.) contributing to the RustPython project.
 
 ## Project Overview
 
@@ -13,24 +13,14 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0
 
 ## Repository Structure
 
-- `src/` - Top-level code for the RustPython binary
-- `vm/` - The Python virtual machine implementation
-  - `builtins/` - Python built-in types and functions
-  - `stdlib/` - Essential standard library modules implemented in Rust, required to run the Python core
-- `compiler/` - Python compiler components
-  - `parser/` - Parser for converting Python source to AST
-  - `core/` - Bytecode representation in Rust structures
-  - `codegen/` - AST to bytecode compiler
-- `Lib/` - CPython's standard library in Python (copied from CPython). **IMPORTANT**: Do not edit this directory directly; The only allowed operation is copying files from CPython.
-- `derive/` - Rust macros for RustPython
-- `common/` - Common utilities
-- `extra_tests/` - Integration tests and snippets
-- `stdlib/` - Non-essential Python standard library modules implemented in Rust (useful but not required for core functionality)
-- `wasm/` - WebAssembly support
-- `jit/` - Experimental JIT compiler implementation
-- `pylib/` - Python standard library packaging (do not modify this directory directly - its contents are generated automatically)
+See the "Code organization" section in [CONTRIBUTING.md](CONTRIBUTING.md#code-organization) for the current directory layout.
 
 ## AI Agent Rules
+
+**CRITICAL: AI Policy**
+
+- Follow RustPython's [AI Policy](https://github.com/RustPython/.github/blob/main/AI_POLICY.md) for every AI-assisted contribution.
+- Disclose AI assistance in commit messages with an `Assisted-by: AGENT_NAME:MODEL_VERSION` trailer. Use one trailer per AI tool, and never use `Co-authored-by` for an AI assistant.
 
 **CRITICAL: Git Operations**
 - NEVER create pull requests directly without explicit user permission
@@ -38,11 +28,11 @@ RustPython is a Python 3 interpreter written in Rust, implementing Python 3.14.0
 - Always ask the user before performing any git operations that affect the remote repository
 - Commits can be created locally when requested, but pushing and PR creation require explicit approval
 
-**CRITICAL: Pre-commit Checks**
-- Before creating ANY commit, you MUST run `prek run --all-files` (or `pre-commit run --all-files`) AND the full test suite. Both must pass — do not commit if either fails.
-- Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
-- If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes, re-run `prek` until it reports a clean pass, then re-run the tests, then commit.
-- NEVER bypass these checks with `--no-verify`, `--no-gpg-sign`, or by skipping tests "because the change is small". If a hook or test fails, fix the underlying issue and create a new commit — do not amend or force the failing commit through.
+**CRITICAL: Commit Hooks and Validation**
+- Install the repository's pre-commit hook with `prek install` (or `pre-commit install`) after cloning the repository.
+- Every commit must run the configured pre-commit hook. NEVER bypass it with `--no-verify`. Automated workflows that use a normal `git commit`, such as `scripts/update_lib quick`, should be allowed to create local commits through the hook.
+- If a hook auto-fixes files (e.g. `ruff-format`, `rustfmt`), re-stage the fixes and retry the commit. Do not amend or force a failing commit through.
+- Before completing a task, run the tests appropriate for the change. Test commands are documented in the [Testing](#testing) section below. At minimum run `cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi`, then run `cargo test` from `crates/capi`; if the change touches `extra_tests/snippets/` run `pytest -v` there too, and if it touches `Lib/` or interpreter behavior, run the relevant `cargo run --release -- -m test <module>` modules.
 
 ## Important Development Notes
 
@@ -128,7 +118,10 @@ rm -r target/debug/build/rustpython-* && find . | grep -E "\.pyc$" | xargs rm -r
 
 ```bash
 # Run Rust unit tests
-cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher
+cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
+
+# Run C-API tests from their directory so their separate Cargo config applies
+(cd crates/capi && cargo test)
 
 # Run Python snippets tests (debug mode recommended for faster compilation)
 cargo run -- extra_tests/snippets/builtin_bytes.py
@@ -265,11 +258,9 @@ cargo run --features jit
 
 ### Linux Build and Debug on macOS
 
-See the "Testing on Linux from macOS" section in [DEVELOPMENT.md](DEVELOPMENT.md#testing-on-linux-from-macos).
+See the "Testing on Linux from macOS" section in [CONTRIBUTING.md](CONTRIBUTING.md#testing-on-linux-from-macos).
 
 ### Building venvlauncher (Windows)
-
-See DEVELOPMENT.md "CPython Version Upgrade Checklist" section.
 
 **IMPORTANT**: All 4 venvlauncher binaries use the same source code. Do NOT add multiple `[[bin]]` entries to Cargo.toml. Build once and copy with different names.
 
@@ -301,7 +292,7 @@ If you modify any file under `.github/workflows/`, the change must pass a [zizmo
 ## Documentation
 
 - Check the [architecture document](/architecture/architecture.md) for a high-level overview
-- Read the [development guide](/DEVELOPMENT.md) for detailed setup instructions
+- Read the [development guide](/CONTRIBUTING.md) for detailed setup instructions
 - Generate documentation with `cargo doc --no-deps --all`
 - Online documentation is available at [docs.rs/rustpython](https://docs.rs/rustpython/)
 - [How to update test files](https://github.com/RustPython/RustPython/wiki/How-to-update-test-files#checkout-cpython-source-code-initial-setup) — guide for syncing test cases from upstream CPython into the `Lib/` directory

@@ -22,19 +22,22 @@ use crate::{
     windows::{CheckWin32Bool, CheckWin32Handle, CheckWin32Sentinel, HandleToOwned, ToWideString},
 };
 use libc::intptr_t;
-use windows_sys::Win32::{
-    Foundation::{
-        CloseHandle, ERROR_INVALID_HANDLE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH,
+use windows_sys::{
+    Win32::{
+        Foundation::{
+            CloseHandle, ERROR_INVALID_HANDLE, GetLastError, HANDLE, INVALID_HANDLE_VALUE, MAX_PATH,
+        },
+        Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
+        Storage::FileSystem::{
+            CreateFileW, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+            FILE_READ_ATTRIBUTES, FILE_TYPE_UNKNOWN, FileBasicInfo, FindClose, FindFirstFileW,
+            GetFileAttributesW, GetFileInformationByHandleEx, GetFileType, GetFullPathNameW,
+            INVALID_FILE_ATTRIBUTES, OPEN_EXISTING, SetFileAttributesW, SetFileInformationByHandle,
+            WIN32_FIND_DATAW,
+        },
+        System::{Console, Threading},
     },
-    Globalization::{CP_UTF8, MultiByteToWideChar, WideCharToMultiByte},
-    Storage::FileSystem::{
-        CreateFileW, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_READ_ATTRIBUTES, FILE_TYPE_UNKNOWN, FileBasicInfo, FindClose, FindFirstFileW,
-        GetFileAttributesW, GetFileInformationByHandleEx, GetFileType, GetFullPathNameW,
-        INVALID_FILE_ATTRIBUTES, OPEN_EXISTING, SetFileAttributesW, SetFileInformationByHandle,
-        WIN32_FIND_DATAW,
-    },
-    System::{Console, Threading},
+    w,
 };
 
 pub type Handle = HANDLE;
@@ -1172,12 +1175,10 @@ pub fn mkdir(path: &widestring::WideCStr, mode: i32) -> io::Result<()> {
             lpSecurityDescriptor: core::ptr::null_mut(),
             bInheritHandle: 0,
         };
-        let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)\0"
-            .encode_utf16()
-            .collect();
+        let sddl = w!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;OW)");
         unsafe {
             ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl.as_ptr(),
+                sddl,
                 SDDL_REVISION_1,
                 &mut sec_attr.lpSecurityDescriptor,
                 core::ptr::null_mut(),
@@ -1333,7 +1334,9 @@ pub fn readlink(path: &Path) -> Result<OsString, ReadlinkError> {
 
     let path_slice = &buffer[path_start..path_end];
     let mut wide_chars: Vec<u16> = path_slice
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
         .collect();
 
@@ -1697,10 +1700,10 @@ pub fn get_terminal_size_handle(h: HANDLE) -> io::Result<(usize, usize)> {
         if err != windows_sys::Win32::Foundation::ERROR_ACCESS_DENIED {
             return Err(io::Error::last_os_error());
         }
-        let conout: Vec<u16> = "CONOUT$\0".encode_utf16().collect();
+        let conout = w!("CONOUT$");
         let console_handle = unsafe {
             CreateFileW(
-                conout.as_ptr(),
+                conout,
                 windows_sys::Win32::Foundation::GENERIC_READ
                     | windows_sys::Win32::Foundation::GENERIC_WRITE,
                 windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ

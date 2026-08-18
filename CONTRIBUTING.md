@@ -89,7 +89,15 @@ $ pytest -v
 Rust unit tests can be run with `cargo`:
 
 ```shell
-$ cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher
+$ cargo test --workspace --exclude rustpython_wasm --exclude rustpython-venvlauncher --exclude rustpython-capi
+```
+
+`rustpython-capi` needs to be tested from inside its own directory, since it has a
+separate `cargo` config that only applies there:
+
+```shell
+$ cd crates/capi
+$ cargo test
 ```
 
 Python unit tests can be run by compiling RustPython and running the test module:

@@ -178,7 +178,7 @@ impl TypeZoo {
             dict_itemiterator_type: dict::PyDictItemIterator::init_builtin_type(),
             dict_reverseitemiterator_type: dict::PyDictReverseItemIterator::init_builtin_type(),
             ellipsis_type: slice::PyEllipsis::init_builtin_type(),
-            frame_type: crate::frame::Frame::init_builtin_type(),
+            frame_type: crate::frame::FrameObject::init_builtin_type(),
             frame_locals_proxy_type: frame_locals_proxy::FrameLocalsProxy::init_builtin_type(),
             function_type: function::PyFunction::init_builtin_type(),
             generator_type: generator::PyGenerator::init_builtin_type(),

@@ -610,7 +610,7 @@ mod _operator {
                 }
                 for (key, value) in kwargs {
                     result.push_str(", ");
-                    result.push_str(key);
+                    result.push_wtf8(key);
                     result.push_char('=');
                     result.push_wtf8(value.repr(vm)?.as_wtf8());
                 }

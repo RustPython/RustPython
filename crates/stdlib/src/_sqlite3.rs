@@ -31,11 +31,11 @@ mod _sqlite3 {
         sqlite3_column_double, sqlite3_column_int64, sqlite3_column_name, sqlite3_column_text,
         sqlite3_column_type, sqlite3_complete, sqlite3_context, sqlite3_context_db_handle,
         sqlite3_create_collation_v2, sqlite3_create_function_v2, sqlite3_create_window_function,
-        sqlite3_data_count, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg, sqlite3_exec,
-        sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize, sqlite3_get_autocommit,
-        sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion, sqlite3_limit,
-        sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler, sqlite3_reset,
-        sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
+        sqlite3_data_count, sqlite3_db_config, sqlite3_db_handle, sqlite3_errcode, sqlite3_errmsg,
+        sqlite3_exec, sqlite3_expanded_sql, sqlite3_extended_errcode, sqlite3_finalize,
+        sqlite3_get_autocommit, sqlite3_interrupt, sqlite3_last_insert_rowid, sqlite3_libversion,
+        sqlite3_limit, sqlite3_open_v2, sqlite3_prepare_v2, sqlite3_progress_handler,
+        sqlite3_reset, sqlite3_result_blob, sqlite3_result_double, sqlite3_result_error,
         sqlite3_result_error_nomem, sqlite3_result_error_toobig, sqlite3_result_int64,
         sqlite3_result_null, sqlite3_result_text, sqlite3_set_authorizer, sqlite3_sleep,
         sqlite3_step, sqlite3_stmt, sqlite3_stmt_busy, sqlite3_stmt_readonly, sqlite3_threadsafe,
@@ -161,7 +161,17 @@ mod _sqlite3 {
         SQLITE_ALTER_TABLE, SQLITE_ANALYZE, SQLITE_ATTACH, SQLITE_CREATE_INDEX,
         SQLITE_CREATE_TABLE, SQLITE_CREATE_TEMP_INDEX, SQLITE_CREATE_TEMP_TABLE,
         SQLITE_CREATE_TEMP_TRIGGER, SQLITE_CREATE_TEMP_VIEW, SQLITE_CREATE_TRIGGER,
-        SQLITE_CREATE_VIEW, SQLITE_CREATE_VTABLE, SQLITE_DELETE, SQLITE_DENY, SQLITE_DETACH,
+        SQLITE_CREATE_VIEW, SQLITE_CREATE_VTABLE, SQLITE_DBCONFIG_DEFENSIVE,
+        SQLITE_DBCONFIG_DQS_DDL, SQLITE_DBCONFIG_DQS_DML, SQLITE_DBCONFIG_ENABLE_ATTACH_CREATE,
+        SQLITE_DBCONFIG_ENABLE_ATTACH_WRITE, SQLITE_DBCONFIG_ENABLE_COMMENTS,
+        SQLITE_DBCONFIG_ENABLE_FKEY, SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER,
+        SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION, SQLITE_DBCONFIG_ENABLE_QPSG,
+        SQLITE_DBCONFIG_ENABLE_TRIGGER, SQLITE_DBCONFIG_ENABLE_VIEW,
+        SQLITE_DBCONFIG_LEGACY_ALTER_TABLE, SQLITE_DBCONFIG_LEGACY_FILE_FORMAT,
+        SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, SQLITE_DBCONFIG_RESET_DATABASE,
+        SQLITE_DBCONFIG_REVERSE_SCANORDER, SQLITE_DBCONFIG_STMT_SCANSTATUS,
+        SQLITE_DBCONFIG_TRIGGER_EQP, SQLITE_DBCONFIG_TRUSTED_SCHEMA,
+        SQLITE_DBCONFIG_WRITABLE_SCHEMA, SQLITE_DELETE, SQLITE_DENY, SQLITE_DETACH,
         SQLITE_DROP_INDEX, SQLITE_DROP_TABLE, SQLITE_DROP_TEMP_INDEX, SQLITE_DROP_TEMP_TABLE,
         SQLITE_DROP_TEMP_TRIGGER, SQLITE_DROP_TEMP_VIEW, SQLITE_DROP_TRIGGER, SQLITE_DROP_VIEW,
         SQLITE_DROP_VTABLE, SQLITE_FUNCTION, SQLITE_IGNORE, SQLITE_INSERT, SQLITE_LIMIT_ATTACHED,
@@ -322,7 +332,7 @@ mod _sqlite3 {
                     )))
                 }
             } else {
-                Err(vm.new_type_error(format!(
+                Err(vm.new_value_error(format!(
                     "autocommit must be True, False, or sqlite3.LEGACY_TRANSACTION_CONTROL, not {}",
                     obj.class().name()
                 )))
@@ -587,10 +597,10 @@ mod _sqlite3 {
         ) -> c_int {
             let (callable, vm) = unsafe { (*data.cast::<Self>()).retrieve() };
             let f = || -> PyResult<c_int> {
-                let arg1 = ptr_to_str(arg1, vm)?;
-                let arg2 = ptr_to_str(arg2, vm)?;
-                let db_name = ptr_to_str(db_name, vm)?;
-                let access = ptr_to_str(access, vm)?;
+                let arg1 = ptr_to_str_or_none(arg1, vm)?;
+                let arg2 = ptr_to_str_or_none(arg2, vm)?;
+                let db_name = ptr_to_str_or_none(db_name, vm)?;
+                let access = ptr_to_str_or_none(access, vm)?;
 
                 let val = callable.call((action, arg1, arg2, db_name, access), vm)?;
                 let Some(val) = val.downcast_ref::<PyInt>() else {
@@ -963,7 +973,7 @@ mod _sqlite3 {
             zelf.reset_factories(vm);
 
             if was_initialized {
-                zelf.drop_db();
+                zelf.drop_db(vm)?;
             }
 
             // Attempt to open the new database before mutating other state so failures leave
@@ -994,8 +1004,20 @@ mod _sqlite3 {
 
     #[pyclass(with(Constructor, Callable, Initializer), flags(BASETYPE, HAS_WEAKREF))]
     impl Connection {
-        fn drop_db(&self) {
-            self.db.lock().take();
+        fn drop_db(&self, vm: &VirtualMachine) -> PyResult<()> {
+            let mut guard = self.db.lock();
+            let rollback_result = if let Some(db) = guard.as_ref()
+                && *self.autocommit.lock() == AutocommitMode::Disabled
+                && !db.is_autocommit()
+            {
+                db._exec(b"ROLLBACK\0", vm)
+            } else {
+                Ok(())
+            };
+            let db = guard.take();
+            drop(guard);
+            drop(db);
+            rollback_result
         }
 
         fn reset_factories(&self, vm: &VirtualMachine) {
@@ -1012,6 +1034,9 @@ mod _sqlite3 {
             if let Some(isolation_level) = &args.isolation_level.0 {
                 begin_statement_ptr_from_isolation_level(isolation_level, vm)?;
             }
+            if args.autocommit == AutocommitMode::Disabled {
+                db._exec(b"BEGIN\0", vm)?;
+            }
             Ok(db)
         }
 
@@ -1026,6 +1051,11 @@ mod _sqlite3 {
                 Ok(PyMutexGuard::map(guard, |x| unsafe {
                     x.as_mut().unwrap_unchecked()
                 }))
+            } else if self.initialized.load(Ordering::Acquire) {
+                Err(new_programming_error(
+                    vm,
+                    "Cannot operate on a closed database.".to_owned(),
+                ))
             } else {
                 Err(new_programming_error(
                     vm,
@@ -1103,8 +1133,7 @@ mod _sqlite3 {
         #[pymethod]
         fn close(&self, vm: &VirtualMachine) -> PyResult<()> {
             self.check_thread(vm)?;
-            self.drop_db();
-            Ok(())
+            self.drop_db(vm)
         }
 
         fn is_closed(&self) -> bool {
@@ -1113,16 +1142,35 @@ mod _sqlite3 {
 
         #[pymethod]
         fn commit(&self, vm: &VirtualMachine) -> PyResult<()> {
-            self.db_lock(vm)?.implicit_commit(vm)
+            let db = self.db_lock(vm)?;
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => db.implicit_commit(vm),
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"COMMIT\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
+            }
         }
 
         #[pymethod]
         fn rollback(&self, vm: &VirtualMachine) -> PyResult<()> {
             let db = self.db_lock(vm)?;
-            if !db.is_autocommit() {
-                db._exec(b"ROLLBACK\0", vm)
-            } else {
-                Ok(())
+            let mode = *self.autocommit.lock();
+            match mode {
+                AutocommitMode::Legacy => {
+                    if db.is_autocommit() {
+                        Ok(())
+                    } else {
+                        db._exec(b"ROLLBACK\0", vm)
+                    }
+                }
+                AutocommitMode::Enabled => Ok(()),
+                AutocommitMode::Disabled => {
+                    db._exec(b"ROLLBACK\0", vm)?;
+                    db._exec(b"BEGIN\0", vm)
+                }
             }
         }
 
@@ -1241,6 +1289,7 @@ mod _sqlite3 {
                 SQLITE_UTF8
             };
             let db = self.db_lock(vm)?;
+            check_num_params(&db, args.narg, "narg", vm)?;
             let Some(data) = CallbackData::new(args.func, vm) else {
                 return db.create_function(
                     name.as_ptr(),
@@ -1272,6 +1321,7 @@ mod _sqlite3 {
         fn create_aggregate(&self, args: CreateAggregateArgs, vm: &VirtualMachine) -> PyResult<()> {
             let name = args.name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
+            check_num_params(&db, args.narg, "n_arg", vm)?;
             let Some(data) = CallbackData::new(args.aggregate_class, vm) else {
                 return db.create_function(
                     name.as_ptr(),
@@ -1354,6 +1404,7 @@ mod _sqlite3 {
         ) -> PyResult<()> {
             let name = name.to_cstring(vm)?;
             let db = self.db_lock(vm)?;
+            check_num_params(&db, narg, "num_params", vm)?;
             let Some(data) = CallbackData::new(aggregate_class, vm) else {
                 unsafe {
                     sqlite3_create_window_function(
@@ -1479,6 +1530,39 @@ mod _sqlite3 {
         }
 
         #[pymethod]
+        fn setconfig(
+            &self,
+            op: c_int,
+            enable: OptionalArg<bool>,
+            vm: &VirtualMachine,
+        ) -> PyResult<()> {
+            let db = self.db_lock(vm)?;
+            if !is_int_dbconfig(op) {
+                return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
+            }
+            let enable = enable.unwrap_or(true) as c_int;
+            let mut actual: c_int = 0;
+            let rc = unsafe { sqlite3_db_config(db.db, op, enable, &mut actual) };
+            db.check(rc, vm)?;
+            if enable != actual {
+                return Err(new_operational_error(vm, "Unable to set config".to_owned()));
+            }
+            Ok(())
+        }
+
+        #[pymethod]
+        fn getconfig(&self, op: c_int, vm: &VirtualMachine) -> PyResult<bool> {
+            let db = self.db_lock(vm)?;
+            if !is_int_dbconfig(op) {
+                return Err(vm.new_value_error(format!("unknown config 'op': {op}")));
+            }
+            let mut current: c_int = 0;
+            let rc = unsafe { sqlite3_db_config(db.db, op, -1, &mut current) };
+            db.check(rc, vm)?;
+            Ok(current != 0)
+        }
+
+        #[pymethod]
         fn __enter__(zelf: PyRef<Self>) -> PyRef<Self> {
             zelf
         }
@@ -1516,11 +1600,7 @@ mod _sqlite3 {
 
                     // If setting isolation_level to None (auto-commit mode), commit any pending transaction
                     if value.is_none() {
-                        let db = self.db_lock(vm)?;
-                        if !db.is_autocommit() {
-                            // Keep the lock and call implicit_commit directly to avoid race conditions
-                            db.implicit_commit(vm)?;
-                        }
+                        self.commit(vm)?;
                     }
                     let _ = unsafe { self.isolation_level.swap(value) };
                     Ok(())
@@ -1544,6 +1624,7 @@ mod _sqlite3 {
         fn set_autocommit(&self, val: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
             let mode = AutocommitMode::try_from_borrowed_object(vm, &val)?;
             let db = self.db_lock(vm)?;
+            *self.autocommit.lock() = mode;
 
             // Handle transaction state based on mode change
             match mode {
@@ -1563,9 +1644,6 @@ mod _sqlite3 {
                     // Legacy mode doesn't change transaction state
                 }
             }
-
-            drop(db);
-            *self.autocommit.lock() = mode;
             Ok(())
         }
 
@@ -1609,6 +1687,47 @@ mod _sqlite3 {
         #[pygetset]
         fn total_changes(&self, vm: &VirtualMachine) -> PyResult<c_int> {
             self._db_lock(vm).map(|x| x.total_changes())
+        }
+
+        #[pygetset(name = "Warning")]
+        fn exc_warning(&self) -> PyTypeRef {
+            warning_type().to_owned()
+        }
+        #[pygetset(name = "Error")]
+        fn exc_error(&self) -> PyTypeRef {
+            error_type().to_owned()
+        }
+        #[pygetset(name = "InterfaceError")]
+        fn exc_interface_error(&self) -> PyTypeRef {
+            interface_error_type().to_owned()
+        }
+        #[pygetset(name = "DatabaseError")]
+        fn exc_database_error(&self) -> PyTypeRef {
+            database_error_type().to_owned()
+        }
+        #[pygetset(name = "DataError")]
+        fn exc_data_error(&self) -> PyTypeRef {
+            data_error_type().to_owned()
+        }
+        #[pygetset(name = "OperationalError")]
+        fn exc_operational_error(&self) -> PyTypeRef {
+            operational_error_type().to_owned()
+        }
+        #[pygetset(name = "IntegrityError")]
+        fn exc_integrity_error(&self) -> PyTypeRef {
+            integrity_error_type().to_owned()
+        }
+        #[pygetset(name = "InternalError")]
+        fn exc_internal_error(&self) -> PyTypeRef {
+            internal_error_type().to_owned()
+        }
+        #[pygetset(name = "ProgrammingError")]
+        fn exc_programming_error(&self) -> PyTypeRef {
+            programming_error_type().to_owned()
+        }
+        #[pygetset(name = "NotSupportedError")]
+        fn exc_not_supported_error(&self) -> PyTypeRef {
+            not_supported_error_type().to_owned()
         }
     }
 
@@ -1729,11 +1848,11 @@ mod _sqlite3 {
 
             let db = zelf.connection.db_lock(vm)?;
 
-            // Start implicit transaction for DML statements unless in autocommit mode
+            // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
-                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
+                && *zelf.connection.autocommit.lock() == AutocommitMode::Legacy
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1823,11 +1942,11 @@ mod _sqlite3 {
 
             let db = zelf.connection.db_lock(vm)?;
 
-            // Start implicit transaction for DML statements unless in autocommit mode
+            // Only legacy transaction control starts implicit DML transactions.
             if stmt.is_dml
                 && db.is_autocommit()
                 && zelf.connection.isolation_level.deref().is_some()
-                && *zelf.connection.autocommit.lock() != AutocommitMode::Enabled
+                && *zelf.connection.autocommit.lock() == AutocommitMode::Legacy
             {
                 db.begin_transaction(
                     zelf.connection
@@ -1877,7 +1996,9 @@ mod _sqlite3 {
 
             db.sql_limit(script.byte_len(), vm)?;
 
-            db.implicit_commit(vm)?;
+            if *zelf.connection.autocommit.lock() == AutocommitMode::Legacy {
+                db.implicit_commit(vm)?;
+            }
 
             let script = script.to_cstring(vm)?;
             let mut ptr = script.as_ptr();
@@ -2250,7 +2371,7 @@ mod _sqlite3 {
                         return self.data.getitem_by_index(vm, i);
                     }
                 }
-                Err(vm.new_index_error("No item with that key"))
+                Err(vm.new_index_error(format!("No item with key '{}'", name.to_string_lossy())))
             } else if let Some(slice) = needle.downcast_ref::<PySlice>() {
                 let list = self.data.getitem_by_slice(vm, slice.to_saturated(vm)?)?;
                 Ok(vm.ctx.new_tuple(list).into())
@@ -2272,7 +2393,7 @@ mod _sqlite3 {
                 .inner(vm)?
                 .description
                 .clone()
-                .ok_or_else(|| vm.new_value_error("no description in Cursor"))?;
+                .unwrap_or_else(|| vm.ctx.empty_tuple.clone());
 
             Ok(Self { data, description })
         }
@@ -2764,12 +2885,14 @@ mod _sqlite3 {
             }
             let sql_cstr = sql.to_cstring(vm)?;
 
-            let db = connection.db_lock(vm)?;
-
-            db.sql_limit(sql.byte_len(), vm)?;
+            let raw = {
+                let db = connection.db_lock(vm)?;
+                db.sql_limit(sql.byte_len(), vm)?;
+                **db
+            };
 
             let mut tail = null();
-            let st = db.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
+            let st = raw.prepare(sql_cstr.as_ptr(), &mut tail, vm)?;
 
             let Some(st) = st else {
                 return Ok(None);
@@ -3203,6 +3326,16 @@ mod _sqlite3 {
             }
 
             for i in 1..=num_needed {
+                let name = unsafe { sqlite3_bind_parameter_name(self.st, i) };
+                if !name.is_null() && unsafe { *name } != b'?' as libc::c_char {
+                    let name_str = ptr_to_str(name, vm)?;
+                    return Err(new_programming_error(
+                        vm,
+                        format!(
+                            "Binding {i} ('{name_str}') is a named parameter, but you supplied a sequence which requires nameless (qmark) placeholders."
+                        ),
+                    ));
+                }
                 let val = seq.get_item(i as isize - 1, vm)?;
                 self.bind_parameter(i, &val, vm)?;
             }
@@ -3431,12 +3564,66 @@ mod _sqlite3 {
         Ok(obj)
     }
 
+    fn check_num_params(
+        db: &Sqlite,
+        n: c_int,
+        param_name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        let limit = unsafe { sqlite3_limit(db.db, SQLITE_LIMIT_FUNCTION_ARG, -1) };
+        if n < -1 || n > limit {
+            return Err(new_programming_error(
+                vm,
+                format!("'{param_name}' must be between -1 and {limit}, not {n}"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn is_int_dbconfig(op: c_int) -> bool {
+        use libsqlite3_sys::*;
+        matches!(
+            op,
+            SQLITE_DBCONFIG_ENABLE_FKEY
+                | SQLITE_DBCONFIG_ENABLE_TRIGGER
+                | SQLITE_DBCONFIG_ENABLE_FTS3_TOKENIZER
+                | SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION
+                | SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE
+                | SQLITE_DBCONFIG_ENABLE_QPSG
+                | SQLITE_DBCONFIG_TRIGGER_EQP
+                | SQLITE_DBCONFIG_RESET_DATABASE
+                | SQLITE_DBCONFIG_DEFENSIVE
+                | SQLITE_DBCONFIG_WRITABLE_SCHEMA
+                | SQLITE_DBCONFIG_LEGACY_ALTER_TABLE
+                | SQLITE_DBCONFIG_DQS_DDL
+                | SQLITE_DBCONFIG_DQS_DML
+                | SQLITE_DBCONFIG_ENABLE_VIEW
+                | SQLITE_DBCONFIG_LEGACY_FILE_FORMAT
+                | SQLITE_DBCONFIG_TRUSTED_SCHEMA
+                | SQLITE_DBCONFIG_STMT_SCANSTATUS
+                | SQLITE_DBCONFIG_REVERSE_SCANORDER
+                | SQLITE_DBCONFIG_ENABLE_ATTACH_CREATE
+                | SQLITE_DBCONFIG_ENABLE_ATTACH_WRITE
+                | SQLITE_DBCONFIG_ENABLE_COMMENTS
+        )
+    }
+
     fn ptr_to_str<'a>(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<&'a str> {
         if p.is_null() {
             return Err(vm.new_memory_error("string pointer is null"));
         }
         unsafe { CStr::from_ptr(p).to_str() }
-            .map_err(|_| vm.new_value_error("Invalid UIF-8 codepoint"))
+            .map_err(|_| vm.new_value_error("Invalid UTF-8 codepoint"))
+    }
+
+    fn ptr_to_str_or_none(p: *const libc::c_char, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if p.is_null() {
+            return Ok(vm.ctx.none());
+        }
+        let s = unsafe { CStr::from_ptr(p) }
+            .to_str()
+            .map_err(|_| vm.new_value_error("Invalid UTF-8 codepoint".to_owned()))?;
+        Ok(vm.ctx.new_str(s).into())
     }
 
     fn ptr_to_string(

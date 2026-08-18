@@ -285,3 +285,85 @@ with assert_raises(SyntaxError):
 try:
     pass
 """)
+
+
+# leaving the try block early emits an extra copy of the finally body, which
+# must not consume the symbol tables of the nested scopes it contains
+def return_from_try():
+    log = []
+    try:
+        return "returned"
+    finally:
+        log.append((lambda x: x * 2)(3))
+        log.append({t for t in [1, 2]})
+        log.append([t for t in [3]])
+        log.append({k: k for k in [4]})
+
+        def nested():
+            return 5
+
+        class Nested:
+            value = 6
+
+        assert log == [6, {1, 2}, [3], {4: 4}], log
+        assert nested() == 5
+        assert Nested.value == 6
+
+
+assert return_from_try() == "returned"
+
+
+def break_and_continue_from_try():
+    seen = []
+    for i in range(4):
+        try:
+            if i == 1:
+                continue
+            if i == 3:
+                break
+            seen.append(i)
+        finally:
+            seen.append({t for t in [i]})
+    return seen
+
+
+assert break_and_continue_from_try() == [0, {0}, {1}, 2, {2}, {3}]
+
+
+def return_from_try_runs_finally_once():
+    log = []
+
+    def inner():
+        try:
+            return "value"
+        finally:
+            log.append(sorted({t for t in "ab"}))
+
+    assert inner() == "value"
+    return log
+
+
+assert return_from_try_runs_finally_once() == [["a", "b"]]
+
+
+def generator_return_from_try():
+    log = []
+
+    def gen():
+        try:
+            return (yield "yielded")
+        finally:
+            log.append([t for t in "z"])
+
+    g = gen()
+    assert g.send(None) == "yielded"
+    try:
+        g.send("sent")
+    except StopIteration as stop:
+        assert stop.value == "sent", stop.value
+    else:
+        assert False, "generator did not stop"
+    return log
+
+
+assert generator_return_from_try() == [["z"]]

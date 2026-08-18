@@ -25,6 +25,7 @@ pub struct Paths {
 /// Combined configuration: user settings + computed paths
 /// CPython directly exposes every fields under both of them.
 /// We separate them to maintain better ownership discipline.
+#[derive(Clone)]
 pub struct PyConfig {
     pub settings: Settings,
     pub paths: Paths,
@@ -39,6 +40,7 @@ impl PyConfig {
 
 /// User-configurable settings for the python vm.
 #[non_exhaustive]
+#[derive(Clone)]
 pub struct Settings {
     /// -I
     pub isolated: bool,

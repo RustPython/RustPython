@@ -195,6 +195,11 @@ class PtyTest(unittest.TestCase):
         s2 = _readline(master_fd)
         self.assertEqual(b'For my pet fish, Eric.\n', normalize_output(s2))
 
+    # skip (not expectedFailure) because the test still forks a real child
+    # process, which crashes on missing os.login_tty() inside the parallel
+    # test runner's worker process, corrupting its JSON reporting channel
+    # ("worker bug", reproducible under --slow-ci -j N; not under plain -m test).
+    @unittest.skip("TODO: RUSTPYTHON; pty.fork() calls os.login_tty(), which is not implemented")
     def test_fork(self):
         debug("calling pty.fork()")
         pid, master_fd = pty.fork()
@@ -296,6 +301,11 @@ class PtyTest(unittest.TestCase):
 
         self.assertEqual(data, b"")
 
+    # skip (not expectedFailure) because the test still forks a real child
+    # process, which crashes on missing os.login_tty() inside the parallel
+    # test runner's worker process, corrupting its JSON reporting channel
+    # ("worker bug", reproducible under --slow-ci -j N; not under plain -m test).
+    @unittest.skip("TODO: RUSTPYTHON; pty.fork() calls os.login_tty(), which is not implemented")
     def test_spawn_doesnt_hang(self):
         # gh-140482: Do the test in a pty.fork() child to avoid messing
         # with the interactive test runner's terminal settings.

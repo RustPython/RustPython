@@ -1,5 +1,5 @@
 use crate::{
-    AsObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
+    AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     builtins::{PyCode, PyDictRef, PyNamespace, PyUtf8StrRef, code::CoMonitoringData},
     function::FuncArgs,
 };
@@ -344,7 +344,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 continue;
             }
             // Excluded: RESUME, END_FOR, CACHE (and their instrumented variants)
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
             if matches!(
                 base,
                 Instruction::Resume { .. } | Instruction::EndFor | Instruction::Cache
@@ -387,7 +387,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
             .skip(first_traceable)
         {
             let op = unit.op;
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
             if matches!(base, Instruction::ExtendedArg) {
                 continue;
             }
@@ -425,7 +425,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
         let mut instr_idx = first_traceable;
         for unit in code.code.instructions[first_traceable..len].iter().copied() {
             let (op, arg) = arg_state.get(unit);
-            let base = op.to_base().map_or(op, |b| b);
+            let base = op.to_base().unwrap_or(op);
 
             if matches!(base, Instruction::ExtendedArg) || matches!(base, Instruction::Cache) {
                 instr_idx += 1;
@@ -460,7 +460,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
                 let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                let target_base = target_op.to_base().unwrap_or(target_op);
                 // Skip synthetic cleanup targets.
                 if matches!(target_base, Instruction::PopIter) {
                     instr_idx += 1;
@@ -483,7 +483,7 @@ pub(crate) fn instrument_code(code: &PyCode, events: u32) {
                 && !no_loc_mask.get(target_idx).copied().unwrap_or(false)
             {
                 let target_op = code.code.instructions[target_idx].op;
-                let target_base = target_op.to_base().map_or(target_op, |b| b);
+                let target_base = target_op.to_base().unwrap_or(target_op);
                 if !matches!(target_base, Instruction::PopIter)
                     && let Some((loc, _)) = line_locations.get(target_idx)
                     && loc.line.get() > 0
@@ -528,16 +528,23 @@ fn update_events_mask(vm: &VirtualMachine, state: &MonitoringState) {
     // Each code object gets only the events that apply to it (global + its
     // own local events), preventing e.g. INSTRUCTION from being applied to
     // unrelated code objects.
-    crate::frame::for_each_current_frame(|frame| {
-        let code = &frame.code;
-        let code_ver = code.instrumentation_version.load(Ordering::Acquire);
-        if code_ver != new_ver {
-            let code_events = state.events_for_code(code.get_id());
-            instrument_code(code, code_events);
-            code.instrumentation_version
-                .store(new_ver, Ordering::Release);
+    // Re-instrument all frames on the current thread's stack, including
+    // data stack frames that have no FrameObject.
+    {
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            let iframe_ref = unsafe { &*cur };
+            let code = iframe_ref.code();
+            let code_ver = code.instrumentation_version.load(Ordering::Acquire);
+            if code_ver != new_ver {
+                let code_events = state.events_for_code(code.get_id());
+                instrument_code(code, code_events);
+                code.instrumentation_version
+                    .store(new_ver, Ordering::Release);
+            }
+            cur = iframe_ref.previous();
         }
-    });
+    }
 }
 
 fn use_tool_id(tool_id: i32, name: &str, vm: &VirtualMachine) -> PyResult<()> {
@@ -740,7 +747,7 @@ thread_local! {
 fn fire(
     vm: &VirtualMachine,
     event: u32,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     cb_extra: &[PyObjectRef],
 ) -> PyResult<()> {
@@ -788,7 +795,7 @@ fn fire(
     }
 
     let mut args_vec = Vec::with_capacity(1 + cb_extra.len());
-    args_vec.push(code.clone().into());
+    args_vec.push(code.to_owned().into());
     args_vec.extend_from_slice(cb_extra);
     let args = FuncArgs::from(args_vec);
 
@@ -823,11 +830,7 @@ fn fire(
 
 // Public dispatch functions (called from frame.rs)
 
-pub(crate) fn fire_py_start(
-    vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
-    offset: u32,
-) -> PyResult<()> {
+pub(crate) fn fire_py_start(vm: &VirtualMachine, code: &Py<PyCode>, offset: u32) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_START,
@@ -837,11 +840,7 @@ pub(crate) fn fire_py_start(
     )
 }
 
-pub(crate) fn fire_py_resume(
-    vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
-    offset: u32,
-) -> PyResult<()> {
+pub(crate) fn fire_py_resume(vm: &VirtualMachine, code: &Py<PyCode>, offset: u32) -> PyResult<()> {
     fire(
         vm,
         EVENT_PY_RESUME,
@@ -853,7 +852,7 @@ pub(crate) fn fire_py_resume(
 
 pub(crate) fn fire_py_return(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     retval: &PyObjectRef,
 ) -> PyResult<()> {
@@ -868,7 +867,7 @@ pub(crate) fn fire_py_return(
 
 pub(crate) fn fire_py_yield(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     retval: &PyObjectRef,
 ) -> PyResult<()> {
@@ -883,7 +882,7 @@ pub(crate) fn fire_py_yield(
 
 pub(crate) fn fire_call(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     callable: &PyObjectRef,
     arg0: PyObjectRef,
@@ -899,7 +898,7 @@ pub(crate) fn fire_call(
 
 pub(crate) fn fire_c_return(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     callable: &PyObjectRef,
     arg0: PyObjectRef,
@@ -915,7 +914,7 @@ pub(crate) fn fire_c_return(
 
 pub(crate) fn fire_c_raise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     callable: &PyObjectRef,
     arg0: PyObjectRef,
@@ -931,7 +930,7 @@ pub(crate) fn fire_c_raise(
 
 pub(crate) fn fire_line(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     line: u32,
 ) -> PyResult<()> {
@@ -940,7 +939,7 @@ pub(crate) fn fire_line(
 
 pub(crate) fn fire_instruction(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
 ) -> PyResult<()> {
     fire(
@@ -954,7 +953,7 @@ pub(crate) fn fire_instruction(
 
 pub(crate) fn fire_raise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -971,7 +970,7 @@ pub(crate) fn fire_raise(
 /// preventing duplicate events from chained cleanup handlers.
 pub(crate) fn fire_reraise(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -994,7 +993,7 @@ pub(crate) fn fire_reraise(
 
 pub(crate) fn fire_exception_handled(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1010,7 +1009,7 @@ pub(crate) fn fire_exception_handled(
 
 pub(crate) fn fire_py_unwind(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1026,7 +1025,7 @@ pub(crate) fn fire_py_unwind(
 
 pub(crate) fn fire_py_throw(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     exception: &PyObjectRef,
 ) -> PyResult<()> {
@@ -1039,24 +1038,35 @@ pub(crate) fn fire_py_throw(
     )
 }
 
+/// If `value` is already a `StopIteration`, pass it directly; otherwise wrap
+/// it in a new `StopIteration(value)` — matching `PyMonitoring_FireStopIterationEvent`.
 pub(crate) fn fire_stop_iteration(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
-    exception: &PyObjectRef,
+    value: &PyObjectRef,
 ) -> PyResult<()> {
+    let exc: PyObjectRef = if value.fast_isinstance(vm.ctx.exceptions.stop_iteration) {
+        value.clone()
+    } else {
+        vm.ctx
+            .exceptions
+            .stop_iteration
+            .as_object()
+            .call(vec![value.clone()], vm)?
+    };
     fire(
         vm,
         EVENT_STOP_ITERATION,
         code,
         offset,
-        &[vm.ctx.new_int(offset).into(), exception.clone()],
+        &[vm.ctx.new_int(offset).into(), exc],
     )
 }
 
 pub(crate) fn fire_jump(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
@@ -1074,7 +1084,7 @@ pub(crate) fn fire_jump(
 
 pub(crate) fn fire_branch_left(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {
@@ -1092,7 +1102,7 @@ pub(crate) fn fire_branch_left(
 
 pub(crate) fn fire_branch_right(
     vm: &VirtualMachine,
-    code: &PyRef<PyCode>,
+    code: &Py<PyCode>,
     offset: u32,
     destination: u32,
 ) -> PyResult<()> {

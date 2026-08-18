@@ -347,7 +347,7 @@ pub unsafe extern "C" fn PyUnicodeDecodeError_Create(
             unsafe { slice::from_raw_parts(object.cast::<u8>(), length) }.to_vec()
         };
 
-        let exc = vm.new_unicode_decode_error_real(
+        let exc = vm.new_unicode_decode_error(
             vm.ctx.new_str(encoding),
             vm.ctx.new_bytes(bytes),
             start,

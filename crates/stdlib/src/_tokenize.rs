@@ -237,7 +237,9 @@ mod _tokenize {
             }
 
             let raw_type = token_kind_value(kind);
-            let token_type = if extra_tokens && raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP {
+            let token_type = if extra_tokens
+                && (kind == TokenKind::Unknown || (raw_type > TOKEN_DEDENT && raw_type < TOKEN_OP))
+            {
                 TOKEN_OP
             } else {
                 raw_type

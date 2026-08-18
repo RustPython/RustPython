@@ -727,25 +727,20 @@ mod math {
             }
 
             // Generic Python path
-            let (p_i, q_i) = (p_i.unwrap(), q_i.unwrap());
-
-            // Collect current + remaining elements
-            let p_remaining: Result<Vec<PyObjectRef>, _> =
-                core::iter::once(Ok(p_i)).chain(p_iter).collect();
-            let q_remaining: Result<Vec<PyObjectRef>, _> =
-                core::iter::once(Ok(q_i)).chain(q_iter).collect();
-            let (p_vec, q_vec) = (p_remaining?, q_remaining?);
-
-            if p_vec.len() != q_vec.len() {
-                return Err(vm.new_value_error("Inputs are not the same length"));
-            }
-
+            let (mut p_i, mut q_i) = (p_i.unwrap(), q_i.unwrap());
             let mut total = obj_total.unwrap_or_else(|| vm.ctx.new_int(0).into());
-            for (p_item, q_item) in p_vec.into_iter().zip(q_vec) {
-                let prod = vm._mul(&p_item, &q_item)?;
+            loop {
+                let prod = vm._mul(&p_i, &q_i)?;
                 total = vm._add(&total, &prod)?;
+
+                let next_p = p_iter.next().transpose()?;
+                let next_q = q_iter.next().transpose()?;
+                match (next_p, next_q) {
+                    (Some(next_p), Some(next_q)) => (p_i, q_i) = (next_p, next_q),
+                    (None, None) => return Ok(total),
+                    _ => return Err(vm.new_value_error("Inputs are not the same length")),
+                }
             }
-            return Ok(total);
         }
 
         Ok(obj_total.unwrap_or_else(|| vm.ctx.new_int(0).into()))

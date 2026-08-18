@@ -168,6 +168,27 @@ impl VirtualMachine {
         }
     }
 
+    /// `vec![0; len]` for a length that came from Python, where a request too
+    /// large to satisfy is a `MemoryError` rather than an aborted process.
+    ///
+    /// The bytes are left for the allocator to zero, so a large request costs
+    /// no more than the pages that are actually written to.
+    pub fn new_zeroed_bytes(&self, len: usize) -> PyResult<Vec<u8>> {
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        let layout =
+            core::alloc::Layout::array::<u8>(len).map_err(|_| self.new_memory_error(""))?;
+        // SAFETY: `len` is not zero, so neither is the layout's size.
+        let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
+        if ptr.is_null() {
+            return Err(self.new_memory_error(""));
+        }
+        // SAFETY: `ptr` was just allocated by the global allocator for exactly
+        // this many bytes, and every one of them is initialized to zero.
+        Ok(unsafe { Vec::from_raw_parts(ptr, len, len) })
+    }
+
     /// Calling scheme used for binary operations:
     ///
     /// Order operations are tried until either a valid result or error:
@@ -180,13 +201,13 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_binary_op(op_slot);
-        let slot_a_addr = slot_a.map(|x| x as usize);
+        let slot_a_addr = slot_a.map(|x| crate::types::fn_addr(x));
         let mut slot_b = None;
         let left_b_addr = if class_a.is(class_b) {
             slot_a_addr
         } else {
             let slot_bb = class_b.slots.as_number.right_binary_op(op_slot);
-            if slot_bb.map(|x| x as usize) != slot_a_addr {
+            if slot_bb.map(|x| crate::types::fn_addr(x)) != slot_a_addr {
                 slot_b = slot_bb;
             }
 
@@ -194,7 +215,7 @@ impl VirtualMachine {
                 .slots
                 .as_number
                 .left_binary_op(op_slot)
-                .map(|x| x as usize)
+                .map(|x| crate::types::fn_addr(x))
         };
 
         if let Some(slot_a) = slot_a {
@@ -302,13 +323,13 @@ impl VirtualMachine {
 
         // Number slots are inherited, direct access is O(1)
         let slot_a = class_a.slots.as_number.left_ternary_op(op_slot);
-        let slot_a_addr = slot_a.map(|x| x as usize);
+        let slot_a_addr = slot_a.map(|x| crate::types::fn_addr(x));
         let mut slot_b = None;
         let left_b_addr = if class_a.is(class_b) {
             slot_a_addr
         } else {
             let slot_bb = class_b.slots.as_number.right_ternary_op(op_slot);
-            if slot_bb.map(|x| x as usize) != slot_a_addr {
+            if slot_bb.map(|x| crate::types::fn_addr(x)) != slot_a_addr {
                 slot_b = slot_bb;
             }
 
@@ -316,7 +337,7 @@ impl VirtualMachine {
                 .slots
                 .as_number
                 .left_ternary_op(op_slot)
-                .map(|x| x as usize)
+                .map(|x| crate::types::fn_addr(x))
         };
 
         if let Some(slot_a) = slot_a {

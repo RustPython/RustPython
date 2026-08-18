@@ -1331,7 +1331,6 @@ class CopyTests(unittest.TestCase):
         self.assertEqual(repl.x, 0)
         self.assertEqual(repl.y, y)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 'x' is not 'x'
     def test_replace_ignore_known_custom_instance_fields(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1401,7 +1400,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node2.returns, None)
         self.assertEqual(node2.decorator_list, [])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'extra'\." does not match "replace() does not support Name objects"
     def test_replace_reject_known_custom_instance_fields_commits(self):
         node = ast.parse('x').body[0].value
         node.extra = extra = object()  # add instance 'extra' field
@@ -1417,7 +1415,6 @@ class CopyTests(unittest.TestCase):
         self.assertIs(node.ctx, context)
         self.assertIs(node.extra, extra)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: "Name\.__replace__\ got\ an\ unexpected\ keyword\ argument\ 'unknown'\." does not match "replace() does not support Name objects"
     def test_replace_reject_unknown_instance_fields(self):
         node = ast.parse('x').body[0].value
         context = node.ctx
@@ -1891,7 +1888,6 @@ Module(
         self.assertRaises(ValueError, ast.literal_eval, '+True')
         self.assertRaises(ValueError, ast.literal_eval, '2+3')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; SyntaxError not raised
     def test_literal_eval_str_int_limit(self):
         with support.adjust_int_max_str_digits(4000):
             ast.literal_eval('3'*4000)  # no error
@@ -2058,7 +2054,6 @@ class ASTValidatorTests(unittest.TestCase):
                           kw_defaults=[None, ast.Name("x", ast.Store())]),
                           "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_funcdef(self):
         a = ast.arguments([], [], None, [], [], None, [])
         f = ast.FunctionDef("x", a, [], [], None, None, [])
@@ -2270,7 +2265,6 @@ class ASTValidatorTests(unittest.TestCase):
         u = ast.UnaryOp(ast.Not(), ast.Name("x", ast.Store()))
         self.expr(u, "must have Load context")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError not raised
     def test_lambda(self):
         a = ast.arguments([], [], None, [], [], None, [])
         self.expr(ast.Lambda(a, ast.Name("x", ast.Store())),

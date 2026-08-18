@@ -21,6 +21,7 @@ pub mod rc;
 pub mod refcount;
 pub mod static_cell;
 pub mod str;
+pub mod wtf8_index;
 
 pub use rustpython_wtf8 as wtf8;
 

@@ -581,7 +581,7 @@ impl PyCUnion {
         self_obj: &Py<Self>,
         type_obj: &Py<PyType>,
         args: &[PyObjectRef],
-        kwargs: &indexmap::IndexMap<String, PyObjectRef>,
+        kwargs: &crate::function::KwArgsMap<PyObjectRef>,
         index: usize,
         vm: &VirtualMachine,
     ) -> PyResult<usize> {
@@ -617,7 +617,7 @@ impl PyCUnion {
                     && let Some(name) = tuple.first()
                     && let Some(name_str) = name.downcast_ref::<PyUtf8Str>()
                 {
-                    let field_name = name_str.as_str().to_owned();
+                    let field_name = name_str.as_wtf8().to_owned();
                     // Check for duplicate in kwargs
                     if kwargs.contains_key(&field_name) {
                         return Err(
@@ -655,9 +655,9 @@ impl Initializer for PyCUnion {
         }
 
         // 2. Process keyword arguments
-        for (key, value) in &args.kwargs {
+        for (key, value) in args.kwargs {
             zelf.as_object()
-                .set_attr(vm.ctx.intern_str(key.as_str()), value.clone(), vm)?;
+                .set_attr(vm.ctx.intern_str(key), value, vm)?;
         }
 
         Ok(())
@@ -685,6 +685,7 @@ impl AsBuffer for PyCUnion {
         let buf = PyBuffer::new(
             zelf.to_owned().into(),
             BufferDescriptor {
+                offset: 0,
                 len: buffer_len,
                 readonly: false,
                 itemsize: buffer_len,

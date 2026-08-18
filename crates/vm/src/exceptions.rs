@@ -245,7 +245,11 @@ impl VirtualMachine {
                     _ => true,
                 };
 
-                if same_line {
+                // A lone continuation at EOF has no highlighted source span.
+                let lone_line_continuation =
+                    maybe_end_offset == Some(-1) && l_text.to_string_lossy() == "\\";
+
+                if same_line && !lone_line_continuation {
                     let mut end_offset = match maybe_end_offset {
                         Some(0) | None => offset,
                         Some(end_offset) => end_offset,
@@ -401,13 +405,13 @@ fn write_traceback_entry<W: Write>(
     output: &mut W,
     tb_entry: &Py<PyTraceback>,
 ) -> Result<(), W::Error> {
-    let filename = tb_entry.frame.code.source_path().as_str();
+    let filename = tb_entry.frame.iframe().code().source_path().as_str();
     writeln!(
         output,
         r##"  File "{}", line {}, in {}"##,
         filename.trim_start_matches(r"\\?\"),
         tb_entry.lineno,
-        tb_entry.frame.code.obj_name
+        tb_entry.frame.iframe().code().obj_name
     )?;
 
     #[cfg(feature = "host_env")]
@@ -704,7 +708,7 @@ impl PyRef<PyBaseException> {
 
         let notes = notes
             .downcast::<PyList>()
-            .map_err(|_| vm.new_type_error("__notes__ must be a list"))?;
+            .map_err(|_| vm.new_type_error("Cannot add note: __notes__ is not a list"))?;
 
         notes.borrow_vec_mut().push(note.into());
         Ok(())
@@ -984,6 +988,9 @@ impl ExceptionZoo {
 
         extend_exception!(PyImportError, ctx, excs.import_error, {
             "msg" => ctx.new_readonly_getset("msg", excs.import_error, make_arg_getter(0)),
+            "name" => ctx.none(),
+            "path" => ctx.none(),
+            "name_from" => ctx.none(),
         });
         extend_exception!(PyModuleNotFoundError, ctx, excs.module_not_found_error);
 
@@ -1385,14 +1392,8 @@ impl OSErrorBuilder {
             vec![strerror.to_pyobject(vm)]
         };
 
-        let payload = PyOSError::py_new(&exc_type, args.clone().into(), vm)
-            .expect("new_os_error usage error");
-        let os_error = payload
-            .into_ref_with_type_lazy_dict(vm, exc_type)
-            .expect("new_os_error usage error");
-        PyOSError::slot_init(os_error.as_object().to_owned(), args.into(), vm)
-            .expect("new_os_error usage error");
-        os_error
+        vm.new_payload_exception::<PyOSError>(exc_type, args.into())
+            .expect("new_os_error usage error")
     }
 }
 
@@ -1910,10 +1911,11 @@ pub(super) mod types {
         #[pymethod]
         fn __reduce__(exc: PyBaseExceptionRef, vm: &VirtualMachine) -> PyTupleRef {
             let obj = exc.as_object().to_owned();
-            let mut result: Vec<PyObjectRef> = vec![
-                obj.class().to_owned().into(),
-                vm.new_tuple((exc.get_arg(0).unwrap(),)).into(),
-            ];
+            let args: PyObjectRef = match exc.get_arg(0) {
+                Some(arg) => vm.new_tuple((arg,)).into(),
+                None => exc.args().into(),
+            };
+            let mut result: Vec<PyObjectRef> = vec![obj.class().to_owned().into(), args];
 
             if let Some(dict) = obj.dict().filter(|x| !x.is_empty()) {
                 result.push(dict.into());
@@ -1940,10 +1942,21 @@ pub(super) mod types {
                 )));
             }
 
-            let dict = crate::builtins::object::object_get_dict(zelf.clone(), vm)?;
-            dict.set_item("name", vm.unwrap_or_none(name), vm)?;
-            dict.set_item("path", vm.unwrap_or_none(path), vm)?;
-            dict.set_item("name_from", vm.unwrap_or_none(name_from), vm)?;
+            if let Some(name) = name {
+                zelf.set_attr("name", name, vm)?;
+            } else if let Some(dict) = zelf.dict() {
+                dict.del_item("name", vm).ok();
+            }
+            if let Some(path) = path {
+                zelf.set_attr("path", path, vm)?;
+            } else if let Some(dict) = zelf.dict() {
+                dict.del_item("path", vm).ok();
+            }
+            if let Some(name_from) = name_from {
+                zelf.set_attr("name_from", name_from, vm)?;
+            } else if let Some(dict) = zelf.dict() {
+                dict.del_item("name_from", vm).ok();
+            }
             PyBaseException::slot_init(zelf, args, vm)
         }
 
@@ -2144,7 +2157,10 @@ pub(super) mod types {
                         .downcast_ref::<PyInt>()
                         .and_then(|errno| errno.try_to_primitive::<i32>(vm).ok())
                         .and_then(|errno| super::errno_to_exc_type(errno, vm))
-                        .and_then(|typ| vm.invoke_exception(typ, args_vec).ok())
+                        .and_then(|typ| {
+                            vm.new_payload_exception::<Self>(typ.to_owned(), args_vec.into())
+                                .ok()
+                        })
                     {
                         return error.to_pyresult(vm);
                     }

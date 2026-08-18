@@ -1,3 +1,5 @@
+import ctypes
+import itertools
 import os as _os
 import sys as _sys
 import types as _types
@@ -424,5 +426,26 @@ else:
         return buf.value
 
     # print(get_win_folder_via_ctypes("CSIDL_DOWNLOADS"))
+
+# A value wider than the C type is masked down to it instead of failing an
+# unchecked conversion.
+assert ctypes.c_char_p(2**64).value is None
+assert ctypes.c_int(2**64 + 7).value == 7
+buf = (ctypes.c_int * 1)()
+int_ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_int))
+int_ptr[0] = 2**64 + 5
+assert int_ptr[0] == 5
+
+# A slice assignment is length-checked against the slice, so the right-hand
+# side must not be drained first.
+array3 = (ctypes.c_int * 3)()
+try:
+    array3[0:3] = itertools.count()
+except ValueError:
+    pass
+else:
+    assert False, "slice assignment accepted an unbounded iterable"
+array3[0:3] = [7, 8, 9]
+assert list(array3) == [7, 8, 9]
 
 print("done")

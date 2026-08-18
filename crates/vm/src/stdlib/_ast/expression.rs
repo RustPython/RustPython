@@ -1376,7 +1376,8 @@ impl Node for ast::ExprName {
             .into_ref_with_type(vm, pyast::NodeExprName::static_type().to_owned())
             .unwrap();
         let dict = node.as_object().dict().unwrap();
-        dict.set_item("id", id.to_pyobject(vm), vm).unwrap();
+        dict.set_item("id", id.ast_to_object(vm, source_file), vm)
+            .unwrap();
         dict.set_item("ctx", ctx.ast_to_object(vm, source_file), vm)
             .unwrap();
         node_add_location(&dict, range, vm, source_file);

@@ -44,9 +44,15 @@ pub use libc::{AF_ALG, AF_CAN};
 #[cfg(target_os = "linux")]
 pub use libc::{sockaddr_alg, sockaddr_can};
 
+/// Set the system's hostname from its filesystem-encoded bytes.
+///
+/// `socketmodule.c socket_sethostname` reads the argument as a buffer and
+/// passes `buf.buf`/`buf.len` straight to the syscall, so a name is not
+/// required to be UTF-8; taking `&[u8]` keeps that true here as well.
 #[cfg(all(unix, not(target_os = "redox")))]
-pub fn sethostname(hostname: &str) -> io::Result<()> {
-    nix::unistd::sethostname(hostname).map_err(io::Error::from)
+pub fn sethostname(hostname: &[u8]) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    nix::unistd::sethostname(std::ffi::OsStr::from_bytes(hostname)).map_err(io::Error::from)
 }
 
 #[cfg(unix)]

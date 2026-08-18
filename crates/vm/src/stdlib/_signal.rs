@@ -177,7 +177,9 @@ pub(crate) mod _signal {
         module: &Py<crate::builtins::PyModule>,
         vm: &VirtualMachine,
     ) {
-        if vm.state.config.settings.install_signal_handlers {
+        // Process-global signal disposition is owned by the main interpreter only.
+        // Subinterpreters (PEP 734) must not reinstall SIGINT / probe handlers.
+        if vm.state.is_main_interpreter() && vm.state.config.settings.install_signal_handlers {
             let sig_dfl = vm.new_pyobj(SIG_DFL as u8);
             let sig_ign = vm.new_pyobj(SIG_IGN as u8);
 
@@ -429,6 +431,13 @@ pub(crate) mod _signal {
     }
 
     #[pyfunction]
+    #[cfg_attr(
+        not(any(unix, windows)),
+        expect(
+            clippy::unnecessary_wraps,
+            reason = "WASI does not support signals yet"
+        )
+    )]
     fn valid_signals(vm: &VirtualMachine) -> PyResult {
         use crate::PyPayload;
         use crate::builtins::PySet;

@@ -419,6 +419,50 @@ impl SaturatedSlice {
         (range, self.step, slice_len)
     }
 
+    // PySlice_AdjustIndices, keeping the adjusted start rather than a range.
+    /// The index the slice begins at, clamped into `0..=len` for a positive step
+    /// and into `-1..=len-1` for a negative one, together with its length.
+    ///
+    /// Unlike [`Self::adjust_indices`] this stays meaningful for an empty slice,
+    /// where it is still the position a strided view moves to.
+    #[must_use]
+    pub fn adjust_indices_start(&self, len: usize) -> (isize, usize) {
+        let len = len as isize;
+        let clamp = |i: isize| {
+            if i < 0 {
+                let i = i.saturating_add(len);
+                if i < 0 {
+                    if self.step.is_negative() { -1 } else { 0 }
+                } else {
+                    i
+                }
+            } else if i >= len {
+                if self.step.is_negative() {
+                    len - 1
+                } else {
+                    len
+                }
+            } else {
+                i
+            }
+        };
+        let start = clamp(self.start);
+        let stop = clamp(self.stop);
+        let step = self.step.unsigned_abs();
+        let slice_len = if self.step.is_negative() {
+            if stop < start {
+                (start - stop - 1) as usize / step + 1
+            } else {
+                0
+            }
+        } else if start < stop {
+            (stop - start - 1) as usize / step + 1
+        } else {
+            0
+        };
+        (start, slice_len)
+    }
+
     #[must_use]
     pub fn iter(&self, len: usize) -> SaturatedSliceIter {
         SaturatedSliceIter::new(self, len)

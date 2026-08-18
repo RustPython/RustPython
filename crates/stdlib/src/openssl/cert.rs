@@ -67,7 +67,10 @@ pub(crate) mod ssl_cert {
         }
     }
 
-    #[pyclass(with(Comparable, Hashable, Representable))]
+    #[pyclass(
+        flags(IMMUTABLETYPE, DISALLOW_INSTANTIATION),
+        with(Comparable, Hashable, Representable)
+    )]
     impl PySSLCertificate {
         #[pymethod]
         fn public_bytes(

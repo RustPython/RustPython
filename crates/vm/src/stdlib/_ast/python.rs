@@ -8,14 +8,13 @@ use super::{
 pub(crate) mod _ast {
     use crate::{
         AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef, PyUtf8Str},
+        builtins::{PyDictRef, PySet, PyStr, PyTupleRef, PyType, PyTypeRef},
         class::{PyClassImpl, StaticType},
         function::{ArgIterable, FuncArgs, KwArgs, PyMethodDef, PyMethodFlags},
         stdlib::_ast::repr,
         types::{Constructor, Initializer},
         warn,
     };
-    use indexmap::IndexMap;
     #[pyattr]
     #[pyclass(module = "_ast", name = "AST")]
     #[derive(Debug, PyPayload)]
@@ -229,7 +228,7 @@ pub(crate) mod _ast {
         ast_replace_set_update(&expecting, attributes.as_ref(), vm)?;
 
         for (key, _value) in &args.kwargs {
-            let key_obj: PyObjectRef = vm.ctx.new_str(key.as_str()).into();
+            let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
             if !ast_replace_set_discard(&expecting, &key_obj, vm)? {
                 return Err(vm.new_type_error(format!(
                     "{}.__replace__ got an unexpected keyword argument '{}'.",
@@ -290,11 +289,11 @@ pub(crate) mod _ast {
             .into_iter()
             .map(|(key, value)| {
                 let key = key
-                    .downcast::<PyUtf8Str>()
+                    .downcast::<PyStr>()
                     .map_err(|_| vm.new_type_error("keywords must be strings"))?;
-                Ok((key.as_str().to_owned(), value))
+                Ok((key.as_wtf8().to_owned(), value))
             })
-            .collect::<PyResult<IndexMap<String, PyObjectRef>>>()?;
+            .collect::<PyResult<crate::function::KwArgsMap<PyObjectRef>>>()?;
         let result = type_obj.call(FuncArgs::new(vec![], KwArgs::new(kwargs)), vm)?;
         Ok(result)
     }
@@ -418,7 +417,7 @@ pub(crate) mod _ast {
                 ast_replace_set_discard(&remaining_fields, &name, vm)?;
             }
             for (key, value) in args.kwargs {
-                let key_obj: PyObjectRef = vm.ctx.new_str(key.as_str()).into();
+                let key_obj: PyObjectRef = vm.ctx.new_str(key.as_ref()).into();
                 let contains = fields_seq.contains(&key_obj, vm)?;
                 if contains {
                     if !ast_replace_set_discard(&remaining_fields, &key_obj, vm)? {

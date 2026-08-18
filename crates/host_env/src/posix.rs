@@ -1,5 +1,4 @@
 use alloc::ffi::CString;
-#[cfg(all(unix, not(target_os = "redox")))]
 use alloc::vec::Vec;
 use core::ffi::CStr;
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -20,6 +19,12 @@ pub struct UnameInfo {
     pub release: String,
     pub version: String,
     pub machine: String,
+}
+
+#[derive(Debug)]
+pub struct UnameDecodeError {
+    pub bytes: Vec<u8>,
+    pub error: core::str::Utf8Error,
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -305,50 +310,6 @@ pub fn fchown(fd: BorrowedFd<'_>, uid: Option<u32>, gid: Option<u32>) -> std::io
 }
 
 #[cfg(not(windows))]
-#[expect(
-    clippy::std_instead_of_core,
-    reason = "false positive: core::io::ErrorKind is unstable (core_io)"
-)]
-pub fn stat_path(
-    path: &OsStr,
-    dir_fd: Option<i32>,
-    follow_symlinks: bool,
-) -> std::io::Result<Option<crate::fileutils::StatStruct>> {
-    use crate::os::ffi::OsStrExt;
-
-    let path = match CString::new(path.as_bytes()) {
-        Ok(path) => path,
-        Err(_) => return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput)),
-    };
-
-    let mut stat = core::mem::MaybeUninit::uninit();
-    #[cfg(not(target_os = "redox"))]
-    if let Some(dir_fd) = dir_fd {
-        let flags = if follow_symlinks {
-            0
-        } else {
-            libc::AT_SYMLINK_NOFOLLOW
-        };
-        let ret = unsafe { libc::fstatat(dir_fd, path.as_ptr(), stat.as_mut_ptr(), flags) };
-        if ret < 0 {
-            return Err(std::io::Error::last_os_error());
-        }
-        return Ok(Some(unsafe { stat.assume_init() }));
-    }
-
-    let ret = if follow_symlinks {
-        unsafe { libc::stat(path.as_ptr(), stat.as_mut_ptr()) }
-    } else {
-        unsafe { libc::lstat(path.as_ptr(), stat.as_mut_ptr()) }
-    };
-    if ret < 0 {
-        Err(std::io::Error::last_os_error())
-    } else {
-        Ok(Some(unsafe { stat.assume_init() }))
-    }
-}
-
-#[cfg(not(windows))]
 pub fn stat_fd(fd: crate::crt_fd::Borrowed<'_>) -> std::io::Result<crate::fileutils::StatStruct> {
     crate::fileutils::fstat(fd)
 }
@@ -398,14 +359,23 @@ pub fn fchownat(
     .map_err(std::io::Error::from)
 }
 
-pub fn uname_info() -> Result<UnameInfo, core::str::Utf8Error> {
+pub fn uname_info() -> Result<UnameInfo, UnameDecodeError> {
+    fn decode(value: &CStr) -> Result<String, UnameDecodeError> {
+        core::str::from_utf8(value.to_bytes())
+            .map(str::to_owned)
+            .map_err(|error| UnameDecodeError {
+                bytes: value.to_bytes().to_vec(),
+                error,
+            })
+    }
+
     let info = rustix::system::uname();
     Ok(UnameInfo {
-        sysname: info.sysname().to_str()?.into(),
-        nodename: info.nodename().to_str()?.into(),
-        release: info.release().to_str()?.into(),
-        version: info.version().to_str()?.into(),
-        machine: info.machine().to_str()?.into(),
+        sysname: decode(info.sysname())?,
+        nodename: decode(info.nodename())?,
+        release: decode(info.release())?,
+        version: decode(info.version())?,
+        machine: decode(info.machine())?,
     })
 }
 

@@ -3,7 +3,7 @@ use crate::{
     builtins::PyStrRef,
     common::lock::PyMutex,
     exceptions::types::PyBaseException,
-    frame::{ExecutionResult, Frame, FrameOwner, FrameRef},
+    frame::{ExecutionResult, FrameObject, FrameObjectRef, FrameOwner},
     function::OptionalArg,
     object::{PyAtomicRef, Traverse, TraverseFn},
     protocol::PyIterReturn,
@@ -23,13 +23,14 @@ impl ExecutionResult {
                 };
                 PyIterReturn::StopIteration(arg)
             }
+            Self::TailCall => unreachable!("TailCall in generator/coroutine"),
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Coro {
-    frame: FrameRef,
+    frame: FrameObjectRef,
     pub closed: AtomicCell<bool>, // TODO: https://github.com/RustPython/RustPython/pull/3183#discussion_r720560652
     running: AtomicCell<bool>,
     // code
@@ -50,6 +51,21 @@ unsafe impl Traverse for Coro {
     }
 }
 
+/// An exclusive claim on a generator's frame, released when dropped.
+///
+/// Only the holder may look at the frame or resume it. Resuming decides from
+/// the frame state whether the sent value goes on the value stack, so a state
+/// read taken before the claim can be answered by a frame that another thread
+/// then advances: resuming it leaves the stack short of what the code after
+/// the yield pops.
+struct RunningGuard<'a>(&'a Coro);
+
+impl Drop for RunningGuard<'_> {
+    fn drop(&mut self) {
+        self.0.running.store(false);
+    }
+}
+
 fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
     let typ = jen.class();
     if typ.is(vm.ctx.types.coroutine_type) {
@@ -62,7 +78,7 @@ fn gen_name(jen: &PyObject, vm: &VirtualMachine) -> &'static str {
 }
 
 impl Coro {
-    pub fn new(frame: FrameRef, name: PyStrRef, qualname: PyStrRef) -> Self {
+    pub fn new(frame: FrameObjectRef, name: PyStrRef, qualname: PyStrRef) -> Self {
         Self {
             frame,
             closed: AtomicCell::new(false),
@@ -87,15 +103,15 @@ impl Coro {
         }
     }
 
-    fn maybe_close(&self, res: &PyResult<ExecutionResult>, entered_frame: bool) {
-        if !entered_frame {
-            return;
-        }
+    /// Retire the generator if the frame it just ran came to an end. The claim
+    /// is still held, so a thread waiting for it cannot resume a frame that has
+    /// already finished.
+    fn maybe_close(&self, res: &PyResult<ExecutionResult>, _claim: &RunningGuard<'_>) {
         match res {
             Ok(ExecutionResult::Return(_)) | Err(_) => {
                 self.closed.store(true);
-                // Frame is no longer suspended; allow frame.clear() to succeed.
-                self.frame.owner.store(
+                // FrameObject is no longer suspended; allow frame.clear() to succeed.
+                self.frame.iframe().owner.store(
                     FrameOwner::FrameObject as i8,
                     core::sync::atomic::Ordering::Release,
                 );
@@ -104,48 +120,48 @@ impl Coro {
                 self.clear_frame_locals_on_close();
             }
             Ok(ExecutionResult::Yield(_)) => {}
+            Ok(ExecutionResult::TailCall) => unreachable!("TailCall in generator/coroutine"),
         }
     }
 
-    fn run_with_context<F>(
+    /// Take the frame for this thread, or report that another thread holds it.
+    ///
+    /// What the resume depends on -- whether the generator is closed, and
+    /// whether it has started -- has to be read from here onwards.
+    fn claim(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<RunningGuard<'_>> {
+        if self.running.compare_exchange(false, true).is_err() {
+            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
+        }
+        Ok(RunningGuard(self))
+    }
+
+    fn run_claimed<F>(
         &self,
-        jen: &PyObject,
+        _claim: &RunningGuard<'_>,
         vm: &VirtualMachine,
         func: F,
-    ) -> (PyResult<ExecutionResult>, bool)
+    ) -> PyResult<ExecutionResult>
     where
-        F: FnOnce(&Py<Frame>) -> PyResult<ExecutionResult>,
+        F: FnOnce(&Py<FrameObject>) -> PyResult<ExecutionResult>,
     {
-        if self.running.compare_exchange(false, true).is_err() {
-            return (
-                Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm)))),
-                false,
-            );
-        }
-
-        // SAFETY: running.compare_exchange guarantees exclusive access
+        // SAFETY: the claim guarantees exclusive access
         let gen_exc = unsafe { self.exception.swap(None) };
         let exception_ptr = &self.exception as *const PyAtomicRef<Option<PyBaseException>>;
 
-        let result = vm.resume_gen_frame(&self.frame, gen_exc, |f| {
+        vm.resume_gen_frame(&self.frame, gen_exc, |f| {
             let result = func(f);
-            // SAFETY: exclusive access guaranteed by running flag
+            // SAFETY: exclusive access guaranteed by the claim
             let _old = unsafe { (*exception_ptr).swap(vm.current_exception()) };
             result
-        });
-
-        self.running.store(false);
-        (result, true)
+        })
     }
 
     fn finalize_send_result(
         &self,
         result: PyResult<ExecutionResult>,
-        entered_frame: bool,
         jen: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyIterReturn> {
-        self.maybe_close(&result, entered_frame);
         match result {
             Ok(exec_res) => Ok(exec_res.into_iter_return(vm)),
             Err(e) => {
@@ -175,16 +191,20 @@ impl Coro {
         if self.closed.load() {
             return Ok(PyIterReturn::StopIteration(None));
         }
-        if self.running.load() {
-            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
+        let claim = self.claim(jen, vm)?;
+        // The generator can have run to its end in the meantime.
+        if self.closed.load() {
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let value = if self.frame.lasti() > 0 {
             Some(vm.ctx.none())
         } else {
             None
         };
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| f.resume(value, vm));
-        self.finalize_send_result(result, entered_frame, jen, vm)
+        let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
+        self.maybe_close(&result, &claim);
+        drop(claim);
+        self.finalize_send_result(result, jen, vm)
     }
 
     pub fn send(
@@ -196,8 +216,10 @@ impl Coro {
         if self.closed.load() {
             return Ok(PyIterReturn::StopIteration(None));
         }
-        if self.running.load() {
-            return Err(vm.new_value_error(format!("{} already executing", gen_name(jen, vm))));
+        let claim = self.claim(jen, vm)?;
+        // The generator can have run to its end in the meantime.
+        if self.closed.load() {
+            return Ok(PyIterReturn::StopIteration(None));
         }
         let value = if self.frame.lasti() > 0 {
             Some(value)
@@ -209,8 +231,10 @@ impl Coro {
         } else {
             None
         };
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| f.resume(value, vm));
-        self.finalize_send_result(result, entered_frame, jen, vm)
+        let result = self.run_claimed(&claim, vm, |f| f.resume(value, vm));
+        self.maybe_close(&result, &claim);
+        drop(claim);
+        self.finalize_send_result(result, jen, vm)
     }
 
     pub fn throw(
@@ -235,13 +259,25 @@ impl Coro {
         // Validate exception type before entering generator context.
         // Invalid types propagate to caller without closing the generator.
         crate::exceptions::ExceptionCtor::try_from_object(vm, exc_type.clone())?;
-        let (result, entered_frame) =
-            self.run_with_context(jen, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
-        self.maybe_close(&result, entered_frame);
+        let claim = self.claim(jen, vm)?;
+        // The generator can have run to its end in the meantime. Normalizing
+        // runs the exception's constructor, so let the claim go first.
+        if self.closed.load() {
+            drop(claim);
+            return Err(vm.normalize_exception(exc_type, exc_val, exc_tb)?);
+        }
+        let result = self.run_claimed(&claim, vm, |f| f.gen_throw(vm, exc_type, exc_val, exc_tb));
+        self.maybe_close(&result, &claim);
+        drop(claim);
         Ok(result?.into_iter_return(vm))
     }
 
     pub fn close(&self, jen: &PyObject, vm: &VirtualMachine) -> PyResult<PyObjectRef> {
+        if self.closed.load() {
+            return Ok(vm.ctx.none());
+        }
+        let claim = self.claim(jen, vm)?;
+        // The generator can have run to its end in the meantime.
         if self.closed.load() {
             return Ok(vm.ctx.none());
         }
@@ -250,7 +286,7 @@ impl Coro {
             self.closed.store(true);
             return Ok(vm.ctx.none());
         }
-        let (result, entered_frame) = self.run_with_context(jen, vm, |f| {
+        let result = self.run_claimed(&claim, vm, |f| {
             f.gen_throw(
                 vm,
                 vm.ctx.exceptions.generator_exit.to_owned().into(),
@@ -258,16 +294,11 @@ impl Coro {
                 vm.ctx.none(),
             )
         });
-        if !entered_frame {
-            return match result {
-                Err(err) => Err(err),
-                Ok(_) => unreachable!("run_with_context preflight returned without an error"),
-            };
-        }
         self.closed.store(true);
         // Release frame locals and stack to free references held by the
         // closed generator, matching gen_send_ex2 with close_on_completion.
         self.clear_frame_locals_on_close();
+        drop(claim);
         match result {
             Ok(ExecutionResult::Yield(_)) => {
                 Err(vm.new_runtime_error(format!("{} ignored GeneratorExit", gen_name(jen, vm))))
@@ -290,7 +321,7 @@ impl Coro {
         self.closed.load()
     }
 
-    pub fn frame(&self) -> FrameRef {
+    pub fn frame(&self) -> FrameObjectRef {
         self.frame.clone()
     }
 
@@ -337,7 +368,8 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
         || obj.downcast_ref::<PyGenerator>().is_some_and(|g| {
             g.as_coro()
                 .frame()
-                .code
+                .iframe()
+                .code()
                 .flags
                 .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
         })
@@ -352,7 +384,8 @@ pub(crate) fn get_awaitable_iter(obj: PyObjectRef, vm: &VirtualMachine) -> PyRes
             || result.downcast_ref::<PyGenerator>().is_some_and(|g| {
                 g.as_coro()
                     .frame()
-                    .code
+                    .iframe()
+                    .code()
                     .flags
                     .contains(crate::bytecode::CodeFlags::ITERABLE_COROUTINE)
             })

@@ -39,8 +39,17 @@ pub(crate) mod decl {
     };
 
     #[pyfunction]
-    pub(crate) fn _idfunc(args: FuncArgs, _vm: &VirtualMachine) -> PyObjectRef {
-        args.args[0].clone()
+    pub(crate) fn _idfunc(args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("_typing._idfunc() takes no keyword arguments"));
+        }
+        if args.args.len() != 1 {
+            return Err(vm.new_type_error(format!(
+                "_typing._idfunc() takes exactly one argument ({} given)",
+                args.args.len()
+            )));
+        }
+        Ok(args.args[0].clone())
     }
 
     #[pyfunction(name = "override")]
@@ -288,7 +297,7 @@ pub(crate) mod decl {
                 PyTuple::new_ref(vec![args], &vm.ctx)
             };
             let origin: PyObjectRef = zelf.as_object().to_owned();
-            Ok(PyGenericAlias::new(origin, args_tuple, false, vm).into_pyobject(vm))
+            Ok(PyGenericAlias::new(origin, args_tuple, false, vm)?.into_pyobject(vm))
         }
 
         #[pymethod]
@@ -353,9 +362,9 @@ pub(crate) mod decl {
             // typealias(name, value, *, type_params=())
             // name and value are positional-or-keyword; type_params is keyword-only.
 
-            // Reject unexpected keyword arguments
+            // Reject unexpected keyword arguments.
             for key in args.kwargs.keys() {
-                if key != "name" && key != "value" && key != "type_params" {
+                if !matches!(key.as_str(), Ok("name" | "value" | "type_params")) {
                     return Err(vm.new_type_error(format!(
                         "typealias() got an unexpected keyword argument '{key}'"
                     )));
@@ -417,9 +426,8 @@ pub(crate) mod decl {
             };
 
             // Get caller's module name from frame globals, like typevar.rs caller()
-            let module = vm
-                .current_frame()
-                .and_then(|f| f.globals.get_item("__name__", vm).ok());
+            let module =
+                crate::frame::current_globals().and_then(|g| g.get_item("__name__", vm).ok());
 
             Ok(Self::new_eager(name, type_params, value, module))
         }

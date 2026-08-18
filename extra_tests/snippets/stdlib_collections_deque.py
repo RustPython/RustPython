@@ -1,3 +1,4 @@
+import sys
 from collections import deque
 from typing import Deque
 
@@ -100,3 +101,10 @@ assert repr(D([1, 2, 3])) == "D([1, 2, 3])"
 
 
 assert_raises(ValueError, lambda: deque().index(10, 0, 10000000000000000000000000))
+
+if sys.implementation.name == "rustpython":
+    # The repeat count is multiplied by the length; a count that overflows that
+    # product must be rejected up front. CPython instead appends block by block
+    # until the allocator gives up, so it is left out of this check.
+    with assert_raises(MemoryError):
+        deque([0]) * sys.maxsize

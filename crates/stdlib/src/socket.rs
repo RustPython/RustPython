@@ -40,7 +40,6 @@ mod _socket {
     }
 
     use core::{
-        mem::MaybeUninit,
         net::{Ipv4Addr, Ipv6Addr, SocketAddr},
         time::Duration,
     };
@@ -1378,23 +1377,11 @@ mod _socket {
         fn del(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<()> {
             // Emit ResourceWarning if socket is still open
             if zelf.sock.read().is_some() {
-                let laddr = if let Ok(sock) = zelf.sock()
-                    && let Ok(addr) = sock.local_addr()
-                    && let Ok(repr) = get_addr_tuple(&addr, vm).repr(vm)
-                {
-                    format!(", laddr={}", repr.as_wtf8())
-                } else {
-                    String::new()
-                };
-
-                let msg = format!(
-                    "unclosed <socket.socket fd={}, family={}, type={}, proto={}{}>",
-                    zelf.fileno(),
-                    zelf.family.load(),
-                    zelf.kind.load(),
-                    zelf.proto.load(),
-                    laddr
-                );
+                let repr = zelf
+                    .as_object()
+                    .repr(vm)
+                    .unwrap_or_else(|_| vm.ctx.new_str("<socket>"));
+                let msg = format!("unclosed {}", repr.as_wtf8());
                 let _ = crate::vm::warn::warn(
                     vm.ctx.new_str(msg).into(),
                     Some(vm.ctx.exceptions.resource_warning.to_owned()),
@@ -1601,7 +1588,10 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let mut buffer = Vec::with_capacity(bufsize);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.new_memory_error(""))?;
             let sock = self.sock()?;
             let n = self.sock_op(vm, SockWaitKind::Read, || {
                 sock.recv_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1620,8 +1610,6 @@ mod _socket {
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
-            let mut buf = buf.borrow_buf_mut();
-            let buf = &mut *buf;
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
@@ -1633,10 +1621,13 @@ mod _socket {
                 buf.len()
             };
 
-            let buf = &mut buf[..read_len];
-            self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_with_flags(unsafe { slice_as_uninit(buf) }, flags)
-            })
+            let mut scratch = alloc_recv_scratch(read_len, vm)?;
+            let n = self.sock_op(vm, SockWaitKind::Read, || {
+                sock.recv_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
+            })?;
+            unsafe { scratch.set_len(n) };
+            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
+            Ok(n)
         }
 
         #[pymethod]
@@ -1650,7 +1641,10 @@ mod _socket {
             let bufsize = bufsize
                 .to_usize()
                 .ok_or_else(|| vm.new_value_error("negative buffersize in recvfrom"))?;
-            let mut buffer = Vec::with_capacity(bufsize);
+            let mut buffer = Vec::new();
+            buffer
+                .try_reserve_exact(bufsize)
+                .map_err(|_| vm.new_memory_error(""))?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
                 self.sock()?
                     .recv_from_with_flags(buffer.spare_capacity_mut(), flags)
@@ -1667,24 +1661,28 @@ mod _socket {
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<(usize, PyObjectRef), IoOrPyException> {
-            let mut buf = buf.borrow_buf_mut();
-            let buf = &mut *buf;
-            let buf = match nbytes {
+            let read_len = match nbytes {
                 OptionalArg::Present(i) => {
                     let i = i.to_usize().ok_or_else(|| {
                         vm.new_value_error("negative buffersize in recvfrom_into")
                     })?;
-                    buf.get_mut(..i).ok_or_else(|| {
-                        vm.new_value_error("nbytes is greater than the length of the buffer")
-                    })?
+                    if i > buf.len() {
+                        return Err(vm
+                            .new_value_error("nbytes is greater than the length of the buffer")
+                            .into());
+                    }
+                    i
                 }
-                OptionalArg::Missing => buf,
+                OptionalArg::Missing => buf.len(),
             };
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
+            let mut scratch = alloc_recv_scratch(read_len, vm)?;
             let (n, addr) = self.sock_op(vm, SockWaitKind::Read, || {
-                sock.recv_from_with_flags(unsafe { slice_as_uninit(buf) }, flags)
+                sock.recv_from_with_flags(&mut scratch.spare_capacity_mut()[..read_len], flags)
             })?;
+            unsafe { scratch.set_len(n) };
+            buf.borrow_buf_mut()[..n].copy_from_slice(&scratch);
             Ok((n, get_addr_tuple(&addr, vm)))
         }
 
@@ -1696,7 +1694,7 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
                 self.sock()?.send_with_flags(buf, flags)
@@ -1716,7 +1714,7 @@ mod _socket {
 
             let deadline = timeout.map(Deadline::new);
 
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             let mut buf_offset = 0;
             // now we have like 3 layers of interrupt loop :)
@@ -1753,7 +1751,7 @@ mod _socket {
                 OptionalArg::Missing => (0, arg2),
             };
             let addr = self.extract_address(address, "sendto", vm)?;
-            let buf = bytes.borrow_buf();
+            let buf = bytes.borrow_buf_unlocked(vm)?;
             let buf = &*buf;
             self.sock_op(vm, SockWaitKind::Write, || {
                 self.sock()?.send_to_with_flags(buf, &addr, flags)
@@ -1783,8 +1781,8 @@ mod _socket {
 
             let buffers = buffers
                 .iter()
-                .map(|buf| buf.borrow_buf())
-                .collect::<Vec<_>>();
+                .map(|buf| buf.borrow_buf_unlocked(vm))
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| io::IoSlice::new(buf))
@@ -2325,8 +2323,8 @@ mod _socket {
 
     #[cfg(all(unix, not(any(target_os = "redox", target_os = "android"))))]
     #[pyfunction]
-    fn sethostname(hostname: PyUtf8StrRef) -> std::io::Result<()> {
-        host_socket::sethostname(hostname.as_str())
+    fn sethostname(hostname: FsPath) -> std::io::Result<()> {
+        host_socket::sethostname(hostname.as_bytes())
     }
 
     #[pyfunction]
@@ -2392,8 +2390,21 @@ mod _socket {
         Ok(s.to_string_lossy().into_owned())
     }
 
-    unsafe fn slice_as_uninit<T>(v: &mut [T]) -> &mut [MaybeUninit<T>] {
-        unsafe { &mut *(v as *mut [T] as *mut [MaybeUninit<T>]) }
+    /// Room to receive into that belongs to no Python object.
+    ///
+    /// A peer may never send, so the wait for it is unbounded. The export of
+    /// the caller's buffer is held for the whole call, which is what keeps it
+    /// from being resized, but the borrow that reaches its bytes is a lock
+    /// every other thread touching that object waits on, and a thread waiting
+    /// on a lock never reaches a safepoint — holding it across the wait stops
+    /// the world from being stopped at all. The bytes are copied over once
+    /// they have arrived.
+    fn alloc_recv_scratch(len: usize, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let mut scratch = Vec::new();
+        scratch
+            .try_reserve_exact(len)
+            .map_err(|_| vm.new_memory_error(""))?;
+        Ok(scratch)
     }
 
     enum IoOrPyException {
@@ -2612,8 +2623,15 @@ mod _socket {
             }
             Some(ArgStrOrBytesLike::Buf(b)) => {
                 let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes)
-                    .map_err(|_| vm.new_unicode_decode_error("host bytes is not utf8"))?;
+                let host_str = core::str::from_utf8(&bytes).map_err(|e| {
+                    vm.new_unicode_decode_error(
+                        vm.ctx.new_str("utf-8"),
+                        vm.ctx.new_bytes(bytes.to_vec()),
+                        e.valid_up_to(),
+                        e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                        vm.ctx.new_str("host bytes is not utf8"),
+                    )
+                })?;
                 Some(host_str.to_owned())
             }
             None => None,
@@ -2627,14 +2645,35 @@ mod _socket {
                     ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
-                            .ok_or_else(|| vm.new_unicode_encode_error("surrogates not allowed"))?
+                            .ok_or_else(|| {
+                                let start = s
+                                    .as_wtf8()
+                                    .code_points()
+                                    .position(|c| c.to_char().is_none())
+                                    .unwrap();
+                                vm.new_unicode_encode_error_real(
+                                    vm.ctx.new_str("utf-8"),
+                                    (*s).clone(),
+                                    start,
+                                    start + 1,
+                                    vm.ctx.new_str("surrogates not allowed"),
+                                )
+                            })?
                             .to_owned()
                     }
                     ArgStrOrBytesLike::Buf(b) => {
                         // For bytes, check if it's valid UTF-8
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
-                            .map_err(|_| vm.new_unicode_decode_error("port is not utf8"))?
+                            .map_err(|e| {
+                                vm.new_unicode_decode_error(
+                                    vm.ctx.new_str("utf-8"),
+                                    vm.ctx.new_bytes(bytes.to_vec()),
+                                    e.valid_up_to(),
+                                    e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                                    vm.ctx.new_str("port is not utf8"),
+                                )
+                            })?
                             .to_owned()
                     }
                 };

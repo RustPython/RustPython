@@ -5,7 +5,7 @@ use crate::{
     builtins::{PyBaseObject, PyType, PyTypeRef, descriptor::PyWrapper},
     function::PyMethodDef,
     object::Py,
-    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, hash_not_implemented},
+    types::{PyTypeFlags, PyTypeSlots, SLOT_DEFS, fn_addr, hash_not_implemented},
     vm::Context,
 };
 use rustpython_common::static_cell;
@@ -24,11 +24,9 @@ pub fn add_operators(class: &'static Py<PyType>, ctx: &Context) {
 
         // Special handling for __hash__ = None
         if def.name == "__hash__"
-            && class
-                .slots
-                .hash
-                .load()
-                .is_some_and(|h| h as usize == hash_not_implemented as *const () as usize)
+            && class.slots.hash.load().is_some_and(|h| {
+                fn_addr(h) == fn_addr(hash_not_implemented as crate::types::HashFunc)
+            })
         {
             class.set_attr(ctx.names.__hash__, ctx.none.clone().into());
             continue;
@@ -205,7 +203,7 @@ pub trait PyClassImpl: PyClassDef {
             let object_new = ctx.types.object_type.slots.new.load();
             let is_object_itself = core::ptr::eq(class, ctx.types.object_type);
             let is_inherited_from_object = !is_object_itself
-                && object_new.is_some_and(|obj_new| slot_new as usize == obj_new as usize);
+                && object_new.is_some_and(|obj_new| fn_addr(slot_new) == fn_addr(obj_new));
 
             if !is_inherited_from_object {
                 let bound_new =

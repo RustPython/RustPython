@@ -27,7 +27,7 @@ use crate::{
 ///
 /// Class methods are different than C++ or Java static methods.
 /// If you want those, see the staticmethod builtin.
-#[pyclass(module = false, name = "classmethod")]
+#[pyclass(module = false, name = "classmethod", traverse)]
 #[derive(Debug)]
 pub struct PyClassMethod {
     callable: PyMutex<PyObjectRef>,
@@ -187,7 +187,11 @@ impl PyClassMethod {
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
@@ -195,7 +199,7 @@ impl PyClassMethod {
 impl Representable for PyClassMethod {
     #[inline]
     fn repr_str(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<String> {
-        let callable = zelf.callable.lock().repr(vm).unwrap();
+        let callable = zelf.callable.lock().repr(vm)?;
         let class = Self::class(&vm.ctx);
 
         let repr = match (

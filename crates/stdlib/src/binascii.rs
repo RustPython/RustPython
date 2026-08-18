@@ -504,7 +504,7 @@ mod decl {
                 }
                 in_idx += 1;
             }
-            if buflen > 0 && in_idx < buflen && buf[in_idx - 1] == b'\r' {
+            if in_idx > 0 && in_idx < buflen && buf[in_idx - 1] == b'\r' {
                 crlf = true;
             }
 
@@ -746,12 +746,12 @@ mod decl {
     #[pyfunction]
     fn a2b_uu(s: ArgAsciiBuffer, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
         s.with_ref(|b| {
+            if b.is_empty() {
+                return Err(super::new_binascii_error("Missing length byte", vm));
+            }
+
             // First byte: binary data length (in bytes)
-            let length = if b.is_empty() {
-                ((-0x20i32) & 0x3fi32) as usize
-            } else {
-                ((b[0] - b' ') & 0x3f) as usize
-            };
+            let length = ((b[0] - b' ') & 0x3f) as usize;
 
             // Allocate the buffer
             let mut res = Vec::<u8>::with_capacity(length);

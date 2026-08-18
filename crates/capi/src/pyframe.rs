@@ -2,9 +2,9 @@ use crate::pystate::with_vm;
 use core::ffi::c_int;
 use rustpython_vm::Py;
 use rustpython_vm::builtins::PyCode;
-use rustpython_vm::frame::Frame;
+use rustpython_vm::frame::FrameObject;
 
-pub type PyFrameObject = Py<Frame>;
+pub type PyFrameObject = Py<FrameObject>;
 pub type PyCodeObject = Py<PyCode>;
 
 #[unsafe(no_mangle)]

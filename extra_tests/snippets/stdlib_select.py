@@ -1,4 +1,5 @@
 import select
+import signal
 import socket
 import sys
 
@@ -72,8 +73,78 @@ if sys.platform != "win32":
             max_fd = sock.fileno()
             max_fd_sock = sock
     assert_raises(ValueError, select.select, [max_fd_sock], [], [], 0)
+for sock in sockets:
+    sock.close()
 del sockets
 a, b = socket.socketpair()
 # CPython disallows this on *nix systems too.
 assert_raises(ValueError, select.select, [a] * TOO_MANY_SELECT_FDS, [], [], 0)
-del a, b
+a.close()
+b.close()
+
+
+# fileno() runs while the sequence is being read, and it can mutate the very
+# list it was handed.
+mutable_pair, other_end = socket.socketpair()
+
+
+class MutatesTheList:
+    def __init__(self, elements, fd):
+        self.elements = elements
+        self.fd = fd
+
+    def fileno(self):
+        self.elements.clear()
+        self.elements.append(self)
+        return self.fd
+
+
+elements = []
+elements.extend([MutatesTheList(elements, mutable_pair.fileno())] * 40)
+assert select.select(elements, [], [], 0) == ([], [], [])
+
+
+class GrowsTheList:
+    def __init__(self, elements, fd):
+        self.elements = elements
+        self.fd = fd
+
+    def fileno(self):
+        self.elements.append(self)
+        return self.fd
+
+
+# A list that grows by one on every fileno() never reaches its own end, so the
+# limit has to be answered during the walk rather than from the final length.
+elements = []
+elements.append(GrowsTheList(elements, mutable_pair.fileno()))
+assert_raises(ValueError, select.select, elements, [], [], 0)
+
+mutable_pair.close()
+other_end.close()
+
+# poll() waits with signal handlers able to run, and a handler may register on
+# the same poll object.
+if hasattr(select, "poll") and hasattr(signal, "setitimer"):
+    poller = select.poll()
+    idle, idle_peer = socket.socketpair()
+    poller.register(idle.fileno(), select.POLLIN)
+    handled = []
+
+    def register_from_handler(signum, frame):
+        poller.register(idle_peer.fileno(), select.POLLIN)
+        handled.append(signum)
+
+    previous = signal.signal(signal.SIGALRM, register_from_handler)
+    try:
+        signal.setitimer(signal.ITIMER_REAL, 0.05)
+        try:
+            poller.poll(1000)
+        except InterruptedError:
+            pass
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
+    assert handled == [signal.SIGALRM], handled
+    idle.close()
+    idle_peer.close()

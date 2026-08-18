@@ -141,7 +141,6 @@ pub(crate) mod _ctypes {
                     ffi_value_from_type_code(code.encode_utf8(&mut buf), bytes)
                 }
                 super::CArgValue::Int(v) => FfiValue::I32(*v),
-                super::CArgValue::Double(v) => FfiValue::F64(*v),
                 super::CArgValue::Pointer(v) => FfiValue::Pointer(*v),
                 // 'V' aggregates format via the object-address default arm below.
                 super::CArgValue::Aggregate { .. } => FfiValue::Pointer(0),
