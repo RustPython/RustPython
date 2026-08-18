@@ -879,12 +879,14 @@ struct SuspendedFrame {
     is_entry: bool,
 }
 
-/// Which object a sequence being built asks how much room to take, and how the
-/// answer is used. `PySequence_Tuple()` asks the iterator and takes nothing on
-/// the answer; `list_extend()` asks the iterable it was handed and reserves.
+/// Whether a sequence being built asks the iterable it was handed how much room
+/// to take. `list_extend()` asks and reserves; `PySequence_Tuple()` and the
+/// rest ask nothing at all.
 #[derive(Clone, Copy)]
 enum LengthHint<'a> {
-    Iterator,
+    /// Grows as the loop goes, the way `tuple()`, `set()`, `min()` and
+    /// `deque()` do, so an object slow to answer is never asked.
+    Unasked,
     /// Reserves what the iterable answers, unless it leaves no room for the
     /// count this returns.
     Iterable(&'a dyn Fn() -> usize),
@@ -2640,7 +2642,7 @@ impl VirtualMachine {
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
-        self.extract_elements_inner(value, LengthHint::Iterator, func)
+        self.extract_elements_inner(value, LengthHint::Unasked, func)
     }
 
     /// [`Self::extract_elements_with`] for a caller that asks the iterable
@@ -2740,7 +2742,7 @@ impl VirtualMachine {
     }
 
     /// [`Self::map_iterable_object`] for a caller that asks the object it was
-    /// handed how long it is, rather than its iterator.
+    /// handed how long it is.
     pub fn map_iterable_object_sized<F, R>(
         &self,
         obj: &PyObject,
@@ -2756,7 +2758,7 @@ impl VirtualMachine {
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
-        self.map_iterable_object_inner(obj, LengthHint::Iterator, f)
+        self.map_iterable_object_inner(obj, LengthHint::Unasked, f)
     }
 
     fn map_iterable_object_inner<F, R>(
@@ -2808,20 +2810,18 @@ impl VirtualMachine {
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         let iter = value.to_owned().get_iter(self)?;
-        // Whichever object the hint is asked of, an error it answers with is
-        // its own and belongs to the caller; `length_hint_opt` already answers
-        // `None` for the object that declines to guess.
-        let asked = match hint {
-            LengthHint::Iterator => iter.as_object(),
-            LengthHint::Iterable(_) => value,
-        };
-        let cap = self.length_hint_opt(asked.to_owned())?;
 
         // Take the room the iterable asks for up front, for the callers that
         // do. Collecting into a `Result` drops the iterator's lower bound --
         // the adapter may stop early -- so without this the vector grows a step
         // at a time and an iterable claiming more elements than can be held is
-        // found out by running out of memory rather than by saying so.
+        // found out by running out of memory rather than by saying so. An error
+        // the ask answers with is the iterable's own and belongs to the caller
+        // that made it; `length_hint_opt` already answers `None` for the
+        // iterable that declines to guess.
+        //
+        // Nobody else asks, so what an object would have answered -- slowly, or
+        // by raising -- costs the rest nothing.
         //
         // A hint that does not leave room for what is already held is one the
         // iterable cannot be telling the truth about, so it is passed over
@@ -2830,12 +2830,16 @@ impl VirtualMachine {
         // held is counted now rather than before, since asking for the hint
         // runs code that can add to it or take from it.
         let mut results: Vec<R> = Vec::new();
-        if let (LengthHint::Iterable(held), Some(cap)) = (hint, cap)
-            && held() <= (isize::MAX as usize) - cap
-        {
-            results
-                .try_reserve_exact(cap)
-                .map_err(|_| self.new_memory_error(""))?;
+        let mut cap = None;
+        if let LengthHint::Iterable(held) = hint {
+            cap = self.length_hint_opt(value.to_owned())?;
+            if let Some(cap) = cap
+                && held() <= (isize::MAX as usize) - cap
+            {
+                results
+                    .try_reserve_exact(cap)
+                    .map_err(|_| self.new_memory_error(""))?;
+            }
         }
         for element in PyIterIter::new(self, iter.as_ref(), cap) {
             results.push(f(element?)?);

@@ -993,9 +993,8 @@ with assert_raises(MemoryError):
     shrunk.extend(Shrinks())
 
 
-# Only the callers that take the room ask the iterable itself; the rest ask its
-# iterator, which is why an iterable whose __len__ raises reaches tuple() but
-# not list().
+# Only the callers that take the room ask at all, which is why an iterable whose
+# __len__ raises reaches tuple() but not list().
 class Lazy:
     def __len__(self):
         raise NotImplementedError
@@ -1015,6 +1014,39 @@ with assert_raises(NotImplementedError):
     [].extend(Lazy())
 with assert_raises(NotImplementedError):
     [*Lazy()]
+
+
+# Nothing asks the iterator, so what it would have answered never runs.
+class LoudIterator:
+    def __init__(self):
+        self.i = iter([1, 2, 3])
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.i)
+
+    def __length_hint__(self):
+        raise NotImplementedError
+
+
+class HandsOutLoud:
+    def __iter__(self):
+        return LoudIterator()
+
+
+assert tuple(HandsOutLoud()) == (1, 2, 3)
+assert (lambda *a: a)(*HandsOutLoud()) == (1, 2, 3)
+assert min(HandsOutLoud()) == 1
+assert max(HandsOutLoud()) == 3
+assert list(HandsOutLoud()) == [1, 2, 3]
+assert sorted(HandsOutLoud()) == [1, 2, 3]
+assert bytearray(HandsOutLoud()) == bytearray(b"\x01\x02\x03")
+held = [0]
+held.extend(HandsOutLoud())
+assert held == [0, 1, 2, 3]
+
 
 # A report the list can act on is acted on.
 assert list(Reports(3)) == [1, 2, 3]
