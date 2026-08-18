@@ -939,3 +939,25 @@ def test_delete_answers_readonly_first():
 test_setitem_error_kinds()
 test_setitem_propagates_index_errors()
 test_delete_answers_readonly_first()
+
+
+def test_bool_format_keeps_its_own_error():
+    # Deciding truth is the value's own code, and what it raises is the answer.
+    class Raises:
+        def __init__(self, exc):
+            self.exc = exc
+
+        def __bool__(self):
+            raise self.exc
+
+    view = memoryview(bytearray(b"\x00")).cast("?")
+    for exc in (ZeroDivisionError("boom"), ValueError("nope"), TypeError("nah")):
+        try:
+            view[0] = Raises(exc)
+        except type(exc) as e:
+            assert str(e) == str(exc), e
+        else:
+            raise AssertionError(f"expected {type(exc).__name__}")
+
+
+test_bool_format_keeps_its_own_error()

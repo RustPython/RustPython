@@ -61,6 +61,15 @@ impl PackError {
         };
         Self { kind, exception }
     }
+
+    /// An error that is the answer exactly as it was raised. `pack_single()`
+    /// leaves `'?'` to `PyObject_IsTrue()` this way, with no message of its own.
+    fn raised(exception: PyBaseExceptionRef) -> Self {
+        Self {
+            kind: PackErrorKind::Raised,
+            exception,
+        }
+    }
 }
 
 static OVERFLOW_MSG: &str = "total struct size too long"; // not a const to reduce code size
@@ -803,7 +812,7 @@ impl Packable for bool {
         data: &mut [u8],
     ) -> Result<(), PackError> {
         let v = ArgIntoBool::try_from_object(vm, arg)
-            .map_err(|e| PackError::from_exception(e, vm))?
+            .map_err(PackError::raised)?
             .into_bool() as u8;
         v.pack_int::<E>(data);
         Ok(())
