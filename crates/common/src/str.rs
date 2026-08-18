@@ -3,6 +3,7 @@ use crate::atomic::{OncePtr, PyAtomic, Radium};
 use crate::format::CharLen;
 use crate::wtf8::{CodePoint, Wtf8, Wtf8Buf};
 use crate::wtf8_index::Wtf8Index;
+use alloc::borrow::Cow;
 use ascii::{AsciiChar, AsciiStr, AsciiString};
 use core::fmt;
 use core::ops::{Bound, RangeBounds};
@@ -835,9 +836,62 @@ pub fn char_to_decimal(ch: char) -> Option<u8> {
         .map(|i| (i % 10) as u8)
 }
 
+/// Replace Unicode decimal digits with their ASCII equivalents and any Unicode
+/// whitespace with a plain space, so the byte-oriented numeric parsers can read
+/// them. Mirrors CPython's `_PyUnicode_TransformDecimalAndSpaceToASCII`.
+///
+/// The result is always ASCII. Any other non-ASCII character cannot appear in a
+/// numeric literal, so it becomes a `?` and the rest of the string is dropped:
+/// `?` is rejected by every parser at every base, which leaves the caller — the
+/// one that knows the base and owns the original string — to raise the error.
+#[must_use]
+pub fn transform_decimal_and_space_to_ascii(s: &str) -> Cow<'_, str> {
+    if s.is_ascii() {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if (c as u32) < 127 {
+            out.push(c);
+        } else if c.is_whitespace() {
+            out.push(' ');
+        } else if let Some(n) = char_to_decimal(c) {
+            out.push(char::from_digit(n.into(), 10).unwrap());
+        } else {
+            out.push('?');
+            break;
+        }
+    }
+    debug_assert!(out.is_ascii());
+    Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transform_decimal_and_space() {
+        // ASCII input is passed through untouched, without allocating.
+        assert!(matches!(
+            transform_decimal_and_space_to_ascii("123"),
+            Cow::Borrowed("123")
+        ));
+        // Decimal digits from any script fold to ASCII.
+        assert_eq!(transform_decimal_and_space_to_ascii("١٢٣"), "123");
+        assert_eq!(transform_decimal_and_space_to_ascii("１２३"), "123");
+        assert_eq!(transform_decimal_and_space_to_ascii("1٢3"), "123");
+        // Unicode whitespace folds to a plain space.
+        assert_eq!(transform_decimal_and_space_to_ascii("\u{3000}٣"), " 3");
+        // ASCII characters ride through untouched, whatever they are.
+        assert_eq!(transform_decimal_and_space_to_ascii("0x١f"), "0x1f");
+        assert_eq!(transform_decimal_and_space_to_ascii("-١_٢"), "-1_2");
+        // Anything else poisons the literal and truncates it, so the result stays
+        // ASCII and the caller's parser is guaranteed to reject it.
+        assert_eq!(transform_decimal_and_space_to_ascii("½가"), "?");
+        assert_eq!(transform_decimal_and_space_to_ascii("١٢가٣"), "12?");
+        assert_eq!(transform_decimal_and_space_to_ascii("١\u{7f}"), "1?");
+    }
 
     #[test]
     fn get_chars_basic() {
