@@ -733,7 +733,7 @@ where
 // Best effort attempt to generate a template from which a
 // __text_signature__ can be created.
 //
-// Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument,
+// Unlike CPython, a `#[pyfunction]` doesn't take the module as an argument yet,
 // so there's no module to mark with `$module`.
 pub(crate) fn text_signature(sig: &Signature, name: &str) -> Option<String> {
     let signature = func_sig(sig)?;
