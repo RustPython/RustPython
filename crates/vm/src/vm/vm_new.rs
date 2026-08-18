@@ -990,6 +990,14 @@ impl VirtualMachine {
         )
     }
 
+    /// Create a `MemoryError` with no arguments, for reporting a failed allocation.
+    ///
+    /// TODO: this still allocates the exception object itself, so it can abort
+    /// under real memory exhaustion. Use a preallocated instance instead (#8536).
+    pub fn no_memory_error(&self) -> PyBaseExceptionRef {
+        self.new_exception_empty(self.ctx.exceptions.memory_error.to_owned())
+    }
+
     define_exception_fn!(fn new_lookup_error, lookup_error, LookupError);
     define_exception_fn!(fn new_eof_error, eof_error, EOFError);
     define_exception_fn!(fn new_attribute_error, attribute_error, AttributeError);

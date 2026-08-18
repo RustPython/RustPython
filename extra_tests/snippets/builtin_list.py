@@ -930,3 +930,14 @@ assert list1 == []
 # that product must raise instead of wrapping into a short allocation.
 with assert_raises(MemoryError):
     [1] * sys.maxsize
+
+# 64-bit only: on 32-bit targets 10**17 does not fit in an index so the
+# repeat raises OverflowError before any allocation is attempted
+if sys.maxsize > 2**32:
+    assert_raises(MemoryError, lambda: [1, 2, 3] * (10**17))
+
+    def imul_no_memory():
+        x = [1, 2, 3]
+        x *= 10**17
+
+    assert_raises(MemoryError, imul_no_memory)
