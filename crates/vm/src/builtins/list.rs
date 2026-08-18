@@ -188,9 +188,10 @@ impl PyList {
     #[pymethod]
     pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
         // What is already here decides whether the iterable's length hint is
-        // believable, so it goes along with the request for the elements.
-        let held = self.borrow_vec().len();
-        let mut new_elements = vm.extract_elements_sized(&x, held, Ok)?;
+        // believable, so it goes along with the request for the elements. It is
+        // counted where `list_extend()` reads `Py_SIZE(self)`, after the
+        // iterable has answered, because answering runs code that can change it.
+        let mut new_elements = vm.extract_elements_sized(&x, &|| self.borrow_vec().len(), Ok)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
@@ -482,7 +483,7 @@ impl Initializer for PyList {
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            vm.extract_elements_sized(&iterable, 0, Ok)?
+            vm.extract_elements_sized(&iterable, &|| 0, Ok)?
         } else {
             vec![]
         };

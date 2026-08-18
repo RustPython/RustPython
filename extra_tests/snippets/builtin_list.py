@@ -959,6 +959,63 @@ held = [1, 2, 3, 4]
 held.extend(Reports(sys.maxsize))
 assert held == [1, 2, 3, 4, 1, 2, 3]
 
+
+# Reporting runs the iterable's own code, so what the list holds is counted
+# after the report rather than before it.
+grew = []
+
+
+class Grows:
+    def __iter__(self):
+        return iter([7])
+
+    def __length_hint__(self):
+        grew.extend([0] * 100)
+        return sys.maxsize - 50
+
+
+grew.extend(Grows())
+assert len(grew) == 101 and grew[-1] == 7, grew[-3:]
+
+shrunk = [1] * 100
+
+
+class Shrinks:
+    def __iter__(self):
+        return iter([])
+
+    def __length_hint__(self):
+        shrunk.clear()
+        return sys.maxsize
+
+
+with assert_raises(MemoryError):
+    shrunk.extend(Shrinks())
+
+
+# Only the callers that take the room ask the iterable itself; the rest ask its
+# iterator, which is why an iterable whose __len__ raises reaches tuple() but
+# not list().
+class Lazy:
+    def __len__(self):
+        raise NotImplementedError
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+
+assert tuple(Lazy()) == (1, 2, 3)
+assert (lambda *a: a)(*Lazy()) == (1, 2, 3)
+assert min(Lazy()) == 1
+with assert_raises(NotImplementedError):
+    list(Lazy())
+with assert_raises(NotImplementedError):
+    sorted(Lazy())
+with assert_raises(NotImplementedError):
+    [].extend(Lazy())
+with assert_raises(NotImplementedError):
+    [*Lazy()]
+
 # A report the list can act on is acted on.
 assert list(Reports(3)) == [1, 2, 3]
 assert list(Reports(0)) == [1, 2, 3]

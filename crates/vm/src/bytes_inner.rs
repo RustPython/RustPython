@@ -7,7 +7,6 @@ use crate::{
         PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
         pystr, pystr::PyUtf8StrRef,
     },
-    byte::bytes_from_object,
     cformat::cformat_bytes,
     common::hash,
     common::wtf8::is_py_ascii_whitespace,
@@ -17,6 +16,11 @@ use crate::{
     sequence::{SequenceExt, SequenceMutExt},
     types::PyComparisonOp,
 };
+/// How a source object that is neither a size nor a string is turned into
+/// bytes: [`crate::byte::bytes_from_object`] or
+/// [`crate::byte::bytearray_from_object`].
+pub(crate) type FromObject = fn(&VirtualMachine, &PyObject) -> PyResult<Vec<u8>>;
+
 use bstr::ByteSlice;
 use itertools::Itertools;
 use malachite_bigint::BigInt;
@@ -64,8 +68,12 @@ impl ByteInnerNewOptions {
         Ok(bytes.as_bytes().to_vec().into())
     }
 
-    fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        bytes_from_object(vm, &source).map(|x| x.into())
+    fn get_value_from_source(
+        source: PyObjectRef,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
+        from_object(vm, &source).map(|x| x.into())
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -81,19 +89,26 @@ impl ByteInnerNewOptions {
         Ok(vm.new_zeroed_bytes(size)?.into())
     }
 
-    fn handle_object_fallback(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn handle_object_fallback(
+        obj: PyObjectRef,
+        from_object: FromObject,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
                 Self::get_value_from_size(i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, vm)
+                Self::get_value_from_source(obj, from_object, vm)
             }
         })
     }
 
-    pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    /// `from_object` is how a source that is neither a size nor a string is
+    /// read: `bytes()` and `bytearray()` differ in whether they ask it how long
+    /// it is.
+    pub fn get_inner(self, from_object: FromObject, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
@@ -105,7 +120,7 @@ impl ByteInnerNewOptions {
                             // TypeError means the object doesn't support __index__, so fall back
                             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                                 // Fall back to treating as buffer-like object
-                                Self::handle_object_fallback(obj, vm)
+                                Self::handle_object_fallback(obj, from_object, vm)
                             } else {
                                 // Propagate other exceptions (e.g., ZeroDivisionError)
                                 Err(e)
@@ -113,7 +128,7 @@ impl ByteInnerNewOptions {
                         }
                     }
                 } else {
-                    Self::handle_object_fallback(obj, vm)
+                    Self::handle_object_fallback(obj, from_object, vm)
                 }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {

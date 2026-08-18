@@ -879,6 +879,17 @@ struct SuspendedFrame {
     is_entry: bool,
 }
 
+/// Which object a sequence being built asks how much room to take, and how the
+/// answer is used. `PySequence_Tuple()` asks the iterator and takes nothing on
+/// the answer; `list_extend()` asks the iterable it was handed and reserves.
+#[derive(Clone, Copy)]
+enum LengthHint<'a> {
+    Iterator,
+    /// Reserves what the iterable answers, unless it leaves no room for the
+    /// count this returns.
+    Iterable(&'a dyn Fn() -> usize),
+}
+
 impl VirtualMachine {
     fn init_callable_cache(&mut self) -> PyResult<()> {
         self.callable_cache.len = Some(self.builtins.get_attr("len", self)?);
@@ -2629,29 +2640,29 @@ impl VirtualMachine {
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
-        self.extract_elements_inner(value, None, func)
+        self.extract_elements_inner(value, LengthHint::Iterator, func)
     }
 
-    /// [`Self::extract_elements_with`] for a caller that allocates the
-    /// iterable's length hint up front, joining `held` elements it already
-    /// has. `list` does this, so a hint it cannot honour is a `MemoryError`
-    /// there; `tuple` does not, and finds out by filling up.
+    /// [`Self::extract_elements_with`] for a caller that asks the iterable
+    /// itself how much room to take, the way `list_extend()` does. `held`
+    /// answers how many elements the caller already has, and is read after the
+    /// iterable has been asked, since asking runs its code.
     pub fn extract_elements_sized<T, F>(
         &self,
         value: &PyObject,
-        held: usize,
+        held: &dyn Fn() -> usize,
         func: F,
     ) -> PyResult<Vec<T>>
     where
         F: Fn(PyObjectRef) -> PyResult<T>,
     {
-        self.extract_elements_inner(value, Some(held), func)
+        self.extract_elements_inner(value, LengthHint::Iterable(held), func)
     }
 
     fn extract_elements_inner<T, F>(
         &self,
         value: &PyObject,
-        held: Option<usize>,
+        hint: LengthHint<'_>,
         func: F,
     ) -> PyResult<Vec<T>>
     where
@@ -2723,12 +2734,37 @@ impl VirtualMachine {
                 func(self.ctx.new_tuple(vec![k, v]).into())
             });
         } else {
-            return self.map_py_iter(value, held, func);
+            return self.map_py_iter(value, hint, func);
         };
         map_known_len(slice.iter(), |obj| func(obj.clone()))
     }
 
-    pub fn map_iterable_object<F, R>(&self, obj: &PyObject, mut f: F) -> PyResult<PyResult<Vec<R>>>
+    /// [`Self::map_iterable_object`] for a caller that asks the object it was
+    /// handed how long it is, rather than its iterator.
+    pub fn map_iterable_object_sized<F, R>(
+        &self,
+        obj: &PyObject,
+        f: F,
+    ) -> PyResult<PyResult<Vec<R>>>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
+    {
+        self.map_iterable_object_inner(obj, LengthHint::Iterable(&|| 0), f)
+    }
+
+    pub fn map_iterable_object<F, R>(&self, obj: &PyObject, f: F) -> PyResult<PyResult<Vec<R>>>
+    where
+        F: FnMut(PyObjectRef) -> PyResult<R>,
+    {
+        self.map_iterable_object_inner(obj, LengthHint::Iterator, f)
+    }
+
+    fn map_iterable_object_inner<F, R>(
+        &self,
+        obj: &PyObject,
+        hint: LengthHint<'_>,
+        mut f: F,
+    ) -> PyResult<PyResult<Vec<R>>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
@@ -2757,20 +2793,29 @@ impl VirtualMachine {
             ref t @ PyTuple => Ok(t.iter().cloned().map(f).collect()),
             // TODO: put internal iterable type
             obj => {
-                Ok(self.map_py_iter(obj, None, f))
+                Ok(self.map_py_iter(obj, hint, f))
             }
         })
     }
 
-    fn map_py_iter<F, R>(&self, value: &PyObject, held: Option<usize>, mut f: F) -> PyResult<Vec<R>>
+    fn map_py_iter<F, R>(
+        &self,
+        value: &PyObject,
+        hint: LengthHint<'_>,
+        mut f: F,
+    ) -> PyResult<Vec<R>>
     where
         F: FnMut(PyObjectRef) -> PyResult<R>,
     {
         let iter = value.to_owned().get_iter(self)?;
-        // `length_hint_opt` already answers `None` for the iterable that
-        // declines to guess; anything else it reports is the iterable's own
-        // error and belongs to the caller.
-        let cap = self.length_hint_opt(value.to_owned())?;
+        // Whichever object the hint is asked of, an error it answers with is
+        // its own and belongs to the caller; `length_hint_opt` already answers
+        // `None` for the object that declines to guess.
+        let asked = match hint {
+            LengthHint::Iterator => iter.as_object(),
+            LengthHint::Iterable(_) => value,
+        };
+        let cap = self.length_hint_opt(asked.to_owned())?;
 
         // Take the room the iterable asks for up front, for the callers that
         // do. Collecting into a `Result` drops the iterator's lower bound --
@@ -2781,10 +2826,12 @@ impl VirtualMachine {
         // A hint that does not leave room for what is already held is one the
         // iterable cannot be telling the truth about, so it is passed over
         // rather than refused: if it was honest the loop runs out of memory on
-        // its own, and if it lied there was nothing wrong to report.
+        // its own, and if it lied there was nothing wrong to report. What is
+        // held is counted now rather than before, since asking for the hint
+        // runs code that can add to it or take from it.
         let mut results: Vec<R> = Vec::new();
-        if let (Some(held), Some(cap)) = (held, cap)
-            && held <= (isize::MAX as usize) - cap
+        if let (LengthHint::Iterable(held), Some(cap)) = (hint, cap)
+            && held() <= (isize::MAX as usize) - cap
         {
             results
                 .try_reserve_exact(cap)

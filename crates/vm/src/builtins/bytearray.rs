@@ -8,7 +8,7 @@ use crate::{
     VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
-    byte::{bytes_from_object, value_from_object},
+    byte::{bytearray_from_object, bytes_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -115,7 +115,7 @@ impl PyByteArray {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
-                    bytes_from_object(vm, &value)?
+                    bytearray_from_object(vm, &value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
                     w.elements.setitem_by_slice(vm, slice, &items)
@@ -716,7 +716,7 @@ impl Initializer for PyByteArray {
 
     fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_bytearray_inner(vm)?;
+        let mut inner = options.get_inner(bytearray_from_object, vm)?;
         core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
         Ok(())
     }
