@@ -3240,19 +3240,12 @@ mod _ssl {
             }
 
             let mut stream = self.connection.write();
-            let mut inner_buffer = if let OptionalArg::Present(buffer) = &buffer {
-                Either::A(buffer.borrow_buf_mut())
-            } else {
-                Either::B(vec![0u8; read_len])
-            };
-            let buf = match &mut inner_buffer {
-                Either::A(b) => &mut **b,
-                Either::B(b) => b.as_mut_slice(),
-            };
-            let buf = match buf.get_mut(..read_len) {
-                Some(b) => b,
-                None => buf,
-            };
+            // The read below answers when the peer writes, which may be never,
+            // and reaching the caller's buffer takes a lock that every other
+            // thread touching the same object waits on. Read aside and take
+            // that lock only for the copy.
+            let mut scratch = vec![0u8; read_len];
+            let buf = scratch.as_mut_slice();
 
             // BIO mode: no timeout/select logic
             let count = if stream.is_bio() {
@@ -3312,12 +3305,15 @@ mod _ssl {
                     return Err(convert_ssl_error(vm, err));
                 }
             };
-            let ret = match inner_buffer {
-                Either::A(_buf) => vm.ctx.new_int(count).into(),
-                Either::B(mut buf) => {
-                    buf.truncate(count);
-                    buf.shrink_to_fit();
-                    vm.ctx.new_bytes(buf).into()
+            let ret = match &buffer {
+                OptionalArg::Present(buffer) => {
+                    buffer.borrow_buf_mut()[..count].copy_from_slice(&scratch[..count]);
+                    vm.ctx.new_int(count).into()
+                }
+                OptionalArg::Missing => {
+                    scratch.truncate(count);
+                    scratch.shrink_to_fit();
+                    vm.ctx.new_bytes(scratch).into()
                 }
             };
             Ok(ret)
