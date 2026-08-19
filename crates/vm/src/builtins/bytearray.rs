@@ -8,7 +8,7 @@ use crate::{
     VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
-    byte::{bytearray_from_object, bytes_from_object, value_from_object},
+    byte::{bytearray_extend_from_object, bytearray_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -643,7 +643,7 @@ impl Py<PyByteArray> {
                     vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
                 })?
                 .to_vec(),
-            None => bytes_from_object(vm, &object)?,
+            None => bytearray_extend_from_object(vm, &object)?,
         };
         self.try_resizable(vm)?.elements.extend(items);
         Ok(())
