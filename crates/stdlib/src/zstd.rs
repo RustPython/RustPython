@@ -54,55 +54,79 @@ mod _zstd {
     #[pyattr]
     const ZSTD_CLEVEL_DEFAULT: i32 = libzstd_rs_sys::ZSTD_CLEVEL_DEFAULT;
 
-    // Compression parameter identifiers. Values match the `ZSTD_cParameter`
-    // enum in libzstd, which is what the public `CompressionParameter` IntEnum
-    // in `Lib/compression/zstd/__init__.py` derives its members from.
-    // libzstd-rs-sys models the enum as a newtype whose inner value is
-    // crate-private, so the ids — frozen C ABI values from zstd.h — are
-    // spelled out as literals here.
+    /// Read the numeric id back out of a libzstd compression-parameter
+    /// constant.
+    ///
+    /// The ids are needed as plain ints because the module constants below are
+    /// what `Lib/compression/zstd/__init__.py` turns into the public
+    /// `CompressionParameter` IntEnum. libzstd-rs-sys declares
+    /// `ZSTD_cParameter` as `#[repr(transparent)] pub struct
+    /// ZSTD_cParameter(pub(crate) u32)` and gives it no accessor, `From` impl
+    /// or `Deref`, so the id is unreachable through its public API. Reading
+    /// the wrapped `u32` back keeps libzstd the single source of truth for
+    /// these values instead of restating them here as literals.
+    const fn c_param_id(param: ZSTD_cParameter) -> i32 {
+        // SAFETY: `#[repr(transparent)]` guarantees `ZSTD_cParameter` has the
+        // same size, alignment and validity invariants as the `u32` it wraps,
+        // so reading one back as a `u32` is always well-defined.
+        unsafe { core::mem::transmute::<ZSTD_cParameter, u32>(param) as i32 }
+    }
+
+    /// `ZSTD_dParameter` counterpart of [`c_param_id`]; that type is likewise
+    /// a `#[repr(transparent)]` newtype over a private `u32`.
+    const fn d_param_id(param: ZSTD_dParameter) -> i32 {
+        // SAFETY: as in `c_param_id`.
+        unsafe { core::mem::transmute::<ZSTD_dParameter, u32>(param) as i32 }
+    }
+
+    // Compression parameter identifiers, taken straight from libzstd's
+    // `ZSTD_cParameter` constants. These are the ids the public
+    // `CompressionParameter` IntEnum in `Lib/compression/zstd/__init__.py`
+    // derives its members from.
     #[pyattr]
-    const ZSTD_c_compressionLevel: i32 = 100;
+    const ZSTD_c_compressionLevel: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_compressionLevel);
     #[pyattr]
-    const ZSTD_c_windowLog: i32 = 101;
+    const ZSTD_c_windowLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_windowLog);
     #[pyattr]
-    const ZSTD_c_hashLog: i32 = 102;
+    const ZSTD_c_hashLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_hashLog);
     #[pyattr]
-    const ZSTD_c_chainLog: i32 = 103;
+    const ZSTD_c_chainLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_chainLog);
     #[pyattr]
-    const ZSTD_c_searchLog: i32 = 104;
+    const ZSTD_c_searchLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_searchLog);
     #[pyattr]
-    const ZSTD_c_minMatch: i32 = 105;
+    const ZSTD_c_minMatch: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_minMatch);
     #[pyattr]
-    const ZSTD_c_targetLength: i32 = 106;
+    const ZSTD_c_targetLength: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_targetLength);
     #[pyattr]
-    const ZSTD_c_strategy: i32 = 107;
+    const ZSTD_c_strategy: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_strategy);
     #[pyattr]
-    const ZSTD_c_enableLongDistanceMatching: i32 = 160;
+    const ZSTD_c_enableLongDistanceMatching: i32 =
+        c_param_id(ZSTD_cParameter::ZSTD_c_enableLongDistanceMatching);
     #[pyattr]
-    const ZSTD_c_ldmHashLog: i32 = 161;
+    const ZSTD_c_ldmHashLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_ldmHashLog);
     #[pyattr]
-    const ZSTD_c_ldmMinMatch: i32 = 162;
+    const ZSTD_c_ldmMinMatch: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_ldmMinMatch);
     #[pyattr]
-    const ZSTD_c_ldmBucketSizeLog: i32 = 163;
+    const ZSTD_c_ldmBucketSizeLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_ldmBucketSizeLog);
     #[pyattr]
-    const ZSTD_c_ldmHashRateLog: i32 = 164;
+    const ZSTD_c_ldmHashRateLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_ldmHashRateLog);
     #[pyattr]
-    const ZSTD_c_contentSizeFlag: i32 = 200;
+    const ZSTD_c_contentSizeFlag: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_contentSizeFlag);
     #[pyattr]
-    const ZSTD_c_checksumFlag: i32 = 201;
+    const ZSTD_c_checksumFlag: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_checksumFlag);
     #[pyattr]
-    const ZSTD_c_dictIDFlag: i32 = 202;
+    const ZSTD_c_dictIDFlag: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_dictIDFlag);
     #[pyattr]
-    const ZSTD_c_nbWorkers: i32 = 400;
+    const ZSTD_c_nbWorkers: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_nbWorkers);
     #[pyattr]
-    const ZSTD_c_jobSize: i32 = 401;
+    const ZSTD_c_jobSize: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_jobSize);
     #[pyattr]
-    const ZSTD_c_overlapLog: i32 = 402;
+    const ZSTD_c_overlapLog: i32 = c_param_id(ZSTD_cParameter::ZSTD_c_overlapLog);
 
     // Decompression parameter identifiers. libzstd only exposes one non-
     // experimental decompression parameter.
     #[pyattr]
-    const ZSTD_d_windowLogMax: i32 = 100;
+    const ZSTD_d_windowLogMax: i32 = d_param_id(ZSTD_dParameter::ZSTD_d_windowLogMax);
 
     // Strategy enum members ordered from fastest to strongest. These power
     // the `Strategy` IntEnum in `Lib/compression/zstd/__init__.py`.
@@ -125,16 +149,21 @@ mod _zstd {
     #[pyattr]
     const ZSTD_btultra2: i32 = libzstd_rs_sys::lib::zstd::ZSTD_btultra2 as i32;
 
-    #[pyattr(once, name = "zstd_version")]
+    #[pyattr(once)]
     fn zstd_version(_vm: &VirtualMachine) -> String {
         // SAFETY: `ZSTD_versionString` returns a pointer to libzstd's static,
         // NUL-terminated version string.
-        unsafe { CStr::from_ptr(ZSTD_versionString()) }
-            .to_string_lossy()
-            .into_owned()
+        let version = unsafe { CStr::from_ptr(ZSTD_versionString()) };
+        // The string is a fixed `MAJOR.MINOR.RELEASE` ASCII literal baked into
+        // libzstd, so it is always valid UTF-8 and there is nothing for a
+        // lossy conversion to repair.
+        version
+            .to_str()
+            .expect("libzstd version string is ASCII")
+            .to_owned()
     }
 
-    #[pyattr(once, name = "zstd_version_number")]
+    #[pyattr(once)]
     fn zstd_version_number(_vm: &VirtualMachine) -> u32 {
         ZSTD_versionNumber()
     }
@@ -144,13 +173,35 @@ mod _zstd {
         ZSTD_DStreamOutSize()
     }
 
-    // Dictionary load type markers. The `ZstdDict.as_*` properties wrap the
-    // dictionary in a `(zdict, marker)` tuple so the compressor or decompressor
-    // constructor knows which load mode to apply. Numbering matches CPython's
-    // `Modules/_zstd/_zstdmodule.h::DictType`.
-    const DICT_TYPE_DIGESTED: i32 = 0;
-    const DICT_TYPE_UNDIGESTED: i32 = 1;
-    const DICT_TYPE_PREFIX: i32 = 2;
+    /// Which of the three load modes a `zstd_dict=` argument asks for. The
+    /// `ZstdDict.as_*` properties pair the dictionary with the matching
+    /// discriminant in a `(zdict, marker)` tuple, and the compressor and
+    /// decompressor constructors turn that marker back into this enum.
+    ///
+    /// The discriminants are pinned because they cross the Python boundary as
+    /// plain ints: they are the values CPython's
+    /// `Modules/_zstd/_zstdmodule.h::DictType` uses, and `test_zstd` builds
+    /// the tuples by hand with those literals.
+    #[derive(Copy, Clone)]
+    enum DictType {
+        Digested = 0,
+        Undigested = 1,
+        Prefix = 2,
+    }
+
+    impl DictType {
+        /// Decode the int half of a `(zdict, marker)` tuple, which may come
+        /// straight from user code. `None` for anything outside the three
+        /// documented markers.
+        fn from_marker(marker: i32) -> Option<Self> {
+            Some(match marker {
+                m if m == Self::Digested as i32 => Self::Digested,
+                m if m == Self::Undigested as i32 => Self::Undigested,
+                m if m == Self::Prefix as i32 => Self::Prefix,
+                _ => return None,
+            })
+        }
+    }
 
     #[pyattr(once, name = "ZstdError")]
     fn zstd_error(vm: &VirtualMachine) -> PyTypeRef {
@@ -313,6 +364,11 @@ mod _zstd {
     /// libzstd silently clamps out-of-range values rather than surfacing
     /// them as errors.
     fn level_bounds() -> (i32, i32) {
+        // `lookup_param_bounds` only returns `None` for an unrecognized id or
+        // when libzstd flags the bounds as an error. `ZSTD_c_compressionLevel`
+        // is recognized, and `ZSTD_cParam_getBounds` answers it from
+        // `ZSTD_minCLevel()`/`ZSTD_maxCLevel()` without ever setting the error
+        // field, so `None` is unreachable here.
         lookup_param_bounds(ZSTD_c_compressionLevel, true)
             .expect("compressionLevel always has valid bounds")
     }
@@ -401,12 +457,12 @@ mod _zstd {
     fn parse_zstd_dict_arg(
         obj: PyObjectRef,
         vm: &VirtualMachine,
-    ) -> PyResult<(PyRef<ZstdDict>, i32)> {
+    ) -> PyResult<(PyRef<ZstdDict>, DictType)> {
         // The first downcast clones `obj` because we fall through to the
         // tuple branch if it fails. The second downcast (the tuple one) is
         // the last use of `obj`, so we let it move directly.
         if let Ok(d) = obj.clone().downcast::<ZstdDict>() {
-            return Ok((d, DICT_TYPE_DIGESTED));
+            return Ok((d, DictType::Digested));
         }
         if let Ok(tuple) = obj.downcast::<rustpython_vm::builtins::PyTuple>() {
             let items = tuple.as_slice();
@@ -433,10 +489,10 @@ mod _zstd {
                     vm.new_type_error("zstd_dict argument should be a ZstdDict object")
                 }
             })?;
-            if !(DICT_TYPE_DIGESTED..=DICT_TYPE_PREFIX).contains(&marker) {
+            let Some(dict_type) = DictType::from_marker(marker) else {
                 return Err(vm.new_type_error("zstd_dict argument should be a ZstdDict object"));
-            }
-            return Ok((d, marker));
+            };
+            return Ok((d, dict_type));
         }
         Err(vm.new_type_error("zstd_dict argument should be a ZstdDict object"))
     }
@@ -538,22 +594,26 @@ mod _zstd {
 
         #[pygetset]
         fn as_digested_dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
-            vm.ctx
-                .new_tuple(vec![zelf.into(), vm.ctx.new_int(DICT_TYPE_DIGESTED).into()])
+            vm.ctx.new_tuple(vec![
+                zelf.into(),
+                vm.ctx.new_int(DictType::Digested as i32).into(),
+            ])
         }
 
         #[pygetset]
         fn as_undigested_dict(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
             vm.ctx.new_tuple(vec![
                 zelf.into(),
-                vm.ctx.new_int(DICT_TYPE_UNDIGESTED).into(),
+                vm.ctx.new_int(DictType::Undigested as i32).into(),
             ])
         }
 
         #[pygetset]
         fn as_prefix(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
-            vm.ctx
-                .new_tuple(vec![zelf.into(), vm.ctx.new_int(DICT_TYPE_PREFIX).into()])
+            vm.ctx.new_tuple(vec![
+                zelf.into(),
+                vm.ctx.new_int(DictType::Prefix as i32).into(),
+            ])
         }
     }
 
@@ -576,8 +636,13 @@ mod _zstd {
     impl CCtx {
         fn create() -> Self {
             // SAFETY: `ZSTD_createCCtx` has no preconditions; it returns NULL
-            // only on allocation failure.
+            // only when its `malloc` of the context struct fails.
             let ptr = unsafe { ZSTD_createCCtx() };
+            // A NULL return therefore means the allocator is out of memory,
+            // which is the one case Rust already handles by aborting, so
+            // panicking matches the rest of the VM rather than threading a
+            // `vm` reference through every construction site to raise
+            // `MemoryError` the way CPython's `_zstd` does.
             assert!(!ptr.is_null(), "ZSTD_createCCtx failed");
             Self(ptr)
         }
@@ -627,8 +692,13 @@ mod _zstd {
     impl DCtx {
         fn create() -> Self {
             // SAFETY: `ZSTD_createDCtx` has no preconditions; it returns NULL
-            // only on allocation failure.
+            // only when its `malloc` of the context struct fails.
             let ptr = unsafe { ZSTD_createDCtx() };
+            // A NULL return therefore means the allocator is out of memory,
+            // which is the one case Rust already handles by aborting, so
+            // panicking matches the rest of the VM rather than threading a
+            // `vm` reference through every construction site to raise
+            // `MemoryError` the way CPython's `_zstd` does.
             assert!(!ptr.is_null(), "ZSTD_createDCtx failed");
             Self(ptr)
         }
@@ -1016,7 +1086,7 @@ mod _zstd {
         let Some(dict_obj) = dict_obj else {
             return Ok((None, None));
         };
-        let (zdict, marker) = parse_zstd_dict_arg(dict_obj, vm)?;
+        let (zdict, dict_type) = parse_zstd_dict_arg(dict_obj, vm)?;
         let bad_dict_err = || -> PyBaseExceptionRef {
             new_zstd_error(
                 format!(
@@ -1028,11 +1098,11 @@ mod _zstd {
         };
         let dict_bytes = zdict.dict_content.as_bytes();
         let mut digested = None;
-        match marker {
-            DICT_TYPE_PREFIX => {
+        match dict_type {
+            DictType::Prefix => {
                 ctx.ref_prefix(dict_bytes).map_err(|_| bad_dict_err())?;
             }
-            DICT_TYPE_DIGESTED => {
+            DictType::Digested => {
                 // Build the digested dict eagerly so a corrupted dictionary
                 // surfaces as a `ZstdError` at construction time, not when
                 // the first compress/decompress call runs.
@@ -1040,9 +1110,9 @@ mod _zstd {
                 ctx.ref_digested(&d).map_err(|_| bad_dict_err())?;
                 digested = Some(d);
             }
-            _ => {
-                // Undigested: copy the bytes into the context. Validation
-                // happens lazily at the first stream call in this mode.
+            DictType::Undigested => {
+                // Copy the bytes into the context. Validation happens lazily
+                // at the first stream call in this mode.
                 ctx.load_undigested(dict_bytes)
                     .map_err(|_| bad_dict_err())?;
             }
