@@ -120,9 +120,12 @@ fn wait_detached(wait: impl Fn()) {
 /// payload holds no references — nothing for the collector to traverse into —
 /// satisfies that; most do not.
 ///
-/// Not implementing the vm's `Traverse` for this lock is what keeps that from
-/// being only a convention: a payload holding one cannot derive `Traverse`, so
-/// it cannot become something a collection walks into.
+/// Not implementing the vm's `Traverse` for this lock enforces part of that: a
+/// payload holding one cannot derive `Traverse`, so it cannot become something
+/// a collection walks into. Only that part. A collection is not the only thing
+/// that stops the world — dumping tracebacks, enumerating thread frames and
+/// forking all do — and nothing checks what those reach. For them the rule is
+/// still a convention.
 #[repr(transparent)]
 pub struct RawDetachingRwLock(RawRwLock);
 
@@ -191,14 +194,18 @@ unsafe impl RawRwLockDowngrade for RawDetachingRwLock {
     }
 }
 
-// SAFETY: forwards to the wrapped raw lock; the blocking acquires only add
-// a wait that ends with the same lock acquired.
+// SAFETY: forwards to the wrapped raw lock.
+//
+// None of these detach. `upgrade` runs with the upgradable lock already held,
+// and `lock_shared_recursive` may be the re-entrant take of a lock this thread
+// holds; detaching there would park a thread *holding* the lock, the one thing
+// this type must not do. `lock_upgradable` starts from holding nothing and
+// could detach as safely as `lock_shared` does, but nothing takes an upgradable
+// read of one of these, so it does not.
 unsafe impl RawRwLockUpgradeTrait for RawDetachingRwLock {
     #[inline]
     fn lock_upgradable(&self) {
-        if !self.0.try_lock_upgradable() {
-            wait_detached(|| self.0.lock_upgradable());
-        }
+        self.0.lock_upgradable()
     }
 
     #[inline]
@@ -213,13 +220,8 @@ unsafe impl RawRwLockUpgradeTrait for RawDetachingRwLock {
 
     #[inline]
     unsafe fn upgrade(&self) {
-        // SAFETY: the caller holds the upgradable lock, as `upgrade` requires,
-        // and it stays held for both the failed attempt and the wait.
-        unsafe {
-            if !self.0.try_upgrade() {
-                wait_detached(|| self.0.upgrade());
-            }
-        }
+        // SAFETY: the caller holds the upgradable lock, as `upgrade` requires.
+        unsafe { self.0.upgrade() }
     }
 
     #[inline]
@@ -241,14 +243,12 @@ unsafe impl RawRwLockUpgradeDowngrade for RawDetachingRwLock {
     }
 }
 
-// SAFETY: forwards to the wrapped raw lock; the blocking acquire only adds
-// a wait that ends with the same lock acquired.
+// SAFETY: forwards to the wrapped raw lock. Does not detach; see the upgrade
+// impl above.
 unsafe impl RawRwLockRecursiveTrait for RawDetachingRwLock {
     #[inline]
     fn lock_shared_recursive(&self) {
-        if !self.0.try_lock_shared_recursive() {
-            wait_detached(|| self.0.lock_shared_recursive());
-        }
+        self.0.lock_shared_recursive()
     }
 
     #[inline]
