@@ -2135,7 +2135,7 @@ pub(crate) fn envobj_to_dict(
     }
     let keys = vm.call_method(obj, "keys", ())?;
     let dict = vm.ctx.new_dict();
-    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
+    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
         let key = key?;
         let val = obj.get_item(&*key, vm)?;
         dict.set_item(&*key, val, vm)?;

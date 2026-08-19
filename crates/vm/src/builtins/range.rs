@@ -39,7 +39,7 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    for element in iter.iter_without_hint::<PyObjectRef>(vm)? {
+    for element in iter.iter::<PyObjectRef>(vm)? {
         if vm.bool_eq(item, &*element?)? {
             match flag {
                 SearchType::Index => return Ok(count),

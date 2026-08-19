@@ -240,7 +240,7 @@ impl PyDict {
                 }
             })?;
             elem_iter
-                .into_iter::<PyObjectRef>(vm)?
+                .into_iter::<PyObjectRef>(vm)
                 .collect::<PyResult<Vec<_>>>()
         })()
         .map_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
@@ -257,7 +257,7 @@ impl PyDict {
         let iter = seq2.get_iter(vm)?;
         let dict = &self.entries;
 
-        for (index, element) in iter.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+        for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
             if !override_existing && dict.contains(vm, &*key)? {

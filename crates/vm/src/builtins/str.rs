@@ -1174,7 +1174,9 @@ impl PyStr {
         iterable: ArgIterable<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<PyStrRef> {
-        let iter = iterable.iter(vm)?;
+        // `PyUnicode_Join()` reaches its elements through `PySequence_Fast()`,
+        // which fills a list from the iterator and so asks it how long it is.
+        let iter = iterable.iter_sized(vm)?;
         let joined = match iter.exactly_one() {
             Ok(first) => {
                 let first = first?;

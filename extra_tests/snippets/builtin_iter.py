@@ -69,3 +69,65 @@ seq_it = iter(Seq())
 assert seq_it.__length_hint__() == 3
 next(seq_it)
 assert seq_it.__length_hint__() == 2
+
+
+# Walking an iterator takes no room up front, so nothing on the way asks it how
+# long it is. Only join does, reaching its elements through PySequence_Fast(),
+# which fills a list from the iterator.
+import array
+import collections
+import io
+import math
+
+
+class LoudIterator:
+    def __init__(self, seq):
+        self.i = iter(seq)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.i)
+
+    def __length_hint__(self):
+        raise NotImplementedError("iterator hint")
+
+
+def handing(seq=(1, 2, 3)):
+    class Handing:
+        def __iter__(self):
+            return LoudIterator(seq)
+
+    return Handing()
+
+
+assert set(handing()) == {1, 2, 3}
+assert frozenset(handing()) == frozenset({1, 2, 3})
+assert {1}.difference(handing()) == set()
+assert {1}.intersection(handing()) == {1}
+assert {1}.symmetric_difference(handing()) == {2, 3}
+assert {1}.issubset(handing())
+assert not {9}.issuperset(handing())
+assert dict.fromkeys(handing()) == {1: None, 2: None, 3: None}
+assert array.array("b", handing()) == array.array("b", [1, 2, 3])
+assert all(handing()) and any(handing())
+assert sum(handing()) == 6
+assert math.fsum(handing()) == 6.0
+assert math.prod(handing()) == 6
+assert collections.deque(handing()) == collections.deque([1, 2, 3])
+assert tuple(handing()) == (1, 2, 3)
+assert list(handing()) == [1, 2, 3]
+assert min(handing()) == 1
+assert bytes(handing()) == b"\x01\x02\x03"
+assert bytearray(handing()) == bytearray(b"\x01\x02\x03")
+io.StringIO().writelines(handing(("a", "b")))
+
+# join asks, and answers with what asking raised.
+for empty in ("", b""):
+    try:
+        empty.join(handing((empty.__class__(),)))
+    except NotImplementedError:
+        pass
+    else:
+        raise AssertionError(f"{empty.__class__.__name__}.join did not ask")

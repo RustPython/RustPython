@@ -629,7 +629,8 @@ impl PyBytesInner {
     }
 
     pub fn join(&self, iterable: ArgIterable<Self>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        let iter = iterable.iter(vm)?;
+        // `PySequence_Fast()`, as in `PyUnicode_Join()`.
+        let iter = iterable.iter_sized(vm)?;
         self.elements.py_join(iter)
     }
 
