@@ -486,9 +486,13 @@ impl VirtualMachine {
             ))),
             Some(idx) => {
                 let idx = idx?;
-                idx.as_bigint()
-                    .to_isize()
-                    .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))
+                idx.as_bigint().to_isize().ok_or_else(|| {
+                    // PyNumber_AsSsize_t(n, PyExc_OverflowError)
+                    self.new_overflow_error(format!(
+                        "cannot fit '{}' into an index-sized integer",
+                        n.class().name()
+                    ))
+                })
             }
         }
     }

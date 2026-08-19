@@ -1121,9 +1121,13 @@ mod builtins {
 
     #[pyfunction]
     fn pow(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // pow(base, exp, /, mod=None): 'exp' is required at position 2
-        if func_args.args.len() < 2 && !func_args.kwargs.contains_key("exp") {
-            return Err(vm.new_type_error("pow() missing required argument 'exp' (pos 2)"));
+        // clinic signature: pow(base, exp, /, mod=None) - both are required
+        for (pos, name) in [(1, "base"), (2, "exp")] {
+            if func_args.args.len() < pos && !func_args.kwargs.contains_key(name) {
+                return Err(vm.new_type_error(format!(
+                    "pow() missing required argument '{name}' (pos {pos})"
+                )));
+            }
         }
         if func_args.args.len() > 3 {
             return Err(vm.new_type_error(format!(

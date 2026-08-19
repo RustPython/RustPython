@@ -549,17 +549,12 @@ impl PyObject {
         }
 
         // Check if derived is a class
-        self.check_class(vm, || {
-            format!("issubclass() arg 1 must be a class, not {}", self.class())
-        })?;
+        self.check_class(vm, || "issubclass() arg 1 must be a class".to_owned())?;
 
         // Check if cls is a class, tuple, or union (matches CPython's order and message)
         if !cls.class().is(vm.ctx.types.union_type) {
             cls.check_class(vm, || {
-                format!(
-                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
-                    cls.class()
-                )
+                "issubclass() arg 2 must be a class, a tuple of classes, or a union".to_owned()
             })?;
         }
 
@@ -641,10 +636,7 @@ impl PyObject {
         } else {
             // Not a type object, check if it's a valid class
             cls.check_class(vm, || {
-                format!(
-                    "isinstance() arg 2 must be a type, a tuple of types, or a union, not {}",
-                    cls.class()
-                )
+                "isinstance() arg 2 must be a type, a tuple of types, or a union".to_owned()
             })?;
 
             if let Some(i_cls) =
