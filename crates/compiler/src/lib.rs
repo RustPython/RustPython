@@ -365,12 +365,6 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
-    // `2 <> 3` outside Barry mode: ruff lexes `<` then an unexpected `>` and
-    // reports `ExpectedExpression` starting at the `>`. CPython's tokenizer
-    // treats `<>` as a single obsolete token and points at its start (the
-    // `<`) instead, so shift the reported location back over it.
-    source_error!(barry_flufl_obsolete_operator_error(error, source_text));
-
     // CPython's PEG parser collapses a bare "expected an expression" failure
     // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
     // does this same collapse for its own callers; rustpython-compiler has no
@@ -385,21 +379,6 @@ fn cpython_parse_diagnostic_override(
     }
 
     None
-}
-
-fn barry_flufl_obsolete_operator_error(
-    error: &parser::ParseError,
-    source: &str,
-) -> Option<(String, usize, usize)> {
-    if !matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
-        return None;
-    }
-    let start = error.location.start().to_usize();
-    let bytes = source.as_bytes();
-    if start == 0 || bytes.get(start - 1) != Some(&b'<') || bytes.get(start) != Some(&b'>') {
-        return None;
-    }
-    Some(("invalid syntax".to_string(), start - 1, start + 1))
 }
 
 fn eof_parse_diagnostic(
@@ -5334,6 +5313,11 @@ impl BarrySource<'_> {
         })
     }
 
+    /// The obsolete `<>` operator the parse error points at, if any. In Barry
+    /// mode the operator was rewritten to `!=`, so the error lands on its
+    /// start; outside Barry mode ruff lexes `<` and then an unexpected `>`, so
+    /// the error lands one character in. Either way the whole operator is one
+    /// token to the tokenizer, so report it as one.
     #[must_use]
     pub fn invalid_legacy_operator(
         &self,
@@ -5344,10 +5328,19 @@ impl BarrySource<'_> {
             .iter()
             .copied()
             .find(|range| range.contains(location) || range.start() == location)
+            .filter(|range| self.outranks_unclosed_bracket(*range))
     }
 
-    /// The Barry-mode diagnostic for this source, if any. A `<>` that survived
-    /// the rewrite takes precedence over a `!=` reported later in the source.
+    /// Whether `range` outranks an unclosed bracket. The bracket is reported
+    /// at itself, so it wins over anything that starts after it.
+    fn outranks_unclosed_bracket(&self, range: ruff_text_size::TextRange) -> bool {
+        find_unclosed_bracket(&self.source)
+            .is_none_or(|(_, offset)| range.start() <= TextSize::new(offset as u32))
+    }
+
+    /// The diagnostic for this source, if any: an obsolete `<>` the parse
+    /// error points at, or -- in Barry mode only -- the first `!=`. A `<>`
+    /// takes precedence over a `!=` reported later in the source.
     #[must_use]
     pub fn diagnostic(
         &self,
@@ -5393,31 +5386,41 @@ pub fn barry_as_flufl_invalid_legacy_operator_error(
     )
 }
 
+/// Every `<>` in `source`, located by plain text search. Only used where the
+/// operator is not rewritten, so an occurrence inside a string or a comment
+/// costs nothing: it can never coincide with the location of a parse error.
+fn textual_legacy_not_equal(source: &str) -> Vec<ruff_text_size::TextRange> {
+    source
+        .match_indices("<>")
+        .map(|(offset, matched)| {
+            ruff_text_size::TextRange::at(
+                TextSize::new(offset as u32),
+                TextSize::new(matched.len() as u32),
+            )
+        })
+        .collect()
+}
+
 #[doc(hidden)]
 pub fn prepare_barry_as_flufl_source(
     source: &str,
     parser_options: parser::ParseOptions,
     inherited: bool,
 ) -> BarrySource<'_> {
-    if !inherited && !source.contains("barry_as_FLUFL") {
+    let scanned = (inherited || source.contains("barry_as_FLUFL"))
+        .then(|| parser::parse_unchecked(source, parser_options));
+    let enabled = scanned.as_ref().is_some_and(|scanned| {
+        inherited
+            || codegen::preprocess::future_features(scanned.syntax())
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+    });
+    let Some(scanned) = scanned.filter(|_| enabled) else {
         return BarrySource {
             source: Cow::Borrowed(source),
             not_equal: None,
-            legacy_not_equal: Vec::new(),
+            legacy_not_equal: textual_legacy_not_equal(source),
         };
-    }
-
-    let scanned = parser::parse_unchecked(source, parser_options);
-    let enabled = inherited
-        || codegen::preprocess::future_features(scanned.syntax())
-            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
-    if !enabled {
-        return BarrySource {
-            source: Cow::Borrowed(source),
-            not_equal: None,
-            legacy_not_equal: Vec::new(),
-        };
-    }
+    };
 
     let not_equal = scanned
         .tokens()
@@ -5604,13 +5607,34 @@ mod tests {
             .expect_err("'<>' outside Barry mode is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 3));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
 
-        // Only `<>` moves the reported location back over the `<`; any other
-        // token that cannot start an expression keeps its own location.
+        // Only `<>` spans two characters; any other token that cannot start an
+        // expression keeps its own location.
         let err = compile("2 <;\n", Mode::Exec, "<obsolete>", CompileOpts::default())
             .expect_err("'<;' is a syntax error");
         assert_eq!(err.to_string(), "invalid syntax");
         assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // A `<>` that starts a statement is reported at the `<` too, where the
+        // parser stops instead of one character in.
+        let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("a bare '<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 1));
+        assert_eq!(err.python_end_location(), Some((1, 3)));
+
+        // A bracket left open earlier in the source outranks the operator.
+        let err = compile(
+            "(\n2 <> 3",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("the bracket is never closed");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (1, 1));
     }
 
     #[test]
