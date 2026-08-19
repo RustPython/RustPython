@@ -353,6 +353,8 @@ impl FormatSpec {
     }
 
     fn _parse(text: &Wtf8) -> Result<Self, FormatSpecError> {
+        // the invalid-specifier error reports the whole spec
+        let full_spec = String::from_utf8_lossy(text.as_bytes()).into_owned();
         // get_integer in CPython
         let (conversion, text) = FormatConversion::parse(text);
         let (mut fill, mut align, text) = parse_fill_and_align(text);
@@ -374,7 +376,7 @@ impl FormatSpec {
         let (precision, frac_grouping_option, text) = parse_precision(text)?;
         let (format_type, text) = FormatType::parse(text);
         if !text.is_empty() {
-            return Err(FormatSpecError::InvalidFormatSpecifier);
+            return Err(FormatSpecError::InvalidFormatSpecifier(full_spec));
         }
 
         if zero && fill.is_none() {
@@ -1317,12 +1319,12 @@ impl Deref for AsciiStr<'_> {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FormatSpecError {
     DecimalDigitsTooMany,
     PrecisionTooBig,
     PrecisionMissing,
-    InvalidFormatSpecifier,
+    InvalidFormatSpecifier(String),
     UnspecifiedFormat(char, char),
     ExclusiveFormat(char, char),
     UnknownFormatCode(char, &'static str),
@@ -1341,9 +1343,10 @@ pub enum FormatSpecError {
 pub enum FormatParseError {
     UnmatchedBracket,
     MissingStartBracket,
-    UnescapedStartBracketInLiteral,
+    UnescapedStartBracketInLiteral(char),
+    UnknownConversion(char),
+    ConversionMissing,
     InvalidFormatSpecifier,
-    UnknownConversion,
     EmptyAttribute,
     MissingRightBracket,
     InvalidCharacterAfterRightBracket,
@@ -1481,7 +1484,8 @@ impl FormatString {
             let maybe_next_char = chars.next();
             // if we see a bracket, it has to be escaped by doubling up to be in a literal
             return if maybe_next_char.is_none() || maybe_next_char.unwrap() != first_char {
-                Err(FormatParseError::UnescapedStartBracketInLiteral)
+                let c = first_char.to_char_lossy();
+                Err(FormatParseError::UnescapedStartBracketInLiteral(c))
             } else {
                 Ok((first_char, chars.as_wtf8()))
             };
@@ -1558,11 +1562,12 @@ impl FormatString {
         let conversion_spec = parts
             .get(1)
             .map(|conversion| {
-                // conversions are only every one character
+                // the conversion is exactly one character; its value is
+                // validated when the field is formatted
                 conversion
                     .code_points()
                     .exactly_one()
-                    .map_err(|_| FormatParseError::UnknownConversion)
+                    .map_err(|_| FormatParseError::ConversionMissing)
             })
             .transpose()?;
 
@@ -1626,13 +1631,26 @@ impl<'a> FromTemplate<'a> for FormatString {
         let mut parts: Vec<FormatPart> = Vec::new();
         while !cur_text.is_empty() {
             // Try to parse both literals and bracketed format parts until we
-            // run out of text
-            cur_text = Self::parse_literal(cur_text)
-                .or_else(|_| Self::parse_spec(cur_text))
-                .map(|(part, new_text)| {
+            // run out of text. A lone '}' never starts a replacement field,
+            // and a '{' at the very end is reported as a single brace like
+            // CPython's markup iterator.
+            cur_text = match Self::parse_literal(cur_text) {
+                Ok((part, new_text)) => {
                     parts.push(part);
                     new_text
-                })?;
+                }
+                Err(FormatParseError::UnescapedStartBracketInLiteral(c @ '}')) => {
+                    return Err(FormatParseError::UnescapedStartBracketInLiteral(c));
+                }
+                Err(_) => {
+                    if cur_text.as_bytes() == b"{" {
+                        return Err(FormatParseError::UnescapedStartBracketInLiteral('{'));
+                    }
+                    let (part, new_text) = Self::parse_spec(cur_text)?;
+                    parts.push(part);
+                    new_text
+                }
+            };
         }
         Ok(Self {
             format_parts: parts,
@@ -2110,11 +2128,11 @@ mod tests {
         // A repeated separator is left in the spec and rejected as a whole.
         assert_eq!(
             FormatSpec::parse(".,,f"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier(".,,f".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse(".__f"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier(".__f".to_owned()))
         );
         // A dot needs either digits or a separator after it.
         assert_eq!(
@@ -2305,31 +2323,31 @@ mod tests {
     fn format_invalid_specification() {
         assert_eq!(
             FormatSpec::parse("%3"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier("%3".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse(".2fa"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier(".2fa".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse("ds"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier("ds".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse("x+"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier("x+".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse("b4"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier("b4".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse("o!"),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier("o!".to_owned()))
         );
         assert_eq!(
             FormatSpec::parse("d "),
-            Err(FormatSpecError::InvalidFormatSpecifier)
+            Err(FormatSpecError::InvalidFormatSpecifier("d ".to_owned()))
         );
     }
 

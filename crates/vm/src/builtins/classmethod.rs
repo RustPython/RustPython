@@ -65,12 +65,10 @@ impl GetDescriptor for PyClassMethod {
 impl Constructor for PyClassMethod {
     type Args = PyObjectRef;
 
-    fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
-        // Validate the signature here, but defer storing the callable and
-        // copying its attributes to `__init__` so that subclasses overriding
-        // `__init__` without calling `super().__init__()` see `__func__` as
-        // `None`, matching CPython.
-        let _: Self::Args = args.bind(vm)?;
+    fn slot_new(cls: PyTypeRef, _args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Like CPython's cm_new, __new__ ignores its arguments; the callable
+        // is stored and signature-validated in `__init__`, so that objects
+        // created via `__new__` alone see `__func__` as `None`.
         let classmethod = Self {
             callable: PyMutex::new(vm.ctx.none()),
         };
@@ -84,9 +82,18 @@ impl Constructor for PyClassMethod {
 }
 
 impl Initializer for PyClassMethod {
-    type Args = PyObjectRef;
+    type Args = FuncArgs;
 
-    fn init(zelf: PyRef<Self>, callable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+    fn init(zelf: PyRef<Self>, args: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
+        if !args.kwargs.is_empty() {
+            return Err(vm.new_type_error("classmethod() takes no keyword arguments"));
+        }
+        let callable = match args.args.len() {
+            1 => args.args.into_iter().next().unwrap(),
+            n => {
+                return Err(vm.new_type_error(format!("classmethod expected 1 argument, got {n}")));
+            }
+        };
         *zelf.callable.lock() = callable.clone();
         // Copy wrapper attributes from the callable, mirroring functools.wraps.
         let dict = zelf.as_object().dict().expect("classmethod has __dict__");

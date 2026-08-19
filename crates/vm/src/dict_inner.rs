@@ -1312,7 +1312,25 @@ impl DictKey for PyObject {
 
     #[inline(always)]
     fn key_hash(&self, vm: &VirtualMachine) -> PyResult<HashValue> {
-        self.hash(vm)
+        self.hash(vm).map_err(|e| {
+            // insertdict: unhashable keys are reported by name, with the
+            // original hash error in parentheses
+            if e.fast_isinstance(vm.ctx.exceptions.type_error) {
+                let key_str = e
+                    .as_object()
+                    .str(vm)
+                    .ok()
+                    .and_then(|s| s.to_str().map(str::to_owned));
+                if let Some(key_str) = key_str
+                    && let Some(name) = key_str.strip_prefix("unhashable type: '")
+                    && let Some(name) = name.strip_suffix('\'')
+                {
+                    return vm
+                        .new_type_error(format!("cannot use '{name}' as a dict key ({key_str})"));
+                }
+            }
+            e
+        })
     }
 
     #[inline(always)]

@@ -166,7 +166,14 @@ impl Destructor for PyGenerator {
         }
         // Throw GeneratorExit to run finally blocks
         if let Err(e) = zelf.inner.close(zelf.as_object(), vm) {
-            vm.run_unraisable(e, None, zelf.as_object().to_owned());
+            // PyErr_FormatUnraisable("Exception ignored while
+            // closing generator %R", self)
+            let msg = zelf
+                .as_object()
+                .repr(vm)
+                .ok()
+                .map(|repr| format!("Exception ignored while closing generator {repr}"));
+            vm.run_unraisable(e, msg, vm.ctx.none.clone().into());
         }
         Ok(())
     }

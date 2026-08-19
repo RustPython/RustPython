@@ -3,10 +3,13 @@ use crate::common::wtf8::Wtf8;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine, atomic_func,
     builtins::{
-        PyBaseExceptionRef, PyDict, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
+        PyBaseExceptionRef, PyDict, PyGetSet, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType,
+        PyTypeRef,
     },
     class::{PyClassImpl, StaticType},
-    function::{Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags},
+    function::{
+        Either, FuncArgs, OptionalArg, PyComparisonValue, PyMethodDef, PyMethodFlags, PySetterValue,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyMappingMethods, PySequenceMethods},
     sliceable::{SequenceIndex, SliceableSequenceOp},
@@ -30,6 +33,28 @@ pub struct StructSequenceNewArgs {
     pub sequence: PyObjectRef,
     #[pyarg(any, optional)]
     pub dict: OptionalArg<PyObjectRef>,
+}
+
+/// A struct sequence field: readable, and reporting CPython's message when
+/// something tries to assign to it (member descriptors say "readonly
+/// attribute", not the generic getset wording).
+fn structseq_field(
+    ctx: &Context,
+    name: &str,
+    class: &'static Py<PyType>,
+    index: usize,
+) -> PyRef<PyGetSet> {
+    // cast to u8 so there's less to store in the getter closure.
+    // Hopefully there's not struct sequences with >=256 elements :P
+    let index = index as u8;
+    let getset = PyGetSet::new(name, class)
+        .with_get(move |zelf: &PyTuple| zelf[index as usize].to_owned())
+        .with_set(
+            move |_zelf: PyObjectRef, _value: PySetterValue<PyObjectRef>, vm: &VirtualMachine| {
+                Err::<(), _>(vm.new_attribute_error("readonly attribute"))
+            },
+        );
+    PyRef::new_ref(getset, ctx.types.getset_type.to_owned(), None)
 }
 
 /// Create a new struct sequence instance from a sequence.
@@ -368,10 +393,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             let i = i as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
-                    zelf[i as usize].to_owned()
-                })
-                .into(),
+                structseq_field(ctx, name, class, i as usize).into(),
             );
         }
 
@@ -381,10 +403,7 @@ pub trait PyStructSequence: StaticType + PyClassImpl + Sized + 'static {
             let idx = (visible_count + i) as u8;
             class.set_attr(
                 ctx.intern_str(name),
-                ctx.new_readonly_getset(name, class, move |zelf: &PyTuple| {
-                    zelf[idx as usize].to_owned()
-                })
-                .into(),
+                structseq_field(ctx, name, class, idx as usize).into(),
             );
         }
 

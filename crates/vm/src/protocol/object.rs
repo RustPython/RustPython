@@ -185,15 +185,14 @@ impl PyObject {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         vm_trace!("object.__setattr__({:?}, {}, {:?})", self, attr_name, value);
-        if let Some(attr) = vm
+        let descr = vm
             .ctx
             .interned_str(attr_name)
-            .and_then(|attr_name| self.get_class_attr(attr_name))
+            .and_then(|attr_name| self.get_class_attr(attr_name));
+        if let Some(attr) = &descr
+            && let Some(descriptor) = attr.class().slots.descr_set.load()
         {
-            let descr_set = attr.class().slots.descr_set.load();
-            if let Some(descriptor) = descr_set {
-                return descriptor(&attr, self.to_owned(), value, vm);
-            }
+            return descriptor(attr, self.to_owned(), value, vm);
         }
 
         if let Some(instance_dict) = self.instance_dict() {
@@ -213,6 +212,27 @@ impl PyObject {
                 return Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()));
             }
             Ok(())
+        } else if descr.is_some() {
+            // _PyObject_GenericSetAttrWithDict: a class attribute without
+            // __set__ and no instance __dict__ is read-only
+            Err(vm.new_attribute_error(format!(
+                "'{}' object attribute '{}' is read-only",
+                self.class().name(),
+                attr_name
+            )))
+        } else if self.class().slots.setattro.load().is_some_and(|setattro| {
+            let generic: crate::types::SetattroFunc = crate::builtins::PyBaseObject::slot_setattro;
+            crate::types::fn_addr(setattro) == crate::types::fn_addr(generic)
+        }) {
+            // ... and when tp_setattro is the generic one, the error mentions
+            // that the type has no __dict__ for new attributes
+            let err = vm.new_attribute_error(format!(
+                "'{}' object has no attribute '{}' and no __dict__ for setting new attributes",
+                self.class().name(),
+                attr_name
+            ));
+            vm.set_attribute_error_context(&err, self.to_owned(), attr_name.to_owned());
+            Err(err)
         } else {
             Err(vm.new_no_attribute_error(self.to_owned(), attr_name.to_owned()))
         }
@@ -529,17 +549,12 @@ impl PyObject {
         }
 
         // Check if derived is a class
-        self.check_class(vm, || {
-            format!("issubclass() arg 1 must be a class, not {}", self.class())
-        })?;
+        self.check_class(vm, || "issubclass() arg 1 must be a class".to_owned())?;
 
         // Check if cls is a class, tuple, or union (matches CPython's order and message)
         if !cls.class().is(vm.ctx.types.union_type) {
             cls.check_class(vm, || {
-                format!(
-                    "issubclass() arg 2 must be a class, a tuple of classes, or a union, not {}",
-                    cls.class()
-                )
+                "issubclass() arg 2 must be a class, a tuple of classes, or a union".to_owned()
             })?;
         }
 
@@ -621,10 +636,7 @@ impl PyObject {
         } else {
             // Not a type object, check if it's a valid class
             cls.check_class(vm, || {
-                format!(
-                    "isinstance() arg 2 must be a type, a tuple of types, or a union, not {}",
-                    cls.class()
-                )
+                "isinstance() arg 2 must be a type, a tuple of types, or a union".to_owned()
             })?;
 
             if let Some(i_cls) =

@@ -41,6 +41,21 @@ pub(crate) fn get_locale_info() -> LocaleInfo {
     }
 }
 
+/// formatter_unicode: the invalid-specifier error names the object type
+pub(crate) fn format_spec_error_with_type(
+    err: FormatSpecError,
+    obj: &crate::PyObject,
+    vm: &VirtualMachine,
+) -> crate::builtins::PyBaseExceptionRef {
+    match err {
+        FormatSpecError::InvalidFormatSpecifier(spec) => vm.new_value_error(format!(
+            "Invalid format specifier '{spec}' for object of type '{}'",
+            obj.class().name()
+        )),
+        other => other.into_pyexception(vm),
+    }
+}
+
 impl IntoPyException for FormatSpecError {
     fn into_pyexception(self, vm: &VirtualMachine) -> PyBaseExceptionRef {
         match self {
@@ -49,7 +64,9 @@ impl IntoPyException for FormatSpecError {
             }
             Self::PrecisionTooBig => vm.new_value_error("Precision too big"),
             Self::PrecisionMissing => vm.new_value_error("Format specifier missing precision"),
-            Self::InvalidFormatSpecifier => vm.new_value_error("Invalid format specifier"),
+            Self::InvalidFormatSpecifier(spec) => {
+                vm.new_value_error(format!("Invalid format specifier '{spec}'"))
+            }
             Self::UnspecifiedFormat(c1, c2) => {
                 let msg = format!("Cannot specify '{c1}' with '{c2}'.");
                 vm.new_value_error(msg)
@@ -101,6 +118,13 @@ impl ToPyException for FormatParseError {
             Self::TooManyDecimalDigits => {
                 vm.new_value_error("Too many decimal digits in format string")
             }
+            Self::UnescapedStartBracketInLiteral(c) => {
+                vm.new_value_error(format!("Single '{c}' encountered in format string"))
+            }
+            Self::UnknownConversion(c) => {
+                vm.new_value_error(format!("Unknown conversion specifier {c}"))
+            }
+            Self::ConversionMissing => vm.new_value_error("unmatched '{' in format spec"),
             _ => vm.new_value_error("Unexpected error parsing format string"),
         }
     }
@@ -143,6 +167,15 @@ fn format_internal(
                     FormatString::from_str(format_spec).map_err(|e| e.to_pyexception(vm))?;
                 let format_spec = format_internal(vm, &nested_format, field_func)?;
 
+                // CPython validates the conversion character at format time
+                if let Some(c) = conversion_spec
+                    && !matches!(c.to_char_lossy(), 's' | 'r' | 'a')
+                {
+                    return Err(vm.new_value_error(format!(
+                        "Unknown conversion specifier {}",
+                        c.to_char_lossy()
+                    )));
+                }
                 let argument = match conversion_spec.and_then(FormatConversion::from_char) {
                     Some(FormatConversion::Str) => argument.str(vm)?.into(),
                     Some(FormatConversion::Repr) => argument.repr(vm)?.into(),

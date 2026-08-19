@@ -275,7 +275,6 @@ class HashLibTestCase(unittest.TestCase):
                     self._hashlib.new(digest_name, data=b'')
                     self._hashlib.new(digest_name, string=b'')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; duplicate positional/keyword arg error message differs
     @unittest.skipIf(get_fips_mode(), "skip in FIPS mode")
     def test_clinic_signature_errors(self):
         nomsg = b''

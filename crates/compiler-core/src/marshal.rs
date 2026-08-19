@@ -9,8 +9,28 @@ pub const FORMAT_VERSION: u32 = 5;
 
 #[derive(Clone, Copy, Debug)]
 pub enum MarshalError {
-    /// Unexpected End Of File
+    /// Unexpected End Of File while reading object data
     Eof,
+    /// Unexpected End Of File where an object was expected
+    EofObject,
+    /// Unexpected End Of File at a direct byte read (e.g. a length byte)
+    EofByte,
+    /// Nesting deeper than MAX_MARSHAL_STACK_DEPTH
+    RecursionLimitExceeded,
+    /// TYPE_NULL read where an object was expected
+    NullObject,
+    /// TYPE_NULL read as a tuple element
+    NullInTuple,
+    /// TYPE_NULL read as a list element
+    NullInList,
+    /// TYPE_NULL read as a set element
+    NullInSet,
+    /// TYPE_NULL read as a code object field
+    NullInCode,
+    /// Corrupt data; payload is the parenthetical of "bad marshal data (...)"
+    BadData(&'static str),
+    /// Error reported out-of-band by the reader (e.g. a Python-level read error)
+    ReadFailed,
     /// Invalid Bytecode
     InvalidBytecode,
     /// Invalid utf8 in string
@@ -23,25 +43,50 @@ pub enum MarshalError {
     UnknownType,
     /// A back reference that names nothing
     InvalidRef,
-    /// A marker that stands for no object at all
-    NullObject,
     /// A container length that is negative or does not fit, named by what it counts
     BadSize(&'static str),
+}
+
+impl MarshalError {
+    /// Report a bare TYPE_NULL with the containing object's context.
+    fn null_in(self, container: Self) -> Self {
+        match self {
+            Self::NullObject => container,
+            e => e,
+        }
+    }
 }
 
 impl core::fmt::Display for MarshalError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Eof => f.write_str("unexpected end of data"),
+            Self::EofObject => f.write_str("unexpected end of data at object boundary"),
+            Self::EofByte => f.write_str("unexpected end of data at byte read"),
+            Self::RecursionLimitExceeded => f.write_str("recursion limit exceeded"),
+            Self::NullObject => f.write_str("null object in marshal data"),
+            Self::NullInTuple => f.write_str("null object in marshal data for tuple"),
+            Self::NullInList => f.write_str("null object in marshal data for list"),
+            Self::NullInSet => f.write_str("null object in marshal data for set"),
+            Self::NullInCode => f.write_str("null object in marshal data for code object"),
+            Self::BadData(msg) => write!(f, "bad marshal data ({msg})"),
+            Self::ReadFailed => f.write_str("read failed"),
             Self::InvalidBytecode => f.write_str("invalid bytecode"),
             Self::InvalidUtf8 => f.write_str("invalid utf8"),
             Self::InvalidLocation => f.write_str("invalid source location"),
             Self::BadType => f.write_str("bad type marker"),
             Self::UnknownType => f.write_str("unknown type code"),
             Self::InvalidRef => f.write_str("invalid reference"),
-            Self::NullObject => f.write_str("NULL object in marshal data for object"),
             Self::BadSize(what) => write!(f, "{what} size out of range"),
         }
+    }
+}
+
+/// Remap a payload EOF to a direct-`r_byte` EOF (CPython length-byte reads).
+fn eof_at_byte(e: MarshalError) -> MarshalError {
+    match e {
+        MarshalError::Eof => MarshalError::EofByte,
+        e => e,
     }
 }
 
@@ -147,6 +192,14 @@ pub trait Read {
         Ok(u8::from_le_bytes(*self.read_array()?))
     }
 
+    /// Read a type byte at an object boundary (CPython `r_object`'s `r_byte`).
+    fn read_type_byte(&mut self) -> Result<u8> {
+        self.read_u8().map_err(|e| match e {
+            MarshalError::Eof => MarshalError::EofObject,
+            e => e,
+        })
+    }
+
     fn read_u16(&mut self) -> Result<u16> {
         Ok(u16::from_le_bytes(*self.read_array()?))
     }
@@ -226,7 +279,7 @@ fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<CodeObject<Bag::Constant>> {
     if depth == 0 {
-        return Err(MarshalError::InvalidBytecode);
+        return Err(MarshalError::RecursionLimitExceeded);
     }
     // 1–5: scalar fields
     let arg_count = rdr.read_u32()?;
@@ -236,24 +289,35 @@ fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
     let flags = CodeFlags::from_bits_truncate(rdr.read_u32()?);
 
     // 6: co_code
-    let code_bytes = read_marshal_bytes(rdr, &bag, refs)?;
+    let code_bytes =
+        read_marshal_bytes(rdr, &bag, refs).map_err(|e| e.null_in(MarshalError::NullInCode))?;
 
     // 7: co_consts
-    let constants = read_marshal_const_tuple(rdr, bag, depth, refs)?;
+    let constants = read_marshal_const_tuple(rdr, bag, depth, refs)
+        .map_err(|e| e.null_in(MarshalError::NullInCode))?;
 
     // 8: co_names
-    let names = read_marshal_name_tuple(rdr, &bag, refs)?;
+    let names = read_marshal_name_tuple(rdr, &bag, refs)
+        .map_err(|e| e.null_in(MarshalError::NullInCode))?;
 
     // 9: co_localsplusnames
-    let localsplusnames = read_marshal_str_vec(rdr, &bag, refs)?;
+    let localsplusnames =
+        read_marshal_str_vec(rdr, &bag, refs).map_err(|e| e.null_in(MarshalError::NullInCode))?;
 
     // 10: co_localspluskinds
-    let localspluskinds = read_marshal_bytes(rdr, &bag, refs)?;
+    let localspluskinds =
+        read_marshal_bytes(rdr, &bag, refs).map_err(|e| e.null_in(MarshalError::NullInCode))?;
 
     // 11–13: filename, name, qualname
-    let source_path = bag.make_name(&read_marshal_str(rdr, &bag, refs)?);
-    let obj_name = bag.make_name(&read_marshal_str(rdr, &bag, refs)?);
-    let qualname = bag.make_name(&read_marshal_str(rdr, &bag, refs)?);
+    let source_path = bag.make_name(
+        &read_marshal_str(rdr, &bag, refs).map_err(|e| e.null_in(MarshalError::NullInCode))?,
+    );
+    let obj_name = bag.make_name(
+        &read_marshal_str(rdr, &bag, refs).map_err(|e| e.null_in(MarshalError::NullInCode))?,
+    );
+    let qualname = bag.make_name(
+        &read_marshal_str(rdr, &bag, refs).map_err(|e| e.null_in(MarshalError::NullInCode))?,
+    );
 
     // 14: co_firstlineno
     let first_line_raw = rdr.read_u32()? as i32;
@@ -264,8 +328,12 @@ fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
     };
 
     // 15–16: linetable, exceptiontable
-    let linetable = read_marshal_bytes(rdr, &bag, refs)?.into_boxed_slice();
-    let exceptiontable = read_marshal_bytes(rdr, &bag, refs)?.into_boxed_slice();
+    let linetable = read_marshal_bytes(rdr, &bag, refs)
+        .map_err(|e| e.null_in(MarshalError::NullInCode))?
+        .into_boxed_slice();
+    let exceptiontable = read_marshal_bytes(rdr, &bag, refs)
+        .map_err(|e| e.null_in(MarshalError::NullInCode))?
+        .into_boxed_slice();
 
     // Split localsplusnames/kinds → varnames/cellvars/freevars
     let lp = split_localplus(
@@ -310,13 +378,16 @@ fn deserialize_code_inner<R: Read, Bag: ConstantBag>(
 }
 
 /// Reserve a ref slot if `FLAG_REF` was present, returning its index.
-fn reserve_ref_slot<T>(has_flag: bool, refs: &mut Vec<Option<T>>) -> Option<usize> {
+fn reserve_ref_slot<T>(has_flag: bool, refs: &mut Vec<Option<T>>) -> Result<Option<usize>> {
     if has_flag {
         let idx = refs.len();
+        if idx >= 0x7fff_fffe {
+            return Err(MarshalError::BadData("index list too large"));
+        }
         refs.push(None);
-        Some(idx)
+        Ok(Some(idx))
     } else {
-        None
+        Ok(None)
     }
 }
 
@@ -334,7 +405,7 @@ fn read_marshal_bytes<R: Read, Bag: ConstantBag>(
     bag: &Bag,
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Vec<u8>> {
-    let raw = rdr.read_u8()?;
+    let raw = rdr.read_type_byte()?;
     let type_byte = raw & !FLAG_REF;
     let has_flag = raw & FLAG_REF != 0;
 
@@ -347,13 +418,23 @@ fn read_marshal_bytes<R: Read, Bag: ConstantBag>(
         };
     }
 
+    if type_byte == Type::Null as u8 {
+        return Err(MarshalError::NullObject);
+    }
     if type_byte != Type::Bytes as u8 {
-        return Err(MarshalError::BadType);
+        return Err(if Type::try_from(type_byte).is_ok() {
+            MarshalError::BadType
+        } else {
+            MarshalError::BadData("unknown type code")
+        });
     }
 
-    let slot = reserve_ref_slot(has_flag, refs);
-    let len = rdr.read_u32()?;
-    let bytes = rdr.read_slice(len)?.to_vec();
+    let slot = reserve_ref_slot(has_flag, refs)?;
+    let len = read_i32(rdr)?;
+    if len < 0 {
+        return Err(MarshalError::BadData("bytes object size out of range"));
+    }
+    let bytes = rdr.read_slice(len as u32)?.to_vec();
     if let Some(idx) = slot {
         refs[idx] =
             Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Bytes { value: &bytes }));
@@ -368,7 +449,7 @@ fn read_marshal_str<R: Read, Bag: ConstantBag>(
     bag: &Bag,
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<alloc::string::String> {
-    let raw = rdr.read_u8()?;
+    let raw = rdr.read_type_byte()?;
     let type_byte = raw & !FLAG_REF;
     let has_flag = raw & FLAG_REF != 0;
 
@@ -381,17 +462,25 @@ fn read_marshal_str<R: Read, Bag: ConstantBag>(
         };
     }
 
-    let slot = reserve_ref_slot(has_flag, refs);
+    if type_byte == Type::Null as u8 {
+        return Err(MarshalError::NullObject);
+    }
+
+    let slot = reserve_ref_slot(has_flag, refs)?;
     let owned = match type_byte {
         b'u' | b't' | b'a' | b'A' => {
-            let len = rdr.read_u32()?;
-            alloc::string::String::from(rdr.read_str(len)?)
+            let len = read_i32(rdr)?;
+            if len < 0 {
+                return Err(MarshalError::BadData("string size out of range"));
+            }
+            alloc::string::String::from(rdr.read_str(len as u32)?)
         }
         b'z' | b'Z' => {
-            let len = rdr.read_u8()? as u32;
+            let len = rdr.read_u8().map_err(eof_at_byte)? as u32;
             alloc::string::String::from(rdr.read_str(len)?)
         }
-        _ => return Err(MarshalError::BadType),
+        _ if Type::try_from(type_byte).is_ok() => return Err(MarshalError::BadType),
+        _ => return Err(MarshalError::BadData("unknown type code")),
     };
     if let Some(idx) = slot {
         refs[idx] = Some(bag.make_constant::<Bag::Constant>(BorrowedConstant::Str {
@@ -407,7 +496,7 @@ fn read_marshal_str_vec<R: Read, Bag: ConstantBag>(
     bag: &Bag,
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Vec<alloc::string::String>> {
-    let raw = rdr.read_u8()?;
+    let raw = rdr.read_type_byte()?;
     let type_byte = raw & !FLAG_REF;
     let has_flag = raw & FLAG_REF != 0;
 
@@ -426,14 +515,18 @@ fn read_marshal_str_vec<R: Read, Bag: ConstantBag>(
         };
     }
 
+    if type_byte == Type::Null as u8 {
+        return Err(MarshalError::NullObject);
+    }
+
     let n = match type_byte {
         b'(' => rdr.read_len("tuple")?,
         b')' => rdr.read_u8()? as usize,
         _ => return Err(MarshalError::BadType),
     };
-    let slot = reserve_ref_slot(has_flag, refs);
+    let slot = reserve_ref_slot(has_flag, refs)?;
     let items: Vec<alloc::string::String> = (0..n)
-        .map(|_| read_marshal_str(rdr, bag, refs))
+        .map(|_| read_marshal_str(rdr, bag, refs).map_err(|e| e.null_in(MarshalError::NullInTuple)))
         .collect::<Result<_>>()?;
     if let Some(idx) = slot {
         let elements: Vec<Bag::Constant> = items
@@ -474,9 +567,9 @@ fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Constants<Bag::Constant>> {
     if depth == 0 {
-        return Err(MarshalError::InvalidBytecode);
+        return Err(MarshalError::RecursionLimitExceeded);
     }
-    let raw = rdr.read_u8()?;
+    let raw = rdr.read_type_byte()?;
     let type_byte = raw & !FLAG_REF;
     let has_flag = raw & FLAG_REF != 0;
 
@@ -489,15 +582,22 @@ fn read_marshal_const_tuple<R: Read, Bag: ConstantBag>(
         };
     }
 
+    if type_byte == Type::Null as u8 {
+        return Err(MarshalError::NullObject);
+    }
+
     let n = match type_byte {
         b'(' => rdr.read_len("tuple")?,
         b')' => rdr.read_u8()? as usize,
         _ => return Err(MarshalError::BadType),
     };
-    let slot = reserve_ref_slot(has_flag, refs);
+    let slot = reserve_ref_slot(has_flag, refs)?;
     let child_depth = depth - 1;
     let items: Vec<Bag::Constant> = (0..n)
-        .map(|_| read_const_value(rdr, bag, child_depth, refs))
+        .map(|_| {
+            read_const_value(rdr, bag, child_depth, refs)
+                .map_err(|e| e.null_in(MarshalError::NullInTuple))
+        })
         .collect::<Result<_>>()?;
     if let Some(idx) = slot {
         refs[idx] =
@@ -518,9 +618,9 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
     refs: &mut Vec<Option<Bag::Constant>>,
 ) -> Result<Bag::Constant> {
     if depth == 0 {
-        return Err(MarshalError::InvalidBytecode);
+        return Err(MarshalError::RecursionLimitExceeded);
     }
-    let raw = rdr.read_u8()?;
+    let raw = rdr.read_type_byte()?;
     let flag = raw & FLAG_REF != 0;
     let type_code = raw & !FLAG_REF;
 
@@ -529,7 +629,7 @@ fn read_const_value<R: Read, Bag: ConstantBag>(
         return resolve_ref(idx, refs);
     }
 
-    let slot = reserve_ref_slot(flag, refs);
+    let slot = reserve_ref_slot(flag, refs)?;
     let typ = Type::try_from(type_code)?;
     let value = if matches!(typ, Type::Code) {
         let code = deserialize_code_inner(rdr, bag, depth - 1, refs)?;
@@ -853,10 +953,8 @@ fn deserialize_value_depth<R: Read, Bag: MarshalBag>(
     depth: usize,
     refs: &mut Vec<Option<Bag::Value>>,
 ) -> Result<Bag::Value> {
-    if depth == 0 {
-        return Err(MarshalError::InvalidBytecode);
-    }
-    let raw = rdr.read_u8()?;
+    // CPython's r_object() reads the type byte before checking the depth limit
+    let raw = rdr.read_type_byte()?;
     deserialize_value_after_header(rdr, bag, depth, refs, raw)
 }
 
@@ -872,7 +970,7 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
     raw: u8,
 ) -> Result<Bag::Value> {
     if depth == 0 {
-        return Err(MarshalError::InvalidBytecode);
+        return Err(MarshalError::RecursionLimitExceeded);
     }
     let flag = raw & FLAG_REF != 0;
     let type_code = raw & !FLAG_REF;
@@ -884,13 +982,7 @@ fn deserialize_value_after_header<R: Read, Bag: MarshalBag>(
     }
 
     // Reserve ref slot before reading (matches write order)
-    let slot = if flag {
-        let idx = refs.len();
-        refs.push(None);
-        Some(idx)
-    } else {
-        None
-    };
+    let slot = reserve_ref_slot(flag, refs)?;
 
     let typ = Type::try_from(type_code)?;
     let value = if matches!(typ, Type::Code) {
@@ -1045,7 +1137,7 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
     slot: Option<usize>,
 ) -> Result<Bag::Value> {
     if depth == 0 {
-        return Err(MarshalError::InvalidBytecode);
+        return Err(MarshalError::RecursionLimitExceeded);
     }
     let value = match typ {
         Type::True => bag.make_bool(true),
@@ -1090,29 +1182,33 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             bag.make_interned_str(value)
         }
         Type::ShortAscii => {
-            let len = rdr.read_u8()? as u32;
+            let len = rdr.read_u8().map_err(eof_at_byte)? as u32;
             let value = rdr.read_wtf8(len)?;
             bag.make_str(value)
         }
         Type::ShortAsciiInterned => {
-            let len = rdr.read_u8()? as u32;
+            let len = rdr.read_u8().map_err(eof_at_byte)? as u32;
             let value = rdr.read_wtf8(len)?;
             bag.make_interned_str(value)
         }
         Type::SmallTuple => {
-            let len = rdr.read_u8()? as usize;
+            let len = rdr.read_u8().map_err(eof_at_byte)? as usize;
             let d = depth - 1;
             if let Some(index) = slot
                 && let Some(tuple) = bag.make_tuple_placeholder(len)?
             {
                 refs[index] = Some(tuple.clone());
                 for item_index in 0..len {
-                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let item = deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInTuple))?;
                     bag.set_tuple_item(&tuple, item_index, item)?;
                 }
                 tuple
             } else {
-                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                let it = (0..len).map(|_| {
+                    deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInTuple))
+                });
                 itertools::process_results(it, |it| bag.make_tuple(it))?
             }
         }
@@ -1131,12 +1227,16 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             {
                 refs[index] = Some(tuple.clone());
                 for item_index in 0..len {
-                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let item = deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInTuple))?;
                     bag.set_tuple_item(&tuple, item_index, item)?;
                 }
                 tuple
             } else {
-                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                let it = (0..len).map(|_| {
+                    deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInTuple))
+                });
                 itertools::process_results(it, |it| bag.make_tuple(it))?
             }
         }
@@ -1148,12 +1248,16 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             {
                 refs[index] = Some(list.clone());
                 for item_index in 0..len {
-                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let item = deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInList))?;
                     bag.set_list_item(&list, item_index, item)?;
                 }
                 list
             } else {
-                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                let it = (0..len).map(|_| {
+                    deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInList))
+                });
                 itertools::process_results(it, |it| bag.make_list(it))??
             }
         }
@@ -1165,19 +1269,26 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             {
                 refs[index] = Some(set.clone());
                 for _ in 0..len {
-                    let item = deserialize_value_depth(rdr, bag, d, refs)?;
+                    let item = deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInSet))?;
                     bag.insert_set_item(&set, item)?;
                 }
                 set
             } else {
-                let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+                let it = (0..len).map(|_| {
+                    deserialize_value_depth(rdr, bag, d, refs)
+                        .map_err(|e| e.null_in(MarshalError::NullInSet))
+                });
                 itertools::process_results(it, |it| bag.make_set(it))??
             }
         }
         Type::FrozenSet => {
             let len = rdr.read_len("set")?;
             let d = depth - 1;
-            let it = (0..len).map(|_| deserialize_value_depth(rdr, bag, d, refs));
+            let it = (0..len).map(|_| {
+                deserialize_value_depth(rdr, bag, d, refs)
+                    .map_err(|e| e.null_in(MarshalError::NullInSet))
+            });
             itertools::process_results(it, |it| bag.make_frozenset(it))??
         }
         Type::Dict => {
@@ -1187,24 +1298,32 @@ fn deserialize_value_typed<R: Read, Bag: MarshalBag>(
             {
                 refs[index] = Some(dict.clone());
                 loop {
-                    let raw = rdr.read_u8()?;
+                    let raw = rdr.read_type_byte()?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }
                     let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    // CPython drops the pending pair and ends the dict on a NULL value
+                    let value = match deserialize_value_depth(rdr, bag, d, refs) {
+                        Err(MarshalError::NullObject) => break,
+                        res => res?,
+                    };
                     bag.insert_dict_item(&dict, key, value)?;
                 }
                 dict
             } else {
                 let mut pairs = Vec::new();
                 loop {
-                    let raw = rdr.read_u8()?;
+                    let raw = rdr.read_type_byte()?;
                     if raw & !FLAG_REF == b'0' {
                         break;
                     }
                     let key = deserialize_value_after_header(rdr, bag, d, refs, raw)?;
-                    let value = deserialize_value_depth(rdr, bag, d, refs)?;
+                    // CPython drops the pending pair and ends the dict on a NULL value
+                    let value = match deserialize_value_depth(rdr, bag, d, refs) {
+                        Err(MarshalError::NullObject) => break,
+                        res => res?,
+                    };
                     pairs.push((key, value));
                 }
                 bag.make_dict(pairs.into_iter())?
@@ -1559,6 +1678,10 @@ pub fn read_pylong<R: Read>(rdr: &mut R) -> Result<BigInt> {
     const MARSHAL_SHIFT: u32 = 15;
     const MARSHAL_BASE: u32 = 1 << MARSHAL_SHIFT;
     let n = read_i32(rdr)?;
+    // CPython: n < -SIZE32_MAX || n > SIZE32_MAX (only i32::MIN qualifies)
+    if n == i32::MIN {
+        return Err(MarshalError::BadData("long size out of range"));
+    }
     if n == 0 {
         return Ok(BigInt::from(0));
     }
@@ -1569,13 +1692,13 @@ pub fn read_pylong<R: Read>(rdr: &mut R) -> Result<BigInt> {
     for i in 0..num_digits {
         let d = rdr.read_u16()? as u32;
         if d >= MARSHAL_BASE {
-            return Err(MarshalError::InvalidBytecode);
+            return Err(MarshalError::BadData("digit out of range in long"));
         }
         last_digit = d;
         accum += BigInt::from(d) << (i as u32 * MARSHAL_SHIFT);
     }
     if num_digits > 0 && last_digit == 0 {
-        return Err(MarshalError::InvalidBytecode);
+        return Err(MarshalError::BadData("unnormalized long data"));
     }
     if negative {
         accum = -accum;
@@ -1585,7 +1708,7 @@ pub fn read_pylong<R: Read>(rdr: &mut R) -> Result<BigInt> {
 
 /// Read a text-encoded float (1-byte length + ASCII).
 pub fn read_float_str<R: Read>(rdr: &mut R) -> Result<f64> {
-    let n = rdr.read_u8()? as u32;
+    let n = rdr.read_u8().map_err(eof_at_byte)? as u32;
     let s = rdr.read_str(n)?;
     s.parse::<f64>().map_err(|_| MarshalError::InvalidBytecode)
 }

@@ -10,10 +10,10 @@ mod zlib {
         Decompressor, USE_AFTER_FINISH_ERR, flush_sync,
     };
     use crate::vm::{
-        Py, PyObject, PyPayload, PyResult, VirtualMachine,
+        Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyBytesRef, PyIntRef, PyType, PyTypeRef},
         common::lock::PyMutex,
-        convert::{ToPyException, TryFromBorrowedObject},
+        convert::{ToPyException, TryFromBorrowedObject, TryFromObject},
         function::{ArgBytesLike, ArgPrimitiveIndex, ArgSize, OptionalArg},
         types::Constructor,
     };
@@ -155,8 +155,8 @@ mod zlib {
         data: ArgBytesLike,
         #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i8>,
-        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE })]
-        bufsize: ArgPrimitiveIndex<usize>,
+        #[pyarg(any, default = ArgPrimitiveIndex { value: DEF_BUF_SIZE as isize })]
+        bufsize: ArgPrimitiveIndex<isize>,
     }
 
     /// Returns a bytes object containing the uncompressed data.
@@ -167,9 +167,13 @@ mod zlib {
             wbits,
             bufsize,
         } = args;
+        if bufsize.value < 0 {
+            return Err(vm.new_value_error("bufsize must be non-negative"));
+        }
+        let bufsize = (bufsize.value as usize).max(1);
         data.with_ref(|data| {
             let mut d = InitOptions::new(wbits.value, vm)?.decompress();
-            let (buf, stream_end) = _decompress(data, &mut d, bufsize.value, None, flush_sync)
+            let (buf, stream_end) = _decompress(data, &mut d, bufsize, None, flush_sync)
                 .map_err(|e| new_zlib_error(e.to_string(), vm))?;
             if !stream_end {
                 return Err(new_zlib_error(
@@ -186,18 +190,42 @@ mod zlib {
         #[pyarg(any, default = ArgPrimitiveIndex { value: MAX_WBITS })]
         wbits: ArgPrimitiveIndex<i8>,
         #[pyarg(any, optional)]
-        zdict: OptionalArg<ArgBytesLike>,
+        zdict: OptionalArg<PyObjectRef>,
+    }
+
+    fn parse_zdict(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<ArgBytesLike> {
+        ArgBytesLike::try_from_object(vm, obj)
+            .map_err(|_| vm.new_type_error("zdict argument must support the buffer protocol"))
+    }
+
+    fn set_zdict(
+        decompress: &mut Decompress,
+        zdict: &ArgBytesLike,
+        vm: &VirtualMachine,
+    ) -> PyResult<()> {
+        zdict.with_ref(|d| {
+            if d.len() > u32::MAX as usize {
+                return Err(vm.new_overflow_error("zdict length does not fit in an unsigned int"));
+            }
+            decompress
+                .set_dictionary(d)
+                .map(|_| ())
+                .map_err(|_| new_zlib_error("failed to set dictionary", vm))
+        })
     }
 
     #[pyfunction]
     fn decompressobj(args: DecompressobjArgs, vm: &VirtualMachine) -> PyResult<PyDecompress> {
         let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
-        let zdict = args.zdict.into_option();
+        let zdict = args
+            .zdict
+            .into_option()
+            .map(|obj| parse_zdict(obj, vm))
+            .transpose()?;
         if let Some(dict) = &zdict
             && args.wbits.value < 0
         {
-            dict.with_ref(|d| decompress.set_dictionary(d))
-                .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
+            set_zdict(&mut decompress, dict, vm)?;
         }
         let inner = PyDecompressInner {
             decompress: Some(DecompressWithDict { decompress, zdict }),
@@ -364,7 +392,16 @@ mod zlib {
         #[allow(unused_mut)]
         let mut compress = InitOptions::new(wbits.value, vm)?.compress(level);
         if let Some(zdict) = zdict {
-            zdict.with_ref(|zdict| compress.set_dictionary(zdict).unwrap());
+            zdict.with_ref(|zdict| {
+                if zdict.len() > u32::MAX as usize {
+                    return Err(
+                        vm.new_overflow_error("zdict length does not fit in an unsigned int")
+                    );
+                }
+                compress
+                    .set_dictionary(zdict)
+                    .map_err(|_| vm.new_value_error("Invalid dictionary"))
+            })?;
         }
         Ok(PyCompress {
             inner: PyMutex::new(CompressState::new(CompressInner::new(compress))),
@@ -573,12 +610,15 @@ mod zlib {
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let mut decompress = InitOptions::new(args.wbits.value, vm)?.decompress();
-            let zdict = args.zdict.into_option();
+            let zdict = args
+                .zdict
+                .into_option()
+                .map(|obj| parse_zdict(obj, vm))
+                .transpose()?;
             if let Some(dict) = &zdict
                 && args.wbits.value < 0
             {
-                dict.with_ref(|d| decompress.set_dictionary(d))
-                    .map_err(|_| new_zlib_error("failed to set dictionary", vm))?;
+                set_zdict(&mut decompress, dict, vm)?;
             }
             let inner = DecompressState::new(DecompressWithDict { decompress, zdict }, vm);
             Ok(Self {

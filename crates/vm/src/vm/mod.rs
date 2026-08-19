@@ -1935,7 +1935,7 @@ impl VirtualMachine {
         if let Ok(modules) = self.sys_module.get_attr(identifier!(self, modules), self)
             && let Some(modules_dict) = modules.downcast_ref::<PyDict>()
         {
-            modules_dict.clear();
+            modules_dict.clear_inner();
         }
     }
 
@@ -2609,9 +2609,19 @@ impl VirtualMachine {
         from_list: &Py<PyTuple<PyStrRef>>,
         level: usize,
     ) -> PyResult {
-        let import_func = self
-            .builtins
-            .get_attr(identifier!(self, __import__), self)
+        // CPython resolves `__import__` against the executing frame's builtins,
+        // so `exec(code, {"__builtins__": {}})` fails instead of importing.
+        let builtins = crate::frame::current_builtins();
+        let import_func = builtins
+            .as_deref()
+            .unwrap_or_else(|| self.builtins.as_object())
+            .get_item(identifier!(self, __import__), self)
+            .or_else(|_| {
+                builtins
+                    .as_deref()
+                    .unwrap_or_else(|| self.builtins.as_object())
+                    .get_attr(identifier!(self, __import__), self)
+            })
             .map_err(|_| self.new_import_error("__import__ not found", module.to_owned()))?;
 
         let (locals, globals) = if let Some(globals) = crate::frame::current_globals() {
@@ -2625,7 +2635,12 @@ impl VirtualMachine {
         } else {
             (None, None)
         };
-        let from_list: PyObjectRef = from_list.to_owned().into();
+        // A plain `import x` has no from-list; CPython passes None, not ().
+        let from_list: PyObjectRef = if from_list.is_empty() {
+            self.ctx.none()
+        } else {
+            from_list.to_owned().into()
+        };
         import_func
             .call((module.to_owned(), globals, locals, from_list, level), self)
             .inspect_err(|exc| import::remove_importlib_frames(self, exc))

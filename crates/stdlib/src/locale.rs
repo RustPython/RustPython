@@ -183,8 +183,8 @@ mod _locale {
             return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
         }
 
-        let result = match args.locale.flatten() {
-            None => host_locale::setlocale(args.category, None),
+        let (query, result) = match args.locale.flatten() {
+            None => (true, host_locale::setlocale(args.category, None)),
             Some(locale) => {
                 let locale_str = locale.as_str();
                 #[cfg(windows)]
@@ -202,11 +202,19 @@ mod _locale {
                 }
                 let c_locale: CString =
                     CString::new(locale_str).map_err(|e| e.to_pyexception(vm))?;
-                host_locale::setlocale(args.category, Some(&c_locale))
+                (
+                    false,
+                    host_locale::setlocale(args.category, Some(&c_locale)),
+                )
             }
         };
         let Some(result) = result else {
-            return Err(vm.new_exception_msg(error, "unsupported locale setting".into()));
+            let msg = if query {
+                "locale query failed"
+            } else {
+                "unsupported locale setting"
+            };
+            return Err(vm.new_exception_msg(error, msg.into()));
         };
         Ok(pystr_from_bytes(vm, &result))
     }

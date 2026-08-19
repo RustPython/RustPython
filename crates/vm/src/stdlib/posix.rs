@@ -17,14 +17,14 @@ pub use rustpython_host_env::posix::set_inheritable;
 pub mod module {
     use crate::{
         AsObject, Py, PyObjectRef, PyResult, VirtualMachine,
-        builtins::{PyDictRef, PyInt, PyListRef, PyTupleRef, PyUtf8Str},
+        builtins::{PyDictRef, PyInt, PyTupleRef, PyUtf8Str},
         convert::{IntoPyException, ToPyException, ToPyObject, TryFromObject},
         exceptions::OSErrorBuilder,
-        function::{ArgMapping, Either, KwArgs, OptionalArg},
+        function::{ArgMapping, KwArgs, OptionalArg},
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{
-            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, fs_metadata,
-            warn_if_bool_fd,
+            _os, DirFd, FollowSymlinks, SupportFunc, TargetIsDirectory, dir_fd_and_fd_invalid,
+            fd_and_follow_symlinks_invalid, fs_metadata, warn_if_bool_fd,
         },
     };
     #[cfg(any(
@@ -474,27 +474,19 @@ pub mod module {
     #[pyfunction]
     fn chown(
         path: OsPathOrFd<'_>,
-        uid: isize,
-        gid: isize,
+        uid: RawUid,
+        gid: RawGid,
         dir_fd: DirFd<'_, 1>,
         follow_symlinks: FollowSymlinks,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let uid = if uid >= 0 {
-            Some(uid as u32)
-        } else if uid == -1 {
-            None
-        } else {
-            return Err(vm.new_os_error("Specified uid is not valid."));
-        };
+        let path_is_fd = matches!(path, OsPathOrFd::Fd(_));
+        dir_fd_and_fd_invalid("chown", path_is_fd, dir_fd.get_opt().is_some(), vm)?;
+        fd_and_follow_symlinks_invalid("chown", path_is_fd, follow_symlinks.0, vm)?;
 
-        let gid = if gid >= 0 {
-            Some(gid as u32)
-        } else if gid == -1 {
-            None
-        } else {
-            return Err(vm.new_os_error("Specified gid is not valid."));
-        };
+        // `(uid_t) -1` means the value is left unchanged
+        let uid = (uid.0 != u32::MAX).then_some(uid.0);
+        let gid = (gid.0 != u32::MAX).then_some(gid.0);
 
         match path {
             OsPathOrFd::Path(ref p) => rustpython_host_env::posix::fchownat(
@@ -511,7 +503,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn lchown(path: OsPath, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn lchown(path: OsPath, uid: RawUid, gid: RawGid, vm: &VirtualMachine) -> PyResult<()> {
         chown(
             OsPathOrFd::Path(path),
             uid,
@@ -524,7 +516,7 @@ pub mod module {
 
     #[cfg(not(target_os = "redox"))]
     #[pyfunction]
-    fn fchown(fd: BorrowedFd<'_>, uid: isize, gid: isize, vm: &VirtualMachine) -> PyResult<()> {
+    fn fchown(fd: BorrowedFd<'_>, uid: RawUid, gid: RawGid, vm: &VirtualMachine) -> PyResult<()> {
         chown(
             OsPathOrFd::Fd(fd.into()),
             uid,
@@ -556,24 +548,31 @@ pub mod module {
         )> {
             fn into_option(
                 arg: OptionalArg<PyObjectRef>,
+                name: &str,
                 vm: &VirtualMachine,
             ) -> PyResult<Option<PyObjectRef>> {
                 match arg {
                     OptionalArg::Present(obj) => {
                         if !obj.is_callable() {
-                            return Err(vm.new_type_error("Args must be callable"));
+                            return Err(vm.new_type_error(format!(
+                                "'{name}' must be callable, not {}",
+                                obj.class().name()
+                            )));
                         }
                         Ok(Some(obj))
                     }
                     OptionalArg::Missing => Ok(None),
                 }
             }
-            let before = into_option(self.before, vm)?;
-            let after_in_parent = into_option(self.after_in_parent, vm)?;
-            let after_in_child = into_option(self.after_in_child, vm)?;
-            if before.is_none() && after_in_parent.is_none() && after_in_child.is_none() {
-                return Err(vm.new_type_error("At least one arg must be present"));
+            if self.before.is_missing()
+                && self.after_in_parent.is_missing()
+                && self.after_in_child.is_missing()
+            {
+                return Err(vm.new_type_error("At least one argument is required."));
             }
+            let before = into_option(self.before, "before", vm)?;
+            let after_in_child = into_option(self.after_in_child, "after_in_child", vm)?;
+            let after_in_parent = into_option(self.after_in_parent, "after_in_parent", vm)?;
             Ok((before, after_in_parent, after_in_child))
         }
     }
@@ -1080,14 +1079,15 @@ pub mod module {
     }
 
     #[pyfunction]
-    fn execv(
-        path: OsPath,
-        argv: Either<PyListRef, PyTupleRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult<()> {
-        let path = path.into_cstring(vm)?;
+    fn execv(path: OsPath, argv: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        let c_path = path.clone().into_cstring(vm)?;
 
-        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+        if !argv.downcastable::<crate::builtins::PyList>()
+            && !argv.downcastable::<crate::builtins::PyTuple>()
+        {
+            return Err(vm.new_type_error("execv() arg 2 must be a tuple or list"));
+        }
+        let argv = vm.extract_elements_with(&argv, |obj| {
             OsPath::try_from_object(vm, obj)?.into_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
@@ -1099,19 +1099,25 @@ pub mod module {
             return Err(vm.new_value_error("execv() arg 2 first element cannot be empty"));
         }
 
-        rustpython_host_env::posix::execv(&path, &argv).map_err(|err| err.into_pyexception(vm))
+        rustpython_host_env::posix::execv(&c_path, &argv)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]
     fn execve(
         path: OsPath,
-        argv: Either<PyListRef, PyTupleRef>,
-        env: ArgMapping,
+        argv: PyObjectRef,
+        env: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let path = path.into_cstring(vm)?;
+        let c_path = path.clone().into_cstring(vm)?;
 
-        let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
+        if !argv.downcastable::<crate::builtins::PyList>()
+            && !argv.downcastable::<crate::builtins::PyTuple>()
+        {
+            return Err(vm.new_type_error("execve: argv must be a tuple or list"));
+        }
+        let argv = vm.extract_elements_with(&argv, |obj| {
             OsPath::try_from_object(vm, obj)?.into_cstring(vm)
         })?;
         let argv: Vec<&CStr> = argv.iter().map(|entry| entry.as_c_str()).collect();
@@ -1124,7 +1130,10 @@ pub mod module {
             return Err(vm.new_value_error("execve() arg 2 first element cannot be empty"));
         }
 
-        let env = crate::stdlib::os::envobj_to_dict(env, vm)?;
+        if !env.mapping_unchecked().check() {
+            return Err(vm.new_type_error("execve: environment must be a mapping object"));
+        }
+        let env = crate::stdlib::os::envobj_to_dict(ArgMapping::new(env), vm)?;
         let env = env
             .into_iter()
             .map(|(k, v)| -> PyResult<_> {
@@ -1147,8 +1156,8 @@ pub mod module {
 
         let env: Vec<&CStr> = env.iter().map(|entry| entry.as_c_str()).collect();
 
-        rustpython_host_env::posix::execve(&path, &argv, &env)
-            .map_err(|err| err.into_pyexception(vm))?;
+        rustpython_host_env::posix::execve(&c_path, &argv, &env)
+            .map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))?;
         Ok(())
     }
 
@@ -1247,20 +1256,29 @@ pub mod module {
 
     fn try_from_id(vm: &VirtualMachine, obj: PyObjectRef, typ_name: &str) -> PyResult<u32> {
         use core::cmp::Ordering;
-        let i = obj
-            .try_to_ref::<PyInt>(vm)
-            .map_err(|_| {
-                vm.new_type_error(format!(
-                    "an integer is required (got type {})",
-                    obj.class().name()
-                ))
-            })?
-            .try_to_primitive::<i64>(vm)?;
+        let index = obj.try_index_opt(vm).ok_or_else(|| {
+            vm.new_type_error(format!(
+                "{typ_name} should be integer, not {}",
+                obj.class().name()
+            ))
+        })??;
+        let i = match index.try_to_primitive::<i64>(vm) {
+            Ok(i) => i,
+            // The value does not fit in a C long: negative values underflow,
+            // positive values that also don't fit in a C unsigned long overflow.
+            Err(_) if index.as_bigint().sign() == malachite_bigint::Sign::Minus => {
+                return Err(vm.new_overflow_error(format!("{typ_name} is less than minimum")));
+            }
+            Err(_) => {
+                return Err(vm.new_overflow_error(format!("{typ_name} is greater than maximum")));
+            }
+        };
 
         match i.cmp(&-1) {
-            Ordering::Greater => Ok(i.try_into().map_err(|_| {
-                vm.new_overflow_error(format!("{typ_name} is larger than maximum"))
-            })?),
+            // Values that fit in a C long but not in uid_t trip CPython's
+            // truncation check, which reports underflow.
+            Ordering::Greater => u32::try_from(i)
+                .map_err(|_| vm.new_overflow_error(format!("{typ_name} is less than minimum"))),
             Ordering::Less => {
                 Err(vm.new_overflow_error(format!("{typ_name} is less than minimum")))
             }
@@ -1408,13 +1426,24 @@ pub mod module {
     // cfg from nix
     #[cfg(not(any(target_os = "ios", target_os = "macos", target_os = "redox")))]
     #[pyfunction]
-    fn setgroups(group_ids: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        group_ids
-            .try_sequence(vm)
-            .map_err(|_| vm.new_type_error("setgroups argument must be a sequence"))?;
-        let gids = vm.extract_elements_with(&group_ids, |gid| {
-            RawGid::try_from_object(vm, gid).map(|gid| gid.0)
-        })?;
+    fn setgroups(groups: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
+        if !groups.sequence_unchecked().check() {
+            return Err(vm.new_type_error("setgroups argument must be a sequence"));
+        }
+        let len = groups.length(vm)?;
+        // CPython MAX_GROUPS (compile-time NGROUPS_MAX)
+        const MAX_GROUPS: usize = 65536;
+        if len > MAX_GROUPS {
+            return Err(vm.new_value_error("too many groups"));
+        }
+        let mut gids = Vec::with_capacity(len);
+        for i in 0..len {
+            let elem = groups.get_item(&i, vm)?;
+            let Some(index) = elem.try_index_opt(vm) else {
+                return Err(vm.new_type_error("groups must be integers"));
+            };
+            gids.push(try_from_id(vm, index?.into(), "gid")?);
+        }
         rustpython_host_env::posix::setgroups_raw(&gids).map_err(|err| err.into_pyexception(vm))
     }
 
@@ -1473,14 +1502,16 @@ pub mod module {
     pub(super) struct PosixSpawnArgs {
         #[pyarg(positional)]
         path: OsPath,
+        // Validated in `spawn` so wrong types report CPython's messages
+        // rather than the generic argument-conversion ones.
         #[pyarg(positional)]
         args: PyObjectRef,
         #[pyarg(positional)]
-        env: Option<crate::function::ArgMapping>,
+        env: Option<PyObjectRef>,
         #[pyarg(named, default)]
         file_actions: Option<crate::function::ArgIterable<PyTupleRef>>,
         #[pyarg(named, default)]
-        setsigdef: Option<crate::function::ArgIterable<i32>>,
+        setsigdef: Option<crate::function::ArgIterable<PyObjectRef>>,
         #[pyarg(named, default)]
         setpgroup: Option<libc::pid_t>,
         #[pyarg(named, default)]
@@ -1488,9 +1519,9 @@ pub mod module {
         #[pyarg(named, default)]
         setsid: bool,
         #[pyarg(named, default)]
-        setsigmask: Option<crate::function::ArgIterable<i32>>,
+        setsigmask: Option<crate::function::ArgIterable<PyObjectRef>>,
         #[pyarg(named, default)]
-        scheduler: Option<PyTupleRef>,
+        scheduler: Option<PyObjectRef>,
     }
 
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
@@ -1502,10 +1533,24 @@ pub mod module {
         Dup2,
     }
 
+    // CPython Py_NSIG: one past the maximum valid signal number.
+    #[cfg(target_os = "linux")]
+    const PY_NSIG: i32 = 65;
+    #[cfg(target_os = "freebsd")]
+    const PY_NSIG: i32 = 128;
+    #[cfg(target_os = "macos")]
+    const PY_NSIG: i32 = 33;
+
     #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
     impl PosixSpawnArgs {
         fn spawn(self, spawnp: bool, vm: &VirtualMachine) -> PyResult<libc::pid_t> {
             use crate::TryFromBorrowedObject;
+
+            let func_name = if spawnp {
+                "posix_spawnp"
+            } else {
+                "posix_spawn"
+            };
 
             let path = self
                 .path
@@ -1513,16 +1558,32 @@ pub mod module {
                 .into_cstring(vm)
                 .map_err(|_| vm.new_value_error("path should not have nul bytes"))?;
 
-            let function_name = if spawnp {
-                "posix_spawnp"
-            } else {
-                "posix_spawn"
-            };
-            if !self.args.fast_isinstance(vm.ctx.types.list_type)
-                && !self.args.fast_isinstance(vm.ctx.types.tuple_type)
+            if !self.args.downcastable::<crate::builtins::PyList>()
+                && !self.args.downcastable::<crate::builtins::PyTuple>()
             {
+                return Err(vm.new_type_error(format!("{func_name}: argv must be a tuple or list")));
+            }
+
+            if let Some(env) = &self.env
+                && !env.mapping_unchecked().check()
+            {
+                return Err(vm.new_type_error(format!(
+                    "{func_name}: environment must be a mapping object or None"
+                )));
+            }
+
+            if let Some(scheduler) = &self.scheduler
+                && !vm.is_none(scheduler)
+            {
+                if !scheduler.downcastable::<crate::builtins::PyTuple>() {
+                    return Err(vm.new_type_error(format!(
+                        "{func_name}: scheduler must be a tuple or None"
+                    )));
+                }
+                // TODO: Implement scheduler parameter handling
+                // This requires platform-specific sched_param struct handling
                 return Err(
-                    vm.new_type_error(format!("{function_name}: argv must be a tuple or list"))
+                    vm.new_not_implemented_error("scheduler parameter is not yet implemented")
                 );
             }
 
@@ -1565,13 +1626,20 @@ pub mod module {
                 }
             }
 
-            let collect_signals = |sigs: crate::function::ArgIterable<i32>| {
-                let mut collected = Vec::new();
-                for sig in sigs.iter(vm)? {
-                    let sig = sig?;
-                    if !rustpython_host_env::posix::validate_posix_spawn_signal(sig) {
-                        return Err(vm.new_value_error(format!("signal number {sig} out of range")));
+            // CPython's _Py_Sigset_Converter: signals go through __index__,
+            // overflow saturates to -1, and the range error names the bound.
+            let collect_signals = |sigs: crate::function::ArgIterable<PyObjectRef>| {
+                let mut collected: Vec<i32> = Vec::new();
+                for item in sigs.iter(vm)? {
+                    let index = item?.try_index(vm)?;
+                    let sig = index.try_to_primitive::<i64>(vm).unwrap_or(-1);
+                    if sig <= 0 || sig >= i64::from(PY_NSIG) {
+                        return Err(vm.new_value_error(format!(
+                            "signal number {sig} out of range [1; {}]",
+                            PY_NSIG - 1
+                        )));
                     }
+                    let sig = sig as i32;
                     if !collected.contains(&sig) {
                         collected.push(sig);
                     }
@@ -1602,7 +1670,7 @@ pub mod module {
                     .map_err(|_| vm.new_value_error("path should not have nul bytes"))
             })?;
             let env = if let Some(env_dict) = self.env {
-                envp_from_dict(env_dict, vm)?
+                envp_from_dict(ArgMapping::new(env_dict), vm)?
             } else {
                 // env=None means use the current environment
 
@@ -2494,7 +2562,9 @@ mod posix_sched {
         let value = priority.downcast::<PyInt>().map_err(|_| {
             vm.new_type_error(format!("an integer is required (got type {priority_type})"))
         })?;
-        let sched_priority = value.try_to_primitive(vm)?;
+        let priority = value.try_to_primitive::<i64>(vm)?;
+        let sched_priority = i32::try_from(priority)
+            .map_err(|_| vm.new_overflow_error("sched_priority out of range"))?;
         Ok(libc::sched_param { sched_priority })
     }
 

@@ -1,6 +1,7 @@
 use super::{
-    PositionIterInternal, PyBytes, PyBytesRef, PyGenericAlias, PyInt, PyListRef, PySlice, PyStr,
-    PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef, iter::builtins_iter,
+    PositionIterInternal, PyBaseExceptionRef, PyBytes, PyBytesRef, PyGenericAlias, PyInt,
+    PyListRef, PySlice, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef, PyUtf8StrRef,
+    iter::builtins_iter,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -127,9 +128,15 @@ impl PyMemoryView {
             other.try_not_released(vm)?;
             other.try_not_restricted(vm)?;
             Ok(other.new_view())
-        } else {
+        } else if obj.class().slots.as_buffer.load().is_some() {
             let buffer = PyBuffer::from_object(vm, obj, flags)?;
             Self::from_buffer(buffer, vm)
+        } else {
+            // PyMemoryView_FromObjectAndFlags prefixes the buffer error
+            Err(vm.new_type_error(format!(
+                "memoryview: a bytes-like object is required, not '{}'",
+                obj.class().name()
+            )))
         }
     }
 
@@ -329,12 +336,37 @@ impl PyMemoryView {
         // conversion runs `__index__` or `__float__`, which can read or write the
         // same buffer.
         // TODO: Optimize
-        let data = self.format_spec.pack(vec![value], vm).map_err(|_| {
-            vm.new_type_error(format!(
-                "memoryview: invalid type for format '{}'",
-                self.desc.format
-            ))
-        })?;
+        // Mirror CPython's pack_single(): conversion errors are re-raised as
+        // "invalid type" (TypeError) or "invalid value" (ValueError) for the format
+        let format = &*self.desc.format;
+        let fix_error = |e: PyBaseExceptionRef| {
+            if e.fast_isinstance(vm.ctx.exceptions.type_error) {
+                vm.new_type_error(format!("memoryview: invalid type for format '{format}'"))
+            } else if e.fast_isinstance(vm.ctx.exceptions.overflow_error)
+                || e.fast_isinstance(vm.ctx.exceptions.value_error)
+            {
+                vm.new_value_error(format!("memoryview: invalid value for format '{format}'"))
+            } else if e.fast_isinstance(crate::buffer::struct_error_type(vm)) {
+                // struct.error distinguishes wrong types from out-of-range
+                // values by message
+                let msg = e
+                    .as_object()
+                    .str(vm)
+                    .ok()
+                    .and_then(|s| s.to_str().map(str::to_owned));
+                let is_type_error = msg
+                    .as_deref()
+                    .is_some_and(|msg| msg.contains("is not an integer"));
+                if is_type_error {
+                    vm.new_type_error(format!("memoryview: invalid type for format '{format}'"))
+                } else {
+                    vm.new_value_error(format!("memoryview: invalid value for format '{format}'"))
+                }
+            } else {
+                e
+            }
+        };
+        let data = self.format_spec.pack(vec![value], vm).map_err(fix_error)?;
         // The conversion, and the index that produced `pos`, could have released
         // the view; `pos` addresses a buffer that is no longer there.
         // CHECK_RELEASED_INT_AGAIN
@@ -1549,7 +1581,7 @@ pub(crate) fn release_buffer_from_python(
     if mv.released.load() {
         return Err(vm.new_value_error("memoryview's buffer has already been released"));
     }
-    mv.release();
+    mv.py_release(vm)?;
     Ok(())
 }
 
@@ -1578,7 +1610,8 @@ pub(crate) fn release_buffer_call_python(buffer: &PyBuffer) {
         let mv = mv.into_ref(&vm.ctx);
         call_python_release_buffer(&exporter, mv.clone());
         // The window does not outlive the release it was made for.
-        mv.release();
+        mv.released.store(true);
+        mv.buffer.release();
     });
 }
 

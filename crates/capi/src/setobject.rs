@@ -19,10 +19,13 @@ pub unsafe extern "C" fn PySet_New(iterable: *mut PyObject) -> *mut PyObject {
             return Ok(PySet::default().into_ref(&vm.ctx));
         }
 
-        let iterable = ArgIterable::try_from_object(vm, unsafe { &*iterable }.to_owned())?;
+        let iterable = ArgIterable::<rustpython_vm::PyObjectRef>::try_from_object(
+            vm,
+            unsafe { &*iterable }.to_owned(),
+        )?;
         let set = PySet::default().into_ref(&vm.ctx);
         for item in iterable.iter(vm)? {
-            set.add(item?, vm)?;
+            set.add_element(item?.as_object(), vm)?;
         }
         Ok(set)
     })
@@ -35,7 +38,10 @@ pub unsafe extern "C" fn PyFrozenSet_New(iterable: *mut PyObject) -> *mut PyObje
             return Ok(vm.ctx.empty_frozenset.to_owned());
         }
 
-        let iterable = ArgIterable::try_from_object(vm, unsafe { &*iterable }.to_owned())?;
+        let iterable = ArgIterable::<rustpython_vm::PyObjectRef>::try_from_object(
+            vm,
+            unsafe { &*iterable }.to_owned(),
+        )?;
         let set = process_results(iterable.iter(vm)?, |it| PyFrozenSet::from_iter(vm, it))??;
         Ok(set.into_ref(&vm.ctx))
     })
@@ -46,7 +52,7 @@ pub unsafe extern "C" fn PySet_Add(set: *mut PyObject, key: *mut PyObject) -> c_
     with_vm(|vm| {
         let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
         let key = unsafe { &*key }.to_owned();
-        set.add(key, vm)
+        set.add_element(&key, vm)
     })
 }
 
@@ -54,7 +60,7 @@ pub unsafe extern "C" fn PySet_Add(set: *mut PyObject, key: *mut PyObject) -> c_
 pub unsafe extern "C" fn PySet_Clear(set: *mut PyObject) -> c_int {
     with_vm(|vm| {
         let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
-        set.clear();
+        set.clear_elements();
         Ok(())
     })
 }
@@ -85,7 +91,7 @@ pub unsafe extern "C" fn PySet_Discard(set: *mut PyObject, key: *mut PyObject) -
         let key = unsafe { &*key };
         let had_item = set.__contains__(key, vm)?;
         if had_item {
-            set.discard(key.to_owned(), vm)?;
+            set.discard_element(key, vm)?;
         }
         Ok(had_item)
     })
@@ -95,7 +101,7 @@ pub unsafe extern "C" fn PySet_Discard(set: *mut PyObject, key: *mut PyObject) -
 pub unsafe extern "C" fn PySet_Pop(set: *mut PyObject) -> *mut PyObject {
     with_vm(|vm| {
         let set = unsafe { &*set }.try_downcast_ref::<PySet>(vm)?;
-        set.pop(vm)
+        set.pop_element(vm)
     })
 }
 

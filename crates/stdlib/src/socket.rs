@@ -13,13 +13,13 @@ mod _socket {
     use crate::vm::{
         AsObject, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
         builtins::{
-            PyBaseExceptionRef, PyListRef, PyModule, PyOSError, PyStrRef, PyTupleRef, PyTypeRef,
-            PyUtf8StrRef,
+            PyBaseExceptionRef, PyByteArray, PyBytes, PyIntRef, PyListRef, PyModule, PyOSError,
+            PyStr, PyStrRef, PyTupleRef, PyTypeRef, PyUtf8StrRef,
         },
-        convert::{IntoPyException, ToPyObject, TryFromBorrowedObject, TryFromObject},
+        convert::{IntoPyException, ToPyObject, TryFromObject},
         function::{
-            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, ArgStrOrBytesLike, Either, FsPath,
-            OptionalArg, OptionalOption,
+            ArgBytesLike, ArgIntoFloat, ArgMemoryBuffer, Either, FsPath, FuncArgs, OptionalArg,
+            OptionalOption,
         },
         types::{Constructor, DefaultConstructor, Destructor, Initializer, Representable},
         utils::ToCString,
@@ -49,7 +49,7 @@ mod _socket {
     use std::{
         ffi,
         io::{self, Read, Write},
-        net::{self, Shutdown, ToSocketAddrs},
+        net::{self, Shutdown},
         time::Instant,
     };
 
@@ -904,12 +904,12 @@ mod _socket {
     struct SendmsgAfalgArgs {
         #[pyarg(any, default)]
         msg: Vec<ArgBytesLike>,
-        #[pyarg(named)]
-        op: u32,
+        #[pyarg(named, default)]
+        op: OptionalArg<PyObjectRef>,
         #[pyarg(named, default)]
         iv: Option<ArgBytesLike>,
         #[pyarg(named, default)]
-        assoclen: OptionalArg<isize>,
+        assoclen: OptionalArg<PyObjectRef>,
         #[pyarg(named, default)]
         flags: i32,
     }
@@ -1134,14 +1134,15 @@ mod _socket {
                     })?;
                     if tuple.len() != 2 {
                         return Err(vm
-                            .new_type_error("AF_INET address must be a pair (host, post)")
+                            .new_type_error("AF_INET address must be a pair (host, port)")
                             .into());
                     }
                     let addr = Address::from_tuple(&tuple, vm)?;
-                    let mut addr4 = get_addr(vm, addr.host, c::AF_INET)?;
+                    let mut addr4 = get_addr_bytes(vm, &addr.host, c::AF_INET)?;
+                    let port = addr.port_u16(caller, vm)?;
                     match &mut addr4 {
                         SocketAddr::V4(addr4) => {
-                            addr4.set_port(addr.port);
+                            addr4.set_port(port);
                         }
                         SocketAddr::V6(_) => unreachable!(),
                     }
@@ -1162,10 +1163,16 @@ mod _socket {
                         ).into()),
                     }
                     let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&tuple, vm)?;
-                    let mut addr6 = get_addr(vm, addr.host, c::AF_INET6)?;
+                    let mut addr6 = get_addr_bytes(vm, &addr.host, c::AF_INET6)?;
+                    let port = addr.port_u16(caller, vm)?;
+                    if flowinfo > 0xfffff {
+                        return Err(vm
+                            .new_overflow_error(format!("{caller}(): flowinfo must be 0-1048575."))
+                            .into());
+                    }
                     match &mut addr6 {
                         SocketAddr::V6(addr6) => {
-                            addr6.set_port(addr.port);
+                            addr6.set_port(port);
                             addr6.set_flowinfo(flowinfo);
                             addr6.set_scope_id(scopeid);
                         }
@@ -1205,7 +1212,7 @@ mod _socket {
                     } else {
                         // Check interface name length (IFNAMSIZ is typically 16)
                         if ifname.len() >= 16 {
-                            return Err(vm.new_os_error("interface name too long").into());
+                            return Err(vm.new_os_error("AF_CAN interface name too long").into());
                         }
                         let cstr = alloc::ffi::CString::new(ifname)
                             .map_err(|_| vm.new_os_error("invalid interface name"))?;
@@ -1264,10 +1271,10 @@ mod _socket {
 
                     // salg_type is 14 bytes, salg_name is 64 bytes
                     if type_str.len() >= 14 {
-                        return Err(vm.new_value_error("type too long").into());
+                        return Err(vm.new_value_error("AF_ALG type too long.").into());
                     }
                     if name_str.len() >= 64 {
-                        return Err(vm.new_value_error("name too long").into());
+                        return Err(vm.new_value_error("AF_ALG name too long.").into());
                     }
 
                     // Create sockaddr_alg
@@ -1430,7 +1437,7 @@ mod _socket {
                     if bytes_data.len() != expected_size {
                         return Err(vm
                             .new_value_error(format!(
-                                "socket descriptor string has wrong size, should be {expected_size} bytes"
+                                "socket descriptor string has wrong size, should be {expected_size} bytes."
                             ))
                             .into());
                     }
@@ -1583,11 +1590,14 @@ mod _socket {
         #[pymethod]
         fn recv(
             &self,
-            bufsize: usize,
+            bufsize: isize,
             flags: OptionalArg<i32>,
             vm: &VirtualMachine,
         ) -> Result<Vec<u8>, IoOrPyException> {
             let flags = flags.unwrap_or(0);
+            let bufsize = bufsize
+                .to_usize()
+                .ok_or_else(|| vm.new_value_error("negative buffersize in recv"))?;
             let mut buffer = Vec::new();
             buffer
                 .try_reserve_exact(bufsize)
@@ -1610,15 +1620,25 @@ mod _socket {
         ) -> Result<usize, IoOrPyException> {
             let flags = flags.unwrap_or(0);
             let sock = self.sock()?;
+            let buf_len = buf.len();
 
             // Handle nbytes parameter
             let read_len = if let OptionalArg::Present(nbytes) = nbytes {
                 let nbytes = nbytes
                     .to_usize()
                     .ok_or_else(|| vm.new_value_error("negative buffersize in recv_into"))?;
-                nbytes.min(buf.len())
+                if nbytes == 0 {
+                    // If nbytes is 0 (or not specified), use the buffer's length
+                    buf_len
+                } else if nbytes > buf_len {
+                    return Err(vm
+                        .new_value_error("buffer too small for requested bytes")
+                        .into());
+                } else {
+                    nbytes
+                }
             } else {
-                buf.len()
+                buf_len
             };
 
             let mut scratch = alloc_recv_scratch(read_len, vm)?;
@@ -1731,16 +1751,30 @@ mod _socket {
         }
 
         #[pymethod]
-        fn sendto(
-            &self,
-            bytes: ArgBytesLike,
-            arg2: PyObjectRef,
-            arg3: OptionalArg<PyObjectRef>,
-            vm: &VirtualMachine,
-        ) -> Result<usize, IoOrPyException> {
+        fn sendto(&self, args: FuncArgs, vm: &VirtualMachine) -> Result<usize, IoOrPyException> {
+            // Bound by hand so a wrong argument count reports CPython's wording
+            // rather than the generic one.
+            if !args.kwargs.is_empty() {
+                return Err(vm
+                    .new_type_error("socket.sendto() takes no keyword arguments")
+                    .into());
+            }
+            if !(2..=3).contains(&args.args.len()) {
+                return Err(vm
+                    .new_type_error(format!(
+                        "sendto() takes 2 or 3 arguments ({} given)",
+                        args.args.len()
+                    ))
+                    .into());
+            }
+            let mut positional = args.args.into_iter();
+            let bytes: ArgBytesLike = positional.next().unwrap().try_into_value(vm)?;
+            let arg2 = positional.next().unwrap();
+            let arg3 = positional.next();
+
             // signature is bytes[, flags], address
             let (flags, address) = match arg3 {
-                OptionalArg::Present(arg3) => {
+                Some(arg3) => {
                     // should just be i32::try_from_obj but tests check for error message
                     let int = arg2
                         .try_index_opt(vm)
@@ -1748,7 +1782,7 @@ mod _socket {
                     let flags = int.try_to_primitive::<i32>(vm)?;
                     (flags, arg3)
                 }
-                OptionalArg::Missing => (0, arg2),
+                None => (0, arg2),
             };
             let addr = self.extract_address(address, "sendto", vm)?;
             let buf = bytes.borrow_buf_unlocked(vm)?;
@@ -1762,12 +1796,13 @@ mod _socket {
         #[pymethod]
         fn sendmsg(
             &self,
-            buffers: Vec<ArgBytesLike>,
+            buffers: PyObjectRef,
             ancdata: OptionalArg,
             flags: OptionalArg<i32>,
             addr: OptionalOption,
             vm: &VirtualMachine,
         ) -> PyResult<usize> {
+            use crate::vm::protocol::PyIter;
             let flags = flags.unwrap_or(0);
             let mut msg = host_socket::raw::MsgHdr::new();
 
@@ -1779,6 +1814,11 @@ mod _socket {
                 msg = msg.with_addr(&sockaddr);
             }
 
+            let iter = PyIter::try_from_object(vm, buffers)
+                .map_err(|_| vm.new_type_error("sendmsg() argument 1 must be an iterable"))?;
+            let buffers = iter
+                .into_iter::<ArgBytesLike>(vm)?
+                .collect::<PyResult<Vec<_>>>()?;
             let buffers = buffers
                 .iter()
                 .map(|buf| buf.borrow_buf_unlocked(vm))
@@ -1791,9 +1831,12 @@ mod _socket {
 
             let control_buf;
             if let OptionalArg::Present(ancdata) = ancdata {
-                let cmsgs = vm.extract_elements_with(
-                    &ancdata,
-                    |obj| -> PyResult<(i32, i32, ArgBytesLike)> {
+                let iter = PyIter::try_from_object(vm, ancdata)
+                    .map_err(|_| vm.new_type_error("sendmsg() argument 2 must be an iterable"))?;
+                let cmsgs = iter
+                    .into_iter::<PyObjectRef>(vm)?
+                    .map(|item| -> PyResult<(i32, i32, ArgBytesLike)> {
+                        let obj = item?;
                         let seq: Vec<PyObjectRef> = obj.try_into_value(vm)?;
                         let [lvl, typ, data]: [PyObjectRef; 3] = seq
                             .try_into()
@@ -1803,8 +1846,8 @@ mod _socket {
                             typ.try_into_value(vm)?,
                             data.try_into_value(vm)?,
                         ))
-                    },
-                )?;
+                    })
+                    .collect::<PyResult<Vec<_>>>()?;
                 control_buf = Self::pack_cmsgs_to_send(&cmsgs, vm)?;
                 if !control_buf.is_empty() {
                     msg = msg.with_control(&control_buf);
@@ -1824,19 +1867,53 @@ mod _socket {
         #[cfg(target_os = "linux")]
         #[pymethod]
         fn sendmsg_afalg(&self, args: SendmsgAfalgArgs, vm: &VirtualMachine) -> PyResult<usize> {
+            use crate::vm::builtins::PyInt;
             use std::os::fd::BorrowedFd;
 
+            if self.family.load() != c::AF_ALG {
+                return Err(vm.new_os_error("algset is only supported for AF_ALG"));
+            }
+
             let msg = args.msg;
-            let op = args.op;
             let iv = args.iv;
             let flags = args.flags;
 
-            // Validate assoclen - must be non-negative if provided
-            let assoclen: Option<u32> = match args.assoclen {
-                OptionalArg::Present(val) if val < 0 => {
-                    return Err(vm.new_type_error("assoclen must be non-negative"));
+            // op is a required, keyword-only argument >= 0
+            let op: u32 = match args.op {
+                OptionalArg::Present(op) => {
+                    let Some(op) = op.downcast_ref::<PyInt>() else {
+                        return Err(vm.new_type_error(format!(
+                            "sendmsg_afalg() argument 2 must be int, not {}",
+                            op.class().name()
+                        )));
+                    };
+                    match op.try_to_primitive::<i32>(vm) {
+                        Ok(op) if op >= 0 => op as u32,
+                        _ => {
+                            return Err(vm.new_type_error("Invalid or missing argument 'op'"));
+                        }
+                    }
                 }
-                OptionalArg::Present(val) => Some(val as u32),
+                OptionalArg::Missing => {
+                    return Err(vm.new_type_error("Invalid or missing argument 'op'"));
+                }
+            };
+
+            // assoclen is optional but must be >= 0
+            let assoclen: Option<u32> = match args.assoclen {
+                OptionalArg::Present(assoclen) => {
+                    let Some(assoclen) = assoclen.downcast_ref::<PyInt>() else {
+                        return Err(vm.new_type_error(format!(
+                            "sendmsg_afalg() argument 4 must be int, not {}",
+                            assoclen.class().name()
+                        )));
+                    };
+                    let assoclen: i32 = assoclen.try_to_primitive(vm)?;
+                    if assoclen < 0 {
+                        return Err(vm.new_type_error("assoclen must be positive"));
+                    }
+                    Some(assoclen as u32)
+                }
                 OptionalArg::Missing => None,
             };
 
@@ -1868,13 +1945,13 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<PyTupleRef> {
             if bufsize < 0 {
-                return Err(vm.new_value_error("negative buffer size in recvmsg"));
+                return Err(vm.new_value_error("negative buffer size in recvmsg()"));
             }
             let bufsize = bufsize as usize;
 
             let ancbufsize = ancbufsize.unwrap_or(0);
-            if ancbufsize < 0 {
-                return Err(vm.new_value_error("negative ancillary buffer size in recvmsg"));
+            if !(0..=0x7fffffff).contains(&ancbufsize) {
+                return Err(vm.new_value_error("invalid ancillary data buffer length"));
             }
             let ancbufsize = ancbufsize as usize;
             let flags = flags.unwrap_or(0);
@@ -2188,15 +2265,8 @@ mod _socket {
     }
 
     struct Address {
-        host: PyUtf8StrRef,
-        port: u16,
-    }
-
-    impl ToSocketAddrs for Address {
-        type Iter = alloc::vec::IntoIter<SocketAddr>;
-        fn to_socket_addrs(&self) -> io::Result<Self::Iter> {
-            (self.host.as_str(), self.port).to_socket_addrs()
-        }
+        host: Vec<u8>,
+        port: PyIntRef,
     }
 
     impl TryFromObject for Address {
@@ -2210,15 +2280,54 @@ mod _socket {
         }
     }
 
+    // getsockaddrarg's idna_converter: pure ASCII str hosts are used as-is,
+    // other str hosts are IDNA-encoded; bytes and bytearray hosts are used raw.
+    fn idna_convert(obj: &PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        let bytes = match obj.clone().downcast::<PyStr>() {
+            Ok(host) => {
+                if host.to_str().is_some_and(|s| s.is_ascii()) {
+                    host.as_bytes().to_vec()
+                } else {
+                    vm.state
+                        .codec_registry
+                        .encode_text(host, "idna", None, vm)
+                        .map_err(|_| vm.new_type_error("encoding of hostname failed"))?
+                        .as_bytes()
+                        .to_vec()
+                }
+            }
+            Err(obj) => {
+                if let Some(b) = obj.downcast_ref::<PyBytes>() {
+                    b.as_bytes().to_vec()
+                } else if let Some(ba) = obj.downcast_ref::<PyByteArray>() {
+                    ba.borrow_buf().to_vec()
+                } else {
+                    return Err(vm.new_type_error(format!(
+                        "str, bytes or bytearray expected, not {}",
+                        obj.class().name()
+                    )));
+                }
+            }
+        };
+        if memchr::memchr(0, &bytes).is_some() {
+            return Err(vm.new_type_error("host name must not contain null character"));
+        }
+        Ok(bytes)
+    }
+
     impl Address {
         fn from_tuple(tuple: &[PyObjectRef], vm: &VirtualMachine) -> PyResult<Self> {
-            let host = PyStrRef::try_from_object(vm, tuple[0].clone())?;
-            let host = host.try_into_utf8(vm)?;
-            let port = i32::try_from_borrowed_object(vm, &tuple[1])?;
-            let port = port
-                .to_u16()
-                .ok_or_else(|| vm.new_overflow_error("port must be 0-65535."))?;
+            let host = idna_convert(&tuple[0], vm)?;
+            let port = tuple[1].try_index(vm)?;
             Ok(Self { host, port })
+        }
+
+        // checked after the host is resolved, like CPython's getsockaddrarg
+        fn port_u16(&self, caller: &str, vm: &VirtualMachine) -> PyResult<u16> {
+            self.port
+                .as_bigint()
+                .to_u16()
+                .ok_or_else(|| vm.new_overflow_error(format!("{caller}(): port must be 0-65535.")))
         }
 
         fn from_tuple_ipv6(
@@ -2226,21 +2335,17 @@ mod _socket {
             vm: &VirtualMachine,
         ) -> PyResult<(Self, u32, u32)> {
             let addr = Self::from_tuple(tuple, vm)?;
-            let flowinfo = tuple
-                .get(2)
-                .map(|obj| obj.clone().try_index(vm)?.try_to_primitive_raw(vm))
-                .transpose()?
-                .unwrap_or(0);
-            let scopeid = tuple
-                .get(3)
-                .map(|obj| u32::try_from_borrowed_object(vm, obj))
-                .transpose()?
-                .unwrap_or(0);
-            if flowinfo > 0xfffff {
-                return Err(vm.new_overflow_error("flowinfo must be 0-1048575."));
-            }
+            let flowinfo = index_masked_u32(tuple.get(2), vm)?;
+            let scopeid = index_masked_u32(tuple.get(3), vm)?;
             Ok((addr, flowinfo, scopeid))
         }
+    }
+
+    // PyArg "I" format: __index__ conversion, then masked to C unsigned int
+    fn index_masked_u32(obj: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<u32> {
+        obj.map(|obj| obj.try_index(vm).map(|i| i.as_u32_mask()))
+            .transpose()
+            .map(Option::unwrap_or_default)
     }
 
     fn get_ip_addr_tuple(addr: &SocketAddr, vm: &VirtualMachine) -> PyObjectRef {
@@ -2584,9 +2689,9 @@ mod _socket {
     #[derive(FromArgs)]
     struct GAIOptions {
         #[pyarg(positional)]
-        host: Option<ArgStrOrBytesLike>,
+        host: Option<PyObjectRef>,
         #[pyarg(positional)]
-        port: Option<Either<ArgStrOrBytesLike, i32>>,
+        port: Option<PyObjectRef>,
 
         #[pyarg(positional, default = c::AF_UNSPEC)]
         family: i32,
@@ -2612,37 +2717,50 @@ mod _socket {
 
         // Encode host: str uses IDNA encoding, bytes must be valid UTF-8
         let host_encoded: Option<String> = match opts.host.as_ref() {
-            Some(ArgStrOrBytesLike::Str(s)) => {
-                let encoded =
-                    vm.state
-                        .codec_registry
-                        .encode_text(s.to_owned(), "idna", None, vm)?;
-                let host_str = core::str::from_utf8(encoded.as_bytes())
-                    .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
-                Some(host_str.to_owned())
-            }
-            Some(ArgStrOrBytesLike::Buf(b)) => {
-                let bytes = b.borrow_buf();
-                let host_str = core::str::from_utf8(&bytes).map_err(|e| {
-                    vm.new_unicode_decode_error(
-                        vm.ctx.new_str("utf-8"),
-                        vm.ctx.new_bytes(bytes.to_vec()),
-                        e.valid_up_to(),
-                        e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
-                        vm.ctx.new_str("host bytes is not utf8"),
-                    )
-                })?;
-                Some(host_str.to_owned())
+            Some(host) => {
+                match crate::vm::function::ArgStrOrBytesLike::try_from_object(vm, host.clone())? {
+                    crate::vm::function::ArgStrOrBytesLike::Str(s) => {
+                        let encoded = vm.state.codec_registry.encode_text(s, "idna", None, vm)?;
+                        let host_str = core::str::from_utf8(encoded.as_bytes())
+                            .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
+                        Some(host_str.to_owned())
+                    }
+                    crate::vm::function::ArgStrOrBytesLike::Buf(b) => {
+                        let bytes = b.borrow_buf();
+                        let host_str = core::str::from_utf8(&bytes).map_err(|e| {
+                            vm.new_unicode_decode_error(
+                                vm.ctx.new_str("utf-8"),
+                                vm.ctx.new_bytes(bytes.to_vec()),
+                                e.valid_up_to(),
+                                e.error_len().map_or(bytes.len(), |n| e.valid_up_to() + n),
+                                vm.ctx.new_str("host bytes is not utf8"),
+                            )
+                        })?;
+                        Some(host_str.to_owned())
+                    }
+                }
             }
             None => None,
         };
         let host = host_encoded.as_deref();
 
-        // Encode port: str/bytes as service name, int as port number
         let port_encoded: Option<String> = match opts.port.as_ref() {
-            Some(Either::A(sb)) => {
-                let port_str = match sb {
-                    ArgStrOrBytesLike::Str(s) => {
+            // CPython setipaddr: an int port becomes its decimal string
+            Some(port) if port.try_index_opt(vm).is_some() => {
+                Some(port.try_index(vm)?.as_bigint().to_string())
+            }
+            // CPython setipadr: only str and bytes name a service; anything
+            // else is "Int or String expected"
+            Some(port)
+                if port.class().fast_issubclass(vm.ctx.types.str_type)
+                    || port.class().fast_issubclass(vm.ctx.types.bytes_type)
+                    || port.class().fast_issubclass(vm.ctx.types.bytearray_type) =>
+            {
+                let port_str = match crate::vm::function::ArgStrOrBytesLike::try_from_object(
+                    vm,
+                    port.clone(),
+                )? {
+                    crate::vm::function::ArgStrOrBytesLike::Str(s) => {
                         // For str, check for surrogates and raise UnicodeEncodeError if found
                         s.to_str()
                             .ok_or_else(|| {
@@ -2653,7 +2771,7 @@ mod _socket {
                                     .unwrap();
                                 vm.new_unicode_encode_error_real(
                                     vm.ctx.new_str("utf-8"),
-                                    (*s).clone(),
+                                    s.to_owned(),
                                     start,
                                     start + 1,
                                     vm.ctx.new_str("surrogates not allowed"),
@@ -2661,7 +2779,7 @@ mod _socket {
                             })?
                             .to_owned()
                     }
-                    ArgStrOrBytesLike::Buf(b) => {
+                    crate::vm::function::ArgStrOrBytesLike::Buf(b) => {
                         // For bytes, check if it's valid UTF-8
                         let bytes = b.borrow_buf();
                         core::str::from_utf8(&bytes)
@@ -2679,7 +2797,9 @@ mod _socket {
                 };
                 Some(port_str)
             }
-            Some(Either::B(i)) => Some(i.to_string()),
+            Some(_) => {
+                return Err(vm.new_os_error("Int or String expected").into());
+            }
             None => None,
         };
         let port = port_encoded.as_deref();
@@ -2694,7 +2814,7 @@ mod _socket {
                         ai.address,
                         ai.socktype,
                         ai.protocol,
-                        ai.canonname,
+                        ai.canonname.unwrap_or_default(),
                         get_ip_addr_tuple(&ai.sockaddr, vm),
                     ))
                     .into()
@@ -2799,25 +2919,42 @@ mod _socket {
 
     #[pyfunction]
     fn getnameinfo(
-        address: PyTupleRef,
+        address: PyObjectRef,
         flags: i32,
         vm: &VirtualMachine,
     ) -> Result<(String, String), IoOrPyException> {
+        let address: PyTupleRef = address
+            .downcast()
+            .map_err(|_| vm.new_type_error("getnameinfo() argument 1 must be a tuple"))?;
         match address.len() {
             2..=4 => {}
             _ => {
-                return Err(vm.new_type_error("illegal sockaddr argument").into());
+                return Err(vm
+                    .new_type_error("getnameinfo(): illegal sockaddr argument")
+                    .into());
             }
         }
-        let (addr, flowinfo, scopeid) = Address::from_tuple_ipv6(&address, vm)?;
+        let host: PyStrRef = address[0]
+            .clone()
+            .downcast()
+            .map_err(|_| vm.new_type_error("getnameinfo(): illegal sockaddr argument"))?;
+        let host = host.try_into_utf8(vm)?;
+        let port: i32 = address[1].try_index(vm)?.try_to_primitive(vm)?;
+        let flowinfo = index_masked_u32(address.get(2), vm)?;
+        let scopeid = index_masked_u32(address.get(3), vm)?;
+        if flowinfo > 0xfffff {
+            return Err(vm
+                .new_overflow_error("getnameinfo(): flowinfo must be 0-1048575.")
+                .into());
+        }
         let hints = host_socket::dns::AddrInfoHints {
             address: c::AF_UNSPEC,
             socktype: c::SOCK_DGRAM,
             flags: c::AI_NUMERICHOST,
             protocol: 0,
         };
-        let service = addr.port.to_string();
-        let host_str = addr.host.as_str();
+        let service = port.to_string();
+        let host_str = host.as_str();
         let mut res = host_socket::dns::getaddrinfo(Some(host_str), Some(&service), Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?
             .filter_map(Result::ok);
@@ -2983,7 +3120,7 @@ mod _socket {
         {
             return Ok(SocketAddr::V4(net::SocketAddrV4::new(addr, 0)));
         }
-        if matches!(af, c::AF_INET | c::AF_UNSPEC)
+        if matches!(af, c::AF_INET6 | c::AF_UNSPEC)
             && !name.contains('%')
             && let Ok(addr) = name.parse::<Ipv6Addr>()
         {
@@ -3000,6 +3137,64 @@ mod _socket {
         let name = core::str::from_utf8(name.as_bytes())
             .map_err(|_| vm.new_runtime_error("idna output is not utf8"))?;
         let mut res = host_socket::dns::getaddrinfo(Some(name), None, Some(hints))
+            .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
+        Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
+    }
+
+    // setipaddr equivalent: host is the raw byte string produced by idna_convert
+    fn get_addr_bytes(
+        vm: &VirtualMachine,
+        host: &[u8],
+        af: i32,
+    ) -> Result<SocketAddr, IoOrPyException> {
+        if host.is_empty() {
+            let hints = host_socket::dns::AddrInfoHints {
+                address: af,
+                socktype: c::SOCK_DGRAM,
+                flags: c::AI_PASSIVE,
+                protocol: 0,
+            };
+            let mut res = host_socket::dns::getaddrinfo(None, Some("0"), Some(hints))
+                .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
+            let ainfo = res.next().unwrap()?;
+            if res.next().is_some() {
+                return Err(vm
+                    .new_os_error("wildcard resolved to multiple address")
+                    .into());
+            }
+            return Ok(ainfo.sockaddr);
+        }
+        if host == b"255.255.255.255" || host == b"<broadcast>" {
+            match af {
+                c::AF_INET | c::AF_UNSPEC => {}
+                _ => {
+                    return Err(vm.new_os_error("address family mismatched").into());
+                }
+            }
+            return Ok(SocketAddr::V4(net::SocketAddrV4::new(
+                c::INADDR_BROADCAST.into(),
+                0,
+            )));
+        }
+        if let Ok(name) = core::str::from_utf8(host) {
+            if matches!(af, c::AF_INET | c::AF_UNSPEC)
+                && let Ok(addr) = name.parse::<Ipv4Addr>()
+            {
+                return Ok(SocketAddr::V4(net::SocketAddrV4::new(addr, 0)));
+            }
+            if matches!(af, c::AF_INET6 | c::AF_UNSPEC)
+                && !name.contains('%')
+                && let Ok(addr) = name.parse::<Ipv6Addr>()
+            {
+                return Ok(SocketAddr::V6(net::SocketAddrV6::new(addr, 0, 0, 0)));
+            }
+        }
+        let hints = host_socket::dns::AddrInfoHints {
+            address: af,
+            ..Default::default()
+        };
+        let name = String::from_utf8_lossy(host);
+        let mut res = host_socket::dns::getaddrinfo(Some(&name), None, Some(hints))
             .map_err(|e| convert_socket_error(vm, e, SocketError::GaiError))?;
         Ok(res.next().unwrap().map(|ainfo| ainfo.sockaddr)?)
     }

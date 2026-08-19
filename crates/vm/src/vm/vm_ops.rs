@@ -477,24 +477,36 @@ impl VirtualMachine {
         Err(self.new_unsupported_bin_op_error(a, b, "+="))
     }
 
+    /// sequence_repeat: non-int operands report the sequence error
+    fn sequence_repeat_count(&self, n: &PyObject) -> PyResult<isize> {
+        match n.try_index_opt(self) {
+            None => Err(self.new_type_error(format!(
+                "can't multiply sequence by non-int of type '{}'",
+                n.class().name()
+            ))),
+            Some(idx) => {
+                let idx = idx?;
+                idx.as_bigint().to_isize().ok_or_else(|| {
+                    // PyNumber_AsSsize_t(n, PyExc_OverflowError)
+                    self.new_overflow_error(format!(
+                        "cannot fit '{}' into an index-sized integer",
+                        n.class().name()
+                    ))
+                })
+            }
+        }
+    }
+
     pub fn _mul(&self, a: &PyObject, b: &PyObject) -> PyResult {
         let result = self.binary_op1(a, b, PyNumberBinaryOp::Multiply)?;
         if !result.is(&self.ctx.not_implemented) {
             return Ok(result);
         }
         if let Ok(seq_a) = a.try_sequence(self) {
-            let n = b
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
+            let n = self.sequence_repeat_count(b)?;
             return seq_a.repeat(n, self);
         } else if let Ok(seq_b) = b.try_sequence(self) {
-            let n = a
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
+            let n = self.sequence_repeat_count(a)?;
             return seq_b.repeat(n, self);
         }
         Err(self.new_unsupported_bin_op_error(a, b, "*"))
@@ -511,18 +523,10 @@ impl VirtualMachine {
             return Ok(result);
         }
         if let Ok(seq_a) = a.try_sequence(self) {
-            let n = b
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
+            let n = self.sequence_repeat_count(b)?;
             return seq_a.inplace_repeat(n, self);
         } else if let Ok(seq_b) = b.try_sequence(self) {
-            let n = a
-                .try_index(self)?
-                .as_bigint()
-                .to_isize()
-                .ok_or_else(|| self.new_overflow_error("repeated bytes are too long"))?;
+            let n = self.sequence_repeat_count(a)?;
             /* Note that the right hand operand should not be
              * mutated in this case so inplace_repeat is not
              * used. */

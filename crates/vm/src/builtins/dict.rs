@@ -11,7 +11,10 @@ use crate::{
     class::{PyClassDef, PyClassImpl},
     common::{ascii, hash::PyHash},
     dict_inner::{self, DictKey},
-    function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
+    function::{
+        ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue,
+        check_no_kwargs, check_noargs, check_positional,
+    },
     iter::PyExactSizeIterator,
     protocol::{PyIterIter, PyIterReturn, PyMappingMethods, PyNumberMethods, PySequenceMethods},
     recursion::ReprGuard,
@@ -383,12 +386,11 @@ impl PyDict {
 )]
 impl PyDict {
     #[pyclassmethod]
-    fn fromkeys(
-        class: PyTypeRef,
-        iterable: ArgIterable,
-        value: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn fromkeys(class: PyTypeRef, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "dict.fromkeys", &func_args)?;
+        check_positional(vm, "fromkeys", func_args.args.len(), 1, 2)?;
+        type FromkeysArgs = (ArgIterable, OptionalArg<PyObjectRef>);
+        let (iterable, value): FromkeysArgs = func_args.bind(vm)?;
         let value = value.unwrap_or_none(vm);
         let d = PyType::call(&class, ().into(), vm)?;
         match d.downcast_exact::<Self>(vm) {
@@ -433,8 +435,14 @@ impl PyDict {
     }
 
     #[pymethod]
-    pub fn clear(&self) {
-        self.entries.clear()
+    pub fn clear(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_noargs(vm, "dict.clear", &func_args)?;
+        self.clear_inner();
+        Ok(())
+    }
+
+    pub fn clear_inner(&self) {
+        self.entries.clear();
     }
 
     fn __setitem__(
@@ -447,19 +455,17 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn get(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn get(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "dict.get", &func_args)?;
+        check_positional(vm, "get", func_args.args.len(), 1, 2)?;
+        type GetArgs = (PyObjectRef, OptionalArg<PyObjectRef>);
+        let (key, default): GetArgs = func_args.bind(vm)?;
         Ok(self
             .entries
             .get(vm, &*key)?
             .unwrap_or_else(|| default.unwrap_or_none(vm)))
     }
 
-    #[pymethod]
     pub(crate) fn setdefault(
         &self,
         key: PyObjectRef,
@@ -470,15 +476,29 @@ impl PyDict {
             .setdefault(vm, &*key, || default.unwrap_or_none(vm))
     }
 
+    #[pymethod(name = "setdefault")]
+    fn setdefault_method(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "dict.setdefault", &func_args)?;
+        check_positional(vm, "setdefault", func_args.args.len(), 1, 2)?;
+        type SetdefaultArgs = (PyObjectRef, OptionalArg<PyObjectRef>);
+        let (key, default): SetdefaultArgs = func_args.bind(vm)?;
+        self.entries
+            .setdefault(vm, &*key, || default.unwrap_or_none(vm))
+    }
+
     #[pymethod]
+    pub fn copy(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "dict.copy", &func_args)?;
+        Ok(self.copy_inner())
+    }
+
     #[must_use]
-    pub fn copy(&self) -> Self {
+    pub fn copy_inner(&self) -> Self {
         Self {
             entries: self.entries.clone(),
         }
     }
 
-    #[pymethod]
     pub(crate) fn update(
         &self,
         dict_obj: OptionalArg<PyObjectRef>,
@@ -494,10 +514,18 @@ impl PyDict {
         Ok(())
     }
 
+    #[pymethod(name = "update")]
+    fn update_method(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
+        check_positional(vm, "update", func_args.args.len(), 0, 1)?;
+        type UpdateArgs = (OptionalArg<PyObjectRef>, KwArgs);
+        let (dict_obj, kwargs): UpdateArgs = func_args.bind(vm)?;
+        self.update(dict_obj, kwargs, vm)
+    }
+
     fn __or__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<PyDictRef, _> = other.downcast();
         if let Ok(other) = other_dict {
-            let self_cp = self.copy();
+            let self_cp = self.copy_inner();
             self_cp.merge_dict(other, true, vm)?;
             return Ok(self_cp.into_pyobject(vm));
         }
@@ -505,12 +533,11 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn pop(
-        &self,
-        key: PyObjectRef,
-        default: OptionalArg<PyObjectRef>,
-        vm: &VirtualMachine,
-    ) -> PyResult {
+    fn pop(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        check_no_kwargs(vm, "dict.pop", &func_args)?;
+        check_positional(vm, "pop", func_args.args.len(), 1, 2)?;
+        type PopArgs = (PyObjectRef, OptionalArg<PyObjectRef>);
+        let (key, default): PopArgs = func_args.bind(vm)?;
         match self.entries.pop(vm, &*key)? {
             Some(value) => Ok(value),
             None => default.ok_or_else(|| vm.new_key_error(key)),
@@ -518,7 +545,12 @@ impl PyDict {
     }
 
     #[pymethod]
-    fn popitem(&self, vm: &VirtualMachine) -> PyResult<(PyObjectRef, PyObjectRef)> {
+    fn popitem(
+        &self,
+        func_args: FuncArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        check_noargs(vm, "dict.popitem", &func_args)?;
         let (key, value) = self.entries.pop_back().ok_or_else(|| {
             let err_msg = vm
                 .ctx
@@ -587,18 +619,21 @@ impl Py<PyDict> {
 #[pyclass]
 impl PyRef<PyDict> {
     #[pymethod]
-    const fn keys(self) -> PyDictKeys {
-        PyDictKeys::new(self)
+    fn keys(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictKeys> {
+        check_noargs(vm, "dict.keys", &func_args)?;
+        Ok(PyDictKeys::new(self))
     }
 
     #[pymethod]
-    const fn values(self) -> PyDictValues {
-        PyDictValues::new(self)
+    fn values(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictValues> {
+        check_noargs(vm, "dict.values", &func_args)?;
+        Ok(PyDictValues::new(self))
     }
 
     #[pymethod]
-    const fn items(self) -> PyDictItems {
-        PyDictItems::new(self)
+    fn items(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyDictItems> {
+        check_noargs(vm, "dict.items", &func_args)?;
+        Ok(PyDictItems::new(self))
     }
 
     #[pymethod]
@@ -614,7 +649,7 @@ impl PyRef<PyDict> {
     fn __ror__(self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult {
         let other_dict: Result<Self, _> = other.downcast();
         if let Ok(other) = other_dict {
-            let other_cp = other.copy();
+            let other_cp = other.copy_inner();
             other_cp.merge_dict(self, true, vm)?;
             return Ok(other_cp.into_pyobject(vm));
         }

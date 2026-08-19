@@ -1,13 +1,11 @@
 use core::ops::Range;
 
-use num_traits::{cast::ToPrimitive, sign::Signed};
+use num_traits::cast::ToPrimitive;
 use rustpython_unicode::case;
 
 use crate::{
-    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
-    builtins::{PyIntRef, PyTuple},
-    convert::TryFromBorrowedObject,
-    function::OptionalOption,
+    AsObject, PyObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine, builtins::PyTuple,
+    convert::TryFromBorrowedObject, function::OptionalOption,
 };
 
 #[derive(FromArgs)]
@@ -26,13 +24,19 @@ pub struct SplitLinesArgs {
 
 #[derive(FromArgs)]
 pub struct ExpandTabsArgs {
-    #[pyarg(any, default = 8)]
-    tabsize: i32,
+    #[pyarg(any, default)]
+    tabsize: crate::function::OptionalArg<crate::PyObjectRef>,
 }
 
 impl ExpandTabsArgs {
-    pub fn tabsize(&self) -> usize {
-        self.tabsize.to_usize().unwrap_or(0)
+    pub fn tabsize(&self, vm: &VirtualMachine) -> PyResult<usize> {
+        // CPython's clinic signature is `tabsize: int`, so the value converts
+        // with PyLong_AsInt and a non-positive tab size disables expansion
+        let n = match &self.tabsize {
+            crate::function::OptionalArg::Present(obj) => crate::builtins::to_c_int(obj, vm)?,
+            crate::function::OptionalArg::Missing => 8,
+        };
+        Ok(n.max(0) as usize)
     }
 }
 
@@ -41,59 +45,81 @@ pub(crate) struct StartsEndsWithArgs {
     #[pyarg(positional)]
     affix: PyObjectRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<crate::PyObjectRef>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<crate::PyObjectRef>,
 }
 
 impl StartsEndsWithArgs {
-    pub(crate) fn get_value(self, len: usize) -> (PyObjectRef, Option<Range<usize>>) {
+    pub(crate) fn get_value(
+        self,
+        len: usize,
+        vm: &crate::VirtualMachine,
+    ) -> crate::PyResult<(PyObjectRef, Option<Range<usize>>)> {
         let range = if self.start.is_some() || self.end.is_some() {
-            Some(adjust_indices(self.start, self.end, len))
+            let conv = |obj: Option<crate::PyObjectRef>,
+                        vm: &crate::VirtualMachine|
+             -> crate::PyResult<Option<isize>> {
+                match obj {
+                    None => Ok(None),
+                    Some(obj) => {
+                        if vm.is_none(&obj) {
+                            return Ok(None);
+                        }
+                        let i = obj.try_index_opt(vm).transpose()?.ok_or_else(|| {
+                            vm.new_type_error(
+                                "slice indices must be integers or None or have an __index__ method",
+                            )
+                        })?;
+                        // _PyEval_SliceIndex clamps to the ssize_t bounds
+                        let big = i.as_bigint();
+                        let i = match big.to_isize() {
+                            Some(i) => i,
+                            None if big.sign() == malachite_bigint::Sign::Minus => isize::MIN,
+                            None => isize::MAX,
+                        };
+                        Ok(Some(i))
+                    }
+                }
+            };
+            let start = conv(self.start, vm)?;
+            let end = conv(self.end, vm)?;
+            Some(adjust_indices(start, end, len))
         } else {
             None
         };
-        (self.affix, range)
+        Ok((self.affix, range))
     }
 
     #[inline]
-    pub(crate) fn prepare<S, F>(self, s: &S, len: usize, substr: F) -> Option<(PyObjectRef, &S)>
+    pub(crate) fn prepare<'s, S, F>(
+        self,
+        s: &'s S,
+        len: usize,
+        substr: F,
+        vm: &crate::VirtualMachine,
+    ) -> crate::PyResult<Option<(PyObjectRef, &'s S)>>
     where
         S: ?Sized + AnyStr,
         F: Fn(&S, Range<usize>) -> &S,
     {
-        let (affix, range) = self.get_value(len);
+        let (affix, range) = self.get_value(len, vm)?;
         let substr = if let Some(range) = range {
             if !range.is_normal() {
-                return None;
+                return Ok(None);
             }
             substr(s, range)
         } else {
             s
         };
-        Some((affix, substr))
+        Ok(Some((affix, substr)))
     }
 }
 
-fn saturate_to_isize(py_int: PyIntRef) -> isize {
-    let big = py_int.as_bigint();
-    big.to_isize().unwrap_or_else(|| {
-        if big.is_negative() {
-            isize::MIN
-        } else {
-            isize::MAX
-        }
-    })
-}
-
 // help get optional string indices
-pub(crate) fn adjust_indices(
-    start: Option<PyIntRef>,
-    end: Option<PyIntRef>,
-    len: usize,
-) -> Range<usize> {
-    let mut start = start.map_or(0, saturate_to_isize);
-    let mut end = end.map_or(len as isize, saturate_to_isize);
+pub(crate) fn adjust_indices(start: Option<isize>, end: Option<isize>, len: usize) -> Range<usize> {
+    let mut start = start.unwrap_or(0);
+    let mut end = end.unwrap_or(len as isize);
     if end > len as isize {
         end = len as isize;
     } else if end < 0 {

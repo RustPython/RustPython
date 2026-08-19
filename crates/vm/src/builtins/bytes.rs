@@ -5,7 +5,7 @@ use super::{
 use crate::common::lock::LazyLock;
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    TryFromBorrowedObject, VirtualMachine,
+    TryFromBorrowedObject, TryFromObject, VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
     bytes_inner::{
@@ -18,7 +18,7 @@ use crate::{
     convert::{ToPyObject, ToPyResult},
     function::{
         ArgBytesLike, ArgIndex, ArgIterable, FuncArgs, OptionalArg, OptionalOption,
-        PyComparisonValue,
+        PyComparisonValue, check_meth_o, check_no_kwargs, check_noargs, check_positional,
     },
     protocol::{
         BufferDescriptor, BufferFlags, BufferMethods, PyBuffer, PyIterReturn, PyMappingMethods,
@@ -97,6 +97,13 @@ impl Constructor for PyBytes {
     type Args = Vec<u8>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        if args.args.len() > 3 {
+            return Err(vm.new_type_error(format!(
+                "bytes() takes at most 3 arguments ({} given)",
+                args.args.len()
+            )));
+        }
+        ByteInnerNewOptions::check_encoding_errors(&args, "bytes", vm)?;
         let options: ByteInnerNewOptions = args.bind(vm)?;
 
         // Optimizations for exact bytes type
@@ -139,7 +146,7 @@ impl Constructor for PyBytes {
         }
 
         // Fallback to get_bytearray_inner
-        let elements = options.get_bytearray_inner(vm)?.elements;
+        let elements = options.get_bytearray_inner("bytes", vm)?.elements;
 
         // Return empty bytes singleton for exact bytes types
         if elements.is_empty() && cls.is(vm.ctx.types.bytes_type) {
@@ -243,8 +250,12 @@ impl PyBytes {
         Ok(vm.ctx.new_str(zelf.inner.repr_bytes(vm)?))
     }
 
-    fn __add__(&self, other: ArgBytesLike) -> Vec<u8> {
-        self.inner.add(&other.borrow_buf())
+    fn __add__(&self, other: PyObjectRef, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        // bytes_concat: "can't concat %.100s to %.100s"
+        let class_name = other.class().slot_name().to_string();
+        let other = <ArgBytesLike as TryFromObject>::try_from_object(vm, other)
+            .map_err(|_| vm.new_type_error(format!("can't concat {class_name} to bytes")))?;
+        Ok(self.inner.add(&other.borrow_buf()))
     }
 
     fn __contains__(&self, needle: PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
@@ -253,7 +264,10 @@ impl PyBytes {
     }
 
     #[pystaticmethod]
-    fn maketrans(from: PyBytesInner, to: PyBytesInner, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+    fn maketrans(func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
+        check_no_kwargs(vm, "bytes.maketrans", &func_args)?;
+        check_positional(vm, "maketrans", func_args.args.len(), 2, 2)?;
+        let (from, to): (PyBytesInner, PyBytesInner) = func_args.bind(vm)?;
         PyBytesInner::maketrans(from, to, vm)
     }
 
@@ -262,53 +276,63 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn isalnum(&self) -> bool {
-        self.inner.isalnum()
+    fn isalnum(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isalnum", &func_args)?;
+        Ok(self.inner.isalnum())
     }
 
     #[pymethod]
-    fn isalpha(&self) -> bool {
-        self.inner.isalpha()
+    fn isalpha(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isalpha", &func_args)?;
+        Ok(self.inner.isalpha())
     }
 
     #[pymethod]
-    fn isascii(&self) -> bool {
-        self.inner.isascii()
+    fn isascii(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isascii", &func_args)?;
+        Ok(self.inner.isascii())
     }
 
     #[pymethod]
-    fn isdigit(&self) -> bool {
-        self.inner.isdigit()
+    fn isdigit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isdigit", &func_args)?;
+        Ok(self.inner.isdigit())
     }
 
     #[pymethod]
-    fn islower(&self) -> bool {
-        self.inner.islower()
+    fn islower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.islower", &func_args)?;
+        Ok(self.inner.islower())
     }
 
     #[pymethod]
-    fn isspace(&self) -> bool {
-        self.inner.isspace()
+    fn isspace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isspace", &func_args)?;
+        Ok(self.inner.isspace())
     }
 
     #[pymethod]
-    fn isupper(&self) -> bool {
-        self.inner.isupper()
+    fn isupper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.isupper", &func_args)?;
+        Ok(self.inner.isupper())
     }
 
     #[pymethod]
-    fn istitle(&self) -> bool {
-        self.inner.istitle()
+    fn istitle(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_noargs(vm, "bytes.istitle", &func_args)?;
+        Ok(self.inner.istitle())
     }
 
     #[pymethod]
-    fn lower(&self) -> Self {
-        self.inner.lower().into()
+    fn lower(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytes.lower", &func_args)?;
+        Ok(self.inner.lower().into())
     }
 
     #[pymethod]
-    fn upper(&self) -> Self {
-        self.inner.upper().into()
+    fn upper(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytes.upper", &func_args)?;
+        Ok(self.inner.upper().into())
     }
 
     #[pymethod]
@@ -322,11 +346,15 @@ impl PyBytes {
     }
 
     #[pymethod]
-    pub(crate) fn hex(
-        &self,
-        options: ByteInnerHexOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<String> {
+    pub(crate) fn hex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<String> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "hex() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let options: ByteInnerHexOptions = func_args.bind(vm)?;
         let (sep, bytes_per_sep) = options.resolve(vm)?;
         Ok(self.inner.hex(sep, bytes_per_sep))
     }
@@ -339,34 +367,52 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn center(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn center(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.center", &func_args)?;
+        check_positional(vm, "center", func_args.args.len(), 1, 2)?;
+        let options: ByteInnerPaddingOptions = func_args.bind(vm)?;
         Ok(self.inner.center(options, vm)?.into())
     }
 
     #[pymethod]
-    fn ljust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn ljust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.ljust", &func_args)?;
+        check_positional(vm, "ljust", func_args.args.len(), 1, 2)?;
+        let options: ByteInnerPaddingOptions = func_args.bind(vm)?;
         Ok(self.inner.ljust(options, vm)?.into())
     }
 
     #[pymethod]
-    fn rjust(&self, options: ByteInnerPaddingOptions, vm: &VirtualMachine) -> PyResult<Self> {
+    fn rjust(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.rjust", &func_args)?;
+        check_positional(vm, "rjust", func_args.args.len(), 1, 2)?;
+        let options: ByteInnerPaddingOptions = func_args.bind(vm)?;
         Ok(self.inner.rjust(options, vm)?.into())
     }
 
     #[pymethod]
-    fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+    fn count(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "bytes.count", &func_args)?;
+        check_positional(vm, "count", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
         self.inner.count(options, vm)
     }
 
     #[pymethod]
-    fn join(&self, iter: ArgIterable<PyBytesInner>, vm: &VirtualMachine) -> PyResult<Self> {
+    fn join(&self, iterable: PyObjectRef, vm: &VirtualMachine) -> PyResult<Self> {
+        // PySequence_Fast(seq, "can only join an iterable")
+        let iter = <ArgIterable<PyBytesInner> as TryFromObject>::try_from_object(vm, iterable)
+            .map_err(|_| vm.new_type_error("can only join an iterable"))?;
         Ok(self.inner.join(iter, vm)?.into())
     }
 
     #[pymethod]
-    fn endswith(&self, options: anystr::StartsEndsWithArgs, vm: &VirtualMachine) -> PyResult<bool> {
+    fn endswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "bytes.endswith", &func_args)?;
+        check_positional(vm, "endswith", func_args.args.len(), 1, 3)?;
+        let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let (affix, substr) =
-            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -380,13 +426,12 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn startswith(
-        &self,
-        options: anystr::StartsEndsWithArgs,
-        vm: &VirtualMachine,
-    ) -> PyResult<bool> {
+    fn startswith(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<bool> {
+        check_no_kwargs(vm, "bytes.startswith", &func_args)?;
+        check_positional(vm, "startswith", func_args.args.len(), 1, 3)?;
+        let options: anystr::StartsEndsWithArgs = func_args.bind(vm)?;
         let (affix, substr) =
-            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r)) {
+            match options.prepare(self.as_bytes(), self.len(), |s, r| s.get_bytes(r), vm)? {
                 Some(x) => x,
                 None => return Ok(false),
             };
@@ -400,27 +445,39 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn find(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    fn find(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        check_no_kwargs(vm, "bytes.find", &func_args)?;
+        check_positional(vm, "find", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.inner.find(options, |h, n| h.find(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod]
-    fn index(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+    fn index(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "bytes.index", &func_args)?;
+        check_positional(vm, "index", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.inner.find(options, |h, n| h.find(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
     #[pymethod]
-    fn rfind(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<isize> {
+    fn rfind(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<isize> {
+        check_no_kwargs(vm, "bytes.rfind", &func_args)?;
+        check_positional(vm, "rfind", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.inner.find(options, |h, n| h.rfind(n), vm)?;
         Ok(index.map_or(-1, |v| v as isize))
     }
 
     #[pymethod]
-    fn rindex(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
+    fn rindex(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<usize> {
+        check_no_kwargs(vm, "bytes.rindex", &func_args)?;
+        check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
+        let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.inner.find(options, |h, n| h.rfind(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
     #[pymethod]
@@ -429,42 +486,59 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn strip(&self, chars: OptionalOption<PyBytesInner>) -> Self {
-        self.inner.strip(chars).into()
+    fn strip(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.strip", &func_args)?;
+        check_positional(vm, "strip", func_args.args.len(), 0, 1)?;
+        let (chars,): (OptionalOption<PyBytesInner>,) = func_args.bind(vm)?;
+        Ok(self.inner.strip(chars).into())
     }
 
     #[pymethod]
-    fn removeprefix(&self, prefix: PyBytesInner) -> Self {
-        self.inner.removeprefix(prefix).into()
+    fn removeprefix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytes.removeprefix", &func_args)?;
+        let (prefix,): (PyBytesInner,) = func_args.bind(vm)?;
+        Ok(self.inner.removeprefix(prefix).into())
     }
 
     #[pymethod]
-    fn removesuffix(&self, suffix: PyBytesInner) -> Self {
-        self.inner.removesuffix(suffix).into()
+    fn removesuffix(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytes.removesuffix", &func_args)?;
+        let (suffix,): (PyBytesInner,) = func_args.bind(vm)?;
+        Ok(self.inner.removesuffix(suffix).into())
     }
 
     #[pymethod]
-    fn split(
-        &self,
-        options: ByteInnerSplitOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
+    fn split(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() + func_args.kwargs.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "split() takes at most 2 arguments ({} given)",
+                func_args.args.len() + func_args.kwargs.len()
+            )));
+        }
+        let options: ByteInnerSplitOptions = func_args.bind(vm)?;
         self.inner
             .split(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
-    fn rsplit(
-        &self,
-        options: ByteInnerSplitOptions,
-        vm: &VirtualMachine,
-    ) -> PyResult<Vec<PyObjectRef>> {
+    fn rsplit(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 2 optional arguments
+        if func_args.args.len() + func_args.kwargs.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "rsplit() takes at most 2 arguments ({} given)",
+                func_args.args.len() + func_args.kwargs.len()
+            )));
+        }
+        let options: ByteInnerSplitOptions = func_args.bind(vm)?;
         self.inner
             .rsplit(options, |s, vm| vm.ctx.new_bytes(s.to_vec()).into(), vm)
     }
 
     #[pymethod]
-    fn partition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn partition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        check_meth_o(vm, "bytes.partition", &func_args)?;
+        let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
         let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (front, has_mid, back) = self.inner.partition(&sub, vm)?;
         Ok(vm.new_tuple((
@@ -479,7 +553,9 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn rpartition(&self, sep: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+    fn rpartition(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyTupleRef> {
+        check_meth_o(vm, "bytes.rpartition", &func_args)?;
+        let (sep,): (PyObjectRef,) = func_args.bind(vm)?;
         let sub = PyBytesInner::try_from_borrowed_object(vm, &sep)?;
         let (back, has_mid, front) = self.inner.rpartition(&sub, vm)?;
         Ok(vm.new_tuple((
@@ -494,35 +570,46 @@ impl PyBytes {
     }
 
     #[pymethod]
-    fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Self {
-        self.inner.expandtabs(options).into()
+    fn expandtabs(&self, options: anystr::ExpandTabsArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        Ok(self.inner.expandtabs(options, vm)?.into())
     }
 
     #[pymethod]
-    fn splitlines(&self, options: anystr::SplitLinesArgs, vm: &VirtualMachine) -> Vec<PyObjectRef> {
-        self.inner
-            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into())
+    fn splitlines(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Vec<PyObjectRef>> {
+        // clinic signature: max 1 optional argument
+        if func_args.args.len() + func_args.kwargs.len() > 1 {
+            return Err(vm.new_type_error(format!(
+                "splitlines() takes at most 1 argument ({} given)",
+                func_args.args.len() + func_args.kwargs.len()
+            )));
+        }
+        let options: anystr::SplitLinesArgs = func_args.bind(vm)?;
+        Ok(self
+            .inner
+            .splitlines(options, |x| vm.ctx.new_bytes(x.to_vec()).into()))
     }
 
     #[pymethod]
-    fn zfill(&self, width: isize, vm: &VirtualMachine) -> PyResult<Self> {
+    fn zfill(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_meth_o(vm, "bytes.zfill", &func_args)?;
+        let (width,): (PyObjectRef,) = func_args.bind(vm)?;
+        let width = crate::builtins::to_c_ssize_t(&width, vm)?;
         Ok(self.inner.zfill(width, vm)?.into())
     }
 
     #[pymethod]
-    fn replace(
-        &self,
-        old: PyBytesInner,
-        new: PyBytesInner,
-        count: OptionalArg<isize>,
-        vm: &VirtualMachine,
-    ) -> PyResult<Self> {
+    fn replace(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.replace", &func_args)?;
+        check_positional(vm, "replace", func_args.args.len(), 2, 3)?;
+        type ReplaceArgs = (PyBytesInner, PyBytesInner, OptionalArg<isize>);
+        let (old, new, count): ReplaceArgs = func_args.bind(vm)?;
         Ok(self.inner.replace(old, new, count, vm)?.into())
     }
 
     #[pymethod]
-    fn title(&self) -> Self {
-        self.inner.title().into()
+    fn title(&self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_noargs(vm, "bytes.title", &func_args)?;
+        Ok(self.inner.title().into())
     }
 
     fn __mul__(zelf: PyRef<Self>, value: ArgIndex, vm: &VirtualMachine) -> PyResult<PyRef<Self>> {
@@ -585,23 +672,29 @@ impl PyRef<PyBytes> {
     }
 
     #[pymethod]
-    fn lstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+    fn lstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.lstrip", &func_args)?;
+        check_positional(vm, "lstrip", func_args.args.len(), 0, 1)?;
+        let (chars,): (OptionalOption<PyBytesInner>,) = func_args.bind(vm)?;
         let stripped = self.inner.lstrip(chars);
-        if stripped == self.as_bytes() {
+        Ok(if stripped == self.as_bytes() {
             self
         } else {
             vm.ctx.new_bytes(stripped.to_vec())
-        }
+        })
     }
 
     #[pymethod]
-    fn rstrip(self, chars: OptionalOption<PyBytesInner>, vm: &VirtualMachine) -> Self {
+    fn rstrip(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<Self> {
+        check_no_kwargs(vm, "bytes.rstrip", &func_args)?;
+        check_positional(vm, "rstrip", func_args.args.len(), 0, 1)?;
+        let (chars,): (OptionalOption<PyBytesInner>,) = func_args.bind(vm)?;
         let stripped = self.inner.rstrip(chars);
-        if stripped == self.as_bytes() {
+        Ok(if stripped == self.as_bytes() {
             self
         } else {
             vm.ctx.new_bytes(stripped.to_vec())
-        }
+        })
     }
 
     /// Return a string decoded from the given bytes.
@@ -612,7 +705,15 @@ impl PyRef<PyBytes> {
     /// see https://docs.python.org/3/library/codecs.html#standard-encodings
     /// currently, only 'utf-8' and 'ascii' implemented
     #[pymethod]
-    fn decode(self, args: DecodeArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+    fn decode(self, func_args: FuncArgs, vm: &VirtualMachine) -> PyResult<PyStrRef> {
+        // decode() takes at most 2 optional arguments
+        if func_args.args.len() > 2 {
+            return Err(vm.new_type_error(format!(
+                "decode() takes at most 2 arguments ({} given)",
+                func_args.args.len()
+            )));
+        }
+        let args: DecodeArgs = func_args.bind(vm)?;
         bytes_decode(self.into(), args, vm)
     }
 }
@@ -668,6 +769,13 @@ impl AsSequence for PyBytes {
                 PyBytes::sequence_downcast(seq)
                     .inner
                     .concat(other, vm)
+                    .map_err(|_| {
+                        // bytes_concat: "can't concat %.100s to %.100s"
+                        vm.new_type_error(format!(
+                            "can't concat {} to bytes",
+                            other.class().slot_name()
+                        ))
+                    })
                     .map(|x| vm.ctx.new_bytes(x).into())
             }),
             repeat: atomic_func!(|seq, n, vm| {

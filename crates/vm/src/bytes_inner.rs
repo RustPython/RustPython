@@ -4,14 +4,14 @@ use crate::{
     VirtualMachine,
     anystr::{self, AnyStr, AnyStrContainer, AnyStrWrapper},
     builtins::{
-        PyBaseExceptionRef, PyByteArray, PyBytes, PyBytesRef, PyInt, PyIntRef, PyStr, PyStrRef,
-        pystr, pystr::PyUtf8StrRef,
+        PyBaseExceptionRef, PyByteArray, PyBytes, PyInt, PyIntRef, PyStr, PyStrRef, pystr,
+        pystr::PyUtf8StrRef,
     },
     byte::bytes_from_object,
     cformat::cformat_bytes,
     common::hash,
     common::wtf8::is_py_ascii_whitespace,
-    function::{ArgIterable, Either, OptionalArg, OptionalOption, PyComparisonValue},
+    function::{ArgIterable, OptionalArg, OptionalOption, PyComparisonValue},
     literal::escape::Escape,
     protocol::{BufferFlags, PyBuffer},
     sequence::{SequenceExt, SequenceMutExt},
@@ -54,6 +54,32 @@ pub struct ByteInnerNewOptions {
 }
 
 impl ByteInnerNewOptions {
+    /// bytes_new/bytearray_new: encoding and errors must be str (not None),
+    /// reported with the constructor's name.
+    pub fn check_encoding_errors(
+        func_args: &crate::function::FuncArgs,
+        name: &str,
+        vm: &crate::VirtualMachine,
+    ) -> crate::PyResult<()> {
+        use crate::AsObject;
+        for (pos, key) in [(1usize, "encoding"), (2, "errors")] {
+            let value = func_args
+                .kwargs
+                .get(key)
+                .cloned()
+                .or_else(|| func_args.args.get(pos).cloned());
+            if let Some(value) = value
+                && !value.fast_isinstance(vm.ctx.types.str_type)
+            {
+                return Err(vm.new_type_error(format!(
+                    "{name}() argument '{key}' must be str, not {}",
+                    value.class().name()
+                )));
+            }
+        }
+        Ok(())
+    }
+
     fn get_value_from_string(
         s: PyStrRef,
         encoding: PyUtf8StrRef,
@@ -64,8 +90,24 @@ impl ByteInnerNewOptions {
         Ok(bytes.as_bytes().to_vec().into())
     }
 
-    fn get_value_from_source(source: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
-        bytes_from_object(vm, &source).map(|x| x.into())
+    fn get_value_from_source(
+        source: PyObjectRef,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
+        // PyBytes_FromObject: "cannot convert '%.200s' object to bytes"
+        bytes_from_object(vm, &source)
+            .map_err(|e| {
+                if e.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    vm.new_type_error(format!(
+                        "cannot convert '{}' object to {name}",
+                        source.class().name()
+                    ))
+                } else {
+                    e
+                }
+            })
+            .map(|x| x.into())
     }
 
     fn get_value_from_size(size: PyIntRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
@@ -81,19 +123,23 @@ impl ByteInnerNewOptions {
         Ok(vm.new_zeroed_bytes(size)?.into())
     }
 
-    fn handle_object_fallback(obj: PyObjectRef, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    fn handle_object_fallback(
+        obj: PyObjectRef,
+        name: &str,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyBytesInner> {
         match_class!(match obj {
             i @ PyInt => {
                 Self::get_value_from_size(i, vm)
             }
             _s @ PyStr => Err(vm.new_type_error(STRING_WITHOUT_ENCODING.to_owned())),
             obj => {
-                Self::get_value_from_source(obj, vm)
+                Self::get_value_from_source(obj, name, vm)
             }
         })
     }
 
-    pub fn get_bytearray_inner(self, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
+    pub fn get_bytearray_inner(self, name: &str, vm: &VirtualMachine) -> PyResult<PyBytesInner> {
         match (self.source, self.encoding, self.errors) {
             (OptionalArg::Present(obj), OptionalArg::Missing, OptionalArg::Missing) => {
                 // Try __index__ first to handle int-like objects that might raise custom exceptions
@@ -105,7 +151,7 @@ impl ByteInnerNewOptions {
                             // TypeError means the object doesn't support __index__, so fall back
                             if e.fast_isinstance(vm.ctx.exceptions.type_error) {
                                 // Fall back to treating as buffer-like object
-                                Self::handle_object_fallback(obj, vm)
+                                Self::handle_object_fallback(obj, name, vm)
                             } else {
                                 // Propagate other exceptions (e.g., ZeroDivisionError)
                                 Err(e)
@@ -113,7 +159,7 @@ impl ByteInnerNewOptions {
                         }
                     }
                 } else {
-                    Self::handle_object_fallback(obj, vm)
+                    Self::handle_object_fallback(obj, name, vm)
                 }
             }
             (OptionalArg::Present(obj), OptionalArg::Present(encoding), errors) => {
@@ -182,11 +228,11 @@ impl ByteInnerSub {
 #[derive(FromArgs)]
 pub struct ByteInnerFindOptions {
     #[pyarg(positional)]
-    sub: ByteInnerSub,
+    sub: PyObjectRef,
     #[pyarg(positional, default)]
-    start: Option<PyIntRef>,
+    start: Option<PyObjectRef>,
     #[pyarg(positional, default)]
-    end: Option<PyIntRef>,
+    end: Option<PyObjectRef>,
 }
 
 impl ByteInnerFindOptions {
@@ -195,8 +241,37 @@ impl ByteInnerFindOptions {
         len: usize,
         vm: &VirtualMachine,
     ) -> PyResult<(Vec<u8>, core::ops::Range<usize>)> {
-        let sub = self.sub.into_vec(vm)?;
-        let range = anystr::adjust_indices(self.start, self.end, len);
+        // PyEval_SliceIndex: "slice indices must be integers or None or
+        // have an __index__ method"
+        let conv = |obj: Option<PyObjectRef>| -> PyResult<Option<Option<isize>>> {
+            match obj {
+                None => Ok(None),
+                Some(obj) => {
+                    if vm.is_none(&obj) {
+                        return Ok(Some(None));
+                    }
+                    let i = obj.try_index_opt(vm).transpose()?.ok_or_else(|| {
+                        vm.new_type_error(
+                            "slice indices must be integers or None or have an __index__ method",
+                        )
+                    })?;
+                    // _PyEval_SliceIndex clamps to the ssize_t bounds
+                    let big = i.as_bigint();
+                    let i = match big.to_isize() {
+                        Some(i) => i,
+                        None if big.sign() == malachite_bigint::Sign::Minus => isize::MIN,
+                        None => isize::MAX,
+                    };
+                    Ok(Some(Some(i)))
+                }
+            }
+        };
+        let start = conv(self.start)?.flatten();
+        let end = conv(self.end)?.flatten();
+        let range = anystr::adjust_indices(start, end, len);
+        // CPython parses the slice indices before the needle ("y*"), so a bad
+        // start reports the slice error even when the needle type is wrong
+        let sub = ByteInnerSub::try_from_object(vm, self.sub)?.into_vec(vm)?;
         Ok((sub, range))
     }
 }
@@ -204,28 +279,44 @@ impl ByteInnerFindOptions {
 #[derive(FromArgs)]
 pub struct ByteInnerPaddingOptions {
     #[pyarg(positional)]
-    width: isize,
+    width: PyObjectRef,
     #[pyarg(positional, optional)]
     fillchar: OptionalArg<PyObjectRef>,
 }
 
 impl ByteInnerPaddingOptions {
     fn get_value(self, fn_name: &str, vm: &VirtualMachine) -> PyResult<(isize, u8)> {
-        let fillchar = if let OptionalArg::Present(v) = self.fillchar {
-            try_as_bytes(v.clone(), |bytes| bytes.iter().copied().exactly_one().ok())
-                .flatten()
-                .ok_or_else(|| {
-                    vm.new_type_error(format!(
-                        "{}() argument 2 must be a byte string of length 1, not {}",
-                        fn_name,
-                        v.class().name()
-                    ))
-                })?
-        } else {
-            b' ' // default is space
+        // CPython converts the width with PyNumber_AsSsize_t
+        let width = crate::builtins::to_c_ssize_t(&self.width, vm)?;
+        let fillchar = match self.fillchar {
+            OptionalArg::Missing => b' ', // default is space
+            OptionalArg::Present(v) => {
+                // stringlib_pad: the length error names the exact type and
+                // length for bytes/bytearray, the plain type name otherwise
+                let is_byte_like = matches!(v.class().name().as_ref(), "bytes" | "bytearray");
+                if is_byte_like {
+                    let len = v.length(vm).unwrap_or(0);
+                    if len != 1 {
+                        return Err(vm.new_type_error(format!(
+                            "{}(): argument 2 must be a byte string of length 1, not a {} object of length {}",
+                            fn_name,
+                            v.class().name(),
+                            len
+                        )));
+                    }
+                }
+                let v_class = v.class().name().to_string();
+                try_as_bytes(v, |bytes| bytes.iter().copied().exactly_one().ok())
+                    .flatten()
+                    .ok_or_else(|| {
+                        vm.new_type_error(format!(
+                            "{fn_name}() argument 2 must be a byte string of length 1, not {v_class}"
+                        ))
+                    })?
+            }
         };
 
-        Ok((self.width, fillchar))
+        Ok((width, fillchar))
     }
 }
 
@@ -571,10 +662,11 @@ impl PyBytesInner {
     fn _pad(
         &self,
         options: ByteInnerPaddingOptions,
+        fn_name: &str,
         pad: PadFn,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let (width, fillchar) = options.get_value("center", vm)?;
+        let (width, fillchar) = options.get_value(fn_name, vm)?;
         let len = self.len();
         if len as isize >= width {
             return Ok(Vec::from(&self.elements[..]));
@@ -587,7 +679,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::py_center, vm)
+        self._pad(options, "center", AnyStr::py_center, vm)
     }
 
     pub fn ljust(
@@ -595,7 +687,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::py_ljust, vm)
+        self._pad(options, "ljust", AnyStr::py_ljust, vm)
     }
 
     pub fn rjust(
@@ -603,7 +695,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::py_rjust, vm)
+        self._pad(options, "rjust", AnyStr::py_rjust, vm)
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
@@ -776,18 +868,22 @@ impl PyBytesInner {
         )
     }
 
-    pub fn expandtabs(&self, options: anystr::ExpandTabsArgs) -> Vec<u8> {
-        let tabsize = options.tabsize();
+    pub fn expandtabs(
+        &self,
+        options: anystr::ExpandTabsArgs,
+        vm: &VirtualMachine,
+    ) -> PyResult<Vec<u8>> {
+        let tabsize = options.tabsize(vm)?;
         let mut counter: usize = 0;
         let mut res = vec![];
 
         if tabsize == 0 {
-            return self
+            return Ok(self
                 .elements
                 .iter()
                 .copied()
                 .filter(|x| *x != b'\t')
-                .collect();
+                .collect());
         }
 
         for i in &self.elements {
@@ -805,7 +901,7 @@ impl PyBytesInner {
             }
         }
 
-        res
+        Ok(res)
     }
 
     pub fn splitlines<FW, W>(&self, options: anystr::SplitLinesArgs, into_wrapper: FW) -> Vec<W>
@@ -1178,9 +1274,9 @@ impl AnyStr for [u8] {
 #[derive(FromArgs)]
 pub(crate) struct DecodeArgs {
     #[pyarg(any, default)]
-    encoding: Option<PyUtf8StrRef>,
+    encoding: Option<PyObjectRef>,
     #[pyarg(any, default)]
-    errors: Option<PyUtf8StrRef>,
+    errors: Option<PyObjectRef>,
 }
 
 pub(crate) fn bytes_decode(
@@ -1190,20 +1286,49 @@ pub(crate) fn bytes_decode(
 ) -> PyResult<PyStrRef> {
     let DecodeArgs { encoding, errors } = args;
     let encoding = match encoding.as_ref() {
-        None => crate::codecs::DEFAULT_ENCODING,
-        Some(e) => e.as_str(),
+        None => crate::codecs::DEFAULT_ENCODING.to_owned(),
+        Some(e) => {
+            let class_name = e.class().name();
+            if !e.fast_isinstance(vm.ctx.types.str_type) {
+                return Err(vm.new_type_error(format!(
+                    "decode() argument 'encoding' must be str, not {class_name}"
+                )));
+            }
+            let e = e
+                .clone()
+                .downcast::<crate::builtins::PyStr>()
+                .expect("fast_isinstance guard");
+            let e: PyUtf8StrRef = e.try_into_utf8(vm)?;
+            crate::builtins::PyUtf8Str::as_str(&e).to_owned()
+        }
+    };
+    let errors = match errors {
+        None => None,
+        Some(o) => {
+            if !o.fast_isinstance(vm.ctx.types.str_type) {
+                return Err(vm.new_type_error(format!(
+                    "decode() argument 'errors' must be str, not {}",
+                    o.class().name()
+                )));
+            }
+            let e = o
+                .downcast::<crate::builtins::PyStr>()
+                .expect("fast_isinstance guard");
+            let e: PyUtf8StrRef = e.try_into_utf8(vm)?;
+            Some(e)
+        }
     };
     vm.state
         .codec_registry
-        .decode_text(zelf, encoding, errors, vm)
+        .decode_text(zelf, &encoding, errors, vm)
 }
 
 #[derive(FromArgs)]
 pub(crate) struct ByteInnerHexOptions {
     #[pyarg(any, optional)]
-    pub sep: OptionalArg<Either<PyStrRef, PyBytesRef>>,
+    pub sep: OptionalArg<PyObjectRef>,
     #[pyarg(any, optional)]
-    pub bytes_per_sep: OptionalArg<isize>,
+    pub bytes_per_sep: OptionalArg<PyObjectRef>,
 }
 
 impl ByteInnerHexOptions {
@@ -1213,25 +1338,32 @@ impl ByteInnerHexOptions {
     /// bytes to be written out are borrowed. _Py_strhex_impl
     pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
         let Self { sep, bytes_per_sep } = self;
+        // The clinic converts bytes_per_sep - an int, not a Py_ssize_t -
+        // before _Py_strhex_impl looks at sep
+        let bytes_per_sep = bytes_per_sep
+            .map(|obj| crate::builtins::to_c_int(&obj, vm).map(|n| n as isize))
+            .transpose()?;
         let OptionalArg::Present(sep) = sep else {
             return Ok((None, bytes_per_sep));
         };
 
-        let s_guard;
-        let b_guard;
-        let (obj, bytes) = match &sep {
-            Either::A(s) => {
-                s_guard = s.as_wtf8();
-                (s.as_object(), s_guard.as_bytes())
-            }
-            Either::B(b) => {
-                b_guard = b.as_bytes();
-                (b.as_object(), b_guard)
-            }
-        };
-        if obj.length(vm)? != 1 {
+        // CPython measures the separator with PyObject_Length before anything
+        // else, so an object without __len__ reports "object of type 'X' has
+        // no len()" even for empty input or bytes_per_sep == 0
+        if sep.length(vm)? != 1 {
             return Err(vm.new_value_error("sep must be length 1."));
         }
+        let s_guard;
+        let b_guard;
+        let bytes = if let Some(s) = sep.downcast_ref::<PyStr>() {
+            s_guard = s.as_wtf8();
+            s_guard.as_bytes()
+        } else if let Some(b) = sep.downcast_ref::<PyBytes>() {
+            b_guard = b.as_bytes();
+            b_guard
+        } else {
+            return Err(vm.new_type_error("sep must be str or bytes."));
+        };
         // An object that claims a length it does not have separates with NUL,
         // which is what reading past the end of its data gives.
         let sep = bytes.first().copied().unwrap_or(0);

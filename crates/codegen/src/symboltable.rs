@@ -3011,6 +3011,7 @@ impl SymbolTableBuilder {
                     })
                 {
                     return Err(SymbolTableError {
+                        // CPython names the variable as written, not mangled.
                         error: format!(
                             "assignment expression cannot rebind comprehension iteration variable '{name}'"
                         ),
@@ -3211,6 +3212,14 @@ impl SymbolTableBuilder {
                             location,
                         });
                     }
+                    // CPython checks the nonlocal conflict last and reports the
+                    // stored location of the first directive.
+                    if flags.contains(SymbolFlags::DEF_NONLOCAL) {
+                        return Err(SymbolTableError {
+                            error: format!("name '{name}' is nonlocal and global"),
+                            location: symbol.location,
+                        });
+                    }
                 }
                 SymbolUsage::Nonlocal => {
                     if flags.contains(SymbolFlags::DEF_PARAM) {
@@ -3237,6 +3246,14 @@ impl SymbolTableBuilder {
                                 "name '{name}' is assigned to before nonlocal declaration"
                             ),
                             location,
+                        });
+                    }
+                    // CPython checks the global conflict last and reports the
+                    // stored location of the first directive.
+                    if flags.contains(SymbolFlags::DEF_GLOBAL) {
+                        return Err(SymbolTableError {
+                            error: format!("name '{name}' is nonlocal and global"),
+                            location: symbol.location,
                         });
                     }
                 }
@@ -3279,7 +3296,10 @@ impl SymbolTableBuilder {
             table.symbols.entry(name.into_owned()).or_insert(symbol)
         };
 
-        if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) {
+        // Keep the location of the first global/nonlocal directive: CPython
+        // reports that one when a later directive conflicts with it.
+        if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) && symbol.location.is_none()
+        {
             symbol.location = location;
         }
 
@@ -3777,6 +3797,52 @@ def f(x=(lambda: 1)()):
             location.character_offset.get(),
             9,
             "CPython symtable_add_def_ctx checks DEF_TYPE_PARAM | DEF_LOCAL at LOCATION(tp)"
+        );
+    }
+
+    #[test]
+    fn nonlocal_and_global_conflict_is_rejected_like_cpython() {
+        for source in [
+            "def f():\n    global x\n    nonlocal x\n",
+            "def f():\n    nonlocal x\n    global x\n",
+            // Repeated directives: CPython reports the first one.
+            "def f():\n    global x\n    global x\n    nonlocal x\n",
+            "def f():\n    nonlocal x\n    nonlocal x\n    global x\n",
+        ] {
+            let err = scan_source_result(source).unwrap_err();
+
+            assert_eq!(err.error, "name 'x' is nonlocal and global");
+            let location = err.location.unwrap();
+            assert_eq!(location.line.get(), 2);
+            assert_eq!(
+                location.character_offset.get(),
+                5,
+                "CPython reports the location of the first directive"
+            );
+        }
+    }
+
+    #[test]
+    fn nonlocal_global_conflict_loses_to_earlier_flag_checks_like_cpython() {
+        // CPython checks parameter/use/annotation/assignment conflicts before
+        // the nonlocal-vs-global cross-check.
+        let err = scan_source_result("def f():\n    global x\n    print(x)\n    nonlocal x\n")
+            .unwrap_err();
+        assert_eq!(err.error, "name 'x' is used prior to nonlocal declaration");
+
+        let err = scan_source_result(
+            "def f():\n    x = 1\n    def g():\n        nonlocal x\n        print(x)\n        global x\n",
+        )
+        .unwrap_err();
+        assert_eq!(err.error, "name 'x' is used prior to global declaration");
+
+        let err = scan_source_result(
+            "def f():\n    x = 1\n    def g():\n        nonlocal x\n        x = 2\n        global x\n",
+        )
+        .unwrap_err();
+        assert_eq!(
+            err.error,
+            "name 'x' is assigned to before global declaration"
         );
     }
 

@@ -1021,7 +1021,6 @@ class BaseBytesTest:
             self.assertRaises(ValueError, method, 256)
             self.assertRaises(ValueError, method, 9999)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_find_etc_raise_correct_error_messages(self):
         # issue 11828
         b = self.type2test(b'hello')
@@ -2015,7 +2014,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
             self.assertEqual(instance.ba[0], ord("?"), "Assigned bytearray not altered")
             self.assertEqual(instance.new_ba, bytearray(0x180), "Wrong object altered")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: unexpected type Evil
     def test_search_methods_reentrancy_raises_buffererror(self):
         # gh-142560: Raise BufferError if buffer mutates during search arg conversion.
         class Evil:
@@ -2065,7 +2063,6 @@ class ByteArrayTest(BaseBytesTest, unittest.TestCase):
 
         self.assertRaises(ValueError, float, bytearray())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: BufferError not raised by hex
     def test_hex_use_after_free(self):
         # Prevent UAF in bytearray.hex(sep) with re-entrant sep.__len__.
         # Regression test for https://github.com/python/cpython/issues/143195.

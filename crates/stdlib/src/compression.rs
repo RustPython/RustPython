@@ -278,6 +278,8 @@ pub(crate) struct DecompressState<D> {
     input_buffer: Vec<u8>,
     eof: bool,
     needs_input: bool,
+    /// Set once decompression failed; the stream cannot be resumed.
+    failed: bool,
 }
 
 impl<D: Decompressor> DecompressState<D> {
@@ -288,6 +290,7 @@ impl<D: Decompressor> DecompressState<D> {
             input_buffer: Vec::new(),
             eof: false,
             needs_input: true,
+            failed: false,
         }
     }
 
@@ -306,6 +309,10 @@ impl<D: Decompressor> DecompressState<D> {
 
     pub(crate) const fn needs_input(&self) -> bool {
         self.needs_input
+    }
+
+    pub(crate) const fn failed(&self) -> bool {
+        self.failed
     }
 
     pub(crate) fn decompress(
@@ -328,7 +335,13 @@ impl<D: Decompressor> DecompressState<D> {
         let (ret, stream_end) =
             match _decompress_chunks(&mut chunks, d, bufsize, max_length, flush_sync) {
                 Ok((buf, stream_end)) => (Ok(buf), stream_end),
-                Err(err) => (Err(err), false),
+                Err(err) => {
+                    // A damaged stream leaves the decompressor inconsistent, so
+                    // stop here instead of updating the buffers from it.
+                    self.failed = true;
+                    self.needs_input = false;
+                    return Err(DecompressError::Decompress(err));
+                }
             };
         let consumed = prev_len - chunks.len();
 
