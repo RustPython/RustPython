@@ -487,7 +487,7 @@ impl PyByteArray {
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.find_with_guard(options, false, vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
     #[pymethod]
@@ -505,7 +505,7 @@ impl PyByteArray {
         check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.find_with_guard(options, true, vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
     #[pymethod]

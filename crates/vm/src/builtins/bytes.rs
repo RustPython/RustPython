@@ -459,7 +459,7 @@ impl PyBytes {
         check_positional(vm, "index", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.inner.find(options, |h, n| h.find(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
     #[pymethod]
@@ -477,7 +477,7 @@ impl PyBytes {
         check_positional(vm, "rindex", func_args.args.len(), 1, 3)?;
         let options: ByteInnerFindOptions = func_args.bind(vm)?;
         let index = self.inner.find(options, |h, n| h.rfind(n), vm)?;
-        index.ok_or_else(|| vm.new_value_error("substring not found"))
+        index.ok_or_else(|| vm.new_value_error("subsection not found"))
     }
 
     #[pymethod]

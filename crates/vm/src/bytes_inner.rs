@@ -310,7 +310,7 @@ impl ByteInnerPaddingOptions {
                     .flatten()
                     .ok_or_else(|| {
                         vm.new_type_error(format!(
-                            "{fn_name} argument 2 must be a byte string of length 1, not {v_class}"
+                            "{fn_name}() argument 2 must be a byte string of length 1, not {v_class}"
                         ))
                     })?
             }
@@ -662,10 +662,11 @@ impl PyBytesInner {
     fn _pad(
         &self,
         options: ByteInnerPaddingOptions,
+        fn_name: &str,
         pad: PadFn,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        let (width, fillchar) = options.get_value("center", vm)?;
+        let (width, fillchar) = options.get_value(fn_name, vm)?;
         let len = self.len();
         if len as isize >= width {
             return Ok(Vec::from(&self.elements[..]));
@@ -678,7 +679,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::py_center, vm)
+        self._pad(options, "center", AnyStr::py_center, vm)
     }
 
     pub fn ljust(
@@ -686,7 +687,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::py_ljust, vm)
+        self._pad(options, "ljust", AnyStr::py_ljust, vm)
     }
 
     pub fn rjust(
@@ -694,7 +695,7 @@ impl PyBytesInner {
         options: ByteInnerPaddingOptions,
         vm: &VirtualMachine,
     ) -> PyResult<Vec<u8>> {
-        self._pad(options, AnyStr::py_rjust, vm)
+        self._pad(options, "rjust", AnyStr::py_rjust, vm)
     }
 
     pub fn count(&self, options: ByteInnerFindOptions, vm: &VirtualMachine) -> PyResult<usize> {
@@ -1337,9 +1338,10 @@ impl ByteInnerHexOptions {
     /// bytes to be written out are borrowed. _Py_strhex_impl
     pub(crate) fn resolve(self, vm: &VirtualMachine) -> PyResult<(Option<u8>, OptionalArg<isize>)> {
         let Self { sep, bytes_per_sep } = self;
-        // The clinic converts bytes_per_sep before _Py_strhex_impl looks at sep
+        // The clinic converts bytes_per_sep - an int, not a Py_ssize_t -
+        // before _Py_strhex_impl looks at sep
         let bytes_per_sep = bytes_per_sep
-            .map(|obj| crate::builtins::to_c_ssize_t(&obj, vm))
+            .map(|obj| crate::builtins::to_c_int(&obj, vm).map(|n| n as isize))
             .transpose()?;
         let OptionalArg::Present(sep) = sep else {
             return Ok((None, bytes_per_sep));
