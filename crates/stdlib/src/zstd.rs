@@ -29,17 +29,17 @@ mod _zstd {
     use libzstd_rs_sys::lib::zdict::ZDICT_finalizeDictionary;
     use libzstd_rs_sys::{
         ZDICT_getErrorName, ZDICT_isError, ZDICT_params_t, ZDICT_trainFromBuffer, ZSTD_CCtx,
-        ZSTD_CCtx_loadDictionary, ZSTD_CCtx_refCDict, ZSTD_CCtx_refPrefix, ZSTD_CCtx_setParameter,
-        ZSTD_CCtx_setPledgedSrcSize, ZSTD_CDict, ZSTD_CONTENTSIZE_ERROR, ZSTD_CONTENTSIZE_UNKNOWN,
-        ZSTD_CStreamOutSize, ZSTD_DCtx, ZSTD_DCtx_loadDictionary, ZSTD_DCtx_refDDict,
-        ZSTD_DCtx_refPrefix, ZSTD_DCtx_setParameter, ZSTD_DDict, ZSTD_DStreamOutSize,
-        ZSTD_EndDirective, ZSTD_cParam_getBounds, ZSTD_cParameter, ZSTD_compressStream2,
-        ZSTD_createCCtx, ZSTD_createCDict, ZSTD_createDCtx, ZSTD_createDDict,
-        ZSTD_dParam_getBounds, ZSTD_dParameter, ZSTD_decompressStream,
-        ZSTD_findFrameCompressedSize, ZSTD_freeCCtx, ZSTD_freeCDict, ZSTD_freeDCtx, ZSTD_freeDDict,
-        ZSTD_getDictID_fromDict, ZSTD_getDictID_fromFrame, ZSTD_getErrorName,
-        ZSTD_getFrameContentSize, ZSTD_inBuffer, ZSTD_isError, ZSTD_outBuffer, ZSTD_strategy,
-        ZSTD_versionNumber, ZSTD_versionString,
+        ZSTD_CCtx_loadDictionary, ZSTD_CCtx_refCDict, ZSTD_CCtx_refPrefix, ZSTD_CCtx_reset,
+        ZSTD_CCtx_setParameter, ZSTD_CCtx_setPledgedSrcSize, ZSTD_CDict, ZSTD_CONTENTSIZE_ERROR,
+        ZSTD_CONTENTSIZE_UNKNOWN, ZSTD_CStreamOutSize, ZSTD_DCtx, ZSTD_DCtx_loadDictionary,
+        ZSTD_DCtx_refDDict, ZSTD_DCtx_refPrefix, ZSTD_DCtx_reset, ZSTD_DCtx_setParameter,
+        ZSTD_DDict, ZSTD_DStreamOutSize, ZSTD_EndDirective, ZSTD_ResetDirective,
+        ZSTD_cParam_getBounds, ZSTD_cParameter, ZSTD_compressStream2, ZSTD_createCCtx,
+        ZSTD_createCDict, ZSTD_createDCtx, ZSTD_createDDict, ZSTD_dParam_getBounds,
+        ZSTD_dParameter, ZSTD_decompressStream, ZSTD_findFrameCompressedSize, ZSTD_freeCCtx,
+        ZSTD_freeCDict, ZSTD_freeDCtx, ZSTD_freeDDict, ZSTD_getDictID_fromDict,
+        ZSTD_getDictID_fromFrame, ZSTD_getErrorName, ZSTD_getFrameContentSize, ZSTD_inBuffer,
+        ZSTD_isError, ZSTD_outBuffer, ZSTD_strategy, ZSTD_versionNumber, ZSTD_versionString,
     };
     use rustpython_common::lock::PyMutex;
     use rustpython_vm::builtins::{
@@ -317,7 +317,9 @@ mod _zstd {
                 "invalid compression parameter 'unknown parameter (key {param})'"
             ))
         })?;
-        if param == ZSTD_c_strategy && strategy_from_int(value).is_none() {
+        // Strategy 0 is libzstd's "use the default" sentinel, like the other
+        // parameters; only a non-zero value has to name a real strategy.
+        if param == ZSTD_c_strategy && value != 0 && strategy_from_int(value).is_none() {
             return Err(new_zstd_error(
                 format!("invalid strategy value: {value}"),
                 vm,
@@ -457,17 +459,18 @@ mod _zstd {
     }
 
     /// Decode the `zstd_dict=` constructor argument. Accepts either a
-    /// `ZstdDict` instance (treated as the default digested form) or a
-    /// `(ZstdDict, marker)` tuple produced by one of `ZstdDict.as_*`.
+    /// `ZstdDict` instance, which takes the caller's `default` load mode, or
+    /// a `(ZstdDict, marker)` tuple produced by one of `ZstdDict.as_*`.
     fn parse_zstd_dict_arg(
         obj: PyObjectRef,
+        default: DictType,
         vm: &VirtualMachine,
     ) -> PyResult<(PyRef<ZstdDict>, DictType)> {
         // The first downcast clones `obj` because we fall through to the
         // tuple branch if it fails. The second downcast (the tuple one) is
         // the last use of `obj`, so we let it move directly.
         if let Ok(d) = obj.clone().downcast::<ZstdDict>() {
-            return Ok((d, DictType::Digested));
+            return Ok((d, default));
         }
         if let Ok(tuple) = obj.downcast::<rustpython_vm::builtins::PyTuple>() {
             let items = tuple.as_slice();
@@ -534,6 +537,15 @@ mod _zstd {
 
         fn py_new(_cls: &Py<PyType>, args: Self::Args, vm: &VirtualMachine) -> PyResult<Self> {
             let dict_content = args.dict_content.with_ref(|b| b.to_vec());
+            // CPython checks this first, before and independently of the
+            // `is_raw` handling below, so a too-short buffer never reaches
+            // libzstd.
+            if dict_content.len() < 8 {
+                return Err(vm.new_value_error(
+                    "Zstandard dictionary content too short \
+                     (must have at least eight bytes)",
+                ));
+            }
             // libzstd's `ZSTD_getDictID_fromDict` returns 0 either when
             // the content is too small to contain a valid header or when it
             // does not carry the dictionary magic. Both are runtime errors
@@ -694,6 +706,14 @@ mod _zstd {
             }
         }
 
+        /// Return the context to a frame boundary, discarding a partially
+        /// written frame but keeping parameters and dictionary. libzstd
+        /// documents a session-only reset as infallible.
+        fn reset_session(&mut self) {
+            // SAFETY: `self.0` is a live context owned by this wrapper.
+            unsafe { ZSTD_CCtx_reset(self.0, ZSTD_ResetDirective::ZSTD_reset_session_only) };
+        }
+
         fn set_pledged_src_size(&mut self, pledged: Option<u64>) -> Result<(), usize> {
             // libzstd represents "unknown" as `ZSTD_CONTENTSIZE_UNKNOWN`.
             let pledged = pledged.map_or(ZSTD_CONTENTSIZE_UNKNOWN, |v| v);
@@ -733,6 +753,12 @@ mod _zstd {
                 return Err(vm.new_memory_error("failed to allocate a zstd context"));
             }
             Ok(Self(ptr))
+        }
+
+        /// See [`CCtx::reset_session`].
+        fn reset_session(&mut self) {
+            // SAFETY: `self.0` is a live context owned by this wrapper.
+            unsafe { ZSTD_DCtx_reset(self.0, ZSTD_ResetDirective::ZSTD_reset_session_only) };
         }
 
         /// See [`CCtx::set_parameter`].
@@ -828,6 +854,17 @@ mod _zstd {
         last_mode: CompressMode,
     }
 
+    impl CompressorState {
+        /// Recover from a failed `compress()`/`flush()`, as CPython does:
+        /// drop the half-written frame and report `last_mode == FLUSH_FRAME`.
+        /// Without this the context stays mid-frame and every later call
+        /// fails with "Operation not authorized at current processing stage".
+        fn reset_session(&mut self) {
+            self.last_mode = CompressMode::FlushFrame;
+            self.cctx.reset_session();
+        }
+    }
+
     #[pyattr]
     #[pyclass(name = "ZstdCompressor")]
     #[derive(PyPayload)]
@@ -883,17 +920,25 @@ mod _zstd {
 
             let mut cctx = CCtx::create(vm)?;
 
+            // Mirror CPython's `self->compression_level`: the level libzstd
+            // will actually compress at, which a digested dictionary has to
+            // be built for.
+            let mut level = ZSTD_CLEVEL_DEFAULT;
+
             if let Some(level_obj) = level_opt {
-                let level = parse_compression_level(&level_obj, vm)?;
+                level = parse_compression_level(&level_obj, vm)?;
                 cctx.set_parameter(ZSTD_cParameter::ZSTD_c_compressionLevel, level)
                     .map_err(|_| param_value_error_for(ZSTD_c_compressionLevel, level, true, vm))?;
             }
 
-            if let Some(options_obj) = options_opt {
-                apply_options(&mut cctx, options_obj, true, vm)?;
+            if let Some(options_obj) = options_opt
+                && let Some(from_options) = apply_options(&mut cctx, options_obj, true, vm)?
+            {
+                level = from_options;
             }
 
-            let state = build_compressor_state(cctx, dict_opt, CompressMode::FlushFrame, vm)?;
+            let state =
+                build_compressor_state(cctx, dict_opt, level, CompressMode::FlushFrame, vm)?;
             Ok(Self {
                 state: PyMutex::new(state),
             })
@@ -932,7 +977,8 @@ mod _zstd {
         options_obj: PyObjectRef,
         is_compress: bool,
         vm: &VirtualMachine,
-    ) -> PyResult<()> {
+    ) -> PyResult<Option<i32>> {
+        let mut level = None;
         let dict = options_obj
             .downcast::<PyDict>()
             .map_err(|_| vm.new_type_error("options must be a dict"))?;
@@ -953,17 +999,34 @@ mod _zstd {
             check_wrong_param_kind(&k, wrong_kind.as_ref(), kind, vm)?;
             let key_int: i32 = k.try_to_value(vm)?;
             let val_int: i32 = v.try_to_value(vm)?;
-            // libzstd silently clamps out-of-range values for some
-            // parameters (notably compression_level) rather than rejecting
-            // them, so validate against the documented bounds upfront.
-            if let Some((lo, hi)) = lookup_param_bounds(key_int, is_compress)
+            // Only the compression level is range-checked here. libzstd
+            // silently clamps it (`ZSTD_cParam_clampBounds`) instead of
+            // reporting an error, so without this check the `ValueError`
+            // that `test_compress_parameters` requires would never be
+            // raised.
+            //
+            // Every other parameter is left to libzstd, which does its own
+            // bounds checking and whose error code becomes the same
+            // `ValueError` via `ParamSetter::apply`. A blanket range test
+            // here would reject values CPython accepts: 0 means "use the
+            // default" for most parameters, the boolean flags take any
+            // non-zero value, and `nb_workers`/`job_size`/`overlap_log` are
+            // clamped rather than rejected.
+            if is_compress
+                && key_int == ZSTD_c_compressionLevel
+                && let Some((lo, hi)) = lookup_param_bounds(key_int, is_compress)
                 && (val_int < lo || val_int > hi)
             {
                 return Err(param_value_error_for(key_int, val_int, is_compress, vm));
             }
             ctx.apply(key_int, val_int, vm)?;
+            // Track the level the compressor ends up with: a digested
+            // dictionary has to be built at that level (see `load_dict`).
+            if is_compress && key_int == ZSTD_c_compressionLevel {
+                level = Some(val_int);
+            }
         }
-        Ok(())
+        Ok(level)
     }
 
     /// Trait wrapper over `CCtx::set_parameter` and `DCtx::set_parameter` so
@@ -1000,7 +1063,13 @@ mod _zstd {
     trait DictLoader {
         type Digested;
         const KIND_NAME: &'static str;
-        fn try_create_digested(bytes: &[u8]) -> Option<Self::Digested>;
+        /// Load mode applied when the caller passes a bare `ZstdDict` instead
+        /// of one of the `as_*` tuples. CPython compresses with an undigested
+        /// dictionary by default and decompresses with a digested one.
+        const DEFAULT_DICT_TYPE: DictType;
+        /// `level` is the compression level the digested dictionary must be
+        /// built for; the decompressor has no level and ignores it.
+        fn try_create_digested(bytes: &[u8], level: c_int) -> Option<Self::Digested>;
         fn ref_digested(&mut self, dict: &Self::Digested) -> Result<(), usize>;
         fn load_undigested(&mut self, bytes: &[u8]) -> Result<(), usize>;
         fn ref_prefix(&mut self, bytes: &[u8]) -> Result<(), usize>;
@@ -1009,8 +1078,12 @@ mod _zstd {
     impl DictLoader for CCtx {
         type Digested = CDict;
         const KIND_NAME: &'static str = "ZSTD_CDict";
-        fn try_create_digested(bytes: &[u8]) -> Option<Self::Digested> {
-            CDict::try_create(bytes, libzstd_rs_sys::ZSTD_CLEVEL_DEFAULT)
+        const DEFAULT_DICT_TYPE: DictType = DictType::Undigested;
+        fn try_create_digested(bytes: &[u8], level: c_int) -> Option<Self::Digested> {
+            // The level matters: `ZSTD_CCtx_refCDict` takes its compression
+            // parameters from the CDict, so a CDict built at the default
+            // level would override whatever the caller asked for.
+            CDict::try_create(bytes, level)
         }
         fn ref_digested(&mut self, dict: &Self::Digested) -> Result<(), usize> {
             // SAFETY: both handles are live; `load_dict`'s safety contract
@@ -1050,7 +1123,8 @@ mod _zstd {
     impl DictLoader for DCtx {
         type Digested = DDict;
         const KIND_NAME: &'static str = "ZSTD_DDict";
-        fn try_create_digested(bytes: &[u8]) -> Option<Self::Digested> {
+        const DEFAULT_DICT_TYPE: DictType = DictType::Digested;
+        fn try_create_digested(bytes: &[u8], _level: c_int) -> Option<Self::Digested> {
             DDict::try_create(bytes)
         }
         fn ref_digested(&mut self, dict: &Self::Digested) -> Result<(), usize> {
@@ -1115,12 +1189,13 @@ mod _zstd {
     unsafe fn load_dict<L: DictLoader>(
         ctx: &mut L,
         dict_obj: Option<PyObjectRef>,
+        level: c_int,
         vm: &VirtualMachine,
     ) -> DictLoadResult<L::Digested> {
         let Some(dict_obj) = dict_obj else {
             return Ok((None, None));
         };
-        let (zdict, dict_type) = parse_zstd_dict_arg(dict_obj, vm)?;
+        let (zdict, dict_type) = parse_zstd_dict_arg(dict_obj, L::DEFAULT_DICT_TYPE, vm)?;
         let bad_dict_err = || -> PyBaseExceptionRef {
             new_zstd_error(
                 format!(
@@ -1140,7 +1215,7 @@ mod _zstd {
                 // Build the digested dict eagerly so a corrupted dictionary
                 // surfaces as a `ZstdError` at construction time, not when
                 // the first compress/decompress call runs.
-                let d = L::try_create_digested(dict_bytes).ok_or_else(bad_dict_err)?;
+                let d = L::try_create_digested(dict_bytes, level).ok_or_else(bad_dict_err)?;
                 ctx.ref_digested(&d).map_err(|_| bad_dict_err())?;
                 digested = Some(d);
             }
@@ -1165,6 +1240,7 @@ mod _zstd {
     fn build_compressor_state(
         mut cctx: CCtx,
         dict_obj: Option<PyObjectRef>,
+        level: c_int,
         last_mode: CompressMode,
         vm: &VirtualMachine,
     ) -> PyResult<CompressorState> {
@@ -1176,7 +1252,7 @@ mod _zstd {
         // and `_dict` (prefix mode) are freed. `CompressorState` is private
         // to this module and is never destructured, so no safe caller can
         // reorder the drops.
-        let (cdict, dict) = unsafe { load_dict::<CCtx>(&mut cctx, dict_obj, vm) }?;
+        let (cdict, dict) = unsafe { load_dict::<CCtx>(&mut cctx, dict_obj, level, vm) }?;
         Ok(CompressorState {
             cctx,
             _cdict: cdict,
@@ -1194,7 +1270,9 @@ mod _zstd {
         vm: &VirtualMachine,
     ) -> PyResult<DecompressorState> {
         // SAFETY: see [`build_compressor_state`].
-        let (ddict, dict) = unsafe { load_dict::<DCtx>(&mut dctx, dict_obj, vm) }?;
+        // The decompressor has no compression level; `DCtx` ignores it.
+        let (ddict, dict) =
+            unsafe { load_dict::<DCtx>(&mut dctx, dict_obj, ZSTD_CLEVEL_DEFAULT, vm) }?;
         Ok(DecompressorState {
             dctx,
             _ddict: ddict,
@@ -1282,9 +1360,16 @@ mod _zstd {
             let end_op = mode.end_directive();
             let data = args.data.with_ref(|b| b.to_vec());
             let mut state = self.state.lock();
-            let out = do_compress(&mut state, &data, end_op, vm)?;
-            state.last_mode = mode;
-            Ok(out)
+            match do_compress(&mut state, &data, end_op, vm) {
+                Ok(out) => {
+                    state.last_mode = mode;
+                    Ok(out)
+                }
+                Err(e) => {
+                    state.reset_session();
+                    Err(e)
+                }
+            }
         }
 
         #[pymethod]
@@ -1309,9 +1394,16 @@ mod _zstd {
             };
             let end_op = mode.end_directive();
             let mut state = self.state.lock();
-            let out = do_compress(&mut state, &[], end_op, vm)?;
-            state.last_mode = mode;
-            Ok(out)
+            match do_compress(&mut state, &[], end_op, vm) {
+                Ok(out) => {
+                    state.last_mode = mode;
+                    Ok(out)
+                }
+                Err(e) => {
+                    state.reset_session();
+                    Err(e)
+                }
+            }
         }
 
         #[pymethod]
@@ -1389,7 +1481,9 @@ mod _zstd {
 
     #[derive(FromArgs)]
     pub(super) struct CompressMethodArgs {
-        #[pyarg(positional)]
+        /// Positional-or-keyword, as in CPython's clinic signature for
+        /// `_zstd.ZstdCompressor.compress` (no `/` marker).
+        #[pyarg(any)]
         data: ArgBytesLike,
         #[pyarg(any, optional)]
         mode: Option<i32>,
@@ -1420,6 +1514,20 @@ mod _zstd {
         /// Input bytes buffered because the previous `decompress` call ran
         /// into its `max_length` cap before consuming them all.
         input_buffer: Vec<u8>,
+    }
+
+    impl DecompressorState {
+        /// Recover from a failed `decompress()`, mirroring CPython's
+        /// `decompressor_reset_session_lock_held`. Without it the DCtx stays
+        /// wedged on the corrupt frame and every later call re-reports the
+        /// same error, even for valid input.
+        fn reset_session(&mut self, vm: &VirtualMachine) {
+            self.input_buffer.clear();
+            self.unused_data = vm.ctx.empty_bytes.clone();
+            self.needs_input = true;
+            self.eof = false;
+            self.dctx.reset_session();
+        }
     }
 
     #[pyattr]
@@ -1465,7 +1573,9 @@ mod _zstd {
 
     #[derive(FromArgs)]
     pub(super) struct DecompressMethodArgs {
-        #[pyarg(positional)]
+        /// Positional-or-keyword, as in CPython's clinic signature for
+        /// `_zstd.ZstdDecompressor.decompress`.
+        #[pyarg(any)]
         data: ArgBytesLike,
         #[pyarg(any, default = -1)]
         max_length: isize,
@@ -1514,8 +1624,13 @@ mod _zstd {
             // Reusable scratch buffer for each decompress_stream call. We need
             // an exact-size output buffer because `Vec::reserve` may
             // over-allocate; reporting the full Vec capacity to libzstd would
-            // let it write past `max_length`.
-            let mut scratch: Vec<u8> = vec![0u8; chunk_size];
+            // let it write past `max_length`. A cap below one chunk bounds
+            // how much of it can ever be used, so do not allocate more.
+            let scratch_size = match max_length {
+                Some(maxl) => maxl.min(chunk_size),
+                None => chunk_size,
+            };
+            let mut scratch: Vec<u8> = vec![0u8; scratch_size];
             let mut hit_max = false;
             let mut iteration = 0usize;
 
@@ -1585,7 +1700,13 @@ mod _zstd {
             outcome.map(|()| (output, hit_max, input.pos))
         });
 
-        let (output, hit_max, consumed) = loop_result.map_err(|c| catch_zstd_error(c, vm))?;
+        let (output, hit_max, consumed) = match loop_result {
+            Ok(v) => v,
+            Err(code) => {
+                state.reset_session(vm);
+                return Err(catch_zstd_error(code, vm));
+            }
+        };
 
         let remaining = &work_data[consumed..];
 
@@ -1778,7 +1899,13 @@ mod _zstd {
         let samples_buffer = args.samples_bytes.as_bytes().to_vec();
         let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
         check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
-        let mut dict_buffer: Vec<u8> = Vec::with_capacity(dict_size);
+        // `dict_size` is caller-controlled, so reserve fallibly: an
+        // infallible `Vec::with_capacity` aborts the whole interpreter on a
+        // failed allocation, where CPython raises `MemoryError`.
+        let mut dict_buffer: Vec<u8> = Vec::new();
+        dict_buffer
+            .try_reserve_exact(dict_size)
+            .map_err(|_| vm.new_memory_error("failed to allocate the dictionary buffer"))?;
         // SAFETY: `dict_buffer`'s spare capacity is valid for writes of up to
         // `dict_size` bytes; the samples and sizes buffers are live slices
         // for the duration of the call.
@@ -1833,7 +1960,12 @@ mod _zstd {
         let sizes = parse_sample_sizes(args.samples_sizes, vm)?;
         check_sample_sizes_match(&sizes, samples_buffer.len(), vm)?;
 
-        let mut dict_buffer: Vec<u8> = vec![0u8; dict_size];
+        // Reserve fallibly before filling: see `train_dict`.
+        let mut dict_buffer: Vec<u8> = Vec::new();
+        dict_buffer
+            .try_reserve_exact(dict_size)
+            .map_err(|_| vm.new_memory_error("failed to allocate the dictionary buffer"))?;
+        dict_buffer.resize(dict_size, 0);
         let params = ZDICT_params_t {
             compressionLevel: compression_level,
             notificationLevel: 0,
@@ -1874,9 +2006,11 @@ mod _zstd {
 
     #[derive(FromArgs)]
     pub(super) struct ParamBoundsArgs {
-        #[pyarg(positional)]
+        #[pyarg(any)]
         parameter: i32,
-        #[pyarg(named)]
+        /// Positional-or-keyword, matching CPython's clinic signature
+        /// `get_param_bounds(parameter, is_compress)`.
+        #[pyarg(any)]
         is_compress: bool,
     }
 
