@@ -101,10 +101,15 @@ impl<T> PositionIterInternal<T> {
             return (Ok(PyIterReturn::StopIteration(None)), None);
         };
         let ret = f(obj, self.position);
-        let done = if let Ok(PyIterReturn::Return(_)) = ret {
-            op(self)
-        } else {
-            true
+        let done = match &ret {
+            Ok(PyIterReturn::Return(_)) => op(self),
+            Ok(PyIterReturn::StopIteration(_)) => true,
+            // An error belongs to the element, not to the walk, so the next
+            // call reaches for the same one again. `iter_iternext()` lets go of
+            // its sequence for `IndexError` and `StopIteration` alone, and
+            // `PyIterReturn::from_getitem_result` has already turned the first
+            // of those into the second.
+            Err(_) => false,
         };
         let released = if done { self.exhaust() } else { None };
         (ret, released)

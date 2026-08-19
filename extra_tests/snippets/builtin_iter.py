@@ -131,3 +131,25 @@ for empty in ("", b""):
         pass
     else:
         raise AssertionError(f"{empty.__class__.__name__}.join did not ask")
+
+
+# An error from an element is the element's, not the end of the walk, so the
+# next step reaches for the same one again.
+class Balky:
+    def __getitem__(self, i):
+        if i == 1:
+            raise ValueError("boom")
+        if i > 2:
+            raise IndexError
+        return i
+
+
+it = iter(Balky())
+assert next(it) == 0
+for _ in range(2):
+    try:
+        next(it)
+    except ValueError as e:
+        assert str(e) == "boom", e
+    else:
+        raise AssertionError("the element's error did not reach the caller")

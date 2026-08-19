@@ -8,7 +8,7 @@ mod _collections {
         builtins::{
             IterStatus::{Active, Exhausted},
             PositionIterInternal, PyDict, PyGenericAlias, PyInt, PyStr, PyType, PyTypeRef,
-            locked_next,
+            locked_step,
         },
         common::lock::{PyMutex, PyRwLock, PyRwLockReadGuard, PyRwLockWriteGuard},
         convert::ToPyObject,
@@ -694,16 +694,42 @@ mod _collections {
     }
 
     impl SelfIter for PyDequeIterator {}
+
+    /// One step of either deque iterator, reaching for an element with `at`.
+    fn deque_step(
+        internal: &mut PositionIterInternal<PyDequeRef>,
+        state: usize,
+        at: impl FnOnce(&VecDeque<PyObjectRef>, usize) -> Option<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> (PyResult<PyIterReturn>, Option<PyDequeRef>) {
+        let Active(deque) = &internal.status else {
+            return (Ok(PyIterReturn::StopIteration(None)), None);
+        };
+        if state != deque.state.load() {
+            // `deque_iternext()` empties the iterator before it raises, so what
+            // is left to walk reads as nothing.
+            return (
+                Err(vm.new_runtime_error("deque mutated during iteration")),
+                internal.exhaust(),
+            );
+        }
+        let item = at(&deque.borrow_deque(), internal.position);
+        let Some(item) = item else {
+            return (Ok(PyIterReturn::StopIteration(None)), internal.exhaust());
+        };
+        internal.position += 1;
+        (Ok(PyIterReturn::Return(item)), None)
+    }
+
     impl IterNext for PyDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_next(&zelf.internal, |deque, pos| {
-                if zelf.state != deque.state.load() {
-                    return Err(vm.new_runtime_error("Deque mutated during iteration"));
-                }
-                let deque = deque.borrow_deque();
-                Ok(PyIterReturn::from_result(
-                    deque.get(pos).cloned().ok_or(None),
-                ))
+            locked_step(&zelf.internal, |internal| {
+                deque_step(
+                    internal,
+                    zelf.state,
+                    |deque, pos| deque.get(pos).cloned(),
+                    vm,
+                )
             })
         }
     }
@@ -762,17 +788,19 @@ mod _collections {
 
     impl IterNext for PyReverseDequeIterator {
         fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-            locked_next(&zelf.internal, |deque, pos| {
-                if deque.state.load() != zelf.state {
-                    return Err(vm.new_runtime_error("Deque mutated during iteration"));
-                }
-                let deque = deque.borrow_deque();
-                let r = deque
-                    .len()
-                    .checked_sub(pos + 1)
-                    .and_then(|pos| deque.get(pos))
-                    .cloned();
-                Ok(PyIterReturn::from_result(r.ok_or(None)))
+            locked_step(&zelf.internal, |internal| {
+                deque_step(
+                    internal,
+                    zelf.state,
+                    |deque, pos| {
+                        deque
+                            .len()
+                            .checked_sub(pos + 1)
+                            .and_then(|pos| deque.get(pos))
+                            .cloned()
+                    },
+                    vm,
+                )
             })
         }
     }
