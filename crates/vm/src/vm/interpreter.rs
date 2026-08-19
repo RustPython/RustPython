@@ -1095,12 +1095,22 @@ mod tests {
                         );
 
                         let (lock, ready) = &*state;
-                        let mut state = lock.lock().unwrap();
-                        state.entered += 1;
-                        ready.notify_all();
-                        while !state.release {
-                            state = ready.wait(state).unwrap();
+                        {
+                            let mut entered = lock.lock().unwrap();
+                            entered.entered += 1;
+                            ready.notify_all();
                         }
+                        // Park with the thread DETACHED. An ATTACHED thread
+                        // blocked here runs no bytecode, so it never reaches the
+                        // safepoint stop_the_world waits for, and a collection
+                        // on any thread would wedge both workers until the
+                        // deadline below gave up.
+                        vm.allow_threads(|| {
+                            let mut released = lock.lock().unwrap();
+                            while !released.release {
+                                released = ready.wait(released).unwrap();
+                            }
+                        });
                     });
                 })
             })
