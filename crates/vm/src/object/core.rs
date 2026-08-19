@@ -1821,11 +1821,16 @@ impl PyObject {
     }
 
     /// Enter the running collection's candidate set, with `strong_count` as the
-    /// count to subtract internal references from. Counts that do not fit stop
-    /// one short of [`GC_REACHABLE`], which only ever keeps the object alive.
+    /// count to subtract internal references from. A count too large to hold is
+    /// taken as reachable outright, rather than clipped to a number the
+    /// subtraction could still walk down to zero.
     #[inline]
     pub(crate) fn start_gc_refs(&self, strong_count: usize) {
-        let refs = strong_count.min(GC_REACHABLE as usize - 1) as u32;
+        let refs = if strong_count >= GC_REACHABLE as usize {
+            GC_REACHABLE
+        } else {
+            strong_count as u32
+        };
         self.0.gc_refs.store(refs, Ordering::Relaxed);
         self.set_gc_bit(GcBits::COLLECTING);
     }
@@ -1843,10 +1848,15 @@ impl PyObject {
             .contains(GcBits::COLLECTING)
     }
 
-    /// Take off one reference held from inside the candidate set.
+    /// Take off one reference held from inside the candidate set. A count that
+    /// did not fit stands for more references than every subtraction together
+    /// could take off, so it stays where [`Self::start_gc_refs`] put it.
     #[inline]
     pub(crate) fn subtract_gc_ref(&self) {
         let refs = self.0.gc_refs.load(Ordering::Relaxed);
+        if refs == GC_REACHABLE {
+            return;
+        }
         self.0
             .gc_refs
             .store(refs.saturating_sub(1), Ordering::Relaxed);
