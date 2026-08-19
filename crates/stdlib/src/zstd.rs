@@ -62,13 +62,17 @@ mod _zstd {
     /// `CompressionParameter` IntEnum. libzstd-rs-sys declares
     /// `ZSTD_cParameter` as `#[repr(transparent)] pub struct
     /// ZSTD_cParameter(pub(crate) u32)` and gives it no accessor, `From` impl
-    /// or `Deref`, so the id is unreachable through its public API. Reading
-    /// the wrapped `u32` back keeps libzstd the single source of truth for
-    /// these values instead of restating them here as literals.
+    /// or `Deref`, so short of parsing its derived `Debug` output there is no
+    /// way to ask it for its id. Reading the wrapped `u32` back keeps libzstd
+    /// the single source of truth for these values instead of restating them
+    /// here as literals.
     const fn c_param_id(param: ZSTD_cParameter) -> i32 {
-        // SAFETY: `#[repr(transparent)]` guarantees `ZSTD_cParameter` has the
-        // same size, alignment and validity invariants as the `u32` it wraps,
-        // so reading one back as a `u32` is always well-defined.
+        // SAFETY: `#[repr(transparent)]` gives `ZSTD_cParameter` the layout of
+        // the single `u32` it wraps, and every bit pattern is a valid `u32`,
+        // so reading one back out is well-defined. Note this holds only in
+        // this direction: `u32 -> ZSTD_cParameter` would be a widening into a
+        // type whose valid values libzstd defines, which is why `c_param_enum`
+        // below decodes untrusted ids with an explicit match instead.
         unsafe { core::mem::transmute::<ZSTD_cParameter, u32>(param) as i32 }
     }
 
@@ -179,9 +183,10 @@ mod _zstd {
     /// decompressor constructors turn that marker back into this enum.
     ///
     /// The discriminants are pinned because they cross the Python boundary as
-    /// plain ints: they are the values CPython's
-    /// `Modules/_zstd/_zstdmodule.h::DictType` uses, and `test_zstd` builds
-    /// the tuples by hand with those literals.
+    /// plain ints: they are the values of CPython's `dictionary_type` enum in
+    /// `Modules/_zstd/_zstdmodule.h`. `test_zstd` pins the accepted range from
+    /// the outside, hand-building `(zd, -1)` and `(zd, 3)` tuples and
+    /// requiring both to raise.
     #[derive(Copy, Clone)]
     enum DictType {
         Digested = 0,
@@ -621,10 +626,11 @@ mod _zstd {
     /// `ZstdCompressor.flush()` accept, mirrored as the class attributes
     /// `CONTINUE`, `FLUSH_BLOCK` and `FLUSH_FRAME` by `extend_class` below.
     ///
-    /// The discriminants are pinned because they cross the Python boundary as
-    /// plain ints, both as those class attributes and as the value the
-    /// `last_mode` getset hands back. They match what CPython's `_zstd`
-    /// exposes.
+    /// The discriminants are libzstd's own `ZSTD_e_continue`, `ZSTD_e_flush`
+    /// and `ZSTD_e_end` values, which is what CPython's `_zstd` exposes under
+    /// these attribute names. They are pinned here because they cross the
+    /// Python boundary as plain ints, both as those class attributes and as
+    /// the value the `last_mode` getset hands back.
     #[derive(Copy, Clone, PartialEq, Eq)]
     enum CompressMode {
         Continue = 0,
@@ -664,17 +670,15 @@ mod _zstd {
     unsafe impl Send for CCtx {}
 
     impl CCtx {
-        fn create() -> Self {
+        fn create(vm: &VirtualMachine) -> PyResult<Self> {
             // SAFETY: `ZSTD_createCCtx` has no preconditions; it returns NULL
-            // only when its `malloc` of the context struct fails.
+            // only when its allocation of the context struct fails, so that is
+            // the sole case to handle.
             let ptr = unsafe { ZSTD_createCCtx() };
-            // A NULL return therefore means the allocator is out of memory,
-            // which is the one case Rust already handles by aborting, so
-            // panicking matches the rest of the VM rather than threading a
-            // `vm` reference through every construction site to raise
-            // `MemoryError` the way CPython's `_zstd` does.
-            assert!(!ptr.is_null(), "ZSTD_createCCtx failed");
-            Self(ptr)
+            if ptr.is_null() {
+                return Err(vm.new_memory_error("failed to allocate a zstd context"));
+            }
+            Ok(Self(ptr))
         }
 
         /// Forward a `(parameter, value)` pair to libzstd, passing the value
@@ -720,17 +724,15 @@ mod _zstd {
     unsafe impl Send for DCtx {}
 
     impl DCtx {
-        fn create() -> Self {
+        fn create(vm: &VirtualMachine) -> PyResult<Self> {
             // SAFETY: `ZSTD_createDCtx` has no preconditions; it returns NULL
-            // only when its `malloc` of the context struct fails.
+            // only when its allocation of the context struct fails, so that is
+            // the sole case to handle.
             let ptr = unsafe { ZSTD_createDCtx() };
-            // A NULL return therefore means the allocator is out of memory,
-            // which is the one case Rust already handles by aborting, so
-            // panicking matches the rest of the VM rather than threading a
-            // `vm` reference through every construction site to raise
-            // `MemoryError` the way CPython's `_zstd` does.
-            assert!(!ptr.is_null(), "ZSTD_createDCtx failed");
-            Self(ptr)
+            if ptr.is_null() {
+                return Err(vm.new_memory_error("failed to allocate a zstd context"));
+            }
+            Ok(Self(ptr))
         }
 
         /// See [`CCtx::set_parameter`].
@@ -879,7 +881,7 @@ mod _zstd {
                 return Err(vm.new_type_error("Only one of level or options should be used."));
             }
 
-            let mut cctx = CCtx::create();
+            let mut cctx = CCtx::create(vm)?;
 
             if let Some(level_obj) = level_opt {
                 let level = parse_compression_level(&level_obj, vm)?;
@@ -1143,8 +1145,11 @@ mod _zstd {
                 digested = Some(d);
             }
             DictType::Undigested => {
-                // Copy the bytes into the context. Validation happens lazily
-                // at the first stream call in this mode.
+                // Copy the bytes into the context. Whether a corrupted
+                // dictionary is caught here is up to libzstd and differs by
+                // direction: `ZSTD_DCtx_loadDictionary` digests the content
+                // eagerly and fails now, while `ZSTD_CCtx_loadDictionary`
+                // defers that work and accepts it.
                 ctx.load_undigested(dict_bytes)
                     .map_err(|_| bad_dict_err())?;
             }
@@ -1445,7 +1450,7 @@ mod _zstd {
             let dict_opt = args.zstd_dict.flatten();
             let options_opt = args.options.flatten();
 
-            let mut dctx = DCtx::create();
+            let mut dctx = DCtx::create(vm)?;
 
             if let Some(options_obj) = options_opt {
                 apply_options(&mut dctx, options_obj, false, vm)?;
