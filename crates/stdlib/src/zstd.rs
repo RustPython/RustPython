@@ -617,12 +617,42 @@ mod _zstd {
         }
     }
 
-    // The three flush modes for `ZstdCompressor.compress()`, mirrored as
-    // class attributes via `extend_class` below. Values are positional and
-    // chosen to match what CPython exposes.
-    const COMP_MODE_CONTINUE: i32 = 0;
-    const COMP_MODE_FLUSH_BLOCK: i32 = 1;
-    const COMP_MODE_FLUSH_FRAME: i32 = 2;
+    /// The flush modes `ZstdCompressor.compress()` and
+    /// `ZstdCompressor.flush()` accept, mirrored as the class attributes
+    /// `CONTINUE`, `FLUSH_BLOCK` and `FLUSH_FRAME` by `extend_class` below.
+    ///
+    /// The discriminants are pinned because they cross the Python boundary as
+    /// plain ints, both as those class attributes and as the value the
+    /// `last_mode` getset hands back. They match what CPython's `_zstd`
+    /// exposes.
+    #[derive(Copy, Clone, PartialEq, Eq)]
+    enum CompressMode {
+        Continue = 0,
+        FlushBlock = 1,
+        FlushFrame = 2,
+    }
+
+    impl CompressMode {
+        /// Decode a user-supplied `mode=` argument. `None` for anything
+        /// outside the three documented modes.
+        fn from_int(mode: i32) -> Option<Self> {
+            Some(match mode {
+                m if m == Self::Continue as i32 => Self::Continue,
+                m if m == Self::FlushBlock as i32 => Self::FlushBlock,
+                m if m == Self::FlushFrame as i32 => Self::FlushFrame,
+                _ => return None,
+            })
+        }
+
+        /// The libzstd end directive this mode drives the streaming API with.
+        fn end_directive(self) -> ZSTD_EndDirective {
+            match self {
+                Self::Continue => ZSTD_e_continue,
+                Self::FlushBlock => ZSTD_e_flush,
+                Self::FlushFrame => ZSTD_e_end,
+            }
+        }
+    }
 
     /// Owning wrapper around a raw libzstd compression context. Frees the
     /// context with `ZSTD_freeCCtx` on drop.
@@ -793,7 +823,7 @@ mod _zstd {
         _cdict: Option<CDict>,
         /// Keeps the ZstdDict's bytes alive for `ZSTD_CCtx_refPrefix` mode.
         _dict: Option<PyRef<ZstdDict>>,
-        last_mode: i32,
+        last_mode: CompressMode,
     }
 
     #[pyattr]
@@ -819,20 +849,22 @@ mod _zstd {
         zstd_dict: OptionalOption<PyObjectRef>,
     }
 
-    /// Translate the public `mode` int to the libzstd `ZSTD_EndDirective`
-    /// the streaming API takes.
-    fn end_directive_from_mode(mode: i32, vm: &VirtualMachine) -> PyResult<ZSTD_EndDirective> {
-        match mode {
-            COMP_MODE_CONTINUE => Ok(ZSTD_e_continue),
-            COMP_MODE_FLUSH_BLOCK => Ok(ZSTD_e_flush),
-            COMP_MODE_FLUSH_FRAME => Ok(ZSTD_e_end),
-            _ => Err(vm.new_value_error(format!(
+    /// Decode the public `mode` int accepted by `ZstdCompressor.compress()`,
+    /// which takes all three modes.
+    fn compress_mode_from_int(mode: i32, vm: &VirtualMachine) -> PyResult<CompressMode> {
+        CompressMode::from_int(mode).ok_or_else(|| {
+            let (cont, block, frame) = (
+                CompressMode::Continue as i32,
+                CompressMode::FlushBlock as i32,
+                CompressMode::FlushFrame as i32,
+            );
+            vm.new_value_error(format!(
                 "mode argument wrong value, it should be one of \
-                 ZstdCompressor.CONTINUE ({COMP_MODE_CONTINUE}), \
-                 ZstdCompressor.FLUSH_BLOCK ({COMP_MODE_FLUSH_BLOCK}), or \
-                 ZstdCompressor.FLUSH_FRAME ({COMP_MODE_FLUSH_FRAME})"
-            ))),
-        }
+                 ZstdCompressor.CONTINUE ({cont}), \
+                 ZstdCompressor.FLUSH_BLOCK ({block}), or \
+                 ZstdCompressor.FLUSH_FRAME ({frame})"
+            ))
+        })
     }
 
     impl Constructor for ZstdCompressor {
@@ -859,7 +891,7 @@ mod _zstd {
                 apply_options(&mut cctx, options_obj, true, vm)?;
             }
 
-            let state = build_compressor_state(cctx, dict_opt, COMP_MODE_FLUSH_FRAME, vm)?;
+            let state = build_compressor_state(cctx, dict_opt, CompressMode::FlushFrame, vm)?;
             Ok(Self {
                 state: PyMutex::new(state),
             })
@@ -1128,7 +1160,7 @@ mod _zstd {
     fn build_compressor_state(
         mut cctx: CCtx,
         dict_obj: Option<PyObjectRef>,
-        last_mode: i32,
+        last_mode: CompressMode,
         vm: &VirtualMachine,
     ) -> PyResult<CompressorState> {
         // SAFETY: `load_dict` requires its two return values to outlive `ctx`.
@@ -1238,8 +1270,11 @@ mod _zstd {
     impl ZstdCompressor {
         #[pymethod]
         fn compress(&self, args: CompressMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let mode = args.mode.unwrap_or(COMP_MODE_CONTINUE);
-            let end_op = end_directive_from_mode(mode, vm)?;
+            let mode = match args.mode {
+                Some(mode) => compress_mode_from_int(mode, vm)?,
+                None => CompressMode::Continue,
+            };
+            let end_op = mode.end_directive();
             let data = args.data.with_ref(|b| b.to_vec());
             let mut state = self.state.lock();
             let out = do_compress(&mut state, &data, end_op, vm)?;
@@ -1249,15 +1284,25 @@ mod _zstd {
 
         #[pymethod]
         fn flush(&self, args: FlushMethodArgs, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-            let mode = args.mode.unwrap_or(COMP_MODE_FLUSH_FRAME);
-            if mode != COMP_MODE_FLUSH_BLOCK && mode != COMP_MODE_FLUSH_FRAME {
-                return Err(vm.new_value_error(format!(
-                    "mode argument wrong value, it should be \
-                     ZstdCompressor.FLUSH_FRAME ({COMP_MODE_FLUSH_FRAME}) or \
-                     ZstdCompressor.FLUSH_BLOCK ({COMP_MODE_FLUSH_BLOCK})"
-                )));
-            }
-            let end_op = end_directive_from_mode(mode, vm)?;
+            // `flush()` takes only the two flushing modes, and rejects
+            // everything else — `CONTINUE` included — with its own message
+            // rather than the one `compress()` uses.
+            let mode = match args.mode.map(CompressMode::from_int) {
+                None => CompressMode::FlushFrame,
+                Some(Some(mode @ (CompressMode::FlushBlock | CompressMode::FlushFrame))) => mode,
+                Some(_) => {
+                    let (block, frame) = (
+                        CompressMode::FlushBlock as i32,
+                        CompressMode::FlushFrame as i32,
+                    );
+                    return Err(vm.new_value_error(format!(
+                        "mode argument wrong value, it should be \
+                         ZstdCompressor.FLUSH_FRAME ({frame}) or \
+                         ZstdCompressor.FLUSH_BLOCK ({block})"
+                    )));
+                }
+            };
+            let end_op = mode.end_directive();
             let mut state = self.state.lock();
             let out = do_compress(&mut state, &[], end_op, vm)?;
             state.last_mode = mode;
@@ -1299,7 +1344,7 @@ mod _zstd {
                 Some(v)
             };
             let mut state = self.state.lock();
-            if state.last_mode != COMP_MODE_FLUSH_FRAME {
+            if state.last_mode != CompressMode::FlushFrame {
                 return Err(vm.new_value_error(
                     "set_pledged_input_size() method must be called when last_mode == FLUSH_FRAME",
                 ));
@@ -1313,7 +1358,7 @@ mod _zstd {
 
         #[pygetset]
         fn last_mode(&self) -> i32 {
-            self.state.lock().last_mode
+            self.state.lock().last_mode as i32
         }
 
         // Install class-level constants `CONTINUE`, `FLUSH_BLOCK`, and
@@ -1324,15 +1369,15 @@ mod _zstd {
         fn extend_class(ctx: &Context, class: &'static Py<PyType>) {
             class.set_attr(
                 ctx.intern_str("CONTINUE"),
-                ctx.new_int(COMP_MODE_CONTINUE).into(),
+                ctx.new_int(CompressMode::Continue as i32).into(),
             );
             class.set_attr(
                 ctx.intern_str("FLUSH_BLOCK"),
-                ctx.new_int(COMP_MODE_FLUSH_BLOCK).into(),
+                ctx.new_int(CompressMode::FlushBlock as i32).into(),
             );
             class.set_attr(
                 ctx.intern_str("FLUSH_FRAME"),
-                ctx.new_int(COMP_MODE_FLUSH_FRAME).into(),
+                ctx.new_int(CompressMode::FlushFrame as i32).into(),
             );
         }
     }
