@@ -80,7 +80,10 @@ jobs:
     if: ${{ !contains(github.event.pull_request.labels.*.name, 'skip:ci') }}
     env:
       RUST_BACKTRACE: full
-    name: Run rust tests
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: Run rust tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -165,7 +168,10 @@ jobs:
         if: runner.os == 'Linux'
 
   cargo_check:
-    name: cargo check
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: cargo check (${{ matrix.os }}, ${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     needs:
       - determine_changes
@@ -292,7 +298,10 @@ jobs:
         test_multiprocessing_fork
         test_multiprocessing_forkserver
         test_multiprocessing_spawn
-    name: Run snippets and cpython tests
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: Run snippets and cpython tests (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -462,7 +471,10 @@ jobs:
         run: python -I scripts/whats_left.py ${{ env.CARGO_ARGS }} --features jit
 
   clippy:
-    name: clippy
+    # Named after the matrix entry rather than left to be named for it: a
+    # generated name lists every value in the entry, so adding or removing one
+    # renames the check and drops it from the required list.
+    name: clippy (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     needs:
       - determine_changes
