@@ -8,6 +8,7 @@ use lock_api::{
 
 cfg_select! {
     feature = "threading" => {
+        pub use detaching::{BlockingWaitHook, set_blocking_wait_hook};
         pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
         pub use std::sync::OnceLock as OnceCell;
         pub use core::cell::LazyCell;
@@ -47,6 +48,8 @@ cfg_select! {
     }
 }
 
+mod detaching;
+pub use detaching::RawDetachingRwLock;
 mod immutable_mutex;
 pub use immutable_mutex::*;
 mod thread_mutex;
@@ -59,6 +62,19 @@ pub type PyImmutableMappedMutexGuard<'a, T> = ImmutableMappedMutexGuard<'a, RawM
 pub type PyThreadMutex<T> = ThreadMutex<RawMutex, RawThreadId, T>;
 pub type PyThreadMutexGuard<'a, T> = ThreadMutexGuard<'a, RawMutex, RawThreadId, T>;
 pub type PyMappedThreadMutexGuard<'a, T> = MappedThreadMutexGuard<'a, RawMutex, RawThreadId, T>;
+
+/// A `PyRwLock` for data a thread may hold locked across a blocking call.
+///
+/// Waiting for one of these leaves the interpreter first, so a thread blocked
+/// on it is a thread stop-the-world can park. That is only safe where a
+/// collection never takes the same lock — see [`RawDetachingRwLock`] — so this
+/// is opt-in per lock rather than what every `PyRwLock` does.
+pub type PyDetachingRwLock<T> = RwLock<RawDetachingRwLock, T>;
+pub type PyDetachingRwLockReadGuard<'a, T> = RwLockReadGuard<'a, RawDetachingRwLock, T>;
+pub type PyDetachingRwLockWriteGuard<'a, T> = RwLockWriteGuard<'a, RawDetachingRwLock, T>;
+pub type PyMappedDetachingRwLockReadGuard<'a, T> = MappedRwLockReadGuard<'a, RawDetachingRwLock, T>;
+pub type PyMappedDetachingRwLockWriteGuard<'a, T> =
+    MappedRwLockWriteGuard<'a, RawDetachingRwLock, T>;
 
 pub type PyRwLock<T> = RwLock<RawRwLock, T>;
 pub type PyRwLockUpgradableReadGuard<'a, T> = RwLockUpgradableReadGuard<'a, RawRwLock, T>;

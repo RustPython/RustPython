@@ -76,6 +76,10 @@ where
     use core::sync::atomic::{AtomicBool, AtomicU64};
     use crossbeam_utils::atomic::AtomicCell;
 
+    // Before any lock this interpreter's threads can contend on exists.
+    #[cfg(feature = "threading")]
+    thread::install_blocking_wait_hook();
+
     let (config, all_module_defs, frozen, hash_secret, int_max_str_digits) =
         if let Some(parent) = parent_state {
             // Subinterpreter: clone config and module tables from parent, fresh runtime state.
@@ -1654,6 +1658,74 @@ for _ in range(40):
 
         stop.store(true, Ordering::Release);
         worker.join().expect("nested worker panicked");
+    }
+
+    /// A thread blocked on a detaching lock must not stall stop-the-world.
+    ///
+    /// Blocking on a lock reaches no safepoint, so an interpreter thread that
+    /// waits while attached is a thread the world can never stop — and the
+    /// lock it waits for is routinely one a stopped thread holds, which is the
+    /// deadlock. The waiter therefore leaves its interpreter for the wait.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn a_thread_blocked_on_a_lock_does_not_stall_stop_the_world() {
+        use crate::common::lock::PyDetachingRwLock;
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, Ordering},
+            time::Duration,
+        };
+
+        let interp = Interpreter::without_stdlib(Default::default());
+        let state = interp.enter(|vm| vm.state.clone());
+
+        let lock: Arc<PyDetachingRwLock<()>> = Arc::new(PyDetachingRwLock::new(()));
+        let at_lock = Arc::new(AtomicBool::new(false));
+
+        // Held for the whole test, so the worker below blocks and stays blocked.
+        let held = lock.write();
+
+        let worker_lock = Arc::clone(&lock);
+        let worker_at_lock = Arc::clone(&at_lock);
+        let worker = interp.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|_vm| {
+                    worker_at_lock.store(true, Ordering::Release);
+                    let _read = worker_lock.read();
+                });
+            })
+        });
+
+        while !at_lock.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+        // The store above only says the worker is about to block, not that it
+        // has; give it the moment it needs to get there.
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Stop from a thread of its own so that a stop that never completes
+        // fails the test instead of hanging it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        let stop_state = state;
+        let stopper = std::thread::spawn(move || {
+            stop_state.stop_the_world.stop_the_world(&stop_state);
+            let stopped = tx.send(());
+            stop_state.stop_the_world.start_the_world(&stop_state);
+            stopped
+        });
+
+        let stopped = rx.recv_timeout(Duration::from_secs(10));
+
+        // Release before any assertion: the worker has to finish for the
+        // stopper to be joinable, and for the test to end at all.
+        drop(held);
+        assert!(
+            stopped.is_ok(),
+            "stop-the-world did not complete while a thread was blocked on a lock"
+        );
+        stopper.join().expect("stopper panicked").expect("send");
+        worker.join().expect("worker panicked");
     }
 
     /// The process main id is recorded once and is stable across later creates.
