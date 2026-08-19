@@ -2180,7 +2180,11 @@ impl<'warnings> Compiler<'warnings> {
     /// Enter a function signature annotation scope.
     /// Returns None if no matching annotation symbol table exists.
     /// On success, returns the saved CompileContext to pass to exit_annotation_scope.
-    fn enter_annotation_scope(&mut self, loc: TextRange) -> CompileResult<Option<CompileContext>> {
+    fn enter_annotation_scope(
+        &mut self,
+        func_name: &str,
+        loc: TextRange,
+    ) -> CompileResult<Option<CompileContext>> {
         if !self.push_annotation_symbol_table() {
             return Ok(None);
         }
@@ -2202,6 +2206,12 @@ impl<'warnings> Compiler<'warnings> {
             key,
             lineno.to_u32(),
         )?;
+
+        // enter_scope() qualified the scope by the enclosing scope only; redo it
+        // now that the annotated function is known. Only signature annotations
+        // get this treatment - deferred class and module annotations are
+        // compiled inside the scope they belong to and are already qualified.
+        self.set_annotation_qualname(func_name);
 
         // Keep the internal ".format" name; exit_annotation_scope()
         // renames it to "format" on the final code object.
@@ -2611,12 +2621,24 @@ impl<'warnings> Compiler<'warnings> {
     /// Set the qualified name for the current code object
     // = compiler_set_qualname
     fn set_qualname(&mut self) -> String {
-        let qualname = self.make_qualname();
+        self.set_qualname_for_function(None)
+    }
+
+    /// Set the qualname of an annotation scope, qualified by the function whose
+    /// signature it annotates. The annotation block's symbol table entry records
+    /// that name (`ste_function_name`) and folds it into the qualname, so `f`'s
+    /// annotation scope is named `f.__annotate__`.
+    fn set_annotation_qualname(&mut self, function_name: &str) {
+        self.set_qualname_for_function(Some(function_name));
+    }
+
+    fn set_qualname_for_function(&mut self, function_name: Option<&str>) -> String {
+        let qualname = self.make_qualname(function_name);
         self.current_code_info().metadata.qualname = Some(qualname.clone());
         qualname
     }
 
-    fn make_qualname(&mut self) -> String {
+    fn make_qualname(&mut self, function_name: Option<&str>) -> String {
         let stack_size = self.code_stack.len();
         assert!(stack_size >= 1);
 
@@ -2729,6 +2751,14 @@ impl<'warnings> Compiler<'warnings> {
                 // For classes and other scopes, use parent's qualname directly
                 Some(parent_qualname.clone())
             }
+        };
+
+        // An annotation scope is compiled in the scope enclosing the function it
+        // annotates, so the function itself is missing from the prefix above.
+        let base = match (base, function_name) {
+            (Some(base), Some(function_name)) => Some(format!("{base}.{function_name}")),
+            (None, Some(function_name)) => Some(function_name.to_owned()),
+            (base, None) => base,
         };
 
         match base {
@@ -5053,6 +5083,7 @@ impl<'warnings> Compiler<'warnings> {
     /// Uses the matching annotation symbol table for proper scoping.
     fn compile_annotations_closure(
         &mut self,
+        func_name: &str,
         parameters: &ast::Parameters,
         returns: Option<&ast::Expr>,
         func_range: TextRange,
@@ -5070,7 +5101,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         // Try to enter annotation scope - returns None if no matching symbol table exists.
-        let Some(saved_ctx) = self.enter_annotation_scope(func_range)? else {
+        let Some(saved_ctx) = self.enter_annotation_scope(func_name, func_range)? else {
             return Ok(false);
         };
 
@@ -5497,7 +5528,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // Compile annotations as closure (PEP 649)
         let mut annotations_flag = bytecode::MakeFunctionFlags::new();
-        if self.compile_annotations_closure(parameters, returns, def_source_range)? {
+        if self.compile_annotations_closure(name, parameters, returns, def_source_range)? {
             annotations_flag.insert(bytecode::MakeFunctionFlag::Annotate);
         }
 
@@ -27583,7 +27614,7 @@ def f():
     }
 
     #[test]
-    fn function_annotation_qualnames_use_enclosing_scope_like_cpython() {
+    fn function_annotation_qualnames_include_the_annotated_function() {
         let code = compile_exec(
             "\
 def f(x: int):
@@ -27611,9 +27642,9 @@ def outer():
         assert_eq!(
             qualnames,
             [
-                "__annotate__",
-                "C.__annotate__",
-                "outer.<locals>.__annotate__"
+                "f.__annotate__",
+                "C.m.__annotate__",
+                "outer.<locals>.inner.__annotate__"
             ]
         );
     }
