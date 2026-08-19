@@ -25,9 +25,7 @@ use {
     std::{os::windows::io::AsRawHandle, path::Path},
     windows_sys::Win32::{
         Foundation::FILETIME,
-        Storage::FileSystem::{
-            FILE_FLAG_BACKUP_SEMANTICS, INVALID_SET_FILE_POINTER, SetFilePointer, SetFileTime,
-        },
+        Storage::FileSystem::{FILE_FLAG_BACKUP_SEMANTICS, SetFilePointerEx, SetFileTime},
         System::SystemInformation::{GetSystemInfo, SYSTEM_INFO},
     },
 };
@@ -292,22 +290,24 @@ pub fn seek_fd(
     position: crt_fd::Offset,
     how: i32,
 ) -> io::Result<crt_fd::Offset> {
+    use crate::windows::CheckWin32Bool;
+
     let handle = crt_fd::as_handle(fd)?;
-    let mut distance_to_move: [i32; 2] = unsafe { core::mem::transmute(position) };
-    let ret = unsafe {
-        SetFilePointer(
+    // `SetFilePointer` returns the low half of the new position and reports
+    // failure with the value a position four gigabytes in also has, so the two
+    // are only told apart through the error code. The `Ex` form answers with
+    // the whole position and a success flag of its own.
+    let mut new_position = 0;
+    unsafe {
+        SetFilePointerEx(
             handle.as_raw_handle(),
-            distance_to_move[0],
-            &mut distance_to_move[1],
+            position,
+            &mut new_position,
             how as _,
         )
-    };
-    if ret == INVALID_SET_FILE_POINTER {
-        Err(io::Error::last_os_error())
-    } else {
-        distance_to_move[0] = ret as _;
-        Ok(unsafe { core::mem::transmute::<[i32; 2], i64>(distance_to_move) })
     }
+    .check_win32_bool()?;
+    Ok(new_position)
 }
 
 #[cfg(any(unix, target_os = "wasi"))]

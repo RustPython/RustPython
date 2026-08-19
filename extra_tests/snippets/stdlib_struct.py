@@ -156,3 +156,9 @@ for call in (
 ):
     with assert_raises(RuntimeError):
         call()
+
+
+# The buffer a format asks for is sized by the format: one too large to
+# allocate must raise instead of aborting.
+with assert_raises(MemoryError):
+    struct.pack("%dx" % (2**60))

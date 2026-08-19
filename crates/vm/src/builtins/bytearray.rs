@@ -1,14 +1,14 @@
 //! Implementation of the python bytearray object.
 use super::{
     PositionIterInternal, PyBytes, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef,
-    PyType, PyTypeRef, iter::builtins_iter,
+    PyType, PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
     VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
-    byte::{bytes_from_object, value_from_object},
+    byte::{bytearray_extend_from_object, bytearray_from_object, value_from_object},
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -115,7 +115,7 @@ impl PyByteArray {
                 let items = if zelf.is(&value) {
                     zelf.borrow_buf().to_vec()
                 } else {
-                    bytes_from_object(vm, &value)?
+                    bytearray_from_object(vm, &value)?
                 };
                 if let Some(mut w) = zelf.try_resizable_opt() {
                     w.elements.setitem_by_slice(vm, slice, &items)
@@ -643,7 +643,7 @@ impl Py<PyByteArray> {
                     vm.new_buffer_error("non-contiguous buffer is not a bytes-like object")
                 })?
                 .to_vec(),
-            None => bytes_from_object(vm, &object)?,
+            None => bytearray_extend_from_object(vm, &object)?,
         };
         self.try_resizable(vm)?.elements.extend(items);
         Ok(())
@@ -716,7 +716,7 @@ impl Initializer for PyByteArray {
 
     fn init(zelf: PyRef<Self>, options: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         // First unpack bytearray and *then* get a lock to set it.
-        let mut inner = options.get_bytearray_inner(vm)?;
+        let mut inner = options.get_inner(bytearray_from_object, vm)?;
         core::mem::swap(&mut *zelf.inner_mut(), &mut inner);
         Ok(())
     }
@@ -936,7 +936,7 @@ impl PyByteArrayIterator {
 impl SelfIter for PyByteArrayIterator {}
 impl IterNext for PyByteArrayIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|bytearray, pos| {
+        locked_next(&zelf.internal, |bytearray, pos| {
             let buf = bytearray.borrow_buf();
             Ok(PyIterReturn::from_result(
                 buf.get(pos).map(|&x| vm.new_pyobj(x)).ok_or(None),

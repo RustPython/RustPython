@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set, set::PySetInner,
+    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set, set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
@@ -24,6 +24,7 @@ use crate::{
 use alloc::fmt;
 use core::cell::Cell;
 use core::ptr::NonNull;
+use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -240,7 +241,7 @@ impl PyDict {
                 }
             })?;
             elem_iter
-                .into_iter::<PyObjectRef>(vm)?
+                .into_iter::<PyObjectRef>(vm)
                 .collect::<PyResult<Vec<_>>>()
         })()
         .map_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
@@ -257,7 +258,7 @@ impl PyDict {
         let iter = seq2.get_iter(vm)?;
         let dict = &self.entries;
 
-        for (index, element) in iter.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+        for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
             let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
 
             if !override_existing && dict.contains(vm, &*key)? {
@@ -1164,6 +1165,11 @@ macro_rules! dict_view {
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub(crate) size: dict_inner::DictSize,
+            /// Whether the dict was found to have changed, which
+            /// `dictiter_iternextkey()` records by writing a size no dict can
+            /// have. Sticky: what it makes the iterator answer, it answers
+            /// from then on.
+            changed: PyAtomic<bool>,
             pub(crate) internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -1179,13 +1185,26 @@ macro_rules! dict_view {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
                     size: dict.size(),
+                    changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, 0)),
                 }
             }
 
             #[pymethod]
             fn __length_hint__(&self) -> usize {
-                self.internal.lock().length_hint(|_| self.size.entries_size)
+                // `dictiter_len()` answers for a dict it can no longer walk
+                // with nothing, comparing the size it captured against the
+                // dict's own every time it is asked.
+                if self.changed.load(Ordering::Relaxed) {
+                    return 0;
+                }
+                self.internal.lock().length_hint(|dict| {
+                    if dict.size() == self.size {
+                        self.size.entries_size
+                    } else {
+                        0
+                    }
+                })
             }
 
             #[pymethod]
@@ -1214,32 +1233,33 @@ macro_rules! dict_view {
 
         impl IterNext for $iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    match dict.entries.next_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        $project_fn,
-                    ) {
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let mutated =
+                        || vm.new_runtime_error("dictionary changed size during iteration");
+                    if zelf.changed.load(Ordering::Relaxed) {
+                        // The dict is not looked at again once it has been
+                        // found to change: an iterator that has raised keeps
+                        // raising.
+                        return (Err(mutated()), None);
+                    }
+                    let entry =
+                        dict.entries
+                            .next_entry_checked(internal.position, &zelf.size, $project_fn);
+                    match entry {
                         Err(dict_inner::DictChanged) => {
-                            internal.status = IterStatus::Exhausted;
-                            return Err(
-                                vm.new_runtime_error("dictionary changed size during iteration")
-                            );
+                            zelf.changed.store(true, Ordering::Relaxed);
+                            (Err(mutated()), None)
                         }
                         Ok(Some((position, item))) => {
                             internal.position = position;
-                            PyIterReturn::Return(($result_fn)(vm, item))
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
-                        Ok(None) => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
 
@@ -1247,6 +1267,8 @@ macro_rules! dict_view {
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
             pub(crate) size: dict_inner::DictSize,
+            /// As in `$iter_name`.
+            changed: PyAtomic<bool>,
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -1264,6 +1286,7 @@ macro_rules! dict_view {
                 let position = size.entries_size.saturating_sub(1);
                 $reverse_iter_name {
                     size,
+                    changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
             }
@@ -1294,9 +1317,17 @@ macro_rules! dict_view {
 
             #[pymethod]
             fn __length_hint__(&self) -> usize {
-                self.internal
-                    .lock()
-                    .rev_length_hint(|_| self.size.entries_size)
+                // As in `$iter_name`.
+                if self.changed.load(Ordering::Relaxed) {
+                    return 0;
+                }
+                let internal = self.internal.lock();
+                match &internal.status {
+                    IterStatus::Active(dict) if dict.size() == self.size => {
+                        internal.rev_length_hint(|_| self.size.entries_size)
+                    }
+                    _ => 0,
+                }
             }
         }
 
@@ -1304,36 +1335,38 @@ macro_rules! dict_view {
 
         impl IterNext for $reverse_iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    match dict.entries.prev_entry_checked(
-                        internal.position,
-                        &zelf.size,
-                        $project_fn,
-                    ) {
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let mutated =
+                        || vm.new_runtime_error("dictionary changed size during iteration");
+                    if zelf.changed.load(Ordering::Relaxed) {
+                        // The dict is not looked at again once it has been
+                        // found to change: an iterator that has raised keeps
+                        // raising.
+                        return (Err(mutated()), None);
+                    }
+                    let entry =
+                        dict.entries
+                            .prev_entry_checked(internal.position, &zelf.size, $project_fn);
+                    match entry {
                         Err(dict_inner::DictChanged) => {
-                            internal.status = IterStatus::Exhausted;
-                            return Err(
-                                vm.new_runtime_error("dictionary changed size during iteration")
-                            );
+                            zelf.changed.store(true, Ordering::Relaxed);
+                            (Err(mutated()), None)
                         }
                         Ok(Some((found_index, item))) => {
-                            if found_index == 0 {
-                                internal.status = IterStatus::Exhausted;
+                            let released = if found_index == 0 {
+                                internal.exhaust()
                             } else {
                                 internal.position = found_index - 1;
-                            }
-                            PyIterReturn::Return(($result_fn)(vm, item))
+                                None
+                            };
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), released)
                         }
-                        Ok(None) => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
     };

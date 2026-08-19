@@ -178,7 +178,7 @@ mod _operator {
     #[pyfunction(name = "countOf")]
     fn count_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
         let mut count: usize = 0;
-        for element in a.iter_without_hint::<PyObjectRef>(vm)? {
+        for element in a.iter::<PyObjectRef>(vm)? {
             let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 count += 1;
@@ -199,7 +199,7 @@ mod _operator {
 
     #[pyfunction(name = "indexOf")]
     fn index_of(a: PyIter, b: PyObjectRef, vm: &VirtualMachine) -> PyResult<usize> {
-        for (index, element) in a.iter_without_hint::<PyObjectRef>(vm)?.enumerate() {
+        for (index, element) in a.iter::<PyObjectRef>(vm)?.enumerate() {
             let element = element?;
             if element.is(&b) || vm.bool_eq(&b, &element)? {
                 return Ok(index);

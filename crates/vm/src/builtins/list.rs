@@ -1,6 +1,7 @@
 use super::{
     PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
     iter::{builtins_iter, builtins_reversed},
+    locked_next, locked_rev_next,
 };
 use crate::atomic_func;
 use crate::common::lock::{
@@ -187,7 +188,11 @@ impl PyList {
 
     #[pymethod]
     pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut new_elements = x.try_to_value(vm)?;
+        // What is already here decides whether the iterable's length hint is
+        // believable, so it goes along with the request for the elements. It is
+        // counted where `list_extend()` reads `Py_SIZE(self)`, after the
+        // iterable has answered, because answering runs code that can change it.
+        let mut new_elements = vm.extract_elements_sized(&x, &|| self.borrow_vec().len(), Ok)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
@@ -221,8 +226,7 @@ impl PyList {
         other: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let mut seq = extract_cloned(other, Ok, vm)?;
-        zelf.borrow_vec_mut().append(&mut seq);
+        zelf.extend(other.to_owned(), vm)?;
         Ok(zelf.to_owned().into())
     }
 
@@ -231,8 +235,7 @@ impl PyList {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let mut seq = extract_cloned(&other, Ok, vm)?;
-        zelf.borrow_vec_mut().append(&mut seq);
+        zelf.extend(other, vm)?;
         Ok(zelf)
     }
 
@@ -481,7 +484,7 @@ impl Initializer for PyList {
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            iterable.try_to_value(vm)?
+            vm.extract_elements_sized(&iterable, &|| 0, Ok)?
         } else {
             vec![]
         };
@@ -909,24 +912,22 @@ impl PyListIterator {
 impl PyListIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        self.internal
-            .lock()
-            .next(|list, pos| {
-                let vec = list.borrow_vec();
-                Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
-            })
-            .ok()
-            .and_then(|r| match r {
-                PyIterReturn::Return(v) => Some(v),
-                PyIterReturn::StopIteration(_) => None,
-            })
+        locked_next(&self.internal, |list, pos| {
+            let vec = list.borrow_vec();
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
+        })
+        .ok()
+        .and_then(|r| match r {
+            PyIterReturn::Return(v) => Some(v),
+            PyIterReturn::StopIteration(_) => None,
+        })
     }
 }
 
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|list, pos| {
+        locked_next(&zelf.internal, |list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
@@ -975,7 +976,7 @@ impl PyListReverseIterator {
 impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().rev_next(|list, pos| {
+        locked_rev_next(&zelf.internal, |list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })

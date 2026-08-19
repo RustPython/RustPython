@@ -429,7 +429,7 @@ impl Constructor for PyCArray {
         }
 
         // Create array with zero-initialized buffer
-        let buffer = vec![0u8; total_size];
+        let buffer = vm.new_zeroed_bytes(total_size)?;
         let instance = Self(PyCData::from_bytes_with_length(buffer, None, length))
             .into_ref_with_type(vm, cls)?;
 
