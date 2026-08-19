@@ -321,6 +321,8 @@ class CompressorTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, pattern):
             ZstdCompressor(options=option)
 
+    @unittest.skipIf(not SUPPORT_MULTITHREADING,
+                     "zstd build doesn't support multi-threaded compression")
     def test_zstd_multithread_compress(self):
         size = 40*_1M
         b = THIS_FILE_BYTES * (size // len(THIS_FILE_BYTES))
