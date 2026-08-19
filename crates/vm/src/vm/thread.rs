@@ -605,6 +605,40 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// Wait for a lock the way a blocking call waits: detached, so a
+/// stop-the-world requester never has to wait for this thread to reach a
+/// safepoint it cannot reach while blocked.
+///
+/// Threads with no interpreter to leave — a native thread, or one whose
+/// locals are already being destroyed — simply block.
+///
+/// The requester of a stop is exempt from being parked by it
+/// ([`StopTheWorldState::park_detached_threads`](super::StopTheWorldState) and
+/// [`suspend_if_needed`] both skip it), so detaching here does not risk parking
+/// the one thread that can start the world again.
+#[cfg(feature = "threading")]
+fn wait_detached_from_interpreter(wait: &dyn Fn()) {
+    // Read the VM out before waiting: attaching afterwards reaches for the
+    // same thread locals, which must not still be borrowed here.
+    let current = VM_STACK
+        .try_with(|vms| vms.try_borrow().ok()?.last().copied())
+        .ok()
+        .flatten();
+    match current {
+        // SAFETY: entries in VM_STACK either borrow a VM for the dynamic
+        // scope of a set_current_vm()/enter_vm() call or point at GILSTATE_VM.
+        Some(vm) => allow_threads(unsafe { vm.as_ref() }, wait),
+        None => wait(),
+    }
+}
+
+/// Teach the lock types how to detach this thread. Idempotent, so every
+/// interpreter can call it while initializing.
+#[cfg(feature = "threading")]
+pub(crate) fn install_blocking_wait_hook() {
+    rustpython_common::lock::set_blocking_wait_hook(wait_detached_from_interpreter);
+}
+
 /// Called from check_signals when stop-the-world is requested.
 /// Transitions ATTACHED → SUSPENDED and waits until released
 /// (like `_PyThreadState_Suspend` + `_PyThreadState_Attach`).
