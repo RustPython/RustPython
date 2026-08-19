@@ -1,8 +1,9 @@
-use self::types::{PyBaseException, PyBaseExceptionRef};
+use self::types::{PyBaseException, PyBaseExceptionRef, PyException, PyMemoryError};
 use crate::common::lock::PyRwLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
-    AsObject, Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
+    VirtualMachine,
     builtins::{
         PyList, PyNone, PyStr, PyStrRef, PyTuple, PyTupleRef, PyType, PyTypeRef,
         traceback::{PyTraceback, PyTracebackRef},
@@ -40,10 +41,51 @@ impl core::fmt::Debug for PyBaseException {
     }
 }
 
+const MEMORY_ERROR_FREELIST_SIZE: usize = 4;
+
+struct MemoryErrorHusk(*mut PyObject);
+unsafe impl Send for MemoryErrorHusk {}
+
+static MEMORY_ERROR_FREELIST: std::sync::Mutex<Vec<MemoryErrorHusk>> =
+    std::sync::Mutex::new(Vec::new());
+
 impl PyPayload for PyBaseException {
     #[inline]
     fn class(ctx: &Context) -> &'static Py<PyType> {
         ctx.exceptions.base_exception_type
+    }
+}
+
+impl PyPayload for PyMemoryError {
+    const PAYLOAD_TYPE_ID: core::any::TypeId = <PyException as PyPayload>::PAYLOAD_TYPE_ID;
+    const HAS_FREELIST: bool = true;
+    const MAX_FREELIST: usize = MEMORY_ERROR_FREELIST_SIZE;
+
+    #[inline]
+    unsafe fn validate_downcastable_from(obj: &PyObject) -> bool {
+        <Self as crate::class::PyClassDef>::BASICSIZE <= obj.class().slots.basicsize
+            && obj.class().fast_issubclass(<Self as StaticType>::static_type())
+    }
+
+    fn class(_ctx: &Context) -> &'static Py<PyType> {
+        <Self as StaticType>::static_type()
+    }
+
+    unsafe fn freelist_push(obj: *mut PyObject) -> bool {
+        let Ok(mut list) = MEMORY_ERROR_FREELIST.lock() else {
+            return false;
+        };
+        if list.len() < MEMORY_ERROR_FREELIST_SIZE {
+            list.push(MemoryErrorHusk(obj));
+            true
+        } else {
+            false
+        }
+    }
+
+    unsafe fn freelist_pop(_payload: &Self) -> Option<core::ptr::NonNull<PyObject>> {
+        let husk = MEMORY_ERROR_FREELIST.lock().ok()?.pop()?;
+        core::ptr::NonNull::new(husk.0)
     }
 }
 
@@ -2001,10 +2043,16 @@ pub(super) mod types {
         }
     }
 
-    #[pyexception(name, base = PyException, ctx = "memory_error", impl)]
+    #[pyexception(name, base = PyException, ctx = "memory_error", impl, payload = "manual")]
     #[derive(Debug)]
     #[repr(transparent)]
     pub struct PyMemoryError(PyException);
+
+    impl PyMemoryError {
+        pub(crate) fn empty(vm: &VirtualMachine) -> Self {
+            Self(PyException(PyBaseException::new(vec![], vm)))
+        }
+    }
 
     #[pyexception(name, base = PyException, ctx = "name_error")]
     #[derive(Debug)]

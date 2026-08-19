@@ -239,6 +239,14 @@ pub(super) unsafe fn default_dealloc<T: PyPayload>(obj: *mut PyObject) {
         && core::ptr::eq(typ, T::class(crate::vm::Context::genesis()))
         && !obj_ref.0.ref_count.is_published()
     {
+        if let Some(ext) = obj_ref.0.ext_ref() {
+            if let Some(dict) = &ext.dict {
+                *dict.d.write() = None;
+            }
+            for slot in ext.slots.iter() {
+                *slot.write() = None;
+            }
+        }
         unsafe { T::freelist_push(obj) }
     } else {
         false

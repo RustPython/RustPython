@@ -1144,6 +1144,9 @@ impl VirtualMachine {
             stdlib::_thread::init_main_thread_ident(self);
         }
 
+        let prewarmed_memory_errors: Vec<_> = (0..4).map(|_| self.no_memory_error()).collect();
+        drop(prewarmed_memory_errors);
+
         stdlib::builtins::init_module(self, &self.builtins);
         let callable_cache_init = self.init_callable_cache();
         self.expect_pyresult(callable_cache_init, "failed to initialize callable cache");
