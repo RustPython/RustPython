@@ -444,7 +444,7 @@ try:
 except ValueError:
     pass
 else:
-    assert False, "slice assignment accepted an unbounded iterable"
+    raise AssertionError("slice assignment accepted an unbounded iterable")
 array3[0:3] = [7, 8, 9]
 assert list(array3) == [7, 8, 9]
 
@@ -456,6 +456,6 @@ try:
 except MemoryError:
     pass
 else:
-    assert False, "an unallocatable array was created"
+    raise AssertionError("an unallocatable array was created")
 
 print("done")
