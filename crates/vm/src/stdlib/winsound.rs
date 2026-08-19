@@ -6,9 +6,7 @@ pub(crate) use winsound::module_def;
 #[pymodule]
 mod winsound {
     use crate::builtins::{PyBaseExceptionRef, PyBytes, PyStr};
-    use crate::convert::{IntoPyException, ToPyException, TryFromBorrowedObject};
-    use crate::exceptions;
-    use crate::host_env::windows::ToWideString;
+    use crate::convert::{IntoPyException, ToPyException};
     use crate::protocol::{BufferFlags, PyBuffer};
     use crate::{AsObject, PyObjectRef, PyResult, VirtualMachine};
     use rustpython_host_env::winsound::{PlaySoundError, PlaySoundSource, play_sound};
