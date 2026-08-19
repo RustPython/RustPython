@@ -153,3 +153,63 @@ for _ in range(2):
         assert str(e) == "boom", e
     else:
         raise AssertionError("the element's error did not reach the caller")
+
+
+# A collection that moved under its iterator raises every time it is asked
+# again, rather than reading as spent after the first. What is left to walk
+# reads as nothing from the moment the collection no longer matches.
+from collections import deque
+from operator import length_hint
+
+
+def moved(make, mutate, restore, moved_hint, again):
+    it = make()
+    next(it)
+    assert length_hint(it) == 9, length_hint(it)
+    mutate()
+    assert length_hint(it) == moved_hint, length_hint(it)
+    try:
+        next(it)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("a collection that moved was walked further")
+    assert length_hint(it) == 0, length_hint(it)
+    restore()
+    try:
+        next(it)
+    except RuntimeError:
+        got = RuntimeError
+    except StopIteration:
+        got = StopIteration
+    else:
+        raise AssertionError("a collection that moved was walked further")
+    assert got is again, got
+    assert length_hint(it) == 0, length_hint(it)
+
+
+# A deque iterator carries its own count, so what the deque does to its own
+# length before the iterator is asked again is not what the count answers.
+d = deque(range(10))
+moved(lambda: iter(d), d.pop, lambda: d.append(99), 9, RuntimeError)
+d2 = deque(range(10))
+# `dequereviter_next()` looks at the count before the deque, so once the count
+# is spent the deque is never looked at again.
+moved(lambda: reversed(d2), d2.pop, lambda: d2.append(99), 9, StopIteration)
+
+# A dict or set iterator answers from the size it captured, which the
+# collection stops matching the moment it changes.
+s = set(range(10))
+moved(lambda: iter(s), lambda: s.add(99), lambda: s.discard(99), 0, RuntimeError)
+dd = {i: i for i in range(10)}
+moved(
+    lambda: iter(dd), lambda: dd.update({99: 99}), lambda: dd.pop(99), 0, RuntimeError
+)
+dv = {i: i for i in range(10)}
+moved(
+    lambda: reversed(dv.items()),
+    lambda: dv.update({99: 99}),
+    lambda: dv.pop(99),
+    0,
+    RuntimeError,
+)

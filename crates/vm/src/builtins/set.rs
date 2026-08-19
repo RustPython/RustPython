@@ -1486,6 +1486,10 @@ impl TryFromObject for AnySet {
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     size: DictSize,
+    /// Whether the set was found to have changed, which `setiter_iternext()`
+    /// records by writing a size no set can have. Sticky: what it makes the
+    /// iterator answer, it answers from then on.
+    changed: PyAtomic<bool>,
     internal: PyMutex<PositionIterInternal<AnySet>>,
 }
 
@@ -1507,6 +1511,7 @@ impl PySetIterator {
     fn new(set: AnySet) -> Self {
         Self {
             size: set.as_inner().content.size(),
+            changed: Radium::new(false),
             internal: PyMutex::new(PositionIterInternal::new(set, 0)),
         }
     }
@@ -1516,7 +1521,19 @@ impl PySetIterator {
 impl PySetIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|_| self.size.entries_size)
+        // `setiter_len()` answers for a set it can no longer walk with nothing,
+        // comparing the size it captured against the set's own every time it is
+        // asked.
+        if self.changed.load(Ordering::Relaxed) {
+            return 0;
+        }
+        self.internal.lock().length_hint(|set| {
+            if set.as_inner().content.size() == self.size {
+                self.size.entries_size
+            } else {
+                0
+            }
+        })
     }
 
     #[pymethod]
@@ -1547,16 +1564,22 @@ impl IterNext for PySetIterator {
             let IterStatus::Active(set) = &internal.status else {
                 return (Ok(PyIterReturn::StopIteration(None)), None);
             };
+            let mutated = || vm.new_runtime_error("Set changed size during iteration");
+            if zelf.changed.load(Ordering::Relaxed) {
+                // The set is not looked at again once it has been found to
+                // change: an iterator that has raised keeps raising.
+                return (Err(mutated()), None);
+            }
             let entry = set.as_inner().content.next_entry_checked(
                 internal.position,
                 &zelf.size,
                 |key, ()| key.clone(),
             );
             match entry {
-                Err(crate::dict_inner::DictChanged) => (
-                    Err(vm.new_runtime_error("set changed size during iteration")),
-                    internal.exhaust(),
-                ),
+                Err(crate::dict_inner::DictChanged) => {
+                    zelf.changed.store(true, Ordering::Relaxed);
+                    (Err(mutated()), None)
+                }
                 Ok(Some((position, key))) => {
                     internal.position = position;
                     (Ok(PyIterReturn::Return(key)), None)
