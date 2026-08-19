@@ -612,10 +612,13 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
 /// Threads with no interpreter to leave — a native thread, or one whose
 /// locals are already being destroyed — simply block.
 ///
-/// The requester of a stop is exempt from being parked by it
-/// ([`StopTheWorldState::park_detached_threads`](super::StopTheWorldState) and
-/// [`suspend_if_needed`] both skip it), so detaching here does not risk parking
-/// the one thread that can start the world again.
+/// Detaching cannot park the one thread that can start the world again:
+/// [`park_detached_threads`](super::StopTheWorldState) skips the requester's
+/// slot outright, by thread id, and [`suspend_if_needed`] keys off a stop bit
+/// never set for it. That exemption is wider than the one `_PyEval_StopTheWorld`
+/// gives, where only an ATTACHED requester is skipped and a DETACHED one is
+/// suspended like any other thread — so this rests on a local invariant rather
+/// than on the reference behavior.
 #[cfg(feature = "threading")]
 fn wait_detached_from_interpreter(wait: &dyn Fn()) {
     // Read the VM out before waiting: attaching afterwards reaches for the
