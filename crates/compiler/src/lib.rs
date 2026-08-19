@@ -395,6 +395,9 @@ fn barry_flufl_obsolete_operator_error(
     if start == 0 || source.as_bytes().get(start - 1) != Some(&b'<') {
         return None;
     }
+    if source.as_bytes().get(start) != Some(&b'>') {
+        return None;
+    }
     Some(("invalid syntax".to_string(), start - 1, start + 1))
 }
 
