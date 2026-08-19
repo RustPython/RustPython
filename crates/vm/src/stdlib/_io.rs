@@ -647,8 +647,7 @@ mod _io {
         #[pymethod]
         fn read(instance: PyObjectRef, size: OptionalSize, vm: &VirtualMachine) -> PyResult {
             if let Some(size) = size.to_usize() {
-                // FIXME: unnecessary zero-init
-                let b = PyByteArray::from(vec![0; size]).into_ref(&vm.ctx);
+                let b = PyByteArray::from(vm.new_zeroed_bytes(size)?).into_ref(&vm.ctx);
                 let n = <Option<isize>>::try_from_object(
                     vm,
                     vm.call_method(&instance, "readinto", (b.clone(),))?,

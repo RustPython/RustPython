@@ -1175,7 +1175,9 @@ mod builtins {
 
     #[pyfunction]
     fn sorted(iterable: PyObjectRef, opts: SortOptions, vm: &VirtualMachine) -> PyResult<PyList> {
-        let items: Vec<_> = iterable.try_to_value(vm)?;
+        // `PySequence_List()`, so the room comes from what the iterable reports
+        // rather than from its iterator.
+        let items = vm.extract_elements_sized(&iterable, &|| 0, Ok)?;
         let lst = PyList::from(items);
         lst.sort(opts, vm)?;
         Ok(lst)

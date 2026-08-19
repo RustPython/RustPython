@@ -766,3 +766,50 @@ def test_huge_size():
 
 
 test_huge_size()
+
+
+# bytes() asks the object it was handed how long it is, so what answering
+# raises is the answer; the bytearray constructor asks nothing.
+class BadLen:
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __len__(self):
+        raise RuntimeError("hello")
+
+
+with assert_raises(RuntimeError):
+    bytes(BadLen())
+with assert_raises(RuntimeError):
+    int.from_bytes(BadLen(), "big")
+assert bytearray(BadLen()) == bytearray(b"\x01\x02\x03")
+with assert_raises(RuntimeError):
+    bytearray(b"ab").extend(BadLen())
+holder = bytearray(b"xyz")
+holder[:] = BadLen()
+assert holder == bytearray(b"\x01\x02\x03")
+
+
+# What could not be turned into bytes is answered for by whatever was asked,
+# rather than by the iteration protocol.
+def cannot(fn, message):
+    try:
+        fn()
+    except TypeError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected TypeError: {message}")
+
+
+cannot(lambda: bytes(object()), "cannot convert 'object' object to bytes")
+cannot(lambda: bytes(1.5), "cannot convert 'float' object to bytes")
+cannot(lambda: bytearray(object()), "cannot convert 'object' object to bytearray")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), object()),
+    "cannot convert 'object' object to bytearray",
+)
+cannot(lambda: bytearray().extend(object()), "can't extend bytearray with object")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), "ab"),
+    "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
+)

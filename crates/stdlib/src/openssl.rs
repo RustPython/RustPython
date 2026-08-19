@@ -525,7 +525,7 @@ mod _ssl {
         if n < 0 {
             return Err(vm.new_value_error("num must be positive"));
         }
-        let mut buf = vec![0; n as usize];
+        let mut buf = vm.new_zeroed_bytes(n as usize)?;
         openssl::rand::rand_bytes(&mut buf).map_err(|e| convert_openssl_error(vm, e))?;
         Ok(buf)
     }
@@ -872,7 +872,7 @@ mod _ssl {
         if n < 0 {
             return Err(vm.new_value_error("num must be positive"));
         }
-        let mut buf = vec![0; n as usize];
+        let mut buf = vm.new_zeroed_bytes(n as usize)?;
         let ret = unsafe { sys::RAND_bytes(buf.as_mut_ptr(), n) };
         match ret {
             0 | 1 => Ok((buf, ret == 1)),

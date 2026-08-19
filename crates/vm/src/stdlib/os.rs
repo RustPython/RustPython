@@ -328,7 +328,7 @@ pub(super) mod _os {
 
     #[pyfunction]
     fn read(fd: crt_fd::Borrowed<'_>, n: usize, vm: &VirtualMachine) -> PyResult<PyBytesRef> {
-        let mut buffer = vec![0u8; n];
+        let mut buffer = vm.new_zeroed_bytes(n)?;
         loop {
             match vm.allow_threads(|| crt_fd::read(fd, &mut buffer)) {
                 Ok(n) => {
@@ -2135,7 +2135,7 @@ pub(crate) fn envobj_to_dict(
     }
     let keys = vm.call_method(obj, "keys", ())?;
     let dict = vm.ctx.new_dict();
-    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm)? {
+    for key in keys.get_iter(vm)?.into_iter::<PyObjectRef>(vm) {
         let key = key?;
         let val = obj.get_item(&*key, vm)?;
         dict.set_item(&*key, val, vm)?;

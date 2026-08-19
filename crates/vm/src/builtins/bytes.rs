@@ -1,6 +1,6 @@
 use super::{
     PositionIterInternal, PyDictRef, PyGenericAlias, PyStrRef, PyTuple, PyTupleRef, PyType,
-    PyTypeRef, iter::builtins_iter,
+    PyTypeRef, iter::builtins_iter, locked_next,
 };
 use crate::common::lock::LazyLock;
 use crate::{
@@ -8,6 +8,7 @@ use crate::{
     TryFromBorrowedObject, VirtualMachine,
     anystr::{self, AnyStr},
     atomic_func,
+    byte::bytes_from_object,
     bytes_inner::{
         ByteInnerFindOptions, ByteInnerHexOptions, ByteInnerNewOptions, ByteInnerPaddingOptions,
         ByteInnerSplitOptions, ByteInnerSub, ByteInnerTranslateOptions, DecodeArgs, PyBytesInner,
@@ -138,8 +139,7 @@ impl Constructor for PyBytes {
             return payload.into_ref_with_type(vm, cls).map(Into::into);
         }
 
-        // Fallback to get_bytearray_inner
-        let elements = options.get_bytearray_inner(vm)?.elements;
+        let elements = options.get_inner(bytes_from_object, vm)?.elements;
 
         // Return empty bytes singleton for exact bytes types
         if elements.is_empty() && cls.is(vm.ctx.types.bytes_type) {
@@ -797,7 +797,7 @@ impl PyBytesIterator {
 impl SelfIter for PyBytesIterator {}
 impl IterNext for PyBytesIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|bytes, pos| {
+        locked_next(&zelf.internal, |bytes, pos| {
             Ok(PyIterReturn::from_result(
                 bytes
                     .as_bytes()

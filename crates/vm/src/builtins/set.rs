@@ -3,7 +3,7 @@
  */
 use super::{
     IterStatus, PositionIterInternal, PyDict, PyDictRef, PyGenericAlias, PyTupleRef, PyType,
-    PyTypeRef, builtins_iter,
+    PyTypeRef, builtins_iter, locked_step,
 };
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromObject,
@@ -376,13 +376,6 @@ impl PySetInner {
             }
         }
         Ok(true)
-    }
-
-    fn iter(&self) -> PySetIterator {
-        PySetIterator {
-            size: self.content.size(),
-            internal: PyMutex::new(PositionIterInternal::new(self.content.clone(), 0)),
-        }
     }
 
     fn repr(&self, class_name: Option<&str>, vm: &VirtualMachine) -> PyResult<Wtf8Buf> {
@@ -933,7 +926,10 @@ impl Comparable for PySet {
 
 impl Iterable for PySet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(zelf.inner.iter().into_pyobject(vm))
+        Ok(PySetIterator::new(AnySet {
+            object: zelf.into(),
+        })
+        .into_pyobject(vm))
     }
 }
 
@@ -1351,7 +1347,10 @@ impl Comparable for PyFrozenSet {
 
 impl Iterable for PyFrozenSet {
     fn iter(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyResult {
-        Ok(zelf.inner.iter().into_pyobject(vm))
+        Ok(PySetIterator::new(AnySet {
+            object: zelf.into(),
+        })
+        .into_pyobject(vm))
     }
 }
 
@@ -1487,7 +1486,11 @@ impl TryFromObject for AnySet {
 #[pyclass(module = false, name = "set_iterator")]
 pub(crate) struct PySetIterator {
     size: DictSize,
-    internal: PyMutex<PositionIterInternal<PyRc<SetContentType>>>,
+    /// Whether the set was found to have changed, which `setiter_iternext()`
+    /// records by writing a size no set can have. Sticky: what it makes the
+    /// iterator answer, it answers from then on.
+    changed: PyAtomic<bool>,
+    internal: PyMutex<PositionIterInternal<AnySet>>,
 }
 
 impl fmt::Debug for PySetIterator {
@@ -1504,11 +1507,33 @@ impl PyPayload for PySetIterator {
     }
 }
 
+impl PySetIterator {
+    fn new(set: AnySet) -> Self {
+        Self {
+            size: set.as_inner().content.size(),
+            changed: Radium::new(false),
+            internal: PyMutex::new(PositionIterInternal::new(set, 0)),
+        }
+    }
+}
+
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(IterNext, Iterable))]
 impl PySetIterator {
     #[pymethod]
     fn __length_hint__(&self) -> usize {
-        self.internal.lock().length_hint(|_| self.size.entries_size)
+        // `setiter_len()` answers for a set it can no longer walk with nothing,
+        // comparing the size it captured against the set's own every time it is
+        // asked.
+        if self.changed.load(Ordering::Relaxed) {
+            return 0;
+        }
+        self.internal.lock().length_hint(|set| {
+            if set.as_inner().content.size() == self.size {
+                self.size.entries_size
+            } else {
+                0
+            }
+        })
     }
 
     #[pymethod]
@@ -1519,9 +1544,13 @@ impl PySetIterator {
             (vm.ctx
                 .new_list(match &internal.status {
                     IterStatus::Exhausted => vec![],
-                    IterStatus::Active(dict) => {
-                        dict.keys().into_iter().skip(internal.position).collect()
-                    }
+                    IterStatus::Active(set) => set
+                        .as_inner()
+                        .content
+                        .keys()
+                        .into_iter()
+                        .skip(internal.position)
+                        .collect(),
                 })
                 .into(),),
         )
@@ -1531,26 +1560,33 @@ impl PySetIterator {
 impl SelfIter for PySetIterator {}
 impl IterNext for PySetIterator {
     fn next(zelf: &crate::Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        let mut internal = zelf.internal.lock();
-        let next = if let IterStatus::Active(dict) = &internal.status {
-            match dict.next_entry_checked(internal.position, &zelf.size, |key, ()| key.clone()) {
+        locked_step(&zelf.internal, |internal| {
+            let IterStatus::Active(set) = &internal.status else {
+                return (Ok(PyIterReturn::StopIteration(None)), None);
+            };
+            let mutated = || vm.new_runtime_error("Set changed size during iteration");
+            if zelf.changed.load(Ordering::Relaxed) {
+                // The set is not looked at again once it has been found to
+                // change: an iterator that has raised keeps raising.
+                return (Err(mutated()), None);
+            }
+            let entry = set.as_inner().content.next_entry_checked(
+                internal.position,
+                &zelf.size,
+                |key, ()| key.clone(),
+            );
+            match entry {
                 Err(crate::dict_inner::DictChanged) => {
-                    internal.status = IterStatus::Exhausted;
-                    return Err(vm.new_runtime_error("set changed size during iteration"));
+                    zelf.changed.store(true, Ordering::Relaxed);
+                    (Err(mutated()), None)
                 }
                 Ok(Some((position, key))) => {
                     internal.position = position;
-                    PyIterReturn::Return(key)
+                    (Ok(PyIterReturn::Return(key)), None)
                 }
-                Ok(None) => {
-                    internal.status = IterStatus::Exhausted;
-                    PyIterReturn::StopIteration(None)
-                }
+                Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
             }
-        } else {
-            PyIterReturn::StopIteration(None)
-        };
-        Ok(next)
+        })
     }
 }
 

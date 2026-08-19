@@ -593,7 +593,7 @@ impl PyInt {
             Sign::Minus if !signed => {
                 return Err(vm.new_overflow_error("can't convert negative int to unsigned"));
             }
-            Sign::NoSign => return Ok(vec![0u8; byte_len].into()),
+            Sign::NoSign => return Ok(vm.new_zeroed_bytes(byte_len)?.into()),
             _ => {}
         }
 
@@ -609,10 +609,10 @@ impl PyInt {
             return Err(vm.new_overflow_error("int too big to convert"));
         }
 
-        let mut append_bytes = match value.sign() {
-            Sign::Minus => vec![255u8; byte_len - origin_len],
-            _ => vec![0u8; byte_len - origin_len],
-        };
+        let mut append_bytes = vm.new_zeroed_bytes(byte_len - origin_len)?;
+        if value.sign() == Sign::Minus {
+            append_bytes.fill(255);
+        }
 
         let bytes = match args.byteorder {
             ArgByteOrder::Big => {

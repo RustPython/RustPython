@@ -1,5 +1,6 @@
 use super::{
     PositionIterInternal, PyGenericAlias, PyStrRef, PyType, PyTypeRef, iter::builtins_iter,
+    locked_next,
 };
 use crate::common::lock::LazyLock;
 use crate::common::{hash, hash::PyHash, lock::PyMutex, wtf8::wtf8_concat};
@@ -701,25 +702,23 @@ impl PyTupleIterator {
 impl PyTupleIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        self.internal
-            .lock()
-            .next(|tuple, pos| {
-                Ok(PyIterReturn::from_result(
-                    tuple.get(pos).cloned().ok_or(None),
-                ))
-            })
-            .ok()
-            .and_then(|r| match r {
-                PyIterReturn::Return(v) => Some(v),
-                PyIterReturn::StopIteration(_) => None,
-            })
+        locked_next(&self.internal, |tuple, pos| {
+            Ok(PyIterReturn::from_result(
+                tuple.get(pos).cloned().ok_or(None),
+            ))
+        })
+        .ok()
+        .and_then(|r| match r {
+            PyIterReturn::Return(v) => Some(v),
+            PyIterReturn::StopIteration(_) => None,
+        })
     }
 }
 
 impl SelfIter for PyTupleIterator {}
 impl IterNext for PyTupleIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|tuple, pos| {
+        locked_next(&zelf.internal, |tuple, pos| {
             Ok(PyIterReturn::from_result(
                 tuple.get(pos).cloned().ok_or(None),
             ))
