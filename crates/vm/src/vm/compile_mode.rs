@@ -67,17 +67,6 @@ pub(crate) const PY_CF_ALLOW_TOP_LEVEL_AWAIT: i32 = CompilerFlags::ALLOW_TOP_LEV
 pub(crate) const PY_CF_ALLOW_INCOMPLETE_INPUT: i32 = CompilerFlags::ALLOW_INCOMPLETE_INPUT.bits();
 pub(crate) const PY_CF_OPTIMIZED_AST: i32 = CompilerFlags::OPTIMIZED_AST.bits();
 
-pub(crate) fn compile_future_feature_mask() -> bytecode::CodeFlags {
-    bytecode::CodeFlags::FUTURE_DIVISION
-        | bytecode::CodeFlags::FUTURE_ABSOLUTE_IMPORT
-        | bytecode::CodeFlags::FUTURE_WITH_STATEMENT
-        | bytecode::CodeFlags::FUTURE_PRINT_FUNCTION
-        | bytecode::CodeFlags::FUTURE_UNICODE_LITERALS
-        | bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL
-        | bytecode::CodeFlags::FUTURE_GENERATOR_STOP
-        | bytecode::CodeFlags::FUTURE_ANNOTATIONS
-}
-
 pub(crate) fn compile_future_features_from_flags(flags: i32) -> bytecode::CodeFlags {
-    bytecode::CodeFlags::from_bits_truncate(flags as u32 & compile_future_feature_mask().bits())
+    bytecode::CodeFlags::from_bits_truncate(flags as u32 & bytecode::CodeFlags::FUTURE_MASK.bits())
 }

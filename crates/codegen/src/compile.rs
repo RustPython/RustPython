@@ -12973,10 +12973,13 @@ impl<'warnings> Compiler<'warnings> {
                         let leading = debug_text.leading.as_str();
                         let trailing = debug_text.trailing.as_str();
                         let range = fstring_expr.expression.range();
-                        let leading = strip_python_comments(leading);
-                        let trailing = strip_python_comments(trailing);
                         let source = self.source_file.slice(range);
-                        let text = [leading.as_str(), source, trailing.as_str()].concat();
+                        let text = [
+                            strip_python_comments(leading).as_str(),
+                            source,
+                            strip_python_comments(trailing).as_str(),
+                        ]
+                        .concat();
                         let debug_text_range = TextRange::new(
                             range.start()
                                 - TextSize::new(
@@ -19529,16 +19532,20 @@ def spec(x):
         }
 
         let code = compile_exec(
-            "\
-def simple(x):
+            r#"def simple(x):
     return f'{x=}'
 
 def prefixed(x):
     return f'a {x=} b'
-",
+
+def commented(x):
+    return f"""{  # comment
+x=}"""
+"#,
         );
         let simple = find_code(&code, "simple").expect("missing simple code");
         let prefixed = find_code(&code, "prefixed").expect("missing prefixed code");
+        let commented = find_code(&code, "commented").expect("missing commented code");
 
         assert_eq!(
             string_load_position(simple, "x="),
@@ -19549,6 +19556,11 @@ def prefixed(x):
             string_load_position(prefixed, "a x="),
             (5, 14, 5, 19),
             "CPython merges debug text with the preceding JoinedStr literal"
+        );
+        assert_eq!(
+            string_load_position(commented, "  \nx="),
+            (8, 17, 9, 3),
+            "a stripped comment shortens the debug text but not the source range it spans"
         );
     }
 

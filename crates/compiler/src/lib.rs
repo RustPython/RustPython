@@ -395,10 +395,8 @@ fn barry_flufl_obsolete_operator_error(
         return None;
     }
     let start = error.location.start().to_usize();
-    if start == 0 || source.as_bytes().get(start - 1) != Some(&b'<') {
-        return None;
-    }
-    if source.as_bytes().get(start) != Some(&b'>') {
+    let bytes = source.as_bytes();
+    if start == 0 || bytes.get(start - 1) != Some(&b'<') || bytes.get(start) != Some(&b'>') {
         return None;
     }
     Some(("invalid syntax".to_string(), start - 1, start + 1))
@@ -5268,18 +5266,8 @@ fn _compile_with_syntax_warning_handler<'a>(
             .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
     );
     let parsed = parser::parse(barry_source.source(), parser_options);
-    if let Some(range) = parsed
-        .as_ref()
-        .err()
-        .and_then(|error| barry_source.invalid_legacy_operator(error))
-    {
-        return Err(barry_as_flufl_invalid_legacy_operator_error(
-            &source_file,
-            range,
-        ));
-    }
-    if let Some(range) = barry_source.not_equal_before(parsed.as_ref().err()) {
-        return Err(barry_as_flufl_not_equal_error(&source_file, range));
+    if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+        return Err(error);
     }
     let parsed =
         parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
@@ -5356,6 +5344,24 @@ impl BarrySource<'_> {
             .iter()
             .copied()
             .find(|range| range.contains(location) || range.start() == location)
+    }
+
+    /// The Barry-mode diagnostic for this source, if any. A `<>` that survived
+    /// the rewrite takes precedence over a `!=` reported later in the source.
+    #[must_use]
+    pub fn diagnostic(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+        source_file: &SourceFile,
+    ) -> Option<CompileError> {
+        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+            return Some(barry_as_flufl_invalid_legacy_operator_error(
+                source_file,
+                range,
+            ));
+        }
+        self.not_equal_before(parse_error)
+            .map(|range| barry_as_flufl_not_equal_error(source_file, range))
     }
 }
 
@@ -5486,18 +5492,8 @@ pub fn _compile_symtable(
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
-            if let Some(range) = parsed
-                .as_ref()
-                .err()
-                .and_then(|error| barry_source.invalid_legacy_operator(error))
-            {
-                return Err(barry_as_flufl_invalid_legacy_operator_error(
-                    &source_file,
-                    range,
-                ));
-            }
-            if let Some(range) = barry_source.not_equal_before(parsed.as_ref().err()) {
-                return Err(barry_as_flufl_not_equal_error(&source_file, range));
+            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+                return Err(error);
             }
             let ast =
                 parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
@@ -5516,18 +5512,8 @@ pub fn _compile_symtable(
         }
         Mode::Eval => {
             let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
-            if let Some(range) = parsed
-                .as_ref()
-                .err()
-                .and_then(|error| barry_source.invalid_legacy_operator(error))
-            {
-                return Err(barry_as_flufl_invalid_legacy_operator_error(
-                    &source_file,
-                    range,
-                ));
-            }
-            if let Some(range) = barry_source.not_equal_before(parsed.as_ref().err()) {
-                return Err(barry_as_flufl_not_equal_error(&source_file, range));
+            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+                return Err(error);
             }
             let ast =
                 parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
@@ -5610,6 +5596,21 @@ mod tests {
             "with Barry as BDFL, use '<>' instead of '!='"
         );
         assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
+        let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<>' outside Barry mode is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 3));
+
+        // Only `<>` moves the reported location back over the `<`; any other
+        // token that cannot start an expression keeps its own location.
+        let err = compile("2 <;\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<;' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 4));
     }
 
     #[test]

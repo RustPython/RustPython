@@ -1828,19 +1828,8 @@ pub(crate) fn parse(
     }
     if let Err(errors) = parsed.as_result() {
         let parse_error = errors[0].clone();
-        if let Some(range) = barry_source.invalid_legacy_operator(&parse_error) {
-            return Err(
-                rustpython_compiler::barry_as_flufl_invalid_legacy_operator_error(
-                    &source_file,
-                    range,
-                ),
-            );
-        }
-        if let Some(range) = barry_source.not_equal_before(Some(&parse_error)) {
-            return Err(rustpython_compiler::barry_as_flufl_not_equal_error(
-                &source_file,
-                range,
-            ));
+        if let Some(error) = barry_source.diagnostic(Some(&parse_error), &source_file) {
+            return Err(error);
         }
         let range = text_range_to_source_range(&source_file, parse_error.location);
         return Err(ParseError {
@@ -1853,11 +1842,8 @@ pub(crate) fn parse(
         }
         .into());
     }
-    if let Some(range) = barry_source.not_equal_before(None) {
-        return Err(rustpython_compiler::barry_as_flufl_not_equal_error(
-            &source_file,
-            range,
-        ));
+    if let Some(error) = barry_source.diagnostic(None, &source_file) {
+        return Err(error);
     }
     if dont_imply_dedent
         && interactive

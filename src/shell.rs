@@ -41,15 +41,7 @@ fn shell_exec(
     };
     match vm.compile_with_opts(source, compiler::Mode::Single, "<stdin>", opts) {
         Ok(code) => {
-            *future_features |= code.code.flags
-                & (CodeFlags::FUTURE_DIVISION
-                    | CodeFlags::FUTURE_ABSOLUTE_IMPORT
-                    | CodeFlags::FUTURE_WITH_STATEMENT
-                    | CodeFlags::FUTURE_PRINT_FUNCTION
-                    | CodeFlags::FUTURE_UNICODE_LITERALS
-                    | CodeFlags::FUTURE_BARRY_AS_BDFL
-                    | CodeFlags::FUTURE_GENERATOR_STOP
-                    | CodeFlags::FUTURE_ANNOTATIONS);
+            *future_features |= code.code.flags & CodeFlags::FUTURE_MASK;
             if empty_line_given || !continuing_block {
                 // We want to execute the full code
                 match vm.run_code_obj(code, scope) {

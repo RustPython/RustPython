@@ -418,15 +418,7 @@ impl WASMVirtualMachine {
                 let code = vm
                     .compile_with_opts(source, mode, source_path.as_str(), opts)
                     .map_err(|err| compile_err_to_js(vm, err))?;
-                *stored.future_features.borrow_mut() |= code.code.flags
-                    & (CodeFlags::FUTURE_DIVISION
-                        | CodeFlags::FUTURE_ABSOLUTE_IMPORT
-                        | CodeFlags::FUTURE_WITH_STATEMENT
-                        | CodeFlags::FUTURE_PRINT_FUNCTION
-                        | CodeFlags::FUTURE_UNICODE_LITERALS
-                        | CodeFlags::FUTURE_BARRY_AS_BDFL
-                        | CodeFlags::FUTURE_GENERATOR_STOP
-                        | CodeFlags::FUTURE_ANNOTATIONS);
+                *stored.future_features.borrow_mut() |= code.code.flags & CodeFlags::FUTURE_MASK;
                 Ok(code)
             };
             let future_features = *stored.future_features.borrow();
