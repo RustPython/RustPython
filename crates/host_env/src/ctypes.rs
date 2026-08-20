@@ -3,6 +3,7 @@ use core::ffi::{
     CStr, c_char, c_double, c_float, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint,
     c_ulong, c_ulonglong, c_ushort, c_void,
 };
+use core::ptr::NonNull;
 #[cfg(all(
     any(
         target_os = "linux",
@@ -32,10 +33,10 @@ use libloading::Library;
 use libloading::os::unix::Library as UnixLibrary;
 #[cfg(any(unix, windows))]
 use parking_lot::{Mutex, RwLock};
-use rustpython_wtf8::Wtf8;
-use rustpython_wtf8::Wtf8Buf;
+use rustpython_wtf8::{Wtf8, Wtf8Buf};
 #[cfg(any(unix, windows))]
 use std::{collections::HashMap, ffi::OsStr, sync::OnceLock};
+use widestring::WideCStr;
 
 #[cfg(all(
     any(
@@ -394,31 +395,9 @@ pub fn dyld_shared_cache_contains_path(path: &str) -> Result<bool, alloc::ffi::N
 
 /// # Safety
 ///
-/// `ptr` must be valid to read until the first NUL byte.
-pub unsafe fn strlen(ptr: *const c_char) -> usize {
-    #[cfg(any(unix, windows, target_os = "wasi"))]
-    {
-        unsafe { libc::strlen(ptr) }
-    }
-    #[cfg(not(any(unix, windows, target_os = "wasi")))]
-    {
-        let mut len = 0;
-        while unsafe { *ptr.add(len) } != 0 {
-            len += 1;
-        }
-        len
-    }
-}
-
-/// # Safety
-///
 /// `ptr` must be valid to read until the first NUL wide character.
-pub unsafe fn wcslen(ptr: *const WChar) -> usize {
-    let mut len = 0;
-    while unsafe { *ptr.add(len) } != 0 as WChar {
-        len += 1;
-    }
-    len
+pub unsafe fn wcslen(ptr: NonNull<WChar>) -> usize {
+    unsafe { WideCStr::from_ptr_str(ptr.as_ptr().cast()).len() }
 }
 
 /// # Safety
@@ -523,7 +502,7 @@ pub fn encode_wtf8_to_wchar_padded(s: &Wtf8, size: usize) -> Vec<u8> {
     wchar_bytes
 }
 
-pub fn wchar_null_terminated_bytes(s: &Wtf8) -> Vec<u8> {
+pub fn clone_wchar_null_terminated(s: &Wtf8) -> Vec<u8> {
     if size_of::<WChar>() == 2 {
         // We can't cast u32 to WChar because it would truncate the value on platforms where WChar
         // is two bytes. Wtf8::encode_wide does all of the hard work for us, so all we have to do
@@ -1111,10 +1090,15 @@ pub fn utf16z_bytes(s: &Wtf8) -> Vec<u8> {
         .collect()
 }
 
-pub fn null_terminated_bytes(bytes: &[u8]) -> Vec<u8> {
-    let mut buffer = bytes.to_vec();
-    buffer.push(0);
-    buffer
+/// Return a NUL terminated copy of `bytes`.
+///
+/// The input may contain interior NULs.
+pub fn clone_as_null_terminated(bytes: &[u8]) -> Vec<u8> {
+    if bytes.last() == Some(&0) {
+        bytes.to_vec()
+    } else {
+        bytes.iter().copied().chain(Some(0)).collect()
+    }
 }
 
 pub fn decode_type_code(type_code: &str, bytes: &[u8]) -> DecodedValue {
@@ -1309,10 +1293,10 @@ pub unsafe fn callback_arg_value(type_code: Option<&str>, ptr: *const c_void) ->
         }
         Some("Z") => {
             let wstr_ptr = unsafe { *(ptr as *const *const WChar) };
-            if wstr_ptr.is_null() {
-                DecodedValue::None
-            } else {
+            if let Some(wstr_ptr) = NonNull::new(wstr_ptr.cast_mut()) {
                 DecodedValue::String(unsafe { read_wide_string(wstr_ptr) }.to_string())
+            } else {
+                DecodedValue::None
             }
         }
         Some("P") => DecodedValue::Pointer(unsafe { *(ptr as *const usize) }),
@@ -2272,8 +2256,7 @@ pub unsafe fn borrowed_slice_as_mut(slice: &[u8]) -> &mut [u8] {
 pub fn wide_chars_to_wtf8(wchars: &[WChar]) -> Wtf8Buf {
     #[cfg(windows)]
     {
-        let wide: Vec<u16> = wchars.to_vec();
-        Wtf8Buf::from_wide(&wide)
+        Wtf8Buf::from_wide(wchars)
     }
     #[cfg(not(windows))]
     {
@@ -2292,10 +2275,10 @@ pub fn wide_chars_to_wtf8(wchars: &[WChar]) -> Wtf8Buf {
 /// # Safety
 ///
 /// `ptr` must be a valid NUL-terminated wide C string.
-pub unsafe fn read_wide_string(ptr: *const WChar) -> Wtf8Buf {
-    let len = unsafe { wcslen(ptr) };
-    let wchars = unsafe { core::slice::from_raw_parts(ptr, len) };
-    wide_chars_to_wtf8(wchars)
+pub unsafe fn read_wide_string(ptr: NonNull<WChar>) -> Wtf8Buf {
+    // SAFETY: WideCStr does not assume an encoding.
+    let wchars = unsafe { WideCStr::from_ptr_str(ptr.as_ptr().cast()) };
+    Wtf8Buf::from_string(wchars.to_string_lossy())
 }
 
 /// # Safety
@@ -2313,18 +2296,15 @@ pub unsafe fn read_c_string_from_address(addr: usize) -> Option<Vec<u8>> {
 ///
 /// `addr` must either be zero or a valid NUL-terminated wide C string pointer.
 pub unsafe fn read_wide_string_from_address(addr: usize) -> Option<Wtf8Buf> {
-    if addr == 0 {
-        None
-    } else {
-        Some(unsafe { read_wide_string(addr as *const WChar) })
-    }
+    let ptr = NonNull::new(addr as *mut WChar)?;
+    Some(unsafe { read_wide_string(ptr) })
 }
 
 /// # Safety
 ///
 /// `ptr` must point to `len` readable wide characters.
-pub unsafe fn read_wide_string_with_len(ptr: *const WChar, len: usize) -> Wtf8Buf {
-    let wchars = unsafe { core::slice::from_raw_parts(ptr, len) };
+pub unsafe fn read_wide_string_with_len(ptr: NonNull<WChar>, len: usize) -> Wtf8Buf {
+    let wchars = unsafe { core::slice::from_raw_parts(ptr.as_ptr(), len) };
     wide_chars_to_wtf8(wchars)
 }
 
@@ -2348,13 +2328,12 @@ pub fn string_at(ptr: usize, size: isize) -> Result<Vec<u8>, StringAtError> {
 }
 
 pub fn wstring_at(ptr: usize, size: isize) -> Result<Wtf8Buf, StringAtError> {
-    if ptr == 0 {
+    let Some(ptr) = NonNull::new(ptr as *mut WChar) else {
         return Err(StringAtError::NullPointer);
-    }
-    let w_ptr = ptr as *const WChar;
+    };
     if size < 0 {
         // SAFETY: caller passed a non-null NUL-terminated wide string pointer.
-        return Ok(unsafe { read_wide_string(w_ptr) });
+        return Ok(unsafe { read_wide_string(ptr) });
     }
     let len = {
         let size_usize = size as usize;
@@ -2364,7 +2343,7 @@ pub fn wstring_at(ptr: usize, size: isize) -> Result<Wtf8Buf, StringAtError> {
         size_usize
     };
     // SAFETY: caller requested exactly `len` readable wide characters from non-null pointer.
-    Ok(unsafe { read_wide_string_with_len(w_ptr, len) })
+    Ok(unsafe { read_wide_string_with_len(ptr, len) })
 }
 
 /// # Safety
@@ -2414,14 +2393,14 @@ pub unsafe fn read_pointer_char_slice(
 /// # Safety
 ///
 /// `start` must be valid to read `len` wide characters following `step`.
-pub unsafe fn read_wide_string_strided(start: *const WChar, len: usize, step: isize) -> Wtf8Buf {
+pub unsafe fn read_wide_string_strided(start: NonNull<WChar>, len: usize, step: isize) -> Wtf8Buf {
     if step == 1 {
         return unsafe { read_wide_string_with_len(start, len) };
     }
     let mut wchars = Vec::with_capacity(len);
     let mut cur = start;
     for _ in 0..len {
-        wchars.push(unsafe { *cur });
+        wchars.push(unsafe { cur.read() });
         cur = unsafe { cur.offset(step) };
     }
     wide_chars_to_wtf8(&wchars)
@@ -2436,10 +2415,9 @@ pub unsafe fn read_pointer_wchar_slice(
     start: isize,
     len: usize,
     step: isize,
-) -> Wtf8Buf {
-    let wchar_size = core::mem::size_of::<WChar>();
-    let start_addr = (ptr_value as isize + start * wchar_size as isize) as *const WChar;
-    unsafe { read_wide_string_strided(start_addr, len, step) }
+) -> Option<Wtf8Buf> {
+    let start_addr = unsafe { NonNull::new(ptr_value as *mut WChar)?.offset(start) };
+    Some(unsafe { read_wide_string_strided(start_addr, len, step) })
 }
 
 /// # Safety

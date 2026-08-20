@@ -587,7 +587,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         self.ioclass(initial_bytes=buf)
         self.assertRaises(TypeError, self.ioclass, buf, foo=None)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_write_concurrent_close(self):
         class B:
             def __buffer__(self, flags):
@@ -601,7 +600,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
     # concurrently mutates (e.g., closes or exports) 'memio'.
     # See: https://github.com/python/cpython/issues/143378.
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_writelines_concurrent_close(self):
         class B:
             def __buffer__(self, flags):
@@ -611,7 +609,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio = self.ioclass()
         self.assertRaises(ValueError, memio.writelines, [B()])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_write_concurrent_export(self):
         class B:
             buf = None
@@ -622,7 +619,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio = self.ioclass()
         self.assertRaises(BufferError, memio.write, B())
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_writelines_concurrent_export(self):
         class B:
             buf = None
@@ -633,7 +629,6 @@ class PyBytesIOTest(MemoryTestMixin, MemorySeekTestMixin, unittest.TestCase):
         memio = self.ioclass()
         self.assertRaises(BufferError, memio.writelines, [B()])
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: a bytes-like object is required, not 'B'
     def test_write_mutating_buffer(self):
         # Test that buffer is exported only once during write().
         # See: https://github.com/python/cpython/issues/143602.
@@ -930,9 +925,6 @@ class CBytesIOTest(PyBytesIOTest):
     def test_flags(self):
         return super().test_flags()
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by write
-    def test_write(self):
-        return super().test_write()
 
 class CStringIOTest(PyStringIOTest):
     ioclass = io.StringIO
@@ -940,7 +932,6 @@ class CStringIOTest(PyStringIOTest):
 
     # XXX: For the Python version of io.StringIO, this is highly
     # dependent on the encoding used for the underlying buffer.
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: 8 != 2
     def test_widechar(self):
         buf = self.buftype("\U0002030a\U00020347")
         memio = self.ioclass(buf)
@@ -965,7 +956,6 @@ class CStringIOTest(PyStringIOTest):
         memio.close()
         self.assertRaises(ValueError, memio.__getstate__)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by __setstate__
     def test_setstate(self):
         # This checks whether __setstate__ does proper input validation.
         memio = self.ioclass()
@@ -1002,38 +992,9 @@ class CStringIOTest(PyStringIOTest):
         memio2.write(MyStr("world"))
         self.assertEqual(memio2.getvalue(), "hello world")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_issue5265(self):
-        return super().test_issue5265()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                      ++++
-    def test_newline_empty(self):
-        return super().test_newline_empty()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
-    def test_newline_none(self):
-        return super().test_newline_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by seek
-    def test_relative_seek(self):
-        return super().test_relative_seek()
-
     @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: ValueError not raised by writable
     def test_flags(self):
         return super().test_flags()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
-    def test_newlines_property(self):
-        return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_cr(self):
-        return super().test_newline_cr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_crlf(self):
-        return super().test_newline_crlf()
-
 
 class CStringIOPickleTest(PyStringIOPickleTest):
     UnsupportedOperation = io.UnsupportedOperation
@@ -1043,35 +1004,6 @@ class CStringIOPickleTest(PyStringIOPickleTest):
             return pickle.loads(pickle.dumps(io.StringIO(*args, **kwargs)))
         def __init__(self, *args, **kwargs):
             pass
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; +
-    def test_issue5265(self):
-        return super().test_issue5265()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                      ++++
-    def test_newline_empty(self):
-        return super().test_newline_empty()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ?                   ^^^^^
-    def test_newline_none(self):
-        return super().test_newline_none()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AssertionError: OSError not raised by seek
-    def test_relative_seek(self):
-        return super().test_relative_seek()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; AttributeError: 'StringIO' object has no attribute 'newlines'. Did you mean: 'readlines'?
-    def test_newlines_property(self):
-        return super().test_newlines_property()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_cr(self):
-        return super().test_newline_cr()
-
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; d
-    def test_newline_crlf(self):
-        return super().test_newline_crlf()
-
 
 if __name__ == '__main__':
     unittest.main()

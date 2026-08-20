@@ -48,6 +48,11 @@ pub unsafe extern "C" fn PyCapsule_GetContext(capsule: *mut PyObject) -> *mut c_
         let capsule = unsafe { &*capsule }
             .downcast_ref_if_exact::<PyCapsule>(vm)
             .ok_or_else(|| vm.new_value_error("Invalid capsule"))?;
+
+        if capsule.pointer().is_null() {
+            return Err(vm.new_value_error("Capsule has null pointer"));
+        }
+
         Ok(capsule.context())
     })
 }
@@ -143,6 +148,7 @@ fn checked_capsule<'a>(
 
 #[cfg(test)]
 mod tests {
+    use pyo3::ffi;
     use pyo3::prelude::*;
     use pyo3::types::PyCapsule;
 
@@ -155,5 +161,22 @@ mod tests {
             let ptr = capsule.pointer_checked(Some(c"my_capsule")).unwrap();
             assert_eq!(unsafe { ptr.cast::<String>().as_ref() }, "Some data");
         })
+    }
+
+    #[test]
+    fn capsule_context_on_invalid_capsule() {
+        Python::attach(|py| {
+            let cap = PyCapsule::new_with_value(py, 123u32, c"name").unwrap();
+
+            // Invalidate the capsule
+            // SAFETY: intentionally breaking the capsule for testing
+            unsafe {
+                ffi::PyCapsule_SetPointer(cap.as_ptr(), core::ptr::null_mut());
+            }
+
+            // context() on invalid capsule should fail
+            let result = cap.context();
+            assert!(result.is_err());
+        });
     }
 }

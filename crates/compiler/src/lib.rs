@@ -1,4 +1,7 @@
-pub use ruff_python_ast::token::TokenKind;
+extern crate alloc;
+
+use alloc::borrow::Cow;
+pub use ruff_python_ast::token::{TokenKind, Tokens};
 use ruff_python_parser::ParseErrorType;
 use ruff_source_file::{PositionEncoding, SourceFile, SourceFileBuilder, SourceLocation};
 use ruff_text_size::{Ranged, TextSize, TextSlice};
@@ -50,9 +53,13 @@ pub enum CompileError {
 
 impl CompileError {
     #[must_use]
-    pub fn from_ruff_parse_error(error: parser::ParseError, source_file: &SourceFile) -> Self {
+    pub fn from_ruff_parse_error(
+        error: parser::ParseError,
+        source_file: &SourceFile,
+        mode: Mode,
+    ) -> Self {
         let raw_location = error.location;
-        let diagnostic = match cpython_parse_diagnostic_override(&error, source_file) {
+        let diagnostic = match cpython_parse_diagnostic_override(&error, source_file, mode) {
             Some(diagnostic) => diagnostic,
             None => default_parse_diagnostic(error, source_file),
         };
@@ -129,6 +136,13 @@ fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation
         .source_location(offset, PositionEncoding::Utf8)
 }
 
+// Call only with UTF-8 character boundaries for Python-facing offsets.
+fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    source_file
+        .to_source_code()
+        .source_location(offset, PositionEncoding::Utf32)
+}
+
 fn source_locations(
     source_file: &SourceFile,
     start: TextSize,
@@ -175,6 +189,21 @@ impl NormalizedParseDiagnostic {
         )
     }
 
+    fn other_in_code_points(
+        source_file: &SourceFile,
+        message: String,
+        start: usize,
+        end: usize,
+    ) -> Self {
+        let start = TextSize::new(start as u32);
+        let end = TextSize::new(end as u32);
+        Self::new(
+            parser::ParseErrorType::OtherError(message),
+            source_location_in_code_points(source_file, start),
+            source_location_in_code_points(source_file, end),
+        )
+    }
+
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
         self.is_unclosed_bracket = is_unclosed_bracket;
         self
@@ -184,6 +213,7 @@ impl NormalizedParseDiagnostic {
 fn cpython_parse_diagnostic_override(
     error: &parser::ParseError,
     source_file: &SourceFile,
+    mode: Mode,
 ) -> Option<NormalizedParseDiagnostic> {
     let source_text = source_file.source_text();
 
@@ -223,6 +253,18 @@ fn cpython_parse_diagnostic_override(
         &error.error,
         parser::ParseErrorType::Lexical(parser::LexicalErrorType::LineContinuationError)
     ) {
+        // Only a backslash at the end of the source is an EOF error.
+        let terminal_backslash = source_text.len().checked_sub(1);
+        if !matches!(mode, Mode::Eval)
+            && terminal_backslash == Some(error.location.start().to_usize())
+        {
+            let loc = source_line_end_location(source_file, error.location.start());
+            return Some(NormalizedParseDiagnostic::new(
+                parser::ParseErrorType::OtherError("unexpected EOF while parsing".to_owned()),
+                loc,
+                loc,
+            ));
+        }
         let loc = source_location(source_file, error.location.start() + TextSize::from(1));
         return Some(NormalizedParseDiagnostic::new(
             error.error.clone(),
@@ -231,7 +273,15 @@ fn cpython_parse_diagnostic_override(
         ));
     }
 
-    source_error!(unterminated_string_error(source_text));
+    if let Some((message, start, end)) = unterminated_string_error(source_text) {
+        // The scanner reports quote positions, which are UTF-8 character boundaries.
+        return Some(NormalizedParseDiagnostic::other_in_code_points(
+            source_file,
+            message,
+            start,
+            end,
+        ));
+    }
     source_error!(expected_indented_block_error(error, source_text));
 
     if matches!(
@@ -310,6 +360,19 @@ fn cpython_parse_diagnostic_override(
         let msg = format!("cannot use assignment expressions with {target}");
         return Some(NormalizedParseDiagnostic::new(
             parser::ParseErrorType::OtherError(msg),
+            loc,
+            end_loc,
+        ));
+    }
+
+    // CPython's PEG parser collapses a bare "expected an expression" failure
+    // into the generic "invalid syntax" message. rustpython-vm's `vm_new.rs`
+    // does this same collapse for its own callers; rustpython-compiler has no
+    // vm dependency, so mirror it here.
+    if matches!(&error.error, parser::ParseErrorType::ExpectedExpression) {
+        let (loc, end_loc) = adjusted_error_locations(source_file, error.location);
+        return Some(NormalizedParseDiagnostic::new(
+            parser::ParseErrorType::OtherError("invalid syntax".into()),
             loc,
             end_loc,
         ));
@@ -4752,97 +4815,45 @@ fn invalid_legacy_statement_error(source: &str) -> Option<(String, usize, usize)
     None
 }
 
-fn long_decimal_integer_literal_error(
-    source: &str,
+/// Return the syntax error for a decimal integer literal exceeding the configured limit.
+///
+/// The parser has already distinguished integer literals from strings, comments, floats, and
+/// complex numbers. Inspecting its tokens keeps the limit consistent for every source parsing
+/// entry point without reimplementing Python's lexer here.
+#[must_use]
+pub fn long_decimal_integer_literal_error(
+    source_file: &SourceFile,
+    tokens: &Tokens,
     max_str_digits: usize,
-) -> Option<(String, usize, usize)> {
+) -> Option<CompileError> {
     if max_str_digits == 0 {
         return None;
     }
-    let bytes = source.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        match bytes[index] {
-            b'#' => {
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-            }
-            b'\'' | b'"' => {
-                index = skip_quoted_string(bytes, index);
-            }
-            byte if byte >= 0x80 || byte == b'_' || byte.is_ascii_alphabetic() => {
-                index += 1;
-                while index < bytes.len()
-                    && (bytes[index] >= 0x80 || is_ascii_identifier_char(bytes[index]))
-                {
-                    index += 1;
-                }
-            }
-            b'.' => {
-                if bytes
-                    .get(index + 1)
-                    .is_some_and(|byte| byte.is_ascii_digit())
-                {
-                    let (_, end) = number_literal_end(bytes, index)?;
-                    index = end.max(index + 1);
-                } else {
-                    index += 1;
-                }
-            }
-            b'0'..=b'9' => {
-                if bytes.get(index) == Some(&b'0')
-                    && matches!(
-                        bytes.get(index + 1),
-                        Some(b'x' | b'X' | b'o' | b'O' | b'b' | b'B')
-                    )
-                {
-                    let Some((_, end)) = number_literal_end(bytes, index) else {
-                        index += 1;
-                        continue;
-                    };
-                    index = end.max(index + 1);
-                    continue;
-                }
-
-                let start = index;
-                let mut digits = 0usize;
-                while index < bytes.len() {
-                    match bytes[index] {
-                        b'0'..=b'9' => {
-                            digits += 1;
-                            index += 1;
-                        }
-                        b'_' if bytes
-                            .get(index + 1)
-                            .is_some_and(|byte| byte.is_ascii_digit()) =>
-                        {
-                            index += 1;
-                        }
-                        _ => break,
-                    }
-                }
-                if matches!(bytes.get(index), Some(b'.' | b'e' | b'E' | b'j' | b'J')) {
-                    let Some((_, end)) = number_literal_end(bytes, start) else {
-                        continue;
-                    };
-                    index = end.max(index + 1);
-                    continue;
-                }
-                if digits > max_str_digits {
-                    return Some((
-                        format!(
-                            "Exceeds the limit ({max_str_digits} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."
-                        ),
-                        start,
-                        start,
-                    ));
-                }
-            }
-            _ => index += 1,
+    tokens.iter().find_map(|token| {
+        if token.kind() != TokenKind::Int {
+            return None;
         }
-    }
-    None
+        let literal = source_file.source_text().slice(token.range());
+        if literal
+            .as_bytes()
+            .get(..2)
+            .is_some_and(|prefix| matches!(prefix, b"0x" | b"0X" | b"0o" | b"0O" | b"0b" | b"0B"))
+        {
+            return None;
+        }
+        let digits = literal.bytes().filter(u8::is_ascii_digit).count();
+        (digits > max_str_digits).then(|| {
+            let start = token.range().start().to_usize();
+            CompileError::from_source_error(
+                source_file,
+                format!(
+                    "Exceeds the limit ({max_str_digits} digits) for integer string conversion: value has {digits} digits; use sys.set_int_max_str_digits() to increase the limit - Consider hexadecimal for huge integer literals to avoid decimal conversion limits."
+                ),
+                start,
+                start,
+            )
+        })
+    })
 }
 
 fn invalid_parenthesized_import_star_error(source: &str) -> Option<(String, usize, usize)> {
@@ -4951,12 +4962,27 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(Stri
     None
 }
 
-fn post_parse_source_error(source_file: &SourceFile, opts: &CompileOpts) -> Option<CompileError> {
-    too_many_nested_parentheses_error(source_file.source_text())
-        .or_else(|| {
-            long_decimal_integer_literal_error(source_file.source_text(), opts.int_max_str_digits)
-        })
-        .or_else(|| invalid_call_argument_error(source_file.source_text()))
+fn post_parse_source_error(
+    source_file: &SourceFile,
+    tokens: &Tokens,
+    opts: &CompileOpts,
+) -> Option<CompileError> {
+    if let Some((message, start, end)) =
+        too_many_nested_parentheses_error(source_file.source_text())
+    {
+        return Some(CompileError::from_source_error(
+            source_file,
+            message,
+            start,
+            end,
+        ));
+    }
+    if let Some(error) =
+        long_decimal_integer_literal_error(source_file, tokens, opts.int_max_str_digits)
+    {
+        return Some(error);
+    }
+    invalid_call_argument_error(source_file.source_text())
         .or_else(|| invalid_match_mapping_rest_wildcard_error(source_file.source_text()))
         .or_else(|| invalid_match_as_target_error(source_file.source_text()))
         .or_else(|| invalid_unparenthesized_yield_after_comma_error(source_file.source_text()))
@@ -5212,15 +5238,25 @@ fn _compile_with_syntax_warning_handler<'a>(
         Mode::Single | Mode::BlockExpr => parser::Mode::Module,
     };
     let parser_options = parser::ParseOptions::from(parser_mode);
-    let parsed = parser::parse(source_file.source_text(), parser_options)
-        .map_err(|err| CompileError::from_ruff_parse_error(err, &source_file))?;
+    let barry_source = prepare_barry_as_flufl_source(
+        source_file.source_text(),
+        parser_options.clone(),
+        opts.future_features
+            .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL),
+    );
+    let parsed = parser::parse(barry_source.source(), parser_options);
+    if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+        return Err(error);
+    }
+    let parsed =
+        parsed.map_err(|err| CompileError::from_ruff_parse_error(err, &source_file, mode))?;
     if opts.dont_imply_dedent
         && matches!(mode, Mode::Single)
         && let Some(error) = dont_imply_dedent_source_error(&source_file)
     {
         return Err(error);
     }
-    if let Some(error) = post_parse_source_error(&source_file, &opts) {
+    if let Some(error) = post_parse_source_error(&source_file, parsed.tokens(), &opts) {
         return Err(error);
     }
     let ast = parsed.into_syntax();
@@ -5239,6 +5275,186 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     Ok(code)
+}
+
+#[doc(hidden)]
+pub struct BarrySource<'a> {
+    source: Cow<'a, str>,
+    not_equal: Option<ruff_text_size::TextRange>,
+    legacy_not_equal: Vec<ruff_text_size::TextRange>,
+}
+
+impl BarrySource<'_> {
+    #[must_use]
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
+    #[must_use]
+    pub fn not_equal_before(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+    ) -> Option<ruff_text_size::TextRange> {
+        self.not_equal.filter(|range| {
+            parse_error.is_none_or(|error| {
+                let diagnostic_start = if matches!(
+                    &error.error,
+                    parser::ParseErrorType::Lexical(parser::LexicalErrorType::Eof)
+                ) {
+                    find_unclosed_bracket(&self.source).map_or_else(
+                        || error.location.start(),
+                        |(_, offset)| TextSize::new(offset as u32),
+                    )
+                } else {
+                    error.location.start()
+                };
+                range.start() <= diagnostic_start
+            })
+        })
+    }
+
+    /// The obsolete `<>` operator the parse error points at, if any. In Barry
+    /// mode the operator was rewritten to `!=`, so the error lands on its
+    /// start; outside Barry mode ruff lexes `<` and then an unexpected `>`, so
+    /// the error lands one character in. Either way the whole operator is one
+    /// token to the tokenizer, so report it as one.
+    #[must_use]
+    pub fn invalid_legacy_operator(
+        &self,
+        parse_error: &parser::ParseError,
+    ) -> Option<ruff_text_size::TextRange> {
+        let location = parse_error.location.start();
+        self.legacy_not_equal
+            .iter()
+            .copied()
+            .find(|range| range.contains(location) || range.start() == location)
+            .filter(|range| self.outranks_unclosed_bracket(*range))
+    }
+
+    /// Whether `range` outranks an unclosed bracket. The bracket is reported
+    /// at itself, so it wins over anything that starts after it.
+    fn outranks_unclosed_bracket(&self, range: ruff_text_size::TextRange) -> bool {
+        find_unclosed_bracket(&self.source)
+            .is_none_or(|(_, offset)| range.start() <= TextSize::new(offset as u32))
+    }
+
+    /// The diagnostic for this source, if any: an obsolete `<>` the parse
+    /// error points at, or -- in Barry mode only -- the first `!=`. A `<>`
+    /// takes precedence over a `!=` reported later in the source.
+    #[must_use]
+    pub fn diagnostic(
+        &self,
+        parse_error: Option<&parser::ParseError>,
+        source_file: &SourceFile,
+    ) -> Option<CompileError> {
+        if let Some(range) = parse_error.and_then(|error| self.invalid_legacy_operator(error)) {
+            return Some(barry_as_flufl_invalid_legacy_operator_error(
+                source_file,
+                range,
+            ));
+        }
+        self.not_equal_before(parse_error)
+            .map(|range| barry_as_flufl_not_equal_error(source_file, range))
+    }
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_not_equal_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        "with Barry as BDFL, use '<>' instead of '!='".to_owned(),
+        range.start().to_usize(),
+        range.end().to_usize(),
+    )
+}
+
+#[doc(hidden)]
+#[must_use]
+pub fn barry_as_flufl_invalid_legacy_operator_error(
+    source_file: &SourceFile,
+    range: ruff_text_size::TextRange,
+) -> CompileError {
+    CompileError::from_source_error(
+        source_file,
+        "invalid syntax".to_owned(),
+        range.start().to_usize(),
+        range.end().to_usize(),
+    )
+}
+
+/// Every `<>` in `source`, located by plain text search. Only used where the
+/// operator is not rewritten, so an occurrence inside a string or a comment
+/// costs nothing: it can never coincide with the location of a parse error.
+fn textual_legacy_not_equal(source: &str) -> Vec<ruff_text_size::TextRange> {
+    source
+        .match_indices("<>")
+        .map(|(offset, matched)| {
+            ruff_text_size::TextRange::at(
+                TextSize::new(offset as u32),
+                TextSize::new(matched.len() as u32),
+            )
+        })
+        .collect()
+}
+
+#[doc(hidden)]
+pub fn prepare_barry_as_flufl_source(
+    source: &str,
+    parser_options: parser::ParseOptions,
+    inherited: bool,
+) -> BarrySource<'_> {
+    let scanned = (inherited || source.contains("barry_as_FLUFL"))
+        .then(|| parser::parse_unchecked(source, parser_options));
+    let enabled = scanned.as_ref().is_some_and(|scanned| {
+        inherited
+            || codegen::preprocess::future_features(scanned.syntax())
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+    });
+    let Some(scanned) = scanned.filter(|_| enabled) else {
+        return BarrySource {
+            source: Cow::Borrowed(source),
+            not_equal: None,
+            legacy_not_equal: textual_legacy_not_equal(source),
+        };
+    };
+
+    let not_equal = scanned
+        .tokens()
+        .iter()
+        .find(|token| token.kind() == TokenKind::NotEqual)
+        .map(Ranged::range);
+    let replacements = scanned
+        .tokens()
+        .windows(2)
+        .filter_map(|tokens| {
+            let [less, greater] = tokens else {
+                return None;
+            };
+            (less.kind() == TokenKind::Less
+                && greater.kind() == TokenKind::Greater
+                && less.end() == greater.start())
+            .then(|| ruff_text_size::TextRange::new(less.start(), greater.end()))
+        })
+        .collect::<Vec<_>>();
+
+    let source = if replacements.is_empty() {
+        Cow::Borrowed(source)
+    } else {
+        let mut rewritten = source.to_owned();
+        for range in replacements.iter().rev() {
+            rewritten.replace_range(range.start().to_usize()..range.end().to_usize(), "!=");
+        }
+        Cow::Owned(rewritten)
+    };
+    BarrySource {
+        source,
+        not_equal,
+        legacy_not_equal: replacements,
+    }
 }
 
 pub fn compile_with_syntax_warning_handler<'a>(
@@ -5269,14 +5485,27 @@ pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
 ) -> Result<symboltable::SymbolTable, CompileError> {
+    let parser_mode = match mode {
+        Mode::Exec | Mode::Single | Mode::BlockExpr => parser::Mode::Module,
+        Mode::Eval => parser::Mode::Expression,
+    };
+    let parser_options = parser::ParseOptions::from(parser_mode);
+    let barry_source =
+        prepare_barry_as_flufl_source(source_file.source_text(), parser_options.clone(), false);
     let res = match mode {
         Mode::Exec | Mode::Single | Mode::BlockExpr => {
-            let ast = ruff_python_parser::parse_module(source_file.source_text())
-                .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
-            if let Some(error) = post_parse_source_error(&source_file, &CompileOpts::default()) {
+            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
+            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
                 return Err(error);
             }
-            let ast = ast.into_syntax();
+            let ast =
+                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            if let Some(error) =
+                post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
+            {
+                return Err(error);
+            }
+            let ast = ast.into_syntax().expect_module();
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_body_error(&ast.body, &source_file)
             {
@@ -5285,12 +5514,15 @@ pub fn _compile_symtable(
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
-            let ast = ruff_python_parser::parse(
-                source_file.source_text(),
-                parser::Mode::Expression.into(),
-            )
-            .map_err(|e| CompileError::from_ruff_parse_error(e, &source_file))?;
-            if let Some(error) = post_parse_source_error(&source_file, &CompileOpts::default()) {
+            let parsed = ruff_python_parser::parse(barry_source.source(), parser_options);
+            if let Some(error) = barry_source.diagnostic(parsed.as_ref().err(), &source_file) {
+                return Err(error);
+            }
+            let ast =
+                parsed.map_err(|e| CompileError::from_ruff_parse_error(e, &source_file, mode))?;
+            if let Some(error) =
+                post_parse_source_error(&source_file, ast.tokens(), &CompileOpts::default())
+            {
                 return Err(error);
             }
             symboltable::SymbolTable::scan_expr(
@@ -5326,6 +5558,120 @@ mod tests {
 
         compile("if True:\n    pass\n", Mode::Single, "<>", opts).expect("compile error");
         compile(code, Mode::Single, "<>", CompileOpts::default()).expect("compile error");
+    }
+
+    #[test]
+    fn barry_as_flufl_rewrites_legacy_not_equal_after_future_import() {
+        let code = compile(
+            "from __future__ import barry_as_FLUFL\nresult = 2 <> 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry comparison should compile");
+        assert!(
+            code.flags
+                .contains(core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+        );
+    }
+
+    #[test]
+    fn inherited_barry_as_flufl_rewrites_legacy_not_equal() {
+        let opts = CompileOpts {
+            future_features: core::bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL,
+            ..CompileOpts::default()
+        };
+        compile("2 <> 3", Mode::Single, "<barry>", opts)
+            .expect("inherited Barry comparison should compile");
+    }
+
+    #[test]
+    fn barry_as_flufl_rejects_modern_not_equal() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("Barry mode should reject !=");
+        assert_eq!(
+            err.to_string(),
+            "with Barry as BDFL, use '<>' instead of '!='"
+        );
+        assert_eq!(err.python_location(), (2, 3));
+    }
+
+    #[test]
+    fn obsolete_not_equal_diagnostic_spans_the_whole_operator() {
+        let err = compile("2 <> 3\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<>' outside Barry mode is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 3));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // Only `<>` spans two characters; any other token that cannot start an
+        // expression keeps its own location.
+        let err = compile("2 <;\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("'<;' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 4));
+        assert_eq!(err.python_end_location(), Some((1, 5)));
+
+        // A `<>` that starts a statement is reported at the `<` too, where the
+        // parser stops instead of one character in.
+        let err = compile("<>\n", Mode::Exec, "<obsolete>", CompileOpts::default())
+            .expect_err("a bare '<>' is a syntax error");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (1, 1));
+        assert_eq!(err.python_end_location(), Some((1, 3)));
+
+        // A bracket left open earlier in the source outranks the operator.
+        let err = compile(
+            "(\n2 <> 3",
+            Mode::Exec,
+            "<obsolete>",
+            CompileOpts::default(),
+        )
+        .expect_err("the bracket is never closed");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (1, 1));
+    }
+
+    #[test]
+    fn barry_as_flufl_does_not_rewrite_strings_or_comments() {
+        compile(
+            "from __future__ import barry_as_FLUFL\nx = '<>'\n# <>\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect("Barry markers in strings and comments should stay untouched");
+    }
+
+    #[test]
+    fn syntax_error_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n<>\n2 != 3\n",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier invalid comparison should fail");
+        assert_eq!(err.to_string(), "invalid syntax");
+        assert_eq!(err.python_location(), (2, 1));
+    }
+
+    #[test]
+    fn unclosed_bracket_before_barry_not_equal_takes_precedence() {
+        let err = compile(
+            "from __future__ import barry_as_FLUFL\n(\n2 != 3",
+            Mode::Exec,
+            "<barry>",
+            CompileOpts::default(),
+        )
+        .expect_err("the earlier unclosed bracket should fail");
+        assert_eq!(err.to_string(), "'(' was never closed");
+        assert_eq!(err.python_location(), (2, 1));
     }
 
     #[test]

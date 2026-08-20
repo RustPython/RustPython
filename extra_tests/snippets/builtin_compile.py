@@ -1,7 +1,6 @@
 import __future__
 
 import ast
-import sys
 
 from testutils import assert_raises
 
@@ -66,8 +65,7 @@ assert not (ns["not_inherited"].co_flags & 0x1000000)
 barry_flag = __future__.barry_as_FLUFL.compiler_flag
 barry_code = compile("x = 1", "<test>", "exec", flags=barry_flag)
 compile("from __future__ import barry_as_FLUFL\nx = 1\n", "<test>", "exec")
-if sys.implementation.name == "rustpython":
-    assert not (barry_code.co_flags & barry_flag)
+assert barry_code.co_flags & barry_flag
 
 n = ast.parse('x = "# type: int"\n', type_comments=True)
 assert n.body[0].type_comment is None
@@ -145,3 +143,8 @@ except _IncompleteInputError as exc:
     assert exc.args[0] == "incomplete input", repr(exc)
 else:
     raise AssertionError("expected _IncompleteInputError")
+
+# The source is encoded before it is parsed, so a lone surrogate has to be
+# reported rather than assumed away.
+with assert_raises(UnicodeEncodeError):
+    compile(chr(0xD800), "<test>", "eval")

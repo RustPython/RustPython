@@ -1096,7 +1096,10 @@ where
             args.attrs.push(allow_attr);
         }
 
-        let doc = args.attrs.doc().map(|doc| format_doc(&sig_doc, &doc));
+        let doc = args.attrs.doc().map(|doc| match &sig_doc {
+            Some(sig_doc) => format_doc(sig_doc, &doc),
+            None => doc,
+        });
         args.context.method_items.add_item(MethodNurseryItem {
             py_name,
             cfgs: args.cfgs.to_vec(),
@@ -1162,13 +1165,16 @@ where
         let slot_ident = Ident::new(&slot_ident.to_string().to_lowercase(), slot_ident.span());
         let slot_name = slot_ident.to_string();
         let tokens = {
-            const NON_ATOMIC_SLOTS: &[&str] = &["as_buffer"];
             const POINTER_SLOTS: &[&str] = &["as_sequence", "as_mapping"];
             const STATIC_GEN_SLOTS: &[&str] = &["as_number"];
 
-            if NON_ATOMIC_SLOTS.contains(&slot_name.as_str()) {
+            if slot_name == "as_buffer" {
+                // bf_releasebuffer is not a separate function in RustPython; the
+                // exporter's BufferMethods already release. Only its presence is
+                // observable, and AsBuffer declares that.
                 quote_spanned! { span =>
-                    slots.#slot_ident = Some(Self::#ident as _);
+                    slots.#slot_ident.store(Some(Self::#ident as _));
+                    slots.has_release_buffer.store(Self::RELEASE_BUFFER);
                 }
             } else if POINTER_SLOTS.contains(&slot_name.as_str()) {
                 quote_spanned! { span =>

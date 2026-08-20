@@ -6,16 +6,20 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 
 use core::ffi::c_void;
-use core::ptr::{null, null_mut};
+use core::ptr::{NonNull, null, null_mut};
+use widestring::WideCString;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_BROKEN_PIPE, ERROR_MORE_DATA, ERROR_NOT_ENOUGH_MEMORY, GetLastError, HANDLE,
-    WAIT_OBJECT_0, WAIT_TIMEOUT,
+    CloseHandle, ERROR_BROKEN_PIPE, ERROR_INVALID_NAME, ERROR_MORE_DATA, ERROR_NOT_ENOUGH_MEMORY,
+    GetLastError, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Storage::FileSystem::{ReadFile, WriteFile};
 use windows_sys::Win32::System::Pipes::CreatePipe;
 use windows_sys::Win32::System::Threading::{
     CreateEventW, CreateThread, GetExitCodeThread, SetEvent, WaitForSingleObject,
 };
+use windows_sys::w;
+
+use crate::ctypes::wcslen;
 
 pub const BUFFER_SIZE: usize = 8192;
 
@@ -238,7 +242,7 @@ unsafe fn object_end_enumeration(this: *mut c_void) -> HRESULT {
     method(this)
 }
 
-fn hresult_from_win32(err: u32) -> HRESULT {
+const fn hresult_from_win32(err: u32) -> HRESULT {
     if err == 0 {
         0
     } else {
@@ -246,24 +250,12 @@ fn hresult_from_win32(err: u32) -> HRESULT {
     }
 }
 
-fn succeeded(hr: HRESULT) -> bool {
+const fn succeeded(hr: HRESULT) -> bool {
     hr >= 0
 }
 
-fn failed(hr: HRESULT) -> bool {
+const fn failed(hr: HRESULT) -> bool {
     hr < 0
-}
-
-fn wide_str(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(core::iter::once(0)).collect()
-}
-
-unsafe fn wcslen(s: *const u16) -> usize {
-    let mut len = 0;
-    while unsafe { *s.add(len) } != 0 {
-        len += 1;
-    }
-    len
 }
 
 unsafe fn wait_event(event: HANDLE, timeout: u32) -> u32 {
@@ -352,8 +344,8 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
     }
 
     if succeeded(hr) {
-        let root_cimv2 = wide_str("ROOT\\CIMV2");
-        let bstr_root = unsafe { SysAllocString(root_cimv2.as_ptr()) };
+        let root_cimv2 = w!("ROOT\\CIMV2");
+        let bstr_root = unsafe { SysAllocString(root_cimv2) };
         hr = unsafe {
             locator_connect_server(
                 locator,
@@ -390,8 +382,8 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
         };
     }
     if succeeded(hr) {
-        let wql = wide_str("WQL");
-        let bstr_wql = unsafe { SysAllocString(wql.as_ptr()) };
+        let wql = w!("WQL");
+        let bstr_wql = unsafe { SysAllocString(wql) };
         hr = unsafe {
             services_exec_query(
                 services,
@@ -471,16 +463,25 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
             }
 
             if succeeded(hr) && (flavor & WBEM_FLAVOR_MASK_ORIGIN) != WBEM_FLAVOR_ORIGIN_SYSTEM {
+                let Some(cb_str1) = NonNull::new(prop_name)
+                    .map(|prop_name| (unsafe { wcslen(prop_name) } * 2) as u32)
+                else {
+                    unsafe {
+                        SysFreeString(prop_name);
+                    }
+                    break;
+                };
+
                 let mut prop_str = [0u16; BUFFER_SIZE];
                 hr = unsafe {
                     VariantToString(&prop_value, prop_str.as_mut_ptr(), BUFFER_SIZE as u32)
                 };
+                let cb_str2 = NonNull::new(prop_str.as_ptr().cast_mut())
+                    .map(|prop_str| (unsafe { wcslen(prop_str) } * 2) as u32)
+                    .expect("prop_str is never null");
 
-                if succeeded(hr) {
-                    let cb_str1 = (unsafe { wcslen(prop_name) } * 2) as u32;
-                    let cb_str2 = (unsafe { wcslen(prop_str.as_ptr()) } * 2) as u32;
-
-                    if unsafe {
+                if succeeded(hr)
+                    && unsafe {
                         WriteFile(
                             write_pipe,
                             prop_name as *const _,
@@ -489,36 +490,35 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
                             null_mut(),
                         )
                     } == 0
-                        || unsafe {
-                            WriteFile(
-                                write_pipe,
-                                &eq_sign as *const u16 as *const _,
-                                2,
-                                &mut written,
-                                null_mut(),
-                            )
-                        } == 0
-                        || unsafe {
-                            WriteFile(
-                                write_pipe,
-                                prop_str.as_ptr() as *const _,
-                                cb_str2,
-                                &mut written,
-                                null_mut(),
-                            )
-                        } == 0
-                        || unsafe {
-                            WriteFile(
-                                write_pipe,
-                                &null_sep as *const u16 as *const _,
-                                2,
-                                &mut written,
-                                null_mut(),
-                            )
-                        } == 0
-                    {
-                        hr = hresult_from_win32(unsafe { GetLastError() });
-                    }
+                    || unsafe {
+                        WriteFile(
+                            write_pipe,
+                            &eq_sign as *const u16 as *const _,
+                            2,
+                            &mut written,
+                            null_mut(),
+                        )
+                    } == 0
+                    || unsafe {
+                        WriteFile(
+                            write_pipe,
+                            prop_str.as_ptr() as *const _,
+                            cb_str2,
+                            &mut written,
+                            null_mut(),
+                        )
+                    } == 0
+                    || unsafe {
+                        WriteFile(
+                            write_pipe,
+                            &null_sep as *const u16 as *const _,
+                            2,
+                            &mut written,
+                            null_mut(),
+                        )
+                    } == 0
+                {
+                    hr = hresult_from_win32(unsafe { GetLastError() });
                 }
 
                 unsafe {
@@ -555,7 +555,9 @@ unsafe fn query_thread_impl(param: *mut c_void) -> u32 {
 }
 
 pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
-    let query_wide = wide_str(query_str);
+    let query = WideCString::from_str(query_str)
+        .map(WideCString::into_vec_with_nul)
+        .map_err(|_| ExecQueryError::Code(ERROR_INVALID_NAME))?;
 
     let mut h_thread: HANDLE = null_mut();
     let mut err: u32 = 0;
@@ -577,7 +579,7 @@ pub fn exec_query(query_str: &str) -> Result<String, ExecQueryError> {
             err = GetLastError();
         } else {
             let thread_data = Box::new(QueryThreadData {
-                query: query_wide,
+                query,
                 write_pipe,
                 init_event,
                 connect_event,

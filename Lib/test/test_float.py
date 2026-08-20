@@ -725,7 +725,6 @@ class IEEEFormatTestCase(unittest.TestCase):
 
 class FormatTestCase(unittest.TestCase):
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; ValueError: Invalid format specifier
     def test_format(self):
         # these should be rewritten to use both format(x, spec) and
         # x.__format__(spec)

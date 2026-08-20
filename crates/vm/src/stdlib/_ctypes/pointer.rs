@@ -524,13 +524,12 @@ impl PyCPointer {
 
         // c_wchar → str
         if type_code.as_deref() == Some("u") {
-            if len == 0 {
-                return Ok(vm.ctx.new_str("").into());
+            if len > 0
+                && let Some(s) = unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) }
+            {
+                return Ok(vm.ctx.new_str(s).into());
             }
-            return Ok(vm
-                .ctx
-                .new_str(unsafe { read_pointer_wchar_slice(ptr_value, start, len, step) })
-                .into());
+            return Ok(vm.ctx.new_str("").into());
         }
 
         // other types → list with Pointer_item for each
@@ -669,7 +668,7 @@ impl PyCPointer {
                 let ptr_val = if vm.is_none(value) {
                     0usize
                 } else if let Ok(int_val) = value.try_index(vm) {
-                    int_val.as_bigint().to_usize().unwrap_or(0)
+                    super::simple::bigint_to_i128_wrapping(int_val.as_bigint()) as usize
                 } else {
                     return Err(vm.new_type_error("bytes/string or integer address expected"));
                 };
@@ -685,12 +684,13 @@ impl PyCPointer {
             // Use write_unaligned for safety on strict-alignment architectures
             if let Ok(int_val) = value.try_int(vm) {
                 let i = int_val.as_bigint();
+                let wrapped = super::simple::bigint_to_i128_wrapping(i);
                 let bytes;
                 let write_value = match size {
-                    1 => AddressWriteValue::U8(i.to_u8().expect("int too large")),
-                    2 => AddressWriteValue::I16(i.to_i16().expect("int too large")),
-                    4 => AddressWriteValue::I32(i.to_i32().expect("int too large")),
-                    8 => AddressWriteValue::I64(i.to_i64().expect("int too large")),
+                    1 => AddressWriteValue::U8(wrapped as u8),
+                    2 => AddressWriteValue::I16(wrapped as i16),
+                    4 => AddressWriteValue::I32(wrapped as i32),
+                    8 => AddressWriteValue::I64(wrapped as i64),
                     _ => {
                         bytes = i.to_signed_bytes_le();
                         AddressWriteValue::Bytes(&bytes)
@@ -712,7 +712,8 @@ impl PyCPointer {
             }
 
             // Try bytes
-            if let Ok(bytes) = value.try_bytes_like(vm, |b| b.to_vec()) {
+            if value.check_buffer() {
+                let bytes = value.try_bytes_like(vm, |b| b.to_vec())?;
                 rustpython_host_env::ctypes::write_value_to_address(
                     addr,
                     size,
@@ -776,6 +777,7 @@ impl AsBuffer for PyCPointer {
         let itemsize = stg_info.size;
         // Pointer types are scalars with ndim=0, shape=()
         let desc = BufferDescriptor {
+            offset: 0,
             len: itemsize,
             readonly: false,
             itemsize,

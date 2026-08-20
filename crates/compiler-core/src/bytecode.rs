@@ -11,7 +11,7 @@ use bitflags::bitflags;
 use core::{
     cell::UnsafeCell,
     hash, mem,
-    ops::{Deref, Index, IndexMut},
+    ops::{Deref, DerefMut, Index, IndexMut},
     sync::atomic::{AtomicU8, AtomicU16, AtomicUsize, Ordering},
 };
 use itertools::Itertools;
@@ -383,11 +383,23 @@ impl<C: Constant> Deref for Constants<C> {
     }
 }
 
+impl<C: Constant> DerefMut for Constants<C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl<C: Constant> Index<oparg::ConstIdx> for Constants<C> {
     type Output = C;
 
     fn index(&self, consti: oparg::ConstIdx) -> &Self::Output {
         &self.0[consti.as_usize()]
+    }
+}
+
+impl<C: Constant> IndexMut<oparg::ConstIdx> for Constants<C> {
+    fn index_mut(&mut self, consti: oparg::ConstIdx) -> &mut Self::Output {
+        &mut self.0[consti.as_usize()]
     }
 }
 
@@ -483,6 +495,19 @@ bitflags! {
     }
 }
 
+impl CodeFlags {
+    /// The `__future__` flags that `compile()` accepts and that a compiled code
+    /// object inherits from its caller. Mirrors `PyCF_MASK`.
+    pub const FUTURE_MASK: Self = Self::FUTURE_DIVISION
+        .union(Self::FUTURE_ABSOLUTE_IMPORT)
+        .union(Self::FUTURE_WITH_STATEMENT)
+        .union(Self::FUTURE_PRINT_FUNCTION)
+        .union(Self::FUTURE_UNICODE_LITERALS)
+        .union(Self::FUTURE_BARRY_AS_BDFL)
+        .union(Self::FUTURE_GENERATOR_STOP)
+        .union(Self::FUTURE_ANNOTATIONS);
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {
@@ -557,6 +582,14 @@ impl TryFrom<&[u8]> for CodeUnit {
     }
 }
 
+impl TryFrom<[u8; 2]> for CodeUnit {
+    type Error = MarshalError;
+
+    fn try_from(value: [u8; 2]) -> Result<Self, Self::Error> {
+        Ok(Self::new(value[0].try_into()?, value[1].into()))
+    }
+}
+
 pub struct CodeUnits {
     units: UnsafeCell<Box<[CodeUnit]>>,
     adaptive_counters: Box<[AtomicU16]>,
@@ -610,12 +643,13 @@ impl TryFrom<&[u8]> for CodeUnits {
     type Error = MarshalError;
 
     fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if !value.len().is_multiple_of(2) {
+        let (chunks, []) = value.as_chunks::<2>() else {
             return Err(Self::Error::InvalidBytecode);
-        }
+        };
 
-        let units = value
-            .chunks_exact(2)
+        let units = chunks
+            .iter()
+            .copied()
             .map(CodeUnit::try_from)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(units.into())
@@ -776,12 +810,15 @@ impl CodeUnits {
     /// Store a pointer-sized value atomically in the pointer cache at `index`.
     ///
     /// Uses a single `AtomicUsize` store to prevent torn writes when
-    /// multiple threads specialize the same instruction concurrently.
+    /// multiple threads specialize the same instruction concurrently. The
+    /// tear-free width also makes this the right slot for non-pointer guard
+    /// values (e.g. dict keys-version stamps) that must never be observed
+    /// half-written.
     ///
     /// # Safety
     /// - `index` must be in bounds.
-    /// - `value` must be `0` or a valid `*const PyObject` encoded as `usize`.
-    /// - Callers must follow the cache invalidation/upgrade protocol:
+    /// - When the slot holds a `*const PyObject` encoded as `usize` (or `0`),
+    ///   callers must follow the cache invalidation/upgrade protocol:
     ///   invalidate the version guard before writing and publish the new
     ///   version after writing.
     pub unsafe fn write_cache_ptr(&self, index: usize, value: usize) {

@@ -6,11 +6,14 @@ use super::{PyCode, PyDictRef, PyIntRef, PyStrRef};
 use crate::{
     Context, Py, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
     class::PyClassImpl,
-    frame::{Frame, FrameOwner, FrameRef},
+    frame::{FrameObject, FrameObjectRef, FrameOwner},
     function::PySetterValue,
     types::Representable,
 };
+use core::sync::atomic::Ordering::Relaxed;
 use num_traits::Zero;
+#[allow(unused_imports)]
+use rustpython_common::atomic::Radium;
 use rustpython_compiler_core::bytecode::{self, Constant, Instruction, StackEffect};
 use stack_analysis::*;
 
@@ -426,10 +429,10 @@ pub(crate) mod stack_analysis {
 }
 
 pub(crate) fn init(context: &'static Context) {
-    Frame::extend_class(context, context.types.frame_type);
+    FrameObject::extend_class(context, context.types.frame_type);
 }
 
-impl Representable for Frame {
+impl Representable for FrameObject {
     #[inline]
     fn repr(_zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyStrRef> {
         const REPR: &str = "<frame object at .. >";
@@ -442,38 +445,86 @@ impl Representable for Frame {
     }
 }
 
+impl FrameObject {
+    /// Find the live source InterpreterFrame on the TLS chain for a
+    /// materialized FrameObject. Returns the raw pointer if found, or null
+    /// if this FrameObject has no live source (already returned or not
+    /// currently executing on this thread).
+    pub(crate) fn find_live_source_iframe(&self) -> *const crate::frame::InterpreterFrame {
+        let self_py_ptr = unsafe { Py::<Self>::from_payload_ptr(self) } as usize;
+        let mut cur = crate::vm::thread::get_current_frame();
+        while !cur.is_null() {
+            let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+            if materialized == self_py_ptr {
+                return cur;
+            }
+            cur = unsafe { &*cur }.previous();
+        }
+        core::ptr::null()
+    }
+}
+
 #[pyclass(flags(DISALLOW_INSTANTIATION), with(Py))]
-impl Frame {
+impl FrameObject {
     #[pygetset]
     fn f_globals(&self) -> PyDictRef {
-        self.globals.clone()
+        self.iframe().globals().to_owned()
     }
 
     #[pygetset]
     fn f_builtins(&self) -> PyObjectRef {
-        self.builtins.clone()
+        self.iframe().builtins().to_owned()
     }
 
     #[pygetset]
     pub fn f_code(&self) -> PyRef<PyCode> {
-        self.code.clone()
+        self.iframe().code().to_owned()
     }
 
     #[pygetset]
     fn f_lasti(&self) -> u32 {
-        // Return byte offset (each instruction is 2 bytes) for compatibility
-        self.lasti() * 2
+        // Return byte offset (each instruction is 2 bytes) for compatibility.
+        // For materialized frames, read live lasti from the source iframe on
+        // the TLS chain so f_lasti reflects the current execution position.
+        let live = self.find_live_source_iframe();
+        let val = if !live.is_null() {
+            unsafe { (*live).lasti.load(Relaxed) }
+        } else {
+            self.lasti()
+        };
+        val * 2
     }
 
     #[pygetset]
     pub fn f_lineno(&self) -> usize {
         // If lasti is 0, execution hasn't started yet - use first line number
-        // Similar to PyCode_Addr2Line which returns co_firstlineno for addr_q < 0
         if self.lasti() == 0 {
-            self.code.first_line_number.map_or(1, |n| n.get())
-        } else {
-            self.current_location().line.get()
+            return self
+                .iframe()
+                .code()
+                .first_line_number
+                .map_or(1, |n| n.get());
         }
+        // For executing frames (on the TLS chain), use prev_line which is
+        // updated at each bytecode instruction *before* the instruction
+        // runs. This gives the correct line even when observed mid-CALL
+        // (where lasti has already advanced past the CALL instruction).
+        let live = self.find_live_source_iframe();
+        if !live.is_null() {
+            // Read live prev_line. Use read_volatile to bypass LLVM noalias
+            // on the &mut InterpreterFrame borrow held by the running frame.
+            let prev = unsafe {
+                let field_ptr = core::ptr::addr_of!((*live).prev_line);
+                core::ptr::read_volatile(field_ptr as *const u32)
+            };
+            if prev > 0 {
+                return prev as usize;
+            }
+        }
+        // For returned frames, use lasti-based location lookup. This is
+        // correct for exception tracebacks where prev_line may have been
+        // updated by cleanup instructions after the exception.
+        self.current_location().line.get()
     }
 
     #[pygetset(setter)]
@@ -492,7 +543,11 @@ impl Frame {
             }
         };
 
-        let first_line = self.code.first_line_number.map_or(1, |n| n.get() as i32);
+        let first_line = self
+            .iframe()
+            .code()
+            .first_line_number
+            .map_or(1, |n| n.get() as i32);
 
         if l_new_lineno < first_line {
             return Err(vm.new_value_error(format!(
@@ -500,7 +555,7 @@ impl Frame {
             )));
         }
 
-        let py_code: &PyCode = &self.code;
+        let py_code: &PyCode = self.iframe().code();
         let code = &py_code.code;
         let lines = mark_lines(code);
 
@@ -513,13 +568,19 @@ impl Frame {
         }
 
         let stacks = mark_stacks(code);
-        let len = self.code.instructions.len();
+        let len = self.iframe().code().instructions.len();
 
         // lasti points past the current instruction (already incremented).
         // stacks[lasti - 1] gives the stack state before executing the
         // instruction that triggered this trace event, which is the current
-        // evaluation stack.
-        let current_lasti = self.lasti() as usize;
+        // evaluation stack.  Read from the live iframe when available so the
+        // value reflects the actual execution position.
+        let live = self.find_live_source_iframe();
+        let current_lasti = if !live.is_null() {
+            (unsafe { (*live).lasti.load(Relaxed) }) as usize
+        } else {
+            self.lasti() as usize
+        };
         let start_idx = current_lasti.saturating_sub(1);
         let start_stack = if start_idx < stacks.len() {
             stacks[start_idx]
@@ -567,36 +628,67 @@ impl Frame {
             }
         }
 
-        // Store the pending unwind for the execution loop to perform.
-        // We cannot pop stack entries here because the execution loop
-        // holds the state mutex, and trying to lock it again would deadlock.
-        self.set_pending_stack_pops(pop_count as u32);
-        self.set_pending_unwind_from_stack(start_stack);
-
-        // Set lasti to best_addr. The executor will read lasti and execute
-        // the instruction at that index next.
-        self.set_lasti(best_addr as u32);
+        // Store the pending unwind and new lasti. When this frame is backed
+        // by a live stack-allocated iframe, write to the live iframe so the
+        // execution loop picks up the jump target.  Reuse `live` from above.
+        let target = if !live.is_null() {
+            unsafe { &*live }
+        } else {
+            self.iframe()
+        };
+        target
+            .cold()
+            .pending_stack_pops
+            .store(pop_count as u32, Relaxed);
+        target
+            .cold()
+            .pending_unwind_from_stack
+            .store(start_stack, Relaxed);
+        target.lasti.store(best_addr as u32, Relaxed);
         Ok(())
     }
 
     #[pygetset]
-    fn f_trace(&self) -> PyObjectRef {
-        let boxed = self.trace.lock();
-        boxed.clone()
+    fn f_trace(&self, vm: &VirtualMachine) -> PyObjectRef {
+        // Read from live source iframe if available.
+        let live = self.find_live_source_iframe();
+        let trace = if !live.is_null() {
+            unsafe { &*live }.cold().trace.lock().clone()
+        } else {
+            self.iframe().cold().trace.lock().clone()
+        };
+        trace.unwrap_or_else(|| vm.ctx.none())
     }
 
     #[pygetset(setter)]
     fn set_f_trace(&self, value: PySetterValue, vm: &VirtualMachine) {
-        let mut storage = self.trace.lock();
-        *storage = value.unwrap_or_none(vm);
+        let trace = match value {
+            PySetterValue::Assign(v) => {
+                if vm.is_none(&v) {
+                    None
+                } else {
+                    Some(v)
+                }
+            }
+            PySetterValue::Delete => None,
+        };
+        // Set on the materialized FrameObject.
+        (*self.iframe().cold().trace.lock()).clone_from(&trace);
+        // Also propagate to the live source iframe if this is a
+        // materialized copy of a stack-allocated frame, so pdb's
+        // f_trace assignment takes effect on the executing frame.
+        let live = self.find_live_source_iframe();
+        if !live.is_null() {
+            *unsafe { &*live }.cold().trace.lock() = trace;
+        }
     }
 
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_lines(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
-        let boxed = zelf.trace_lines.lock();
+        let boxed = zelf.iframe().cold().trace_lines.lock();
         Ok(vm.ctx.new_bool(*boxed).into())
     }
 
@@ -608,14 +700,19 @@ impl Frame {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
                 let value: PyIntRef = value
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
-                let mut trace_lines = zelf.trace_lines.lock();
-                *trace_lines = !value.as_bigint().is_zero();
+                let val = !value.as_bigint().is_zero();
+                *zelf.iframe().cold().trace_lines.lock() = val;
+                // Propagate to live source iframe.
+                let live = zelf.find_live_source_iframe();
+                if !live.is_null() {
+                    *unsafe { &*live }.cold().trace_lines.lock() = val;
+                }
 
                 Ok(())
             }
@@ -626,8 +723,8 @@ impl Frame {
     #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
     #[pymember(type = "bool")]
     fn f_trace_opcodes(vm: &VirtualMachine, zelf: PyObjectRef) -> PyResult {
-        let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
-        let trace_opcodes = zelf.trace_opcodes.lock();
+        let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+        let trace_opcodes = zelf.iframe().cold().trace_opcodes.lock();
         Ok(vm.ctx.new_bool(*trace_opcodes).into())
     }
 
@@ -639,14 +736,19 @@ impl Frame {
     ) -> PyResult<()> {
         match value {
             PySetterValue::Assign(value) => {
-                let zelf: FrameRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
+                let zelf: FrameObjectRef = zelf.downcast().unwrap_or_else(|_| unreachable!());
 
                 let value: PyIntRef = value
                     .downcast()
                     .map_err(|_| vm.new_type_error("attribute value type must be bool"))?;
 
-                let mut trace_opcodes = zelf.trace_opcodes.lock();
-                *trace_opcodes = !value.as_bigint().is_zero();
+                let val = !value.as_bigint().is_zero();
+                *zelf.iframe().cold().trace_opcodes.lock() = val;
+                // Propagate to live source iframe.
+                let live = zelf.find_live_source_iframe();
+                if !live.is_null() {
+                    *unsafe { &*live }.cold().trace_opcodes.lock() = val;
+                }
 
                 // TODO: Implement the equivalent of _PyEval_SetOpcodeTrace()
 
@@ -658,11 +760,15 @@ impl Frame {
 }
 
 #[pyclass]
-impl Py<Frame> {
+impl Py<FrameObject> {
     #[pymethod]
     // = frame_clear_impl
     fn clear(&self, vm: &VirtualMachine) -> PyResult<()> {
-        let owner = FrameOwner::from_i8(self.owner.load(core::sync::atomic::Ordering::Acquire));
+        let owner = FrameOwner::from_i8(
+            self.iframe()
+                .owner
+                .load(core::sync::atomic::Ordering::Acquire),
+        );
         match owner {
             FrameOwner::Generator => {
                 // Generator frame: check if suspended (lasti > 0 means
@@ -677,12 +783,16 @@ impl Py<Frame> {
                 return Err(vm.new_runtime_error("cannot clear an executing frame"));
             }
             FrameOwner::FrameObject => {
-                // Detached frame: safe to clear.
+                // Check if this materialized frame is backed by a live
+                // stack-allocated iframe — if so, the frame is executing.
+                if !self.find_live_source_iframe().is_null() {
+                    return Err(vm.new_runtime_error("cannot clear an executing frame"));
+                }
             }
         }
 
         // Clear fastlocals
-        // SAFETY: Frame is not executing (detached or stopped).
+        // SAFETY: FrameObject is not executing (detached or stopped).
         {
             let fastlocals = unsafe { self.fastlocals_mut() };
             for slot in fastlocals.iter_mut() {
@@ -694,10 +804,10 @@ impl Py<Frame> {
         self.clear_stack_and_cells();
 
         // Clear temporary refs
-        self.temporary_refs.lock().clear();
-        self.f_locals_hidden_overlay.lock().take();
-        self.f_extra_locals.lock().take();
-        self.retained_back.lock().take();
+        self.iframe().cold().temporary_refs.lock().clear();
+        self.iframe().cold().f_locals_hidden_overlay.lock().take();
+        self.iframe().cold().f_extra_locals.lock().take();
+        self.iframe().cold().retained_back.lock().take();
 
         Ok(())
     }
@@ -707,7 +817,12 @@ impl Py<Frame> {
         // Optimized (function) frames expose a live write-through
         // FrameLocalsProxy; class/module/exec frames expose their namespace
         // mapping directly.
-        if self.code.flags.contains(bytecode::CodeFlags::OPTIMIZED) {
+        if self
+            .iframe()
+            .code()
+            .flags
+            .contains(bytecode::CodeFlags::OPTIMIZED)
+        {
             self.check_locals_access(vm)?;
             self.mark_escaped();
             let proxy = crate::builtins::FrameLocalsProxy::new(self.to_owned());
@@ -719,85 +834,85 @@ impl Py<Frame> {
 
     #[pygetset]
     fn f_generator(&self) -> Option<PyObjectRef> {
-        self.generator.to_owned()
+        self.iframe().generator.to_owned()
     }
 
     #[pygetset]
-    pub fn f_back(&self, vm: &VirtualMachine) -> Option<PyRef<Frame>> {
-        #[cfg(not(feature = "threading"))]
-        let _ = vm;
-        let previous = self.previous_frame();
-        if previous.is_null() {
-            return None;
+    pub fn f_back(&self, #[allow(unused)] vm: &VirtualMachine) -> Option<PyRef<FrameObject>> {
+        let mut prev = self.previous_iframe();
+
+        // For materialized frames (previous == 0), find the source iframe on
+        // the TLS chain and use its `previous` instead.
+        if prev.is_null() {
+            // materialized stores `*const Py<FrameObject>` as usize.
+            // `self` is `&Py<FrameObject>` — compare addresses directly.
+            let self_py_ptr = self as *const Self as usize;
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                let materialized = unsafe { (*cur).materialized.load(Relaxed) };
+                if materialized == self_py_ptr {
+                    // Found the source iframe — use its previous
+                    prev = unsafe { (*cur).previous() };
+                    break;
+                }
+                cur = unsafe { (*cur).previous() };
+            }
+            if prev.is_null() {
+                // Check retained_back for frames whose callers have returned
+                let retained = self.iframe().cold().retained_back.lock().clone();
+                if let Some(frame) = retained {
+                    frame.mark_escaped();
+                    return Some(frame);
+                }
+                return None;
+            }
         }
 
-        // Look for the caller on the current thread's signal-safe frame chain.
-        // Finding it there proves it is still live on this thread.
-        if let Some(frame) = crate::frame::find_owned_chain_frame(previous) {
-            frame.mark_escaped();
-            return Some(frame);
+        // Walk the TLS chain to find the prev iframe and materialize it.
+        // This handles both heap-allocated FrameObjects and stack-allocated
+        // iframes that haven't been observed yet.
+        {
+            let mut cur = crate::vm::thread::get_current_frame();
+            while !cur.is_null() {
+                if core::ptr::eq(cur, prev) {
+                    let iframe_ref = unsafe { &*cur };
+                    let fo = iframe_ref.materialize(vm);
+                    fo.mark_escaped();
+                    return Some(fo.to_owned());
+                }
+                cur = unsafe { (*cur).previous() };
+            }
         }
 
-        // The caller already returned and left the live chain, but this frame
-        // escaped and retained a strong reference to it at release time.
-        let retained = self.retained_back.lock().clone();
+        // The caller already returned — check retained_back
+        let retained = self.iframe().cold().retained_back.lock().clone();
         if let Some(frame) = retained {
             frame.mark_escaped();
             return Some(frame);
         }
 
-        // The caller lives on another thread. unix: park every thread under
-        // stop-the-world so their frame chains are quiescent and alive, then
-        // walk each published top frame down its `previous` chain looking for
-        // the caller. Request stop-the-world before the registry lock.
-        #[cfg(all(unix, feature = "threading"))]
+        // The caller lives on another thread. Use stop-the-world to
+        // safely materialize the cross-thread frame chain.
+        #[cfg(feature = "threading")]
         {
-            use core::sync::atomic::Ordering;
-            vm.state.stop_the_world.stop_the_world(vm);
-            scopeguard::defer! { vm.state.stop_the_world.start_the_world(vm); }
-            let registry = vm.state.thread_frames.lock();
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for slot in registry.values() {
-                let mut cur = slot.top_frame.load(Ordering::Relaxed) as *const Frame;
-                while !cur.is_null() {
-                    if core::ptr::eq(cur, previous) {
-                        // SAFETY: world stopped -> this frame is alive on its
-                        // owning thread's parked call stack.
-                        let f = unsafe { &*Self::from_payload_ptr(cur) };
-                        f.mark_escaped();
-                        return Some(f.to_owned());
-                    }
-                    // SAFETY: chain frames on a parked thread are alive.
-                    cur = unsafe { (*cur).previous_frame() };
-                }
+            // Enter STW before dereferencing `prev` — the owning thread may
+            // return and free the stack-allocated iframe at any time.
+            vm.state.stop_the_world.stop_the_world(&vm.state);
+            scopeguard::defer! { vm.state.stop_the_world.start_the_world(&vm.state); }
+            let prev_ref = unsafe { &*prev };
+            // Fast path: already materialized.
+            if let Some(fo) = prev_ref.frame_obj() {
+                fo.mark_escaped();
+                return Some(fo.to_owned());
             }
+            // Slow path: copy the whole chain, linked through retained_back.
+            // SAFETY: the world is stopped, so the owning thread is parked.
+            let fo = unsafe { prev_ref.materialize_detached_chain(vm) };
+            fo.mark_escaped();
+            return Some(fo);
         }
 
-        #[cfg(all(not(unix), feature = "threading"))]
-        {
-            let registry = vm.state.thread_frames.lock();
-            #[expect(
-                clippy::iter_over_hash_type,
-                reason = "Iteration order doesn't matter here"
-            )]
-            for slot in registry.values() {
-                let frames = slot.frames.lock();
-                // SAFETY: the owning thread can't pop while we hold the Mutex,
-                // so FramePtr is valid for the duration of the lock.
-                if let Some(frame) = frames.iter().find_map(|fp| {
-                    let f = unsafe { fp.as_ref() };
-                    let ptr: *const Frame = &**f;
-                    core::ptr::eq(ptr, previous).then(|| f.to_owned())
-                }) {
-                    frame.mark_escaped();
-                    return Some(frame);
-                }
-            }
-        }
-
+        #[allow(unreachable_code)]
         None
     }
 }

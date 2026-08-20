@@ -1,8 +1,9 @@
 use crate::{
-    PyObjectRef, PyResult, TryFromObject, VirtualMachine,
+    AsObject, PyObjectRef, PyResult, TryFromObject, VirtualMachine,
     builtins::{PyBaseExceptionRef, PyBytesRef, PyTuple, PyTupleRef, PyTypeRef},
     common::{static_cell, str::wchar_t},
     convert::ToPyObject,
+    exceptions,
     function::{ArgBytesLike, ArgIntoBool, ArgIntoFloat},
 };
 
@@ -15,8 +16,61 @@ use malachite_bigint::BigInt;
 use num_traits::{PrimInt, ToPrimitive};
 use std::os::raw;
 
-type PackFunc = fn(&VirtualMachine, PyObjectRef, &mut [u8]) -> PyResult<()>;
+type PackFunc = fn(&VirtualMachine, FormatType, PyObjectRef, &mut [u8]) -> Result<(), PackError>;
 type UnpackFunc = fn(&VirtualMachine, &[u8]) -> PyObjectRef;
+
+/// Why a value could not be packed.
+///
+/// `struct` reports both as `struct.error`, so the kind travels beside the
+/// exception rather than in it; `memoryview`, which reports them as TypeError
+/// and ValueError, is what needs to tell them apart.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PackErrorKind {
+    /// The value was not the kind of thing the format takes.
+    Type,
+    /// The value was the right kind, and the format has no room for it.
+    Value,
+    /// The value's own code raised, and that error is the answer as it is.
+    Raised,
+}
+
+pub struct PackError {
+    pub kind: PackErrorKind,
+    pub exception: PyBaseExceptionRef,
+}
+
+impl PackError {
+    fn new<T: Into<Wtf8Buf>>(kind: PackErrorKind, vm: &VirtualMachine, msg: T) -> Self {
+        Self {
+            kind,
+            exception: new_struct_error(vm, msg),
+        }
+    }
+
+    /// An error raised by something other than the packing itself, such as a
+    /// conversion running the value's own code.
+    fn from_exception(exception: PyBaseExceptionRef, vm: &VirtualMachine) -> Self {
+        let kind = if exception.fast_isinstance(vm.ctx.exceptions.type_error) {
+            PackErrorKind::Type
+        } else if exception.fast_isinstance(vm.ctx.exceptions.overflow_error)
+            || exception.fast_isinstance(vm.ctx.exceptions.value_error)
+        {
+            PackErrorKind::Value
+        } else {
+            PackErrorKind::Raised
+        };
+        Self { kind, exception }
+    }
+
+    /// An error that is the answer exactly as it was raised. `pack_single()`
+    /// leaves `'?'` to `PyObject_IsTrue()` this way, with no message of its own.
+    fn raised(exception: PyBaseExceptionRef) -> Self {
+        Self {
+            kind: PackErrorKind::Raised,
+            exception,
+        }
+    }
+}
 
 static OVERFLOW_MSG: &str = "total struct size too long"; // not a const to reduce code size
 
@@ -282,7 +336,7 @@ impl FormatCode {
 
             // Check for embedded null character
             if c == 0 {
-                return Err("embedded null character".to_owned());
+                return Err(exceptions::NulError.to_string());
             }
 
             // PEP3118: Handle extended format specifiers
@@ -437,22 +491,45 @@ impl FormatSpec {
     }
 
     pub fn pack(&self, args: Vec<PyObjectRef>, vm: &VirtualMachine) -> PyResult<Vec<u8>> {
-        // Create data vector:
-        let mut data = vec![0; self.size];
+        self.try_pack(args, vm).map_err(|e| e.exception)
+    }
 
-        self.pack_into(&mut data, args, vm)?;
+    /// [`Self::pack`], keeping why a value could not be packed.
+    pub fn try_pack(
+        &self,
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Result<Vec<u8>, PackError> {
+        // Create data vector:
+        let mut data = vm
+            .new_zeroed_bytes(self.size)
+            .map_err(|e| PackError::from_exception(e, vm))?;
+
+        self.try_pack_into(&mut data, args, vm)?;
 
         Ok(data)
     }
 
     pub fn pack_into(
         &self,
-        mut buffer: &mut [u8],
+        buffer: &mut [u8],
         args: Vec<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        self.try_pack_into(buffer, args, vm)
+            .map_err(|e| e.exception)
+    }
+
+    /// [`Self::pack_into`], keeping why a value could not be packed.
+    pub fn try_pack_into(
+        &self,
+        mut buffer: &mut [u8],
+        args: Vec<PyObjectRef>,
+        vm: &VirtualMachine,
+    ) -> Result<(), PackError> {
         if self.arg_count != args.len() {
-            return Err(new_struct_error(
+            return Err(PackError::new(
+                PackErrorKind::Type,
                 vm,
                 format!(
                     "pack expected {} items for packing (got {})",
@@ -470,12 +547,14 @@ impl FormatSpec {
             match code.code {
                 FormatType::Str => {
                     let (buf, rest) = buffer.split_at_mut(code.repeat);
-                    pack_string(vm, args.next().unwrap(), buf)?;
+                    pack_string(vm, args.next().unwrap(), buf)
+                        .map_err(|e| PackError::from_exception(e, vm))?;
                     buffer = rest;
                 }
                 FormatType::Pascal => {
                     let (buf, rest) = buffer.split_at_mut(code.repeat);
-                    pack_pascal(vm, args.next().unwrap(), buf)?;
+                    pack_pascal(vm, args.next().unwrap(), buf)
+                        .map_err(|e| PackError::from_exception(e, vm))?;
                     buffer = rest;
                 }
                 FormatType::Pad => {
@@ -489,7 +568,7 @@ impl FormatSpec {
                     let pack = code.info.pack.unwrap();
                     for arg in args.by_ref().take(code.repeat) {
                         let (item_buf, rest) = buffer.split_at_mut(code.info.size);
-                        pack(vm, arg, item_buf)?;
+                        pack(vm, code.code, arg, item_buf)?;
                         buffer = rest;
                     }
                 }
@@ -548,7 +627,12 @@ impl FormatSpec {
 }
 
 trait Packable {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()>;
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> Result<(), PackError>;
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, data: &[u8]) -> PyObjectRef;
 }
 
@@ -575,10 +659,11 @@ macro_rules! make_pack_prim_int {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
+                code: FormatType,
                 arg: PyObjectRef,
                 data: &mut [u8],
-            ) -> PyResult<()> {
-                let i: $T = get_int_or_index(vm, arg)?;
+            ) -> Result<(), PackError> {
+                let i: $T = get_int_or_index(vm, code, arg)?;
                 i.pack_int::<E>(data);
                 Ok(())
             }
@@ -591,16 +676,40 @@ macro_rules! make_pack_prim_int {
     };
 }
 
-fn get_int_or_index<T>(vm: &VirtualMachine, arg: PyObjectRef) -> PyResult<T>
+fn get_int_or_index<T>(
+    vm: &VirtualMachine,
+    code: FormatType,
+    arg: PyObjectRef,
+) -> Result<T, PackError>
 where
-    T: PrimInt + for<'a> TryFrom<&'a BigInt>,
+    T: PrimInt + fmt::Display + for<'a> TryFrom<&'a BigInt>,
 {
-    let index = arg
-        .try_index_opt(vm)
-        .unwrap_or_else(|| Err(new_struct_error(vm, "required argument is not an integer")))?;
-    index
-        .try_to_primitive(vm)
-        .map_err(|_| new_struct_error(vm, "argument out of range"))
+    let index = match arg.try_index_opt(vm) {
+        None => {
+            return Err(PackError::new(
+                PackErrorKind::Type,
+                vm,
+                "required argument is not an integer",
+            ));
+        }
+        Some(Err(e)) => return Err(PackError::from_exception(e, vm)),
+        Some(Ok(index)) => index,
+    };
+    index.try_to_primitive(vm).map_err(|_| {
+        // A pointer is converted rather than checked against the range of a
+        // named format, so what it reports is the conversion failing.
+        let msg = if code == FormatType::VoidP {
+            "int too large to convert".to_owned()
+        } else {
+            format!(
+                "'{}' format requires {} <= number <= {}",
+                code as u8 as char,
+                T::min_value(),
+                T::max_value()
+            )
+        };
+        PackError::new(PackErrorKind::Value, vm, msg)
+    })
 }
 
 make_pack_prim_int!(i8);
@@ -615,14 +724,28 @@ make_pack_prim_int!(usize);
 make_pack_prim_int!(isize);
 
 macro_rules! make_pack_float {
-    ($T:ty) => {
+    ($T:ty, $fmt:literal) => {
         impl Packable for $T {
             fn pack<E: ByteOrder>(
                 vm: &VirtualMachine,
+                _code: FormatType,
                 arg: PyObjectRef,
                 data: &mut [u8],
-            ) -> PyResult<()> {
-                let f = ArgIntoFloat::try_from_object(vm, arg)?.into_float() as $T;
+            ) -> Result<(), PackError> {
+                let f_64 = ArgIntoFloat::try_from_object(vm, arg)
+                    .map_err(|e| PackError::from_exception(e, vm))?
+                    .into_float();
+                let f = f_64 as $T;
+                if f.is_infinite() != f_64.is_infinite() {
+                    return Err(PackError {
+                        kind: PackErrorKind::Value,
+                        exception: vm.new_overflow_error(concat!(
+                            "float too large to pack with ",
+                            $fmt,
+                            " format"
+                        )),
+                    });
+                }
                 f.to_bits().pack_int::<E>(data);
                 Ok(())
             }
@@ -635,16 +758,26 @@ macro_rules! make_pack_float {
     };
 }
 
-make_pack_float!(f32);
-make_pack_float!(f64);
+make_pack_float!(f32, "f");
+make_pack_float!(f64, "d");
 
 impl Packable for f16 {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        let f_64 = ArgIntoFloat::try_from_object(vm, arg)?.into_float();
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        _code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> Result<(), PackError> {
+        let f_64 = ArgIntoFloat::try_from_object(vm, arg)
+            .map_err(|e| PackError::from_exception(e, vm))?
+            .into_float();
         // "from_f64 should be preferred in any non-`const` context" except it gives the wrong result :/
         let f_16 = Self::from_f64_const(f_64);
         if f_16.is_infinite() != f_64.is_infinite() {
-            return Err(vm.new_overflow_error("float too large to pack with e format"));
+            return Err(PackError {
+                kind: PackErrorKind::Value,
+                exception: vm.new_overflow_error("float too large to pack with e format"),
+            });
         }
         f_16.to_bits().pack_int::<E>(data);
         Ok(())
@@ -657,8 +790,13 @@ impl Packable for f16 {
 }
 
 impl Packable for *mut raw::c_void {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        usize::pack::<E>(vm, arg, data)
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> Result<(), PackError> {
+        usize::pack::<E>(vm, code, arg, data)
     }
 
     fn unpack<E: ByteOrder>(vm: &VirtualMachine, rdr: &[u8]) -> PyObjectRef {
@@ -667,8 +805,15 @@ impl Packable for *mut raw::c_void {
 }
 
 impl Packable for bool {
-    fn pack<E: ByteOrder>(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-        let v = ArgIntoBool::try_from_object(vm, arg)?.into_bool() as u8;
+    fn pack<E: ByteOrder>(
+        vm: &VirtualMachine,
+        _code: FormatType,
+        arg: PyObjectRef,
+        data: &mut [u8],
+    ) -> Result<(), PackError> {
+        let v = ArgIntoBool::try_from_object(vm, arg)
+            .map_err(PackError::raised)?
+            .into_bool() as u8;
         v.pack_int::<E>(data);
         Ok(())
     }
@@ -679,13 +824,20 @@ impl Packable for bool {
     }
 }
 
-fn pack_char(vm: &VirtualMachine, arg: PyObjectRef, data: &mut [u8]) -> PyResult<()> {
-    let v = PyBytesRef::try_from_object(vm, arg)?;
-    let ch = *v
-        .as_bytes()
-        .iter()
-        .exactly_one()
-        .map_err(|_| new_struct_error(vm, "char format requires a bytes object of length 1"))?;
+fn pack_char(
+    vm: &VirtualMachine,
+    _code: FormatType,
+    arg: PyObjectRef,
+    data: &mut [u8],
+) -> Result<(), PackError> {
+    let v = PyBytesRef::try_from_object(vm, arg).map_err(|e| PackError::from_exception(e, vm))?;
+    let ch = *v.as_bytes().iter().exactly_one().map_err(|_| {
+        PackError::new(
+            PackErrorKind::Value,
+            vm,
+            "char format requires a bytes object of length 1",
+        )
+    })?;
     data[0] = ch;
     Ok(())
 }

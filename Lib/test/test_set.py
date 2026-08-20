@@ -330,7 +330,6 @@ class TestJointOps:
             name = repr(s).partition('(')[0]    # strip class name
             self.assertEqual(repr(s), '%s({%s(...)})' % (name, name))
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_do_not_rehash_dict_keys(self):
         n = 10
         d = dict.fromkeys(map(HashCountingInt, range(n)))
@@ -363,7 +362,6 @@ class TestJointOps:
         gc.collect()
         self.assertTrue(ref() is None, "Cycle was not collected")
 
-    @unittest.skipIf("RUSTPYTHON_SKIP_ENV_POLLUTERS" in __import__("os").environ, "TODO: RUSTPYTHON")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, self.thetype)
 

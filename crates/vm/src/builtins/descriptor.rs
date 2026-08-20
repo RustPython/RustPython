@@ -79,7 +79,10 @@ impl GetDescriptor for PyMethodDescriptor {
         let bound = match obj {
             Some(obj) => {
                 if descr.method.flags.contains(PyMethodFlags::METHOD) {
-                    if cls.is_some_and(|c| c.fast_isinstance(vm.ctx.types.type_type)) {
+                    if cls
+                        .as_ref()
+                        .is_none_or(|c| c.fast_isinstance(vm.ctx.types.type_type))
+                    {
                         obj
                     } else {
                         return Err(vm.new_type_error(format!(
@@ -539,6 +542,10 @@ pub enum SlotFunc {
     NumBinaryRight(PyNumberBinaryFunc),   // __radd__, __rsub__, etc. (swapped args)
     NumTernary(PyNumberTernaryFunc),      // __pow__
     NumTernaryRight(PyNumberTernaryFunc), // __rpow__ (swapped first two args)
+
+    // Buffer protocol
+    GetBuffer(crate::types::AsBufferFunc), // __buffer__
+    ReleaseBuffer,                         // __release_buffer__
 }
 
 impl core::fmt::Debug for SlotFunc {
@@ -579,6 +586,8 @@ impl core::fmt::Debug for SlotFunc {
             Self::NumBinaryRight(_) => write!(f, "SlotFunc::NumBinaryRight(...)"),
             Self::NumTernary(_) => write!(f, "SlotFunc::NumTernary(...)"),
             Self::NumTernaryRight(_) => write!(f, "SlotFunc::NumTernaryRight(...)"),
+            Self::GetBuffer(_) => write!(f, "SlotFunc::GetBuffer(...)"),
+            Self::ReleaseBuffer => write!(f, "SlotFunc::ReleaseBuffer"),
         }
     }
 }
@@ -755,8 +764,39 @@ impl SlotFunc {
                 let z = z.unwrap_or_else(|| vm.ctx.none());
                 func(&y, &obj, &z, vm) // Swapped: y ** obj % z
             }
+            // Buffer protocol
+            Self::GetBuffer(func) => {
+                let (flags_obj,): (PyObjectRef,) = args.bind(vm)?;
+                let buffer = func(&obj, parse_buffer_flags(flags_obj, vm)?, vm)?;
+                crate::builtins::PyMemoryView::from_buffer(buffer, vm)
+                    .map(|mv| mv.into_pyobject(vm))
+            }
+            Self::ReleaseBuffer => {
+                let (mv_obj,): (PyObjectRef,) = args.bind(vm)?;
+                let mv = mv_obj
+                    .downcast::<crate::builtins::PyMemoryView>()
+                    .map_err(|_| vm.new_type_error("expected a memoryview object"))?;
+                crate::builtins::memory::release_buffer_from_python(&obj, mv, vm)?;
+                Ok(vm.ctx.none())
+            }
         }
     }
+}
+
+/// Parse the `flags` argument of `__buffer__`. wrap_buffer
+fn parse_buffer_flags(
+    arg: PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<crate::protocol::BufferFlags> {
+    use num_traits::ToPrimitive;
+    let idx = arg.try_index(vm)?;
+    let flags = idx
+        .as_bigint()
+        .to_isize()
+        .ok_or_else(|| vm.new_overflow_error("cannot fit 'int' into an index-sized integer"))?;
+    let flags =
+        i32::try_from(flags).map_err(|_| vm.new_overflow_error("buffer flags out of range"))?;
+    Ok(crate::protocol::BufferFlags::from_bits_retain(flags as u32))
 }
 
 /// wrapper_descriptor: wraps a slot function as a Python method

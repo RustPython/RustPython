@@ -1,19 +1,15 @@
 use super::{
     IterStatus, PositionIterInternal, PyBaseExceptionRef, PyGenericAlias, PyMappingProxy, PySet,
-    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, set::PySetInner,
+    PyStr, PyStrRef, PyTupleRef, PyType, PyTypeRef, locked_step, set, set::PySetInner,
 };
 use crate::common::lock::LazyLock;
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyExact, PyObject, PyObjectRef, PyPayload, PyRef, PyRefExact, PyResult,
     TryFromObject, atomic_func,
-    builtins::{
-        PyTuple,
-        iter::{builtins_iter, builtins_reversed},
-        type_::PyAttributes,
-    },
+    builtins::{PyList, PyTuple, iter::builtins_iter, type_::PyAttributes},
     class::{PyClassDef, PyClassImpl},
-    common::ascii,
+    common::{ascii, hash::PyHash},
     dict_inner::{self, DictKey},
     function::{ArgIterable, FuncArgs, KwArgs, OptionalArg, PyArithmeticValue, PyComparisonValue},
     iter::PyExactSizeIterator,
@@ -28,6 +24,7 @@ use crate::{
 use alloc::fmt;
 use core::cell::Cell;
 use core::ptr::NonNull;
+use rustpython_common::atomic::{Ordering, PyAtomic, Radium};
 use rustpython_common::lock::PyMutex;
 use rustpython_common::wtf8::Wtf8Buf;
 
@@ -118,11 +115,6 @@ impl PyDict {
         &self.entries
     }
 
-    /// Monotonically increasing version for mutation tracking.
-    pub(crate) fn version(&self) -> u64 {
-        self.entries.version()
-    }
-
     /// Returns all keys as a Vec, atomically under a single read lock.
     /// Thread-safe: prevents "dictionary changed size during iteration" errors.
     pub fn keys_vec(&self) -> Vec<PyObjectRef> {
@@ -187,6 +179,76 @@ impl PyDict {
         self.merge_object_with_override(other, false, vm)
     }
 
+    fn add_update_sequence_note(
+        exc: PyBaseExceptionRef,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        if !exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+            return exc;
+        }
+
+        let note =
+            format!("Cannot convert dictionary update sequence element #{index} to a sequence");
+        match vm.call_method(exc.as_object(), "add_note", (vm.ctx.new_str(note),)) {
+            Ok(_) => exc,
+            Err(note_err) => {
+                note_err.set___context__(Some(exc));
+                note_err
+            }
+        }
+    }
+
+    fn update_sequence_pair_from_slice(
+        elements: &[PyObjectRef],
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        let [key, value] = elements else {
+            return Err(vm.new_value_error(format!(
+                "dictionary update sequence element #{index} has length {}; 2 is required",
+                elements.len()
+            )));
+        };
+        Ok((key.clone(), value.clone()))
+    }
+
+    fn update_sequence_pair(
+        element: PyObjectRef,
+        index: usize,
+        vm: &VirtualMachine,
+    ) -> PyResult<(PyObjectRef, PyObjectRef)> {
+        let element = match element.downcast_exact::<PyList>(vm) {
+            Ok(list) => {
+                let elements = list.borrow_vec();
+                return Self::update_sequence_pair_from_slice(&elements, index, vm);
+            }
+            Err(element) => element,
+        };
+        let element = match element.downcast_exact::<PyTuple>(vm) {
+            Ok(tuple) => {
+                return Self::update_sequence_pair_from_slice(tuple.as_slice(), index, vm);
+            }
+            Err(element) => element,
+        };
+
+        let elements = (|| {
+            let elem_iter = element.get_iter(vm).map_err(|exc| {
+                if exc.fast_isinstance(vm.ctx.exceptions.type_error) {
+                    vm.new_type_error("object is not iterable")
+                } else {
+                    exc
+                }
+            })?;
+            elem_iter
+                .into_iter::<PyObjectRef>(vm)
+                .collect::<PyResult<Vec<_>>>()
+        })()
+        .map_err(|exc| Self::add_update_sequence_note(exc, index, vm))?;
+
+        Self::update_sequence_pair_from_slice(&elements, index, vm)
+    }
+
     pub fn merge_from_seq2(
         &self,
         seq2: PyObjectRef,
@@ -195,20 +257,10 @@ impl PyDict {
     ) -> PyResult<()> {
         let iter = seq2.get_iter(vm)?;
         let dict = &self.entries;
-        loop {
-            fn err(vm: &VirtualMachine) -> PyBaseExceptionRef {
-                vm.new_value_error("Iterator must have exactly two elements")
-            }
-            let element = match iter.next(vm)? {
-                PyIterReturn::Return(obj) => obj,
-                PyIterReturn::StopIteration(_) => break,
-            };
-            let elem_iter = element.get_iter(vm)?;
-            let key = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-            let value = elem_iter.next(vm)?.into_result().map_err(|_| err(vm))?;
-            if matches!(elem_iter.next(vm)?, PyIterReturn::Return(_)) {
-                return Err(err(vm));
-            }
+
+        for (index, element) in iter.iter::<PyObjectRef>(vm)?.enumerate() {
+            let (key, value) = Self::update_sequence_pair(element?, index, vm)?;
+
             if !override_existing && dict.contains(vm, &*key)? {
                 continue;
             }
@@ -298,6 +350,20 @@ impl PyDict {
     ) -> PyResult<Option<PyObjectRef>> {
         self.entries.get(vm, key)
     }
+
+    /// Keys of `obj` with their stored hashes, or `None` if it must be iterated
+    /// generically. Only exact dicts and sets qualify, as in CPython's
+    /// `_PyDict_FromKeys`: a subclass may override `__iter__`.
+    fn fromkeys_known_hashes(
+        obj: &PyObject,
+        vm: &VirtualMachine,
+    ) -> Option<Vec<(PyObjectRef, PyHash)>> {
+        if let Some(dict) = obj.downcast_ref_if_exact::<Self>(vm) {
+            Some(dict.entries.keys_with_hashes())
+        } else {
+            set::exact_set_keys_with_hashes(obj, vm)
+        }
+    }
 }
 
 // Python dict methods:
@@ -328,8 +394,16 @@ impl PyDict {
         let d = PyType::call(&class, ().into(), vm)?;
         match d.downcast_exact::<Self>(vm) {
             Ok(pydict) => {
-                for key in iterable.iter(vm)? {
-                    pydict.__setitem__(key?, value.clone(), vm)?;
+                if let Some(keys) = Self::fromkeys_known_hashes(iterable.as_object(), vm) {
+                    for (key, hash) in keys {
+                        pydict
+                            .entries
+                            .insert_known_hash(vm, &*key, hash, value.clone())?;
+                    }
+                } else {
+                    for key in iterable.iter(vm)? {
+                        pydict.__setitem__(key?, value.clone(), vm)?;
+                    }
                 }
                 Ok(pydict.into_pyref().into())
             }
@@ -457,7 +531,11 @@ impl PyDict {
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
@@ -739,17 +817,71 @@ impl Py<PyDict> {
         }
     }
 
-    /// Fast lookup using a cached entry index hint.
-    pub(crate) fn get_item_opt_hint<K: DictKey + ?Sized>(
+    /// Read a cached exact-dict entry after validating its key-layout stamp.
+    #[inline]
+    pub(crate) fn get_item_by_index_and_keys_version(
+        &self,
+        version: u16,
+        index: u16,
+    ) -> Option<PyObjectRef> {
+        self.entries
+            .get_index_if_keys_version(u32::from(version), usize::from(index))
+    }
+
+    /// Lookup trying a cached entry index hint first.
+    ///
+    /// When the hint misses but the key is present, also returns a refreshed
+    /// hint (`None` when the hint hit or no hint is representable).
+    pub(crate) fn get_item_opt_refresh_hint<K: DictKey + ?Sized>(
         &self,
         key: &K,
         hint: u16,
         vm: &VirtualMachine,
-    ) -> PyResult<Option<PyObjectRef>> {
+    ) -> PyResult<Option<(PyObjectRef, Option<u16>)>> {
         if self.exact_dict(vm) {
-            self.entries.get_hint(vm, key, usize::from(hint))
+            if let Some(value) = self.entries.get_hint(vm, key, usize::from(hint))? {
+                return Ok(Some((value, None)));
+            }
+            self.entries.get_with_hint(vm, key)
         } else {
-            self.get_item_opt(key, vm)
+            Ok(self.get_item_opt(key, vm)?.map(|value| (value, None)))
+        }
+    }
+
+    /// Store using a cached entry index hint for the value-replace fast path.
+    ///
+    /// On a hint miss, returns a refreshed hint for the key (`None` when the
+    /// hint hit or no hint is representable).
+    pub(crate) fn set_item_with_hint<K: DictKey + ?Sized>(
+        &self,
+        key: &K,
+        hint: u16,
+        value: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<Option<u16>> {
+        if self.exact_dict(vm) {
+            self.entries
+                .insert_with_hint(vm, key, usize::from(hint), value)
+        } else {
+            self.as_object().set_item(key, value, vm)?;
+            Ok(None)
+        }
+    }
+
+    /// Current keys-version stamp of the underlying storage (0 if unset).
+    pub(crate) fn keys_version(&self) -> u32 {
+        self.entries.keys_version()
+    }
+
+    /// Current keys-version stamp, assigning one if none is set.
+    ///
+    /// Returns 0 for dict subclasses: their lookup can be overridden, so a
+    /// key-set attestation on the raw storage must never be cached for them.
+    pub(crate) fn assign_keys_version(&self, vm: &VirtualMachine) -> u32 {
+        if self.exact_dict(vm) {
+            self.entries.assign_keys_version()
+        } else {
+            0
         }
     }
 
@@ -959,6 +1091,7 @@ macro_rules! dict_view {
         $class_name: literal,
         $iter_class_name: literal,
         $reverse_iter_class_name: literal,
+        $project_fn: expr,
         $result_fn: expr
     ) => {
         #[pyclass(module = false, name = $class_name)]
@@ -981,7 +1114,7 @@ macro_rules! dict_view {
             }
 
             fn item(vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef) -> PyObjectRef {
-                $result_fn(vm, key, value)
+                $result_fn(vm, $project_fn(&key, &value))
             }
 
             fn __reversed__(&self) -> Self::ReverseIter {
@@ -1032,6 +1165,11 @@ macro_rules! dict_view {
         #[derive(Debug)]
         pub(crate) struct $iter_name {
             pub(crate) size: dict_inner::DictSize,
+            /// Whether the dict was found to have changed, which
+            /// `dictiter_iternextkey()` records by writing a size no dict can
+            /// have. Sticky: what it makes the iterator answer, it answers
+            /// from then on.
+            changed: PyAtomic<bool>,
             pub(crate) internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -1047,13 +1185,26 @@ macro_rules! dict_view {
             fn new(dict: PyDictRef) -> Self {
                 $iter_name {
                     size: dict.size(),
+                    changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, 0)),
                 }
             }
 
             #[pymethod]
             fn __length_hint__(&self) -> usize {
-                self.internal.lock().length_hint(|_| self.size.entries_size)
+                // `dictiter_len()` answers for a dict it can no longer walk
+                // with nothing, comparing the size it captured against the
+                // dict's own every time it is asked.
+                if self.changed.load(Ordering::Relaxed) {
+                    return 0;
+                }
+                self.internal.lock().length_hint(|dict| {
+                    if dict.size() == self.size {
+                        self.size.entries_size
+                    } else {
+                        0
+                    }
+                })
             }
 
             #[pymethod]
@@ -1061,10 +1212,17 @@ macro_rules! dict_view {
                 let iter = builtins_iter(vm);
                 let internal = self.internal.lock();
                 let entries = match &internal.status {
-                    IterStatus::Active(dict) => dict
-                        .into_iter()
-                        .map(|(key, value)| ($result_fn)(vm, key, value))
-                        .collect::<Vec<_>>(),
+                    IterStatus::Active(dict) => {
+                        let mut position = internal.position;
+                        let mut entries = Vec::new();
+                        while let Some((next_position, key, value)) =
+                            dict.entries.next_entry(position)
+                        {
+                            entries.push(($result_fn)(vm, ($project_fn)(&key, &value)));
+                            position = next_position;
+                        }
+                        entries
+                    }
                     IterStatus::Exhausted => vec![],
                 };
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
@@ -1075,28 +1233,33 @@ macro_rules! dict_view {
 
         impl IterNext for $iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    if dict.entries.has_changed_size(&zelf.size) {
-                        internal.status = IterStatus::Exhausted;
-                        return Err(
-                            vm.new_runtime_error("dictionary changed size during iteration")
-                        );
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let mutated =
+                        || vm.new_runtime_error("dictionary changed size during iteration");
+                    if zelf.changed.load(Ordering::Relaxed) {
+                        // The dict is not looked at again once it has been
+                        // found to change: an iterator that has raised keeps
+                        // raising.
+                        return (Err(mutated()), None);
                     }
-                    match dict.entries.next_entry(internal.position) {
-                        Some((position, key, value)) => {
+                    let entry =
+                        dict.entries
+                            .next_entry_checked(internal.position, &zelf.size, $project_fn);
+                    match entry {
+                        Err(dict_inner::DictChanged) => {
+                            zelf.changed.store(true, Ordering::Relaxed);
+                            (Err(mutated()), None)
+                        }
+                        Ok(Some((position, item))) => {
                             internal.position = position;
-                            PyIterReturn::Return(($result_fn)(vm, key, value))
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), None)
                         }
-                        None => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
 
@@ -1104,6 +1267,8 @@ macro_rules! dict_view {
         #[derive(Debug)]
         pub(crate) struct $reverse_iter_name {
             pub(crate) size: dict_inner::DictSize,
+            /// As in `$iter_name`.
+            changed: PyAtomic<bool>,
             internal: PyMutex<PositionIterInternal<PyDictRef>>,
         }
 
@@ -1121,20 +1286,30 @@ macro_rules! dict_view {
                 let position = size.entries_size.saturating_sub(1);
                 $reverse_iter_name {
                     size,
+                    changed: Radium::new(false),
                     internal: PyMutex::new(PositionIterInternal::new(dict, position)),
                 }
             }
 
             #[pymethod]
             fn __reduce__(&self, vm: &VirtualMachine) -> PyTupleRef {
-                let iter = builtins_reversed(vm);
+                let iter = builtins_iter(vm);
                 let internal = self.internal.lock();
-                // TODO: entries must be reversed too
                 let entries = match &internal.status {
-                    IterStatus::Active(dict) => dict
-                        .into_iter()
-                        .map(|(key, value)| ($result_fn)(vm, key, value))
-                        .collect::<Vec<_>>(),
+                    IterStatus::Active(dict) => {
+                        let mut position = internal.position;
+                        let mut entries = Vec::new();
+                        while let Some((found_index, key, value)) =
+                            dict.entries.prev_entry(position)
+                        {
+                            entries.push(($result_fn)(vm, ($project_fn)(&key, &value)));
+                            if found_index == 0 {
+                                break;
+                            }
+                            position = found_index - 1;
+                        }
+                        entries
+                    }
                     IterStatus::Exhausted => vec![],
                 };
                 vm.new_tuple((iter, (vm.ctx.new_list(entries),)))
@@ -1142,9 +1317,17 @@ macro_rules! dict_view {
 
             #[pymethod]
             fn __length_hint__(&self) -> usize {
-                self.internal
-                    .lock()
-                    .rev_length_hint(|_| self.size.entries_size)
+                // As in `$iter_name`.
+                if self.changed.load(Ordering::Relaxed) {
+                    return 0;
+                }
+                let internal = self.internal.lock();
+                match &internal.status {
+                    IterStatus::Active(dict) if dict.size() == self.size => {
+                        internal.rev_length_hint(|_| self.size.entries_size)
+                    }
+                    _ => 0,
+                }
             }
         }
 
@@ -1152,32 +1335,38 @@ macro_rules! dict_view {
 
         impl IterNext for $reverse_iter_name {
             fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-                let mut internal = zelf.internal.lock();
-                let next = if let IterStatus::Active(dict) = &internal.status {
-                    if dict.entries.has_changed_size(&zelf.size) {
-                        internal.status = IterStatus::Exhausted;
-                        return Err(
-                            vm.new_runtime_error("dictionary changed size during iteration")
-                        );
+                locked_step(&zelf.internal, |internal| {
+                    let IterStatus::Active(dict) = &internal.status else {
+                        return (Ok(PyIterReturn::StopIteration(None)), None);
+                    };
+                    let mutated =
+                        || vm.new_runtime_error("dictionary changed size during iteration");
+                    if zelf.changed.load(Ordering::Relaxed) {
+                        // The dict is not looked at again once it has been
+                        // found to change: an iterator that has raised keeps
+                        // raising.
+                        return (Err(mutated()), None);
                     }
-                    match dict.entries.prev_entry(internal.position) {
-                        Some((position, key, value)) => {
-                            if internal.position == position {
-                                internal.status = IterStatus::Exhausted;
+                    let entry =
+                        dict.entries
+                            .prev_entry_checked(internal.position, &zelf.size, $project_fn);
+                    match entry {
+                        Err(dict_inner::DictChanged) => {
+                            zelf.changed.store(true, Ordering::Relaxed);
+                            (Err(mutated()), None)
+                        }
+                        Ok(Some((found_index, item))) => {
+                            let released = if found_index == 0 {
+                                internal.exhaust()
                             } else {
-                                internal.position = position;
-                            }
-                            PyIterReturn::Return(($result_fn)(vm, key, value))
+                                internal.position = found_index - 1;
+                                None
+                            };
+                            (Ok(PyIterReturn::Return(($result_fn)(vm, item))), released)
                         }
-                        None => {
-                            internal.status = IterStatus::Exhausted;
-                            PyIterReturn::StopIteration(None)
-                        }
+                        Ok(None) => (Ok(PyIterReturn::StopIteration(None)), internal.exhaust()),
                     }
-                } else {
-                    PyIterReturn::StopIteration(None)
-                };
-                Ok(next)
+                })
             }
         }
     };
@@ -1193,7 +1382,8 @@ dict_view! {
     "dict_keys",
     "dict_keyiterator",
     "dict_reversekeyiterator",
-    |_vm: &VirtualMachine, key: PyObjectRef, _value: PyObjectRef| key
+    |key: &PyObjectRef, _value: &PyObjectRef| key.clone(),
+    |_vm: &VirtualMachine, key: PyObjectRef| key
 }
 
 dict_view! {
@@ -1206,7 +1396,8 @@ dict_view! {
     "dict_values",
     "dict_valueiterator",
     "dict_reversevalueiterator",
-    |_vm: &VirtualMachine, _key: PyObjectRef, value: PyObjectRef| value
+    |_key: &PyObjectRef, value: &PyObjectRef| value.clone(),
+    |_vm: &VirtualMachine, value: PyObjectRef| value
 }
 
 dict_view! {
@@ -1219,7 +1410,9 @@ dict_view! {
     "dict_items",
     "dict_itemiterator",
     "dict_reverseitemiterator",
-    |vm: &VirtualMachine, key: PyObjectRef, value: PyObjectRef|
+    |key: &PyObjectRef, value: &PyObjectRef| (key.clone(), value.clone()),
+    // Builds a tuple, so it runs after the dict's read guard is released.
+    |vm: &VirtualMachine, (key, value): (PyObjectRef, PyObjectRef)|
         vm.new_tuple((key, value)).into()
 }
 

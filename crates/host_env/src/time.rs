@@ -15,7 +15,7 @@ pub const SEC_TO_NS: i64 = SEC_TO_MS * MS_TO_NS;
 pub const NS_TO_MS: i64 = 1000 * 1000;
 pub const NS_TO_US: i64 = 1000;
 
-/// Access to the C runtime's `tzset` / `timezone` / `daylight` / `tzname`
+/// Access to the C runtime's `tzset` / `timezone` / `altzone` / `daylight` / `tzname`
 /// globals used by Python's `time` module.
 ///
 /// Not available under MSVC (which exposes these only via the
@@ -28,6 +28,10 @@ pub mod tz {
         static c_daylight: core::ffi::c_int;
         #[link_name = "timezone"]
         static c_timezone: core::ffi::c_long;
+        // Set by `build.rs` when `time.h` exposes `altzone` (CPython `HAVE_ALTZONE`).
+        #[cfg(has_altzone)]
+        #[link_name = "altzone"]
+        static c_altzone: core::ffi::c_long;
         #[link_name = "tzname"]
         static c_tzname: [*const core::ffi::c_char; 2];
         #[link_name = "tzset"]
@@ -41,6 +45,22 @@ pub mod tz {
     #[must_use]
     pub fn timezone() -> core::ffi::c_long {
         unsafe { c_timezone }
+    }
+
+    /// DST offset west of UTC in seconds, matching CPython's `time.altzone`.
+    ///
+    /// Uses the C `altzone` global when available; otherwise falls back to
+    /// `timezone - 3600` (same as CPython without `HAVE_ALTZONE`).
+    #[must_use]
+    pub fn altzone() -> core::ffi::c_long {
+        #[cfg(has_altzone)]
+        {
+            unsafe { c_altzone }
+        }
+        #[cfg(not(has_altzone))]
+        {
+            timezone() - 3600
+        }
     }
 
     #[cfg(not(target_os = "freebsd"))]
@@ -207,11 +227,13 @@ pub fn process_times() -> std::io::Result<ProcessTimes> {
     })
 }
 
-#[cfg(unix)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[cfg(any(unix, target_os = "wasi"))]
+#[derive(Copy, Clone, Debug)]
+// WASI libc represents clockid_t as an opaque pointer type without Eq or PartialEq.
+#[cfg_attr(unix, derive(Eq, PartialEq))]
 pub struct ClockId(libc::clockid_t);
 
-#[cfg(unix)]
+#[cfg(any(unix, target_os = "wasi"))]
 impl ClockId {
     pub const fn from_raw(raw: libc::clockid_t) -> Self {
         Self(raw)
@@ -239,6 +261,7 @@ impl ClockId {
         target_os = "solaris",
         target_os = "openbsd",
         target_os = "redox",
+        target_os = "wasi",
     )))]
     pub const CLOCK_THREAD_CPUTIME_ID: Self = Self(libc::CLOCK_THREAD_CPUTIME_ID);
 }
@@ -253,6 +276,20 @@ pub fn clock_gettime(id: ClockId) -> std::io::Result<Duration> {
     nix::time::clock_gettime(nix_clock_id(id))
         .map(Duration::from)
         .map_err(std::io::Error::from)
+}
+
+#[cfg(target_os = "wasi")]
+pub fn clock_gettime(id: ClockId) -> std::io::Result<Duration> {
+    let mut ts = core::mem::MaybeUninit::<libc::timespec>::uninit();
+
+    let ret = unsafe { libc::clock_gettime(id.as_raw(), ts.as_mut_ptr()) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let ts = unsafe { ts.assume_init() };
+
+    Ok(Duration::new(ts.tv_sec as u64, ts.tv_nsec as u32))
 }
 
 #[cfg(all(unix, not(target_os = "redox")))]
@@ -297,7 +334,7 @@ pub fn gethrvtime_duration() -> Duration {
     Duration::from_nanos(unsafe { libc::gethrvtime() })
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug)]
 pub struct WindowsTimeZoneInfo {
@@ -308,7 +345,7 @@ pub struct WindowsTimeZoneInfo {
     pub daylight_name: String,
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 fn decode_tz_name(name: &[u16]) -> String {
     widestring::decode_utf16_lossy(name.iter().copied())
@@ -316,7 +353,7 @@ fn decode_tz_name(name: &[u16]) -> String {
         .collect()
 }
 
-#[cfg(target_env = "msvc")]
+#[cfg(windows)]
 #[cfg(not(target_arch = "wasm32"))]
 #[must_use]
 pub fn get_tz_info() -> WindowsTimeZoneInfo {
@@ -618,10 +655,9 @@ unsafe extern "C" {
 
 #[cfg(windows)]
 pub fn strftime_ascii(fmt: &str, tm: &libc::tm) -> Result<String, CheckedTmError> {
-    if fmt.contains('\0') {
-        return Err(CheckedTmError::EmbeddedNul);
-    }
-    let fmt_wide: Vec<u16> = fmt.encode_utf16().chain(core::iter::once(0)).collect();
+    let fmt_wide = widestring::WideCString::from_str(fmt)
+        .map_err(|_| CheckedTmError::EmbeddedNul)?
+        .into_vec_with_nul();
     let mut size = 1024usize;
     let max_scale = 256usize.saturating_mul(fmt.len().max(1));
     loop {

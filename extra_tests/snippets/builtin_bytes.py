@@ -708,3 +708,108 @@ b = B1.fromhex("a0a1a2")
 assert b.foo == "bar"
 
 skip_if_unsupported(3, 11, test__bytes__)
+
+assert " \f\n\r\t\v".encode("utf-8").isspace()
+assert " \f\n\r\t\v".encode("latin-1").isspace()
+
+# bytes.istitle tests
+s = b"Aa6A"
+assert s.istitle(), f"{s}"
+s = b"Aa6aA"
+assert not s.istitle(), f"{s}"
+s = b"Python Is Fun"
+assert s.istitle(), f"{s}"
+s = b"Python is fun"
+assert not s.istitle(), f"{s}"
+s = b"PYTHON IS FUN"
+assert not s.istitle(), f"{s}"
+s = b"Python 3.9 Is Awesome!"
+assert s.istitle(), f"{s}"
+s = b""
+assert not s.istitle(), f"{s}"
+s = b"Hello Is Amazing"
+assert s.istitle(), f"{s}"
+s = b"Not--a Titlecase String"
+assert not s.istitle(), f"{s}"
+s = b"123A"
+assert s.istitle(), f"{s}"
+s = b"123a"
+assert not s.istitle(), f"{s}"
+s = b"123A\ta"
+assert not s.istitle(), f"{s}"
+SUBSTR = b"123456"
+s = b"".join([b"A", b"a" * 64, SUBSTR])
+assert s.istitle(), f"{s}"
+s += b"A"
+assert s.istitle(), f"{s}"
+s += b"aA"
+assert not s.istitle(), f"{s}"
+assert "123A".istitle(), f"{s}"
+assert not "123a".istitle(), f"{s}"
+assert not "123A\ta".istitle(), f"{s}"
+
+
+def test_huge_size():
+    # sizes that cannot be allocated are MemoryError, not an aborted process
+    for factory in (bytes, bytearray):
+        assert_raises(MemoryError, lambda factory=factory: factory(2**62))
+        for meth in ("center", "ljust", "rjust", "zfill"):
+            assert_raises(
+                MemoryError,
+                lambda factory=factory, meth=meth: getattr(factory(b"a"), meth)(
+                    1 << 62
+                ),
+            )
+        assert_raises(
+            OverflowError, lambda factory=factory: factory(b"\ta").expandtabs(2**31)
+        )
+
+
+test_huge_size()
+
+
+# bytes() asks the object it was handed how long it is, so what answering
+# raises is the answer; the bytearray constructor asks nothing.
+class BadLen:
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __len__(self):
+        raise RuntimeError("hello")
+
+
+with assert_raises(RuntimeError):
+    bytes(BadLen())
+with assert_raises(RuntimeError):
+    int.from_bytes(BadLen(), "big")
+assert bytearray(BadLen()) == bytearray(b"\x01\x02\x03")
+with assert_raises(RuntimeError):
+    bytearray(b"ab").extend(BadLen())
+holder = bytearray(b"xyz")
+holder[:] = BadLen()
+assert holder == bytearray(b"\x01\x02\x03")
+
+
+# What could not be turned into bytes is answered for by whatever was asked,
+# rather than by the iteration protocol.
+def cannot(fn, message):
+    try:
+        fn()
+    except TypeError as e:
+        assert str(e) == message, e
+    else:
+        raise AssertionError(f"expected TypeError: {message}")
+
+
+cannot(lambda: bytes(object()), "cannot convert 'object' object to bytes")
+cannot(lambda: bytes(1.5), "cannot convert 'float' object to bytes")
+cannot(lambda: bytearray(object()), "cannot convert 'object' object to bytearray")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), object()),
+    "cannot convert 'object' object to bytearray",
+)
+cannot(lambda: bytearray().extend(object()), "can't extend bytearray with object")
+cannot(
+    lambda: bytearray(b"ab").__setitem__(slice(0, 2), "ab"),
+    "can assign only bytes, buffers, or iterables of ints in range(0, 256)",
+)

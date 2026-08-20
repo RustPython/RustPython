@@ -16,7 +16,11 @@ where
 
 unsafe impl<O: Borrow<PyObject>> Traverse for PyIter<O> {
     fn traverse(&self, tracer_fn: &mut TraverseFn<'_>) {
-        self.0.borrow().traverse(tracer_fn);
+        // Report the iterator itself, not its referents: an owner holding a
+        // `PyIter` owns the iterator object, and reporting what the iterator
+        // points at instead leaves the iterator's own reference unaccounted
+        // for, so a cycle running through it is never collected.
+        tracer_fn(self.0.borrow());
     }
 }
 
@@ -52,15 +56,10 @@ where
         iternext(self.0.borrow(), vm)
     }
 
+    /// Walks the iterator without asking it how long it is. Almost nothing
+    /// asks: a loop over an iterator takes no room up front, so what the
+    /// object would have answered -- slowly, or by raising -- never runs.
     pub fn iter<'a, 'b, U>(
-        &'b self,
-        vm: &'a VirtualMachine,
-    ) -> PyResult<PyIterIter<'a, U, &'b PyObject>> {
-        let length_hint = vm.length_hint_opt(self.as_ref().to_owned())?;
-        Ok(PyIterIter::new(vm, self.0.borrow(), length_hint))
-    }
-
-    pub fn iter_without_hint<'a, 'b, U>(
         &'b self,
         vm: &'a VirtualMachine,
     ) -> PyResult<PyIterIter<'a, U, &'b PyObject>> {
@@ -69,8 +68,19 @@ where
 }
 
 impl PyIter<PyObjectRef> {
-    /// Returns an iterator over this sequence of objects.
-    pub fn into_iter<U>(self, vm: &VirtualMachine) -> PyResult<PyIterIter<'_, U, PyObjectRef>> {
+    /// Returns an iterator over this sequence of objects. See [`Self::iter`]
+    /// for why it does not ask how long the iterator is.
+    pub fn into_iter<U>(self, vm: &VirtualMachine) -> PyIterIter<'_, U, PyObjectRef> {
+        PyIterIter::new(vm, self.0, None)
+    }
+
+    /// [`Self::into_iter`] for a caller that fills a sized container from the
+    /// iterator, the way `PySequence_Fast()` does. It asks how much room that
+    /// takes and answers with whatever asking raised.
+    pub fn into_iter_sized<U>(
+        self,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyIterIter<'_, U, PyObjectRef>> {
         let length_hint = vm.length_hint_opt(self.as_object().to_owned())?;
         Ok(PyIterIter::new(vm, self.0, length_hint))
     }

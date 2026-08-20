@@ -2,16 +2,39 @@
 
 use crate::js_module;
 use crate::vm_class::{WASMVirtualMachine, stored_vm_from_wasm};
-use js_sys::{Array, ArrayBuffer, Object, Promise, Reflect, SyntaxError, Uint8Array};
+use js_sys::{
+    Array, ArrayBuffer, JsString, Map, Object, Promise, Reflect, SyntaxError, Uint8Array,
+};
+use rustpython_common::wtf8::{Wtf8, Wtf8Buf};
 use rustpython_vm::{
     AsObject, Py, PyObjectRef, PyPayload, PyResult, TryFromBorrowedObject, VirtualMachine,
-    builtins::{PyBaseException, PyBaseExceptionRef},
+    builtins::{PyBaseException, PyBaseExceptionRef, PyDict, PyList, PyStr, PyTuple},
     compiler::{CompileError, ParseError, parser::LexicalErrorType, parser::ParseErrorType},
     exceptions,
     function::{ArgBytesLike, FuncArgs},
     py_serde,
 };
 use wasm_bindgen::{JsCast, closure::Closure, prelude::*};
+
+pub(crate) fn js_string_to_wtf8(value: &JsString) -> Wtf8Buf {
+    Wtf8Buf::from_wide(&value.iter().collect::<Vec<_>>())
+}
+
+fn wtf8_to_js_string(value: &Wtf8) -> JsString {
+    const CHUNK_SIZE: usize = 8192;
+
+    if let Ok(value) = value.as_str() {
+        return value.into();
+    }
+
+    value
+        .encode_wide()
+        .collect::<Vec<_>>()
+        .chunks(CHUNK_SIZE)
+        .map(JsString::from_char_code)
+        .collect::<Array>()
+        .join("")
+}
 
 #[wasm_bindgen(inline_js = r"
 export class PyError extends Error {
@@ -121,7 +144,7 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
                         let (key, val) = pair?;
                         py_func_args
                             .kwargs
-                            .insert(js_sys::JsString::from(key).into(), js_to_py(vm, val));
+                            .insert(js_string_to_wtf8(&key.into()), js_to_py(vm, val));
                     }
                 }
                 let result = py_obj.call(py_func_args, vm);
@@ -148,17 +171,44 @@ pub fn py_to_js(vm: &VirtualMachine, py_obj: PyObjectRef) -> JsValue {
     }
 
     if let Ok(bytes) = ArgBytesLike::try_from_borrowed_object(vm, &py_obj) {
-        bytes.with_ref(|bytes| unsafe {
+        return bytes.with_ref(|bytes| unsafe {
             // `Uint8Array::view` is an `unsafe fn` because it provides
             // a direct view into the WASM linear memory; if you were to allocate
             // something with Rust that view would probably become invalid. It's safe
             // because we then copy the array using `Uint8Array::slice`.
             let view = Uint8Array::view(bytes);
             view.slice(0, bytes.len() as u32).into()
-        })
+        });
+    }
+    py_serde_to_js(vm, &py_obj).unwrap_or(JsValue::UNDEFINED)
+}
+
+fn py_serde_to_js(
+    vm: &VirtualMachine,
+    py_obj: &PyObjectRef,
+) -> Result<JsValue, serde_wasm_bindgen::Error> {
+    if let Some(value) = py_obj.downcast_ref::<PyStr>() {
+        Ok(wtf8_to_js_string(value.as_wtf8()).into())
+    } else if let Some(value) = py_obj.downcast_ref::<PyList>() {
+        let array = Array::new();
+        for item in value.borrow_vec().iter() {
+            array.push(&py_serde_to_js(vm, item)?);
+        }
+        Ok(array.into())
+    } else if let Some(value) = py_obj.downcast_ref::<PyTuple>() {
+        let array = Array::new();
+        for item in value {
+            array.push(&py_serde_to_js(vm, item)?);
+        }
+        Ok(array.into())
+    } else if let Some(value) = py_obj.downcast_ref::<PyDict>() {
+        let map = Map::new();
+        for (key, value) in value {
+            map.set(&py_serde_to_js(vm, &key)?, &py_serde_to_js(vm, &value)?);
+        }
+        Ok(map.into())
     } else {
-        py_serde::serialize(vm, &py_obj, &serde_wasm_bindgen::Serializer::new())
-            .unwrap_or(JsValue::UNDEFINED)
+        py_serde::serialize(vm, py_obj, &serde_wasm_bindgen::Serializer::new())
     }
 }
 
@@ -196,6 +246,15 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
                 .map(|val| js_to_py(vm, val.expect("Iteration over array failed")))
                 .collect();
             vm.ctx.new_list(elems).into()
+        } else if let Some(map) = js_val.dyn_ref::<Map>() {
+            let dict = vm.ctx.new_dict();
+            for entry in map.entries() {
+                let entry = Array::from(&entry.expect("Iteration over map failed"));
+                let key = js_to_py(vm, entry.get(0));
+                dict.set_item(&*key, js_to_py(vm, entry.get(1)), vm)
+                    .unwrap();
+            }
+            dict.into()
         } else if ArrayBuffer::is_view(&js_val) || js_val.is_instance_of::<ArrayBuffer>() {
             // unchecked_ref because if it's not an ArrayBuffer it could either be a TypedArray
             // or a DataView, but they all have a `buffer` property
@@ -213,12 +272,8 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             for pair in object_entries(&Object::from(js_val)) {
                 let (key, val) = pair.expect("iteration over object to not fail");
                 let py_val = js_to_py(vm, val);
-                dict.set_item(
-                    String::from(js_sys::JsString::from(key)).as_str(),
-                    py_val,
-                    vm,
-                )
-                .unwrap();
+                dict.set_item(&*js_string_to_wtf8(&key.into()), py_val, vm)
+                    .unwrap();
             }
             dict.into()
         }
@@ -229,7 +284,7 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
             move |args: FuncArgs, vm: &VirtualMachine| -> PyResult {
                 let this = Object::new();
                 for (k, v) in args.kwargs {
-                    Reflect::set(&this, &k.into(), &py_to_js(vm, v))
+                    Reflect::set(&this, &wtf8_to_js_string(&k).into(), &py_to_js(vm, v))
                         .expect("property to be settable");
                 }
                 let js_args = args
@@ -248,6 +303,8 @@ pub fn js_to_py(vm: &VirtualMachine, js_val: JsValue) -> PyObjectRef {
     } else if js_val.is_undefined() {
         // Because `JSON.stringify(undefined)` returns undefined
         vm.ctx.none()
+    } else if js_val.is_string() {
+        vm.ctx.new_str(js_string_to_wtf8(&js_val.into())).into()
     } else {
         py_serde::deserialize(vm, serde_wasm_bindgen::Deserializer::from(js_val))
             .unwrap_or_else(|_| vm.ctx.none())

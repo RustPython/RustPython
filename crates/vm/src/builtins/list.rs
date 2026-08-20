@@ -1,6 +1,7 @@
 use super::{
     PositionIterInternal, PyGenericAlias, PyTupleRef, PyType, PyTypeRef,
     iter::{builtins_iter, builtins_reversed},
+    locked_next, locked_rev_next,
 };
 use crate::atomic_func;
 use crate::common::lock::{
@@ -9,18 +10,19 @@ use crate::common::lock::{
 use crate::object::{Traverse, TraverseFn};
 use crate::{
     AsObject, Context, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
-    builtins::PyStr,
+    builtins::{PyFloat, PyInt, PyStr, PyTuple},
     class::PyClassImpl,
     convert::ToPyObject,
-    function::{ArgSize, FuncArgs, OptionalArg, PyComparisonValue},
+    function::{ArgSize, Either, FuncArgs, OptionalArg, PyComparisonValue},
     iter::PyExactSizeIterator,
     protocol::{PyIterReturn, PyMappingMethods, PySequenceMethods},
     recursion::ReprGuard,
     sequence::{MutObjectSequenceOp, OptionalRangeArgs, SequenceExt, SequenceMutExt},
     sliceable::{SequenceIndex, SliceableSequenceMutOp, SliceableSequenceOp},
+    sorting::timsort,
     types::{
         AsMapping, AsSequence, Comparable, Constructor, Initializer, IterNext, Iterable,
-        PyComparisonOp, Representable, SelfIter,
+        PyComparisonOp, Representable, RichCompareFunc, SelfIter,
     },
     vm::VirtualMachine,
 };
@@ -186,7 +188,11 @@ impl PyList {
 
     #[pymethod]
     pub(crate) fn extend(&self, x: PyObjectRef, vm: &VirtualMachine) -> PyResult<()> {
-        let mut new_elements = x.try_to_value(vm)?;
+        // What is already here decides whether the iterable's length hint is
+        // believable, so it goes along with the request for the elements. It is
+        // counted where `list_extend()` reads `Py_SIZE(self)`, after the
+        // iterable has answered, because answering runs code that can change it.
+        let mut new_elements = vm.extract_elements_sized(&x, &|| self.borrow_vec().len(), Ok)?;
         self.borrow_vec_mut().append(&mut new_elements);
         Ok(())
     }
@@ -220,8 +226,7 @@ impl PyList {
         other: &PyObject,
         vm: &VirtualMachine,
     ) -> PyResult<PyObjectRef> {
-        let mut seq = extract_cloned(other, Ok, vm)?;
-        zelf.borrow_vec_mut().append(&mut seq);
+        zelf.extend(other.to_owned(), vm)?;
         Ok(zelf.to_owned().into())
     }
 
@@ -230,8 +235,7 @@ impl PyList {
         other: PyObjectRef,
         vm: &VirtualMachine,
     ) -> PyResult<PyRef<Self>> {
-        let mut seq = extract_cloned(&other, Ok, vm)?;
-        zelf.borrow_vec_mut().append(&mut seq);
+        zelf.extend(other, vm)?;
         Ok(zelf)
     }
 
@@ -371,12 +375,15 @@ impl PyList {
 
         if let Some(index) = index.into() {
             // defer delete out of borrow
-            let is_inside_range = index < self.borrow_vec().len();
-            Ok(is_inside_range.then(|| self.borrow_vec_mut().remove(index)))
+            let removed = {
+                let mut elements = self.borrow_vec_mut();
+                (index < elements.len()).then(|| elements.remove(index))
+            };
+            drop(removed);
+            Ok(())
         } else {
             Err(vm.new_value_error(format!("'{}' is not in list", needle.str(vm)?)))
         }
-        .map(drop)
     }
 
     fn _delitem(&self, needle: &PyObject, vm: &VirtualMachine) -> PyResult<()> {
@@ -417,7 +424,11 @@ impl PyList {
     }
 
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
@@ -473,7 +484,7 @@ impl Initializer for PyList {
 
     fn init(zelf: PyRef<Self>, iterable: Self::Args, vm: &VirtualMachine) -> PyResult<()> {
         let mut elements = if let OptionalArg::Present(iterable) = iterable {
-            iterable.try_to_value(vm)?
+            vm.extract_elements_sized(&iterable, &|| 0, Ok)?
         } else {
             vec![]
         };
@@ -634,33 +645,226 @@ impl Representable for PyList {
     }
 }
 
+enum Elem {
+    Str,
+    Int,
+    Float,
+    Object(RichCompareFunc),
+    Generic,
+}
+
+enum PreSort {
+    Str,
+    Int,
+    Float,
+    Object(RichCompareFunc),
+    Tuple(Elem),
+    Generic,
+}
+
+impl From<Elem> for PreSort {
+    fn from(e: Elem) -> Self {
+        match e {
+            Elem::Str => Self::Str,
+            Elem::Int => Self::Int,
+            Elem::Float => Self::Float,
+            Elem::Object(f) => Self::Object(f),
+            Elem::Generic => Self::Generic,
+        }
+    }
+}
+
+fn classify(class: &Py<PyType>, vm: &VirtualMachine) -> Elem {
+    if class.is(vm.ctx.types.str_type) {
+        Elem::Str
+    } else if class.is(vm.ctx.types.int_type) {
+        Elem::Int
+    } else if class.is(vm.ctx.types.float_type) {
+        Elem::Float
+    } else if let Some(f) = class.slots.richcompare.load() {
+        Elem::Object(f)
+    } else {
+        Elem::Generic
+    }
+}
+
+fn pre_sort_check<'a>(
+    mut keys: impl Iterator<Item = &'a PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PreSort {
+    let Some(first) = keys.next() else {
+        return PreSort::Generic;
+    };
+
+    if let Some(t) = first
+        .downcast_ref_if_exact::<PyTuple>(vm)
+        .filter(|t| !t.as_slice().is_empty())
+    {
+        pre_sort_check_tuples(&t.as_slice()[0], keys, vm)
+    } else {
+        let class = first.class();
+        if keys.all(|k| k.class().is(class)) {
+            classify(class, vm).into()
+        } else {
+            PreSort::Generic
+        }
+    }
+}
+
+fn pre_sort_check_tuples<'a>(
+    first_elem: &PyObjectRef,
+    keys: impl Iterator<Item = &'a PyObjectRef>,
+    vm: &VirtualMachine,
+) -> PreSort {
+    let class = first_elem.class();
+    let mut all_same_type = true;
+
+    for k in keys {
+        let Some(t) = k
+            .downcast_ref_if_exact::<PyTuple>(vm)
+            .filter(|t| !t.as_slice().is_empty())
+        else {
+            return PreSort::Generic;
+        };
+        if all_same_type && !t.as_slice()[0].class().is(class) {
+            all_same_type = false;
+        }
+    }
+
+    let elem = if !all_same_type || class.is(vm.ctx.types.tuple_type) {
+        Elem::Generic
+    } else {
+        classify(class, vm)
+    };
+    PreSort::Tuple(elem)
+}
+
+fn str_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+    a.downcast_ref::<PyStr>().unwrap().as_bytes() < b.downcast_ref::<PyStr>().unwrap().as_bytes()
+}
+
+fn int_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+    a.downcast_ref::<PyInt>().unwrap().as_bigint() < b.downcast_ref::<PyInt>().unwrap().as_bigint()
+}
+
+fn float_lt(a: &PyObjectRef, b: &PyObjectRef) -> bool {
+    a.downcast_ref::<PyFloat>().unwrap().to_f64() < b.downcast_ref::<PyFloat>().unwrap().to_f64()
+}
+
+fn object_lt(
+    cmp: RichCompareFunc,
+    a: &PyObjectRef,
+    b: &PyObjectRef,
+    vm: &VirtualMachine,
+) -> PyResult<bool> {
+    #[allow(unpredictable_function_pointer_comparisons)]
+    if a.class().slots.richcompare.load() != Some(cmp) {
+        return a.rich_compare_bool(b, PyComparisonOp::Lt, vm);
+    }
+    match cmp(a, b, PyComparisonOp::Lt, vm)? {
+        Either::B(PyComparisonValue::Implemented(v)) => Ok(v),
+        Either::B(PyComparisonValue::NotImplemented) => {
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+        }
+        Either::A(obj) => {
+            if obj.is(&vm.ctx.not_implemented) {
+                a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+            } else {
+                obj.try_to_bool(vm)
+            }
+        }
+    }
+}
+
+fn elem_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    match elem {
+        Elem::Str => Ok(str_lt(a, b)),
+        Elem::Int => Ok(int_lt(a, b)),
+        Elem::Float => Ok(float_lt(a, b)),
+        Elem::Object(f) => object_lt(*f, a, b, vm),
+        Elem::Generic => a.rich_compare_bool(b, PyComparisonOp::Lt, vm),
+    }
+}
+
+fn tuple_lt(elem: &Elem, a: &PyObjectRef, b: &PyObjectRef, vm: &VirtualMachine) -> PyResult<bool> {
+    let a = a.downcast_ref::<PyTuple>().unwrap().as_slice();
+    let b = b.downcast_ref::<PyTuple>().unwrap().as_slice();
+
+    let mut i = 0;
+    while i < a.len() && i < b.len() {
+        if !a[i].rich_compare_bool(&b[i], PyComparisonOp::Eq, vm)? {
+            break;
+        }
+        i += 1;
+    }
+    if i >= a.len() || i >= b.len() {
+        return Ok(a.len() < b.len());
+    }
+    if i == 0 {
+        elem_lt(elem, &a[0], &b[0], vm)
+    } else {
+        a[i].rich_compare_bool(&b[i], PyComparisonOp::Lt, vm)
+    }
+}
+
+fn timsort_by<T, K, L>(items: &mut [T], reverse: bool, key: &K, mut lt: L) -> PyResult<()>
+where
+    T: Clone,
+    K: Fn(&T) -> &PyObjectRef,
+    L: FnMut(&PyObjectRef, &PyObjectRef) -> PyResult<bool>,
+{
+    timsort(items, &mut |a, b| {
+        let (a, b) = if reverse {
+            (key(b), key(a))
+        } else {
+            (key(a), key(b))
+        };
+        lt(a, b)
+    })
+}
+
+fn timsort_specialized<T, K>(
+    vm: &VirtualMachine,
+    items: &mut [T],
+    reverse: bool,
+    key: K,
+) -> PyResult<()>
+where
+    T: Clone,
+    K: Fn(&T) -> &PyObjectRef,
+{
+    match pre_sort_check(items.iter().map(&key), vm) {
+        PreSort::Str => timsort_by(items, reverse, &key, |a, b| Ok(str_lt(a, b))),
+        PreSort::Int => timsort_by(items, reverse, &key, |a, b| Ok(int_lt(a, b))),
+        PreSort::Float => timsort_by(items, reverse, &key, |a, b| Ok(float_lt(a, b))),
+        PreSort::Object(cmp) => timsort_by(items, reverse, &key, |a, b| object_lt(cmp, a, b, vm)),
+        PreSort::Tuple(elem) => timsort_by(items, reverse, &key, |a, b| tuple_lt(&elem, a, b, vm)),
+        PreSort::Generic => timsort_by(items, reverse, &key, |a, b| {
+            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
+        }),
+    }
+}
+
 fn do_sort(
     vm: &VirtualMachine,
     values: &mut Vec<PyObjectRef>,
     key_func: Option<PyObjectRef>,
     reverse: bool,
 ) -> PyResult<()> {
-    // CPython uses __lt__ for all comparisons in sort.
-    // try_sort_by_gt expects is_gt(a, b) = true when a should come AFTER b.
-    let cmp = |a: &PyObjectRef, b: &PyObjectRef| {
-        if reverse {
-            // Descending: a comes after b when a < b
-            a.rich_compare_bool(b, PyComparisonOp::Lt, vm)
-        } else {
-            // Ascending: a comes after b when b < a
-            b.rich_compare_bool(a, PyComparisonOp::Lt, vm)
-        }
-    };
-
     if let Some(ref key_func) = key_func {
         let mut items = values
             .iter()
             .map(|x| Ok((x.clone(), key_func.call((x.clone(),), vm)?)))
             .collect::<Result<Vec<_>, _>>()?;
-        timsort::try_sort_by_gt(&mut items, |a, b| cmp(&a.1, &b.1))?;
+        timsort_specialized(
+            vm,
+            &mut items,
+            reverse,
+            |item: &(PyObjectRef, PyObjectRef)| &item.1,
+        )?;
         *values = items.into_iter().map(|(val, _)| val).collect();
     } else {
-        timsort::try_sort_by_gt(values, cmp)?;
+        timsort_specialized(vm, values, reverse, |x: &PyObjectRef| x)?
     }
 
     Ok(())
@@ -708,24 +912,22 @@ impl PyListIterator {
 impl PyListIterator {
     /// Fast path for FOR_ITER specialization.
     pub(crate) fn fast_next(&self) -> Option<PyObjectRef> {
-        self.internal
-            .lock()
-            .next(|list, pos| {
-                let vec = list.borrow_vec();
-                Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
-            })
-            .ok()
-            .and_then(|r| match r {
-                PyIterReturn::Return(v) => Some(v),
-                PyIterReturn::StopIteration(_) => None,
-            })
+        locked_next(&self.internal, |list, pos| {
+            let vec = list.borrow_vec();
+            Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
+        })
+        .ok()
+        .and_then(|r| match r {
+            PyIterReturn::Return(v) => Some(v),
+            PyIterReturn::StopIteration(_) => None,
+        })
     }
 }
 
 impl SelfIter for PyListIterator {}
 impl IterNext for PyListIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().next(|list, pos| {
+        locked_next(&zelf.internal, |list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })
@@ -774,7 +976,7 @@ impl PyListReverseIterator {
 impl SelfIter for PyListReverseIterator {}
 impl IterNext for PyListReverseIterator {
     fn next(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal.lock().rev_next(|list, pos| {
+        locked_rev_next(&zelf.internal, |list, pos| {
             let vec = list.borrow_vec();
             Ok(PyIterReturn::from_result(vec.get(pos).cloned().ok_or(None)))
         })

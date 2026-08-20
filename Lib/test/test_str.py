@@ -1070,7 +1070,7 @@ class StrTest(string_tests.StringLikeTest,
         '\U00100000'.ljust(3, '\U00010000')
         '\U00100000'.rjust(3, '\U00010000')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; '{0:08s}'.format('result') misalign — '0' fill treated as numeric zero-pad for str type
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; '{0.}'.format() raises ValueError instead of IndexError
     def test_format(self):
         self.assertEqual(''.format(), '')
         self.assertEqual('a'.format(), 'a')
@@ -2606,7 +2606,6 @@ class StrTest(string_tests.StringLikeTest,
         self.assertTrue(astral >= bmp2)
         self.assertFalse(astral >= astral2)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         support.check_free_after_iterating(self, iter, str)
         if not support.Py_GIL_DISABLED:

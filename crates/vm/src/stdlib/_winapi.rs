@@ -8,8 +8,9 @@ mod _winapi {
     use crate::{
         Py, PyObjectRef, PyPayload, PyResult, TryFromObject, VirtualMachine,
         builtins::PyStrRef,
-        common::lock::PyMutex,
+        common::lock::{PyMutex, PyMutexGuard},
         convert::ToPyException,
+        exceptions::nul_char_error,
         function::{ArgMapping, ArgSequence, OptionalArg},
         types::Constructor,
         windows::{WinHandle, WindowsSysResult},
@@ -92,7 +93,10 @@ mod _winapi {
         _template_file: PyObjectRef, // Always NULL (0)
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        let file_name_wide = file_name.as_wtf8().to_wide_cstring();
+        let file_name_wide = file_name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
         host_winapi::create_file_w(
             &file_name_wide,
             desired_access,
@@ -231,25 +235,19 @@ mod _winapi {
         let handle_list = get_handle_list(args.startup_info.get_attr("lpAttributeList", vm)?, vm)?;
 
         // Validate no embedded null bytes in command name and command line
-        // before handing the strings off; to_wide_cstring truncates at NUL.
-        if let Some(ref name) = args.name
-            && name.as_bytes().contains(&0)
-        {
-            return Err(crate::exceptions::cstring_error(vm));
-        }
-        if let Some(ref cmd) = args.command_line
-            && cmd.as_bytes().contains(&0)
-        {
-            return Err(crate::exceptions::cstring_error(vm));
-        }
-
-        let wcstring = |s: PyStrRef| s.as_wtf8().to_wide_cstring();
-        let app_name = args.name.as_ref().map(|s| wcstring(s.clone()));
-        let current_dir = args.current_dir.as_ref().map(|s| wcstring(s.clone()));
+        // before handing the strings off; to_wide_cstring rejects interior NULs.
+        let wcstring = |s: PyStrRef| {
+            s.as_wtf8()
+                .to_wide_cstring()
+                .map_err(|_| nul_char_error(vm))
+        };
+        let app_name = args.name.map(wcstring).transpose()?;
+        let current_dir = args.current_dir.map(wcstring).transpose()?;
         let mut command_line = args
             .command_line
-            .as_ref()
-            .map(|s| wcstring(s.clone()).into_vec_with_nul());
+            .map(|s| wcstring(s).map(widestring::WideCString::into_vec_with_nul))
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
 
         let procinfo = host_winapi::create_process(
             app_name.as_deref(),
@@ -289,9 +287,12 @@ mod _winapi {
     }
 
     #[pyfunction]
-    fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef) -> bool {
-        let exe_name = exe_name.as_wtf8().to_wide_cstring();
-        host_winapi::need_current_directory_for_exe_path_w(&exe_name)
+    fn NeedCurrentDirectoryForExePath(exe_name: PyStrRef, vm: &VirtualMachine) -> PyResult<bool> {
+        exe_name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map(|exe_name| host_winapi::need_current_directory_for_exe_path_w(&exe_name))
+            .map_err(|_| nul_char_error(vm))
     }
 
     #[pyfunction]
@@ -404,7 +405,11 @@ mod _winapi {
         name: OptionalArg<Option<PyStrRef>>,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        let name = name.flatten().map(|name| name.as_wtf8().to_wide_cstring());
+        let name = name
+            .flatten()
+            .map(|name| name.as_wtf8().to_wide_cstring())
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
         host_winapi::create_job_object_w(name.as_deref())
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
@@ -450,8 +455,11 @@ mod _winapi {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        let name_wide = name.as_wtf8().to_wide_cstring();
-        host_winapi::open_mutex_w(desired_access, inherit_handle, &name_wide)
+        let name = name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        host_winapi::open_mutex_w(desired_access, inherit_handle, &name)
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -494,8 +502,13 @@ mod _winapi {
         }
 
         // Use ToWideString which properly handles WTF-8 (including surrogates)
-        let locale_wide = locale.as_wtf8().to_wide_cstring();
-        let src_wide = src.as_wtf8().to_wide();
+        let locale_wide = locale
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        // SAFETY: Interior NULs and non-NUL capped strings are fine here because the API takes
+        // in a length.
+        let src_wide: Vec<_> = src.as_wtf8().encode_wide().collect();
 
         if src_wide.len() > i32::MAX as usize {
             return Err(vm.new_overflow_error("input string is too long"));
@@ -532,9 +545,13 @@ mod _winapi {
     /// CreateNamedPipe - Create a named pipe
     #[pyfunction]
     fn CreateNamedPipe(args: CreateNamedPipeArgs, vm: &VirtualMachine) -> PyResult<WinHandle> {
-        let name_wide = args.name.as_wtf8().to_wide_cstring();
+        let name = args
+            .name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
         host_winapi::create_named_pipe_w(
-            &name_wide,
+            &name,
             args.open_mode,
             args.pipe_mode,
             args.max_instances,
@@ -566,9 +583,18 @@ mod _winapi {
                 .map_err(|e| e.to_pyexception(vm))
         }
 
+        /// Take `inner`, detaching while blocked.
+        ///
+        /// `GetOverlappedResult` holds this mutex across its `allow_threads`
+        /// wait, so a stopped thread can still be holding it. Blocking on it
+        /// while attached would leave no safepoint for that stop to complete at.
+        fn lock_inner(&self, vm: &VirtualMachine) -> PyMutexGuard<'_, host_overlapped::Operation> {
+            vm.allow_threads(|| self.inner.lock())
+        }
+
         #[pymethod]
         fn GetOverlappedResult(&self, wait: bool, vm: &VirtualMachine) -> PyResult<(u32, u32)> {
-            let mut inner = self.inner.lock();
+            let mut inner = self.lock_inner(vm);
             vm.allow_threads(|| inner.get_result(wait))
                 .map(|result| (result.transferred, result.error))
                 .map_err(|e| e.to_pyexception(vm))
@@ -576,7 +602,7 @@ mod _winapi {
 
         #[pymethod]
         fn getbuffer(&self, vm: &VirtualMachine) -> PyResult<Option<PyObjectRef>> {
-            let inner = self.inner.lock();
+            let inner = self.lock_inner(vm);
             if !inner.is_completed() {
                 return Err(vm.new_value_error(
                     "can't get read buffer before GetOverlappedResult() signals the operation completed",
@@ -589,13 +615,13 @@ mod _winapi {
 
         #[pymethod]
         fn cancel(&self, vm: &VirtualMachine) -> PyResult<()> {
-            let mut inner = self.inner.lock();
+            let mut inner = self.lock_inner(vm);
             inner.cancel().map_err(|e| e.to_pyexception(vm))
         }
 
         #[pygetset]
-        fn event(&self) -> isize {
-            let inner = self.inner.lock();
+        fn event(&self, vm: &VirtualMachine) -> isize {
+            let inner = self.lock_inner(vm);
             inner.event() as isize
         }
     }
@@ -652,26 +678,33 @@ mod _winapi {
     /// GetShortPathName - Return the short version of the provided path.
     #[pyfunction]
     fn GetShortPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let path_wide = path.as_wtf8().to_wide_cstring();
-        let wide =
-            host_winapi::get_short_path_name_w(&path_wide).map_err(|e| e.to_pyexception(vm))?;
+        let path = path
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        let wide = host_winapi::get_short_path_name_w(&path).map_err(|e| e.to_pyexception(vm))?;
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
     /// GetLongPathName - Return the long version of the provided path.
     #[pyfunction]
     fn GetLongPathName(path: PyStrRef, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let path_wide = path.as_wtf8().to_wide_cstring();
-        let wide =
-            host_winapi::get_long_path_name_w(&path_wide).map_err(|e| e.to_pyexception(vm))?;
+        let path = path
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        let wide = host_winapi::get_long_path_name_w(&path).map_err(|e| e.to_pyexception(vm))?;
         Ok(path_name_result_to_pystr(wide, vm))
     }
 
     /// WaitNamedPipe - Wait for an instance of a named pipe to become available.
     #[pyfunction]
     fn WaitNamedPipe(name: PyStrRef, timeout: u32, vm: &VirtualMachine) -> PyResult<()> {
-        let name_wide = name.as_wtf8().to_wide_cstring();
-        host_winapi::wait_named_pipe_w(&name_wide, timeout).map_err(|e| e.to_pyexception(vm))
+        let name = name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        host_winapi::wait_named_pipe_w(&name, timeout).map_err(|e| e.to_pyexception(vm))
     }
 
     /// PeekNamedPipe - Peek at data in a named pipe without removing it.
@@ -724,8 +757,11 @@ mod _winapi {
     ) -> PyResult<WinHandle> {
         let _ = security_attributes; // Ignored, always NULL
 
-        let name_wide = name.map(|n| n.as_wtf8().to_wide_cstring());
-        host_winapi::create_event_w(manual_reset, initial_state, name_wide.as_deref())
+        let name = name
+            .map(|n| n.as_wtf8().to_wide_cstring())
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        host_winapi::create_event_w(manual_reset, initial_state, name.as_deref())
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -852,8 +888,11 @@ mod _winapi {
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
         let _ = security_attributes;
-        let name_wide = name.map(|n| n.as_wtf8().to_wide_cstring());
-        host_winapi::create_mutex_w(initial_owner, name_wide.as_deref())
+        let name = name
+            .map(|n| n.as_wtf8().to_wide_cstring())
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
+        host_winapi::create_mutex_w(initial_owner, name.as_deref())
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -866,8 +905,11 @@ mod _winapi {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        let name_wide = name.as_wtf8().to_wide_cstring();
-        host_winapi::open_event_w(desired_access, inherit_handle, &name_wide)
+        let name = name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        host_winapi::open_event_w(desired_access, inherit_handle, &name)
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -965,20 +1007,16 @@ mod _winapi {
         name: Option<PyStrRef>,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        if let Some(ref n) = name
-            && n.as_bytes().contains(&0)
-        {
-            return Err(
-                vm.new_value_error("CreateFileMapping: name must not contain null characters")
-            );
-        }
-        let name_wide = name.as_ref().map(|n| n.as_wtf8().to_wide_cstring());
+        let name = name
+            .map(|n| n.as_wtf8().to_wide_cstring())
+            .transpose()
+            .map_err(|_| nul_char_error(vm))?;
         host_winapi::create_file_mapping_w(
             file_handle.0,
             protect,
             max_size_high,
             max_size_low,
-            name_wide.as_deref(),
+            name.as_deref(),
         )
         .map(WinHandle)
         .map_err(|e| e.to_pyexception(vm))
@@ -992,13 +1030,11 @@ mod _winapi {
         name: PyStrRef,
         vm: &VirtualMachine,
     ) -> PyResult<WinHandle> {
-        if name.as_bytes().contains(&0) {
-            return Err(
-                vm.new_value_error("OpenFileMapping: name must not contain null characters")
-            );
-        }
-        let name_wide = name.as_wtf8().to_wide_cstring();
-        host_winapi::open_file_mapping_w(desired_access, inherit_handle, &name_wide)
+        let name = name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        host_winapi::open_file_mapping_w(desired_access, inherit_handle, &name)
             .map(WinHandle)
             .map_err(|e| e.to_pyexception(vm))
     }
@@ -1044,8 +1080,14 @@ mod _winapi {
         _progress_routine: OptionalArg<PyObjectRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let src_wide = existing_file_name.as_wtf8().to_wide_cstring();
-        let dst_wide = new_file_name.as_wtf8().to_wide_cstring();
+        let src_wide = existing_file_name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
+        let dst_wide = new_file_name
+            .as_wtf8()
+            .to_wide_cstring()
+            .map_err(|_| nul_char_error(vm))?;
         host_winapi::copy_file2(&src_wide, &dst_wide, flags).map_err(|e| e.to_pyexception(vm))
     }
 

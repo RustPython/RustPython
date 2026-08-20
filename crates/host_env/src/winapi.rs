@@ -3,22 +3,20 @@
     reason = "This module mirrors Win32 APIs with raw handle and pointer parameters."
 )]
 
+use core::hint::cold_path;
 use std::{io, path::Path};
-use windows_sys::Win32::{
-    Foundation::{HANDLE, HMODULE, WAIT_FAILED},
-    System::Threading::PROCESS_INFORMATION,
-};
 
 use crate::windows::{CheckWin32Bool, CheckWin32Handle};
 
+use memchr::memchr;
 pub use windows_sys::Win32::{
     Foundation::{
         DUPLICATE_CLOSE_SOURCE, DUPLICATE_SAME_ACCESS, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
         ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_MORE_DATA, ERROR_NETNAME_DELETED, ERROR_NO_DATA,
         ERROR_NO_SYSTEM_RESOURCES, ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_BUSY,
         ERROR_PIPE_CONNECTED, ERROR_PORT_UNREACHABLE, ERROR_PRIVILEGE_NOT_HELD, ERROR_SEM_TIMEOUT,
-        ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, STILL_ACTIVE, WAIT_ABANDONED_0, WAIT_OBJECT_0,
-        WAIT_TIMEOUT,
+        ERROR_SUCCESS, GENERIC_READ, GENERIC_WRITE, HANDLE, HMODULE, STILL_ACTIVE,
+        WAIT_ABANDONED_0, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
     },
     Globalization::{
         LCMAP_FULLWIDTH, LCMAP_HALFWIDTH, LCMAP_HIRAGANA, LCMAP_KATAKANA, LCMAP_LINGUISTIC_CASING,
@@ -57,16 +55,17 @@ pub use windows_sys::Win32::{
             ABOVE_NORMAL_PRIORITY_CLASS, BELOW_NORMAL_PRIORITY_CLASS, CREATE_BREAKAWAY_FROM_JOB,
             CREATE_DEFAULT_ERROR_MODE, CREATE_NEW_CONSOLE, CREATE_NEW_PROCESS_GROUP,
             CREATE_NO_WINDOW, DETACHED_PROCESS, HIGH_PRIORITY_CLASS, IDLE_PRIORITY_CLASS,
-            NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS, PROCESS_DUP_HANDLE, REALTIME_PRIORITY_CLASS,
-            STARTF_FORCEOFFFEEDBACK, STARTF_FORCEONFEEDBACK, STARTF_PREVENTPINNING,
-            STARTF_RUNFULLSCREEN, STARTF_TITLEISAPPID, STARTF_TITLEISLINKNAME,
-            STARTF_UNTRUSTEDSOURCE, STARTF_USECOUNTCHARS, STARTF_USEFILLATTRIBUTE,
-            STARTF_USEHOTKEY, STARTF_USEPOSITION, STARTF_USESHOWWINDOW, STARTF_USESIZE,
-            STARTF_USESTDHANDLES,
+            NORMAL_PRIORITY_CLASS, PROCESS_ALL_ACCESS, PROCESS_DUP_HANDLE, PROCESS_INFORMATION,
+            REALTIME_PRIORITY_CLASS, STARTF_FORCEOFFFEEDBACK, STARTF_FORCEONFEEDBACK,
+            STARTF_PREVENTPINNING, STARTF_RUNFULLSCREEN, STARTF_TITLEISAPPID,
+            STARTF_TITLEISLINKNAME, STARTF_UNTRUSTEDSOURCE, STARTF_USECOUNTCHARS,
+            STARTF_USEFILLATTRIBUTE, STARTF_USEHOTKEY, STARTF_USEPOSITION, STARTF_USESHOWWINDOW,
+            STARTF_USESIZE, STARTF_USESTDHANDLES,
         },
     },
     UI::WindowsAndMessaging::SW_HIDE,
 };
+use windows_sys::w;
 
 pub type Handle = HANDLE;
 pub type StdHandle = windows_sys::Win32::System::Console::STD_HANDLE;
@@ -189,7 +188,7 @@ pub fn create_file_w(
 /// `startup_info` must point to a valid `STARTUPINFOW` (or extended).
 unsafe fn create_process_w_raw(
     app_name: Option<&widestring::WideCStr>,
-    command_line: Option<&mut [u16]>,
+    command_line: Option<&mut widestring::WideCStr>,
     inherit_handles: i32,
     creation_flags: u32,
     env: Option<&[u16]>,
@@ -215,37 +214,6 @@ unsafe fn create_process_w_raw(
     Ok(unsafe { procinfo.assume_init() })
 }
 
-/// Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
-/// The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it
-/// in place.
-#[inline]
-fn validate_command_line_terminated(buf: &[u16]) -> io::Result<()> {
-    if buf.last() == Some(&0) {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "command_line buffer passed to create_process must be NUL-terminated",
-        ))
-    }
-}
-
-/// Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
-/// `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
-/// final terminating `\0` — i.e. the block ends with two consecutive zero
-/// `u16`s.
-#[inline]
-fn validate_environment_block_terminated(buf: &[u16]) -> io::Result<()> {
-    if buf.len() >= 2 && buf[buf.len() - 2..] == [0, 0] {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "env block passed to create_process must end with a double NUL terminator",
-        ))
-    }
-}
-
 #[allow(
     clippy::too_many_arguments,
     reason = "This is the semantic host wrapper for Win32 CreateProcess parameters."
@@ -260,11 +228,28 @@ pub fn create_process(
     startup_info: StartupInfoData,
     handle_list: Option<Vec<usize>>,
 ) -> io::Result<ProcessInfo> {
-    if let Some(cmd) = command_line.as_deref() {
-        validate_command_line_terminated(cmd)?;
-    }
-    if let Some(env_block) = env {
-        validate_environment_block_terminated(env_block)?;
+    // Win32 `CreateProcessW` requires `lpCommandLine` to be NUL-terminated.
+    // The buffer is passed `&mut [u16]` because `CreateProcessW` may modify it in place.
+    let command_line = command_line
+        .map(widestring::WideCStr::from_slice_mut)
+        .transpose()
+        .map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "command_line buffer passed to create_process must be NUL-terminated",
+            )
+        })?;
+    // Win32 `CreateProcessW` with `CREATE_UNICODE_ENVIRONMENT` requires
+    // `lpEnvironment` to be a sequence of `KEY=value\0` strings followed by a
+    // final terminating `\0` — i.e. the block ends with two consecutive zero
+    // `u16`s.
+    if let Some(env_block) = env
+        && !env_block.ends_with(&[0, 0])
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "env block passed to create_process must end with a double NUL terminator",
+        ));
     }
 
     let mut si: windows_sys::Win32::System::Threading::STARTUPINFOEXW =
@@ -312,7 +297,8 @@ pub fn build_environment_block(
 
     let mut last_entry: HashMap<String, Vec<u16>> = HashMap::new();
     for (key, value) in entries {
-        if key.contains('\0') || value.contains('\0') {
+        if memchr(b'\0', key.as_bytes()).is_some() || memchr(b'\0', value.as_bytes()).is_some() {
+            cold_path();
             return Err(BuildEnvironmentBlockError::ContainsNul);
         }
         if key.is_empty() || key[1..].contains('=') {
@@ -1094,14 +1080,14 @@ where
             return Err(MimeRegistryReadError::Os(err));
         }
 
-        let content_type_key: Vec<u16> = "Content Type\0".encode_utf16().collect();
+        let content_type_key = w!("Content Type");
         let mut type_buf = [0u16; 256];
         let mut cb_type = (type_buf.len() * 2) as u32;
         let mut reg_type = 0;
         let err = unsafe {
             RegQueryValueExW(
                 subkey,
-                content_type_key.as_ptr(),
+                content_type_key,
                 core::ptr::null_mut(),
                 &mut reg_type,
                 type_buf.as_mut_ptr().cast(),
@@ -1140,6 +1126,12 @@ pub fn lc_map_string_ex(
     src: &[u16],
 ) -> io::Result<Vec<u16>> {
     let src_len = src.len() as i32;
+    // SAFETY:
+    // * locale does not have interior NULs and ends with a NUL. This is guaranteed by
+    // WideCStr.
+    // * src CAN have interior NULs and DOES NOT need to end with a NUL. However, the length must be
+    // passed into LCMapStringEx. If the length is NOT passed in, Windows calculates the length
+    // and interior NULs are not allowed.
     let dest_size = unsafe {
         windows_sys::Win32::Globalization::LCMapStringEx(
             locale.as_ptr(),

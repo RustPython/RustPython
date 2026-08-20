@@ -518,7 +518,6 @@ class BaseBytesTest:
         self.assertEqual(self.type2test(b"\x1a\x2b\x30").hex(), '1a2b30')
         self.assertEqual(memoryview(b"\x1a\x2b\x30").hex(), '1a2b30')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; TypeError: Unexpected keyword argument sep
     def test_hex_separator_basics(self):
         three_bytes = self.type2test(b'\xb9\x01\xef')
         self.assertEqual(three_bytes.hex(), 'b901ef')
@@ -1042,7 +1041,6 @@ class BaseBytesTest:
         self.assertRaisesRegex(TypeError, r'\bendswith\b', b.endswith,
                                 x, None, None, None)
 
-    @unittest.skip("TODO: RUSTPYTHON; hangs")
     def test_free_after_iterating(self):
         test.support.check_free_after_iterating(self, iter, self.type2test)
         test.support.check_free_after_iterating(self, reversed, self.type2test)
@@ -2102,7 +2100,6 @@ class AssortedBytesTest(unittest.TestCase):
         self.assertEqual(f(b"'\"'"), r"""b'\'"\''""") # '\'"\''
         self.assertEqual(f(BytesSubclass(b"abc")), "b'abc'")
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_bytearray_repr(self, f=repr):
         self.assertEqual(f(bytearray()), "bytearray(b'')")
         self.assertEqual(f(bytearray(b'abc')), "bytearray(b'abc')")
@@ -2124,7 +2121,6 @@ class AssortedBytesTest(unittest.TestCase):
     def test_bytes_str(self):
         self.test_bytes_repr(str)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     @check_bytes_warnings
     def test_bytearray_str(self):
         self.test_bytearray_repr(str)

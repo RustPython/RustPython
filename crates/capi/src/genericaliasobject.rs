@@ -10,6 +10,6 @@ pub unsafe extern "C" fn Py_GenericAlias(
     with_vm(|vm| {
         let origin = unsafe { &*origin }.to_owned();
         let args = unsafe { &*args }.to_owned();
-        PyGenericAlias::from_args(origin, args, vm).into_pyobject(vm)
+        PyGenericAlias::from_args(origin, args, vm).map(|alias| alias.into_pyobject(vm))
     })
 }

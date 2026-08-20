@@ -37,9 +37,12 @@ impl Constructor for PyMap {
     fn py_new(
         _cls: &Py<PyType>,
         (mapper, iterators, args): Self::Args,
-        _vm: &VirtualMachine,
+        vm: &VirtualMachine,
     ) -> PyResult<Self> {
         let iterators = iterators.into_vec();
+        if iterators.is_empty() {
+            return Err(vm.new_type_error("map() must have at least two arguments."));
+        }
         let strict = Radium::new(args.strict.unwrap_or(false));
         Ok(Self {
             mapper,
@@ -51,15 +54,6 @@ impl Constructor for PyMap {
 
 #[pyclass(with(IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyMap {
-    #[pymethod]
-    fn __length_hint__(&self, vm: &VirtualMachine) -> PyResult<usize> {
-        self.iterators.iter().try_fold(0, |prev, cur| {
-            let cur = cur.as_ref().to_owned().length_hint(0, vm)?;
-            let max = core::cmp::max(prev, cur);
-            Ok(max)
-        })
-    }
-
     #[pymethod]
     fn __reduce__(zelf: PyRef<Self>, vm: &VirtualMachine) -> PyTupleRef {
         let cls = zelf.class().to_owned();

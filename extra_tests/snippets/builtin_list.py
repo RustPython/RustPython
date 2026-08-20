@@ -1,3 +1,5 @@
+import sys
+
 from testutils import assert_raises
 
 x = [1, 2, 3]
@@ -241,6 +243,33 @@ assert sorted([(1, 2, 3), (0, 3, 6)]) == [(0, 3, 6), (1, 2, 3)]
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[0]) == [(0, 3, 6), (1, 2, 3)]
 assert sorted([(1, 2, 3), (0, 3, 6)], key=lambda x: x[1]) == [(1, 2, 3), (0, 3, 6)]
 assert sorted([(1, 2), (), (5,)], key=len) == [(), (5,), (1, 2)]
+
+assert sorted(["b", "a", "é", "z\U0001f600", "z"]) == [
+    "a",
+    "b",
+    "z",
+    "z\U0001f600",
+    "é",
+]
+assert sorted([10**30, -(10**30), 5, 0]) == [-(10**30), 0, 5, 10**30]
+assert sorted([True, False, True]) == [False, True, True]
+
+
+class IntSub(int):
+    pass
+
+
+assert sorted([IntSub(2), 3, IntSub(1)]) == [1, 2, 3]
+assert sorted([2.5, 1, 3.0, 2]) == [1, 2, 2.5, 3.0]
+assert_raises(TypeError, sorted, [1, "a"])
+nan = float("nan")
+assert repr(sorted([nan, 1.0, 2.0])) == "[nan, 1.0, 2.0]"
+assert sorted([b"b", b"a", b"c"]) == [b"a", b"b", b"c"]
+assert sorted([(2, 9), (1, 5), (2, 1)]) == [(1, 5), (2, 1), (2, 9)]
+assert sorted([(1, "b"), (1, "a")]) == [(1, "a"), (1, "b")]
+assert sorted([(1,), (1, 2), ()]) == [(), (1,), (1, 2)]
+assert sorted([((2,), "x"), ((1,), "y")]) == [((1,), "y"), ((2,), "x")]
+assert sorted([(1, "a"), (2.5, "b"), (0, "c")]) == [(0, "c"), (1, "a"), (2.5, "b")]
 
 lst = [3, 1, 5, 2, 4]
 
@@ -896,3 +925,129 @@ class poc:
 list1 = rewrite_list_eq([poc()])
 list1.remove(list1)
 assert list1 == []
+
+# The repeat count is multiplied by the element size; a count that overflows
+# that product must raise instead of wrapping into a short allocation.
+with assert_raises(MemoryError):
+    [1] * sys.maxsize
+
+
+# A list takes the length an iterable reports before reading it, so one that
+# reports more than can be held says so instead of filling memory.
+class Reports:
+    def __init__(self, hint):
+        self.hint = hint
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+    def __length_hint__(self):
+        return self.hint
+
+
+with assert_raises(MemoryError):
+    list(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    [].extend(Reports(sys.maxsize))
+with assert_raises(MemoryError):
+    empty = []
+    empty += Reports(sys.maxsize)
+
+# A report that leaves no room for what the list already holds cannot be true,
+# so it is passed over rather than refused.
+held = [1, 2, 3, 4]
+held.extend(Reports(sys.maxsize))
+assert held == [1, 2, 3, 4, 1, 2, 3]
+
+
+# Reporting runs the iterable's own code, so what the list holds is counted
+# after the report rather than before it.
+grew = []
+
+
+class Grows:
+    def __iter__(self):
+        return iter([7])
+
+    def __length_hint__(self):
+        grew.extend([0] * 100)
+        return sys.maxsize - 50
+
+
+grew.extend(Grows())
+assert len(grew) == 101 and grew[-1] == 7, grew[-3:]
+
+shrunk = [1] * 100
+
+
+class Shrinks:
+    def __iter__(self):
+        return iter([])
+
+    def __length_hint__(self):
+        shrunk.clear()
+        return sys.maxsize
+
+
+with assert_raises(MemoryError):
+    shrunk.extend(Shrinks())
+
+
+# Only the callers that take the room ask at all, which is why an iterable whose
+# __len__ raises reaches tuple() but not list().
+class Lazy:
+    def __len__(self):
+        raise NotImplementedError
+
+    def __iter__(self):
+        return iter([1, 2, 3])
+
+
+assert tuple(Lazy()) == (1, 2, 3)
+assert (lambda *a: a)(*Lazy()) == (1, 2, 3)
+assert min(Lazy()) == 1
+with assert_raises(NotImplementedError):
+    list(Lazy())
+with assert_raises(NotImplementedError):
+    sorted(Lazy())
+with assert_raises(NotImplementedError):
+    [].extend(Lazy())
+with assert_raises(NotImplementedError):
+    [*Lazy()]
+
+
+# Nothing asks the iterator, so what it would have answered never runs.
+class LoudIterator:
+    def __init__(self):
+        self.i = iter([1, 2, 3])
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.i)
+
+    def __length_hint__(self):
+        raise NotImplementedError
+
+
+class HandsOutLoud:
+    def __iter__(self):
+        return LoudIterator()
+
+
+assert tuple(HandsOutLoud()) == (1, 2, 3)
+assert (lambda *a: a)(*HandsOutLoud()) == (1, 2, 3)
+assert min(HandsOutLoud()) == 1
+assert max(HandsOutLoud()) == 3
+assert list(HandsOutLoud()) == [1, 2, 3]
+assert sorted(HandsOutLoud()) == [1, 2, 3]
+assert bytearray(HandsOutLoud()) == bytearray(b"\x01\x02\x03")
+held = [0]
+held.extend(HandsOutLoud())
+assert held == [0, 1, 2, 3]
+
+
+# A report the list can act on is acted on.
+assert list(Reports(3)) == [1, 2, 3]
+assert list(Reports(0)) == [1, 2, 3]

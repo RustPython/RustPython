@@ -17,6 +17,7 @@ libc = { workspace = true }
 num-traits = { workspace = true }
 parking_lot = { workspace = true }
 paste = { workspace = true }
+widestring = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
@@ -51,9 +52,9 @@ libffi = { workspace = true, features = ["system"] }
 system-configuration = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
+memchr.workspace = true
 junction = { workspace = true }
 schannel = { workspace = true }
-widestring = { workspace = true }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Globalization",
@@ -83,6 +84,9 @@ windows-sys = { workspace = true, features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[build-dependencies]
+cc = "1"
 
 [lints]
 workspace = true

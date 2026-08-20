@@ -9,16 +9,17 @@ pub(crate) mod module {
         Py, PyResult, TryFromObject, VirtualMachine,
         builtins::{PyBytes, PyDictRef, PyListRef, PyStr, PyStrRef, PyTupleRef},
         convert::ToPyException,
-        exceptions::OSErrorBuilder,
+        exceptions::{self, OSErrorBuilder, ToOSErrorBuilder},
         function::{ArgMapping, Either, OptionalArg},
-        host_env::{crt_fd, windows::ToWideString},
+        host_env::crt_fd,
         ospath::{OsPath, OsPathOrFd},
         stdlib::os::{_os, DirFd, SupportFunc, TargetIsDirectory},
     };
+    use core::hint::cold_path;
     use libc::intptr_t;
     use rustpython_common::wtf8::Wtf8Buf;
     use rustpython_host_env::nt as host_nt;
-    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
     use std::os::windows::io::AsRawHandle;
 
     #[pyattr]
@@ -48,6 +49,26 @@ pub(crate) mod module {
     #[pyattr]
     const TMP_MAX: i32 = i32::MAX;
 
+    fn utf8_from_bytes<'a>(bytes: &'a [u8], vm: &VirtualMachine) -> PyResult<&'a str> {
+        core::str::from_utf8(bytes).map_err(|err| {
+            let reason = match err.error_len() {
+                None => "unexpected end of data",
+                Some(_) => match bytes[err.valid_up_to()] {
+                    0xc2..=0xf4 => "invalid continuation byte",
+                    _ => "invalid start byte",
+                },
+            };
+            vm.new_unicode_decode_error(
+                vm.ctx.new_str("utf-8"),
+                vm.ctx.new_bytes(bytes.to_vec()),
+                err.valid_up_to(),
+                err.error_len()
+                    .map_or(bytes.len(), |len| err.valid_up_to() + len),
+                vm.ctx.new_str(reason),
+            )
+        })
+    }
+
     #[pyattr]
     use host_nt::{
         LOAD_LIBRARY_SEARCH_APPLICATION_DIR as _LOAD_LIBRARY_SEARCH_APPLICATION_DIR,
@@ -71,8 +92,8 @@ pub(crate) mod module {
         vm: &VirtualMachine,
     ) -> PyResult<()> {
         let [] = dir_fd.0;
-        let _ = path.to_wide_cstring(vm)?;
-        host_nt::remove(path.as_ref()).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
+        let wide = path.to_wide_cstring(vm)?;
+        host_nt::remove(&wide).map_err(|err| OSErrorBuilder::with_filename(&err, path, vm))
     }
 
     #[pyfunction]
@@ -92,7 +113,6 @@ pub(crate) mod module {
 
     #[pyfunction]
     pub(super) fn symlink(args: SymlinkArgs<'_>, vm: &VirtualMachine) -> PyResult<()> {
-        use crate::exceptions::ToOSErrorBuilder;
         let src = args.src.to_wide_cstring(vm)?;
         let dst = args.dst.to_wide_cstring(vm)?;
         if let Err(err) = host_nt::symlink(
@@ -163,7 +183,8 @@ pub(crate) mod module {
     }
 
     fn win32_lchmod(path: &OsPath, mode: u32, vm: &VirtualMachine) -> PyResult<()> {
-        host_nt::win32_lchmod(path.path.as_os_str(), mode, S_IWRITE)
+        let wide = path.to_wide_cstring(vm)?;
+        host_nt::win32_lchmod(&wide, mode, S_IWRITE)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))
     }
 
@@ -211,13 +232,11 @@ pub(crate) mod module {
     /// Uses FindFirstFileW to get the name as stored on the filesystem.
     #[pyfunction]
     fn _findfirstfile(path: OsPath, vm: &VirtualMachine) -> PyResult<PyStrRef> {
-        let filename = host_nt::find_first_file_name(path.as_ref())
+        let wide = path.to_wide_cstring(vm)?;
+        let filename = host_nt::find_first_file_name(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
-        let filename_str = filename
-            .to_str()
-            .ok_or_else(|| vm.new_unicode_decode_error("filename contains invalid UTF-8"))?;
-
-        Ok(vm.ctx.new_str(filename_str))
+        let filename_wide: Vec<_> = filename.encode_wide().collect();
+        Ok(vm.ctx.new_str(Wtf8Buf::from_wide(&filename_wide)))
     }
 
     #[derive(FromArgs)]
@@ -273,7 +292,7 @@ pub(crate) mod module {
     }
 
     /// _testFileTypeByName - test file type by path name
-    fn _test_file_type_by_name(path: &std::path::Path, tested_type: u32) -> bool {
+    fn _test_file_type_by_name(path: &widestring::WideCStr, tested_type: u32) -> bool {
         let tested_type = match tested_type {
             PY_IFREG => host_nt::TestType::RegularFile,
             PY_IFDIR => host_nt::TestType::Directory,
@@ -284,11 +303,6 @@ pub(crate) mod module {
             _ => return false,
         };
         host_nt::test_file_type_by_name(path, tested_type)
-    }
-
-    /// _testFileExistsByName - test if path exists
-    fn _test_file_exists_by_name(path: &std::path::Path, follow_links: bool) -> bool {
-        host_nt::test_file_exists_by_name(path, follow_links)
     }
 
     /// _testFileType wrapper - handles both fd and path
@@ -302,7 +316,8 @@ pub(crate) mod module {
                     false
                 }
             }
-            OsPathOrFd::Path(path) => _test_file_type_by_name(path.as_ref(), tested_type),
+            OsPathOrFd::Path(path) => widestring::WideCString::from_os_str(&path.path)
+                .is_ok_and(|path| _test_file_type_by_name(&path, tested_type)),
         }
     }
 
@@ -310,7 +325,8 @@ pub(crate) mod module {
     fn _test_file_exists(path_or_fd: &OsPathOrFd<'_>, follow_links: bool) -> bool {
         match path_or_fd {
             OsPathOrFd::Fd(fd) => host_nt::fd_exists(*fd),
-            OsPathOrFd::Path(path) => _test_file_exists_by_name(path.as_ref(), follow_links),
+            OsPathOrFd::Path(path) => widestring::WideCString::from_os_str(&path.path)
+                .is_ok_and(|path| host_nt::test_file_exists_by_name(&path, follow_links)),
         }
     }
 
@@ -365,8 +381,8 @@ pub(crate) mod module {
     /// Check if a path is on a Windows Dev Drive.
     #[pyfunction]
     fn _path_isdevdrive(path: OsPath, vm: &VirtualMachine) -> PyResult<bool> {
-        let _ = path.to_wide_cstring(vm)?;
-        host_nt::path_isdevdrive(path.as_ref()).map_err(|err| err.to_pyexception(vm))
+        let path = path.to_wide_cstring(vm)?;
+        host_nt::path_isdevdrive(&path).map_err(|err| err.to_pyexception(vm))
     }
 
     #[cfg(target_env = "msvc")]
@@ -551,8 +567,9 @@ pub(crate) mod module {
             let value_str = value.expect_str();
 
             // Validate: no null characters in key or value
-            if key_str.contains('\0') || value_str.contains('\0') {
-                return Err(vm.new_value_error("embedded null character"));
+            if key.contains_nuls() || value.contains_nuls() {
+                cold_path();
+                return Err(exceptions::nul_char_error(vm));
             }
             // Validate: empty key or '=' in key after position 0
             // (search from index 1 because on Windows starting '=' is allowed
@@ -573,16 +590,16 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getfinalpathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
-        let _ = path.to_wide_cstring(vm)?;
-        let final_path = host_nt::getfinalpathname(path.as_ref())
+        let wide = path.to_wide_cstring(vm)?;
+        let final_path = host_nt::getfinalpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         Ok(path.mode().process_path(final_path, vm))
     }
 
     #[pyfunction]
     fn _getfullpathname(path: OsPath, vm: &VirtualMachine) -> PyResult {
-        let _ = path.to_wide_cstring(vm)?;
-        let buffer = host_nt::getfullpathname(path.as_ref())
+        let wide = path.to_wide_cstring(vm)?;
+        let buffer = host_nt::getfullpathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         Ok(path.mode().process_path(buffer, vm))
     }
@@ -594,7 +611,7 @@ pub(crate) mod module {
         if buflen > u32::MAX as usize {
             return Err(vm.new_overflow_error("path too long"));
         }
-        let buffer = host_nt::getvolumepathname(path.as_ref())
+        let buffer = host_nt::getvolumepathname(&wide)
             .map_err(|err| OSErrorBuilder::with_filename(&err, path.clone(), vm))?;
         Ok(path.mode().process_path(buffer, vm))
     }
@@ -687,17 +704,7 @@ pub(crate) mod module {
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
             // On Windows, bytes must be valid UTF-8 - this raises UnicodeDecodeError if not
-            let s = core::str::from_utf8(b.as_bytes()).map_err(|e| {
-                vm.new_exception_msg(
-                    vm.ctx.exceptions.unicode_decode_error.to_owned(),
-                    format!(
-                        "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
-                        b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
-                        e.valid_up_to()
-                    )
-                    .into(),
-                )
-            })?;
+            let s = utf8_from_bytes(b.as_bytes(), vm)?;
             let wide: Vec<u16> = s.encode_utf16().collect();
             (wide, true)
         } else {
@@ -718,16 +725,13 @@ pub(crate) mod module {
         // Return as bytes if input was bytes, preserving the original content
         if is_bytes {
             // Convert UTF-16 back to UTF-8 for bytes output
-            let drv = String::from_utf16(&wide[..drv_size])
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
-            let root = String::from_utf16(&wide[drv_size..drv_size + root_size])
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
-            let tail = String::from_utf16(&wide[drv_size + root_size..])
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
+            let drv = Wtf8Buf::from_wide(&wide[..drv_size]).into_bytes();
+            let root = Wtf8Buf::from_wide(&wide[drv_size..drv_size + root_size]).into_bytes();
+            let tail = Wtf8Buf::from_wide(&wide[drv_size + root_size..]).into_bytes();
             Ok(vm.ctx.new_tuple(vec![
-                vm.ctx.new_bytes(drv.into_bytes()).into(),
-                vm.ctx.new_bytes(root.into_bytes()).into(),
-                vm.ctx.new_bytes(tail.into_bytes()).into(),
+                vm.ctx.new_bytes(drv).into(),
+                vm.ctx.new_bytes(root).into(),
+                vm.ctx.new_bytes(tail).into(),
             ]))
         } else {
             // For str output, use WTF-8 to handle surrogates
@@ -743,10 +747,12 @@ pub(crate) mod module {
     }
 
     #[pyfunction]
-    fn _path_splitroot(path: OsPath, _vm: &VirtualMachine) -> (Wtf8Buf, Wtf8Buf) {
-        let orig: Vec<_> = path.path.to_wide();
+    fn _path_splitroot(path: OsPath, vm: &VirtualMachine) -> PyResult<(Wtf8Buf, Wtf8Buf)> {
+        let orig: Vec<_> = widestring::WideCString::from_os_str(path.path)
+            .map_err(|e| e.to_pyexception(vm))?
+            .into_vec();
         if orig.is_empty() {
-            return (Wtf8Buf::new(), Wtf8Buf::new());
+            return Ok((Wtf8Buf::new(), Wtf8Buf::new()));
         }
         let backslashed: Vec<_> = orig
             .iter()
@@ -755,8 +761,8 @@ pub(crate) mod module {
             .chain(core::iter::once(0)) // null-terminated
             .collect();
 
-        let backslashed_wide = widestring::WideCStr::from_slice_truncate(&backslashed)
-            .expect("backslashed is null-terminated");
+        let backslashed_wide = widestring::WideCStr::from_slice(&backslashed)
+            .expect("backslashed is null-terminated and does not contain interior nulls");
         if let Some(len) = host_nt::path_skip_root(backslashed_wide) {
             assert!(
                 len < backslashed.len(), // backslashed is null-terminated
@@ -766,15 +772,15 @@ pub(crate) mod module {
                 backslashed.len()
             );
             if len != 0 {
-                (
+                Ok((
                     Wtf8Buf::from_wide(&orig[..len]),
                     Wtf8Buf::from_wide(&orig[len..]),
-                )
+                ))
             } else {
-                (Wtf8Buf::from_wide(&orig), Wtf8Buf::new())
+                Ok((Wtf8Buf::from_wide(&orig), Wtf8Buf::new()))
             }
         } else {
-            (Wtf8Buf::new(), Wtf8Buf::from_wide(&orig))
+            Ok((Wtf8Buf::new(), Wtf8Buf::from_wide(&orig)))
         }
     }
 
@@ -911,17 +917,7 @@ pub(crate) mod module {
             let wide: Vec<u16> = s.as_wtf8().encode_wide().collect();
             (wide, false)
         } else if let Some(b) = path.downcast_ref::<PyBytes>() {
-            let s = core::str::from_utf8(b.as_bytes()).map_err(|e| {
-                vm.new_exception_msg(
-                    vm.ctx.exceptions.unicode_decode_error.to_owned(),
-                    format!(
-                        "'utf-8' codec can't decode byte {:#x} in position {}: invalid start byte",
-                        b.as_bytes().get(e.valid_up_to()).copied().unwrap_or(0),
-                        e.valid_up_to()
-                    )
-                    .into(),
-                )
-            })?;
+            let s = utf8_from_bytes(b.as_bytes(), vm)?;
             let wide: Vec<u16> = s.encode_utf16().collect();
             (wide, true)
         } else {
@@ -934,9 +930,8 @@ pub(crate) mod module {
         let normalized = normpath_wide(&wide);
 
         if is_bytes {
-            let s = String::from_utf16(&normalized)
-                .map_err(|e| vm.new_unicode_decode_error(e.to_string()))?;
-            Ok(vm.ctx.new_bytes(s.into_bytes()).into())
+            let bytes = Wtf8Buf::from_wide(&normalized).into_bytes();
+            Ok(vm.ctx.new_bytes(bytes).into())
         } else {
             let s = Wtf8Buf::from_wide(&normalized);
             Ok(vm.ctx.new_str(s).into())
@@ -945,8 +940,8 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn _getdiskusage(path: OsPath, vm: &VirtualMachine) -> PyResult<(u64, u64)> {
-        let _ = path.to_wide_cstring(vm)?;
-        host_nt::getdiskusage(path.as_ref()).map_err(|err| err.to_pyexception(vm))
+        let path = path.to_wide_cstring(vm)?;
+        host_nt::getdiskusage(&path).map_err(|err| err.to_pyexception(vm))
     }
 
     #[pyfunction]
@@ -992,8 +987,8 @@ pub(crate) mod module {
 
     #[pyfunction]
     fn listmounts(volume: OsPath, vm: &VirtualMachine) -> PyResult<PyListRef> {
-        let _ = volume.to_wide_cstring(vm)?;
-        let result = host_nt::listmounts(volume.as_ref())
+        let volume = volume.to_wide_cstring(vm)?;
+        let result = host_nt::listmounts(&volume)
             .map_err(|err| err.to_pyexception(vm))?
             .into_iter()
             .map(|mount| vm.new_pyobj(mount.to_string_lossy().into_owned()))
@@ -1067,10 +1062,11 @@ pub(crate) mod module {
     #[pyfunction]
     fn readlink(path: OsPath, vm: &VirtualMachine) -> PyResult {
         let mode = path.mode();
-        match host_nt::readlink(path.as_ref()) {
+        let wide = path.to_wide_cstring(vm)?;
+        match host_nt::readlink(&wide) {
             Ok(result_path) => Ok(mode.process_path(std::path::PathBuf::from(result_path), vm)),
             Err(host_nt::ReadlinkError::Io(err)) => {
-                Err(OSErrorBuilder::with_filename(&err, path.clone(), vm))
+                Err(OSErrorBuilder::with_filename(&err, path, vm))
             }
             Err(err) => Err(err.to_pyexception(vm)),
         }

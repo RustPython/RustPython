@@ -1,5 +1,12 @@
 use rustpython_wtf8::Wtf8;
 
+/// A position in the subject, paired with the byte pointer it resolves to.
+///
+/// `position` is a **character index**, never a byte offset. The engine does
+/// arithmetic on it directly — it subtracts two positions to get a character
+/// count, adds a repeat count to get a bound, and compares one against a
+/// lookbehind width — so the unit is part of the [`StrDrive`] contract rather
+/// than a detail each implementation may pick.
 #[derive(Debug, Clone, Copy)]
 pub struct StringCursor {
     pub(crate) ptr: *const u8,
@@ -15,15 +22,43 @@ impl Default for StringCursor {
     }
 }
 
+/// Random access over the subject being matched.
+///
+/// An implementation chooses how a character is spelled in memory — one byte
+/// for `&[u8]`, one code point for `&str` and `&Wtf8` — but **not** how
+/// positions are counted. Every position this trait produces or consumes is a
+/// character index: `count` is the subject's length in characters, and
+/// `skip(n)` advances a cursor's `position` by exactly `n`.
+///
+/// That is load-bearing, not incidental. The engine reads position arithmetic
+/// as character arithmetic in several places — `_count` bounds a repeat with
+/// `position + max_count` and reports the repeat's length as a difference of
+/// positions, `ASSERT` tests `position < back` against a lookbehind width, and
+/// `search_info` recovers a match start as `position - (len - 1)`. A drive
+/// that stored byte offsets here would leave all of those type-correct and
+/// silently wrong, and would index a lookbehind out of bounds.
+///
+/// So a drive over a variable-width encoding pays for the mapping: `count`
+/// and `create_cursor` have to resolve character indices, and cannot simply
+/// hand back byte lengths and byte offsets.
 pub trait StrDrive: Copy {
+    /// The subject's length, in characters.
     fn count(&self) -> usize;
+    /// A cursor at character index `n`.
     fn create_cursor(&self, n: usize) -> StringCursor;
+    /// Move `cursor` to character index `n`, from wherever it is now.
     fn adjust_cursor(&self, cursor: &mut StringCursor, n: usize);
+    /// Consume one character, returning it; `position` grows by one.
     fn advance(cursor: &mut StringCursor) -> u32;
+    /// The character at `cursor`, without moving it.
     fn peek(cursor: &StringCursor) -> u32;
+    /// Skip `n` characters, so `position` grows by exactly `n`.
     fn skip(cursor: &mut StringCursor, n: usize);
+    /// Step back over one character, returning it; `position` shrinks by one.
     fn back_advance(cursor: &mut StringCursor) -> u32;
+    /// The character before `cursor`, without moving it.
     fn back_peek(cursor: &StringCursor) -> u32;
+    /// Step back `n` characters, so `position` shrinks by exactly `n`.
     fn back_skip(cursor: &mut StringCursor, n: usize);
 }
 

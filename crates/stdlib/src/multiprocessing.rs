@@ -359,6 +359,7 @@ mod _multiprocessing {
     use rustpython_host_env::multiprocessing::{
         self as host_multiprocessing, SemError, TryAcquireStatus, WaitStatus,
     };
+    use rustpython_vm::exceptions;
 
     /// Error type for sem_timedwait operations
     #[cfg(target_vendor = "apple")]
@@ -810,8 +811,8 @@ mod _multiprocessing {
             let value = args.value as u32;
             let (handle, name) =
                 SemHandle::create(&args.name, value, args.unlink).map_err(|err| {
-                    if err == SemError::InvalidInput && args.name.contains('\0') {
-                        vm.new_value_error("embedded null character")
+                    if err == SemError::InteriorNul {
+                        exceptions::nul_char_error(vm)
                     } else {
                         os_error(vm, err)
                     }
@@ -834,8 +835,8 @@ mod _multiprocessing {
     #[pyfunction]
     fn sem_unlink(name: String, vm: &VirtualMachine) -> PyResult<()> {
         host_multiprocessing::sem_unlink(&name).map_err(|err| {
-            if err == SemError::InvalidInput && name.contains('\0') {
-                vm.new_value_error("embedded null character")
+            if err == SemError::InteriorNul {
+                exceptions::nul_char_error(vm)
             } else {
                 os_error(vm, err)
             }

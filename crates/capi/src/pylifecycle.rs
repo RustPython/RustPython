@@ -3,6 +3,7 @@ use crate::pyerrors::init_exception_statics;
 use crate::pystate::ensure_thread_has_vm_attached;
 use alloc::ffi::CString;
 use core::ffi::{c_char, c_int, c_ulong};
+use core::sync::atomic::{AtomicPtr, Ordering};
 use rustpython_vm::common::rc::PyRc;
 use rustpython_vm::stdlib::sys;
 use rustpython_vm::version::{MAJOR, MICRO, MINOR, RUSTPYTHON_BUILD_INFO, VERSION_HEX};
@@ -11,6 +12,7 @@ use rustpython_vm::{Context, Interpreter};
 use std::sync::{LazyLock, Mutex};
 
 pub(crate) static MAIN_INTERP: Mutex<Option<Interpreter>> = Mutex::new(None);
+pub(crate) static MAIN_INTERP_PTR: AtomicPtr<Interpreter> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Request a thread local vm from the main interpreter
 pub(crate) fn request_vm_from_interpreter() -> ThreadedVirtualMachine {
@@ -25,7 +27,7 @@ pub static Py_Version: c_ulong = VERSION_HEX as c_ulong;
 
 #[unsafe(no_mangle)]
 pub extern "C" fn Py_IsInitialized() -> c_int {
-    get_main_interpreter().is_some() as c_int
+    !MAIN_INTERP_PTR.load(Ordering::Acquire).is_null() as c_int
 }
 
 #[unsafe(no_mangle)]
@@ -52,6 +54,10 @@ pub extern "C" fn Py_InitializeEx(_initsigs: c_int) {
             })
             .build()
             .into();
+        MAIN_INTERP_PTR.store(
+            interp.as_ref().unwrap() as *const _ as *mut _,
+            Ordering::Release,
+        );
         drop(interp);
         ensure_thread_has_vm_attached();
     }

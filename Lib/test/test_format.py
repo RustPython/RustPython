@@ -515,7 +515,6 @@ class FormatTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, error_msg):
             '{:__}'.format(1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_with_a_commas_and_an_underscore_in_format_specifier(self):
         error_msg = re.escape("Cannot specify both ',' and '_'.")
         with self.assertRaisesRegex(ValueError, error_msg):
@@ -523,7 +522,6 @@ class FormatTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, error_msg):
             '{:.,_f}'.format(1.1)
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; Wrong error message
     def test_with_an_underscore_and_a_comma_in_format_specifier(self):
         error_msg = re.escape("Cannot specify both ',' and '_'.")
         with self.assertRaisesRegex(ValueError, error_msg):
@@ -560,7 +558,6 @@ class FormatTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, str_err):
             "{a:%ЫйЯЧ}".format(a='a')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_negative_zero(self):
         ## default behavior
         self.assertEqual(f"{-0.:.1f}", "-0.0")

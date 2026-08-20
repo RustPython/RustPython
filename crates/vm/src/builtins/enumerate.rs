@@ -1,6 +1,6 @@
 use super::{
     IterStatus, PositionIterInternal, PyGenericAlias, PyIntRef, PyTupleRef, PyType, PyTypeRef,
-    iter::builtins_reversed,
+    iter::builtins_reversed, locked_rev_next,
 };
 use crate::common::lock::{PyMutex, PyRwLock};
 use crate::{
@@ -57,7 +57,11 @@ impl Constructor for PyEnumerate {
 #[pyclass(with(Py, IterNext, Iterable, Constructor), flags(BASETYPE))]
 impl PyEnumerate {
     #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
@@ -138,9 +142,9 @@ impl PyReverseSequenceIterator {
 impl SelfIter for PyReverseSequenceIterator {}
 impl IterNext for PyReverseSequenceIterator {
     fn next(zelf: &Py<Self>, vm: &VirtualMachine) -> PyResult<PyIterReturn> {
-        zelf.internal
-            .lock()
-            .rev_next(|obj, pos| PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm))
+        locked_rev_next(&zelf.internal, |obj, pos| {
+            PyIterReturn::from_getitem_result(obj.get_item(&pos, vm), vm)
+        })
     }
 }
 

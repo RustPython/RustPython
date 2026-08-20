@@ -176,16 +176,18 @@ impl Constructor for PyFloat {
     type Args = OptionalArg<PyObjectRef>;
 
     fn slot_new(cls: PyTypeRef, args: FuncArgs, vm: &VirtualMachine) -> PyResult {
+        // Bind before the fast path so FromArgs::arity decides how many arguments
+        // are acceptable, rather than a count repeated here.
+        let arg: Self::Args = args.bind(vm)?;
+
         // Optimization: return exact float as-is
         if cls.is(vm.ctx.types.float_type)
-            && args.kwargs.is_empty()
-            && let Some(first) = args.args.first()
+            && let OptionalArg::Present(first) = &arg
             && first.class().is(vm.ctx.types.float_type)
         {
             return Ok(first.clone());
         }
 
-        let arg: Self::Args = args.bind(vm)?;
         let payload = Self::py_new(&cls, arg, vm)?;
         payload.into_ref_with_type(vm, cls).map(Into::into)
     }
@@ -208,29 +210,8 @@ impl Constructor for PyFloat {
 pub fn float_from_string(val: PyObjectRef, vm: &VirtualMachine) -> PyResult<f64> {
     let (bytearray, buffer, buffer_lock, mapped_string);
     let b = if let Some(s) = val.downcast_ref::<PyStr>() {
-        use crate::common::str::PyKindStr;
-        match s.as_str_kind() {
-            PyKindStr::Ascii(s) => s.trim().as_bytes(),
-            PyKindStr::Utf8(s) => {
-                mapped_string = s
-                    .trim()
-                    .chars()
-                    .map(|c| {
-                        if let Some(n) = rustpython_common::str::char_to_decimal(c) {
-                            char::from_digit(n.into(), 10).unwrap()
-                        } else if c.is_whitespace() {
-                            ' '
-                        } else {
-                            c
-                        }
-                    })
-                    .collect::<String>();
-                mapped_string.as_bytes()
-            }
-            // if there are surrogates, it's not gonna parse anyway,
-            // so we can just choose a known bad value
-            PyKindStr::Wtf8(_) => b"",
-        }
+        mapped_string = crate::protocol::numeric_literal_from_str(s);
+        mapped_string.as_bytes()
     } else if let Some(bytes) = val.downcast_ref::<PyBytes>() {
         bytes.as_bytes()
     } else if let Some(buf) = val.downcast_ref::<PyByteArray>() {

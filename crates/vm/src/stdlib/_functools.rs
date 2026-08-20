@@ -15,7 +15,6 @@ mod _functools {
         recursion::ReprGuard,
         types::{Callable, Constructor, GetDescriptor, Representable},
     };
-    use indexmap::IndexMap;
     use rustpython_common::wtf8::Wtf8Buf;
 
     #[derive(FromArgs)]
@@ -33,7 +32,7 @@ mod _functools {
             iterator,
             initial,
         } = args;
-        let mut iter = iterator.iter_without_hint(vm)?;
+        let mut iter = iterator.iter(vm)?;
         // OptionalOption distinguishes between:
         // - Missing: no argument provided → use first element from iterator
         // - Present(None): explicitly passed None → use None as initial value
@@ -302,7 +301,7 @@ mod _functools {
             cls: PyTypeRef,
             args: PyObjectRef,
             vm: &VirtualMachine,
-        ) -> PyGenericAlias {
+        ) -> PyResult<PyGenericAlias> {
             PyGenericAlias::from_args(cls, args, vm)
         }
     }
@@ -373,7 +372,7 @@ mod _functools {
 
             // Add new keywords
             for (key, value) in args.kwargs {
-                final_keywords.set_item(vm.ctx.intern_str(key.as_str()), value, vm)?;
+                final_keywords.set_item(vm.ctx.intern_str(key), value, vm)?;
             }
 
             Ok(Self {
@@ -432,14 +431,15 @@ mod _functools {
             combined_args.extend(new_args_iter.cloned());
 
             // Merge keywords from self.keywords and args.kwargs
-            let mut final_kwargs = IndexMap::new();
+            let mut final_kwargs = crate::function::KwArgsMap::default();
 
             // Add keywords from self.keywords
             for (key, value) in &*keywords {
+                // `expect_str()` would panic on surrogate keys; keep them as WTF-8.
                 let key_str = key
                     .downcast_ref::<crate::builtins::PyStr>()
                     .ok_or_else(|| vm.new_type_error("keywords must be strings"))?;
-                final_kwargs.insert(key_str.expect_str().to_owned(), value);
+                final_kwargs.insert(key_str.as_wtf8().to_owned(), value);
             }
 
             // Add keywords from args.kwargs (these override self.keywords)

@@ -269,13 +269,16 @@ cfg_select! {
     _ => {}
 }
 
-impl<T: fmt::Debug> fmt::Debug for PyAtomicRef<T> {
+impl<T> fmt::Debug for PyAtomicRef<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PyAtomicRef(")?;
+        // The stored pointer is a `Py<T>` — the full object, header included —
+        // as `Deref`, `load_raw` and `swap` all read it. Formatting it as a
+        // bare payload would skip the header and print misaligned bytes.
         unsafe {
             self.inner
                 .load(Ordering::Relaxed)
-                .cast::<T>()
+                .cast::<PyObject>()
                 .as_ref()
                 .fmt(f)
         }?;
@@ -333,7 +336,7 @@ impl<T: PyPayload> PyAtomicRef<T> {
     pub fn swap_to_temporary_refs(&self, pyref: PyRef<T>, vm: &VirtualMachine) {
         let old = unsafe { self.swap(pyref) };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old.into());
+            frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
     }
 }
@@ -409,7 +412,7 @@ impl<T: PyPayload> PyAtomicRef<Option<T>> {
             return;
         };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old.into());
+            frame.iframe().cold().temporary_refs.lock().push(old.into());
         }
     }
 }
@@ -452,7 +455,7 @@ impl PyAtomicRef<PyObject> {
     pub fn swap_to_temporary_refs(&self, obj: PyObjectRef, vm: &VirtualMachine) {
         let old = unsafe { self.swap(obj) };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old);
+            frame.iframe().cold().temporary_refs.lock().push(old);
         }
     }
 }
@@ -499,7 +502,7 @@ impl PyAtomicRef<Option<PyObject>> {
             return;
         };
         if let Some(frame) = vm.current_frame() {
-            frame.temporary_refs.lock().push(old);
+            frame.iframe().cold().temporary_refs.lock().push(old);
         }
     }
 }

@@ -39,7 +39,7 @@ fn iter_search(
 ) -> PyResult<usize> {
     let mut count = 0;
     let iter = obj.get_iter(vm)?;
-    for element in iter.iter_without_hint::<PyObjectRef>(vm)? {
+    for element in iter.iter::<PyObjectRef>(vm)? {
         if vm.bool_eq(item, &*element?)? {
             match flag {
                 SearchType::Index => return Ok(count),
@@ -364,7 +364,11 @@ impl PyRange {
 
     // TODO: Uncomment when Python adds __class_getitem__ to range
     // #[pyclassmethod]
-    fn __class_getitem__(cls: PyTypeRef, args: PyObjectRef, vm: &VirtualMachine) -> PyGenericAlias {
+    fn __class_getitem__(
+        cls: PyTypeRef,
+        args: PyObjectRef,
+        vm: &VirtualMachine,
+    ) -> PyResult<PyGenericAlias> {
         PyGenericAlias::from_args(cls, args, vm)
     }
 }
