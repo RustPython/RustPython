@@ -2616,7 +2616,7 @@ impl<'warnings> Compiler<'warnings> {
         let name = self.mangle(&target);
         let cache = cache(self.current_code_info());
         cache
-            .get_index_of::<String>(&name.as_str().into())
+            .get_index_of(name.as_str())
             .unwrap_or_else(|| cache.insert_full(name.to_string()).0)
             .to_u32()
     }
