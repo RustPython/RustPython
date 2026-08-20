@@ -495,6 +495,19 @@ bitflags! {
     }
 }
 
+impl CodeFlags {
+    /// The `__future__` flags that `compile()` accepts and that a compiled code
+    /// object inherits from its caller. Mirrors `PyCF_MASK`.
+    pub const FUTURE_MASK: Self = Self::FUTURE_DIVISION
+        .union(Self::FUTURE_ABSOLUTE_IMPORT)
+        .union(Self::FUTURE_WITH_STATEMENT)
+        .union(Self::FUTURE_PRINT_FUNCTION)
+        .union(Self::FUTURE_UNICODE_LITERALS)
+        .union(Self::FUTURE_BARRY_AS_BDFL)
+        .union(Self::FUTURE_GENERATOR_STOP)
+        .union(Self::FUTURE_ANNOTATIONS);
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct CodeUnit {

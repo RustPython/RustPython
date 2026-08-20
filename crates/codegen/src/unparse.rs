@@ -1,7 +1,8 @@
+use crate::strip_python_comments;
 use alloc::fmt;
 use core::fmt::Display as _;
 use ruff_python_ast as ast;
-use ruff_text_size::Ranged;
+use ruff_text_size::{Ranged, TextSize};
 use rustpython_compiler_core::SourceFile;
 use rustpython_literal::escape::{AsciiEscape, UnicodeEscape};
 
@@ -610,7 +611,7 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         &mut self,
         val: &ast::Expr,
         debug_text: Option<&ast::DebugText>,
-        conversion: ast::ConversionFlag,
+        mut conversion: ast::ConversionFlag,
         spec: Option<&ast::InterpolatedStringFormatSpec>,
     ) -> fmt::Result {
         let buffered =
@@ -622,6 +623,9 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
             self.p(leading)?;
             self.p(self.source.slice(val.range()))?;
             self.p(trailing)?;
+            if conversion == ast::ConversionFlag::None && spec.is_none() {
+                conversion = ast::ConversionFlag::Repr;
+            }
         }
         let brace = if buffered.starts_with('{') {
             // put a space to avoid escaping the bracket
@@ -709,13 +713,109 @@ impl<'a, 'b, 'c> Unparser<'a, 'b, 'c> {
         self.p("t")?;
         let body = fmt::from_fn(|f| {
             value.iter().try_for_each(|tstring| {
-                Unparser::new(f, self.source).unparse_fstring_body(&tstring.elements)
+                Unparser::new(f, self.source).unparse_tstring_body(&tstring.elements)
             })
         })
         .to_string();
         UnicodeEscape::new_repr(body.as_str().as_ref())
             .str_repr()
             .write(self.f)
+    }
+
+    fn unparse_tstring_body(&mut self, elements: &[ast::InterpolatedStringElement]) -> fmt::Result {
+        for element in elements {
+            match element {
+                ast::InterpolatedStringElement::Literal(literal) => {
+                    self.unparse_fstring_str(literal)?;
+                }
+                ast::InterpolatedStringElement::Interpolation(interpolation) => {
+                    self.unparse_tstring_interpolation(interpolation)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn unparse_tstring_interpolation(
+        &mut self,
+        interpolation: &ast::InterpolatedElement,
+    ) -> fmt::Result {
+        let source_conversion = interpolation.conversion;
+        let mut conversion = source_conversion;
+        let debug_parts = interpolation.debug_text.as_ref().map(|debug_text| {
+            (
+                strip_python_comments(debug_text.leading.as_str()),
+                strip_python_comments(self.source.slice(interpolation.expression.range())),
+                strip_python_comments(debug_text.trailing.as_str()),
+            )
+        });
+        if let Some((leading, source, trailing)) = &debug_parts {
+            self.p(leading)?;
+            self.p(source)?;
+            self.p(trailing)?;
+            if conversion == ast::ConversionFlag::None && interpolation.format_spec.is_none() {
+                conversion = ast::ConversionFlag::Repr;
+            }
+        }
+
+        let expression = if let Some(ast::ConstantValue::Str(value)) = &interpolation.runtime_str {
+            value.to_string()
+        } else if let Some((leading, source, trailing)) = &debug_parts {
+            let mut expression = leading.clone();
+            expression.push_str(source);
+            let equal = trailing
+                .rfind('=')
+                .expect("debug interpolation must contain '='");
+            expression.push_str(&trailing[..equal]);
+            expression.trim_end().to_owned()
+        } else {
+            let expression_range = interpolation.expression.range();
+            let after_brace = interpolation.range.start() + TextSize::new(1);
+            let mut expression_end = interpolation.format_spec.as_ref().map_or_else(
+                || interpolation.range.end() - TextSize::new(1),
+                |format_spec| format_spec.range.start() - TextSize::new(1),
+            );
+            if source_conversion != ast::ConversionFlag::None {
+                expression_end -= TextSize::new(2);
+            }
+            if interpolation.range.start() < expression_range.start()
+                && interpolation.range.end() >= expression_range.end()
+                && after_brace <= expression_end
+            {
+                strip_python_comments(
+                    self.source
+                        .slice(ruff_text_size::TextRange::new(after_brace, expression_end)),
+                )
+                .trim_end()
+                .to_owned()
+            } else {
+                fmt::from_fn(|f| {
+                    Unparser::new(f, self.source)
+                        .unparse_expr(&interpolation.expression, precedence::TEST + 1)
+                })
+                .to_string()
+            }
+        };
+
+        self.p(if expression.starts_with('{') {
+            "{ "
+        } else {
+            "{"
+        })?;
+        self.p(&expression)?;
+
+        if conversion != ast::ConversionFlag::None {
+            self.p("!")?;
+            let conversion_byte = [conversion as u8];
+            self.p(core::str::from_utf8(&conversion_byte).unwrap())?;
+        }
+
+        if let Some(format_spec) = &interpolation.format_spec {
+            self.p(":")?;
+            self.unparse_tstring_body(&format_spec.elements)?;
+        }
+
+        self.p("}")
     }
 }
 

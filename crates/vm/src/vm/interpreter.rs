@@ -1095,11 +1095,22 @@ mod tests {
                         );
 
                         let (lock, ready) = &*state;
-                        let mut state = lock.lock().unwrap();
-                        state.entered += 1;
-                        ready.notify_all();
-                        while !state.release {
-                            state = ready.wait(state).unwrap();
+                        {
+                            let mut state = lock.lock().unwrap();
+                            state.entered += 1;
+                            ready.notify_all();
+                        }
+                        // Wait attached, but keep passing safepoints: a thread
+                        // that blocks outright while attached never suspends,
+                        // so a concurrent stop-the-world could not finish and
+                        // the other worker could never attach.
+                        loop {
+                            vm.check_signals().unwrap();
+                            let state = lock.lock().unwrap();
+                            if state.release {
+                                break;
+                            }
+                            let _ = ready.wait_timeout(state, Duration::from_millis(1)).unwrap();
                         }
                     });
                 })
@@ -1165,6 +1176,11 @@ mod tests {
                         let result = vm._add(&a, &b).unwrap();
                         assert_eq!(*int::get_value(&result), 42_i32.to_bigint().unwrap());
                         operations += 1;
+                        // The protocol calls above never reach a safepoint on
+                        // their own; a bytecode loop would. Without this, a
+                        // concurrent stop-the-world could not finish while this
+                        // thread stays attached.
+                        vm.check_signals().unwrap();
                         std::thread::yield_now();
                     }
                     (sub_finished_worker.load(Ordering::Acquire), operations)

@@ -13,7 +13,7 @@ use crate::{
     IndexMap, IndexSet, ToPythonName, ast_constant_value_to_constant_data,
     error::{CodegenError, CodegenErrorType, InternalError},
     ir::{self, Block, BlockIdx, Blocks},
-    preprocess,
+    preprocess, strip_python_comments,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
@@ -2129,6 +2129,7 @@ impl<'warnings> Compiler<'warnings> {
                         | bytecode::CodeFlags::FUTURE_WITH_STATEMENT
                         | bytecode::CodeFlags::FUTURE_PRINT_FUNCTION
                         | bytecode::CodeFlags::FUTURE_UNICODE_LITERALS
+                        | bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL
                         | bytecode::CodeFlags::FUTURE_GENERATOR_STOP
                         | bytecode::CodeFlags::FUTURE_ANNOTATIONS));
             info.metadata.argcount = arg_count;
@@ -2157,6 +2158,12 @@ impl<'warnings> Compiler<'warnings> {
         if let Some(first) = code.varnames.first_mut() {
             *first = String::from("format");
         }
+    }
+
+    fn configure_annotation_format_parameter(&mut self) {
+        let info = self.current_code_info();
+        info.metadata.varnames.insert(".format".to_owned());
+        info.nparams = 1;
     }
 
     /// Exit a function signature annotation scope.
@@ -2208,10 +2215,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // Keep the internal ".format" name; exit_annotation_scope()
         // renames it to "format" on the final code object.
-        self.current_code_info()
-            .metadata
-            .varnames
-            .insert(".format".to_owned());
+        self.configure_annotation_format_parameter();
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         // VALUE_WITH_FAKE_GLOBALS = 2 (from annotationlib.Format)
@@ -2621,9 +2625,9 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     /// Set the qualname of an annotation scope, qualified by the function whose
-    /// signature it annotates. CPython records that name on the annotation
-    /// block's symbol table entry (`ste_function_name`) and folds it into the
-    /// qualname, so `f`'s annotation scope is named `f.__annotate__`.
+    /// signature it annotates. The annotation block's symbol table entry records
+    /// that name (`ste_function_name`) and folds it into the qualname, so `f`'s
+    /// annotation scope is named `f.__annotate__`.
     fn set_annotation_qualname(&mut self, function_name: &str) {
         self.set_qualname_for_function(Some(function_name));
     }
@@ -2801,6 +2805,9 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc_with_range(&body.body, &self.opts);
+        if doc.is_some() {
+            self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
+        }
         let module_start_loc = self.module_start_location(&body.body);
         let annotations_used = self.current_symbol_table().annotations_used;
         // Handle annotation bookkeeping before the docstring assignment, as
@@ -3173,9 +3180,8 @@ impl<'warnings> Compiler<'warnings> {
             )
         };
 
-        // Special handling for class scope implicit cell variables
-        // These are treated as Cell even if not explicitly marked in symbol table
-        // __class__ and __classdict__: only LOAD uses Cell (stores go to class namespace)
+        // Special handling for class scope implicit cell variables.
+        // __classdict__: only LOAD uses Cell (stores go to class namespace)
         // __conditional_annotations__: both LOAD and STORE use Cell (it's a mutable set
         // that the annotation scope accesses through the closure)
         let symbol_scope = {
@@ -3183,9 +3189,7 @@ impl<'warnings> Compiler<'warnings> {
             if current_table.typ == CompilerScope::Class
                 && !self.current_code_info().in_inlined_comp
                 && ((usage == NameUsage::Load
-                    && (name == "__class__"
-                        || name == "__classdict__"
-                        || name == "__conditional_annotations__"))
+                    && (name == "__classdict__" || name == "__conditional_annotations__"))
                     || (name == "__conditional_annotations__" && usage == NameUsage::Store))
             {
                 Some(SymbolScope::Cell)
@@ -3217,6 +3221,8 @@ impl<'warnings> Compiler<'warnings> {
                         | "__firstlineno__"
                         | "__doc__"
                         | "__static_attributes__"
+                        | "__annotate__"
+                        | "__annotate_func__"
                         | "__classdictcell__"
                         | "__classcell__"
                 ) {
@@ -3988,10 +3994,7 @@ impl<'warnings> Compiler<'warnings> {
         // Enter scope with the type parameter name
         self.enter_scope(name, CompilerScope::TypeVariable, key, lineno)?;
 
-        self.current_code_info()
-            .metadata
-            .varnames
-            .insert(".format".to_owned());
+        self.configure_annotation_format_parameter();
 
         self.emit_format_validation();
 
@@ -4047,10 +4050,7 @@ impl<'warnings> Compiler<'warnings> {
         let key = self.symbol_table_stack.len() - 1;
         let lineno = self.get_source_line_number().get().to_u32();
         self.enter_scope(alias_name, CompilerScope::TypeAlias, key, lineno)?;
-        self.current_code_info()
-            .metadata
-            .varnames
-            .insert(".format".to_owned());
+        self.configure_annotation_format_parameter();
         self.emit_format_validation();
 
         let prev_ctx = self.ctx;
@@ -5299,10 +5299,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // Keep the internal ".format" name; the final code object
         // exposes this parameter as "format".
-        self.current_code_info()
-            .metadata
-            .varnames
-            .insert(".format".to_owned());
+        self.configure_annotation_format_parameter();
 
         // Emit format validation: if format > VALUE_WITH_FAKE_GLOBALS: raise NotImplementedError
         self.emit_format_validation();
@@ -10542,6 +10539,7 @@ impl<'warnings> Compiler<'warnings> {
                         | bytecode::CodeFlags::FUTURE_WITH_STATEMENT
                         | bytecode::CodeFlags::FUTURE_PRINT_FUNCTION
                         | bytecode::CodeFlags::FUTURE_UNICODE_LITERALS
+                        | bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL
                         | bytecode::CodeFlags::FUTURE_GENERATOR_STOP
                         | bytecode::CodeFlags::FUTURE_ANNOTATIONS));
             info.metadata.argcount = arg_count;
@@ -11277,7 +11275,11 @@ impl<'warnings> Compiler<'warnings> {
                         .insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS);
                 }
                 FutureFeature::BarryAsFLUFL => {
-                    // We do not support Barry-as-BDFL parser mode yet. This is a nop for now.
+                    self.future_features
+                        .insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
+                    self.current_code_info()
+                        .flags
+                        .insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL);
                 }
                 FutureFeature::AbsoluteImport
                 | FutureFeature::Division
@@ -13001,20 +13003,14 @@ impl<'warnings> Compiler<'warnings> {
                     if let Some(debug_text) = &fstring_expr.debug_text {
                         let leading = debug_text.leading.as_str();
                         let trailing = debug_text.trailing.as_str();
-                        self.emit_pending_fstring_literal(
-                            pending_literal,
-                            pending_literal_range,
-                            pending_literal_no_location,
-                            element_count,
-                            false,
-                            join_append_range,
-                        );
-
                         let range = fstring_expr.expression.range();
-                        let leading = strip_fstring_debug_comments(leading);
-                        let trailing = strip_fstring_debug_comments(trailing);
                         let source = self.source_file.slice(range);
-                        let text = [leading.as_str(), source, trailing.as_str()].concat();
+                        let text = [
+                            strip_python_comments(leading).as_str(),
+                            source,
+                            strip_python_comments(trailing).as_str(),
+                        ]
+                        .concat();
                         let debug_text_range = TextRange::new(
                             range.start()
                                 - TextSize::new(
@@ -13029,10 +13025,11 @@ impl<'warnings> Compiler<'warnings> {
                         );
 
                         let text: Wtf8Buf = text.into();
-                        *pending_literal_range = Some(debug_text_range);
+                        Self::extend_pending_literal_range(pending_literal_range, debug_text_range);
                         *pending_literal_no_location = false;
-                        *pending_literal = Some(Wtf8Buf::new());
-                        pending_literal.as_mut().unwrap().push_wtf8(text.as_ref());
+                        pending_literal
+                            .get_or_insert_with(Wtf8Buf::new)
+                            .push_wtf8(text.as_ref());
 
                         // If debug text is present, apply repr conversion when no `format_spec` specified.
                         // See action_helpers.c: fstring_find_expr_replacement
@@ -13145,20 +13142,19 @@ impl<'warnings> Compiler<'warnings> {
                     if let Some(debug_text) = &fstring_expr.debug_text {
                         let leading = debug_text.leading.as_str();
                         let trailing = debug_text.trailing.as_str();
-                        Self::count_pending_fstring_literal(pending_literal, element_count, false);
                         let range = fstring_expr.expression.range();
                         let source = self.source_file.slice(range);
                         let text = [
-                            strip_fstring_debug_comments(leading).as_str(),
+                            strip_python_comments(leading).as_str(),
                             source,
-                            strip_fstring_debug_comments(trailing).as_str(),
+                            strip_python_comments(trailing).as_str(),
                         ]
                         .concat();
 
                         let text: Wtf8Buf = text.into();
-                        let mut debug_text = Wtf8Buf::new();
-                        debug_text.push_wtf8(text.as_ref());
-                        *pending_literal = Some(debug_text);
+                        pending_literal
+                            .get_or_insert_with(Wtf8Buf::new)
+                            .push_wtf8(text.as_ref());
                     }
 
                     Self::count_pending_fstring_literal(pending_literal, element_count, false);
@@ -13380,9 +13376,9 @@ impl<'warnings> Compiler<'warnings> {
                         let range = interp.expression.range();
                         let source = self.source_file.slice(range);
                         let text = [
-                            strip_fstring_debug_comments(leading).as_str(),
+                            strip_python_comments(leading).as_str(),
                             source,
-                            strip_fstring_debug_comments(trailing).as_str(),
+                            strip_python_comments(trailing).as_str(),
                         ]
                         .concat();
                         let debug_text_range = TextRange::new(
@@ -13671,27 +13667,6 @@ impl ToU32 for usize {
     fn to_u32(self) -> u32 {
         self.try_into().unwrap()
     }
-}
-
-/// Strip Python comments from f-string debug text (leading/trailing around `=`).
-/// A comment starts with `#` and extends to the end of the line.
-/// The newline character itself is preserved.
-fn strip_fstring_debug_comments(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut in_comment = false;
-    for ch in text.chars() {
-        if in_comment {
-            if ch == '\n' {
-                in_comment = false;
-                result.push(ch);
-            }
-        } else if ch == '#' {
-            in_comment = true;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 #[cfg(test)]
@@ -17464,6 +17439,53 @@ class C:
     }
 
     #[test]
+    #[expect(
+        clippy::literal_string_with_formatting_args,
+        reason = "the literal is the expected t-string annotation"
+    )]
+    fn future_tstring_annotation_preserves_interpolation_source_like_cpython() {
+        let code = compile_exec(
+            "from __future__ import annotations\nx: t'{a    +  b}'\ny: t'{ a + b }'\nz: f'{a    + b =}'\nu: t'{a    + b =}'\nv: t'{a    + b =:>10}'\np: t'{(a)}'\nq: t'{((a))!r}'\nr: t'{ ((a)) = !r:>10}'\ns: t'{(a)=}'\nt: t'{a == b = }'\na1: t'''{a= # x=y\n}'''\na2: t'''{a # x=y\n}'''\na3: t'''{(a # x=y\n)}'''\na4: t'''{a # x=y\n!r}'''\na5: t'''{a # x=y\n:>10}'''\na6: t'''{'#'}'''\na7: t'''{('#', a) # c=d\n}'''\n",
+        );
+        let annotation_strings = code
+            .constants
+            .iter()
+            .filter_map(|constant| match constant {
+                ConstantData::Str { value }
+                    if value.starts_with("t'")
+                        || value.starts_with("t\"")
+                        || value.starts_with("f'") =>
+                {
+                    Some(value.to_string())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            annotation_strings,
+            [
+                "t'{a    +  b}'",
+                "t'{ a + b}'",
+                "f'a    + b ={a + b!r}'",
+                "t'a    + b ={a    + b!r}'",
+                "t'a    + b ={a    + b:>10}'",
+                "t'{(a)}'",
+                "t'{((a))!r}'",
+                "t' ((a)) = { ((a))!r:>10}'",
+                "t'(a)={(a)!r}'",
+                "t'a == b = {a == b!r}'",
+                "t'a= \\n{a!r}'",
+                "t'{a}'",
+                "t'{(a \\n)}'",
+                "t'{a!r}'",
+                "t'{a:>10}'",
+                "t\"{'#'}\"",
+                "t\"{('#', a)}\"",
+            ]
+        );
+    }
+
+    #[test]
     fn lambda_dict_literal_ops_use_dict_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -19518,7 +19540,7 @@ def spec(x):
     }
 
     #[test]
-    fn debug_fstring_literal_location_like_cpython() {
+    fn debug_fstring_literal_merging_and_location_like_cpython() {
         fn string_load_position(code: &CodeObject, expected: &str) -> (usize, usize, usize, usize) {
             code.instructions
                 .iter()
@@ -19541,16 +19563,20 @@ def spec(x):
         }
 
         let code = compile_exec(
-            "\
-def simple(x):
+            r#"def simple(x):
     return f'{x=}'
 
 def prefixed(x):
     return f'a {x=} b'
-",
+
+def commented(x):
+    return f"""{  # comment
+x=}"""
+"#,
         );
         let simple = find_code(&code, "simple").expect("missing simple code");
         let prefixed = find_code(&code, "prefixed").expect("missing prefixed code");
+        let commented = find_code(&code, "commented").expect("missing commented code");
 
         assert_eq!(
             string_load_position(simple, "x="),
@@ -19558,9 +19584,14 @@ def prefixed(x):
             "CPython represents f'{{x=}}' debug text as a literal at the expression/debug-text location"
         );
         assert_eq!(
-            string_load_position(prefixed, "x="),
-            (5, 17, 5, 19),
-            "CPython keeps debug text as a separate JoinedStr Constant instead of merging it with the preceding literal"
+            string_load_position(prefixed, "a x="),
+            (5, 14, 5, 19),
+            "CPython merges debug text with the preceding JoinedStr literal"
+        );
+        assert_eq!(
+            string_load_position(commented, "  \nx="),
+            (8, 17, 9, 3),
+            "a stripped comment shortens the debug text but not the source range it spans"
         );
     }
 
@@ -26981,6 +27012,43 @@ class C:
     }
 
     #[test]
+    fn explicit_class_dunder_class_store_uses_namespace_like_cpython() {
+        let code = compile_exec(
+            "\
+class C:
+    def method(self):
+        return __class__
+    __class__ = 413
+",
+        );
+        let class_code = find_code(&code, "C").expect("missing class code");
+        let class_name_index = class_code
+            .names
+            .iter()
+            .position(|name| name.as_str() == "__class__")
+            .expect("missing __class__ name");
+
+        assert!(class_code.instructions.iter().any(|unit| {
+            matches!(
+                unit.op,
+                Instruction::StoreName { namei }
+                    if namei.get(OpArg::new(u32::from(u8::from(unit.arg)))) as usize
+                        == class_name_index
+            )
+        }));
+        assert!(!class_code.instructions.iter().any(|unit| {
+            matches!(
+                unit.op,
+                Instruction::StoreDeref { i }
+                    if class_code.cellvars
+                        [usize::from(i.get(OpArg::new(u32::from(u8::from(unit.arg)))))]
+                        .as_str()
+                        == "__class__"
+            )
+        }));
+    }
+
+    #[test]
     fn conditional_class_body_duplicates_no_location_exit_tail() {
         let code = compile_exec(
             "\
@@ -27528,7 +27596,7 @@ def f():
     }
 
     #[test]
-    fn future_barry_as_flufl_is_accepted_but_ignored() {
+    fn future_barry_as_flufl_sets_module_and_nested_code_flags() {
         let code = compile_exec(
             "\
 from __future__ import barry_as_FLUFL
@@ -27537,16 +27605,48 @@ def f():
     pass
 ",
         );
-        let future_flags = bytecode::CodeFlags::FUTURE_DIVISION
-            | bytecode::CodeFlags::FUTURE_ABSOLUTE_IMPORT
-            | bytecode::CodeFlags::FUTURE_WITH_STATEMENT
-            | bytecode::CodeFlags::FUTURE_PRINT_FUNCTION
-            | bytecode::CodeFlags::FUTURE_UNICODE_LITERALS
-            | bytecode::CodeFlags::FUTURE_GENERATOR_STOP
-            | bytecode::CodeFlags::FUTURE_ANNOTATIONS;
-        assert!((code.flags & future_flags).is_empty());
+        assert!(
+            code.flags
+                .contains(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
+        );
         let f = find_code(&code, "f").expect("missing f code");
-        assert!((f.flags & future_flags).is_empty());
+        assert!(f.flags.contains(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL));
+    }
+
+    #[test]
+    fn function_annotation_qualnames_include_the_annotated_function() {
+        let code = compile_exec(
+            "\
+def f(x: int):
+    pass
+class C:
+    def m(self, x: int):
+        pass
+def outer():
+    def inner(x: int):
+        pass
+",
+        );
+        let mut qualnames = Vec::new();
+        fn collect(code: &CodeObject, qualnames: &mut Vec<String>) {
+            for constant in code.constants.iter() {
+                if let ConstantData::Code { code } = constant {
+                    if code.obj_name == "__annotate__" {
+                        qualnames.push(code.qualname.clone());
+                    }
+                    collect(code.as_ref(), qualnames);
+                }
+            }
+        }
+        collect(&code, &mut qualnames);
+        assert_eq!(
+            qualnames,
+            [
+                "f.__annotate__",
+                "C.m.__annotate__",
+                "outer.<locals>.inner.__annotate__"
+            ]
+        );
     }
 
     #[test]
@@ -27558,6 +27658,20 @@ x: int
 ",
         );
         assert!(!code.flags.contains(bytecode::CodeFlags::FUTURE_ANNOTATIONS));
+    }
+
+    #[test]
+    fn future_import_after_extra_string_is_rejected_like_cpython() {
+        assert_eq!(
+            compile_exec_error_message(
+                "\
+\"\"\"Docstring\"\"\"
+\"this is not a docstring\"
+from __future__ import nested_scopes
+",
+            ),
+            "from __future__ imports must occur at the beginning of the file"
+        );
     }
 
     #[test]
@@ -27726,6 +27840,31 @@ class C:
             init.freevars.iter().any(|name| name == "__class__"),
             "method using super() should close over nested class, got freevars={:?}",
             init.freevars
+        );
+    }
+
+    #[test]
+    fn nested_class_body_loads_outer_dunder_class_while_methods_use_own_cell() {
+        let code = compile_exec(
+            "\
+class Outer:
+    def method(self):
+        class Inner:
+            value = __class__
+            def nested():
+                return __class__
+",
+        );
+        let inner = find_code(&code, "Inner").expect("missing nested class code");
+
+        assert!(inner.cellvars.iter().any(|name| name == "__class__"));
+        assert!(inner.freevars.iter().any(|name| name == "__class__"));
+        assert!(
+            inner
+                .instructions
+                .iter()
+                .any(|unit| matches!(unit.op, Instruction::LoadFromDictOrDeref { .. })),
+            "the class body must resolve __class__ from the enclosing method while the nested method closes over the new class cell"
         );
     }
 
@@ -31236,6 +31375,16 @@ class C:
             .map(|name| name.as_str())
             .collect::<Vec<_>>();
         assert_eq!(varnames, vec!["format"]);
+        assert!(annotate.instructions.iter().any(|unit| matches!(
+            unit.op,
+            Instruction::LoadFastBorrow { var_num }
+                if usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg))))) == 0
+        )));
+        assert!(!annotate.instructions.iter().any(|unit| matches!(
+            unit.op,
+            Instruction::LoadFastCheck { var_num }
+                if usize::from(var_num.get(OpArg::new(u32::from(u8::from(unit.arg))))) == 0
+        )));
     }
 
     #[test]
@@ -31256,6 +31405,39 @@ def f(x: T): pass
         assert!(
             find_code(&code, "f").is_some(),
             "function body symbol-table cursor must skip the hidden AnnotationBlock"
+        );
+    }
+
+    #[test]
+    fn future_generic_class_annotations_do_not_capture_type_params_like_cpython() {
+        let code = compile_exec(
+            "\
+from __future__ import annotations
+class A[T, *Ts, **P]:
+    x: T
+    y: tuple[*Ts]
+    z: Callable[P, str]
+",
+        );
+        let type_params =
+            find_code(&code, "<generic parameters of A>").expect("missing type parameter scope");
+        let class = find_direct_child_code(type_params, "A").expect("missing class body");
+
+        assert_eq!(
+            type_params
+                .cellvars
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            [".type_params"]
+        );
+        assert_eq!(
+            class
+                .freevars
+                .iter()
+                .map(|name| name.as_str())
+                .collect::<Vec<_>>(),
+            [".type_params"]
         );
     }
 
