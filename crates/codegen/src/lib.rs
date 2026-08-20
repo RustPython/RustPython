@@ -8,6 +8,7 @@ extern crate log;
 
 extern crate alloc;
 
+use alloc::{string::String, vec::Vec};
 use rustpython_compiler_core::bytecode::ConstantData;
 
 type IndexMap<K, V> = indexmap::IndexMap<K, V, rapidhash::quality::RandomState>;
@@ -91,6 +92,68 @@ pub(crate) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
         },
         ast::ConstantValue::Ellipsis => ConstantData::Ellipsis,
     }
+}
+
+fn strip_python_comments(text: &str) -> String {
+    let chars = text.chars().collect::<Vec<_>>();
+    let mut result = String::with_capacity(text.len());
+    let mut quote = None;
+    let mut triple_quoted = false;
+    let mut escaped = false;
+    let mut in_comment = false;
+    let mut index = 0;
+
+    while index < chars.len() {
+        let ch = chars[index];
+        if in_comment {
+            if matches!(ch, '\n' | '\r') {
+                in_comment = false;
+                result.push(ch);
+            }
+            index += 1;
+            continue;
+        }
+
+        if let Some(delimiter) = quote {
+            result.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if triple_quoted
+                && ch == delimiter
+                && chars.get(index + 1) == Some(&delimiter)
+                && chars.get(index + 2) == Some(&delimiter)
+            {
+                result.push(delimiter);
+                result.push(delimiter);
+                quote = None;
+                index += 2;
+            } else if !triple_quoted && ch == delimiter {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        match ch {
+            '#' => in_comment = true,
+            '\'' | '"' => {
+                quote = Some(ch);
+                triple_quoted =
+                    chars.get(index + 1) == Some(&ch) && chars.get(index + 2) == Some(&ch);
+                result.push(ch);
+                if triple_quoted {
+                    result.push(ch);
+                    result.push(ch);
+                    index += 2;
+                }
+            }
+            _ => result.push(ch),
+        }
+        index += 1;
+    }
+    result
 }
 
 pub trait ToPythonName {

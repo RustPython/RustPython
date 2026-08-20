@@ -257,7 +257,7 @@ pub fn checked_future_features_in_body(
                             future_features.insert(bytecode::CodeFlags::FUTURE_ANNOTATIONS)
                         }
                         FutureFeature::BarryAsFLUFL => {
-                            // We do not support Barry-as-BDFL parser mode yet. This is a nop for now.
+                            future_features.insert(bytecode::CodeFlags::FUTURE_BARRY_AS_BDFL)
                         }
                         FutureFeature::AbsoluteImport
                         | FutureFeature::Division

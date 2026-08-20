@@ -434,6 +434,17 @@ pub(crate) const SIZEOF_PYOBJECT_HEAD: usize = core::mem::size_of::<PyInner<()>>
 // this holds.
 const _: () = assert!(SIZEOF_PYOBJECT_HEAD == 5 * core::mem::size_of::<usize>() + 8);
 
+// `PyInner::drop_fields` names `payload` and `typ`; it is only complete while
+// every other field stays trivially destructible.
+const _: () = assert!(
+    !core::mem::needs_drop::<RefCount>()
+        && !core::mem::needs_drop::<&'static PyObjVTable>()
+        && !core::mem::needs_drop::<PyAtomic<u8>>()
+        && !core::mem::needs_drop::<PyAtomic<u32>>()
+        && !core::mem::needs_drop::<PyAtomic<GcOwner>>()
+        && !core::mem::needs_drop::<Pointers<PyObject>>()
+);
+
 impl<T> PyInner<T> {
     /// Read type flags and member_count via raw pointers to avoid Stacked Borrows
     /// violations during bootstrap, where type objects have self-referential typ pointers.
@@ -1124,6 +1135,20 @@ impl InstanceDict {
 }
 
 impl<T: PyPayload> PyInner<T> {
+    /// Run the destructors of the fields that have one, payload first.
+    ///
+    /// Declaration order would drop `typ` first, and `PyAtomicRef::drop`
+    /// leaves it null. A weakref payload is still linked into the list of the
+    /// object it points at until its own `Drop` unlinks it, and a thread
+    /// walking that list reads the class off every node it passes, so the
+    /// class has to outlive the payload.
+    unsafe fn drop_fields(ptr: *mut Self) {
+        unsafe {
+            core::ptr::drop_in_place(&raw mut (*ptr).payload);
+            core::ptr::drop_in_place(&raw mut (*ptr).typ);
+        }
+    }
+
     /// Deallocate a PyInner, handling optional prefix(es).
     /// Layout: [ObjExt?][WeakRefList?][PyInner<T>]
     ///
@@ -1161,8 +1186,7 @@ impl<T: PyPayload> PyInner<T> {
 
                 let alloc_ptr = (ptr as *mut u8).sub(inner_offset);
 
-                // Drop PyInner (payload, typ, etc.)
-                core::ptr::drop_in_place(ptr);
+                Self::drop_fields(ptr);
 
                 // Drop ObjExt if present (dict, slots)
                 if has_ext {
@@ -1177,10 +1201,13 @@ impl<T: PyPayload> PyInner<T> {
                 }
             } else if published {
                 let layout = core::alloc::Layout::new::<Self>();
-                core::ptr::drop_in_place(ptr);
+                Self::drop_fields(ptr);
                 crate::object::qsbr::free_delayed(ptr as *mut u8, layout);
             } else {
-                drop(Box::from_raw(ptr));
+                Self::drop_fields(ptr);
+                // The fields are gone; the box is only here to free the memory
+                // the matching `Box::new` in `new` allocated.
+                drop(Box::from_raw(ptr.cast::<core::mem::MaybeUninit<Self>>()));
             }
         }
     }
@@ -2906,5 +2933,54 @@ mod tests {
         let ctx = crate::Context::genesis();
         let obj = ctx.new_bytes(b"dfghjkl".to_vec());
         drop(obj);
+    }
+
+    /// A weakref node stays linked into its target's list until its own
+    /// `Drop` unlinks it, and `WeakRefList::add` reads the class off every
+    /// node it walks looking for a proxy to reuse. A node that lost its class
+    /// while still linked made that walk dereference a null type pointer.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn weakref_proxies_keep_their_class_while_linked() {
+        const THREADS: usize = 8;
+        const ROUNDS: usize = 20_000;
+
+        crate::Interpreter::without_stdlib(Default::default()).enter(|vm| {
+            let target: PyObjectRef = vm
+                .ctx
+                .new_class(
+                    None,
+                    "WeakrefTarget",
+                    vm.ctx.types.object_type.to_owned(),
+                    Default::default(),
+                )
+                .into();
+            let workers = (0..THREADS)
+                .map(|_| {
+                    let thread_vm = vm.new_thread();
+                    let target = target.clone();
+                    std::thread::spawn(move || {
+                        thread_vm.run(|vm| {
+                            let proxy_type = vm.ctx.types.weakproxy_type.to_owned();
+                            for _ in 0..ROUNDS {
+                                let proxy = target
+                                    .downgrade_with_typ(None, proxy_type.clone(), vm)
+                                    .expect("a type object takes weakrefs");
+                                drop(proxy);
+                                vm.check_signals().unwrap();
+                            }
+                        })
+                    })
+                })
+                .collect::<Vec<_>>();
+            // Detach while joining: a thread that blocks attached never
+            // reaches a safepoint, so a collection started by a worker could
+            // not finish.
+            vm.allow_threads(|| {
+                for worker in workers {
+                    worker.join().unwrap();
+                }
+            });
+        });
     }
 }

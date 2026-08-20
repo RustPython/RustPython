@@ -32,7 +32,7 @@ mod builtins {
         types::PyComparisonOp,
         vm::compile_mode::{
             CompilerFlags, PY_EVAL_INPUT, PY_FILE_INPUT, PY_FUNC_TYPE_INPUT, PY_SINGLE_INPUT,
-            compile_future_feature_mask, compile_future_features_from_flags,
+            compile_future_features_from_flags,
         },
     };
     use itertools::Itertools;
@@ -130,9 +130,7 @@ mod builtins {
     ) -> bytecode::CodeFlags {
         let mut future_features = compile_future_features_from_flags(flags);
         if !dont_inherit && let Some(code) = crate::frame::current_code() {
-            future_features |= bytecode::CodeFlags::from_bits_truncate(
-                code.flags.bits() & compile_future_feature_mask().bits(),
-            );
+            future_features |= code.flags & bytecode::CodeFlags::FUTURE_MASK;
         }
         future_features
     }
@@ -653,9 +651,7 @@ mod builtins {
                 let source = string.as_str();
                 let mut opts = vm.compile_opts();
                 if let Some(code) = crate::frame::current_code() {
-                    opts.future_features = bytecode::CodeFlags::from_bits_truncate(
-                        code.flags.bits() & compile_future_feature_mask().bits(),
-                    );
+                    opts.future_features = code.flags & bytecode::CodeFlags::FUTURE_MASK;
                 }
                 vm.compile_with_opts(source, mode, "<string>", opts)
                     .map_err(|err| err.into_pyexception(vm, Some(source)))?
