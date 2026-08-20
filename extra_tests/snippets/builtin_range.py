@@ -120,7 +120,9 @@ assert range(10, 1, -2).__reduce__()[1] == (10, 1, -2)
 
 # range iterator __reduce__ (state is None, range rebased to current position)
 it = iter(range(10))
-next(it); next(it); next(it)
+next(it)
+next(it)
+next(it)
 assert it.__reduce__()[0] is iter
 assert it.__reduce__()[1] == (range(3, 10),)
 assert it.__reduce__()[2] is None
