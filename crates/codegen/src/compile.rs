@@ -9265,7 +9265,12 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn cpython_sync_genexpr_call_name<'a>(
+    /// The called name of a `name(genexpr)` call, the shape
+    /// `maybe_optimize_function_call()` reserves a `skip_optimization` label
+    /// for. An `await` or an `async for` inside the generator does not
+    /// disqualify it: the inlined loop raises the same `TypeError` that
+    /// calling the builtin on an async generator would.
+    fn cpython_genexpr_call_name<'a>(
         &self,
         func: &'a ast::Expr,
         args: &ast::Arguments,
@@ -9276,15 +9281,11 @@ impl<'warnings> Compiler<'warnings> {
         let [ast::Expr::Generator(ast::ExprGenerator { .. })] = &args.args[..] else {
             return None;
         };
-        if !args.keywords.is_empty() || {
-            let table = self.current_symbol_table();
-            table
-                .sub_tables
-                .get(table.next_sub_table)
-                .is_none_or(|generator_entry| generator_entry.is_coroutine)
-        } {
+        if !args.keywords.is_empty() {
             return None;
         }
+        let table = self.current_symbol_table();
+        table.sub_tables.get(table.next_sub_table)?;
         Some(id.as_str())
     }
 
@@ -9293,7 +9294,7 @@ impl<'warnings> Compiler<'warnings> {
         func: &ast::Expr,
         args: &ast::Arguments,
     ) -> Option<BuiltinGeneratorCallKind> {
-        match self.cpython_sync_genexpr_call_name(func, args)? {
+        match self.cpython_genexpr_call_name(func, args)? {
             "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
             "all" => Some(BuiltinGeneratorCallKind::All),
             "any" => Some(BuiltinGeneratorCallKind::Any),
@@ -9587,15 +9588,15 @@ impl<'warnings> Compiler<'warnings> {
             // `skip_normal_call`, even when `maybe_optimize_function_call()`
             // leaves it untargeted.
             let skip_normal_call = self.current_code_info().new_instr_sequence_label();
-            let sync_genexpr_call_name = (!uses_ex_call)
-                .then(|| self.cpython_sync_genexpr_call_name(func, args))
+            let genexpr_call_name = (!uses_ex_call)
+                .then(|| self.cpython_genexpr_call_name(func, args))
                 .flatten()
                 .is_some();
             self.check_caller(func)?;
             self.compile_expression(func)?;
-            if sync_genexpr_call_name {
+            if genexpr_call_name {
                 // CPython `maybe_optimize_function_call()` creates and uses
-                // `skip_optimization` for every sync name(genexpr) shape after
+                // `skip_optimization` for every name(genexpr) shape after
                 // loading the function, even when the name is not all/any/tuple.
                 let skip_optimization = self.current_code_info().new_instr_sequence_label();
                 let result = self
@@ -20627,25 +20628,32 @@ def f(xs):
     }
 
     #[test]
-    fn builtin_any_async_genexpr_call_is_not_optimized() {
-        let code = compile_exec(
-            "\
-async def f(xs):
-    return any(x async for x in xs)
-",
-        );
-        let f = find_code(&code, "f").expect("missing function code");
+    fn builtin_any_async_genexpr_call_is_optimized_like_cpython() {
+        for source in [
+            "async def f(xs):\n    return any(x async for x in xs)\n",
+            "async def f(xs):\n    return any(await x for x in xs)\n",
+        ] {
+            let code = compile_exec(source);
+            let f = find_code(&code, "f").expect("missing function code");
 
-        assert!(
-            !has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
-            "CPython maybe_optimize_function_call() skips coroutine generator expressions"
-        );
-        assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
-            "async genexpr any() should stay on the normal call path"
-        );
+            assert!(
+                has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
+                "maybe_optimize_function_call() guards any(genexpr) whether or not the \
+                 generator is a coroutine: {source}"
+            );
+            assert!(
+                f.instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::ForIter { .. })),
+                "the guarded path inlines the loop: {source}"
+            );
+            assert!(
+                f.instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::Call { .. })),
+                "the fallback still calls the name it loaded: {source}"
+            );
+        }
     }
 
     #[test]
