@@ -226,21 +226,3 @@ pub(crate) fn format_map(
         FieldType::Keyword(keyword) => dict.get_item(&keyword, vm),
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::Interpreter;
-    use crate::object::AsObject;
-
-    // Regression test; remove once expectedFailure is removed from test_format in test_str.py.
-    #[test]
-    fn format_rejects_unknown_conversion_specifier() {
-        Interpreter::without_stdlib(Default::default()).enter(|vm| {
-            let source = String::from("'{0!x}'.format(3)");
-            let scope = vm.new_scope_with_builtins();
-            let err = crate::eval::eval(vm, &source, scope, "<unittest>")
-                .expect_err("unknown conversion specifier should raise");
-            assert!(err.fast_isinstance(vm.ctx.exceptions.value_error));
-        })
-    }
-}

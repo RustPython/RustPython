@@ -32,6 +32,16 @@ except ValueError as error:
 else:
     raise AssertionError("expected ValueError for '=8s' string format specifier")
 
+# regression: unknown conversion specifiers used to be silently ignored instead of raising.
+# The ValueError case itself is covered by test_str, but here we're testing the error message.
+try:
+    "{0!x}".format(3)
+except ValueError as error:
+    if str(error) != "Unknown conversion specifier x":
+        raise AssertionError(f"unexpected error message: {error}") from error
+else:
+    raise AssertionError("expected ValueError for unknown conversion specifier '!x'")
+
 assert "{:,}".format(100) == "100"
 assert "{:,}".format(1024) == "1,024"
 assert "{:_}".format(65536) == "65_536"
