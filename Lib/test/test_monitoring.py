@@ -12,16 +12,7 @@ import types
 import unittest
 
 import test.support
-from test.support import requires_specialization_ft, script_helper
-
-try:
-    import _testcapi
-except ImportError:
-    _testcapi = None
-try:
-    import _testinternalcapi
-except ImportError:
-    _testinternalcapi = None
+from test.support import import_helper, requires_specialization_ft, script_helper
 
 PAIR = (0,1)
 
@@ -879,7 +870,6 @@ class ExceptionMonitoringTest(CheckEvents):
 
         self.check_events(func1, [("raise", KeyError)])
 
-    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_implicit_stop_iteration(self):
         """Generators are documented as raising a StopIteration
            when they terminate.
@@ -888,6 +878,8 @@ class ExceptionMonitoringTest(CheckEvents):
            event when we would otherwise have skip the RAISE event.
            This test checks that both paths record an equivalent event.
            """
+
+        _testinternalcapi = import_helper.import_module("_testinternalcapi")
 
         def gen():
             yield 1
@@ -1054,9 +1046,10 @@ class ExceptionMonitoringTest(CheckEvents):
         )
         self.assertEqual(events[0], ("throw", IndexError))
 
-    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     @requires_specialization_ft
     def test_no_unwind_for_shim_frame(self):
+        _testinternalcapi = import_helper.import_module("_testinternalcapi")
+
         class ValueErrorRaiser:
             def __init__(self):
                 raise ValueError()
@@ -2152,8 +2145,8 @@ class TestRegressions(MonitoringTestBase, unittest.TestCase):
         finally:
             sys.monitoring.set_events(TEST_TOOL, 0)
 
-    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_108390(self):
+        _testinternalcapi = import_helper.import_module("_testinternalcapi")
 
         class Foo:
             def __init__(self, set_event):
@@ -2229,8 +2222,9 @@ class TestOptimizer(MonitoringTestBase, unittest.TestCase):
 
 class TestTier2Optimizer(CheckEvents):
 
-    @unittest.skipUnless(_testinternalcapi, "requires _testinternalcapi")
     def test_monitoring_already_opimized_loop(self):
+        _testinternalcapi = import_helper.import_module("_testinternalcapi")
+
         def test_func(recorder):
             set_events = sys.monitoring.set_events
             line = E.LINE
@@ -2264,23 +2258,24 @@ class TestMonitoringAtShutdown(unittest.TestCase):
         script_helper.run_test_script(script)
 
 
-@unittest.skipUnless(_testcapi, "requires _testcapi")
 class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
 
     class Scope:
         def __init__(self, *args):
+            self._testcapi = import_helper.import_module("_testcapi")
             self.args = args
 
         def __enter__(self):
-            _testcapi.monitoring_enter_scope(*self.args)
+            self._testcapi.monitoring_enter_scope(*self.args)
 
         def __exit__(self, *args):
-            _testcapi.monitoring_exit_scope()
+            self._testcapi.monitoring_exit_scope()
 
     def setUp(self):
         super(TestCApiEventGeneration, self).setUp()
 
-        capi = _testcapi
+        self._testcapi = import_helper.import_module("_testcapi")
+        capi = self._testcapi
 
         self.codelike = capi.CodeLike(2)
 
@@ -2349,7 +2344,7 @@ class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
     def test_fire_event(self):
         for expected, event, function, *args in self.cases:
             offset = 0
-            self.codelike = _testcapi.CodeLike(1)
+            self.codelike = self._testcapi.CodeLike(1)
             with self.subTest(function.__name__):
                 args_ = (self.codelike, offset) + tuple(args)
                 self.check_event_count(event, function, args_, expected)
@@ -2360,7 +2355,7 @@ class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
                 continue
             assert args and isinstance(args[-1], BaseException)
             offset = 0
-            self.codelike = _testcapi.CodeLike(1)
+            self.codelike = self._testcapi.CodeLike(1)
             with self.subTest(function.__name__):
                 args_ = (self.codelike, offset) + tuple(args[:-1]) + (None,)
                 evt = int(math.log2(event))
@@ -2370,7 +2365,7 @@ class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
     def test_fire_event_failing_callback(self):
         for expected, event, function, *args in self.cases:
             offset = 0
-            self.codelike = _testcapi.CodeLike(1)
+            self.codelike = self._testcapi.CodeLike(1)
             with self.subTest(function.__name__):
                 args_ = (self.codelike, offset) + tuple(args)
                 exc = OSError(42)
@@ -2420,12 +2415,14 @@ class TestCApiEventGeneration(MonitoringTestBase, unittest.TestCase):
     def test_disable_event(self):
         for expected, event, function, *args in self.cases:
             offset = 0
-            self.codelike = _testcapi.CodeLike(2)
+            self.codelike = self._testcapi.CodeLike(2)
             with self.subTest(function.__name__):
                 args_ = (self.codelike, 0) + tuple(args)
                 self.check_disable(event, function, args_, expected)
 
     def test_enter_scope_two_events(self):
+        _testcapi = self._testcapi
+
         try:
             yield_counter = CounterWithDisable()
             unwind_counter = CounterWithDisable()
