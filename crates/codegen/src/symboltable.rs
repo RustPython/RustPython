@@ -3623,7 +3623,7 @@ mod tests {
     #[test]
     fn deferred_annotation_store_names_are_not_public_symbols() {
         let module = scan_source("x: int\n");
-        assert!(module.lookup("__annotate__").is_none());
+        assert!(module.lookup(&"__annotate__".into()).is_none());
         assert!(module.annotation_block.is_some());
 
         let module = scan_source("class C:\n    y: str\n");
@@ -3632,7 +3632,7 @@ mod tests {
             .iter()
             .find(|table| table.typ == CompilerScope::Class)
             .expect("missing class scope");
-        assert!(class.lookup("__annotate_func__").is_none());
+        assert!(class.lookup(&"__annotate_func__".into()).is_none());
         assert!(class.annotation_block.is_some());
     }
 
@@ -3650,7 +3650,7 @@ mod tests {
             .find(|table| table.typ == CompilerScope::Class)
             .expect("missing generic class scope");
         assert_eq!(
-            class.symbols.keys().map(String::as_str).collect::<Vec<_>>(),
+            class.symbols.keys().collect::<Vec<_>>(),
             ["__type_params__", ".type_params", "q", "range", "i"]
         );
     }
