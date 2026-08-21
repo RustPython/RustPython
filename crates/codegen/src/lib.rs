@@ -24,6 +24,9 @@ mod unparse;
 
 pub use compile::CompileOpts;
 use ruff_python_ast as ast;
+use ruff_text_size::{TextRange, TextSize};
+use rustpython_compiler_core::SourceFile;
+use rustpython_wtf8::Wtf8Buf;
 
 pub(crate) use compile::InternalResult;
 
@@ -92,6 +95,80 @@ pub(crate) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
         },
         ast::ConstantValue::Ellipsis => ConstantData::Ellipsis,
     }
+}
+
+/// The value of a string literal.
+///
+/// The parser has nowhere to keep a lone surrogate in the value it hands over,
+/// and leaves a replacement character standing in for one, so a literal that
+/// carries any is read again from the source it was written in.
+#[must_use]
+pub fn string_literal_value(source_file: &SourceFile, string: &ast::StringLiteralValue) -> Wtf8Buf {
+    let value = string.to_str();
+    if value.contains(char::REPLACEMENT_CHARACTER) {
+        string
+            .iter()
+            .map(|part| string_literal_part_value(source_file, part))
+            .collect()
+    } else {
+        value.into()
+    }
+}
+
+/// The value of one of the literals a string literal is written as.
+#[must_use]
+pub fn string_literal_part_value(source_file: &SourceFile, string: &ast::StringLiteral) -> Wtf8Buf {
+    if string.value.contains(char::REPLACEMENT_CHARACTER) {
+        let source = source_file.slice(string.range);
+        string_parser::parse_string_literal(source, string.flags.into()).into()
+    } else {
+        string.value.to_string().into()
+    }
+}
+
+/// The value of a literal written between the interpolations of an f-string or
+/// a t-string.
+#[must_use]
+pub fn interpolated_string_literal_value(
+    source_file: &SourceFile,
+    element: &ast::InterpolatedStringLiteralElement,
+    flags: ast::AnyStringFlags,
+) -> Wtf8Buf {
+    if element.value.contains(char::REPLACEMENT_CHARACTER) {
+        let source = source_file.slice(element.range);
+        string_parser::parse_fstring_literal_element(source.into(), flags).into()
+    } else {
+        element.value.to_string().into()
+    }
+}
+
+/// The text a `{expr=}` interpolation puts in front of its value, and the range
+/// that text covers.
+///
+/// The text is the expression as it is written plus whatever the parser found
+/// around it inside the braces, with comments taken out. The range covers that
+/// surrounding text as it stands, comments included.
+#[must_use]
+pub fn interpolation_debug_text(
+    source_file: &SourceFile,
+    debug_text: &ast::DebugText,
+    expression_range: TextRange,
+) -> (String, TextRange) {
+    let leading = debug_text.leading.as_str();
+    let trailing = debug_text.trailing.as_str();
+    let text = [
+        strip_python_comments(leading).as_str(),
+        source_file.slice(expression_range),
+        strip_python_comments(trailing).as_str(),
+    ]
+    .concat();
+    let width =
+        |len: usize| TextSize::new(u32::try_from(len).expect("debug interpolation text too long"));
+    let range = TextRange::new(
+        expression_range.start() - width(leading.len()),
+        expression_range.end() + width(trailing.len()),
+    );
+    (text, range)
 }
 
 fn strip_python_comments(text: &str) -> String {

@@ -12,8 +12,9 @@
 use crate::{
     IndexMap, IndexSet, ToPythonName, ast_constant_value_to_constant_data,
     error::{CodegenError, CodegenErrorType, InternalError},
+    interpolated_string_literal_value, interpolation_debug_text,
     ir::{self, Block, BlockIdx, Blocks},
-    preprocess, strip_python_comments,
+    preprocess, string_literal_part_value, string_literal_value,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
@@ -9225,7 +9226,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_expr_tstring(tstring)?;
             }
             ast::Expr::StringLiteral(string) => {
-                let value = self.compile_string_value(string);
+                let value = string_literal_value(&self.source_file, &string.value);
                 self.emit_load_const(ConstantData::Str { value });
             }
             ast::Expr::BytesLiteral(bytes) => {
@@ -9347,11 +9348,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         let symbol_table_cursors = self.current_symbol_table_cursors();
-        if let Some(range) = self.cpython_implicit_call_generator_range(generator_expr) {
-            self.compile_expression_with_generator_range(generator_expr, range)?;
-        } else {
-            self.compile_expression(generator_expr)?;
-        }
+        self.compile_expression(generator_expr)?;
         self.set_symbol_table_cursors(symbol_table_cursors);
 
         let loop_block = self.new_block();
@@ -9448,17 +9445,8 @@ impl<'warnings> Compiler<'warnings> {
         call_range: TextRange,
         kw_names_range: TextRange,
     ) -> CompileResult<()> {
-        let implicit_generator_range = if args.args.len() == 1 && args.keywords.is_empty() {
-            self.cpython_implicit_call_generator_range(&args.args[0])
-        } else {
-            None
-        };
         for arg in &args.args {
-            if let Some(range) = implicit_generator_range {
-                self.compile_expression_with_generator_range(arg, range)?;
-            } else {
-                self.compile_expression(arg)?;
-            }
+            self.compile_expression(arg)?;
         }
 
         if args.keywords.is_empty() {
@@ -9731,18 +9719,8 @@ impl<'warnings> Compiler<'warnings> {
 
         if !has_starred && !has_double_star && !too_big {
             // Simple call path: no * or ** args
-            let implicit_generator_range =
-                if additional_positional == 0 && nelts == 1 && nkwelts == 0 {
-                    self.cpython_implicit_call_generator_range(&args[0])
-                } else {
-                    None
-                };
             for arg in args {
-                if let Some(range) = implicit_generator_range {
-                    self.compile_expression_with_generator_range(arg, range)?;
-                } else {
-                    self.compile_expression(arg)?;
-                }
+                self.compile_expression(arg)?;
             }
             let injected_count = if let Some(injected_arg) = injected_arg {
                 self.set_source_range(call_range);
@@ -9875,58 +9853,6 @@ impl<'warnings> Compiler<'warnings> {
                 e
             }
         })
-    }
-
-    fn compile_expression_with_generator_range(
-        &mut self,
-        expression: &ast::Expr,
-        range: TextRange,
-    ) -> CompileResult<()> {
-        if let ast::Expr::Generator(ast::ExprGenerator {
-            elt, generators, ..
-        }) = expression
-        {
-            self.set_source_range(range);
-            self.compile_generator_expression(elt, generators, range)
-        } else {
-            self.compile_expression(expression)
-        }
-    }
-
-    /// The range a generator expression written straight into a call's
-    /// parentheses takes: those parentheses are its own, and
-    /// `codegen_comprehension()` puts the `MAKE_FUNCTION` and the generator's
-    /// `LOAD_FAST .0` there. A generator that brought its own parentheses
-    /// already covers them, so it gets `None`.
-    fn cpython_implicit_call_generator_range(&self, expression: &ast::Expr) -> Option<TextRange> {
-        let ast::Expr::Generator(generator) = expression else {
-            return None;
-        };
-        if generator.parenthesized {
-            return None;
-        }
-        let source = self.source_file.source_text().as_bytes();
-
-        let mut open = generator.range.start().to_usize();
-        while open > 0 && source[open - 1].is_ascii_whitespace() {
-            open -= 1;
-        }
-        if open == 0 || source[open - 1] != b'(' {
-            return None;
-        }
-
-        let mut close = generator.range.end().to_usize();
-        while close < source.len() && source[close].is_ascii_whitespace() {
-            close += 1;
-        }
-        if source.get(close) != Some(&b')') {
-            return None;
-        }
-
-        Some(TextRange::new(
-            TextSize::from(u32::try_from(open - 1).ok()?),
-            TextSize::from(u32::try_from(close + 1).ok()?),
-        ))
     }
 
     fn compile_generator_expression(
@@ -11437,59 +11363,6 @@ impl<'warnings> Compiler<'warnings> {
 
     // fn block_done()
 
-    /// Convert a string literal AST node to Wtf8Buf, handling surrogate literals correctly.
-    fn compile_string_value(&self, string: &ast::ExprStringLiteral) -> Wtf8Buf {
-        let value = string.value.to_str();
-        if value.contains(char::REPLACEMENT_CHARACTER) {
-            // Might have a surrogate literal; reparse from source to preserve them.
-            string
-                .value
-                .iter()
-                .map(|lit| {
-                    let source = self.source_file.slice(lit.range);
-                    crate::string_parser::parse_string_literal(source, lit.flags.into())
-                })
-                .collect()
-        } else {
-            value.into()
-        }
-    }
-
-    fn compile_fstring_literal_value(
-        &self,
-        string: &ast::InterpolatedStringLiteralElement,
-        flags: ast::FStringFlags,
-    ) -> Wtf8Buf {
-        if string.value.contains(char::REPLACEMENT_CHARACTER) {
-            let source = self.source_file.slice(string.range);
-            crate::string_parser::parse_fstring_literal_element(source.into(), flags.into()).into()
-        } else {
-            string.value.to_string().into()
-        }
-    }
-
-    fn compile_tstring_literal_value(
-        &self,
-        string: &ast::InterpolatedStringLiteralElement,
-        flags: ast::TStringFlags,
-    ) -> Wtf8Buf {
-        if string.value.contains(char::REPLACEMENT_CHARACTER) {
-            let source = self.source_file.slice(string.range);
-            crate::string_parser::parse_fstring_literal_element(source.into(), flags.into()).into()
-        } else {
-            string.value.to_string().into()
-        }
-    }
-
-    fn compile_fstring_part_literal_value(&self, string: &ast::StringLiteral) -> Wtf8Buf {
-        if string.value.contains(char::REPLACEMENT_CHARACTER) {
-            let source = self.source_file.slice(string.range);
-            crate::string_parser::parse_string_literal(source, string.flags.into()).into()
-        } else {
-            string.value.to_string().into()
-        }
-    }
-
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         if let ConstantData::Code { code } = &constant
@@ -11614,7 +11487,7 @@ impl<'warnings> Compiler<'warnings> {
                 },
             },
             ast::Expr::StringLiteral(s) => ConstantData::Str {
-                value: self.compile_string_value(s),
+                value: string_literal_value(&self.source_file, &s.value),
             },
             ast::Expr::BytesLiteral(b) => ConstantData::Bytes {
                 value: b.value.bytes().collect(),
@@ -11805,7 +11678,7 @@ impl<'warnings> Compiler<'warnings> {
                 },
             },
             ast::Expr::StringLiteral(s) => ConstantData::Str {
-                value: self.compile_string_value(s),
+                value: string_literal_value(&self.source_file, &s.value),
             },
             ast::Expr::BytesLiteral(b) => ConstantData::Bytes {
                 value: b.value.bytes().collect(),
@@ -12658,7 +12531,7 @@ impl<'warnings> Compiler<'warnings> {
     ) -> CompileResult<()> {
         match part {
             ast::FStringPart::Literal(string) => {
-                let value = self.compile_fstring_part_literal_value(string);
+                let value = string_literal_part_value(&self.source_file, string);
                 if pending_literal.is_none() {
                     *pending_literal_range = Some(string.range);
                     *pending_literal_no_location = string.range == TextRange::default();
@@ -12802,7 +12675,7 @@ impl<'warnings> Compiler<'warnings> {
     ) {
         match part {
             ast::FStringPart::Literal(string) => {
-                let value = self.compile_fstring_part_literal_value(string);
+                let value = string_literal_part_value(&self.source_file, string);
                 if let Some(pending) = pending_literal.as_mut() {
                     pending.push_wtf8(value.as_ref());
                 } else {
@@ -12928,7 +12801,8 @@ impl<'warnings> Compiler<'warnings> {
         for element in fstring_elements {
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
-                    let value = self.compile_fstring_literal_value(string, flags);
+                    let value =
+                        interpolated_string_literal_value(&self.source_file, string, flags.into());
                     if pending_literal.is_none() {
                         *pending_literal_range = Some(string.range);
                         *pending_literal_no_location = string.range == TextRange::default();
@@ -12948,29 +12822,11 @@ impl<'warnings> Compiler<'warnings> {
                     };
 
                     if let Some(debug_text) = &fstring_expr.debug_text {
-                        let leading = debug_text.leading.as_str();
-                        let trailing = debug_text.trailing.as_str();
-                        let range = fstring_expr.expression.range();
-                        let source = self.source_file.slice(range);
-                        let text = [
-                            strip_python_comments(leading).as_str(),
-                            source,
-                            strip_python_comments(trailing).as_str(),
-                        ]
-                        .concat();
-                        let debug_text_range = TextRange::new(
-                            range.start()
-                                - TextSize::new(
-                                    u32::try_from(leading.len())
-                                        .expect("debug f-string leading text too long"),
-                                ),
-                            range.end()
-                                + TextSize::new(
-                                    u32::try_from(trailing.len())
-                                        .expect("debug f-string trailing text too long"),
-                                ),
+                        let (text, debug_text_range) = interpolation_debug_text(
+                            &self.source_file,
+                            debug_text,
+                            fstring_expr.expression.range(),
                         );
-
                         let text: Wtf8Buf = text.into();
                         Self::extend_pending_literal_range(pending_literal_range, debug_text_range);
                         *pending_literal_no_location = false;
@@ -13076,7 +12932,8 @@ impl<'warnings> Compiler<'warnings> {
         for element in fstring_elements {
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
-                    let value = self.compile_fstring_literal_value(string, flags);
+                    let value =
+                        interpolated_string_literal_value(&self.source_file, string, flags.into());
                     if let Some(pending) = pending_literal.as_mut() {
                         pending.push_wtf8(value.as_ref());
                     } else {
@@ -13085,17 +12942,11 @@ impl<'warnings> Compiler<'warnings> {
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
                     if let Some(debug_text) = &fstring_expr.debug_text {
-                        let leading = debug_text.leading.as_str();
-                        let trailing = debug_text.trailing.as_str();
-                        let range = fstring_expr.expression.range();
-                        let source = self.source_file.slice(range);
-                        let text = [
-                            strip_python_comments(leading).as_str(),
-                            source,
-                            strip_python_comments(trailing).as_str(),
-                        ]
-                        .concat();
-
+                        let (text, _) = interpolation_debug_text(
+                            &self.source_file,
+                            debug_text,
+                            fstring_expr.expression.range(),
+                        );
                         let text: Wtf8Buf = text.into();
                         pending_literal
                             .get_or_insert_with(Wtf8Buf::new)
@@ -13311,32 +13162,18 @@ impl<'warnings> Compiler<'warnings> {
                     } else {
                         Self::extend_pending_literal_range(current_string_range, lit.range);
                     }
-                    current_string
-                        .push_wtf8(&self.compile_tstring_literal_value(lit, tstring.flags));
+                    current_string.push_wtf8(&interpolated_string_literal_value(
+                        &self.source_file,
+                        lit,
+                        tstring.flags.into(),
+                    ));
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
                     if let Some(debug_text) = &interp.debug_text {
-                        let leading = debug_text.leading.as_str();
-                        let trailing = debug_text.trailing.as_str();
-                        let range = interp.expression.range();
-                        let source = self.source_file.slice(range);
-                        let text = [
-                            strip_python_comments(leading).as_str(),
-                            source,
-                            strip_python_comments(trailing).as_str(),
-                        ]
-                        .concat();
-                        let debug_text_range = TextRange::new(
-                            range.start()
-                                - TextSize::new(
-                                    u32::try_from(leading.len())
-                                        .expect("debug t-string leading text too long"),
-                                ),
-                            range.end()
-                                + TextSize::new(
-                                    u32::try_from(trailing.len())
-                                        .expect("debug t-string trailing text too long"),
-                                ),
+                        let (text, debug_text_range) = interpolation_debug_text(
+                            &self.source_file,
+                            debug_text,
+                            interp.expression.range(),
                         );
                         if current_string_range.is_none() {
                             *current_string_range = Some(debug_text_range);

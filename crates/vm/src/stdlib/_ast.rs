@@ -388,17 +388,7 @@ fn text_range_to_source_range(source_file: &SourceFile, text_range: TextRange) -
     let start_row = index.line_index(text_range.start());
     let end_row = index.line_index(text_range.end());
     let start_col = text_range.start() - index.line_start(start_row, source);
-    let (end_row, end_col) = {
-        let end_col = text_range.end() - index.line_start(end_row, source);
-        if end_col == TextSize::new(0) && end_row > start_row {
-            let prev_line_end = text_range.end() - TextSize::new(1);
-            let row = index.line_index(prev_line_end);
-            let col = prev_line_end - index.line_start(row, source) + TextSize::new(1);
-            (row, col)
-        } else {
-            (end_row, end_col)
-        }
-    };
+    let end_col = text_range.end() - index.line_start(end_row, source);
 
     PySourceRange {
         start: PySourceLocation {
