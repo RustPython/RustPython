@@ -440,6 +440,7 @@ impl StopTheWorldState {
         self.park_detached_threads(state);
         if initial_countdown == 0 || self.all_non_requester_suspended(state) {
             self.world_stopped.store(true, Ordering::Release);
+            crate::common::lock::set_world_stopped(true);
             #[cfg(debug_assertions)]
             self.debug_assert_all_non_requester_suspended(state);
             stw_trace(format_args!(
@@ -487,6 +488,7 @@ impl StopTheWorldState {
             }
         }
         self.world_stopped.store(true, Ordering::Release);
+        crate::common::lock::set_world_stopped(true);
         #[cfg(debug_assertions)]
         self.debug_assert_all_non_requester_suspended(state);
         stw_trace(format_args!(
@@ -507,6 +509,7 @@ impl StopTheWorldState {
         // thread-slot initialization.
         self.requested.store(false, Ordering::Release);
         self.world_stopped.store(false, Ordering::Release);
+        crate::common::lock::set_world_stopped(false);
 
         #[expect(
             clippy::iter_over_hash_type,
@@ -544,6 +547,7 @@ impl StopTheWorldState {
     pub fn reset_after_fork(&self) {
         self.requested.store(false, Ordering::Relaxed);
         self.world_stopped.store(false, Ordering::Relaxed);
+        crate::common::lock::set_world_stopped(false);
         self.requester.store(0, Ordering::Relaxed);
         self.thread_countdown.store(0, Ordering::Relaxed);
         // The surviving child thread inherited the exclusion taken by the

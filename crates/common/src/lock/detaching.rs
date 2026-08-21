@@ -64,6 +64,47 @@ impl Drop for HookGuard {
     }
 }
 
+#[cfg(all(feature = "threading", debug_assertions))]
+std::thread_local! {
+    /// Set on the one thread still running while the world is stopped.
+    static WORLD_STOPPED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Record whether this thread is the one running inside a stopped world.
+///
+/// The rule for opting a lock into detaching is that nothing reachable from a
+/// stop-the-world section takes it — a section that did could block on a lock
+/// only that same section can release. Not implementing `Traverse` states the
+/// rule to a collection; this states it to every other section, which is
+/// otherwise unchecked. Debug builds only; release builds track nothing and
+/// pay nothing.
+#[cfg(feature = "threading")]
+#[inline]
+pub fn set_world_stopped(stopped: bool) {
+    #[cfg(debug_assertions)]
+    let _ = WORLD_STOPPED.try_with(|flag| flag.set(stopped));
+    #[cfg(not(debug_assertions))]
+    let _ = stopped;
+}
+
+/// Panics if a stop-the-world section is taking one of these locks.
+#[cfg(all(feature = "threading", debug_assertions))]
+#[track_caller]
+fn assert_not_stopping_the_world() {
+    // `try_with` fails only once thread locals are being destroyed, which is
+    // not a point at which this thread is driving a stop.
+    let stopped = WORLD_STOPPED.try_with(Cell::get).unwrap_or(false);
+    assert!(
+        !stopped,
+        "a stop-the-world section took a detaching lock, which a parked thread \
+         may be holding and only this section can release"
+    );
+}
+
+#[cfg(not(all(feature = "threading", debug_assertions)))]
+#[inline(always)]
+fn assert_not_stopping_the_world() {}
+
 /// Block on `wait`, detached from this thread's interpreter if there is one.
 ///
 /// Nothing spins on the way here. The lock underneath already spins before it
@@ -143,6 +184,7 @@ unsafe impl RawRwLockTrait for RawDetachingRwLock {
 
     #[inline]
     fn lock_shared(&self) {
+        assert_not_stopping_the_world();
         if !self.0.try_lock_shared() {
             wait_detached(|| self.0.lock_shared());
         }
@@ -160,6 +202,7 @@ unsafe impl RawRwLockTrait for RawDetachingRwLock {
 
     #[inline]
     fn lock_exclusive(&self) {
+        assert_not_stopping_the_world();
         if !self.0.try_lock_exclusive() {
             wait_detached(|| self.0.lock_exclusive());
         }
@@ -254,5 +297,41 @@ unsafe impl RawRwLockRecursiveTrait for RawDetachingRwLock {
     #[inline]
     fn try_lock_shared_recursive(&self) -> bool {
         self.0.try_lock_shared_recursive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(all(feature = "threading", debug_assertions))]
+    use super::set_world_stopped;
+    #[cfg(all(feature = "threading", debug_assertions))]
+    use crate::lock::PyDetachingRwLock;
+
+    /// The opt-in rule holds for every stop-the-world section, not only the
+    /// collector that not implementing `Traverse` speaks to.
+    #[cfg(all(feature = "threading", debug_assertions))]
+    #[test]
+    fn taking_one_while_stopping_the_world_is_caught() {
+        let lock = PyDetachingRwLock::new(());
+
+        // Ordinary use, for contrast.
+        drop(lock.write());
+
+        set_world_stopped(true);
+        let hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let taken = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
+            let _guard = lock.read();
+        }));
+        std::panic::set_hook(hook);
+        set_world_stopped(false);
+
+        assert!(
+            taken.is_err(),
+            "a stop-the-world section took a detaching lock and nothing complained"
+        );
+
+        // The flag is per-thread and back to clear, so the lock still works.
+        drop(lock.write());
     }
 }
