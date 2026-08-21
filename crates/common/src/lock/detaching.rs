@@ -1,23 +1,16 @@
 //! A reader-writer lock that lets a thread leave its interpreter before it
 //! blocks.
 //!
-//! Stopping the world means waiting for every running thread to reach a
-//! safepoint. A thread blocked on a lock reaches none, so if the thread holding
-//! that lock has already been stopped, the two wait on each other forever. The
-//! holder is not the one who can avoid this — a lock is held across a blocking
-//! call precisely because that is what the call needs — so the waiter gives up
-//! its interpreter for the duration of the wait instead, which is what a
-//! blocking call does anyway.
+//! [`RawDetachingRwLock`] carries the reasoning: what goes wrong when a thread
+//! waits for a lock while attached, why the waiter rather than the holder is
+//! the one that has to give way, and the rule that comes with fixing it.
 //!
-//! Doing so is safe only for locks nothing reachable from a stop-the-world
-//! section takes, so it is opt-in per lock — see [`RawDetachingRwLock`] for the
-//! rule and why it is needed.
-//!
-//! Only the contended path pays for any of this: an acquire that takes the lock
-//! on the first try is the same atomic exchange it was, and never reaches the
-//! hook. The hook is installed by whoever knows how to detach a thread
-//! ([`set_blocking_wait_hook`]); until then, and on any thread that is not
-//! running an interpreter, a blocked acquire just blocks.
+//! The wait itself is handed to a hook, because this crate cannot depend on the
+//! vm and so cannot detach a thread by itself. Whoever can installs it through
+//! [`set_blocking_wait_hook`]; until then, and on any thread that is not
+//! running an interpreter, a blocked acquire just blocks. Only the contended
+//! path reaches any of this — an acquire that takes the lock on its first try
+//! is the same atomic exchange it was.
 
 use super::RawRwLock;
 #[cfg(feature = "threading")]
@@ -147,7 +140,46 @@ fn wait_detached(wait: impl Fn()) {
 ///
 /// Use through [`PyDetachingRwLock`](super::PyDetachingRwLock).
 ///
-/// # Only for locks a collection never takes
+/// # Why this exists
+///
+/// Stopping the world means waiting until every other thread sits at
+/// SUSPENDED, and there are two ways a thread gets there:
+///
+/// - A DETACHED thread is not running interpreter code, so the requester moves
+///   it to SUSPENDED itself. The thread never finds out.
+/// - An ATTACHED thread can only suspend itself, at a safepoint — the check
+///   `check_signals` makes between bytecodes.
+///
+/// A thread blocked acquiring a lock runs no bytecode, so it reaches no
+/// safepoint. While ATTACHED it is a thread the world cannot stop for as long
+/// as it waits, and the requester waits without a bound.
+///
+/// On its own that is a pause. It becomes a deadlock as soon as the lock being
+/// waited for is held by a thread the same stop has already parked:
+///
+/// ```text
+/// A  holds the lock, blocks inside allow_threads  -> DETACHED
+/// B  requests a stop, and parks A                 -> A is SUSPENDED, holding the lock
+/// C  wants the same lock, and waits for it        -> ATTACHED, blocked
+///
+///   B waits for C to suspend           C reaches no safepoint
+///   C waits for A to release           A is parked
+///   A waits for B to start the world   B is still waiting for C
+/// ```
+///
+/// No thread in that cycle can break it, because none of them is running. It is
+/// not hypothetical: an `SSLSocket.read` against a peer that completed a
+/// handshake and then went quiet froze whole processes this way, the main
+/// thread included, so not even a Python-level timeout could fire.
+///
+/// The holder cannot be the one to give way. A lock is held across a blocking
+/// call precisely because that is what the call needs. So the waiter gives way
+/// instead: it leaves its interpreter for the duration of the wait, which is
+/// what a blocking call does anyway, and a waiter that has left is a waiter the
+/// requester can park. C detaches before it blocks, the stop completes, B
+/// finishes, A resumes and releases, and C takes the lock and attaches again.
+///
+/// # Only for locks a stop-the-world section never takes
 ///
 /// The wait acquires the lock while detached, so the thread comes back holding
 /// it, and re-attaching is a point at which a stop-the-world in flight will
