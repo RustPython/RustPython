@@ -332,6 +332,26 @@ impl VirtualMachine {
         Ok(scope)
     }
 
+    /// Create `__main__` if it is missing and return it.
+    pub fn ensure_main_module(&self) -> PyResult<PyRef<PyModule>> {
+        let sys_modules = self.sys_module.get_attr("modules", self)?;
+        if let Ok(existing) = sys_modules.get_item("__main__", self)
+            && let Ok(module) = existing.downcast::<PyModule>()
+        {
+            return Ok(module);
+        }
+        let dict = self.ctx.new_dict();
+        let main_module = self.new_module("__main__", dict, None);
+        sys_modules.set_item("__main__", main_module.clone().into(), self)?;
+        Ok(main_module)
+    }
+
+    /// `__dict__` of this interpreter's `__main__` module.
+    pub fn main_namespace(&self) -> PyResult<PyDictRef> {
+        let main = self.ensure_main_module()?;
+        Ok(main.dict())
+    }
+
     pub fn new_function<F, FKind>(&self, name: &'static str, f: F) -> PyRef<PyNativeFunction>
     where
         F: IntoPyNativeFn<FKind>,

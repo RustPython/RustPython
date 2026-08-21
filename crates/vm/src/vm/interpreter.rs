@@ -52,6 +52,7 @@ struct InitializeVmOpts<'a> {
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
     parent_state: Option<&'a PyGlobalState>,
+    feature_flags: runtime::InterpFeatureFlags,
 }
 
 /// Shared constructor for main and sub-interpreters.
@@ -68,12 +69,13 @@ where
         is_main,
         whence,
         parent_state,
+        feature_flags: opts_feature_flags,
     } = opts;
     use crate::codecs::CodecsRegistry;
     use crate::common::hash::HashSecret;
     use crate::common::lock::PyMutex;
     use crate::warn::WarningsState;
-    use core::sync::atomic::{AtomicBool, AtomicU64};
+    use core::sync::atomic::{AtomicBool, AtomicI64, AtomicU64};
     use crossbeam_utils::atomic::AtomicCell;
 
     // Before any lock this interpreter's threads can contend on exists.
@@ -153,6 +155,12 @@ where
     #[cfg(feature = "threading")]
     let main_thread_ident = AtomicCell::new(parent_state.map_or(0, |p| p.main_thread_ident.load()));
 
+    let feature_flags = if parent_state.is_some() {
+        opts_feature_flags
+    } else {
+        runtime::InterpFeatureFlags::LEGACY
+    };
+
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
         gc: crate::gc_state::GcInterpreterState::new(&ctx),
@@ -191,6 +199,11 @@ where
         instrumentation_version: AtomicU64::new(0),
         #[cfg(feature = "threading")]
         stop_the_world: StopTheWorldState::new(),
+        feature_flags,
+        running_main: AtomicBool::new(false),
+        ready: AtomicBool::new(false),
+        id_refcount: AtomicI64::new(0),
+        require_idref: AtomicBool::new(false),
     });
 
     // Create VM with the global state
@@ -217,11 +230,55 @@ where
     // thread for the duration so type cache reads see it as ATTACHED.
     let vm_guard = thread::VmBootstrapGuard::new(&vm);
     vm.initialize();
+    vm.state.ready.store(true, Ordering::Release);
     drop(vm_guard);
 
     // Clone global_state for Interpreter after all initialization is done
     let global_state = vm.state.clone();
     (vm, global_state)
+}
+
+/// Bootstrap a subinterpreter from an already-entered parent VM.
+fn create_subinterpreter_from_parent(
+    parent: &VirtualMachine,
+    config: runtime::InterpreterConfig,
+) -> Interpreter {
+    // Suspend the caller's current VM attachment (if any) for the duration
+    // of subinterpreter initialization. Nested bootstrap would otherwise
+    // swap `CURRENT_THREAD_SLOT` to the new interpreter while leaving the
+    // outer interpreter's attach state inconsistent. Always restore, even
+    // if initialization panics.
+    #[cfg(feature = "threading")]
+    let _restore_parent = {
+        let saved = thread::current_vm_is_set().then(thread::save_current_thread);
+        scopeguard::guard(saved, |saved| {
+            if let Some(saved) = saved {
+                thread::restore_current_thread(saved);
+            }
+        })
+    };
+
+    let (vm, global_state) = initialize_vm(
+        InitializeVmOpts {
+            // settings unused when parent_state is Some
+            settings: Settings::default(),
+            ctx: parent.ctx.clone(),
+            module_defs: Vec::new(),
+            frozen_modules: Vec::new(),
+            init_hooks: Vec::new(),
+            is_main: false,
+            whence: InterpreterWhence::Stdlib,
+            parent_state: Some(&parent.state),
+            feature_flags: config.feature_flags(),
+        },
+        |_| {},
+    );
+    let interp = Interpreter { global_state, vm };
+    // Every CPython interpreter has a `__main__` module after init.
+    interp.enter(|vm| {
+        let _ = vm.ensure_main_module();
+    });
+    interp
 }
 
 impl InterpreterBuilder {
@@ -343,6 +400,7 @@ impl InterpreterBuilder {
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
+                feature_flags: runtime::InterpFeatureFlags::LEGACY,
             },
             |_| {}, // No additional init needed
         );
@@ -433,6 +491,7 @@ impl Interpreter {
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
+                feature_flags: runtime::InterpFeatureFlags::LEGACY,
             },
             init,
         );
@@ -476,20 +535,27 @@ impl Interpreter {
     /// Create a subinterpreter and hand ownership to the runtime, returning its
     /// id. The runtime keeps it alive until [`runtime::take_owned_interpreter`].
     ///
-    /// This is the shape `_interpreters.create()` will use: Python receives an
+    /// This is the shape `_interpreters.create()` uses: Python receives an
     /// id, not an owned handle.
     #[cfg(feature = "threading")]
     #[must_use]
     pub fn create_owned_subinterpreter(&self) -> i64 {
-        runtime::store_owned_interpreter(self.create_subinterpreter())
+        self.create_owned_subinterpreter_with_config(runtime::InterpreterConfig::ISOLATED)
+    }
+
+    /// Create a runtime-owned subinterpreter with the given PEP 734 config.
+    #[cfg(feature = "threading")]
+    #[must_use]
+    pub fn create_owned_subinterpreter_with_config(
+        &self,
+        config: runtime::InterpreterConfig,
+    ) -> i64 {
+        runtime::store_owned_interpreter(self.create_subinterpreter_with_config(config))
     }
 
     /// Create an isolated subinterpreter sharing this interpreter's type context
     /// (`Context`) and module definitions, but with its own `sys.modules`,
     /// builtins module instance, thread registry, and stop-the-world state.
-    ///
-    /// This is the Rust-side foundation for PEP 734 / `_interpreters.create()`.
-    /// It does not yet expose a Python module API.
     ///
     /// May be called while the parent is entered (matching CPython, where
     /// `_interpreters.create()` runs under the main interpreter). When the
@@ -498,36 +564,28 @@ impl Interpreter {
     /// enter (correct thread-slot / stop-the-world state).
     #[must_use]
     pub fn create_subinterpreter(&self) -> Self {
-        // Suspend the caller's current VM attachment (if any) for the duration
-        // of subinterpreter initialization. Nested bootstrap would otherwise
-        // swap `CURRENT_THREAD_SLOT` to the new interpreter while leaving the
-        // outer interpreter's attach state inconsistent. Always restore, even
-        // if initialization panics.
-        #[cfg(feature = "threading")]
-        let _restore_parent = {
-            let saved = thread::current_vm_is_set().then(thread::save_current_thread);
-            scopeguard::guard(saved, |saved| {
-                if let Some(saved) = saved {
-                    thread::restore_current_thread(saved);
-                }
-            })
-        };
+        self.create_subinterpreter_with_config(runtime::InterpreterConfig::ISOLATED)
+    }
 
-        let (vm, global_state) = initialize_vm(
-            InitializeVmOpts {
-                // settings unused when parent_state is Some
-                settings: Settings::default(),
-                ctx: self.vm.ctx.clone(),
-                module_defs: Vec::new(),
-                frozen_modules: Vec::new(),
-                init_hooks: Vec::new(),
-                is_main: false,
-                whence: InterpreterWhence::Stdlib,
-                parent_state: Some(&self.global_state),
-            },
-            |_| {},
-        );
-        Self { global_state, vm }
+    /// Create a subinterpreter from a parent VM (the currently entered one).
+    pub fn create_subinterpreter_from_vm(
+        parent: &VirtualMachine,
+        config: runtime::InterpreterConfig,
+    ) -> Self {
+        create_subinterpreter_from_parent(parent, config)
+    }
+
+    /// Create a subinterpreter with an explicit PEP 734 / `PyInterpreterConfig`.
+    #[must_use]
+    pub fn create_subinterpreter_with_config(&self, config: runtime::InterpreterConfig) -> Self {
+        create_subinterpreter_from_parent(&self.vm, config)
+    }
+
+    /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
+    #[cfg(feature = "threading")]
+    #[must_use]
+    pub fn new_thread(&self) -> thread::ThreadedVirtualMachine {
+        self.vm.new_thread()
     }
 
     /// Run a function with the main virtual machine and return a PyResult of the result.

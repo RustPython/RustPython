@@ -59,6 +59,8 @@ pub(crate) mod msvcrt;
 ))]
 mod pwd;
 
+pub(crate) mod _interpchannels;
+pub(crate) mod _interpreters;
 #[cfg(feature = "host_env")]
 pub(crate) mod _signal;
 #[cfg(feature = "threading")]
@@ -134,6 +136,8 @@ pub fn builtin_module_defs(ctx: &Context) -> Vec<&'static PyModuleDef> {
         _sysconfig::module_def(ctx),
         #[cfg(feature = "threading")]
         _thread::module_def(ctx),
+        _interpchannels::module_def(ctx),
+        _interpreters::module_def(ctx),
         time::module_def(ctx),
         _typing::module_def(ctx),
         _warnings::module_def(ctx),

@@ -35,6 +35,8 @@ ceval
 cfield
 cfws
 CFWS
+chans
+cidx
 CLASSDEREF
 classdict
 cmpop
@@ -170,6 +172,7 @@ nseen
 NSIGNALS
 numer
 nvars
+obmalloc
 opname
 opnames
 orelse
@@ -206,6 +209,7 @@ PYTHONTRACEMALLOC
 PYTHONUTF8
 pythonw
 PYTHREAD_NAME
+recvd
 releasebuffer
 repr
 resinfo
@@ -256,6 +260,7 @@ Typeparam
 typeparams
 typeslots
 unaryop
+unboundop
 uncollectable
 Unhandle
 unparse

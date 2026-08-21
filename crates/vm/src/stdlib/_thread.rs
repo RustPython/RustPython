@@ -701,9 +701,8 @@ pub(crate) mod _thread {
     }
 
     #[pyfunction]
-    fn daemon_threads_allowed() -> bool {
-        // RustPython always allows daemon threads
-        true
+    fn daemon_threads_allowed(vm: &VirtualMachine) -> bool {
+        vm.state.allow_daemon_threads()
     }
 
     // Registry for non-daemon threads that need to be joined at shutdown

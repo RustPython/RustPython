@@ -848,6 +848,11 @@ pub mod module {
 
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyResult<i32> {
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
+        }
         if vm
             .state
             .finalizing
@@ -1077,6 +1082,11 @@ pub mod module {
         argv: Either<PyListRef, PyTupleRef>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {
@@ -1101,6 +1111,11 @@ pub mod module {
         env: ArgMapping,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
+        if !vm.state.allow_exec() {
+            return Err(
+                vm.new_runtime_error("exec not supported for isolated subinterpreters".to_owned())
+            );
+        }
         let path = path.into_cstring(vm)?;
 
         let argv = vm.extract_elements_with(argv.as_ref(), |obj| {

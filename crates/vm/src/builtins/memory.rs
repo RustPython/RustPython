@@ -118,6 +118,13 @@ impl PyMemoryView {
         Self::from_object_with_flags(obj, BufferFlags::FULL_RO, vm)
     }
 
+    /// One share of the underlying buffer export. Used for cross-interpreter
+    /// `send_buffer` so the destination memoryview sees the same memory.
+    #[must_use]
+    pub fn clone_buffer(&self) -> PyBuffer {
+        self.buffer.clone()
+    }
+
     // PyMemoryView_FromObjectAndFlags
     pub fn from_object_with_flags(
         obj: &PyObject,
