@@ -1175,13 +1175,46 @@ impl Wtf8 {
     }
 
     pub fn replace(&self, from: &Wtf8, to: &Wtf8) -> Wtf8Buf {
+        if from.is_empty() {
+            return self.insert_at_boundaries(to, usize::MAX);
+        }
         let w = self.bytes.replace(from, to);
         unsafe { Wtf8Buf::from_bytes_unchecked(w) }
     }
 
     pub fn replacen(&self, from: &Wtf8, to: &Wtf8, n: usize) -> Wtf8Buf {
+        if from.is_empty() {
+            return self.insert_at_boundaries(to, n);
+        }
         let w = self.bytes.replacen(from, to, n);
         unsafe { Wtf8Buf::from_bytes_unchecked(w) }
+    }
+
+    /// Inserts `to` before every code point and once after the last one,
+    /// stopping after `limit` insertions.
+    ///
+    /// This is what an empty needle asks for. It cannot go through the byte
+    /// search the other cases use: that one matches an empty needle at every
+    /// *byte*, so it splits a multi-byte code point down the middle and leaves
+    /// bytes that are no longer WTF-8 at all. A needle that is not empty is
+    /// safe there, because a WTF-8 sequence never starts inside another one.
+    fn insert_at_boundaries(&self, to: &Wtf8, limit: usize) -> Wtf8Buf {
+        let mut result = Wtf8Buf::with_capacity(self.len());
+        let mut inserted = 0;
+
+        for code_point in self.code_points() {
+            if inserted < limit {
+                result.push_wtf8(to);
+                inserted += 1;
+            }
+            result.push(code_point);
+        }
+
+        if inserted < limit {
+            result.push_wtf8(to);
+        }
+
+        result
     }
 }
 
@@ -1619,3 +1652,59 @@ impl From<String> for Box<Wtf8> {
 
 mod concat;
 pub use concat::Wtf8Concat;
+
+#[cfg(test)]
+mod tests {
+    use super::{String, Wtf8, Wtf8Buf};
+
+    fn w(s: &str) -> &Wtf8 {
+        Wtf8::new(s)
+    }
+
+    fn buf(s: &str) -> Wtf8Buf {
+        Wtf8Buf::from_string(String::from(s))
+    }
+
+    #[test]
+    fn replace_empty_needle_splits_on_code_points() {
+        assert_eq!(w("abc").replace(w(""), w("-")), buf("-a-b-c-"));
+        assert_eq!(w("ábç").replace(w(""), w("#")), buf("#á#b#ç#"));
+        assert_eq!(w("😀").replace(w(""), w("-")), buf("-😀-"));
+        assert_eq!(w("").replace(w(""), w("-")), buf("-"));
+        assert_eq!(w("abc").replace(w(""), w("")), buf("abc"));
+    }
+
+    #[test]
+    fn replacen_empty_needle_counts_insertions() {
+        assert_eq!(w("abc").replacen(w(""), w("-"), 0), buf("abc"));
+        assert_eq!(w("abc").replacen(w(""), w("-"), 1), buf("-abc"));
+        assert_eq!(w("abc").replacen(w(""), w("-"), 3), buf("-a-b-c"));
+        assert_eq!(w("abc").replacen(w(""), w("-"), 4), buf("-a-b-c-"));
+        assert_eq!(w("abc").replacen(w(""), w("-"), 99), buf("-a-b-c-"));
+        assert_eq!(w("ábç").replacen(w(""), w("#"), 2), buf("#á#bç"));
+    }
+
+    #[test]
+    fn replace_result_stays_valid_wtf8() {
+        // The byte search behind the non-empty cases matches an empty needle at
+        // every byte, which used to leave a replacement inside a multi-byte code
+        // point. What came out was not WTF-8, and every later read of it was
+        // reading something else.
+        for subject in ["abc", "á", "ábç", "😀", "a😀b", ""] {
+            for insert in ["-", "", "ç", "😀"] {
+                let replaced = Wtf8::new(subject).replace(w(""), w(insert));
+                assert!(
+                    Wtf8::from_bytes(replaced.as_bytes()).is_some(),
+                    "{subject:?} with {insert:?} produced bytes that are not WTF-8"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn replace_non_empty_needle_is_unchanged() {
+        assert_eq!(w("ábç").replace(w("b"), w("#")), buf("á#ç"));
+        assert_eq!(w("ábç").replace(w("á"), w("#")), buf("#bç"));
+        assert_eq!(w("aaa").replacen(w("a"), w("b"), 2), buf("bba"));
+    }
+}
