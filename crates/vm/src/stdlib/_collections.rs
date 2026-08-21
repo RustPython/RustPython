@@ -77,6 +77,10 @@ mod _collections {
         fn borrow_deque_mut(&self) -> PyRwLockWriteGuard<'_, VecDeque<PyObjectRef>> {
             self.deque.write()
         }
+
+        fn is_over_maxlen(&self, deque: &VecDeque<PyObjectRef>) -> bool {
+            self.maxlen.is_some_and(|maxlen| deque.len() > maxlen)
+        }
     }
 
     #[pyclass(
@@ -96,20 +100,22 @@ mod _collections {
         fn append(&self, obj: PyObjectRef) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen == Some(deque.len()) {
+            deque.push_back(obj);
+            // Trim after pushing, so that a `maxlen` of zero drops what just
+            // arrived instead of popping from an empty deque and keeping it.
+            if self.is_over_maxlen(&deque) {
                 deque.pop_front();
             }
-            deque.push_back(obj);
         }
 
         #[pymethod]
         fn appendleft(&self, obj: PyObjectRef) {
             self.state.fetch_add(1);
             let mut deque = self.borrow_deque_mut();
-            if self.maxlen == Some(deque.len()) {
+            deque.push_front(obj);
+            if self.is_over_maxlen(&deque) {
                 deque.pop_back();
             }
-            deque.push_front(obj);
         }
 
         #[pymethod]
