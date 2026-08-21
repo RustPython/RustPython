@@ -951,3 +951,31 @@ def test_replace_empty_pattern():
 
 
 test_replace_empty_pattern()
+
+
+def test_expandtabs_zero_tabsize():
+    # With no width to advance to, the tabs come out and nothing else moves.
+    # A tab that followed a character used to ask for a run of usize::MAX
+    # spaces and take the interpreter down with it.
+    for tabsize in (0, -1, -8):
+        assert "a\tb".expandtabs(tabsize) == "ab"
+        assert "ab\tcd\tef".expandtabs(tabsize) == "abcdef"
+        assert "a\nb\tc".expandtabs(tabsize) == "a\nbc"
+        assert "a\r\nb\tc".expandtabs(tabsize) == "a\r\nbc"
+        assert "á\tb".expandtabs(tabsize) == "áb"
+        assert "😀\tb".expandtabs(tabsize) == "😀b"
+        assert "\ta".expandtabs(tabsize) == "a"
+        assert "\t".expandtabs(tabsize) == ""
+        assert "".expandtabs(tabsize) == ""
+        assert "no tabs".expandtabs(tabsize) == "no tabs"
+        assert b"a\tb".expandtabs(tabsize) == b"ab"
+        assert bytearray(b"a\tb").expandtabs(tabsize) == bytearray(b"ab")
+
+    # A tab size that is actually there keeps working.
+    assert "a\tb".expandtabs(8) == "a       b"
+    assert "a\tb".expandtabs(1) == "a b"
+    assert "abcd\te".expandtabs(4) == "abcd    e"
+    assert "a\nb\tc".expandtabs(4) == "a\nb   c"
+
+
+test_expandtabs_zero_tabsize()
