@@ -605,6 +605,45 @@ pub fn allow_threads<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
     f()
 }
 
+/// Run `f` with this thread attached, then return it to where it was.
+///
+/// The inverse of [`allow_threads`], for a callback that has to run Python from
+/// inside a call the thread detached for — a handshake callback reaching a
+/// Python `sni_callback`, say. Running that detached would execute Python on a
+/// thread a stop-the-world requester counts as parked. `PyGILState_Ensure` and
+/// `PyGILState_Release` bracket such a callback for the same reason.
+///
+/// A thread already attached, or one with no interpreter to attach to, just
+/// runs `f`. A thread a stop-the-world has already moved to SUSPENDED parks
+/// here until the world starts again, because [`attach_thread`] treats that
+/// state as the wait it is; that is the point of routing through it rather than
+/// testing for DETACHED alone.
+#[cfg(feature = "threading")]
+pub fn attach_for_callback<R>(vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    let should_transition = CURRENT_THREAD_SLOT.with(|slot| {
+        slot.borrow()
+            .as_ref()
+            .is_some_and(|s| s.state.load(Ordering::Acquire) != THREAD_ATTACHED)
+    });
+    if !should_transition {
+        return f();
+    }
+
+    attach_thread(vm);
+    // Detach again even if `f` unwinds, so the `allow_threads` this is nested
+    // inside still finds the state it left behind.
+    let redetach_guard = scopeguard::guard((), |()| detach_thread());
+    let result = f();
+    drop(redetach_guard);
+    result
+}
+
+/// No-op on non-threading builds.
+#[cfg(not(feature = "threading"))]
+pub fn attach_for_callback<R>(_vm: &VirtualMachine, f: impl FnOnce() -> R) -> R {
+    f()
+}
+
 /// Wait for a lock the way a blocking call waits: detached, so a
 /// stop-the-world requester never has to wait for this thread to reach a
 /// safepoint it cannot reach while blocked.

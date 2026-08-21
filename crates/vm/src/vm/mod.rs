@@ -956,6 +956,17 @@ impl VirtualMachine {
         thread::allow_threads(self, f)
     }
 
+    /// Re-attach the current thread for the duration of `f`, then return it to
+    /// where it was. The inverse of [`allow_threads`](Self::allow_threads), for
+    /// a callback that runs Python from inside a call this thread detached for.
+    ///
+    /// Equivalent to `PyGILState_Ensure` / `PyGILState_Release` around such a
+    /// callback.
+    #[inline]
+    pub fn attach_for_callback<R>(&self, f: impl FnOnce() -> R) -> R {
+        thread::attach_for_callback(self, f)
+    }
+
     /// Check whether the current thread is the main thread.
     /// Mirrors `_Py_ThreadCanHandleSignals`.
     #[allow(dead_code)]
