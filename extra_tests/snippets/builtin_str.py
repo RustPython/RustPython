@@ -915,3 +915,39 @@ def test_huge_width():
 
 
 test_huge_width()
+
+
+def test_replace_empty_pattern():
+    # An empty pattern matches at every code point boundary, and only there.
+    # Matching it byte by byte instead put the replacement inside a multi-byte
+    # character, so what came back was no longer the text that went in.
+    assert "abc".replace("", "-") == "-a-b-c-"
+    assert "ábç".replace("", "#") == "#á#b#ç#"
+    assert "😀".replace("", "-") == "-😀-"
+    assert "".replace("", "-") == "-"
+    assert "abc".replace("", "") == "abc"
+
+    # The count is a number of insertions, and the one after the last
+    # character only happens if the count reaches that far.
+    assert "abc".replace("", "-", 0) == "abc"
+    assert "abc".replace("", "-", 1) == "-abc"
+    assert "abc".replace("", "-", 3) == "-a-b-c"
+    assert "abc".replace("", "-", 4) == "-a-b-c-"
+    assert "abc".replace("", "-", 99) == "-a-b-c-"
+    assert "ábç".replace("", "#", 2) == "#á#bç"
+
+    # The result has to stay readable as text afterwards.
+    spread = "á".replace("", "-")
+    assert len(spread) == 3
+    assert list(spread) == ["-", "á", "-"]
+    assert spread[1] == "á"
+    assert spread.upper() == "-Á-"
+    assert spread.encode("utf-8") == b"-\xc3\xa1-"
+
+    # A pattern that is not empty was already fine and stays that way.
+    assert "ábç".replace("b", "#") == "á#ç"
+    assert "ábç".replace("á", "#") == "#bç"
+    assert "aaa".replace("a", "b", 2) == "bba"
+
+
+test_replace_empty_pattern()
