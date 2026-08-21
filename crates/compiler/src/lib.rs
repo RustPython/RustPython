@@ -5617,6 +5617,44 @@ pub fn compile_symtable(
     _compile_symtable(source_file, mode)
 }
 
+/// Bring a module into the shape the symbol table is built from.
+fn symtable_preprocess_module(
+    module: &mut ast::ModModule,
+    source_file: &SourceFile,
+) -> Result<(), CompileError> {
+    let future_features = codegen::preprocess::checked_future_features_in_body(&module.body)
+        .map_err(|error| future_feature_error(error, source_file))?;
+    let future_annotations =
+        future_features.contains(core::bytecode::CodeFlags::FUTURE_ANNOTATIONS);
+    // Constant folding is left out; the symbol table is built from the parsed
+    // program as written.
+    codegen::preprocess::preprocess_statements(&mut module.body, 0, future_annotations, true);
+    Ok(())
+}
+
+fn future_feature_error(
+    error: codegen::preprocess::FutureFeatureError,
+    source_file: &SourceFile,
+) -> CompileError {
+    let location = source_file
+        .to_source_code()
+        .source_location(error.range.start(), PositionEncoding::Utf8);
+    let error = match error.kind {
+        codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
+            codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
+        }
+        codegen::preprocess::FutureFeatureErrorKind::InvalidBraces => {
+            codegen::error::CodegenErrorType::InvalidFutureBraces
+        }
+    };
+    codegen::error::CodegenError {
+        location: Some(location),
+        error,
+        source_path: source_file.name().to_owned(),
+    }
+    .into()
+}
+
 pub fn _compile_symtable(
     source_file: SourceFile,
     mode: Mode,
@@ -5651,6 +5689,8 @@ pub fn _compile_symtable(
             {
                 return Err(error);
             }
+            let mut ast = ast;
+            symtable_preprocess_module(&mut ast, &source_file)?;
             symboltable::SymbolTable::scan_program(&ast, source_file.clone())
         }
         Mode::Eval => {
@@ -5669,6 +5709,8 @@ pub fn _compile_symtable(
             if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
                 return Err(error);
             }
+            let mut ast = ast;
+            codegen::preprocess::preprocess_mod(&mut ast, 0, false, true);
             symboltable::SymbolTable::scan_expr(&ast.expect_expression(), source_file.clone())
         }
     };

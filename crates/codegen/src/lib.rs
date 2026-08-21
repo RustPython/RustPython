@@ -24,7 +24,7 @@ mod unparse;
 
 pub use compile::CompileOpts;
 use ruff_python_ast as ast;
-use ruff_text_size::{TextRange, TextSize};
+use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::SourceFile;
 use rustpython_wtf8::Wtf8Buf;
 
@@ -95,6 +95,38 @@ pub(crate) fn ast_constant_value_to_constant_data(value: ast::ConstantValue) -> 
         },
         ast::ConstantValue::Ellipsis => ConstantData::Ellipsis,
     }
+}
+
+/// The range a decorated definition covers from its `def`/`class` keyword on.
+///
+/// The parser hands over a statement that starts at the first decorator, while a
+/// definition is located at the keyword that introduces it.
+#[must_use]
+pub fn decorated_definition_range(
+    source_file: &SourceFile,
+    statement_range: TextRange,
+    decorator_list: &[ast::Decorator],
+    keyword: &str,
+) -> TextRange {
+    let Some(last_decorator) = decorator_list.last() else {
+        return statement_range;
+    };
+    let search_start = last_decorator.expression.range().end();
+    if search_start >= statement_range.end() {
+        return statement_range;
+    }
+    let search_range = TextRange::new(search_start, statement_range.end());
+    let source = source_file.slice(search_range);
+    let Some(keyword_offset) = source.find(keyword) else {
+        return statement_range;
+    };
+    let Ok(keyword_offset) = u32::try_from(keyword_offset) else {
+        return statement_range;
+    };
+    TextRange::new(
+        search_start + TextSize::new(keyword_offset),
+        statement_range.end(),
+    )
 }
 
 /// The value of a string literal.

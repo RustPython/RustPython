@@ -463,8 +463,11 @@ fn inline_comprehension(
             inlined_cells.insert(name.clone());
         }
 
-        // __class__, __classdict__ and __conditional_annotations__ are never
-        // allowed to be free through a class scope.
+        // `__class__` is never allowed to be free through a class scope, see
+        // drop_class_free(). `__classdict__` and `__conditional_annotations__`
+        // have no binding to reach either, and unlike CPython -- which fails with
+        // an internal error while compiling such a class -- they resolve as
+        // globals here.
         let scope = if sub_symbol.scope == SymbolScope::Free
             && parent_type == CompilerScope::Class
             && matches!(
@@ -486,7 +489,18 @@ fn inline_comprehension(
             sub_symbol.scope
         };
 
-        if let Some(existing) = parent_symbols.get(name) {
+        if let Some(existing) = parent_symbols.get_mut(name) {
+            // A name the parent only learned about as a free variable of this
+            // comprehension carries no definition of its own; the comprehension's
+            // flags are what describe it.
+            if existing
+                .flags
+                .difference(SymbolFlags::DEF_FREE_CLASS)
+                .is_empty()
+            {
+                existing.flags.insert(sub_symbol.flags);
+                existing.scope = scope;
+            }
             // Name exists in parent
             if existing.is_bound() && parent_type != CompilerScope::Class {
                 // Check if the name is free in any child of the comprehension
@@ -791,7 +805,9 @@ impl SymbolTableAnalyzer {
         class_entry: Option<&SymbolMap>,
     ) -> SymbolTableResult {
         match symbol.scope {
-            SymbolScope::Free => {
+            // Only an explicit `nonlocal` has to name a binding. Every other free
+            // variable was already resolved by the scope it travelled up from.
+            SymbolScope::Free if symbol.flags.contains(SymbolFlags::DEF_NONLOCAL) => {
                 if !self.tables.as_ref().is_empty() {
                     let scope_depth = self.tables.as_ref().len();
                     // check if the name is already defined in any outer scope
@@ -808,21 +824,19 @@ impl SymbolTableAnalyzer {
                         });
                     }
                     // Check if the nonlocal binding refers to a type parameter
-                    if symbol.flags.contains(SymbolFlags::DEF_NONLOCAL) {
-                        for (symbols, _typ, _skip) in self.tables.iter().rev() {
-                            if let Some(sym) = symbols.get(&symbol.name) {
-                                if sym.flags.contains(SymbolFlags::DEF_TYPE_PARAM) {
-                                    return Err(SymbolTableError {
-                                        error: format!(
-                                            "nonlocal binding not allowed for type parameter '{}'",
-                                            symbol.name
-                                        ),
-                                        location: symbol.location,
-                                    });
-                                }
-                                if sym.is_bound() {
-                                    break;
-                                }
+                    for (symbols, _typ, _skip) in self.tables.iter().rev() {
+                        if let Some(sym) = symbols.get(&symbol.name) {
+                            if sym.flags.contains(SymbolFlags::DEF_TYPE_PARAM) {
+                                return Err(SymbolTableError {
+                                    error: format!(
+                                        "nonlocal binding not allowed for type parameter '{}'",
+                                        symbol.name
+                                    ),
+                                    location: symbol.location,
+                                });
+                            }
+                            if sym.is_bound() {
+                                break;
                             }
                         }
                     }
@@ -836,6 +850,7 @@ impl SymbolTableAnalyzer {
                     });
                 }
             }
+            SymbolScope::Free => {}
             SymbolScope::GlobalExplicit | SymbolScope::GlobalImplicit => {}
             SymbolScope::Local | SymbolScope::Cell => {}
             SymbolScope::Unknown => {
@@ -874,11 +889,8 @@ impl SymbolTableAnalyzer {
                 {
                     // If found in enclosing scope (function/TypeParams), use that
                     scope
-                } else if self.tables.is_empty() {
-                    // Don't make assumptions when we don't know.
-                    SymbolScope::Unknown
                 } else {
-                    // If there are scopes above we assume global.
+                    // A name bound nowhere is global.
                     SymbolScope::GlobalImplicit
                 };
                 symbol.scope = scope;
@@ -934,7 +946,9 @@ impl SymbolTableAnalyzer {
 
             if let Some(sym) = symbols.get(name) {
                 match sym.scope {
-                    SymbolScope::GlobalExplicit => return Some(SymbolScope::GlobalExplicit),
+                    // A global declaration binds nothing, so a name it covers is
+                    // global here only by not being found anywhere else.
+                    SymbolScope::GlobalExplicit => return Some(SymbolScope::GlobalImplicit),
                     SymbolScope::GlobalImplicit => {}
                     _ => {
                         if sym.is_bound() {
@@ -1028,7 +1042,6 @@ enum SymbolUsage {
     Imported,
     AnnotationAssigned,
     Parameter,
-    AnnotationParameter,
     Iter,
     TypeParam,
 }
@@ -1055,6 +1068,15 @@ struct SymbolTableBuilder {
     recursion_depth: usize,
     recursion_limit: usize,
     next_block_index: usize,
+    done_with_future_stmts: DoneWithFuture,
+}
+
+/// How far past the point where `from __future__ import` is still accepted the
+/// module body has been scanned.
+enum DoneWithFuture {
+    No,
+    DoneWithDoc,
+    Yes,
 }
 
 /// Enum to indicate in what mode an expression
@@ -1086,6 +1108,7 @@ impl SymbolTableBuilder {
             recursion_depth: 0,
             recursion_limit: DEFAULT_RECURSION_LIMIT,
             next_block_index: 0,
+            done_with_future_stmts: DoneWithFuture::No,
         };
         this.enter_scope(&"top".into(), CompilerScope::Module, 0);
         this
@@ -1312,9 +1335,10 @@ impl SymbolTableBuilder {
 
         if can_see_class_scope && (include_classdict_with_future || !self.future_annotations) {
             self.add_classdict_freevar();
-            // Also add __conditional_annotations__ as free var if parent has conditional annotations
+            // The `__conditional_annotations__` cell is cooked up by the compiler,
+            // so the block only records that it reads one.
             if include_conditional_annotations && has_conditional {
-                self.add_conditional_annotations_freevar();
+                self.tables.last_mut().unwrap().has_conditional_annotations = true;
             }
         }
     }
@@ -1338,19 +1362,6 @@ impl SymbolTableBuilder {
     fn add_classdict_freevar(&mut self) {
         let table = self.tables.last_mut().unwrap();
         let name = Name::new_static("__classdict__");
-        let symbol = table
-            .symbols
-            .entry(name.clone())
-            .or_insert_with(|| Symbol::new(name));
-        symbol.scope = SymbolScope::Free;
-        symbol
-            .flags
-            .insert(SymbolFlags::USE | SymbolFlags::DEF_FREE_CLASS);
-    }
-
-    fn add_conditional_annotations_freevar(&mut self) {
-        let table = self.tables.last_mut().unwrap();
-        let name = Name::new_static("__conditional_annotations__");
         let symbol = table
             .symbols
             .entry(name.clone())
@@ -1420,12 +1431,6 @@ impl SymbolTableBuilder {
     }
 
     fn scan_parameter(&mut self, parameter: &ast::Parameter) -> SymbolTableResult {
-        let usage = if parameter.annotation.is_some() {
-            SymbolUsage::AnnotationParameter
-        } else {
-            SymbolUsage::Parameter
-        };
-
         // Check for duplicate parameter names
         let table = self.tables.last().unwrap();
         if table.symbols.contains_key(parameter.name.as_str()) {
@@ -1442,7 +1447,7 @@ impl SymbolTableBuilder {
             });
         }
 
-        self.register_ident(&parameter.name, usage)
+        self.register_ident(&parameter.name, SymbolUsage::Parameter)
     }
 
     /// Scan an annotation from an AnnAssign statement (can be conditional)
@@ -1583,6 +1588,39 @@ impl SymbolTableBuilder {
         result
     }
 
+    /// Reject a `from __future__ import` that no longer opens the module.
+    ///
+    /// Only a docstring and other future statements may come first.
+    // = future_parse
+    fn track_future_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
+        match statement {
+            ast::Stmt::ImportFrom(ast::StmtImportFrom { module, level, .. })
+                if *level == 0 && module.as_ref().map(|id| id.as_str()) == Some("__future__") =>
+            {
+                if matches!(self.done_with_future_stmts, DoneWithFuture::Yes) {
+                    return Err(SymbolTableError {
+                        error: "from __future__ imports must occur at the beginning of the file"
+                            .to_owned(),
+                        location: Some(
+                            self.source_file
+                                .to_source_code()
+                                .source_location(statement.range().start(), PositionEncoding::Utf8),
+                        ),
+                    });
+                }
+                self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
+            }
+            ast::Stmt::Expr(ast::StmtExpr { value, .. })
+                if is_docstring_expr(value)
+                    && matches!(self.done_with_future_stmts, DoneWithFuture::No) =>
+            {
+                self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
+            }
+            _ => self.done_with_future_stmts = DoneWithFuture::Yes,
+        }
+        Ok(())
+    }
+
     fn scan_statement(&mut self, statement: &ast::Stmt) -> SymbolTableResult {
         if self.recursion_depth >= self.recursion_limit {
             return Err(SymbolTableError {
@@ -1593,6 +1631,7 @@ impl SymbolTableBuilder {
         self.recursion_depth += 1;
         let result = (|| {
             use ast::*;
+            self.track_future_statement(statement)?;
             match &statement {
                 Stmt::Global(StmtGlobal { names, .. }) => {
                     for name in names {
@@ -1617,6 +1656,13 @@ impl SymbolTableBuilder {
                 }) => {
                     self.register_name(name.id(), SymbolUsage::Assigned, *range)?;
 
+                    let def_range = crate::decorated_definition_range(
+                        &self.source_file,
+                        *range,
+                        decorator_list,
+                        if *is_async { "async def " } else { "def " },
+                    );
+
                     self.scan_parameter_defaults(parameters)?;
                     self.scan_decorators(decorator_list, ExpressionContext::Load)?;
 
@@ -1625,7 +1671,7 @@ impl SymbolTableBuilder {
                     if let Some(type_params) = type_params {
                         self.enter_type_param_block(
                             name.id(),
-                            *range,
+                            def_range,
                             false,
                             // A generic function's type params scope always
                             // takes `.defaults`, even with no default anywhere
@@ -1638,7 +1684,7 @@ impl SymbolTableBuilder {
                     self.enter_scope_with_parameters(
                         name.id(),
                         parameters,
-                        self.line_index_start(*range),
+                        self.line_index_start(def_range),
                         returns.as_deref(),
                         if *is_async {
                             CompilerScope::AsyncFunction
@@ -1668,12 +1714,20 @@ impl SymbolTableBuilder {
                 }) => {
                     let prev_class = self.class_name.clone();
                     self.register_name(name.id(), SymbolUsage::Assigned, *range)?;
+
+                    let def_range = crate::decorated_definition_range(
+                        &self.source_file,
+                        *range,
+                        decorator_list,
+                        "class ",
+                    );
+
                     self.scan_decorators(decorator_list, ExpressionContext::Load)?;
 
                     if let Some(type_params) = type_params {
                         self.enter_type_param_block(
                             name.id(),
-                            *range,
+                            def_range,
                             true, // for_class: enable selective mangling
                             false,
                             false,
@@ -1702,7 +1756,7 @@ impl SymbolTableBuilder {
                     self.enter_scope(
                         name.id(),
                         CompilerScope::Class,
-                        self.line_index_start(*range),
+                        self.line_index_start(def_range),
                     );
                     // Reset in_conditional_block for new class scope
                     let saved_in_conditional = self.in_conditional_block;
@@ -2303,7 +2357,7 @@ impl SymbolTableBuilder {
                     }
                     // Generator expression - is_generator = true
                     self.scan_comprehension(
-                        &"<genexpr>".into(),
+                        &"genexpr".into(),
                         elt,
                         None,
                         generators,
@@ -2630,7 +2684,7 @@ impl SymbolTableBuilder {
             "<listcomp>" => "list comprehension",
             "<setcomp>" => "set comprehension",
             "<dictcomp>" => "dict comprehension",
-            "<genexpr>" => "generator expression",
+            "genexpr" => "generator expression",
             _ => "comprehension",
         });
 
@@ -3171,7 +3225,6 @@ impl SymbolTableBuilder {
                 | SymbolUsage::Imported
                 | SymbolUsage::AnnotationAssigned
                 | SymbolUsage::Parameter
-                | SymbolUsage::AnnotationParameter
                 | SymbolUsage::Iter
                 | SymbolUsage::TypeParam
         ) {
@@ -3210,11 +3263,7 @@ impl SymbolTableBuilder {
                 });
             }
 
-            if matches!(
-                role,
-                SymbolUsage::Parameter | SymbolUsage::AnnotationParameter
-            ) && flags.contains(SymbolFlags::DEF_PARAM)
-            {
+            if matches!(role, SymbolUsage::Parameter) && flags.contains(SymbolFlags::DEF_PARAM) {
                 return Err(SymbolTableError {
                     error: format!("duplicate argument '{original_name}' in function definition"),
                     location,
@@ -3340,19 +3389,11 @@ impl SymbolTableBuilder {
                 flags.insert(SymbolFlags::DEF_NONLOCAL);
             }
             SymbolUsage::Imported => {
-                flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_IMPORT);
+                flags.insert(SymbolFlags::DEF_IMPORT);
             }
             SymbolUsage::Parameter => {
                 flags.insert(SymbolFlags::DEF_PARAM);
                 // Parameters are always added to varnames first
-                let name_str = symbol.name.clone();
-                if !self.current_varnames.contains(&name_str) {
-                    self.current_varnames.push(name_str);
-                }
-            }
-            SymbolUsage::AnnotationParameter => {
-                flags.insert(SymbolFlags::DEF_PARAM | SymbolFlags::DEF_ANNOT);
-                // Annotated parameters are also added to varnames
                 let name_str = symbol.name.clone();
                 if !self.current_varnames.contains(&name_str) {
                     self.current_varnames.push(name_str);
@@ -3377,6 +3418,18 @@ impl SymbolTableBuilder {
             SymbolUsage::TypeParam => {
                 flags.insert(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_TYPE_PARAM);
             }
+        }
+
+        // A global declaration is recorded in the module block as well, so a name
+        // declared global anywhere is global there too.
+        if matches!(role, SymbolUsage::Global) {
+            let module_table = self.tables.first_mut().expect("no module symbol table");
+            let symbol = module_table
+                .symbols
+                .entry(name.clone().into_owned())
+                .or_insert_with(|| Symbol::new(name.clone().into_owned()));
+            symbol.flags.insert(SymbolFlags::DEF_GLOBAL);
+            symbol.scope = SymbolScope::GlobalExplicit;
         }
 
         Ok(())

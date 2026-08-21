@@ -177,7 +177,6 @@ struct Compiler<'a> {
     source_file: SourceFile,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
-    done_with_future_stmts: DoneWithFuture,
     future_features: bytecode::CodeFlags,
     future_annotations: bool,
     ctx: CompileContext,
@@ -193,13 +192,6 @@ struct Compiler<'a> {
     /// Mirrors `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
-}
-
-#[derive(Clone, Copy)]
-enum DoneWithFuture {
-    No,
-    DoneWithDoc,
-    Yes,
 }
 
 /// A Python `__future__` feature flag imported via `from __future__ import <feature>`.
@@ -1116,7 +1108,6 @@ impl<'warnings> Compiler<'warnings> {
             source_file,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
-            done_with_future_stmts: DoneWithFuture::No,
             future_features: opts.future_features,
             future_annotations: false,
             ctx: CompileContext {
@@ -1940,6 +1931,13 @@ impl<'warnings> Compiler<'warnings> {
         free_names.sort();
         for name in free_names {
             freevar_cache.insert(name.into());
+        }
+
+        // The `__conditional_annotations__` cell an annotation scope reads is
+        // cooked up here rather than carried by the symbol table, so it lands
+        // after the names the symbol table did supply.
+        if scope_type == CompilerScope::Annotation && ste.has_conditional_annotations {
+            freevar_cache.insert("__conditional_annotations__".to_string());
         }
 
         // Initialize u_metadata fields
@@ -2810,9 +2808,6 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc_with_range(&body.body, &self.opts);
-        if doc.is_some() {
-            self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
-        }
         let module_start_loc = self.module_start_location(&body.body);
         let annotations_used = self.current_symbol_table().annotations_used;
         // Handle annotation bookkeeping before the docstring assignment, as
@@ -3386,26 +3381,18 @@ impl<'warnings> Compiler<'warnings> {
         let prev_source_range = self.current_source_range;
         self.set_source_range(statement.range());
 
-        match &statement {
-            // we do this here because `from __future__` still executes that `from` statement at runtime,
-            // we still need to compile the ImportFrom down below
-            ast::Stmt::ImportFrom(ast::StmtImportFrom {
-                module,
-                names,
-                level,
-                ..
-            }) if *level == 0 && module.as_ref().map(|id| id.as_str()) == Some("__future__") => {
-                self.compile_future_features(names)?
-            }
-            // ignore module-level doc comments
-            ast::Stmt::Expr(ast::StmtExpr { value, .. })
-                if is_docstring_expr(value)
-                    && matches!(self.done_with_future_stmts, DoneWithFuture::No) =>
-            {
-                self.done_with_future_stmts = DoneWithFuture::DoneWithDoc
-            }
-            // if we find any other statement, stop accepting future statements
-            _ => self.done_with_future_stmts = DoneWithFuture::Yes,
+        // `from __future__` still executes that `from` statement at runtime, so the
+        // ImportFrom is compiled down below as well.
+        if let ast::Stmt::ImportFrom(ast::StmtImportFrom {
+            module,
+            names,
+            level,
+            ..
+        }) = &statement
+            && *level == 0
+            && module.as_ref().map(|id| id.as_str()) == Some("__future__")
+        {
+            self.compile_future_features(names)?;
         }
 
         match &statement {
@@ -5446,7 +5433,8 @@ impl<'warnings> Compiler<'warnings> {
         // CPython's FunctionDef/AsyncFunctionDef LOC(s) starts at the
         // definition line even when decorators are present.
         let stmt_source_range = self.current_source_range;
-        let def_source_range = self.decorated_definition_range(
+        let def_source_range = crate::decorated_definition_range(
+            &self.source_file,
             stmt_source_range,
             decorator_list,
             if is_async { "async def " } else { "def " },
@@ -5978,8 +5966,12 @@ impl<'warnings> Compiler<'warnings> {
         // CPython's ClassDef LOC(s) starts at the class line even when
         // decorators are present.
         let stmt_source_range = self.current_source_range;
-        let class_source_range =
-            self.decorated_definition_range(stmt_source_range, decorator_list, "class ");
+        let class_source_range = crate::decorated_definition_range(
+            &self.source_file,
+            stmt_source_range,
+            decorator_list,
+            "class ",
+        );
         self.prepare_decorators(decorator_list)?;
 
         let is_generic = type_params.is_some();
@@ -11129,12 +11121,6 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CodegenError> {
-        if let DoneWithFuture::Yes = self.done_with_future_stmts {
-            return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
-        }
-
-        self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
-
         for feature in features {
             let future_feature = feature.name.as_str().try_into().map_err(|name| {
                 self.error_ranged(CodegenErrorType::InvalidFutureFeature(name), feature.range)
@@ -12274,33 +12260,6 @@ impl<'warnings> Compiler<'warnings> {
         self.current_source_range = range;
     }
 
-    fn decorated_definition_range(
-        &self,
-        statement_range: TextRange,
-        decorator_list: &[ast::Decorator],
-        keyword: &str,
-    ) -> TextRange {
-        let Some(last_decorator) = decorator_list.last() else {
-            return statement_range;
-        };
-        let search_start = last_decorator.expression.range().end();
-        if search_start >= statement_range.end() {
-            return statement_range;
-        }
-        let search_range = TextRange::new(search_start, statement_range.end());
-        let source = self.source_file.slice(search_range);
-        let Some(keyword_offset) = source.find(keyword) else {
-            return statement_range;
-        };
-        let Ok(keyword_offset) = u32::try_from(keyword_offset) else {
-            return statement_range;
-        };
-        TextRange::new(
-            search_start + TextSize::new(keyword_offset),
-            statement_range.end(),
-        )
-    }
-
     fn update_start_location_to_match_attr(
         &self,
         loc_range: TextRange,
@@ -13388,17 +13347,6 @@ fn split_doc_with_range<'a>(
 fn split_doc<'a>(body: &'a [ast::Stmt], opts: &CompileOpts) -> (Option<String>, &'a [ast::Stmt]) {
     let (doc, body) = split_doc_with_range(body, opts);
     (doc.map(|(doc, _)| doc), body)
-}
-
-fn is_docstring_expr(expr: &ast::Expr) -> bool {
-    matches!(
-        expr,
-        ast::Expr::StringLiteral(_)
-            | ast::Expr::Constant(ast::ExprConstant {
-                value: ast::ConstantValue::Str(_),
-                ..
-            })
-    )
 }
 
 pub fn ruff_int_to_bigint(int: &ast::Int) -> Result<BigInt, CodegenErrorType> {
@@ -33241,7 +33189,7 @@ async def f():
 ",
         );
         let genexpr =
-            find_symbol_table(&symbol_table, "<genexpr>").expect("missing genexpr symbol table");
+            find_symbol_table(&symbol_table, "genexpr").expect("missing genexpr symbol table");
         assert!(genexpr.is_generator, "expected genexpr symbol table");
         assert!(
             genexpr.is_coroutine,
