@@ -720,13 +720,17 @@ fn range_iter_reduce(
     vm: &VirtualMachine,
 ) -> PyTupleRef {
     let iter = builtins_iter(vm);
+    // CPython pickles the remaining range with a None state. next() increments
+    // the index unconditionally, so clamp it to length before rebasing start.
+    let index = BigInt::from(index).min(length.clone());
     let stop = start.clone() + length * step.clone();
+    let start = start + index * step.clone();
     let range = PyRange {
         start: PyInt::from(start).into_ref(&vm.ctx),
         stop: PyInt::from(stop).into_ref(&vm.ctx),
         step: PyInt::from(step).into_ref(&vm.ctx),
     };
-    vm.new_tuple((iter, (range,), index))
+    vm.new_tuple((iter, (range,), vm.ctx.none()))
 }
 
 // Silently clips state (i.e index) in range [0, usize::MAX].
