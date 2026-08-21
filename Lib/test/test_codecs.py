@@ -2776,9 +2776,6 @@ class UnicodeEscapeTest(ReadTest, unittest.TestCase):
             ]
         )
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; IndexError: index out of range
-    def test_incremental_surrogatepass(self):
-        return super().test_incremental_surrogatepass()
 
 class RawUnicodeEscapeTest(ReadTest, unittest.TestCase):
     encoding = "raw-unicode-escape"
