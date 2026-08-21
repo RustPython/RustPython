@@ -269,3 +269,37 @@ assert "{:.4e}".format(1234.5) == "1.2345e+03"
 assert "{:.3g}".format(1234.5) == "1.23e+03"
 assert f"{float('nan'):.10f}" == "nan"
 assert f"{float('inf'):.10f}" == "inf"
+
+# bool has no __format__ of its own, so the int rules apply. Only the bare
+# spec spells the value out.
+assert format(True, "") == "True"
+assert format(False, "") == "False"
+assert f"{True}" == "True"
+assert f"{True:}" == "True"
+
+assert format(True, "5") == "    1"
+assert format(True, "<5") == "1    "
+assert format(False, ">5") == "    0"
+assert format(True, "^5") == "  1  "
+assert format(True, "=5") == "    1"
+assert format(True, "05") == "00001"
+assert format(False, "05") == "00000"
+assert format(True, "+") == "+1"
+assert format(False, " ") == " 0"
+assert format(True, ",") == "1"
+assert format(True, "<") == "1"
+assert "{:>6}|{:^6}".format(True, False) == "     1|  0   "
+
+# The presentation types were already right, and stay right.
+assert format(True, "d") == "1"
+assert format(True, "#b") == "0b1"
+assert format(False, "x") == "0"
+assert format(True, "c") == "\x01"
+assert format(True, "e") == "1.000000e+00"
+assert format(True, "%") == "100.000000%"
+
+# Precision belongs to no integer spec, bool included.
+assert_raises(ValueError, format, True, ".2")
+assert_raises(ValueError, format, True, "5.2")
+assert_raises(ValueError, format, True, "z")
+assert_raises(ValueError, format, True, "s")
