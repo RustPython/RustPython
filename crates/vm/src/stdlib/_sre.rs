@@ -452,15 +452,25 @@ mod _sre {
                 let mut match_list: Vec<PyObjectRef> = Vec::new();
                 let mut iter = SearchIter { req, state };
 
+                // What a group that took no part in the match is reported as.
+                // `findall` hands back the matched text rather than a match
+                // object, so the stand-in has to be an empty value of the type
+                // the pattern works on. `Match.groups` still reports `None` and
+                // is not affected by this.
+                let empty: PyObjectRef = if zelf.isbytes {
+                    vm.ctx.new_bytes(vec![]).into()
+                } else {
+                    vm.ctx.new_str(ascii!("")).into()
+                };
+
                 while iter.next().is_some() {
                     let m = Match::new(&mut iter.state, zelf.clone(), string_args.string.clone());
 
                     let item = if zelf.groups == 0 || zelf.groups == 1 {
                         m.get_slice(zelf.groups, s, vm)
-                            .unwrap_or_else(|| vm.ctx.none())
+                            .unwrap_or_else(|| empty.clone())
                     } else {
-                        m.groups(OptionalArg::Present(vm.ctx.new_str(ascii!("")).into()), vm)?
-                            .into()
+                        m.groups(OptionalArg::Present(empty.clone()), vm)?.into()
                     };
 
                     match_list.push(item);
