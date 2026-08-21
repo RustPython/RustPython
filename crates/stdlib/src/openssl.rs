@@ -64,8 +64,8 @@ mod _ssl {
     };
     use crate::{
         common::lock::{
-            LazyLock, PyMappedRwLockReadGuard, PyMutex, PyRwLock, PyRwLockReadGuard,
-            PyRwLockWriteGuard,
+            LazyLock, PyDetachingRwLock, PyMappedRwLockReadGuard, PyMutex, PyRwLock,
+            PyRwLockReadGuard, PyRwLockWriteGuard,
         },
         socket::{self, PySocket, SockWaitKind, sock_wait},
         vm::{
@@ -568,7 +568,9 @@ mod _ssl {
     }
 
     // Get SSL pointer - either from thread-local (during handshake) or from connection
-    fn get_ssl_ptr_for_context_change(connection: &PyRwLock<SslConnection>) -> *mut sys::SSL {
+    fn get_ssl_ptr_for_context_change(
+        connection: &PyDetachingRwLock<SslConnection>,
+    ) -> *mut sys::SSL {
         // First check if we're in a handshake callback (lock already held)
         if let Some(ptr) = HANDSHAKE_SSL_PTR.with(|cell| cell.get()) {
             return ptr;
@@ -2177,7 +2179,7 @@ mod _ssl {
 
             let py_ssl_socket = PySslSocket {
                 ctx: PyRwLock::new(zelf.clone()),
-                connection: PyRwLock::new(SslConnection::Socket(stream)),
+                connection: PyDetachingRwLock::new(SslConnection::Socket(stream)),
                 socket_type,
                 server_hostname,
                 owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
@@ -2246,7 +2248,7 @@ mod _ssl {
 
             let py_ssl_socket = PySslSocket {
                 ctx: PyRwLock::new(zelf.clone()),
-                connection: PyRwLock::new(SslConnection::Bio(stream)),
+                connection: PyDetachingRwLock::new(SslConnection::Bio(stream)),
                 socket_type,
                 server_hostname,
                 owner: PyRwLock::new(args.owner.map(|o| o.downgrade(None, vm)).transpose()?),
@@ -2547,7 +2549,7 @@ mod _ssl {
     struct PySslSocket {
         ctx: PyRwLock<PyRef<PySslContext>>,
         #[pytraverse(skip)]
-        connection: PyRwLock<SslConnection>,
+        connection: PyDetachingRwLock<SslConnection>,
         #[pytraverse(skip)]
         socket_type: SslServerOrClient,
         server_hostname: Option<PyStrRef>,
@@ -2888,7 +2890,7 @@ mod _ssl {
 
             // BIO mode: just try shutdown once and raise SSLWantReadError if needed
             if stream.is_bio() {
-                let ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+                let ret = vm.allow_threads(|| unsafe { sys::SSL_shutdown(ssl_ptr) });
                 if ret < 0 {
                     let err = unsafe { sys::SSL_get_error(ssl_ptr, ret) };
                     if err == sys::SSL_ERROR_WANT_READ {
@@ -2916,7 +2918,10 @@ mod _ssl {
             let mut zeros = 0;
 
             loop {
-                let ret = unsafe { sys::SSL_shutdown(ssl_ptr) };
+                // Shutting down sends close-notify and waits for the peer's,
+                // which a peer that has gone away never sends. `SSL_shutdown`
+                // is released around for the same reason.
+                let ret = vm.allow_threads(|| unsafe { sys::SSL_shutdown(ssl_ptr) });
 
                 // ret > 0: complete shutdown
                 if ret > 0 {
@@ -3033,7 +3038,7 @@ mod _ssl {
 
             // BIO mode: no timeout/select logic, just do handshake
             if stream.is_bio() {
-                let result = stream.do_handshake().map_err(|e| {
+                let result = vm.allow_threads(|| stream.do_handshake()).map_err(|e| {
                     let exc = convert_ssl_error(vm, e);
                     // If it's a cert verification error, set verify info
                     if exc.class().is(PySSLCertVerificationError::class(&vm.ctx)) {
@@ -3053,7 +3058,13 @@ mod _ssl {
                 .expect("handshake called in bio mode; should only be called in socket mode")
                 .timeout_deadline();
             loop {
-                let err = match stream.do_handshake() {
+                // On a blocking socket this waits for the peer, which may never
+                // answer. `SSL_do_handshake` runs between
+                // `Py_BEGIN_ALLOW_THREADS` and `Py_END_ALLOW_THREADS` for the
+                // same reason. The connection lock stays held across it, which
+                // is why it is a detaching lock: a thread reaching the same
+                // socket gives up its interpreter rather than wait attached.
+                let err = match vm.allow_threads(|| stream.do_handshake()) {
                     Ok(()) => {
                         // Clean up SNI ex_data after successful handshake
                         // SAFETY: ssl_ptr is valid for the lifetime of stream
@@ -3111,7 +3122,9 @@ mod _ssl {
 
             // BIO mode: no timeout/select logic
             if stream.is_bio() {
-                return stream.ssl_write(data).map_err(|e| convert_ssl_error(vm, e));
+                return vm
+                    .allow_threads(|| stream.ssl_write(data))
+                    .map_err(|e| convert_ssl_error(vm, e));
             }
 
             // Socket mode: handle timeout and blocking
@@ -3132,7 +3145,10 @@ mod _ssl {
                 _ => {}
             }
             loop {
-                let err = match stream.ssl_write(data) {
+                // Sending waits for the peer to make room, which it need not
+                // ever do; `SSL_write_ex` is released around for the same
+                // reason.
+                let err = match vm.allow_threads(|| stream.ssl_write(data)) {
                     Ok(len) => return Ok(len),
                     Err(e) => e,
                 };
@@ -3269,7 +3285,7 @@ mod _ssl {
 
             // BIO mode: no timeout/select logic
             let count = if stream.is_bio() {
-                match stream.ssl_read(buf) {
+                match vm.allow_threads(|| stream.ssl_read(buf)) {
                     Ok(count) => count,
                     Err(e) => {
                         // Handle ZERO_RETURN (EOF) - raise SSLEOFError
@@ -3291,7 +3307,10 @@ mod _ssl {
                     .expect("read called in bio mode; should only be called in socket mode")
                     .timeout_deadline();
                 loop {
-                    let err = match stream.ssl_read(buf) {
+                    // This is the wait the whole method is shaped around: it
+                    // ends when the peer writes. `SSL_read_ex` is released
+                    // around for the same reason.
+                    let err = match vm.allow_threads(|| stream.ssl_read(buf)) {
                         Ok(count) => break count,
                         Err(e) => e,
                     };
