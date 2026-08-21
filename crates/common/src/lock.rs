@@ -8,7 +8,7 @@ use lock_api::{
 
 cfg_select! {
     feature = "threading" => {
-        pub use detaching::{BlockingWaitHook, set_blocking_wait_hook};
+        pub use detaching::{BlockingWaitHook, set_blocking_wait_hook, set_world_stopped};
         pub use parking_lot::{RawMutex, RawRwLock, RawThreadId};
         pub use std::sync::OnceLock as OnceCell;
         pub use core::cell::LazyCell;
