@@ -143,14 +143,21 @@ fn format_internal(
                     FormatString::from_str(format_spec).map_err(|e| e.to_pyexception(vm))?;
                 let format_spec = format_internal(vm, &nested_format, field_func)?;
 
-                let argument = match conversion_spec.and_then(FormatConversion::from_char) {
-                    Some(FormatConversion::Str) => argument.str(vm)?.into(),
-                    Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
-                    Some(FormatConversion::Ascii) => builtins::ascii(argument, vm)?.into(),
-                    Some(FormatConversion::Bytes) => {
-                        vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
-                    }
+                let argument = match conversion_spec {
                     None => argument,
+                    Some(c) => match FormatConversion::from_char(*c) {
+                        Some(FormatConversion::Str) => argument.str(vm)?.into(),
+                        Some(FormatConversion::Repr) => argument.repr(vm)?.into(),
+                        Some(FormatConversion::Ascii) => builtins::ascii(argument, vm)?.into(),
+                        Some(FormatConversion::Bytes) => {
+                            vm.call_method(&argument, identifier!(vm, decode).as_str(), ())?
+                        }
+                        None => {
+                            return Err(
+                                vm.new_value_error(format!("Unknown conversion specifier {c}"))
+                            );
+                        }
+                    },
                 };
 
                 // FIXME: compiler can intern specs using parser tree. Then this call can be interned_str
