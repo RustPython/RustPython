@@ -4962,11 +4962,31 @@ fn invalid_unparenthesized_yield_after_comma_error(source: &str) -> Option<(Stri
     None
 }
 
+/// The byte-order mark is only stripped while decoding source bytes, so one
+/// that survives into the text is just a non-printable character. The tokenizer
+/// rejects it everywhere except at the very start of the text, which is where
+/// this covers.
+#[doc(hidden)]
+#[must_use]
+pub fn leading_byte_order_mark_error(source_file: &SourceFile) -> Option<CompileError> {
+    source_file.source_text().starts_with('\u{feff}').then(|| {
+        CompileError::from_source_error(
+            source_file,
+            "invalid non-printable character U+FEFF".to_owned(),
+            0,
+            0,
+        )
+    })
+}
+
 fn post_parse_source_error(
     source_file: &SourceFile,
     tokens: &Tokens,
     opts: &CompileOpts,
 ) -> Option<CompileError> {
+    if let Some(error) = leading_byte_order_mark_error(source_file) {
+        return Some(error);
+    }
     if let Some((message, start, end)) =
         too_many_nested_parentheses_error(source_file.source_text())
     {
@@ -5004,6 +5024,119 @@ fn is_compound_stmt(stmt: &ast::Stmt) -> bool {
             | ast::Stmt::Try(_)
             | ast::Stmt::Match(_)
     )
+}
+
+/// Syntax the reference grammar has no rule for, but that this parser accepts.
+///
+/// A bare generator expression is one: `f(x for x in y)` is the `primary
+/// genexp` alternative of a call, and a class header only takes `arguments`,
+/// which has no such alternative. A format spec nested more than two deep is
+/// the other; the tokenizer runs out of nesting levels for it.
+#[doc(hidden)]
+#[must_use]
+pub fn unsupported_grammar_error(ast: &ast::Mod, source_file: &SourceFile) -> Option<CompileError> {
+    use ast::visitor::Visitor;
+
+    /// The deepest chain of format specs one string literal may hold.
+    const MAX_FORMAT_SPEC_DEPTH: usize = 2;
+
+    struct Checker<'a> {
+        source_file: &'a SourceFile,
+        error: Option<CompileError>,
+    }
+
+    impl Checker<'_> {
+        fn fail(&mut self, message: &str, range: ruff_text_size::TextRange) {
+            self.error = Some(CompileError::from_source_error(
+                self.source_file,
+                message.to_owned(),
+                range.start().to_usize(),
+                range.end().to_usize(),
+            ));
+        }
+
+        fn check_format_specs(
+            &mut self,
+            kind: &str,
+            elements: &ast::InterpolatedStringElements,
+            depth: usize,
+        ) {
+            for element in elements.interpolations() {
+                let Some(format_spec) = &element.format_spec else {
+                    continue;
+                };
+                if depth == MAX_FORMAT_SPEC_DEPTH {
+                    self.fail(
+                        &alloc::format!("{kind}: expressions nested too deeply"),
+                        format_spec.range,
+                    );
+                    return;
+                }
+                self.check_format_specs(kind, &format_spec.elements, depth + 1);
+                if self.error.is_some() {
+                    return;
+                }
+            }
+        }
+    }
+
+    impl<'a> Visitor<'a> for Checker<'_> {
+        fn visit_stmt(&mut self, stmt: &'a ast::Stmt) {
+            if self.error.is_some() {
+                return;
+            }
+            if let ast::Stmt::ClassDef(class_def) = stmt
+                && let Some(arguments) = &class_def.arguments
+                && let [ast::Expr::Generator(generator)] = &arguments.args[..]
+                && !generator.parenthesized
+            {
+                let range = generator
+                    .generators
+                    .first()
+                    .map_or(generator.range, |comprehension| comprehension.range);
+                self.fail("invalid syntax", range);
+                return;
+            }
+            ast::visitor::walk_stmt(self, stmt);
+        }
+
+        fn visit_expr(&mut self, expr: &'a ast::Expr) {
+            if self.error.is_some() {
+                return;
+            }
+            // Each literal counts its own nesting: one written inside a format
+            // spec starts over.
+            match expr {
+                ast::Expr::FString(fstring) => {
+                    for part in &fstring.value {
+                        if let ast::FStringPart::FString(part) = part {
+                            self.check_format_specs("f-string", &part.elements, 0);
+                        }
+                    }
+                }
+                ast::Expr::TString(tstring) => {
+                    for part in &tstring.value {
+                        self.check_format_specs("t-string", &part.elements, 0);
+                    }
+                }
+                _ => {}
+            }
+            if self.error.is_some() {
+                return;
+            }
+            ast::visitor::walk_expr(self, expr);
+        }
+    }
+
+    let mut checker = Checker {
+        source_file,
+        error: None,
+    };
+    match ast {
+        ast::Mod::Module(module) => checker.visit_body(&module.body),
+        ast::Mod::Expression(expression) => checker.visit_expr(&expression.body),
+    }
+    checker.error
 }
 
 fn single_mode_body_error(body: &[ast::Stmt], source_file: &SourceFile) -> Option<CompileError> {
@@ -5260,6 +5393,9 @@ fn _compile_with_syntax_warning_handler<'a>(
         return Err(error);
     }
     let ast = parsed.into_syntax();
+    if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+        return Err(error);
+    }
     let single_mode_error = matches!(mode, Mode::Single)
         .then(|| single_mode_source_error(&ast, &source_file))
         .flatten();
@@ -5505,7 +5641,11 @@ pub fn _compile_symtable(
             {
                 return Err(error);
             }
-            let ast = ast.into_syntax().expect_module();
+            let ast = ast.into_syntax();
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            let ast = ast.expect_module();
             if matches!(mode, Mode::Single)
                 && let Some(error) = single_mode_body_error(&ast.body, &source_file)
             {
@@ -5525,10 +5665,11 @@ pub fn _compile_symtable(
             {
                 return Err(error);
             }
-            symboltable::SymbolTable::scan_expr(
-                &ast.into_syntax().expect_expression(),
-                source_file.clone(),
-            )
+            let ast = ast.into_syntax();
+            if let Some(error) = unsupported_grammar_error(&ast, &source_file) {
+                return Err(error);
+            }
+            symboltable::SymbolTable::scan_expr(&ast.expect_expression(), source_file.clone())
         }
     };
     res.map_err(|e| e.into_codegen_error(source_file.name().to_owned()).into())

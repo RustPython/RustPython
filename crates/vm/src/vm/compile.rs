@@ -191,7 +191,10 @@ impl VirtualMachine {
         filename: &str,
         ignore_cookie: bool,
     ) -> PyResult<String> {
-        let has_bom = source.starts_with(b"\xef\xbb\xbf");
+        // `ignore_cookie` marks source that was handed over as text. A byte
+        // order mark belongs to the byte encoding, so text keeps whatever it
+        // was written with and the parser rejects a stray U+FEFF.
+        let has_bom = !ignore_cookie && source.starts_with(b"\xef\xbb\xbf");
         let encoding = if ignore_cookie {
             None
         } else {
@@ -289,7 +292,7 @@ impl VirtualMachine {
 
         if is_ast_only {
             if start == PY_FUNC_TYPE_INPUT {
-                return _ast::parse_func_type(self, source, optimize, target_version)
+                return _ast::parse_func_type(self, source, filename, optimize, target_version)
                     .map_err(|e| (e, Some(source), allow_incomplete).to_pyexception(self));
             }
             let (parser_mode, interactive) = match start {
@@ -305,6 +308,7 @@ impl VirtualMachine {
             let parsed = _ast::parse(
                 self,
                 source,
+                filename,
                 parser_mode,
                 optimize,
                 target_version,
@@ -334,6 +338,7 @@ impl VirtualMachine {
             _ast::parse(
                 self,
                 source,
+                filename,
                 parser_mode,
                 optimize,
                 None,

@@ -5509,14 +5509,15 @@ impl<'warnings> Compiler<'warnings> {
             };
 
             // Add parameter names to varnames for the type params scope
-            // These will be passed as arguments when the closure is called
+            // These will be passed as arguments when the closure is called.
+            // `.defaults` is there whether or not the function has any: the
+            // symbol table gives every generic function's type params scope
+            // one. `.kwdefaults` only appears when it is really passed.
             let current_info = self.current_code_info();
-            if funcflags.contains(&bytecode::MakeFunctionFlag::Defaults) {
-                current_info
-                    .metadata
-                    .varnames
-                    .insert(".defaults".to_owned());
-            }
+            current_info
+                .metadata
+                .varnames
+                .insert(".defaults".to_owned());
             if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
                 current_info
                     .metadata
@@ -9892,21 +9893,21 @@ impl<'warnings> Compiler<'warnings> {
         }
     }
 
+    /// The range a generator expression written straight into a call's
+    /// parentheses takes: those parentheses are its own, and
+    /// `codegen_comprehension()` puts the `MAKE_FUNCTION` and the generator's
+    /// `LOAD_FAST .0` there. A generator that brought its own parentheses
+    /// already covers them, so it gets `None`.
     fn cpython_implicit_call_generator_range(&self, expression: &ast::Expr) -> Option<TextRange> {
-        if !matches!(expression, ast::Expr::Generator(_)) {
+        let ast::Expr::Generator(generator) = expression else {
+            return None;
+        };
+        if generator.parenthesized {
             return None;
         }
-        let range = expression.range();
         let source = self.source_file.source_text().as_bytes();
-        let start = range.start().to_usize();
-        let end = range.end().to_usize();
-        if source.get(start) == Some(&b'(')
-            && !Self::starts_with_parenthesized_generator_element(source, start, end)
-        {
-            return None;
-        }
 
-        let mut open = start;
+        let mut open = generator.range.start().to_usize();
         while open > 0 && source[open - 1].is_ascii_whitespace() {
             open -= 1;
         }
@@ -9914,7 +9915,7 @@ impl<'warnings> Compiler<'warnings> {
             return None;
         }
 
-        let mut close = end;
+        let mut close = generator.range.end().to_usize();
         while close < source.len() && source[close].is_ascii_whitespace() {
             close += 1;
         }
@@ -9922,74 +9923,10 @@ impl<'warnings> Compiler<'warnings> {
             return None;
         }
 
-        let adjusted_start = u32::try_from(open - 1).ok()?;
-        let adjusted_end = u32::try_from(close + 1).ok()?;
         Some(TextRange::new(
-            TextSize::from(adjusted_start),
-            TextSize::from(adjusted_end),
+            TextSize::from(u32::try_from(open - 1).ok()?),
+            TextSize::from(u32::try_from(close + 1).ok()?),
         ))
-    }
-
-    fn starts_with_parenthesized_generator_element(
-        source: &[u8],
-        start: usize,
-        end: usize,
-    ) -> bool {
-        let mut depth = 0usize;
-        let mut i = start;
-        while i < end {
-            match source[i] {
-                b'(' | b'[' | b'{' => depth += 1,
-                b')' | b']' | b'}' => {
-                    if depth == 0 {
-                        return false;
-                    }
-                    depth -= 1;
-                    if depth == 0 {
-                        return Self::next_token_is_for(source, i + 1, end);
-                    }
-                }
-                b'\'' | b'"' => i = Self::skip_python_string_literal(source, i),
-                _ => {}
-            }
-            i += 1;
-        }
-        false
-    }
-
-    fn skip_python_string_literal(source: &[u8], quote: usize) -> usize {
-        let quote_byte = source[quote];
-        let triple = source.get(quote + 1) == Some(&quote_byte)
-            && source.get(quote + 2) == Some(&quote_byte);
-        let mut i = quote + if triple { 3 } else { 1 };
-        while i < source.len() {
-            if source[i] == b'\\' {
-                i += 2;
-                continue;
-            }
-            if triple {
-                if source[i] == quote_byte
-                    && source.get(i + 1) == Some(&quote_byte)
-                    && source.get(i + 2) == Some(&quote_byte)
-                {
-                    return i + 2;
-                }
-            } else if source[i] == quote_byte {
-                return i;
-            }
-            i += 1;
-        }
-        source.len().saturating_sub(1)
-    }
-
-    fn next_token_is_for(source: &[u8], mut i: usize, end: usize) -> bool {
-        while i < end && source[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        source.get(i..i + 3) == Some(b"for")
-            && source
-                .get(i + 3)
-                .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
     }
 
     fn compile_generator_expression(
@@ -12752,13 +12689,11 @@ impl<'warnings> Compiler<'warnings> {
         mut element_count: u32,
         fstring_range: Option<TextRange>,
     ) {
-        let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
             &mut pending_literal_range,
             &mut pending_literal_no_location,
             &mut element_count,
-            keep_empty,
             None,
         );
 
@@ -12790,13 +12725,11 @@ impl<'warnings> Compiler<'warnings> {
         mut element_count: u32,
         fstring_range: TextRange,
     ) {
-        let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
             &mut pending_literal_range,
             &mut pending_literal_no_location,
             &mut element_count,
-            keep_empty,
             Some(fstring_range),
         );
         self.set_source_range(fstring_range);
@@ -12809,7 +12742,6 @@ impl<'warnings> Compiler<'warnings> {
         pending_literal_range: &mut Option<TextRange>,
         pending_literal_no_location: &mut bool,
         element_count: &mut u32,
-        keep_empty: bool,
         join_append_range: Option<TextRange>,
     ) {
         let Some(value) = pending_literal.take() else {
@@ -12819,10 +12751,10 @@ impl<'warnings> Compiler<'warnings> {
         let no_location = *pending_literal_no_location;
         *pending_literal_no_location = false;
 
-        // CPython drops empty literal fragments when they are adjacent to
-        // formatted values, but still emits an empty string for a fully-empty
-        // f-string.
-        if value.is_empty() && (!keep_empty || *element_count > 0) {
+        // An empty literal fragment contributes nothing, so it is dropped. An
+        // f-string left with no fragments at all still loads an empty string,
+        // positioned at the whole f-string rather than at any one fragment.
+        if value.is_empty() {
             return;
         }
 
@@ -12858,8 +12790,7 @@ impl<'warnings> Compiler<'warnings> {
         for part in fstring {
             self.count_fstring_part_into(part, &mut pending_literal, &mut element_count);
         }
-        let keep_empty = element_count == 0;
-        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count);
         element_count
     }
 
@@ -12890,13 +12821,12 @@ impl<'warnings> Compiler<'warnings> {
     fn count_pending_fstring_literal(
         pending_literal: &mut Option<Wtf8Buf>,
         element_count: &mut u32,
-        keep_empty: bool,
     ) {
         let Some(value) = pending_literal.take() else {
             return;
         };
 
-        if value.is_empty() && (!keep_empty || *element_count > 0) {
+        if value.is_empty() {
             return;
         }
 
@@ -13063,7 +12993,6 @@ impl<'warnings> Compiler<'warnings> {
                         pending_literal_range,
                         pending_literal_no_location,
                         element_count,
-                        false,
                         join_append_range,
                     );
 
@@ -13133,8 +13062,7 @@ impl<'warnings> Compiler<'warnings> {
             &mut pending_literal,
             &mut element_count,
         );
-        let keep_empty = element_count == 0;
-        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count);
         element_count
     }
 
@@ -13174,7 +13102,7 @@ impl<'warnings> Compiler<'warnings> {
                             .push_wtf8(text.as_ref());
                     }
 
-                    Self::count_pending_fstring_literal(pending_literal, element_count, false);
+                    Self::count_pending_fstring_literal(pending_literal, element_count);
                     *element_count += 1;
                 }
             }
@@ -16639,6 +16567,28 @@ def f(buffer, pos, last_char):
         );
     }
 
+    fn location_range(
+        locations: &(SourceLocation, SourceLocation),
+    ) -> (usize, usize, usize, usize) {
+        let (location, end_location) = locations;
+        (
+            location.line.get(),
+            location.character_offset.get(),
+            end_location.line.get(),
+            end_location.character_offset.get(),
+        )
+    }
+
+    fn instruction_range(
+        code: &CodeObject,
+        matches: impl Fn(&Instruction) -> bool,
+    ) -> Option<(usize, usize, usize, usize)> {
+        code.instructions
+            .iter()
+            .zip(&code.locations)
+            .find_map(|(unit, locations)| matches(&unit.op).then(|| location_range(locations)))
+    }
+
     fn find_code<'a>(code: &'a CodeObject, name: &str) -> Option<&'a CodeObject> {
         if code.obj_name == name {
             return Some(code);
@@ -19292,6 +19242,61 @@ def explicit_gen(xs):
                 0xe9, 0x00, 0x80, 0x00, 0xd0, 0x10, 0x27, 0xa1, 0x42, 0x99, 0x44, 0x98, 0x41, 0x90,
                 0x21, 0x95, 0x16, 0xa3, 0x42, 0xf9,
             ]
+        );
+    }
+
+    #[test]
+    fn implicit_call_genexpr_operator_element_range_like_cpython() {
+        // The element opens with a parenthesized group that the rest of the
+        // expression continues, so the call's own parentheses are the only
+        // ones that bound the generator.
+        let code = compile_exec(
+            "\
+def f(p, q):
+    return sum((px - qx) ** 2.0 for px, qx in zip(p, q))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let genexpr = find_code(f, "<genexpr>").expect("missing genexpr code");
+
+        // Columns are one-based here, so these are `dis`'s 14..56.
+        assert_eq!(
+            instruction_range(f, |op| matches!(op, Instruction::MakeFunction)),
+            Some((2, 15, 2, 57))
+        );
+        assert_eq!(
+            instruction_range(genexpr, |op| matches!(op, Instruction::LoadFast { .. })),
+            Some((2, 15, 2, 57))
+        );
+    }
+
+    #[test]
+    fn fstring_concatenation_without_content_uses_whole_range_like_cpython() {
+        // Every fragment is empty, so none of them is kept and the empty string
+        // that replaces them belongs to the whole concatenation. The last line
+        // keeps its one fragment and stays at that fragment.
+        let code = compile_exec(
+            "\
+x = '' f''
+y = f'' ''
+z = '' f'' '' f''
+w = f'' 'a' f''
+",
+        );
+
+        let ranges: Vec<_> = code
+            .instructions
+            .iter()
+            .zip(&code.locations)
+            .filter(|(unit, _)| matches!(unit.op, Instruction::LoadConst { .. }))
+            .map(|(_, locations)| location_range(locations))
+            .take(4)
+            .collect();
+        // Columns are one-based here, so these are `dis`'s 4..10, 4..10,
+        // 4..17 and 8..11.
+        assert_eq!(
+            ranges,
+            vec![(1, 5, 1, 11), (2, 5, 2, 11), (3, 5, 3, 18), (4, 9, 4, 12)]
         );
     }
 
@@ -31773,7 +31778,7 @@ def func[T](a: T = 'a', *, b: T = 'b'):
     }
 
     #[test]
-    fn generic_function_type_params_omit_defaults_without_defaults_like_cpython() {
+    fn generic_function_type_params_reserve_defaults_like_cpython() {
         let code = compile_exec(
             "\
 def func[T]():
@@ -31782,6 +31787,7 @@ def func[T]():
         );
         let type_params =
             find_code(&code, "<generic parameters of func>").expect("missing type params code");
+        // The slot is reserved even though nothing is passed into it.
         assert_eq!(type_params.arg_count, 0);
         assert_eq!(
             type_params
@@ -31789,7 +31795,7 @@ def func[T]():
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            vec!["T"]
+            vec![".defaults", "T"]
         );
     }
 
@@ -31808,10 +31814,24 @@ def with_kw[U](*, a: U = 1):
         let with_kw =
             find_code(&code, "<generic parameters of with_kw>").expect("missing type params code");
 
-        assert!(with_pos.varnames.iter().any(|name| name == ".defaults"));
-        assert!(!with_pos.varnames.iter().any(|name| name == ".kwdefaults"));
-        assert!(!with_kw.varnames.iter().any(|name| name == ".defaults"));
-        assert!(with_kw.varnames.iter().any(|name| name == ".kwdefaults"));
+        assert_eq!(
+            with_pos
+                .varnames
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![".defaults"]
+        );
+        assert_eq!(with_pos.arg_count, 1);
+        assert_eq!(
+            with_kw
+                .varnames
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![".defaults", ".kwdefaults"]
+        );
+        assert_eq!(with_kw.arg_count, 1);
     }
 
     #[test]

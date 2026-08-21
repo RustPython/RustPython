@@ -1627,7 +1627,10 @@ impl SymbolTableBuilder {
                             name.id(),
                             *range,
                             false,
-                            Self::has_positional_defaults(parameters),
+                            // A generic function's type params scope always
+                            // takes `.defaults`, even with no default anywhere
+                            // in the signature.
+                            true,
                             Self::has_kwonlydefaults(parameters),
                         )?;
                         self.scan_type_params(type_params)?;
@@ -2089,6 +2092,21 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    /// Scan the interpolations of a format spec, and the format specs those
+    /// carry in turn: `f"{x:{y:{z}}}"` only reaches `z` through two of them.
+    fn scan_format_spec(
+        &mut self,
+        format_spec: &ast::InterpolatedStringFormatSpec,
+    ) -> SymbolTableResult {
+        for element in format_spec.elements.interpolations() {
+            self.scan_expression(&element.expression, ExpressionContext::Load)?;
+            if let Some(nested) = &element.format_spec {
+                self.scan_format_spec(nested)?;
+            }
+        }
+        Ok(())
+    }
+
     fn scan_expression(
         &mut self,
         expression: &ast::Expr,
@@ -2458,9 +2476,7 @@ impl SymbolTableBuilder {
                         if let Some(format_spec) = &expr.runtime_formatted_value_format_spec {
                             self.scan_expression(format_spec, ExpressionContext::Load)?;
                         } else if let Some(format_spec) = &expr.format_spec {
-                            for element in format_spec.elements.interpolations() {
-                                self.scan_expression(&element.expression, ExpressionContext::Load)?
-                            }
+                            self.scan_format_spec(format_spec)?;
                         }
                     }
                 }
@@ -2483,9 +2499,7 @@ impl SymbolTableBuilder {
                                 self.scan_expression(format_spec, ExpressionContext::Load)?;
                             }
                         } else if let Some(format_spec) = &expr.format_spec {
-                            for element in format_spec.elements.interpolations() {
-                                self.scan_expression(&element.expression, ExpressionContext::Load)?
-                            }
+                            self.scan_format_spec(format_spec)?;
                         }
                     }
                 }
@@ -2937,14 +2951,6 @@ impl SymbolTableBuilder {
         parameters
             .kwonlyargs
             .iter()
-            .any(|arg| arg.default.is_some())
-    }
-
-    fn has_positional_defaults(parameters: &ast::Parameters) -> bool {
-        parameters
-            .posonlyargs
-            .iter()
-            .chain(parameters.args.iter())
             .any(|arg| arg.default.is_some())
     }
 
