@@ -1728,6 +1728,94 @@ for _ in range(40):
         worker.join().expect("worker panicked");
     }
 
+    /// A callback reaching Python from inside a detached call waits for the
+    /// world to start again.
+    ///
+    /// Detaching for a blocking call is what lets stop-the-world count this
+    /// thread as parked. A callback that runs Python from in there — an SSL
+    /// handshake reaching a Python `sni_callback`, say — would run on a thread
+    /// the requester believes is stopped, so it has to attach first, and
+    /// attaching while the world is stopped means waiting.
+    #[cfg(feature = "threading")]
+    #[test]
+    fn a_callback_inside_a_detached_call_waits_for_the_world() {
+        use alloc::sync::Arc;
+        use core::{
+            sync::atomic::{AtomicBool, Ordering},
+            time::Duration,
+        };
+
+        let interp = Interpreter::without_stdlib(Default::default());
+        let state = interp.enter(|vm| vm.state.clone());
+
+        let detached = Arc::new(AtomicBool::new(false));
+        let ran = Arc::new(AtomicBool::new(false));
+        let go = Arc::new(AtomicBool::new(false));
+
+        let worker_detached = Arc::clone(&detached);
+        let worker_ran = Arc::clone(&ran);
+        let worker_go = Arc::clone(&go);
+        let worker = interp.enter(|vm| {
+            let thread_vm = vm.new_thread();
+            std::thread::spawn(move || {
+                thread_vm.run(|vm| {
+                    vm.allow_threads(|| {
+                        worker_detached.store(true, Ordering::Release);
+                        // Spinning here is spinning *detached*, which is what a
+                        // blocking call looks like to the requester: it marks
+                        // this thread SUSPENDED and the stop completes.
+                        while !worker_go.load(Ordering::Acquire) {
+                            std::thread::yield_now();
+                        }
+                        vm.attach_for_callback(|| worker_ran.store(true, Ordering::Release));
+                    });
+                });
+            })
+        });
+
+        while !detached.load(Ordering::Acquire) {
+            std::thread::yield_now();
+        }
+
+        // Stop from a thread of its own so that a stop that never completes
+        // fails the test instead of hanging it.
+        let (stopped_tx, stopped_rx) = std::sync::mpsc::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let stop_state = state;
+        let stopper = std::thread::spawn(move || {
+            stop_state.stop_the_world.stop_the_world(&stop_state);
+            stopped_tx.send(()).expect("send");
+            release_rx.recv().expect("recv");
+            stop_state.stop_the_world.start_the_world(&stop_state);
+        });
+
+        stopped_rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("stop-the-world did not complete");
+
+        // The world is stopped; turn the worker loose at its callback. It has
+        // to park instead of running it, so the flag stays clear — give it the
+        // time it needs to get there and fail to run.
+        go.store(true, Ordering::Release);
+        std::thread::sleep(Duration::from_millis(200));
+        let ran_while_stopped = ran.load(Ordering::Acquire);
+
+        // Release before asserting: the worker has to finish for the stopper to
+        // be joinable, and for the test to end at all.
+        release_tx.send(()).expect("send");
+        stopper.join().expect("stopper panicked");
+        worker.join().expect("worker panicked");
+
+        assert!(
+            !ran_while_stopped,
+            "a callback ran Python while the world was stopped"
+        );
+        assert!(
+            ran.load(Ordering::Acquire),
+            "the callback never ran once the world started again"
+        );
+    }
+
     /// The process main id is recorded once and is stable across later creates.
     #[test]
     fn process_main_id_recorded_and_stable() {
