@@ -1485,7 +1485,6 @@ class CodeLocationTest(unittest.TestCase):
 
         rc, out, err = assert_python_ok('-OO', '-c', code)
 
-    @unittest.expectedFailureIf(code_offset_to_line is None, "TODO: RUSTPYTHON")
     def test_co_branches(self):
         _testcapi = import_helper.import_module("_testcapi")
         code_offset_to_line = _testcapi.code_offset_to_line
