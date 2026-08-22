@@ -113,7 +113,9 @@ impl CompileError {
     #[must_use]
     pub fn python_end_location(&self) -> Option<(usize, usize)> {
         match self {
-            Self::Codegen(_) => None,
+            Self::Codegen(codegen_error) => codegen_error
+                .end_location
+                .map(|end| (end.line.get(), end.character_offset.get())),
             Self::Parse(parse_error) => Some((
                 parse_error.end_location.line.get(),
                 parse_error.end_location.character_offset.get(),
@@ -5636,9 +5638,9 @@ fn future_feature_error(
     error: codegen::preprocess::FutureFeatureError,
     source_file: &SourceFile,
 ) -> CompileError {
-    let location = source_file
-        .to_source_code()
-        .source_location(error.range.start(), PositionEncoding::Utf8);
+    let source_code = source_file.to_source_code();
+    let location = source_code.source_location(error.range.start(), PositionEncoding::Utf8);
+    let end_location = source_code.source_location(error.range.end(), PositionEncoding::Utf8);
     let error = match error.kind {
         codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
             codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
@@ -5649,6 +5651,7 @@ fn future_feature_error(
     };
     codegen::error::CodegenError {
         location: Some(location),
+        end_location: Some(end_location),
         error,
         source_path: source_file.name().to_owned(),
     }

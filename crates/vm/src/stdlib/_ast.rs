@@ -1036,9 +1036,9 @@ fn future_feature_compile_error(
     source_file: &SourceFile,
     error: codegen::preprocess::FutureFeatureError,
 ) -> CompileError {
-    let location = source_file
-        .to_source_code()
-        .source_location(error.range.start(), PositionEncoding::Utf8);
+    let source_code = source_file.to_source_code();
+    let location = source_code.source_location(error.range.start(), PositionEncoding::Utf8);
+    let end_location = source_code.source_location(error.range.end(), PositionEncoding::Utf8);
     let error = match error.kind {
         codegen::preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
             codegen::error::CodegenErrorType::InvalidFutureFeature(feature)
@@ -1049,6 +1049,7 @@ fn future_feature_compile_error(
     };
     codegen::error::CodegenError {
         location: Some(location),
+        end_location: Some(end_location),
         error,
         source_path: source_file.name().to_owned(),
     }
@@ -2487,6 +2488,7 @@ pub(crate) fn compile(
                 );
                 let marker = codegen::error::CodegenError {
                     location: Some(location),
+                    end_location: None,
                     error: codegen::error::CodegenErrorType::SyntaxError(message),
                     source_path: source_path.clone(),
                 };

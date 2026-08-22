@@ -412,6 +412,7 @@ impl VirtualMachine {
                         // Recovered below via `escalated`, so this is never surfaced.
                         compiler::codegen::error::CodegenError {
                             location: Some(location),
+                            end_location: None,
                             error: compiler::codegen::error::CodegenErrorType::SyntaxError(
                                 String::new(),
                             ),

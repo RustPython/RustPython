@@ -145,9 +145,9 @@ fn checked_future_features(
     source_file: &SourceFile,
 ) -> CompileResult<bytecode::CodeFlags> {
     preprocess::checked_future_features(ast).map_err(|err| {
-        let location = source_file
-            .to_source_code()
-            .source_location(err.range.start(), PositionEncoding::Utf8);
+        let source_code = source_file.to_source_code();
+        let location = source_code.source_location(err.range.start(), PositionEncoding::Utf8);
+        let end_location = source_code.source_location(err.range.end(), PositionEncoding::Utf8);
         let error = match err.kind {
             preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
                 CodegenErrorType::InvalidFutureFeature(feature)
@@ -158,6 +158,7 @@ fn checked_future_features(
         };
         CodegenError {
             location: Some(location),
+            end_location: Some(end_location),
             error,
             source_path: source_file.name().to_owned(),
         }
@@ -1422,13 +1423,13 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn error_ranged(&mut self, error: CodegenErrorType, range: TextRange) -> CodegenError {
-        let location = self
-            .source_file
-            .to_source_code()
-            .source_location(range.start(), PositionEncoding::Utf8);
+        let source_code = self.source_file.to_source_code();
+        let location = source_code.source_location(range.start(), PositionEncoding::Utf8);
+        let end_location = source_code.source_location(range.end(), PositionEncoding::Utf8);
         CodegenError {
             error,
             location: Some(location),
+            end_location: Some(end_location),
             source_path: self.source_file.name().to_owned(),
         }
     }
@@ -1443,6 +1444,7 @@ impl<'warnings> Compiler<'warnings> {
             None => CodegenError {
                 error,
                 location: None,
+                end_location: None,
                 source_path: self.source_file.name().to_owned(),
             },
         }
@@ -13743,6 +13745,7 @@ mod tests {
             warning = Some(message.clone());
             Err(CodegenError {
                 location: Some(location),
+                end_location: None,
                 error: CodegenErrorType::SyntaxError(message),
                 source_path: "source_path".to_owned(),
             })
@@ -13772,6 +13775,7 @@ mod tests {
             warning = Some(message.clone());
             Err(CodegenError {
                 location: Some(location),
+                end_location: None,
                 error: CodegenErrorType::SyntaxError(message),
                 source_path: "source_path".to_owned(),
             })

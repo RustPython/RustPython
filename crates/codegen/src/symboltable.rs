@@ -335,6 +335,7 @@ pub struct Symbol {
     pub scope: SymbolScope,
     pub flags: SymbolFlags,
     pub location: Option<SourceLocation>,
+    pub end_location: Option<SourceLocation>,
 }
 
 impl Symbol {
@@ -345,6 +346,7 @@ impl Symbol {
             scope: SymbolScope::Unknown,
             flags: SymbolFlags::empty(),
             location: None,
+            end_location: None,
         }
     }
 
@@ -371,6 +373,7 @@ impl Symbol {
 pub struct SymbolTableError {
     error: String,
     location: Option<SourceLocation>,
+    end_location: Option<SourceLocation>,
 }
 
 impl SymbolTableError {
@@ -383,6 +386,7 @@ impl SymbolTableError {
         };
         CodegenError {
             location: self.location,
+            end_location: self.end_location,
             error,
             source_path,
         }
@@ -821,6 +825,7 @@ impl SymbolTableAnalyzer {
                         return Err(SymbolTableError {
                             error: format!("no binding for nonlocal '{}' found", symbol.name),
                             location: symbol.location,
+                            end_location: symbol.end_location,
                         });
                     }
                     // Check if the nonlocal binding refers to a type parameter
@@ -833,6 +838,7 @@ impl SymbolTableAnalyzer {
                                         symbol.name
                                     ),
                                     location: symbol.location,
+                                    end_location: symbol.end_location,
                                 });
                             }
                             if sym.is_bound() {
@@ -847,6 +853,7 @@ impl SymbolTableAnalyzer {
                             symbol.name
                         ),
                         location: symbol.location,
+                        end_location: symbol.end_location,
                     });
                 }
             }
@@ -1434,17 +1441,13 @@ impl SymbolTableBuilder {
         // Check for duplicate parameter names
         let table = self.tables.last().unwrap();
         if table.symbols.contains_key(parameter.name.as_str()) {
-            return Err(SymbolTableError {
-                error: format!(
+            return Err(self.error_ranged(
+                format!(
                     "duplicate argument '{}' in function definition",
                     parameter.name
                 ),
-                location: Some(
-                    self.source_file
-                        .to_source_code()
-                        .source_location(parameter.name.range.start(), PositionEncoding::Utf8),
-                ),
-            });
+                parameter.name.range,
+            ));
         }
 
         self.register_ident(&parameter.name, SymbolUsage::Parameter)
@@ -1598,15 +1601,11 @@ impl SymbolTableBuilder {
                 if *level == 0 && module.as_ref().map(|id| id.as_str()) == Some("__future__") =>
             {
                 if matches!(self.done_with_future_stmts, DoneWithFuture::Yes) {
-                    return Err(SymbolTableError {
-                        error: "from __future__ imports must occur at the beginning of the file"
+                    return Err(self.error_ranged(
+                        "from __future__ imports must occur at the beginning of the file"
                             .to_owned(),
-                        location: Some(
-                            self.source_file
-                                .to_source_code()
-                                .source_location(statement.range().start(), PositionEncoding::Utf8),
-                        ),
-                    });
+                        statement.range(),
+                    ));
                 }
                 self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
             }
@@ -1626,6 +1625,7 @@ impl SymbolTableBuilder {
             return Err(SymbolTableError {
                 error: RECURSION_ERROR.to_owned(),
                 location: None,
+                end_location: None,
             });
         }
         self.recursion_depth += 1;
@@ -1813,13 +1813,10 @@ impl SymbolTableBuilder {
                         self.tables.last_mut().unwrap().is_coroutine = true;
                     }
                     if *is_async && !self.tables.last().unwrap().is_coroutine {
-                        return Err(SymbolTableError {
-                            error: "'async for' outside async function".to_owned(),
-                            location: Some(self.source_file.to_source_code().source_location(
-                                statement.range().start(),
-                                PositionEncoding::Utf8,
-                            )),
-                        });
+                        return Err(self.error_ranged(
+                            "'async for' outside async function".to_owned(),
+                            statement.range(),
+                        ));
                     }
                     self.scan_expression(target, ExpressionContext::Store)?;
                     self.scan_expression(iter, ExpressionContext::Load)?;
@@ -1853,15 +1850,10 @@ impl SymbolTableBuilder {
                         } else if name.name.as_str() == "*" {
                             // Star imports are only allowed at module level
                             if self.tables.last().unwrap().typ != CompilerScope::Module {
-                                return Err(SymbolTableError {
-                                    error: "import * only allowed at module level".to_string(),
-                                    location: Some(
-                                        self.source_file.to_source_code().source_location(
-                                            name.name.range.start(),
-                                            PositionEncoding::Utf8,
-                                        ),
-                                    ),
-                                });
+                                return Err(self.error_ranged(
+                                    "import * only allowed at module level".to_string(),
+                                    name.name.range,
+                                ));
                             }
                             // Don't register star imports as symbols
                         } else {
@@ -1942,15 +1934,10 @@ impl SymbolTableBuilder {
                                     } else {
                                         "nonlocal"
                                     };
-                                    return Err(SymbolTableError {
-                                        error: format!("annotated name '{id}' can't be {usage}"),
-                                        location: Some(
-                                            self.source_file.to_source_code().source_location(
-                                                range.start(),
-                                                PositionEncoding::Utf8,
-                                            ),
-                                        ),
-                                    });
+                                    return Err(self.error_ranged(
+                                        format!("annotated name '{id}' can't be {usage}"),
+                                        *range,
+                                    ));
                                 }
 
                                 self.register_name(
@@ -1981,13 +1968,10 @@ impl SymbolTableBuilder {
                         self.tables.last_mut().unwrap().is_coroutine = true;
                     }
                     if *is_async && !self.tables.last().unwrap().is_coroutine {
-                        return Err(SymbolTableError {
-                            error: "'async with' outside async function".to_owned(),
-                            location: Some(self.source_file.to_source_code().source_location(
-                                statement.range().start(),
-                                PositionEncoding::Utf8,
-                            )),
-                        });
+                        return Err(self.error_ranged(
+                            "'async with' outside async function".to_owned(),
+                            statement.range(),
+                        ));
                     }
                     // PEP 649: Track conditional block for annotations
                     let saved_in_conditional_block = self.in_conditional_block;
@@ -2061,14 +2045,9 @@ impl SymbolTableBuilder {
                     ..
                 }) => {
                     let Some(name_expr) = name.as_name_expr() else {
-                        return Err(SymbolTableError {
-                            error: "type alias expects name".to_owned(),
-                            location: Some(
-                                self.source_file
-                                    .to_source_code()
-                                    .source_location(name.range().start(), PositionEncoding::Utf8),
-                            ),
-                        });
+                        return Err(
+                            self.error_ranged("type alias expects name".to_owned(), name.range())
+                        );
                     };
                     let alias_name = name_expr.id();
                     self.scan_expression(name, ExpressionContext::Store)?;
@@ -2108,14 +2087,7 @@ impl SymbolTableBuilder {
                     }
                 }
                 Stmt::IpyEscapeCommand(stmt) => {
-                    return Err(SymbolTableError {
-                        error: "invalid syntax".to_owned(),
-                        location: Some(
-                            self.source_file
-                                .to_source_code()
-                                .source_location(stmt.range.start(), PositionEncoding::Utf8),
-                        ),
-                    });
+                    return Err(self.error_ranged("invalid syntax".to_owned(), stmt.range));
                 }
             }
             Ok(())
@@ -2170,6 +2142,7 @@ impl SymbolTableBuilder {
             return Err(SymbolTableError {
                 error: RECURSION_ERROR.to_owned(),
                 location: None,
+                end_location: None,
             });
         }
         self.recursion_depth += 1;
@@ -2209,15 +2182,10 @@ impl SymbolTableBuilder {
                 };
 
                 if let Some(context_name) = context_name {
-                    return Err(SymbolTableError {
-                        error: format!("{keyword} expression cannot be used within {context_name}"),
-                        location: Some(
-                            self.source_file.to_source_code().source_location(
-                                expression.range().start(),
-                                PositionEncoding::Utf8,
-                            ),
-                        ),
-                    });
+                    return Err(self.error_ranged(
+                        format!("{keyword} expression cannot be used within {context_name}"),
+                        expression.range(),
+                    ));
                 }
             }
 
@@ -2260,25 +2228,19 @@ impl SymbolTableBuilder {
                     if !self.allows_top_level_await()
                         && !Self::is_function_like_scope(current_scope)
                     {
-                        return Err(SymbolTableError {
-                            error: "'await' outside function".to_owned(),
-                            location: Some(self.source_file.to_source_code().source_location(
-                                expression.range().start(),
-                                PositionEncoding::Utf8,
-                            )),
-                        });
+                        return Err(self.error_ranged(
+                            "'await' outside function".to_owned(),
+                            expression.range(),
+                        ));
                     }
                     if current_scope != CompilerScope::AsyncFunction
                         && current_scope != CompilerScope::Comprehension
                         && !self.allows_top_level_await()
                     {
-                        return Err(SymbolTableError {
-                            error: "'await' outside async function".to_owned(),
-                            location: Some(self.source_file.to_source_code().source_location(
-                                expression.range().start(),
-                                PositionEncoding::Utf8,
-                            )),
-                        });
+                        return Err(self.error_ranged(
+                            "'await' outside async function".to_owned(),
+                            expression.range(),
+                        ));
                     }
                     self.scan_expression(value, context)?;
                     self.tables.last_mut().unwrap().is_coroutine = true;
@@ -2294,13 +2256,10 @@ impl SymbolTableBuilder {
                             .last()
                             .is_some_and(|table| table.typ == CompilerScope::Comprehension)
                     {
-                        return Err(SymbolTableError {
-                            error: format!("'yield' inside {context_name}"),
-                            location: Some(self.source_file.to_source_code().source_location(
-                                expression.range().start(),
-                                PositionEncoding::Utf8,
-                            )),
-                        });
+                        return Err(self.error_ranged(
+                            format!("'yield' inside {context_name}"),
+                            expression.range(),
+                        ));
                     }
                 }
                 Expr::YieldFrom(ExprYieldFrom { value, .. }) => {
@@ -2312,13 +2271,10 @@ impl SymbolTableBuilder {
                             .last()
                             .is_some_and(|table| table.typ == CompilerScope::Comprehension)
                     {
-                        return Err(SymbolTableError {
-                            error: format!("'yield' inside {context_name}"),
-                            location: Some(self.source_file.to_source_code().source_location(
-                                expression.range().start(),
-                                PositionEncoding::Utf8,
-                            )),
-                        });
+                        return Err(self.error_ranged(
+                            format!("'yield' inside {context_name}"),
+                            expression.range(),
+                        ));
                     }
                 }
                 Expr::UnaryOp(ExprUnaryOp { operand, .. }) => {
@@ -2566,14 +2522,7 @@ impl SymbolTableBuilder {
                 | Expr::NoneLiteral(_)
                 | Expr::EllipsisLiteral(_) => {}
                 Expr::IpyEscapeCommand(expr) => {
-                    return Err(SymbolTableError {
-                        error: "invalid syntax".to_owned(),
-                        location: Some(
-                            self.source_file
-                                .to_source_code()
-                                .source_location(expr.range.start(), PositionEncoding::Utf8),
-                        ),
-                    });
+                    return Err(self.error_ranged("invalid syntax".to_owned(), expr.range));
                 }
                 Expr::If(ExprIf {
                     test, body, orelse, ..
@@ -2592,16 +2541,11 @@ impl SymbolTableBuilder {
                     // named expressions are not allowed in the definition of
                     // comprehension iterator definitions (including nested comprehensions)
                     if context == ExpressionContext::IterDefinitionExp || self.in_iter_def_exp {
-                        return Err(SymbolTableError {
-                        error:
+                        return Err(self.error_ranged(
                             "assignment expression cannot be used in a comprehension iterable expression"
                                 .to_string(),
-                        location: Some(
-                            self.source_file
-                                .to_source_code()
-                                .source_location(range.start(), PositionEncoding::Utf8),
-                        ),
-                    });
+                            *range,
+                        ));
                     }
 
                     let named_target = if let Expr::Name(ExprName {
@@ -2727,14 +2671,10 @@ impl SymbolTableBuilder {
             && !self.is_in_async_context()
             && !self.allows_top_level_await()
         {
-            return Err(SymbolTableError {
-                error: "asynchronous comprehension outside of an asynchronous function".to_owned(),
-                location: Some(
-                    self.source_file
-                        .to_source_code()
-                        .source_location(range.start(), PositionEncoding::Utf8),
-                ),
-            });
+            return Err(self.error_ranged(
+                "asynchronous comprehension outside of an asynchronous function".to_owned(),
+                range,
+            ));
         }
         if propagate_coroutine {
             self.tables.last_mut().unwrap().is_coroutine = true;
@@ -2783,6 +2723,7 @@ impl SymbolTableBuilder {
                 return Err(SymbolTableError {
                     error: RECURSION_ERROR.to_owned(),
                     location: None,
+                    end_location: None,
                 });
             }
             self.recursion_depth += 1;
@@ -2797,16 +2738,13 @@ impl SymbolTableBuilder {
                     }) => {
                         self.register_name(name.id(), SymbolUsage::TypeParam, *type_var_range)?;
                         if name.as_str() == "__classdict__" {
-                            return Err(SymbolTableError {
-                                error: format!(
+                            return Err(self.error_ranged(
+                                format!(
                                     "reserved name '{}' cannot be used for type parameter",
                                     name.as_str()
                                 ),
-                                location: Some(self.source_file.to_source_code().source_location(
-                                    type_var_range.start(),
-                                    PositionEncoding::Utf8,
-                                )),
-                            });
+                                *type_var_range,
+                            ));
                         }
 
                         // Process bound in a separate scope
@@ -2836,15 +2774,10 @@ impl SymbolTableBuilder {
                     }) => {
                         self.register_name(name.id(), SymbolUsage::TypeParam, *param_spec_range)?;
                         if name == "__classdict__" {
-                            return Err(SymbolTableError {
-                                error: format!(
-                                    "reserved name '{name}' cannot be used for type parameter"
-                                ),
-                                location: Some(self.source_file.to_source_code().source_location(
-                                    param_spec_range.start(),
-                                    PositionEncoding::Utf8,
-                                )),
-                            });
+                            return Err(self.error_ranged(
+                                format!("reserved name '{name}' cannot be used for type parameter"),
+                                *param_spec_range,
+                            ));
                         }
 
                         // Process default in a separate scope
@@ -2868,15 +2801,10 @@ impl SymbolTableBuilder {
                             *type_var_tuple_range,
                         )?;
                         if name == "__classdict__" {
-                            return Err(SymbolTableError {
-                                error: format!(
-                                    "reserved name '{name}' cannot be used for type parameter"
-                                ),
-                                location: Some(self.source_file.to_source_code().source_location(
-                                    type_var_tuple_range.start(),
-                                    PositionEncoding::Utf8,
-                                )),
-                            });
+                            return Err(self.error_ranged(
+                                format!("reserved name '{name}' cannot be used for type parameter"),
+                                *type_var_tuple_range,
+                            ));
                         }
 
                         // Process default in a separate scope
@@ -2909,6 +2837,7 @@ impl SymbolTableBuilder {
             return Err(SymbolTableError {
                 error: RECURSION_ERROR.to_owned(),
                 location: None,
+                end_location: None,
             });
         }
         self.recursion_depth += 1;
@@ -2935,15 +2864,7 @@ impl SymbolTableBuilder {
                     self.scan_patterns(patterns)?;
                     if let Some(rest) = rest {
                         if rest.as_str() == "_" {
-                            return Err(SymbolTableError {
-                                error: "invalid syntax".to_owned(),
-                                location: Some(
-                                    self.source_file.to_source_code().source_location(
-                                        rest.range.start(),
-                                        PositionEncoding::Utf8,
-                                    ),
-                                ),
-                            });
+                            return Err(self.error_ranged("invalid syntax".to_owned(), rest.range));
                         }
                         self.register_name(rest.id(), SymbolUsage::Assigned, pattern.range())?;
                     }
@@ -3050,6 +2971,15 @@ impl SymbolTableBuilder {
         Ok(())
     }
 
+    fn error_ranged(&self, error: String, range: TextRange) -> SymbolTableError {
+        let source_code = self.source_file.to_source_code();
+        SymbolTableError {
+            error,
+            location: Some(source_code.source_location(range.start(), PositionEncoding::Utf8)),
+            end_location: Some(source_code.source_location(range.end(), PositionEncoding::Utf8)),
+        }
+    }
+
     fn register_ident(&mut self, ident: &ast::Identifier, role: SymbolUsage) -> SymbolTableResult {
         self.register_name(ident.id(), role, ident.range)
     }
@@ -3061,23 +2991,12 @@ impl SymbolTableBuilder {
         range: TextRange,
     ) -> SymbolTableResult {
         if name == "__debug__" {
-            let location = Some(
-                self.source_file
-                    .to_source_code()
-                    .source_location(range.start(), PositionEncoding::Utf8),
-            );
             match context {
                 ExpressionContext::Store | ExpressionContext::Iter => {
-                    return Err(SymbolTableError {
-                        error: "cannot assign to __debug__".to_owned(),
-                        location,
-                    });
+                    return Err(self.error_ranged("cannot assign to __debug__".to_owned(), range));
                 }
                 ExpressionContext::Delete => {
-                    return Err(SymbolTableError {
-                        error: "cannot delete __debug__".to_owned(),
-                        location,
-                    });
+                    return Err(self.error_ranged("cannot delete __debug__".to_owned(), range));
                 }
                 _ => {}
             }
@@ -3089,12 +3008,6 @@ impl SymbolTableBuilder {
     // inside comprehensions bind in the nearest function/module-like scope, not
     // in the synthetic comprehension scope itself.
     fn extend_namedexpr_scope(&mut self, name: &Name, range: TextRange) -> SymbolTableResult {
-        let location = Some(
-            self.source_file
-                .to_source_code()
-                .source_location(range.start(), PositionEncoding::Utf8),
-        );
-
         for table_idx in (0..self.tables.len()).rev() {
             let table_type = self.tables[table_idx].typ;
             let mangled = maybe_mangle_name(
@@ -3114,12 +3027,7 @@ impl SymbolTableBuilder {
                             .contains(SymbolFlags::DEF_LOCAL | SymbolFlags::DEF_COMP_ITER)
                     })
                 {
-                    return Err(SymbolTableError {
-                        error: format!(
-                            "assignment expression cannot rebind comprehension iteration variable '{name}'"
-                        ),
-                        location,
-                    });
+                    return Err(self.error_ranged(format!( "assignment expression cannot rebind comprehension iteration variable '{name}'" ), range));
                 }
                 continue;
             }
@@ -3168,32 +3076,16 @@ impl SymbolTableBuilder {
                     return Ok(());
                 }
                 CompilerScope::Class => {
-                    return Err(SymbolTableError {
-                        error: "assignment expression within a comprehension cannot be used in a class body".to_string(),
-                        location,
-                    });
+                    return Err(self.error_ranged("assignment expression within a comprehension cannot be used in a class body".to_string(), range));
                 }
                 CompilerScope::TypeParams => {
-                    return Err(SymbolTableError {
-                        error: "assignment expression within a comprehension cannot be used within the definition of a generic".to_string(),
-                        location,
-                    });
+                    return Err(self.error_ranged("assignment expression within a comprehension cannot be used within the definition of a generic".to_string(), range));
                 }
                 CompilerScope::TypeAlias => {
-                    return Err(SymbolTableError {
-                        error:
-                            "assignment expression within a comprehension cannot be used in a type alias"
-                                .to_string(),
-                        location,
-                    });
+                    return Err(self.error_ranged("assignment expression within a comprehension cannot be used in a type alias" .to_string(), range));
                 }
                 CompilerScope::TypeVariable => {
-                    return Err(SymbolTableError {
-                        error:
-                            "assignment expression within a comprehension cannot be used in a TypeVar bound"
-                                .to_string(),
-                        location,
-                    });
+                    return Err(self.error_ranged("assignment expression within a comprehension cannot be used in a TypeVar bound" .to_string(), range));
                 }
                 CompilerScope::Annotation => {}
                 CompilerScope::Comprehension => unreachable!(),
@@ -3209,11 +3101,9 @@ impl SymbolTableBuilder {
         role: SymbolUsage,
         range: TextRange,
     ) -> SymbolTableResult {
-        let location = self
-            .source_file
-            .to_source_code()
-            .source_location(range.start(), PositionEncoding::Utf8);
-        let location = Some(location);
+        let source_code = self.source_file.to_source_code();
+        let location = Some(source_code.source_location(range.start(), PositionEncoding::Utf8));
+        let end_location = Some(source_code.source_location(range.end(), PositionEncoding::Utf8));
 
         // symtable_add_def_ctx() runs check_name() for definition
         // roles covered by DEF_PARAM | DEF_LOCAL | DEF_IMPORT before adding
@@ -3260,6 +3150,7 @@ impl SymbolTableBuilder {
                         "comprehension inner loop cannot rebind assignment expression target '{original_name}'"
                     ),
                     location,
+                    end_location,
                 });
             }
 
@@ -3267,6 +3158,7 @@ impl SymbolTableBuilder {
                 return Err(SymbolTableError {
                     error: format!("duplicate argument '{original_name}' in function definition"),
                     location,
+                    end_location,
                 });
             }
 
@@ -3276,6 +3168,7 @@ impl SymbolTableBuilder {
                 return Err(SymbolTableError {
                     error: format!("duplicate type parameter '{name}'"),
                     location,
+                    end_location,
                 });
             }
             match role {
@@ -3284,18 +3177,21 @@ impl SymbolTableBuilder {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and global"),
                             location,
+                            end_location,
                         });
                     }
                     if flags.contains(SymbolFlags::USE) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to global declaration"),
                             location,
+                            end_location,
                         });
                     }
                     if flags.contains(SymbolFlags::DEF_ANNOT) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be global"),
                             location,
+                            end_location,
                         });
                     }
                     if flags.contains(SymbolFlags::DEF_LOCAL) {
@@ -3304,6 +3200,7 @@ impl SymbolTableBuilder {
                                 "name '{name}' is assigned to before global declaration"
                             ),
                             location,
+                            end_location,
                         });
                     }
                 }
@@ -3312,18 +3209,21 @@ impl SymbolTableBuilder {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is parameter and nonlocal"),
                             location,
+                            end_location,
                         });
                     }
                     if flags.contains(SymbolFlags::USE) {
                         return Err(SymbolTableError {
                             error: format!("name '{name}' is used prior to nonlocal declaration"),
                             location,
+                            end_location,
                         });
                     }
                     if flags.contains(SymbolFlags::DEF_ANNOT) {
                         return Err(SymbolTableError {
                             error: format!("annotated name '{name}' can't be nonlocal"),
                             location,
+                            end_location,
                         });
                     }
                     if flags.contains(SymbolFlags::DEF_LOCAL) {
@@ -3332,6 +3232,7 @@ impl SymbolTableBuilder {
                                 "name '{name}' is assigned to before nonlocal declaration"
                             ),
                             location,
+                            end_location,
                         });
                     }
                 }
@@ -3348,6 +3249,7 @@ impl SymbolTableBuilder {
                     return Err(SymbolTableError {
                         error: format!("annotated name '{name}' can't be {usage}"),
                         location,
+                        end_location,
                     });
                 }
                 _ => {
@@ -3363,6 +3265,7 @@ impl SymbolTableBuilder {
                     return Err(SymbolTableError {
                         error: "nonlocal declaration not allowed at module level".into(),
                         location,
+                        end_location,
                     });
                 }
                 _ => {
@@ -3379,6 +3282,7 @@ impl SymbolTableBuilder {
 
         if matches!(role, SymbolUsage::Global | SymbolUsage::Nonlocal) {
             symbol.location = location;
+            symbol.end_location = end_location;
         }
 
         // Set proper scope and flags on symbol:
