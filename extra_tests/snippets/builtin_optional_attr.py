@@ -121,6 +121,6 @@ def dynamic_getattribute(self, name):
 
 Dynamic.__getattribute__ = dynamic_getattribute
 assert not hasattr(dynamic, "missing")
-assert dynamic_calls == ["missing"]
 del Dynamic.__getattribute__
 assert not hasattr(dynamic, "missing")
+assert dynamic_calls == ["missing"]
