@@ -1102,20 +1102,6 @@ def unicodeescape_string(s, size, quotes):
             pos += 1
             continue
         # endif
-        # /* Map UTF-16 surrogate pairs to Unicode \UXXXXXXXX escapes */
-        elif ord(ch) >= 0xD800 and ord(ch) < 0xDC00:
-            pos += 1
-            ch2 = s[pos]
-
-            if ord(ch2) >= 0xDC00 and ord(ch2) <= 0xDFFF:
-                ucs = (((ord(ch) & 0x03FF) << 10) | (ord(ch2) & 0x03FF)) + 0x00010000
-                p.append(b"\\U%08x" % ucs)
-                pos += 1
-                continue
-
-            # /* Fall through: isolated surrogates are copied as-is */
-            pos -= 1
-
         # /* Map 16-bit characters to '\uxxxx' */
         if ord(ch) >= 256:
             p.append(b"\\u%04x" % ord(ch))

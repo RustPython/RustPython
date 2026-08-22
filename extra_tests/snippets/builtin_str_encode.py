@@ -32,3 +32,12 @@ assert not b"\x80\x80".islower()
 assert not b"\x80\x80".isupper()
 assert b"\x80cat\x80".islower()
 assert b"\x80CAT\x80".isupper()
+
+# A lone surrogate gets an escape of its own wherever it sits, and a high one
+# followed by a low one stays two escapes rather than being folded into one.
+assert "\ud800".encode("unicode_escape") == b"\\ud800"
+assert "a\ud800".encode("unicode_escape") == b"a\\ud800"
+assert "\ud800b".encode("unicode_escape") == b"\\ud800b"
+assert "\ud800\ud800".encode("unicode_escape") == b"\\ud800\\ud800"
+assert "\ud800\udc00".encode("unicode_escape") == b"\\ud800\\udc00"
+assert "\U00010000".encode("unicode_escape") == b"\\U00010000"

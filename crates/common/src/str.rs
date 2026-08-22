@@ -743,6 +743,15 @@ pub mod levenshtein {
 /// Replace all tabs in a string with spaces, using the given tab size.
 #[must_use]
 pub fn expandtabs(input: &str, tab_size: usize) -> String {
+    // A tab size of zero, which is also where a negative one lands, leaves no
+    // column for a tab to advance to: the tabs come out and nothing else moves.
+    // Going through the arithmetic anyway subtracts the current column from a
+    // tab stop of zero and underflows on the first tab, so the width asked for
+    // next is `usize::MAX`. The bytes version of this already returns here.
+    if tab_size == 0 {
+        return input.chars().filter(|ch| *ch != '\t').collect();
+    }
+
     let tab_stop = tab_size;
     let mut expanded_str = String::with_capacity(input.len());
     let mut tab_size = tab_stop;
@@ -904,5 +913,29 @@ mod tests {
 
         let s = "0😀😃😄😁😆😅😂🤣9";
         assert_eq!(get_chars(s, 3..7), "😄😁😆😅");
+    }
+
+    #[test]
+    fn expandtabs_with_zero_tab_size_drops_tabs() {
+        // A tab that follows a character used to subtract that column from a
+        // tab stop of zero, so the width of the run of spaces came out as
+        // `usize::MAX` and the allocation aborted the process.
+        assert_eq!(expandtabs("a\tb", 0), "ab");
+        assert_eq!(expandtabs("ab\tcd\tef", 0), "abcdef");
+        assert_eq!(expandtabs("a\nb\tc", 0), "a\nbc");
+        assert_eq!(expandtabs("á\tb", 0), "áb");
+        assert_eq!(expandtabs("\ta", 0), "a");
+        assert_eq!(expandtabs("\t", 0), "");
+        assert_eq!(expandtabs("", 0), "");
+        assert_eq!(expandtabs("no tabs", 0), "no tabs");
+    }
+
+    #[test]
+    fn expandtabs_with_a_real_tab_size_is_unchanged() {
+        assert_eq!(expandtabs("a\tb", 8), "a       b");
+        assert_eq!(expandtabs("a\tb", 1), "a b");
+        assert_eq!(expandtabs("abcd\te", 4), "abcd    e");
+        assert_eq!(expandtabs("a\nb\tc", 4), "a\nb   c");
+        assert_eq!(expandtabs("\ta", 4), "    a");
     }
 }
