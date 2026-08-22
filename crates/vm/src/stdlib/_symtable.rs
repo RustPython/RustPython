@@ -182,7 +182,7 @@ mod _symtable {
             let packed_flags =
                 i32::from(symbol.flags.bits()) | (symbol.scope.as_i32() << SCOPE_OFFSET);
             symbols
-                .set_item(name, vm.new_pyobj(packed_flags), vm)
+                .set_item(name.as_str(), vm.new_pyobj(packed_flags), vm)
                 .unwrap();
         }
         let varnames = vm.ctx.new_list(
@@ -221,7 +221,7 @@ mod _symtable {
     impl PySymbolTable {
         #[pygetset]
         fn name(&self) -> String {
-            self.symtable.name.clone()
+            self.symtable.name.to_string()
         }
 
         #[pygetset(name = "type")]
