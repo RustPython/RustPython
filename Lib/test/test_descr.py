@@ -5296,7 +5296,7 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON; a class namespace drops keys that are not strings, so MyKey.__eq__ is never reached and __bases__ stays put")
+    @unittest.expectedFailure  # TODO: RUSTPYTHON; a class namespace drops keys that are not strings, so MyKey.__eq__ is never reached and __bases__ stays put
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if
