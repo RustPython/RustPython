@@ -1707,7 +1707,6 @@ class LargeArrayTest(unittest.TestCase):
     # when the index conversion mutates the array.
     # See: https://github.com/python/cpython/issues/142555.
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     @subTests("dtype", ["b", "B", "h", "H", "i", "l", "q", "I", "L", "Q"])
     def test_setitem_use_after_clear_with_int_data(self, dtype):
         victim = array.array(dtype, list(range(64)))
@@ -1720,7 +1719,6 @@ class LargeArrayTest(unittest.TestCase):
         self.assertRaises(IndexError, victim.__setitem__, 1, Index())
         self.assertEqual(len(victim), 0)
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     def test_setitem_use_after_shrink_with_int_data(self):
         victim = array.array('b', [1, 2, 3])
 
@@ -1732,7 +1730,6 @@ class LargeArrayTest(unittest.TestCase):
 
         self.assertRaises(IndexError, victim.__setitem__, 1, Index())
 
-    @unittest.skip("TODO: RUSTPYTHON; Hangs")
     @subTests("dtype", ["f", "d"])
     def test_setitem_use_after_clear_with_float_data(self, dtype):
         victim = array.array(dtype, [1.0, 2.0, 3.0])
