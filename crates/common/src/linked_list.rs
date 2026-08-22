@@ -328,7 +328,7 @@ impl<L: Link> LinkedList<L> {
     }
 }
 
-impl<'a, L, F> Iterator for DrainFilter<'_, L, F>
+impl<L, F> Iterator for DrainFilter<'_, L, F>
 where
     L: Link,
     F: FnMut(&L::Target) -> bool,
