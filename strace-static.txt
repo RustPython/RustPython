@@ -1,0 +1,16 @@
+11541 execve("target/x86_64-unknown-linux-gnu/release/rustpython", ["target/x86_64-unknown-linux-gnu/"..., "--version"], 0x7ffda49d34a0 /* 235 vars */) = 0
+11541 brk(NULL)                         = 0x555570341000
+11541 brk(0x555570342100)               = 0x555570342100
+11541 arch_prctl(ARCH_SET_FS, 0x555570341780) = 0
+11541 set_tid_address(0x555570341a50)   = 11541
+11541 set_robust_list(0x555570341a60, 24) = 0
+11541 rseq(0x5555703420a0, 0x20, 0, 0x53053053) = 0
+11541 prlimit64(0, RLIMIT_STACK, NULL, {rlim_cur=16384*1024, rlim_max=16384*1024}) = 0
+11541 readlinkat(AT_FDCWD, "/proc/self/exe", "/home/runner/work/RustPython/Rus"..., 4096) = 90
+11541 getrandom("\x81\x8c\x59\xfd\x84\x65\xde\x80", 8, GRND_NONBLOCK) = 8
+11541 brk(NULL)                         = 0x555570342100
+11541 brk(0x555570363100)               = 0x555570363100
+11541 brk(0x555570364000)               = 0x555570364000
+11541 mprotect(0x7f792ed88000, 884736, PROT_READ) = 0
+11541 --- SIGSEGV {si_signo=SIGSEGV, si_code=SEGV_ACCERR, si_addr=0x7f792d000000} ---
+11541 +++ killed by SIGSEGV (core dumped) +++
