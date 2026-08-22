@@ -4857,7 +4857,6 @@ class ClassPropertiesAndMethods(unittest.TestCase):
         with self.assertRaises(AttributeError):
             del X.__abstractmethods__
 
-    @unittest.skip("TODO: RUSTPYTHON; crash. \"dict has non-string keys: [PyObject PyInt { value: 1 }]\"")
     def test_gh55664(self):
         # gh-55664: issue a warning when the
         # __dict__ of a class contains non-string keys
@@ -5297,7 +5296,7 @@ class AAAPTypesLongInitTest(unittest.TestCase):
 
 
 class MiscTests(unittest.TestCase):
-    @unittest.skip("TODO: RUSTPYTHON; rustpython panicked at 'dict has non-string keys: [PyObject PyBaseObject]'")
+    @unittest.skip("TODO: RUSTPYTHON; a class namespace drops keys that are not strings, so MyKey.__eq__ is never reached and __bases__ stays put")
     def test_type_lookup_mro_reference(self):
         # Issue #14199: _PyType_Lookup() has to keep a strong reference to
         # the type MRO because it may be modified during the lookup, if

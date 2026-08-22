@@ -775,13 +775,38 @@ impl Py<PyDict> {
     }
 
     /// Take a python dictionary and convert it to attributes.
-    pub fn to_attributes(&self, vm: &VirtualMachine) -> PyAttributes {
+    ///
+    /// `PyAttributes` is keyed by interned strings, so a key that is not a
+    /// string has nowhere to go. Those keys are left out, and `on_non_string`
+    /// is called once, the first time one turns up, so the caller can decide
+    /// whether that deserves an error or a warning.
+    pub fn to_attributes(
+        &self,
+        vm: &VirtualMachine,
+        on_non_string: impl FnOnce(&VirtualMachine) -> PyResult<()>,
+    ) -> PyResult<PyAttributes> {
         let mut attrs = PyAttributes::default();
+        let mut on_non_string = Some(on_non_string);
         for (key, value) in self {
-            let key: PyRefExact<PyStr> = key.downcast_exact(vm).expect("dict has non-string keys");
-            attrs.insert(vm.ctx.intern_str(key), value);
+            let key = match key.downcast_exact::<PyStr>(vm) {
+                Ok(key) => vm.ctx.intern_str(key),
+                // `PyStr`, not the exact type: a `str` subclass names an
+                // attribute just as well, the same way it does as a keyword
+                // argument. Interning drops the subclass, which nothing but
+                // the key object itself can observe.
+                Err(key) => match key.downcast_ref::<PyStr>() {
+                    Some(key) => vm.ctx.intern_str(key.as_wtf8()),
+                    None => {
+                        if let Some(on_non_string) = on_non_string.take() {
+                            on_non_string(vm)?;
+                        }
+                        continue;
+                    }
+                },
+            };
+            attrs.insert(key, value);
         }
-        attrs
+        Ok(attrs)
     }
 
     pub fn get_item_opt<K: DictKey + ?Sized>(
