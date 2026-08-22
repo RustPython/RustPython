@@ -2,6 +2,7 @@ use super::constant::{Constant, ConstantLiteral};
 use super::*;
 use crate::warn;
 use ast::str_prefix::StringLiteralPrefix;
+use rustpython_common::wtf8::Wtf8Buf;
 
 fn ruff_fstring_element_into_iter(
     mut fstring_element: ast::InterpolatedStringElements,
@@ -18,48 +19,77 @@ fn ruff_fstring_element_into_iter(
         .into_iter()
 }
 
-fn ruff_fstring_element_to_joined_str_part(
+fn push_ruff_fstring_element(
     vm: &VirtualMachine,
+    source_file: &SourceFile,
+    flags: ast::AnyStringFlags,
     element: ast::InterpolatedStringElement,
-) -> JoinedStrPart {
+    output: &mut Vec<JoinedStrPart>,
+) {
     match element {
-        ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
-            range,
-            value,
-            node_index: _,
-        }) => JoinedStrPart::Constant(Constant::new_str(
-            value,
-            ast::str_prefix::StringLiteralPrefix::Empty,
-            range,
-        )),
+        ast::InterpolatedStringElement::Literal(literal) => {
+            output.push(JoinedStrPart::Constant(Constant::new_str(
+                rustpython_codegen::interpolated_string_literal_value(source_file, &literal, flags),
+                ast::str_prefix::StringLiteralPrefix::Empty,
+                literal.range,
+            )));
+        }
         ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
             range,
             expression,
-            debug_text: _, // TODO: What is this?
-            conversion,
+            debug_text,
+            mut conversion,
             format_spec,
             node_index: _,
             runtime_str: _,
             runtime_interpolation_format_spec: _,
             runtime_formatted_value_format_spec,
         }) => {
+            if let Some(debug_text) = &debug_text {
+                output.push(JoinedStrPart::Constant(interpolation_debug_constant(
+                    source_file,
+                    debug_text,
+                    expression.range(),
+                )));
+                conversion = debug_conversion(conversion, format_spec.is_some());
+            }
             let runtime_format_spec = runtime_formatted_value_format_spec.or_else(|| {
-                ruff_format_spec_to_joined_str(vm, format_spec)
+                ruff_format_spec_to_joined_str(vm, source_file, flags, format_spec)
                     .map(|joined_str| Box::new(joined_str.into_expr(false)))
             });
-            JoinedStrPart::FormattedValue(FormattedValue {
+            output.push(JoinedStrPart::FormattedValue(FormattedValue {
                 value: expression,
                 conversion,
                 format_spec: runtime_format_spec,
                 range,
-            })
+            }));
         }
+    }
+}
+
+/// The literal an `{expr=}` interpolation puts in front of its value.
+fn interpolation_debug_constant(
+    source_file: &SourceFile,
+    debug_text: &ast::DebugText,
+    expression_range: TextRange,
+) -> Constant {
+    let (text, range) =
+        rustpython_codegen::interpolation_debug_text(source_file, debug_text, expression_range);
+    Constant::new_str(text, ast::str_prefix::StringLiteralPrefix::Empty, range)
+}
+
+/// A `{expr=}` interpolation takes `repr` unless it was told otherwise.
+fn debug_conversion(conversion: ast::ConversionFlag, has_format_spec: bool) -> ast::ConversionFlag {
+    if matches!(conversion, ast::ConversionFlag::None) && !has_format_spec {
+        ast::ConversionFlag::Repr
+    } else {
+        conversion
     }
 }
 
 fn push_joined_str_literal(
     output: &mut Vec<JoinedStrPart>,
-    pending: &mut Option<(String, StringLiteralPrefix, TextRange)>,
+    pending: &mut Option<(Wtf8Buf, StringLiteralPrefix, TextRange)>,
 ) {
     if let Some((value, prefix, range)) = pending.take()
         && !value.is_empty()
@@ -72,7 +102,7 @@ fn push_joined_str_literal(
 
 fn normalize_joined_str_parts(values: Vec<JoinedStrPart>) -> Vec<JoinedStrPart> {
     let mut output = Vec::with_capacity(values.len());
-    let mut pending: Option<(String, StringLiteralPrefix, TextRange)> = None;
+    let mut pending: Option<(Wtf8Buf, StringLiteralPrefix, TextRange)> = None;
 
     for part in values {
         match part {
@@ -82,9 +112,10 @@ fn normalize_joined_str_parts(values: Vec<JoinedStrPart>) -> Vec<JoinedStrPart> 
                     output.push(JoinedStrPart::Constant(constant));
                     continue;
                 };
-                let value: String = value.into();
-                if let Some((pending_value, _, _)) = pending.as_mut() {
-                    pending_value.push_str(&value);
+                if let Some((pending_value, _, pending_range)) = pending.as_mut() {
+                    pending_value.push_wtf8(&value);
+                    // Folded literals span from the first of them to the last.
+                    *pending_range = TextRange::new(pending_range.start(), constant.range.end());
                 } else {
                     pending = Some((value, prefix, constant.range));
                 }
@@ -102,7 +133,7 @@ fn normalize_joined_str_parts(values: Vec<JoinedStrPart>) -> Vec<JoinedStrPart> 
 
 fn push_template_str_literal(
     output: &mut Vec<TemplateStrPart>,
-    pending: &mut Option<(String, StringLiteralPrefix, TextRange)>,
+    pending: &mut Option<(Wtf8Buf, StringLiteralPrefix, TextRange)>,
 ) {
     if let Some((value, prefix, range)) = pending.take()
         && !value.is_empty()
@@ -115,7 +146,7 @@ fn push_template_str_literal(
 
 fn normalize_template_str_parts(values: Vec<TemplateStrPart>) -> Vec<TemplateStrPart> {
     let mut output = Vec::with_capacity(values.len());
-    let mut pending: Option<(String, StringLiteralPrefix, TextRange)> = None;
+    let mut pending: Option<(Wtf8Buf, StringLiteralPrefix, TextRange)> = None;
 
     for part in values {
         match part {
@@ -125,9 +156,10 @@ fn normalize_template_str_parts(values: Vec<TemplateStrPart>) -> Vec<TemplateStr
                     output.push(TemplateStrPart::Constant(constant));
                     continue;
                 };
-                let value: String = value.into();
-                if let Some((pending_value, _, _)) = pending.as_mut() {
-                    pending_value.push_str(&value);
+                if let Some((pending_value, _, pending_range)) = pending.as_mut() {
+                    pending_value.push_wtf8(&value);
+                    // Folded literals span from the first of them to the last.
+                    *pending_range = TextRange::new(pending_range.start(), constant.range.end());
                 } else {
                     pending = Some((value, prefix, constant.range));
                 }
@@ -246,6 +278,8 @@ fn warn_invalid_escape_sequences_in_format_spec(
 
 fn ruff_format_spec_to_joined_str(
     vm: &VirtualMachine,
+    source_file: &SourceFile,
+    flags: ast::AnyStringFlags,
     format_spec: Option<Box<ast::InterpolatedStringFormatSpec>>,
 ) -> Option<Box<JoinedStr>> {
     match format_spec {
@@ -256,7 +290,15 @@ fn ruff_format_spec_to_joined_str(
                 elements,
                 node_index: _,
             } = *format_spec;
-            let range = if range.start() > ruff_text_size::TextSize::from(0) {
+            // The `:` that opens a format spec belongs to its range, and the
+            // parser leaves it out of the outermost one.
+            let opened_by_colon = source_file
+                .source_text()
+                .as_bytes()
+                .get(..range.start().to_usize())
+                .and_then(<[u8]>::last)
+                == Some(&b':');
+            let range = if opened_by_colon {
                 TextRange::new(
                     range.start() - ruff_text_size::TextSize::from(1),
                     range.end(),
@@ -264,9 +306,10 @@ fn ruff_format_spec_to_joined_str(
             } else {
                 range
             };
-            let values: Vec<_> = ruff_fstring_element_into_iter(elements)
-                .map(|element| ruff_fstring_element_to_joined_str_part(vm, element))
-                .collect();
+            let mut values = Vec::new();
+            for element in ruff_fstring_element_into_iter(elements) {
+                push_ruff_fstring_element(vm, source_file, flags, element, &mut values);
+            }
             let values = normalize_joined_str_parts(values).into_boxed_slice();
             Some(Box::new(JoinedStr {
                 range,
@@ -480,7 +523,7 @@ fn joined_str_part_to_ruff_fstring_element(
                 ast::InterpolatedStringLiteralElement {
                     node_index: Default::default(),
                     range,
-                    value,
+                    value: value.to_string_lossy().into(),
                 },
             ))
         }
@@ -685,26 +728,21 @@ pub(super) fn fstring_to_object(
     for i in 0..value.as_slice().len() {
         let part = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_part.clone());
         match part {
-            ast::FStringPart::Literal(ast::StringLiteral {
-                range,
-                value,
-                flags,
-                node_index: _,
-            }) => {
+            ast::FStringPart::Literal(literal) => {
                 values.push(JoinedStrPart::Constant(Constant::new_str(
-                    value,
-                    flags.prefix(),
-                    range,
+                    rustpython_codegen::string_literal_part_value(source_file, &literal),
+                    literal.flags.prefix(),
+                    literal.range,
                 )));
             }
             ast::FStringPart::FString(ast::FString {
                 range: _,
                 elements,
-                flags: _,
+                flags,
                 node_index: _,
             }) => {
                 for element in ruff_fstring_element_into_iter(elements) {
-                    values.push(ruff_fstring_element_to_joined_str_part(vm, element));
+                    push_ruff_fstring_element(vm, source_file, flags.into(), element, &mut values);
                 }
             }
         }
@@ -727,26 +765,26 @@ pub(super) fn fstring_to_object(
 
 // ===== TString (Template String) Support =====
 
-fn ruff_tstring_element_to_template_str_part(
+fn push_ruff_tstring_element(
     vm: &VirtualMachine,
     source_file: &SourceFile,
+    flags: ast::AnyStringFlags,
     element: ast::InterpolatedStringElement,
-) -> TemplateStrPart {
+    output: &mut Vec<TemplateStrPart>,
+) {
     match element {
-        ast::InterpolatedStringElement::Literal(ast::InterpolatedStringLiteralElement {
-            range,
-            value,
-            node_index: _,
-        }) => TemplateStrPart::Constant(Constant::new_str(
-            value,
-            ast::str_prefix::StringLiteralPrefix::Empty,
-            range,
-        )),
+        ast::InterpolatedStringElement::Literal(literal) => {
+            output.push(TemplateStrPart::Constant(Constant::new_str(
+                rustpython_codegen::interpolated_string_literal_value(source_file, &literal, flags),
+                ast::str_prefix::StringLiteralPrefix::Empty,
+                literal.range,
+            )));
+        }
         ast::InterpolatedStringElement::Interpolation(ast::InterpolatedElement {
             range,
             expression,
             debug_text,
-            conversion,
+            mut conversion,
             format_spec,
             node_index: _,
             runtime_str,
@@ -756,7 +794,13 @@ fn ruff_tstring_element_to_template_str_part(
             let expr_range =
                 extend_expr_range_with_wrapping_parens(source_file, range, expression.range())
                     .unwrap_or_else(|| expression.range());
-            let expr_str = if let Some(debug_text) = debug_text {
+            let expr_str = if let Some(debug_text) = &debug_text {
+                output.push(TemplateStrPart::Constant(interpolation_debug_constant(
+                    source_file,
+                    debug_text,
+                    expression.range(),
+                )));
+                conversion = debug_conversion(conversion, format_spec.is_some());
                 let expr_source = source_file.slice(expr_range);
                 let mut expr_with_debug = String::with_capacity(
                     debug_text.leading.len() + expr_source.len() + debug_text.trailing.len(),
@@ -773,7 +817,7 @@ fn ruff_tstring_element_to_template_str_part(
                 runtime_str,
                 runtime_interpolation_format_spec,
             );
-            TemplateStrPart::Interpolation(TStringInterpolation {
+            output.push(TemplateStrPart::Interpolation(TStringInterpolation {
                 value: expression,
                 str: runtime_interpolation
                     .as_ref()
@@ -782,11 +826,11 @@ fn ruff_tstring_element_to_template_str_part(
                 format_spec: runtime_interpolation
                     .and_then(|(_, format_spec)| format_spec)
                     .or_else(|| {
-                        ruff_format_spec_to_joined_str(vm, format_spec)
+                        ruff_format_spec_to_joined_str(vm, source_file, flags, format_spec)
                             .map(|joined_str| Box::new(joined_str.into_expr(false)))
                     }),
                 range,
-            })
+            }));
         }
     }
 }
@@ -957,7 +1001,7 @@ fn template_part_to_element(
                 ast::InterpolatedStringLiteralElement {
                     range: constant.range,
                     node_index: Default::default(),
-                    value,
+                    value: value.to_string_lossy().into(),
                 },
             ))
         }
@@ -1200,12 +1244,9 @@ pub(super) fn tstring_to_object(
     let mut values = Vec::new();
     for i in 0..value.as_slice().len() {
         let tstring = core::mem::replace(value.iter_mut().nth(i).unwrap(), default_tstring.clone());
+        let flags = tstring.flags.into();
         for element in ruff_fstring_element_into_iter(tstring.elements) {
-            values.push(ruff_tstring_element_to_template_str_part(
-                vm,
-                source_file,
-                element,
-            ));
+            push_ruff_tstring_element(vm, source_file, flags, element, &mut values);
         }
     }
     let values = normalize_template_str_parts(values);
@@ -1239,8 +1280,13 @@ fn standalone_tstring_interpolation_to_object(
         str,
         conversion: interp.conversion,
         format_spec: format_spec.or_else(|| {
-            ruff_format_spec_to_joined_str(vm, interp.format_spec.clone())
-                .map(|joined_str| Box::new(joined_str.into_expr(false)))
+            ruff_format_spec_to_joined_str(
+                vm,
+                source_file,
+                ast::TStringFlags::empty().into(),
+                interp.format_spec.clone(),
+            )
+            .map(|joined_str| Box::new(joined_str.into_expr(false)))
         }),
         range: interp.range,
     };

@@ -69,6 +69,7 @@
     "emscripten",
     "excs",
     "fdigits",
+    "feff",
     "flufl",
     "fnfe",
     "fsdefault",

@@ -601,7 +601,7 @@ impl Representable for PyCode {
     fn repr_str(zelf: &Py<Self>, _vm: &VirtualMachine) -> PyResult<String> {
         let code = &zelf.code;
         Ok(format!(
-            "<code object {} at {:#x} file {:?}, line {}>",
+            "<code object {} at {:#x}, file \"{}\", line {}>",
             code.obj_name,
             zelf.get_id(),
             zelf.source_path().as_str(),
@@ -842,7 +842,8 @@ impl Constructor for PyCode {
             } else {
                 None
             },
-            max_stackdepth: args.stacksize,
+            // Room for one value is always reserved, even where nothing is pushed.
+            max_stackdepth: args.stacksize.max(1),
             obj_name: vm.ctx.intern_str(args.name.as_wtf8()),
             qualname: vm.ctx.intern_str(args.qualname.as_wtf8()),
             constants,
@@ -1352,10 +1353,12 @@ impl PyCode {
             OptionalArg::Missing => self.code.qualname.to_owned(),
         };
 
+        // Room for one value is always reserved, even where nothing is pushed.
         let max_stackdepth = match co_stacksize {
             OptionalArg::Present(stacksize) => stacksize,
             OptionalArg::Missing => self.code.max_stackdepth,
-        };
+        }
+        .max(1);
 
         let instructions = match co_code {
             OptionalArg::Present(code_bytes) => {

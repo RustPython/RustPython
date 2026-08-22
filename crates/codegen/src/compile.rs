@@ -12,8 +12,9 @@
 use crate::{
     IndexMap, IndexSet, ToPythonName, ast_constant_value_to_constant_data,
     error::{CodegenError, CodegenErrorType, InternalError},
+    interpolated_string_literal_value, interpolation_debug_text,
     ir::{self, Block, BlockIdx, Blocks},
-    preprocess, strip_python_comments,
+    preprocess, string_literal_part_value, string_literal_value,
     symboltable::{self, CompilerScope, Symbol, SymbolFlags, SymbolScope, SymbolTable},
     unparse::UnparseExpr,
 };
@@ -144,9 +145,9 @@ fn checked_future_features(
     source_file: &SourceFile,
 ) -> CompileResult<bytecode::CodeFlags> {
     preprocess::checked_future_features(ast).map_err(|err| {
-        let location = source_file
-            .to_source_code()
-            .source_location(err.range.start(), PositionEncoding::Utf8);
+        let source_code = source_file.to_source_code();
+        let location = source_code.source_location(err.range.start(), PositionEncoding::Utf8);
+        let end_location = source_code.source_location(err.range.end(), PositionEncoding::Utf8);
         let error = match err.kind {
             preprocess::FutureFeatureErrorKind::InvalidFeature(feature) => {
                 CodegenErrorType::InvalidFutureFeature(feature)
@@ -157,6 +158,7 @@ fn checked_future_features(
         };
         CodegenError {
             location: Some(location),
+            end_location: Some(end_location),
             error,
             source_path: source_file.name().to_owned(),
         }
@@ -176,7 +178,6 @@ struct Compiler<'a> {
     source_file: SourceFile,
     // current_source_location: SourceLocation,
     current_source_range: TextRange,
-    done_with_future_stmts: DoneWithFuture,
     future_features: bytecode::CodeFlags,
     future_annotations: bool,
     ctx: CompileContext,
@@ -192,13 +193,6 @@ struct Compiler<'a> {
     /// Mirrors `c_disable_warning` while compiling FINALLY_END copies.
     disable_warning: u32,
     syntax_warning_handler: Option<&'a mut SyntaxWarningHandler<'a>>,
-}
-
-#[derive(Clone, Copy)]
-enum DoneWithFuture {
-    No,
-    DoneWithDoc,
-    Yes,
 }
 
 /// A Python `__future__` feature flag imported via `from __future__ import <feature>`.
@@ -1115,7 +1109,6 @@ impl<'warnings> Compiler<'warnings> {
             source_file,
             // current_source_location: SourceLocation::default(),
             current_source_range: TextRange::default(),
-            done_with_future_stmts: DoneWithFuture::No,
             future_features: opts.future_features,
             future_annotations: false,
             ctx: CompileContext {
@@ -1430,13 +1423,13 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn error_ranged(&mut self, error: CodegenErrorType, range: TextRange) -> CodegenError {
-        let location = self
-            .source_file
-            .to_source_code()
-            .source_location(range.start(), PositionEncoding::Utf8);
+        let source_code = self.source_file.to_source_code();
+        let location = source_code.source_location(range.start(), PositionEncoding::Utf8);
+        let end_location = source_code.source_location(range.end(), PositionEncoding::Utf8);
         CodegenError {
             error,
             location: Some(location),
+            end_location: Some(end_location),
             source_path: self.source_file.name().to_owned(),
         }
     }
@@ -1451,6 +1444,7 @@ impl<'warnings> Compiler<'warnings> {
             None => CodegenError {
                 error,
                 location: None,
+                end_location: None,
                 source_path: self.source_file.name().to_owned(),
             },
         }
@@ -1939,6 +1933,13 @@ impl<'warnings> Compiler<'warnings> {
         free_names.sort();
         for name in free_names {
             freevar_cache.insert(name.into());
+        }
+
+        // The `__conditional_annotations__` cell an annotation scope reads is
+        // cooked up here rather than carried by the symbol table, so it lands
+        // after the names the symbol table did supply.
+        if scope_type == CompilerScope::Annotation && ste.has_conditional_annotations {
+            freevar_cache.insert("__conditional_annotations__".to_string());
         }
 
         // Initialize u_metadata fields
@@ -2809,9 +2810,6 @@ impl<'warnings> Compiler<'warnings> {
         emit!(self, PseudoInstruction::AnnotationsPlaceholder);
 
         let (doc, statements) = split_doc_with_range(&body.body, &self.opts);
-        if doc.is_some() {
-            self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
-        }
         let module_start_loc = self.module_start_location(&body.body);
         let annotations_used = self.current_symbol_table().annotations_used;
         // Handle annotation bookkeeping before the docstring assignment, as
@@ -2877,6 +2875,15 @@ impl<'warnings> Compiler<'warnings> {
                 .flags
                 .insert(bytecode::CodeFlags::COROUTINE);
         }
+
+        // Module-level __conditional_annotations__ cell
+        if Self::scope_needs_conditional_annotations_cell(&symbol_table) {
+            self.current_code_info()
+                .metadata
+                .cellvars
+                .insert("__conditional_annotations__".to_string());
+        }
+
         self.symbol_table_stack.push(symbol_table);
         let module_start_loc = self.module_start_location(body);
 
@@ -2998,6 +3005,9 @@ impl<'warnings> Compiler<'warnings> {
 
         self.compile_expression(&expression.body)?;
         self.emit_return_value();
+        // The return belongs to no expression, so the exit block can take its
+        // location from whichever path reaches it.
+        self.set_no_location();
         Ok(())
     }
 
@@ -3385,26 +3395,18 @@ impl<'warnings> Compiler<'warnings> {
         let prev_source_range = self.current_source_range;
         self.set_source_range(statement.range());
 
-        match &statement {
-            // we do this here because `from __future__` still executes that `from` statement at runtime,
-            // we still need to compile the ImportFrom down below
-            ast::Stmt::ImportFrom(ast::StmtImportFrom {
-                module,
-                names,
-                level,
-                ..
-            }) if *level == 0 && module.as_ref().map(|id| id.as_str()) == Some("__future__") => {
-                self.compile_future_features(names)?
-            }
-            // ignore module-level doc comments
-            ast::Stmt::Expr(ast::StmtExpr { value, .. })
-                if is_docstring_expr(value)
-                    && matches!(self.done_with_future_stmts, DoneWithFuture::No) =>
-            {
-                self.done_with_future_stmts = DoneWithFuture::DoneWithDoc
-            }
-            // if we find any other statement, stop accepting future statements
-            _ => self.done_with_future_stmts = DoneWithFuture::Yes,
+        // `from __future__` still executes that `from` statement at runtime, so the
+        // ImportFrom is compiled down below as well.
+        if let ast::Stmt::ImportFrom(ast::StmtImportFrom {
+            module,
+            names,
+            level,
+            ..
+        }) = &statement
+            && *level == 0
+            && module.as_ref().map(|id| id.as_str()) == Some("__future__")
+        {
+            self.compile_future_features(names)?;
         }
 
         match &statement {
@@ -3503,9 +3505,13 @@ impl<'warnings> Compiler<'warnings> {
                 if !dominated_by_interactive && value.is_constant() {
                     emit!(self, Instruction::Nop);
                 } else {
+                    let statement_range = self.current_source_range;
                     self.compile_expression(value)?;
 
                     if dominated_by_interactive {
+                        // The printing belongs to the statement, not to whatever
+                        // the expression left behind.
+                        self.set_source_range(statement_range);
                         emit!(
                             self,
                             Instruction::CallIntrinsic1 {
@@ -5445,7 +5451,8 @@ impl<'warnings> Compiler<'warnings> {
         // CPython's FunctionDef/AsyncFunctionDef LOC(s) starts at the
         // definition line even when decorators are present.
         let stmt_source_range = self.current_source_range;
-        let def_source_range = self.decorated_definition_range(
+        let def_source_range = crate::decorated_definition_range(
+            &self.source_file,
             stmt_source_range,
             decorator_list,
             if is_async { "async def " } else { "def " },
@@ -5509,14 +5516,15 @@ impl<'warnings> Compiler<'warnings> {
             };
 
             // Add parameter names to varnames for the type params scope
-            // These will be passed as arguments when the closure is called
+            // These will be passed as arguments when the closure is called.
+            // `.defaults` is there whether or not the function has any: the
+            // symbol table gives every generic function's type params scope
+            // one. `.kwdefaults` only appears when it is really passed.
             let current_info = self.current_code_info();
-            if funcflags.contains(&bytecode::MakeFunctionFlag::Defaults) {
-                current_info
-                    .metadata
-                    .varnames
-                    .insert(".defaults".to_owned());
-            }
+            current_info
+                .metadata
+                .varnames
+                .insert(".defaults".to_owned());
             if funcflags.contains(&bytecode::MakeFunctionFlag::KwOnlyDefaults) {
                 current_info
                     .metadata
@@ -5976,8 +5984,12 @@ impl<'warnings> Compiler<'warnings> {
         // CPython's ClassDef LOC(s) starts at the class line even when
         // decorators are present.
         let stmt_source_range = self.current_source_range;
-        let class_source_range =
-            self.decorated_definition_range(stmt_source_range, decorator_list, "class ");
+        let class_source_range = crate::decorated_definition_range(
+            &self.source_file,
+            stmt_source_range,
+            decorator_list,
+            "class ",
+        );
         self.prepare_decorators(decorator_list)?;
 
         let is_generic = type_params.is_some();
@@ -9224,7 +9236,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.compile_expr_tstring(tstring)?;
             }
             ast::Expr::StringLiteral(string) => {
-                let value = self.compile_string_value(string);
+                let value = string_literal_value(&self.source_file, &string.value);
                 self.emit_load_const(ConstantData::Str { value });
             }
             ast::Expr::BytesLiteral(bytes) => {
@@ -9265,7 +9277,12 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn cpython_sync_genexpr_call_name<'a>(
+    /// The called name of a `name(genexpr)` call, the shape
+    /// `maybe_optimize_function_call()` reserves a `skip_optimization` label
+    /// for. An `await` or an `async for` inside the generator does not
+    /// disqualify it: the inlined loop raises the same `TypeError` that
+    /// calling the builtin on an async generator would.
+    fn cpython_genexpr_call_name<'a>(
         &self,
         func: &'a ast::Expr,
         args: &ast::Arguments,
@@ -9276,15 +9293,11 @@ impl<'warnings> Compiler<'warnings> {
         let [ast::Expr::Generator(ast::ExprGenerator { .. })] = &args.args[..] else {
             return None;
         };
-        if !args.keywords.is_empty() || {
-            let table = self.current_symbol_table();
-            table
-                .sub_tables
-                .get(table.next_sub_table)
-                .is_none_or(|generator_entry| generator_entry.is_coroutine)
-        } {
+        if !args.keywords.is_empty() {
             return None;
         }
+        let table = self.current_symbol_table();
+        table.sub_tables.get(table.next_sub_table)?;
         Some(id.as_str())
     }
 
@@ -9293,7 +9306,7 @@ impl<'warnings> Compiler<'warnings> {
         func: &ast::Expr,
         args: &ast::Arguments,
     ) -> Option<BuiltinGeneratorCallKind> {
-        match self.cpython_sync_genexpr_call_name(func, args)? {
+        match self.cpython_genexpr_call_name(func, args)? {
             "tuple" => Some(BuiltinGeneratorCallKind::Tuple),
             "all" => Some(BuiltinGeneratorCallKind::All),
             "any" => Some(BuiltinGeneratorCallKind::Any),
@@ -9345,11 +9358,7 @@ impl<'warnings> Compiler<'warnings> {
         }
 
         let symbol_table_cursors = self.current_symbol_table_cursors();
-        if let Some(range) = self.cpython_implicit_call_generator_range(generator_expr) {
-            self.compile_expression_with_generator_range(generator_expr, range)?;
-        } else {
-            self.compile_expression(generator_expr)?;
-        }
+        self.compile_expression(generator_expr)?;
         self.set_symbol_table_cursors(symbol_table_cursors);
 
         let loop_block = self.new_block();
@@ -9446,17 +9455,8 @@ impl<'warnings> Compiler<'warnings> {
         call_range: TextRange,
         kw_names_range: TextRange,
     ) -> CompileResult<()> {
-        let implicit_generator_range = if args.args.len() == 1 && args.keywords.is_empty() {
-            self.cpython_implicit_call_generator_range(&args.args[0])
-        } else {
-            None
-        };
         for arg in &args.args {
-            if let Some(range) = implicit_generator_range {
-                self.compile_expression_with_generator_range(arg, range)?;
-            } else {
-                self.compile_expression(arg)?;
-            }
+            self.compile_expression(arg)?;
         }
 
         if args.keywords.is_empty() {
@@ -9587,15 +9587,15 @@ impl<'warnings> Compiler<'warnings> {
             // `skip_normal_call`, even when `maybe_optimize_function_call()`
             // leaves it untargeted.
             let skip_normal_call = self.current_code_info().new_instr_sequence_label();
-            let sync_genexpr_call_name = (!uses_ex_call)
-                .then(|| self.cpython_sync_genexpr_call_name(func, args))
+            let genexpr_call_name = (!uses_ex_call)
+                .then(|| self.cpython_genexpr_call_name(func, args))
                 .flatten()
                 .is_some();
             self.check_caller(func)?;
             self.compile_expression(func)?;
-            if sync_genexpr_call_name {
+            if genexpr_call_name {
                 // CPython `maybe_optimize_function_call()` creates and uses
-                // `skip_optimization` for every sync name(genexpr) shape after
+                // `skip_optimization` for every name(genexpr) shape after
                 // loading the function, even when the name is not all/any/tuple.
                 let skip_optimization = self.current_code_info().new_instr_sequence_label();
                 let result = self
@@ -9729,18 +9729,8 @@ impl<'warnings> Compiler<'warnings> {
 
         if !has_starred && !has_double_star && !too_big {
             // Simple call path: no * or ** args
-            let implicit_generator_range =
-                if additional_positional == 0 && nelts == 1 && nkwelts == 0 {
-                    self.cpython_implicit_call_generator_range(&args[0])
-                } else {
-                    None
-                };
             for arg in args {
-                if let Some(range) = implicit_generator_range {
-                    self.compile_expression_with_generator_range(arg, range)?;
-                } else {
-                    self.compile_expression(arg)?;
-                }
+                self.compile_expression(arg)?;
             }
             let injected_count = if let Some(injected_arg) = injected_arg {
                 self.set_source_range(call_range);
@@ -9873,122 +9863,6 @@ impl<'warnings> Compiler<'warnings> {
                 e
             }
         })
-    }
-
-    fn compile_expression_with_generator_range(
-        &mut self,
-        expression: &ast::Expr,
-        range: TextRange,
-    ) -> CompileResult<()> {
-        if let ast::Expr::Generator(ast::ExprGenerator {
-            elt, generators, ..
-        }) = expression
-        {
-            self.set_source_range(range);
-            self.compile_generator_expression(elt, generators, range)
-        } else {
-            self.compile_expression(expression)
-        }
-    }
-
-    fn cpython_implicit_call_generator_range(&self, expression: &ast::Expr) -> Option<TextRange> {
-        if !matches!(expression, ast::Expr::Generator(_)) {
-            return None;
-        }
-        let range = expression.range();
-        let source = self.source_file.source_text().as_bytes();
-        let start = range.start().to_usize();
-        let end = range.end().to_usize();
-        if source.get(start) == Some(&b'(')
-            && !Self::starts_with_parenthesized_generator_element(source, start, end)
-        {
-            return None;
-        }
-
-        let mut open = start;
-        while open > 0 && source[open - 1].is_ascii_whitespace() {
-            open -= 1;
-        }
-        if open == 0 || source[open - 1] != b'(' {
-            return None;
-        }
-
-        let mut close = end;
-        while close < source.len() && source[close].is_ascii_whitespace() {
-            close += 1;
-        }
-        if source.get(close) != Some(&b')') {
-            return None;
-        }
-
-        let adjusted_start = u32::try_from(open - 1).ok()?;
-        let adjusted_end = u32::try_from(close + 1).ok()?;
-        Some(TextRange::new(
-            TextSize::from(adjusted_start),
-            TextSize::from(adjusted_end),
-        ))
-    }
-
-    fn starts_with_parenthesized_generator_element(
-        source: &[u8],
-        start: usize,
-        end: usize,
-    ) -> bool {
-        let mut depth = 0usize;
-        let mut i = start;
-        while i < end {
-            match source[i] {
-                b'(' | b'[' | b'{' => depth += 1,
-                b')' | b']' | b'}' => {
-                    if depth == 0 {
-                        return false;
-                    }
-                    depth -= 1;
-                    if depth == 0 {
-                        return Self::next_token_is_for(source, i + 1, end);
-                    }
-                }
-                b'\'' | b'"' => i = Self::skip_python_string_literal(source, i),
-                _ => {}
-            }
-            i += 1;
-        }
-        false
-    }
-
-    fn skip_python_string_literal(source: &[u8], quote: usize) -> usize {
-        let quote_byte = source[quote];
-        let triple = source.get(quote + 1) == Some(&quote_byte)
-            && source.get(quote + 2) == Some(&quote_byte);
-        let mut i = quote + if triple { 3 } else { 1 };
-        while i < source.len() {
-            if source[i] == b'\\' {
-                i += 2;
-                continue;
-            }
-            if triple {
-                if source[i] == quote_byte
-                    && source.get(i + 1) == Some(&quote_byte)
-                    && source.get(i + 2) == Some(&quote_byte)
-                {
-                    return i + 2;
-                }
-            } else if source[i] == quote_byte {
-                return i;
-            }
-            i += 1;
-        }
-        source.len().saturating_sub(1)
-    }
-
-    fn next_token_is_for(source: &[u8], mut i: usize, end: usize) -> bool {
-        while i < end && source[i].is_ascii_whitespace() {
-            i += 1;
-        }
-        source.get(i..i + 3) == Some(b"for")
-            && source
-                .get(i + 3)
-                .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_')
     }
 
     fn compile_generator_expression(
@@ -11265,12 +11139,6 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     fn compile_future_features(&mut self, features: &[ast::Alias]) -> Result<(), CodegenError> {
-        if let DoneWithFuture::Yes = self.done_with_future_stmts {
-            return Err(self.error(CodegenErrorType::InvalidFuturePlacement));
-        }
-
-        self.done_with_future_stmts = DoneWithFuture::DoneWithDoc;
-
         for feature in features {
             let future_feature = feature.name.as_str().try_into().map_err(|name| {
                 self.error_ranged(CodegenErrorType::InvalidFutureFeature(name), feature.range)
@@ -11499,59 +11367,6 @@ impl<'warnings> Compiler<'warnings> {
 
     // fn block_done()
 
-    /// Convert a string literal AST node to Wtf8Buf, handling surrogate literals correctly.
-    fn compile_string_value(&self, string: &ast::ExprStringLiteral) -> Wtf8Buf {
-        let value = string.value.to_str();
-        if value.contains(char::REPLACEMENT_CHARACTER) {
-            // Might have a surrogate literal; reparse from source to preserve them.
-            string
-                .value
-                .iter()
-                .map(|lit| {
-                    let source = self.source_file.slice(lit.range);
-                    crate::string_parser::parse_string_literal(source, lit.flags.into())
-                })
-                .collect()
-        } else {
-            value.into()
-        }
-    }
-
-    fn compile_fstring_literal_value(
-        &self,
-        string: &ast::InterpolatedStringLiteralElement,
-        flags: ast::FStringFlags,
-    ) -> Wtf8Buf {
-        if string.value.contains(char::REPLACEMENT_CHARACTER) {
-            let source = self.source_file.slice(string.range);
-            crate::string_parser::parse_fstring_literal_element(source.into(), flags.into()).into()
-        } else {
-            string.value.to_string().into()
-        }
-    }
-
-    fn compile_tstring_literal_value(
-        &self,
-        string: &ast::InterpolatedStringLiteralElement,
-        flags: ast::TStringFlags,
-    ) -> Wtf8Buf {
-        if string.value.contains(char::REPLACEMENT_CHARACTER) {
-            let source = self.source_file.slice(string.range);
-            crate::string_parser::parse_fstring_literal_element(source.into(), flags.into()).into()
-        } else {
-            string.value.to_string().into()
-        }
-    }
-
-    fn compile_fstring_part_literal_value(&self, string: &ast::StringLiteral) -> Wtf8Buf {
-        if string.value.contains(char::REPLACEMENT_CHARACTER) {
-            let source = self.source_file.slice(string.range);
-            crate::string_parser::parse_string_literal(source, string.flags.into()).into()
-        } else {
-            string.value.to_string().into()
-        }
-    }
-
     fn arg_constant(&mut self, constant: ConstantData) -> oparg::ConstIdx {
         let info = self.current_code_info();
         if let ConstantData::Code { code } = &constant
@@ -11676,7 +11491,7 @@ impl<'warnings> Compiler<'warnings> {
                 },
             },
             ast::Expr::StringLiteral(s) => ConstantData::Str {
-                value: self.compile_string_value(s),
+                value: string_literal_value(&self.source_file, &s.value),
             },
             ast::Expr::BytesLiteral(b) => ConstantData::Bytes {
                 value: b.value.bytes().collect(),
@@ -11867,7 +11682,7 @@ impl<'warnings> Compiler<'warnings> {
                 },
             },
             ast::Expr::StringLiteral(s) => ConstantData::Str {
-                value: self.compile_string_value(s),
+                value: string_literal_value(&self.source_file, &s.value),
             },
             ast::Expr::BytesLiteral(b) => ConstantData::Bytes {
                 value: b.value.bytes().collect(),
@@ -12463,33 +12278,6 @@ impl<'warnings> Compiler<'warnings> {
         self.current_source_range = range;
     }
 
-    fn decorated_definition_range(
-        &self,
-        statement_range: TextRange,
-        decorator_list: &[ast::Decorator],
-        keyword: &str,
-    ) -> TextRange {
-        let Some(last_decorator) = decorator_list.last() else {
-            return statement_range;
-        };
-        let search_start = last_decorator.expression.range().end();
-        if search_start >= statement_range.end() {
-            return statement_range;
-        }
-        let search_range = TextRange::new(search_start, statement_range.end());
-        let source = self.source_file.slice(search_range);
-        let Some(keyword_offset) = source.find(keyword) else {
-            return statement_range;
-        };
-        let Ok(keyword_offset) = u32::try_from(keyword_offset) else {
-            return statement_range;
-        };
-        TextRange::new(
-            search_start + TextSize::new(keyword_offset),
-            statement_range.end(),
-        )
-    }
-
     fn update_start_location_to_match_attr(
         &self,
         loc_range: TextRange,
@@ -12720,7 +12508,7 @@ impl<'warnings> Compiler<'warnings> {
     ) -> CompileResult<()> {
         match part {
             ast::FStringPart::Literal(string) => {
-                let value = self.compile_fstring_part_literal_value(string);
+                let value = string_literal_part_value(&self.source_file, string);
                 if pending_literal.is_none() {
                     *pending_literal_range = Some(string.range);
                     *pending_literal_no_location = string.range == TextRange::default();
@@ -12751,13 +12539,11 @@ impl<'warnings> Compiler<'warnings> {
         mut element_count: u32,
         fstring_range: Option<TextRange>,
     ) {
-        let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
             &mut pending_literal_range,
             &mut pending_literal_no_location,
             &mut element_count,
-            keep_empty,
             None,
         );
 
@@ -12789,13 +12575,11 @@ impl<'warnings> Compiler<'warnings> {
         mut element_count: u32,
         fstring_range: TextRange,
     ) {
-        let keep_empty = element_count == 0;
         self.emit_pending_fstring_literal(
             &mut pending_literal,
             &mut pending_literal_range,
             &mut pending_literal_no_location,
             &mut element_count,
-            keep_empty,
             Some(fstring_range),
         );
         self.set_source_range(fstring_range);
@@ -12808,7 +12592,6 @@ impl<'warnings> Compiler<'warnings> {
         pending_literal_range: &mut Option<TextRange>,
         pending_literal_no_location: &mut bool,
         element_count: &mut u32,
-        keep_empty: bool,
         join_append_range: Option<TextRange>,
     ) {
         let Some(value) = pending_literal.take() else {
@@ -12818,10 +12601,10 @@ impl<'warnings> Compiler<'warnings> {
         let no_location = *pending_literal_no_location;
         *pending_literal_no_location = false;
 
-        // CPython drops empty literal fragments when they are adjacent to
-        // formatted values, but still emits an empty string for a fully-empty
-        // f-string.
-        if value.is_empty() && (!keep_empty || *element_count > 0) {
+        // An empty literal fragment contributes nothing, so it is dropped. An
+        // f-string left with no fragments at all still loads an empty string,
+        // positioned at the whole f-string rather than at any one fragment.
+        if value.is_empty() {
             return;
         }
 
@@ -12857,8 +12640,7 @@ impl<'warnings> Compiler<'warnings> {
         for part in fstring {
             self.count_fstring_part_into(part, &mut pending_literal, &mut element_count);
         }
-        let keep_empty = element_count == 0;
-        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count);
         element_count
     }
 
@@ -12870,7 +12652,7 @@ impl<'warnings> Compiler<'warnings> {
     ) {
         match part {
             ast::FStringPart::Literal(string) => {
-                let value = self.compile_fstring_part_literal_value(string);
+                let value = string_literal_part_value(&self.source_file, string);
                 if let Some(pending) = pending_literal.as_mut() {
                     pending.push_wtf8(value.as_ref());
                 } else {
@@ -12889,13 +12671,12 @@ impl<'warnings> Compiler<'warnings> {
     fn count_pending_fstring_literal(
         pending_literal: &mut Option<Wtf8Buf>,
         element_count: &mut u32,
-        keep_empty: bool,
     ) {
         let Some(value) = pending_literal.take() else {
             return;
         };
 
-        if value.is_empty() && (!keep_empty || *element_count > 0) {
+        if value.is_empty() {
             return;
         }
 
@@ -12997,7 +12778,8 @@ impl<'warnings> Compiler<'warnings> {
         for element in fstring_elements {
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
-                    let value = self.compile_fstring_literal_value(string, flags);
+                    let value =
+                        interpolated_string_literal_value(&self.source_file, string, flags.into());
                     if pending_literal.is_none() {
                         *pending_literal_range = Some(string.range);
                         *pending_literal_no_location = string.range == TextRange::default();
@@ -13017,29 +12799,11 @@ impl<'warnings> Compiler<'warnings> {
                     };
 
                     if let Some(debug_text) = &fstring_expr.debug_text {
-                        let leading = debug_text.leading.as_str();
-                        let trailing = debug_text.trailing.as_str();
-                        let range = fstring_expr.expression.range();
-                        let source = self.source_file.slice(range);
-                        let text = [
-                            strip_python_comments(leading).as_str(),
-                            source,
-                            strip_python_comments(trailing).as_str(),
-                        ]
-                        .concat();
-                        let debug_text_range = TextRange::new(
-                            range.start()
-                                - TextSize::new(
-                                    u32::try_from(leading.len())
-                                        .expect("debug f-string leading text too long"),
-                                ),
-                            range.end()
-                                + TextSize::new(
-                                    u32::try_from(trailing.len())
-                                        .expect("debug f-string trailing text too long"),
-                                ),
+                        let (text, debug_text_range) = interpolation_debug_text(
+                            &self.source_file,
+                            debug_text,
+                            fstring_expr.expression.range(),
                         );
-
                         let text: Wtf8Buf = text.into();
                         Self::extend_pending_literal_range(pending_literal_range, debug_text_range);
                         *pending_literal_no_location = false;
@@ -13062,7 +12826,6 @@ impl<'warnings> Compiler<'warnings> {
                         pending_literal_range,
                         pending_literal_no_location,
                         element_count,
-                        false,
                         join_append_range,
                     );
 
@@ -13132,8 +12895,7 @@ impl<'warnings> Compiler<'warnings> {
             &mut pending_literal,
             &mut element_count,
         );
-        let keep_empty = element_count == 0;
-        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count, keep_empty);
+        Self::count_pending_fstring_literal(&mut pending_literal, &mut element_count);
         element_count
     }
 
@@ -13147,7 +12909,8 @@ impl<'warnings> Compiler<'warnings> {
         for element in fstring_elements {
             match element {
                 ast::InterpolatedStringElement::Literal(string) => {
-                    let value = self.compile_fstring_literal_value(string, flags);
+                    let value =
+                        interpolated_string_literal_value(&self.source_file, string, flags.into());
                     if let Some(pending) = pending_literal.as_mut() {
                         pending.push_wtf8(value.as_ref());
                     } else {
@@ -13156,24 +12919,18 @@ impl<'warnings> Compiler<'warnings> {
                 }
                 ast::InterpolatedStringElement::Interpolation(fstring_expr) => {
                     if let Some(debug_text) = &fstring_expr.debug_text {
-                        let leading = debug_text.leading.as_str();
-                        let trailing = debug_text.trailing.as_str();
-                        let range = fstring_expr.expression.range();
-                        let source = self.source_file.slice(range);
-                        let text = [
-                            strip_python_comments(leading).as_str(),
-                            source,
-                            strip_python_comments(trailing).as_str(),
-                        ]
-                        .concat();
-
+                        let (text, _) = interpolation_debug_text(
+                            &self.source_file,
+                            debug_text,
+                            fstring_expr.expression.range(),
+                        );
                         let text: Wtf8Buf = text.into();
                         pending_literal
                             .get_or_insert_with(Wtf8Buf::new)
                             .push_wtf8(text.as_ref());
                     }
 
-                    Self::count_pending_fstring_literal(pending_literal, element_count, false);
+                    Self::count_pending_fstring_literal(pending_literal, element_count);
                     *element_count += 1;
                 }
             }
@@ -13382,32 +13139,18 @@ impl<'warnings> Compiler<'warnings> {
                     } else {
                         Self::extend_pending_literal_range(current_string_range, lit.range);
                     }
-                    current_string
-                        .push_wtf8(&self.compile_tstring_literal_value(lit, tstring.flags));
+                    current_string.push_wtf8(&interpolated_string_literal_value(
+                        &self.source_file,
+                        lit,
+                        tstring.flags.into(),
+                    ));
                 }
                 ast::InterpolatedStringElement::Interpolation(interp) => {
                     if let Some(debug_text) = &interp.debug_text {
-                        let leading = debug_text.leading.as_str();
-                        let trailing = debug_text.trailing.as_str();
-                        let range = interp.expression.range();
-                        let source = self.source_file.slice(range);
-                        let text = [
-                            strip_python_comments(leading).as_str(),
-                            source,
-                            strip_python_comments(trailing).as_str(),
-                        ]
-                        .concat();
-                        let debug_text_range = TextRange::new(
-                            range.start()
-                                - TextSize::new(
-                                    u32::try_from(leading.len())
-                                        .expect("debug t-string leading text too long"),
-                                ),
-                            range.end()
-                                + TextSize::new(
-                                    u32::try_from(trailing.len())
-                                        .expect("debug t-string trailing text too long"),
-                                ),
+                        let (text, debug_text_range) = interpolation_debug_text(
+                            &self.source_file,
+                            debug_text,
+                            interp.expression.range(),
                         );
                         if current_string_range.is_none() {
                             *current_string_range = Some(debug_text_range);
@@ -13622,17 +13365,6 @@ fn split_doc_with_range<'a>(
 fn split_doc<'a>(body: &'a [ast::Stmt], opts: &CompileOpts) -> (Option<String>, &'a [ast::Stmt]) {
     let (doc, body) = split_doc_with_range(body, opts);
     (doc.map(|(doc, _)| doc), body)
-}
-
-fn is_docstring_expr(expr: &ast::Expr) -> bool {
-    matches!(
-        expr,
-        ast::Expr::StringLiteral(_)
-            | ast::Expr::Constant(ast::ExprConstant {
-                value: ast::ConstantValue::Str(_),
-                ..
-            })
-    )
 }
 
 pub fn ruff_int_to_bigint(int: &ast::Int) -> Result<BigInt, CodegenErrorType> {
@@ -14013,6 +13745,7 @@ mod tests {
             warning = Some(message.clone());
             Err(CodegenError {
                 location: Some(location),
+                end_location: None,
                 error: CodegenErrorType::SyntaxError(message),
                 source_path: "source_path".to_owned(),
             })
@@ -14042,6 +13775,7 @@ mod tests {
             warning = Some(message.clone());
             Err(CodegenError {
                 location: Some(location),
+                end_location: None,
                 error: CodegenErrorType::SyntaxError(message),
                 source_path: "source_path".to_owned(),
             })
@@ -16636,6 +16370,28 @@ def f(buffer, pos, last_char):
             }),
             "single-if loop tail should not be inverted away from CPython shape, got ops={ops:?}",
         );
+    }
+
+    fn location_range(
+        locations: &(SourceLocation, SourceLocation),
+    ) -> (usize, usize, usize, usize) {
+        let (location, end_location) = locations;
+        (
+            location.line.get(),
+            location.character_offset.get(),
+            end_location.line.get(),
+            end_location.character_offset.get(),
+        )
+    }
+
+    fn instruction_range(
+        code: &CodeObject,
+        matches: impl Fn(&Instruction) -> bool,
+    ) -> Option<(usize, usize, usize, usize)> {
+        code.instructions
+            .iter()
+            .zip(&code.locations)
+            .find_map(|(unit, locations)| matches(&unit.op).then(|| location_range(locations)))
     }
 
     fn find_code<'a>(code: &'a CodeObject, name: &str) -> Option<&'a CodeObject> {
@@ -19295,6 +19051,61 @@ def explicit_gen(xs):
     }
 
     #[test]
+    fn implicit_call_genexpr_operator_element_range_like_cpython() {
+        // The element opens with a parenthesized group that the rest of the
+        // expression continues, so the call's own parentheses are the only
+        // ones that bound the generator.
+        let code = compile_exec(
+            "\
+def f(p, q):
+    return sum((px - qx) ** 2.0 for px, qx in zip(p, q))
+",
+        );
+        let f = find_code(&code, "f").expect("missing f code");
+        let genexpr = find_code(f, "<genexpr>").expect("missing genexpr code");
+
+        // Columns are one-based here, so these are `dis`'s 14..56.
+        assert_eq!(
+            instruction_range(f, |op| matches!(op, Instruction::MakeFunction)),
+            Some((2, 15, 2, 57))
+        );
+        assert_eq!(
+            instruction_range(genexpr, |op| matches!(op, Instruction::LoadFast { .. })),
+            Some((2, 15, 2, 57))
+        );
+    }
+
+    #[test]
+    fn fstring_concatenation_without_content_uses_whole_range_like_cpython() {
+        // Every fragment is empty, so none of them is kept and the empty string
+        // that replaces them belongs to the whole concatenation. The last line
+        // keeps its one fragment and stays at that fragment.
+        let code = compile_exec(
+            "\
+x = '' f''
+y = f'' ''
+z = '' f'' '' f''
+w = f'' 'a' f''
+",
+        );
+
+        let ranges: Vec<_> = code
+            .instructions
+            .iter()
+            .zip(&code.locations)
+            .filter(|(unit, _)| matches!(unit.op, Instruction::LoadConst { .. }))
+            .map(|(_, locations)| location_range(locations))
+            .take(4)
+            .collect();
+        // Columns are one-based here, so these are `dis`'s 4..10, 4..10,
+        // 4..17 and 8..11.
+        assert_eq!(
+            ranges,
+            vec![(1, 5, 1, 11), (2, 5, 2, 11), (3, 5, 3, 18), (4, 9, 4, 12)]
+        );
+    }
+
+    #[test]
     fn genexpr_filter_cleanup_jumps_use_element_location_like_cpython() {
         let code = compile_exec(
             "\
@@ -20627,25 +20438,32 @@ def f(xs):
     }
 
     #[test]
-    fn builtin_any_async_genexpr_call_is_not_optimized() {
-        let code = compile_exec(
-            "\
-async def f(xs):
-    return any(x async for x in xs)
-",
-        );
-        let f = find_code(&code, "f").expect("missing function code");
+    fn builtin_any_async_genexpr_call_is_optimized_like_cpython() {
+        for source in [
+            "async def f(xs):\n    return any(x async for x in xs)\n",
+            "async def f(xs):\n    return any(await x for x in xs)\n",
+        ] {
+            let code = compile_exec(source);
+            let f = find_code(&code, "f").expect("missing function code");
 
-        assert!(
-            !has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
-            "CPython maybe_optimize_function_call() skips coroutine generator expressions"
-        );
-        assert!(
-            f.instructions
-                .iter()
-                .any(|unit| matches!(unit.op, Instruction::Call { .. })),
-            "async genexpr any() should stay on the normal call path"
-        );
+            assert!(
+                has_common_constant(f, bytecode::CommonConstant::BuiltinAny),
+                "maybe_optimize_function_call() guards any(genexpr) whether or not the \
+                 generator is a coroutine: {source}"
+            );
+            assert!(
+                f.instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::ForIter { .. })),
+                "the guarded path inlines the loop: {source}"
+            );
+            assert!(
+                f.instructions
+                    .iter()
+                    .any(|unit| matches!(unit.op, Instruction::Call { .. })),
+                "the fallback still calls the name it loaded: {source}"
+            );
+        }
     }
 
     #[test]
@@ -31765,7 +31583,7 @@ def func[T](a: T = 'a', *, b: T = 'b'):
     }
 
     #[test]
-    fn generic_function_type_params_omit_defaults_without_defaults_like_cpython() {
+    fn generic_function_type_params_reserve_defaults_like_cpython() {
         let code = compile_exec(
             "\
 def func[T]():
@@ -31774,6 +31592,7 @@ def func[T]():
         );
         let type_params =
             find_code(&code, "<generic parameters of func>").expect("missing type params code");
+        // The slot is reserved even though nothing is passed into it.
         assert_eq!(type_params.arg_count, 0);
         assert_eq!(
             type_params
@@ -31781,7 +31600,7 @@ def func[T]():
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>(),
-            vec!["T"]
+            vec![".defaults", "T"]
         );
     }
 
@@ -31800,10 +31619,24 @@ def with_kw[U](*, a: U = 1):
         let with_kw =
             find_code(&code, "<generic parameters of with_kw>").expect("missing type params code");
 
-        assert!(with_pos.varnames.iter().any(|name| name == ".defaults"));
-        assert!(!with_pos.varnames.iter().any(|name| name == ".kwdefaults"));
-        assert!(!with_kw.varnames.iter().any(|name| name == ".defaults"));
-        assert!(with_kw.varnames.iter().any(|name| name == ".kwdefaults"));
+        assert_eq!(
+            with_pos
+                .varnames
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![".defaults"]
+        );
+        assert_eq!(with_pos.arg_count, 1);
+        assert_eq!(
+            with_kw
+                .varnames
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            vec![".defaults", ".kwdefaults"]
+        );
+        assert_eq!(with_kw.arg_count, 1);
     }
 
     #[test]
@@ -33376,7 +33209,7 @@ async def f():
 ",
         );
         let genexpr =
-            find_symbol_table(&symbol_table, "<genexpr>").expect("missing genexpr symbol table");
+            find_symbol_table(&symbol_table, "genexpr").expect("missing genexpr symbol table");
         assert!(genexpr.is_generator, "expected genexpr symbol table");
         assert!(
             genexpr.is_coroutine,
