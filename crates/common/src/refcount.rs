@@ -318,6 +318,28 @@ mod tests {
         assert_eq!(rc.get(), REFERENCES + 1);
     }
 
+    /// `inc` and `dec` reach the same ceiling as `inc_by`.
+    ///
+    /// The aborts reported against this layout came one reference at a time
+    /// through `inc`, whose overflow check is written separately from
+    /// `inc_by`'s, and the count has to come back down through `dec` without
+    /// reporting the object collectable before the last reference goes.
+    #[test]
+    fn inc_and_dec_reach_past_a_16_bit_ceiling() {
+        const REFERENCES: usize = 1 << 20;
+
+        let rc = RefCount::new(); // strong = 1
+        for _ in 1..REFERENCES {
+            rc.inc();
+        }
+        assert_eq!(rc.get(), REFERENCES);
+        for _ in 1..REFERENCES {
+            assert!(!rc.dec());
+        }
+        assert_eq!(rc.get(), 1);
+        assert!(rc.dec());
+    }
+
     /// A fresh count holds exactly one strong reference and no stray bits.
     ///
     /// `get` masks the flags away, so a spare field left in the word would not
