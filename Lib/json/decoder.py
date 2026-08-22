@@ -27,6 +27,20 @@ class JSONDecodeError(ValueError):
     colno: The column corresponding to pos
 
     """
+    # RUSTPYTHON SPECIFIC
+    @classmethod
+    def _from_serde(cls, msg, doc, line, col):
+        pos = 0
+        # 0-indexed
+        line -= 1
+        col -= 1
+        while line > 0:
+            i = doc.index('\n', pos)
+            line -= 1
+            pos = i
+        pos += col
+        return cls(msg, doc, pos)
+
     # Note that this exception is used from _json
     def __init__(self, msg, doc, pos):
         lineno = doc.count('\n', 0, pos) + 1
@@ -97,7 +111,7 @@ def py_scanstring(s, end, strict=True,
             if strict:
                 #msg = "Invalid control character %r at" % (terminator,)
                 msg = "Invalid control character {0!r} at".format(terminator)
-                raise JSONDecodeError(msg, s, end - 1)
+                raise JSONDecodeError(msg, s, end)
             else:
                 _append(terminator)
                 continue
