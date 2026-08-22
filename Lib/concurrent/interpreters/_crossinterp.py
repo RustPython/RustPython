@@ -6,7 +6,11 @@ class ItemInterpreterDestroyed(Exception):
 
 
 class classonly:
-    """A non-data descriptor that makes a value only visible on the class."""
+    """A non-data descriptor that makes a value only visible on the class.
+
+    This is like the "classmethod" builtin, but does not show up on
+    instances of the class.  It may be used as a decorator.
+    """
 
     def __init__(self, value):
         self.value = value
@@ -21,11 +25,16 @@ class classonly:
     def __get__(self, obj, cls):
         if obj is not None:
             raise AttributeError(self.name)
+        # called on the class
         return self.getter(None, cls)
 
 
 class UnboundItem:
-    """Represents a cross-interpreter item no longer bound to an interpreter."""
+    """Represents a cross-interpreter item no longer bound to an interpreter.
+
+    An item is unbound when the interpreter that added it to the
+    cross-interpreter container is destroyed.
+    """
 
     __slots__ = ()
 
@@ -57,6 +66,7 @@ class UnboundItem:
 
     def __repr__(self):
         return f'{self._MODULE}.{self._NAME}'
+#        return f'interpreters._queues.UNBOUND'
 
 
 UNBOUND = object.__new__(UnboundItem)
@@ -87,6 +97,7 @@ def resolve_unbound(flag, exctype_destroyed):
     except KeyError:
         raise NotImplementedError(f'unsupported unbound replacement op {flag!r}')
     if op is UNBOUND_REMOVE:
+        # "remove" not possible here
         raise NotImplementedError
     elif op is UNBOUND_ERROR:
         raise exctype_destroyed("item's original interpreter destroyed")

@@ -848,11 +848,6 @@ pub mod module {
 
     #[pyfunction]
     fn fork(vm: &VirtualMachine) -> PyResult<i32> {
-        if !vm.state.allow_fork() {
-            return Err(
-                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
-            );
-        }
         if vm
             .state
             .finalizing
@@ -862,6 +857,11 @@ pub mod module {
                 vm.ctx.exceptions.python_finalization_error.to_owned(),
                 "can't fork at interpreter shutdown".into(),
             ));
+        }
+        if !vm.state.allow_fork() {
+            return Err(
+                vm.new_runtime_error("fork not supported for isolated subinterpreters".to_owned())
+            );
         }
 
         // RustPython does not yet have C-level audit hooks; call sys.audit()

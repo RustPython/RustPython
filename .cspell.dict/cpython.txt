@@ -245,6 +245,7 @@ sval
 swappedbytes
 swaptimize
 sysdict
+tbexc
 tbstderr
 templatelib
 testconsole
@@ -283,5 +284,6 @@ withitem
 withs
 worklist
 XSETREF
+xibufferview
 xstat
 XXPRIME

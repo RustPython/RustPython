@@ -816,6 +816,8 @@ pub struct PyGlobalState {
     pub gc: crate::gc_state::GcInterpreterState,
     /// Isolated-interpreter feature flags (PEP 684 / PEP 734 config).
     pub feature_flags: runtime::InterpFeatureFlags,
+    /// Whether the interpreter was configured with `gil="own"`.
+    pub own_gil: bool,
     /// Whether `__main__` is currently executing via `_interpreters.exec` / `run_*`.
     pub running_main: AtomicBool,
     /// True after `initialize()` has finished (CPython "ready").
@@ -847,8 +849,21 @@ impl PyGlobalState {
 
     #[inline]
     #[must_use]
+    pub fn allow_threads(&self) -> bool {
+        self.feature_flags.allow_threads
+    }
+
+    #[inline]
+    #[must_use]
     pub fn allow_daemon_threads(&self) -> bool {
         self.feature_flags.allow_daemon_threads
+    }
+
+    /// The config this interpreter was created with, rebuilt from the flags it
+    /// kept (`_PyInterpreterConfig_InitFromState`).
+    #[must_use]
+    pub fn config(&self) -> runtime::InterpreterConfig {
+        runtime::InterpreterConfig::from_state(self.feature_flags, self.own_gil)
     }
 }
 

@@ -52,7 +52,7 @@ struct InitializeVmOpts<'a> {
     whence: InterpreterWhence,
     /// When `Some`, reuse parent module_defs/frozen/config seeds for a subinterpreter.
     parent_state: Option<&'a PyGlobalState>,
-    feature_flags: runtime::InterpFeatureFlags,
+    interp_config: runtime::InterpreterConfig,
 }
 
 /// Shared constructor for main and sub-interpreters.
@@ -69,7 +69,7 @@ where
         is_main,
         whence,
         parent_state,
-        feature_flags: opts_feature_flags,
+        interp_config,
     } = opts;
     use crate::codecs::CodecsRegistry;
     use crate::common::hash::HashSecret;
@@ -155,11 +155,8 @@ where
     #[cfg(feature = "threading")]
     let main_thread_ident = AtomicCell::new(parent_state.map_or(0, |p| p.main_thread_ident.load()));
 
-    let feature_flags = if parent_state.is_some() {
-        opts_feature_flags
-    } else {
-        runtime::InterpFeatureFlags::LEGACY
-    };
+    let feature_flags = interp_config.feature_flags();
+    let own_gil = interp_config.own_gil();
 
     // Create PyGlobalState (≈ PyInterpreterState)
     let global_state = PyRc::new(PyGlobalState {
@@ -200,6 +197,7 @@ where
         #[cfg(feature = "threading")]
         stop_the_world: StopTheWorldState::new(),
         feature_flags,
+        own_gil,
         running_main: AtomicBool::new(false),
         ready: AtomicBool::new(false),
         id_refcount: AtomicI64::new(0),
@@ -242,7 +240,8 @@ where
 fn create_subinterpreter_from_parent(
     parent: &VirtualMachine,
     config: runtime::InterpreterConfig,
-) -> Interpreter {
+) -> Result<Interpreter, &'static str> {
+    config.check()?;
     // Suspend the caller's current VM attachment (if any) for the duration
     // of subinterpreter initialization. Nested bootstrap would otherwise
     // swap `CURRENT_THREAD_SLOT` to the new interpreter while leaving the
@@ -269,16 +268,16 @@ fn create_subinterpreter_from_parent(
             is_main: false,
             whence: InterpreterWhence::Stdlib,
             parent_state: Some(&parent.state),
-            feature_flags: config.feature_flags(),
+            interp_config: config,
         },
         |_| {},
     );
     let interp = Interpreter { global_state, vm };
-    // Every CPython interpreter has a `__main__` module after init.
+    // Every interpreter has a `__main__` module once it is initialized.
     interp.enter(|vm| {
         let _ = vm.ensure_main_module();
     });
-    interp
+    Ok(interp)
 }
 
 impl InterpreterBuilder {
@@ -400,7 +399,7 @@ impl InterpreterBuilder {
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
-                feature_flags: runtime::InterpFeatureFlags::LEGACY,
+                interp_config: runtime::InterpreterConfig::MAIN,
             },
             |_| {}, // No additional init needed
         );
@@ -491,7 +490,7 @@ impl Interpreter {
                 is_main: true,
                 whence: InterpreterWhence::Runtime,
                 parent_state: None,
-                feature_flags: runtime::InterpFeatureFlags::LEGACY,
+                interp_config: runtime::InterpreterConfig::MAIN,
             },
             init,
         );
@@ -541,16 +540,18 @@ impl Interpreter {
     #[must_use]
     pub fn create_owned_subinterpreter(&self) -> i64 {
         self.create_owned_subinterpreter_with_config(runtime::InterpreterConfig::ISOLATED)
+            .expect("the isolated config is always valid")
     }
 
     /// Create a runtime-owned subinterpreter with the given PEP 734 config.
     #[cfg(feature = "threading")]
-    #[must_use]
     pub fn create_owned_subinterpreter_with_config(
         &self,
         config: runtime::InterpreterConfig,
-    ) -> i64 {
-        runtime::store_owned_interpreter(self.create_subinterpreter_with_config(config))
+    ) -> Result<i64, &'static str> {
+        Ok(runtime::store_owned_interpreter(
+            self.create_subinterpreter_with_config(config)?,
+        ))
     }
 
     /// Create an isolated subinterpreter sharing this interpreter's type context
@@ -565,25 +566,27 @@ impl Interpreter {
     #[must_use]
     pub fn create_subinterpreter(&self) -> Self {
         self.create_subinterpreter_with_config(runtime::InterpreterConfig::ISOLATED)
+            .expect("the isolated config is always valid")
     }
 
     /// Create a subinterpreter from a parent VM (the currently entered one).
     pub fn create_subinterpreter_from_vm(
         parent: &VirtualMachine,
         config: runtime::InterpreterConfig,
-    ) -> Self {
+    ) -> Result<Self, &'static str> {
         create_subinterpreter_from_parent(parent, config)
     }
 
     /// Create a subinterpreter with an explicit PEP 734 / `PyInterpreterConfig`.
-    #[must_use]
-    pub fn create_subinterpreter_with_config(&self, config: runtime::InterpreterConfig) -> Self {
+    pub fn create_subinterpreter_with_config(
+        &self,
+        config: runtime::InterpreterConfig,
+    ) -> Result<Self, &'static str> {
         create_subinterpreter_from_parent(&self.vm, config)
     }
 
     /// Spawn a new OS-thread VM that shares this interpreter's `sys` / builtins.
     #[cfg(feature = "threading")]
-    #[must_use]
     pub fn new_thread(&self) -> thread::ThreadedVirtualMachine {
         self.vm.new_thread()
     }
