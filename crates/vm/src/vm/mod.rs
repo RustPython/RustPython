@@ -23,8 +23,8 @@ mod vm_ops;
 use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult,
     builtins::{
-        self, PyBaseExceptionRef, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr, PyStrInterned,
-        PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
+        self, PyBaseExceptionRef, PyBaseObject, PyDict, PyDictRef, PyInt, PyList, PyModule, PyStr,
+        PyStrInterned, PyStrRef, PyTypeRef, PyUtf8Str, PyUtf8StrInterned, PyWeak,
         code::PyCode,
         dict::{PyDictItems, PyDictKeys, PyDictValues},
         pystr::AsPyStr,
@@ -42,6 +42,7 @@ use crate::{
     scope::Scope,
     signal::{self, SignalHandlers},
     stdlib,
+    types::{GetattroFunc, fn_addr},
     warn::WarningsState,
 };
 use alloc::{borrow::Cow, collections::BTreeMap};
@@ -2854,8 +2855,14 @@ impl VirtualMachine {
         attr_name: impl AsPyStr<'a>,
     ) -> PyResult<Option<PyObjectRef>> {
         let attr_name = attr_name.as_pystr(&self.ctx);
-        match obj.get_attr_inner(attr_name, self) {
-            Ok(attr) => Ok(Some(attr)),
+        let getattro = obj.class().slots.getattro.load().unwrap();
+        let result = if fn_addr(getattro) == fn_addr(PyBaseObject::getattro as GetattroFunc) {
+            obj.generic_getattr_opt(attr_name, None, self)
+        } else {
+            obj.get_attr_inner(attr_name, self).map(Some)
+        };
+        match result {
+            Ok(attr) => Ok(attr),
             Err(e) if e.fast_isinstance(self.ctx.exceptions.attribute_error) => Ok(None),
             Err(e) => Err(e),
         }
