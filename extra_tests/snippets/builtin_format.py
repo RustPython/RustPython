@@ -32,6 +32,30 @@ except ValueError as error:
 else:
     raise AssertionError("expected ValueError for '=8s' string format specifier")
 
+# regression: a sign, a space or an alternate form used to be accepted and dropped.
+for spec, flag in [
+    ("+", "Sign"),
+    ("-", "Sign"),
+    ("+5", "Sign"),
+    (" ", "Space"),
+    (" 5", "Space"),
+    ("#", "Alternate form (#)"),
+    ("#5", "Alternate form (#)"),
+    ("+.2", "Sign"),
+]:
+    try:
+        format("result", spec)
+    except ValueError as error:
+        expected = f"{flag} not allowed in string format specifier"
+        if str(error) != expected:
+            raise AssertionError(
+                f"{spec!r}: unexpected error message: {error}"
+            ) from error
+    else:
+        raise AssertionError(
+            f"expected ValueError for {spec!r} string format specifier"
+        )
+
 # regression: unknown conversion specifiers used to be silently ignored instead of raising.
 # The ValueError case itself is covered by test_str, but here we're testing the error message.
 try:
