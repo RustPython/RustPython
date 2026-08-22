@@ -299,9 +299,9 @@ impl Drop for CollectStopTheWorld {
 pub struct GcState {
     /// Per-generation intrusive linked lists for object tracking.
     /// Objects start in gen0, survivors are promoted to gen1, then gen2.
-    generation_lists: [PyRwLock<LinkedList<GcLink, PyObject>>; 3],
+    generation_lists: [PyRwLock<LinkedList<GcLink>>; 3],
     /// Frozen/permanent objects (excluded from normal GC)
-    permanent_list: PyRwLock<LinkedList<GcLink, PyObject>>,
+    permanent_list: PyRwLock<LinkedList<GcLink>>,
     /// Number of tracked objects per generation, across all interpreters.
     ///
     /// Advisory: they drive the collection threshold and `gc.get_count()`, and
@@ -322,7 +322,7 @@ pub struct GcState {
 }
 
 // SAFETY: All fields are either inherently Send/Sync (atomics, RwLock, Mutex) or protected by PyMutex.
-// LinkedList<GcLink, PyObject> is Send+Sync because GcLink's Target (PyObject) is Send+Sync.
+// LinkedList<GcLink> is Send+Sync because GcLink's Target (PyObject) is Send+Sync.
 #[cfg(feature = "threading")]
 unsafe impl Send for GcState {}
 #[cfg(feature = "threading")]
@@ -418,8 +418,7 @@ impl GcState {
 
             let (list_lock, count) = if obj_gen <= 2 {
                 (
-                    &self.generation_lists[obj_gen as usize]
-                        as &PyRwLock<LinkedList<GcLink, PyObject>>,
+                    &self.generation_lists[obj_gen as usize] as &PyRwLock<LinkedList<GcLink>>,
                     &self.counts[obj_gen as usize],
                 )
             } else if obj_gen == GC_PERMANENT {
@@ -459,7 +458,7 @@ impl GcState {
     /// If generation is Some(n), returns those in generation n only.
     pub fn get_objects(&self, generation: Option<i32>, owner: GcOwner) -> Vec<PyObjectRef> {
         fn collect_from_list(
-            list: &LinkedList<GcLink, PyObject>,
+            list: &LinkedList<GcLink>,
             owner: GcOwner,
         ) -> impl Iterator<Item = PyObjectRef> + '_ {
             list.iter()

@@ -38,10 +38,15 @@
 //! specified node is actually contained by the list.
 
 #![allow(clippy::new_without_default, clippy::missing_safety_doc)]
+// It doesn't make sense to enforce `unsafe_op_in_unsafe_fn` for this module because
+//
+// * The intrusive linked list naturally relies on unsafe operations.
+// * Excessive `unsafe {}` blocks hurt readability significantly.
+#![expect(unsafe_op_in_unsafe_fn)]
 
 use core::cell::UnsafeCell;
 use core::fmt;
-use core::marker::{PhantomData, PhantomPinned};
+use core::marker::PhantomPinned;
 use core::mem::ManuallyDrop;
 use core::ptr::{self, NonNull};
 
@@ -49,18 +54,15 @@ use core::ptr::{self, NonNull};
 ///
 /// Currently, the list is not emptied on drop. It is the caller's
 /// responsibility to ensure the list is empty before dropping it.
-pub struct LinkedList<L, T> {
+pub struct LinkedList<L: Link> {
     /// Linked list head
-    head: Option<NonNull<T>>,
-
+    head: Option<NonNull<L::Target>>,
     // /// Linked list tail
     // tail: Option<NonNull<T>>,
-    /// Node type marker.
-    _marker: PhantomData<*const L>,
 }
 
-unsafe impl<L: Link> Send for LinkedList<L, L::Target> where L::Target: Send {}
-unsafe impl<L: Link> Sync for LinkedList<L, L::Target> where L::Target: Sync {}
+unsafe impl<L: Link> Send for LinkedList<L> where L::Target: Send {}
+unsafe impl<L: Link> Sync for LinkedList<L> where L::Target: Sync {}
 
 /// Defines how a type is tracked within a linked list.
 ///
@@ -82,13 +84,21 @@ pub unsafe trait Link {
     type Target;
 
     /// Convert the handle to a raw pointer without consuming the handle.
-    #[allow(clippy::wrong_self_convention)]
     fn as_raw(handle: &Self::Handle) -> NonNull<Self::Target>;
 
     /// Convert the raw pointer to a handle
     unsafe fn from_raw(ptr: NonNull<Self::Target>) -> Self::Handle;
 
     /// Return the pointers for a node
+    ///
+    /// # Safety
+    ///
+    /// The resulting pointer should have the same tag in the stacked-borrows
+    /// stack as the argument. In particular, the method may not create an
+    /// intermediate reference in the process of creating the resulting raw
+    /// pointer.
+    ///
+    /// The `target` pointer must be valid.
     unsafe fn pointers(target: NonNull<Self::Target>) -> NonNull<Pointers<Self::Target>>;
 }
 
@@ -124,27 +134,21 @@ struct PointersInner<T> {
     _pin: PhantomPinned,
 }
 
-unsafe impl<T: Send> Send for PointersInner<T> {}
-unsafe impl<T: Sync> Sync for PointersInner<T> {}
-
 unsafe impl<T: Send> Send for Pointers<T> {}
 unsafe impl<T: Sync> Sync for Pointers<T> {}
 
 // ===== impl LinkedList =====
 
-impl<L, T> LinkedList<L, T> {
+impl<L: Link> LinkedList<L> {
     /// Creates an empty linked list.
     #[must_use]
     pub const fn new() -> Self {
         Self {
             head: None,
             // tail: None,
-            _marker: PhantomData,
         }
     }
-}
 
-impl<L: Link> LinkedList<L, L::Target> {
     /// Adds an element first in the list.
     pub fn push_front(&mut self, val: L::Handle) {
         // The value should not be dropped, it is being inserted into the list
@@ -161,6 +165,7 @@ impl<L: Link> LinkedList<L, L::Target> {
                 L::pointers(ptr).as_ref().get_next().is_none(),
                 "push_front: node already has next pointer (double-insert?)"
             );
+
             L::pointers(ptr).as_mut().set_next(self.head);
             L::pointers(ptr).as_mut().set_prev(None);
 
@@ -204,6 +209,7 @@ impl<L: Link> LinkedList<L, L::Target> {
             if let Some(new_head) = self.head {
                 L::pointers(new_head).as_mut().set_prev(None);
             }
+
             L::pointers(head).as_mut().set_next(None);
             L::pointers(head).as_mut().set_prev(None);
             Some(L::from_raw(head))
@@ -229,47 +235,45 @@ impl<L: Link> LinkedList<L, L::Target> {
     /// The caller **must** ensure that `node` is currently contained by
     /// `self` or not contained by any other list.
     pub unsafe fn remove(&mut self, node: NonNull<L::Target>) -> Option<L::Handle> {
-        unsafe {
-            if let Some(prev) = L::pointers(node).as_ref().get_prev() {
-                debug_assert_eq!(
-                    L::pointers(prev).as_ref().get_next(),
-                    Some(node),
-                    "linked list corruption: prev->next != node (prev={prev:p}, node={node:p})"
-                );
-                L::pointers(prev)
-                    .as_mut()
-                    .set_next(L::pointers(node).as_ref().get_next());
-            } else {
-                if self.head != Some(node) {
-                    return None;
-                }
-
-                self.head = L::pointers(node).as_ref().get_next();
+        if let Some(prev) = L::pointers(node).as_ref().get_prev() {
+            debug_assert_eq!(
+                L::pointers(prev).as_ref().get_next(),
+                Some(node),
+                "linked list corruption: prev->next != node (prev={prev:p}, node={node:p})"
+            );
+            L::pointers(prev)
+                .as_mut()
+                .set_next(L::pointers(node).as_ref().get_next());
+        } else {
+            if self.head != Some(node) {
+                return None;
             }
 
-            if let Some(next) = L::pointers(node).as_ref().get_next() {
-                debug_assert_eq!(
-                    L::pointers(next).as_ref().get_prev(),
-                    Some(node),
-                    "linked list corruption: next->prev != node (next={next:p}, node={node:p})"
-                );
-                L::pointers(next)
-                    .as_mut()
-                    .set_prev(L::pointers(node).as_ref().get_prev());
-            } else {
-                // // This might be the last item in the list
-                // if self.tail != Some(node) {
-                //     return None;
-                // }
-
-                // self.tail = L::pointers(node).as_ref().get_prev();
-            }
-
-            L::pointers(node).as_mut().set_next(None);
-            L::pointers(node).as_mut().set_prev(None);
-
-            Some(L::from_raw(node))
+            self.head = L::pointers(node).as_ref().get_next();
         }
+
+        if let Some(next) = L::pointers(node).as_ref().get_next() {
+            debug_assert_eq!(
+                L::pointers(next).as_ref().get_prev(),
+                Some(node),
+                "linked list corruption: next->prev != node (next={next:p}, node={node:p})"
+            );
+            L::pointers(next)
+                .as_mut()
+                .set_prev(L::pointers(node).as_ref().get_prev());
+        } else {
+            // // This might be the last item in the list
+            // if self.tail != Some(node) {
+            //     return None;
+            // }
+
+            // self.tail = L::pointers(node).as_ref().get_prev();
+        }
+
+        L::pointers(node).as_mut().set_next(None);
+        L::pointers(node).as_mut().set_prev(None);
+
+        Some(L::from_raw(node))
     }
 
     // pub fn last(&self) -> Option<&L::Target> {
@@ -287,7 +291,7 @@ impl<L: Link> LinkedList<L, L::Target> {
     }
 }
 
-impl<L: Link> fmt::Debug for LinkedList<L, L::Target> {
+impl<L: Link> fmt::Debug for LinkedList<L> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LinkedList")
             .field("head", &self.head)
@@ -296,7 +300,7 @@ impl<L: Link> fmt::Debug for LinkedList<L, L::Target> {
     }
 }
 
-impl<L: Link> Default for LinkedList<L, L::Target> {
+impl<L: Link> Default for LinkedList<L> {
     fn default() -> Self {
         Self::new()
     }
@@ -304,16 +308,16 @@ impl<L: Link> Default for LinkedList<L, L::Target> {
 
 // ===== impl DrainFilter =====
 
-pub struct DrainFilter<'a, T: Link, F> {
-    list: &'a mut LinkedList<T, T::Target>,
+pub struct DrainFilter<'a, L: Link, F> {
+    list: &'a mut LinkedList<L>,
     filter: F,
-    curr: Option<NonNull<T::Target>>,
+    curr: Option<NonNull<L::Target>>,
 }
 
-impl<T: Link> LinkedList<T, T::Target> {
-    pub const fn drain_filter<F>(&mut self, filter: F) -> DrainFilter<'_, T, F>
+impl<L: Link> LinkedList<L> {
+    pub const fn drain_filter<F>(&mut self, filter: F) -> DrainFilter<'_, L, F>
     where
-        F: FnMut(&mut T::Target) -> bool,
+        F: FnMut(&L::Target) -> bool,
     {
         let curr = self.head;
         DrainFilter {
@@ -324,17 +328,17 @@ impl<T: Link> LinkedList<T, T::Target> {
     }
 }
 
-impl<T, F> Iterator for DrainFilter<'_, T, F>
+impl<'a, L, F> Iterator for DrainFilter<'_, L, F>
 where
-    T: Link,
-    F: FnMut(&mut T::Target) -> bool,
+    L: Link,
+    F: FnMut(&L::Target) -> bool,
 {
-    type Item = T::Handle;
+    type Item = L::Handle;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(curr) = self.curr {
             // safety: the pointer references data contained by the list
-            self.curr = unsafe { T::pointers(curr).as_ref() }.get_next();
+            self.curr = unsafe { L::pointers(curr).as_ref() }.get_next();
 
             // safety: the value is still owned by the linked list.
             if (self.filter)(unsafe { &mut *curr.as_ptr() }) {
