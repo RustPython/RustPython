@@ -1112,8 +1112,18 @@ impl FormatSpec {
         self.validate_format(FormatType::String)?;
         match self.format_type {
             Some(FormatType::String) | None => {
+                // CPython rejects these four in this order: sign, z, #, then '='.
+                if let Some(sign) = self.sign {
+                    return Err(FormatSpecError::StringSpecNotAllowed(match sign {
+                        FormatSign::MinusOrSpace => "Space",
+                        FormatSign::Plus | FormatSign::Minus => "Sign",
+                    }));
+                }
                 if self.no_neg_0 {
                     return Err(FormatSpecError::NegativeZeroCoercionNotAllowed("string"));
+                }
+                if self.alternate_form {
+                    return Err(FormatSpecError::StringSpecNotAllowed("Alternate form (#)"));
                 }
                 if self.align == Some(FormatAlign::AfterSign) && self.align_specified {
                     return Err(FormatSpecError::StringAlignmentFlag);
@@ -1363,6 +1373,7 @@ pub enum FormatSpecError {
     AlignmentFlag,
     NegativeZeroCoercionNotAllowed(&'static str),
     StringAlignmentFlag,
+    StringSpecNotAllowed(&'static str),
     NotImplemented(char, &'static str),
 }
 
@@ -1843,6 +1854,52 @@ mod tests {
             spec.format_string(&value),
             Err(FormatSpecError::StringAlignmentFlag)
         );
+    }
+
+    #[test]
+    fn format_string_rejects_sign_space_and_alternate_form() {
+        let value = "result".to_owned();
+        let cases = [
+            ("+", "Sign"),
+            ("-", "Sign"),
+            ("+8s", "Sign"),
+            (" ", "Space"),
+            (" 8s", "Space"),
+            ("#", "Alternate form (#)"),
+            ("#8s", "Alternate form (#)"),
+        ];
+
+        for (text, flag) in cases {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(
+                spec.format_string(&value),
+                Err(FormatSpecError::StringSpecNotAllowed(flag)),
+                "{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn format_string_reports_the_flag_cpython_reports_first() {
+        let value = "result".to_owned();
+        // Sign beats z, z beats the alternate form, and the alternate form
+        // beats an explicit '=' alignment.
+        let cases = [
+            ("+z#5", FormatSpecError::StringSpecNotAllowed("Sign")),
+            (
+                "x=z#5",
+                FormatSpecError::NegativeZeroCoercionNotAllowed("string"),
+            ),
+            (
+                "x=#5",
+                FormatSpecError::StringSpecNotAllowed("Alternate form (#)"),
+            ),
+        ];
+
+        for (text, expected) in cases {
+            let spec = FormatSpec::parse(text).unwrap();
+            assert_eq!(spec.format_string(&value), Err(expected), "{text}");
+        }
     }
 
     #[test]
