@@ -96,6 +96,7 @@ pub unsafe trait Link {
 pub struct Pointers<T> {
     inner: UnsafeCell<PointersInner<T>>,
 }
+
 /// We do not want the compiler to put the `noalias` attribute on mutable
 /// references to this type, so the type has been made `!Unpin` with a
 /// `PhantomPinned` field.
@@ -113,13 +114,13 @@ pub struct Pointers<T> {
 /// <https://github.com/rust-lang/rust/pull/82834>
 #[repr(C)]
 struct PointersInner<T> {
-    /// The previous node in the list. null if there is no previous node.
+    /// The previous node in the list. [`None`] if there is no previous node.
     ///
     /// This field is accessed through pointer manipulation, so it is not dead code.
     #[allow(dead_code)]
     prev: Option<NonNull<T>>,
 
-    /// The next node in the list. null if there is no previous node.
+    /// The next node in the list. [`None`] if there is no previous node.
     ///
     /// This field is accessed through pointer manipulation, so it is not dead code.
     #[allow(dead_code)]
