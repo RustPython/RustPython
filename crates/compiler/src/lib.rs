@@ -132,17 +132,19 @@ impl CompileError {
     }
 }
 
+// A syntax error the parser reports counts its columns in characters rather
+// than in the bytes the range is measured in. An offset that lands inside a
+// character walks back to where that character starts, the way decoding the
+// line up to a truncated offset would.
 fn source_location(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
+    let text = source_file.source_text();
+    let mut index = offset.to_usize().min(text.len());
+    while !text.is_char_boundary(index) {
+        index -= 1;
+    }
     source_file
         .to_source_code()
-        .source_location(offset, PositionEncoding::Utf8)
-}
-
-// Call only with UTF-8 character boundaries for Python-facing offsets.
-fn source_location_in_code_points(source_file: &SourceFile, offset: TextSize) -> SourceLocation {
-    source_file
-        .to_source_code()
-        .source_location(offset, PositionEncoding::Utf32)
+        .source_location(TextSize::new(index as u32), PositionEncoding::Utf32)
 }
 
 fn source_locations(
@@ -150,10 +152,9 @@ fn source_locations(
     start: TextSize,
     end: TextSize,
 ) -> (SourceLocation, SourceLocation) {
-    let source_code = source_file.to_source_code();
     (
-        source_code.source_location(start, PositionEncoding::Utf8),
-        source_code.source_location(end, PositionEncoding::Utf8),
+        source_location(source_file, start),
+        source_location(source_file, end),
     )
 }
 
@@ -191,21 +192,6 @@ impl NormalizedParseDiagnostic {
         )
     }
 
-    fn other_in_code_points(
-        source_file: &SourceFile,
-        message: String,
-        start: usize,
-        end: usize,
-    ) -> Self {
-        let start = TextSize::new(start as u32);
-        let end = TextSize::new(end as u32);
-        Self::new(
-            parser::ParseErrorType::OtherError(message),
-            source_location_in_code_points(source_file, start),
-            source_location_in_code_points(source_file, end),
-        )
-    }
-
     const fn with_unclosed_bracket(mut self, is_unclosed_bracket: bool) -> Self {
         self.is_unclosed_bracket = is_unclosed_bracket;
         self
@@ -232,12 +218,12 @@ fn cpython_parse_diagnostic_override(
         };
     }
 
-    if let Some((message, offset)) = invalid_number_literal_error(source_text) {
+    if let Some((message, start, end)) = invalid_number_literal_error(source_text) {
         return Some(NormalizedParseDiagnostic::other(
             source_file,
             message,
-            offset,
-            offset,
+            start,
+            end,
         ));
     }
     source_error!(invalid_legacy_statement_error(source_text));
@@ -276,8 +262,7 @@ fn cpython_parse_diagnostic_override(
     }
 
     if let Some((message, start, end)) = unterminated_string_error(source_text) {
-        // The scanner reports quote positions, which are UTF-8 character boundaries.
-        return Some(NormalizedParseDiagnostic::other_in_code_points(
+        return Some(NormalizedParseDiagnostic::other(
             source_file,
             message,
             start,
@@ -451,6 +436,10 @@ fn adjusted_error_locations(
     let mut locations = source_locations(source_file, range.start(), range.end());
     if locations.1.character_offset.get() == 1 && locations.1.line > locations.0.line {
         locations.1 = source_location(source_file, range.end() - TextSize::from(1));
+        locations.1.character_offset = locations.1.character_offset.saturating_add(1);
+    } else if range.is_empty() {
+        // The parser blames a token, and the narrowest token still covers a
+        // character, so an error reported between two of them spans one.
         locations.1.character_offset = locations.1.character_offset.saturating_add(1);
     }
     locations
@@ -636,7 +625,9 @@ fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, 
             None
         };
         if !bytes.get(index).is_some_and(|byte| byte.is_ascii_digit()) {
-            return Some((message, sign.unwrap_or(exponent)));
+            // Without a sign the exponent letter is put back, so the position
+            // is the digit before it rather than the letter.
+            return Some((message, sign.unwrap_or_else(|| exponent.saturating_sub(1))));
         }
         if let Some(offset) = decimal_tail_error(bytes, index) {
             return Some((message, offset));
@@ -645,7 +636,10 @@ fn invalid_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, 
     None
 }
 
-fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+fn leading_zero_decimal_literal_error(
+    bytes: &[u8],
+    start: usize,
+) -> Option<(String, usize, usize)> {
     if bytes.get(start) != Some(&b'0') {
         return None;
     }
@@ -672,37 +666,35 @@ fn leading_zero_decimal_literal_error(bytes: &[u8], start: usize) -> Option<(Str
             return Some((
                 "leading zeros in decimal integer literals are not permitted; use an 0o prefix for octal integers".to_owned(),
                 start,
+                index,
             ));
         }
     }
     None
 }
 
-fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize)> {
+fn invalid_numeric_literal_error(bytes: &[u8], start: usize) -> Option<(String, usize, usize)> {
     if bytes.get(start) == Some(&b'0') {
-        match bytes.get(start + 1) {
-            Some(b'x' | b'X') => {
-                return invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
-                    byte.is_ascii_hexdigit()
-                });
-            }
-            Some(b'o' | b'O') => {
-                return invalid_radix_literal_error(bytes, start, "octal", |byte| {
-                    matches!(byte, b'0'..=b'7')
-                });
-            }
-            Some(b'b' | b'B') => {
-                return invalid_radix_literal_error(bytes, start, "binary", |byte| {
-                    matches!(byte, b'0' | b'1')
-                });
-            }
-            _ => {}
+        let radix = match bytes.get(start + 1) {
+            Some(b'x' | b'X') => invalid_radix_literal_error(bytes, start, "hexadecimal", |byte| {
+                byte.is_ascii_hexdigit()
+            }),
+            Some(b'o' | b'O') => invalid_radix_literal_error(bytes, start, "octal", |byte| {
+                matches!(byte, b'0'..=b'7')
+            }),
+            Some(b'b' | b'B') => invalid_radix_literal_error(bytes, start, "binary", |byte| {
+                matches!(byte, b'0' | b'1')
+            }),
+            _ => None,
+        };
+        if let Some(radix) = radix {
+            return Some(point_span(radix));
         }
         if let Some(err) = leading_zero_decimal_literal_error(bytes, start) {
             return Some(err);
         }
     }
-    invalid_decimal_literal_error(bytes, start)
+    invalid_decimal_literal_error(bytes, start).map(point_span)
 }
 
 fn consume_exponent(bytes: &[u8], index: usize) -> usize {
@@ -794,7 +786,12 @@ fn skip_quoted_string(bytes: &[u8], mut index: usize) -> usize {
     index
 }
 
-fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
+// An error the tokenizer reports at a single position spans nothing.
+fn point_span((message, offset): (String, usize)) -> (String, usize, usize) {
+    (message, offset, offset)
+}
+
+fn invalid_number_literal_error(source: &str) -> Option<(String, usize, usize)> {
     let bytes = source.as_bytes();
     let mut index = 0;
     while index < bytes.len() {
@@ -825,14 +822,15 @@ fn invalid_number_literal_error(source: &str) -> Option<(String, usize)> {
                 };
                 if end > index {
                     if source[end..].starts_with('⁄') {
-                        return Some(("invalid character '⁄' (U+2044)".to_owned(), end));
+                        return Some(("invalid character '⁄' (U+2044)".to_owned(), end, end));
                     }
                     if bytes
                         .get(end)
                         .is_some_and(|byte| *byte < 128 && is_ascii_identifier_char(*byte))
                         && !numeric_keyword_suffix(&bytes[end..])
                     {
-                        return Some((format!("invalid {kind} literal"), end.saturating_sub(1)));
+                        let offset = end.saturating_sub(1);
+                        return Some((format!("invalid {kind} literal"), offset, offset));
                     }
                 }
                 index = end.max(index + 1);
@@ -3833,7 +3831,7 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                             return Some((
                                 unterminated_string_message(line, false, has_escaped_quote),
                                 start,
-                                start + 1,
+                                start,
                             ));
                         }
                         line += 1;
@@ -3871,7 +3869,7 @@ fn unterminated_string_error(source: &str) -> Option<(String, usize, usize)> {
                             has_escaped_quote,
                         ),
                         start,
-                        start + 1,
+                        start,
                     ));
                 }
             }

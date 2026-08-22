@@ -858,6 +858,18 @@ impl VirtualMachine {
             || msg.starts_with("except expressions without parentheses are")
             || msg.starts_with("Pattern matching is");
         let line_end_binary_operator_error = msg.starts_with("The '@' operator is");
+        let unclosed_bracket_error = cfg_select! {
+            feature = "parser" => {
+                matches!(
+                    error,
+                    crate::compiler::CompileError::Parse(rustpython_compiler::ParseError {
+                        is_unclosed_bracket: true,
+                        ..
+                    })
+                )
+            }
+            _ => false,
+        };
 
         let syntax_error = self.new_exception_msg(syntax_error_type, msg.into());
 
@@ -881,6 +893,10 @@ impl VirtualMachine {
                         .is_some_and(|ch| ch.is_ascii_whitespace()));
             let (end_lineno, end_offset) = if no_end_offset {
                 (end_lineno, -1)
+            } else if unclosed_bracket_error {
+                // The bracket that was never closed is marked where it opened,
+                // and the span stops there.
+                (end_lineno, 0)
             } else if line_end_binary_operator_error && end_offset == offset_raw {
                 (end_lineno, (end_offset + 1) as isize)
             } else if narrow_caret {
