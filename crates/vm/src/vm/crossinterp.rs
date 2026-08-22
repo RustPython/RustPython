@@ -16,8 +16,17 @@ use crate::{
     },
     protocol::PyBuffer,
 };
-use malachite_bigint::BigInt;
+use core::sync::atomic::{AtomicBool, Ordering};
+use num_traits::ToPrimitive;
 use rustpython_common::wtf8::Wtf8Buf;
+
+static MEMORYVIEW_REGISTERED: AtomicBool = AtomicBool::new(false);
+
+/// `register_memoryview_xid`: the builtin memoryview gets its getdata function
+/// only once `_interpreters` has been imported.
+pub(crate) fn register_memoryview_xid() {
+    MEMORYVIEW_REGISTERED.store(true, Ordering::Relaxed);
+}
 
 /// Unbound-item ops (`UNBOUND_REMOVE` / `UNBOUND_ERROR` / `UNBOUND_REPLACE`).
 pub const UNBOUND_REMOVE: i32 = 1;
@@ -55,7 +64,7 @@ impl Fallback {
 pub enum SharedValue {
     None,
     Bool(bool),
-    Int(BigInt),
+    Int(isize),
     Float(f64),
     Bytes(Vec<u8>),
     Str(Wtf8Buf),
@@ -99,55 +108,79 @@ impl SharedValue {
         }
     }
 
-    /// The registered "getdata" functions, i.e. no pickle fallback.
+    /// `_get_xidata`: the registered "getdata" functions, i.e. no pickle
+    /// fallback. Both a missing registration and a failing conversion are
+    /// reported under `obj`, the latter keeping its own failure as the cause.
     fn basic_from_object(
         obj: &PyObject,
         fallback: Fallback,
         vm: &VirtualMachine,
     ) -> PyResult<Self> {
+        match Self::getdata(obj, fallback, vm) {
+            Some(res) => res.map_err(|cause| not_shareable(vm, obj, Some(cause))),
+            None => Err(not_shareable(vm, obj, None)),
+        }
+    }
+
+    /// `lookup_getdata` followed by the call itself. `None` when the type has
+    /// no registered getdata function.
+    fn getdata(obj: &PyObject, fallback: Fallback, vm: &VirtualMachine) -> Option<PyResult<Self>> {
         if vm.is_none(obj) {
-            return Ok(Self::None);
+            return Some(Ok(Self::None));
         }
         let cls = obj.class();
         if cls.is(vm.ctx.types.bool_type) {
-            return Ok(Self::Bool(obj.to_owned().is_true(vm)?));
+            return Some(obj.to_owned().is_true(vm).map(Self::Bool));
         }
         if cls.is(vm.ctx.types.int_type) {
             let n = obj.downcast_ref::<PyInt>().unwrap();
-            return Ok(Self::Int(n.as_bigint().clone()));
+            // `_long_shared`: the size of shareable ints is bounded by
+            // sys.maxsize.
+            return Some(
+                n.as_bigint()
+                    .to_isize()
+                    .map(Self::Int)
+                    .ok_or_else(|| vm.new_overflow_error("try sending as bytes")),
+            );
         }
         if cls.is(vm.ctx.types.float_type) {
             let f = obj.downcast_ref::<PyFloat>().unwrap();
-            return Ok(Self::Float(f.to_f64()));
+            return Some(Ok(Self::Float(f.to_f64())));
         }
         if cls.is(vm.ctx.types.bytes_type) {
             let b = obj.downcast_ref::<PyBytes>().unwrap();
-            return Ok(Self::Bytes(b.as_bytes().to_vec()));
+            return Some(Ok(Self::Bytes(b.as_bytes().to_vec())));
         }
         if cls.is(vm.ctx.types.str_type) {
             let s = obj.downcast_ref::<PyStr>().unwrap();
-            return Ok(Self::Str(s.as_wtf8().to_owned()));
+            return Some(Ok(Self::Str(s.as_wtf8().to_owned())));
         }
         if cls.is(vm.ctx.types.tuple_type) {
             let t = obj.downcast_ref::<PyTuple>().unwrap();
-            let mut items = Vec::with_capacity(t.len());
-            for item in t {
-                items.push(Self::from_object(item, fallback, vm)?);
-            }
-            return Ok(Self::Tuple(items));
+            return Some(
+                t.iter()
+                    .map(|item| {
+                        vm.with_recursion("while sharing a tuple", || {
+                            Self::from_object(item, fallback, vm)
+                        })
+                    })
+                    .collect::<PyResult<Vec<_>>>()
+                    .map(Self::Tuple),
+            );
         }
-        // Registered by the `_interpreters` module for the builtin memoryview.
-        if cls.is(vm.ctx.types.memoryview_type) {
-            return Self::from_buffer_object(obj, vm);
+        // `_pybuffer_shared`, registered for the builtin memoryview by
+        // `_interpreters` and never unregistered.
+        if cls.is(vm.ctx.types.memoryview_type) && MEMORYVIEW_REGISTERED.load(Ordering::Relaxed) {
+            return Some(Self::from_buffer_object(obj, vm));
         }
         // Registered by the `_interpchannels` module for ChannelID.
         if let Some(ch) = crate::stdlib::_interpchannels::channel_id_parts(obj) {
-            return Ok(Self::Channel {
+            return Some(Ok(Self::Channel {
                 cid: ch.0,
                 end: ch.1,
-            });
+            }));
         }
-        Err(not_shareable(vm, obj))
+        None
     }
 
     /// `_PyFunction_GetXIData`: only stateless functions are shareable.
@@ -283,14 +316,20 @@ fn not_shareable_error_from(
     exc
 }
 
-fn not_shareable(vm: &VirtualMachine, obj: &PyObject) -> PyBaseExceptionRef {
-    let rendered = obj
-        .str(vm)
-        .map_or_else(|_| obj.class().name().to_string(), |s| s.to_string());
-    not_shareable_error(
-        vm,
-        format!("{rendered} does not support cross-interpreter data"),
-    )
+/// `_set_xid_lookup_failure` without a message of its own.
+fn not_shareable(
+    vm: &VirtualMachine,
+    obj: &PyObject,
+    cause: Option<PyBaseExceptionRef>,
+) -> PyBaseExceptionRef {
+    let msg = format!(
+        "{} does not support cross-interpreter data",
+        render_repr(obj, vm)
+    );
+    match cause {
+        Some(cause) => not_shareable_error_from(vm, msg, cause),
+        None => not_shareable_error(vm, msg),
+    }
 }
 
 fn render_repr(obj: &PyObject, vm: &VirtualMachine) -> String {

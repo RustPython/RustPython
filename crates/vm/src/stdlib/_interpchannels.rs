@@ -11,7 +11,7 @@ pub(crate) use _interpchannels::{channel_id_from_parts, channel_id_parts};
 pub(crate) mod _interpchannels {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyInt, PyType},
+        builtins::{PyBaseExceptionRef, PyInt, PyMemoryView, PyModule, PyType},
         convert::ToPyObject,
         function::{ArgSpec, Either, FuncArgs, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
@@ -21,6 +21,7 @@ pub(crate) mod _interpchannels {
     use alloc::collections::BTreeMap;
     use alloc::{collections::VecDeque, sync::Arc};
     use core::time::Duration;
+    use num_traits::ToPrimitive;
     use parking_lot::{Condvar, Mutex};
     use std::{sync::OnceLock, time::Instant};
 
@@ -522,7 +523,10 @@ pub(crate) mod _interpchannels {
             )));
         }
         let n = obj.try_index(vm)?;
-        let id = n.try_to_primitive::<i64>(vm)?;
+        let id = n
+            .as_bigint()
+            .to_i64()
+            .ok_or_else(|| vm.new_overflow_error("int too big to convert"))?;
         if id < 0 {
             let repr = obj.repr(vm)?;
             return Err(
@@ -576,9 +580,21 @@ pub(crate) mod _interpchannels {
     }
 
     /// The `i` converter.
-    fn int_arg(slot: Option<&PyObjectRef>, vm: &VirtualMachine) -> PyResult<Option<i32>> {
-        slot.map(|o| o.try_index(vm)?.try_to_primitive::<i32>(vm))
-            .transpose()
+    fn int_arg(slot: Option<&PyObject>, vm: &VirtualMachine) -> PyResult<Option<i32>> {
+        slot.map(|o| {
+            let ival = o.try_index(vm)?.as_bigint().to_i64().ok_or_else(|| {
+                vm.new_overflow_error("Python int too large to convert to C long")
+            })?;
+            i32::try_from(ival).map_err(|_| {
+                let msg = if ival > i32::MAX as i64 {
+                    "signed integer is greater than maximum"
+                } else {
+                    "signed integer is less than minimum"
+                };
+                vm.new_overflow_error(msg)
+            })
+        })
+        .transpose()
     }
 
     #[pyattr]
@@ -797,8 +813,8 @@ pub(crate) mod _interpchannels {
             max_positional: 2,
         }
         .parse(&args, vm)?;
-        let unboundarg = int_arg(parsed[0].as_ref(), vm)?.unwrap_or(-1);
-        let fallbackarg = int_arg(parsed[1].as_ref(), vm)?.unwrap_or(-1);
+        let unboundarg = int_arg(parsed[0].as_deref(), vm)?.unwrap_or(-1);
+        let fallbackarg = int_arg(parsed[1].as_deref(), vm)?.unwrap_or(-1);
         let unboundop = resolve_unboundop(unboundarg, UNBOUND_REPLACE, vm)?;
         let fallback = resolve_fallback(fallbackarg, Fallback::Full.as_i32(), vm)?;
         let cid = channel_create(unboundop, fallback.as_i32());
@@ -891,6 +907,13 @@ pub(crate) mod _interpchannels {
             return Err(ChanErr::Closed.into_py(cid, vm));
         }
         Ok(chan)
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        crate::stdlib::_interpreters::init_xi_types(vm);
+        __module_exec(vm, module);
+        Ok(())
     }
 
     /// `_channel_add` plus, when `waiting` is set, `channel_send_wait`.
@@ -986,15 +1009,15 @@ pub(crate) mod _interpchannels {
             args,
             |i, obj, vm| match i {
                 0 => parse_cid(obj, vm).map(drop),
-                2 | 3 => obj.try_index(vm)?.try_to_primitive::<i32>(vm).map(drop),
+                2 | 3 => int_arg(Some(obj), vm).map(drop),
                 _ => Ok(()),
             },
             vm,
         )?;
         let cid = parse_cid(parsed[0].as_deref().unwrap(), vm)?.0;
         let obj = parsed[1].clone().unwrap();
-        let unboundarg = int_arg(parsed[2].as_ref(), vm)?.unwrap_or(-1);
-        let fallbackarg = int_arg(parsed[3].as_ref(), vm)?.unwrap_or(-1);
+        let unboundarg = int_arg(parsed[2].as_deref(), vm)?.unwrap_or(-1);
+        let fallbackarg = int_arg(parsed[3].as_deref(), vm)?.unwrap_or(-1);
         let blocking = match &parsed[4] {
             Some(o) => o.clone().is_true(vm)?,
             None => true,
@@ -1021,11 +1044,12 @@ pub(crate) mod _interpchannels {
 
     #[pyfunction]
     fn send_buffer(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
-        let (cid, obj, unboundop, _fallback, blocking, timeout) =
+        let (cid, obj, unboundop, fallback, blocking, timeout) =
             send_args(&args, "channel_send_buffer", vm)?;
-        // The memoryview is built before the channel is looked up.
-        let value = SharedValue::from_buffer_object(&obj, vm)?;
+        // The buffer is wrapped in a memoryview, and that is what gets shared.
+        let view = PyMemoryView::from_object(&obj, vm)?.into_pyobject(vm);
         let chan = send_begin(cid, vm)?;
+        let value = SharedValue::from_object(&view, fallback, vm)?;
         do_send(&chan, cid, value, unboundop, blocking, timeout, vm)
     }
 

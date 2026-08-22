@@ -2,7 +2,7 @@
 //!
 //! Mirrors CPython `Modules/_interpretersmodule.c`.
 
-pub(crate) use _interpreters::module_def;
+pub(crate) use _interpreters::{init_xi_types, module_def};
 #[cfg_attr(not(feature = "threading"), allow(unused_imports))]
 pub(crate) use _interpreters::{
     interpreter_error, interpreter_not_found, not_shareable_error, xibufferview_from_buffer,
@@ -12,7 +12,10 @@ pub(crate) use _interpreters::{
 pub(crate) mod _interpreters {
     use crate::{
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, VirtualMachine,
-        builtins::{PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyInt, PyStr},
+        builtins::{
+            PyBaseExceptionRef, PyCode, PyDict, PyException, PyFunction, PyInt, PyModule, PyStr,
+        },
+        class::PyClassImpl,
         function::{ArgSpec, FuncArgs},
         protocol::{BufferMethods, PyBuffer},
         types::{AsBuffer, Constructor},
@@ -97,6 +100,29 @@ pub(crate) mod _interpreters {
     /// `xibufferview_from_buffer`.
     pub(crate) fn xibufferview_from_buffer(view: PyBuffer, vm: &VirtualMachine) -> PyObjectRef {
         XiBufferView { view }.into_pyobject(vm)
+    }
+
+    /// The cross-interpreter exception types belong to the runtime rather than
+    /// to this module, so they are created before either of the modules that
+    /// raise them finishes importing.
+    pub(crate) fn init_xi_types(vm: &VirtualMachine) {
+        let module = vm.new_pyobj("concurrent.interpreters");
+        for class in [
+            PyInterpreterError::make_static_type(),
+            PyInterpreterNotFoundError::make_static_type(),
+            PyNotShareableError::make_static_type(),
+        ] {
+            class.set_attr(crate::identifier!(vm, __module__), module.clone());
+        }
+    }
+
+    #[expect(clippy::unnecessary_wraps, reason = "Needs to comply with a signature")]
+    pub(crate) fn module_exec(vm: &VirtualMachine, module: &Py<PyModule>) -> PyResult<()> {
+        init_xi_types(vm);
+        __module_exec(vm, module);
+        // register_memoryview_xid
+        crossinterp::register_memoryview_xid();
+        Ok(())
     }
 
     pub(crate) fn interpreter_error(
