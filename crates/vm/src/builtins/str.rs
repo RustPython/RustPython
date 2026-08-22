@@ -41,7 +41,7 @@ use num_traits::ToPrimitive;
 use rustpython_common::{
     ascii,
     atomic::{self, PyAtomic, Radium},
-    format::{FormatSpec, FormatString, FromTemplate},
+    format::{FormatString, FromTemplate},
     hash,
     lock::PyMutex,
     str::DeduceStrKind,
@@ -1045,10 +1045,9 @@ impl PyStr {
             };
         }
         let zelf = zelf.try_into_utf8(vm)?;
-        let s = FormatSpec::parse(spec.as_str())
-            .and_then(|format_spec| {
-                format_spec.format_string(&CharLenStr(zelf.as_str(), zelf.char_len()))
-            })
+        let format_spec = crate::format::parse_format_spec(zelf.as_object(), spec.as_str(), vm)?;
+        let s = format_spec
+            .format_string(&CharLenStr(zelf.as_str(), zelf.char_len()))
             .map_err(|err| err.into_pyexception(vm))?;
         Ok(vm.ctx.new_str(s))
     }
