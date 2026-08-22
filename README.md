@@ -120,7 +120,7 @@ cargo build --target wasm32-wasip1 --no-default-features --features freeze-stdli
 Run by wasmer
 
 ```bash
-wasmer run --dir `pwd` -- target/wasm32-wasip1/release/rustpython.wasm `pwd`/extra_tests/snippets/stdlib_random.py
+wasmer run --volume `pwd` -- target/wasm32-wasip1/release/rustpython.wasm `pwd`/extra_tests/snippets/stdlib_random.py
 ```
 
 Run by wapm
