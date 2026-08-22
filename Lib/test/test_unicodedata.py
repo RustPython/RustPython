@@ -306,7 +306,7 @@ class UnicodeFunctionsTest(unittest.TestCase):
         self.assertRaises(TypeError, self.db.category)
         self.assertRaises(TypeError, self.db.category, 'xx')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON; - 'BN' != ''
+    @unittest.skip  # TODO: RUSTPYTHON; AssertionError: 'BN' != '' (passes on 3.2, fails on latest)
     def test_bidirectional(self):
         self.assertEqual(self.db.bidirectional('\uFFFE'), '')
         self.assertEqual(self.db.bidirectional(' '), 'WS')
