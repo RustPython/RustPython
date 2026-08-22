@@ -2873,6 +2873,15 @@ impl<'warnings> Compiler<'warnings> {
                 .flags
                 .insert(bytecode::CodeFlags::COROUTINE);
         }
+
+        // Module-level __conditional_annotations__ cell
+        if Self::scope_needs_conditional_annotations_cell(&symbol_table) {
+            self.current_code_info()
+                .metadata
+                .cellvars
+                .insert("__conditional_annotations__".to_string());
+        }
+
         self.symbol_table_stack.push(symbol_table);
         let module_start_loc = self.module_start_location(body);
 
