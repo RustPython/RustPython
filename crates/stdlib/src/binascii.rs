@@ -291,31 +291,38 @@ mod decl {
                 return Ok(vec![]);
             }
 
-            if strict_mode && b[0] == PAD {
-                return Err(base64::DecodeError::InvalidByte(0, 61));
-            }
-
             let mut decoded: Vec<u8> = vec![];
 
             let mut quad_pos = 0; // position in the nibble
             let mut pads = 0;
             let mut left_char: u8 = 0;
-            let mut padding_started = false;
             for (i, &el) in b.iter().enumerate() {
                 if el == PAD {
-                    padding_started = true;
-
                     pads += 1;
-                    if quad_pos >= 2 && quad_pos + pads >= 4 {
-                        if strict_mode && i + 1 < b.len() {
-                            // Represents excess data after padding error
-                            return Err(base64::DecodeError::InvalidLastSymbol(i, PAD));
-                        }
-
-                        return Ok(decoded);
+                    // A pad that finishes the quad it belongs to is the expected one.
+                    if quad_pos >= 2 && quad_pos + pads <= 4 {
+                        continue;
                     }
 
-                    continue;
+                    // RFC 4648 section 3.3 allows a decoder to ignore a pad that
+                    // shows up anywhere else, so only strict mode complains.
+                    if !strict_mode {
+                        continue;
+                    }
+
+                    if quad_pos == 1 {
+                        // A single data character cannot be padded into a quad,
+                        // and the check after the loop already reports that.
+                        break;
+                    }
+
+                    return Err(if quad_pos == 0 && i == 0 {
+                        // Represents leading padding error
+                        base64::DecodeError::InvalidByte(0, PAD)
+                    } else {
+                        // Represents excess padding error
+                        base64::DecodeError::InvalidPadding
+                    });
                 }
 
                 let binary_char = BASE64_TABLE[el as usize];
@@ -327,9 +334,14 @@ mod decl {
                     continue;
                 }
 
-                if strict_mode && padding_started {
-                    // Represents discontinuous padding error
-                    return Err(base64::DecodeError::InvalidByte(i, PAD));
+                if pads > 0 && strict_mode {
+                    return Err(if quad_pos + pads == 4 {
+                        // Represents excess data after padding error
+                        base64::DecodeError::InvalidLastSymbol(i, PAD)
+                    } else {
+                        // Represents discontinuous padding error
+                        base64::DecodeError::InvalidByte(i, PAD)
+                    });
                 }
                 pads = 0;
 
@@ -361,14 +373,19 @@ mod decl {
                 }
             }
 
-            match quad_pos {
-                0 => Ok(decoded),
-                1 => Err(base64::DecodeError::InvalidLastSymbol(
+            if quad_pos == 1 {
+                // One data character too many: no input encodes to that length.
+                return Err(base64::DecodeError::InvalidLastSymbol(
                     decoded.len() / 3 * 4 + 1,
                     0,
-                )),
-                _ => Err(base64::DecodeError::InvalidLength(quad_pos)),
+                ));
             }
+
+            if quad_pos != 0 && quad_pos + pads < 4 {
+                return Err(base64::DecodeError::InvalidLength(quad_pos));
+            }
+
+            Ok(decoded)
         })
         .map_err(|err| super::Base64DecodeError(err).to_pyexception(vm))
     }
@@ -864,7 +881,7 @@ impl ToPyException for Base64DecodeError {
             }
             // TODO: clean up errors
             DecodeError::InvalidLength(_) => "Incorrect padding".to_owned(),
-            DecodeError::InvalidPadding => "Incorrect padding".to_owned(),
+            DecodeError::InvalidPadding => "Excess padding not allowed".to_owned(),
         };
         new_binascii_error(format!("error decoding base64: {message}"), vm)
     }
