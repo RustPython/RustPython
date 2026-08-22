@@ -22,7 +22,7 @@ use core::{mem, slice};
 use malachite_bigint::BigInt;
 use num_complex::Complex;
 use num_traits::{Num, ToPrimitive, Zero};
-use ruff_python_ast as ast;
+use ruff_python_ast::{self as ast, name::Name};
 use ruff_text_size::{Ranged, TextRange, TextSize};
 use rustpython_compiler_core::{
     Mode, OneIndexed, PositionEncoding, SourceFile, SourceLocation,
@@ -675,7 +675,7 @@ fn compiler_unwrap_option<T>(zelf: &Compiler<'_>, o: Option<T>) -> T {
 #[derive(Clone)]
 pub struct PatternContext {
     /// A list of names captured by the pattern.
-    pub stores: Vec<String>,
+    pub stores: Vec<Name>,
     /// If false, then any name captures against our subject will raise.
     pub allow_irrefutable: bool,
     /// A list of jump target labels used on pattern failure.
@@ -1268,7 +1268,7 @@ impl<'warnings> Compiler<'warnings> {
     fn starunpack_helper_impl(
         &mut self,
         elts: &[ast::Expr],
-        injected_arg: Option<&str>,
+        injected_arg: Option<&Name>,
         pushed: u32,
         collection_type: CollectionType,
     ) -> CompileResult<()> {
@@ -1713,7 +1713,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // 5. "super" must be GlobalImplicit in the current scope.
         let table = self.current_symbol_table();
-        if let Some(symbol) = table.lookup("super")
+        if let Some(symbol) = table.lookup(&"super".into())
             && symbol.scope != SymbolScope::GlobalImplicit
         {
             return None;
@@ -1721,7 +1721,7 @@ impl<'warnings> Compiler<'warnings> {
         // Then check the top-level scope and reject any statically
         // visible symbol for "super", not just local bindings.
         if let Some(top_table) = self.symbol_table_stack.first()
-            && top_table.lookup("super").is_some()
+            && top_table.lookup(&"super".into()).is_some()
         {
             return None;
         }
@@ -1753,7 +1753,7 @@ impl<'warnings> Compiler<'warnings> {
                 // Check if __class__ is available as a cell/free variable
                 // The scope must be Free (from enclosing class) or have DEF_FREE_CLASS flag
                 {
-                    let symbol = table.lookup("__class__")?;
+                    let symbol = table.lookup(&"__class__".into())?;
                     if symbol.scope != SymbolScope::Free
                         && !symbol.flags.contains(SymbolFlags::DEF_FREE_CLASS)
                     {
@@ -1777,7 +1777,7 @@ impl<'warnings> Compiler<'warnings> {
     ) -> CompileResult<()> {
         // 1. Load global super
         self.set_source_range(super_name_range);
-        self.compile_name("super", NameUsage::Load)?;
+        self.compile_name(&"super".into(), NameUsage::Load)?;
 
         match super_type {
             SuperCallType::TwoArg {
@@ -1792,7 +1792,9 @@ impl<'warnings> Compiler<'warnings> {
                 // 0-arg: load __class__ cell and first parameter
                 // Load __class__ from cell/free variable
                 self.set_source_range(super_call_range);
-                let scope = self.get_ref_type("__class__").map_err(|e| self.error(e))?;
+                let scope = self
+                    .get_ref_type(&"__class__".into())
+                    .map_err(|e| self.error(e))?;
                 let idx = match scope {
                     SymbolScope::Cell => self.get_cell_var_index("__class__"),
                     SymbolScope::Free => self.get_free_var_index("__class__"),
@@ -1817,7 +1819,7 @@ impl<'warnings> Compiler<'warnings> {
                     ))
                 })?;
                 self.set_source_range(super_call_range);
-                self.compile_name(&first_param, NameUsage::Load)?;
+                self.compile_name(&first_param.into(), NameUsage::Load)?;
             }
         }
         Ok(())
@@ -1861,7 +1863,7 @@ impl<'warnings> Compiler<'warnings> {
         };
 
         // Use varnames from symbol table (already collected in definition order)
-        let varname_cache: IndexSet<String> = ste.varnames.iter().cloned().collect();
+        let varname_cache: IndexSet<Name> = ste.varnames.iter().cloned().collect();
         let nparams = ste.varnames.len();
 
         // Build cellvars using dictbytype (CELL scope or COMP_CELL flag, sorted)
@@ -1876,7 +1878,7 @@ impl<'warnings> Compiler<'warnings> {
             .collect();
         cell_names.sort();
         for name in cell_names {
-            cellvar_cache.insert(name);
+            cellvar_cache.insert(name.into());
         }
 
         // Handle implicit __class__ cell if needed
@@ -1900,7 +1902,7 @@ impl<'warnings> Compiler<'warnings> {
 
         // Build freevars using dictbytype (FREE scope, offset by cellvars size)
         let mut freevar_cache = IndexSet::default();
-        let annotation_free_names: IndexSet<String> = ste
+        let annotation_free_names: IndexSet<Name> = ste
             .annotation_block
             .as_ref()
             .map(|annotation| {
@@ -1936,7 +1938,7 @@ impl<'warnings> Compiler<'warnings> {
             .collect();
         free_names.sort();
         for name in free_names {
-            freevar_cache.insert(name);
+            freevar_cache.insert(name.into());
         }
 
         // Initialize u_metadata fields
@@ -2022,7 +2024,7 @@ impl<'warnings> Compiler<'warnings> {
                 qualname: None, // Will be set below
                 consts: Default::default(),
                 names: IndexSet::default(),
-                varnames: varname_cache,
+                varnames: varname_cache.into_iter().map(Into::into).collect(),
                 cellvars: cellvar_cache,
                 freevars: freevar_cache,
                 fast_hidden: IndexMap::default(),
@@ -2515,10 +2517,10 @@ impl<'warnings> Compiler<'warnings> {
                     self.emit_load_const(ConstantData::None);
                     self.mark_unwind_no_location(*loc);
                     self.set_unwind_source_range(*loc);
-                    self.store_name(name)?;
+                    self.store_name(&name.into())?;
                     self.mark_unwind_no_location(*loc);
                     self.set_unwind_source_range(*loc);
-                    self.compile_name(name, NameUsage::Delete)?;
+                    self.compile_name(&name.into(), NameUsage::Delete)?;
                     self.mark_unwind_no_location(*loc);
                 }
             }
@@ -2610,11 +2612,12 @@ impl<'warnings> Compiler<'warnings> {
         name: &str,
         cache: impl FnOnce(&mut ir::CodeInfo) -> &mut IndexSet<String>,
     ) -> u32 {
-        let name = self.mangle(name);
+        let target = name.into();
+        let name = self.mangle(&target);
         let cache = cache(self.current_code_info());
         cache
-            .get_index_of(name.as_ref())
-            .unwrap_or_else(|| cache.insert_full(name.into_owned()).0)
+            .get_index_of(name.as_str())
+            .unwrap_or_else(|| cache.insert_full(name.to_string()).0)
             .to_u32()
     }
 
@@ -2701,14 +2704,15 @@ impl<'warnings> Compiler<'warnings> {
                 // We might be in a situation where symbol table isn't pushed yet
                 // In this case, check the parent symbol table
                 if let Some(parent_table) = self.symbol_table_stack.last()
-                    && let Some(symbol) = parent_table.lookup(&current_obj_name)
+                    && let Some(symbol) = parent_table.lookup(&current_obj_name.clone().into())
                     && symbol.scope == SymbolScope::GlobalExplicit
                 {
                     force_global = true;
                 }
             } else if let Some(_current_table) = self.symbol_table_stack.last() {
                 // Mangle the name if necessary (for private names in classes)
-                let mangled_name = self.mangle(&current_obj_name);
+                let target = &current_obj_name.clone().into();
+                let mangled_name = self.mangle(target);
 
                 // Look up in parent symbol table to check scope
                 if self.symbol_table_stack.len() >= 2 {
@@ -2815,7 +2819,7 @@ impl<'warnings> Compiler<'warnings> {
         if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
             self.set_source_range(module_start_loc);
             emit!(self, Instruction::BuildSet { count: 0 });
-            self.store_name("__conditional_annotations__")?;
+            self.store_name(&"__conditional_annotations__".into())?;
         }
 
         if self.future_annotations && annotations_used {
@@ -2884,7 +2888,7 @@ impl<'warnings> Compiler<'warnings> {
         if self.current_symbol_table().has_conditional_annotations {
             self.set_source_range(module_start_loc);
             emit!(self, Instruction::BuildSet { count: 0 });
-            self.store_name("__conditional_annotations__")?;
+            self.store_name(&"__conditional_annotations__".into())?;
         }
 
         if self.future_annotations && annotations_used {
@@ -2936,7 +2940,7 @@ impl<'warnings> Compiler<'warnings> {
                 }) => {
                     validate_duplicate_params(parameters).map_err(|e| self.error(e))?;
                     self.compile_function_def(
-                        name.as_str(),
+                        name.id(),
                         parameters,
                         body,
                         decorator_list,
@@ -2955,7 +2959,7 @@ impl<'warnings> Compiler<'warnings> {
                     ..
                 }) => {
                     self.compile_class_def(
-                        name.as_str(),
+                        name.id(),
                         body,
                         decorator_list,
                         type_params.as_deref(),
@@ -3079,15 +3083,15 @@ impl<'warnings> Compiler<'warnings> {
         }
     }
 
-    fn load_name(&mut self, name: &str) -> CompileResult<()> {
+    fn load_name(&mut self, name: &Name) -> CompileResult<()> {
         self.compile_name(name, NameUsage::Load)
     }
 
-    fn store_name(&mut self, name: &str) -> CompileResult<()> {
+    fn store_name(&mut self, name: &Name) -> CompileResult<()> {
         self.compile_name(name, NameUsage::Store)
     }
 
-    fn emit_no_location_exception_name_cleanup(&mut self, name: &str) -> CompileResult<()> {
+    fn emit_no_location_exception_name_cleanup(&mut self, name: &Name) -> CompileResult<()> {
         // CPython codegen_try_except() emits `name = None; del name`
         // with NO_LOCATION for `except ... as name` cleanup.
         self.emit_load_const(ConstantData::None);
@@ -3099,17 +3103,17 @@ impl<'warnings> Compiler<'warnings> {
         Ok(())
     }
 
-    fn mangle<'a>(&self, name: &'a str) -> Cow<'a, str> {
+    fn mangle<'a>(&self, name: &'a Name) -> Cow<'a, Name> {
         // Use private from current code unit for name mangling
         let private = self
             .code_stack
             .last()
-            .and_then(|info| info.private.as_deref());
+            .and_then(|info| info.private.as_ref());
         let mangled_names = self.current_symbol_table().mangled_names.as_ref();
-        symboltable::maybe_mangle_name(private, mangled_names, name)
+        symboltable::maybe_mangle_name(private.map(Name::from).as_ref(), mangled_names, name)
     }
 
-    fn module_name_declared_global_in_nested_scope(table: &SymbolTable, name: &str) -> bool {
+    fn module_name_declared_global_in_nested_scope(table: &SymbolTable, name: &Name) -> bool {
         table.sub_tables.iter().any(|subtable| {
             (!subtable.comp_inlined
                 && subtable
@@ -3120,7 +3124,7 @@ impl<'warnings> Compiler<'warnings> {
     }
 
     // = compiler_nameop
-    fn compile_name(&mut self, name: &str, usage: NameUsage) -> CompileResult<()> {
+    fn compile_name(&mut self, name: &Name, usage: NameUsage) -> CompileResult<()> {
         enum NameOp {
             Fast,
             Global,
@@ -3132,7 +3136,7 @@ impl<'warnings> Compiler<'warnings> {
         let name = self.mangle(name);
 
         // Special handling for __debug__
-        if NameUsage::Load == usage && name == "__debug__" {
+        if NameUsage::Load == usage && name.as_str() == "__debug__" {
             self.emit_load_const(ConstantData::Boolean {
                 value: self.opts.optimize == 0,
             });
@@ -3154,14 +3158,14 @@ impl<'warnings> Compiler<'warnings> {
             let can_see_class = current_table.can_see_class_scope;
 
             // First try to find in current table
-            let symbol = current_table.lookup(name.as_ref());
+            let symbol = current_table.lookup(&name);
 
             // If not found and we're in ast::TypeParams or Annotation scope, try parent scope
             let symbol = if symbol.is_none() && (is_typeparams || is_annotation) {
                 self.symbol_table_stack
                     .get(self.symbol_table_stack.len() - 2) // Try to get parent index
                     .expect("Symbol has no parent! This is a compiler bug.")
-                    .lookup(name.as_ref())
+                    .lookup(&name)
             } else {
                 symbol
             };
@@ -3170,7 +3174,7 @@ impl<'warnings> Compiler<'warnings> {
                     .iter()
                     .rev()
                     .find(|table| table.typ == CompilerScope::Class)
-                    .and_then(|table| table.lookup(name.as_ref()))
+                    .and_then(|table| table.lookup(&name))
                     .is_some_and(|symbol| symbol.flags.contains(SymbolFlags::DEF_GLOBAL));
 
             (
@@ -3189,8 +3193,12 @@ impl<'warnings> Compiler<'warnings> {
             if current_table.typ == CompilerScope::Class
                 && !self.current_code_info().in_inlined_comp
                 && ((usage == NameUsage::Load
-                    && (name == "__classdict__" || name == "__conditional_annotations__"))
-                    || (name == "__conditional_annotations__" && usage == NameUsage::Store))
+                    && (matches!(
+                        name.as_str(),
+                        "__classdict__" | "__conditional_annotations__"
+                    )))
+                    || (name.as_str() == "__conditional_annotations__"
+                        && usage == NameUsage::Store))
             {
                 Some(SymbolScope::Cell)
             } else {
@@ -3214,7 +3222,7 @@ impl<'warnings> Compiler<'warnings> {
                 ) {
                     SymbolScope::GlobalImplicit
                 } else if matches!(
-                    name.as_ref(),
+                    name.as_str(),
                     "__name__"
                         | "__module__"
                         | "__qualname__"
@@ -3253,7 +3261,7 @@ impl<'warnings> Compiler<'warnings> {
                         .current_code_info()
                         .metadata
                         .fast_hidden
-                        .get(name.as_ref())
+                        .get(name.as_str())
                         .is_some_and(|&hidden| hidden)
                 {
                     NameOp::Fast
@@ -3420,12 +3428,12 @@ impl<'warnings> Compiler<'warnings> {
                                 emit!(self, Instruction::PopTop);
                             }
                         }
-                        self.store_name(alias.as_str())?;
+                        self.store_name(alias.id())?;
                         if !parts.is_empty() {
                             emit!(self, Instruction::PopTop);
                         }
                     } else {
-                        self.store_name(name.name.split('.').next().unwrap())?
+                        self.store_name(&name.name.split('.').next().unwrap().into())?
                     }
                 }
             }
@@ -3477,9 +3485,9 @@ impl<'warnings> Compiler<'warnings> {
 
                         // Store module under proper name:
                         if let Some(alias) = &name.asname {
-                            self.store_name(alias.as_str())?
+                            self.store_name(alias.id())?
                         } else {
-                            self.store_name(name.name.as_str())?
+                            self.store_name(name.name.id())?
                         }
                     }
 
@@ -3597,7 +3605,7 @@ impl<'warnings> Compiler<'warnings> {
                 validate_duplicate_params(parameters).map_err(|e| self.error(e))?;
 
                 self.compile_function_def(
-                    name.as_str(),
+                    name.id(),
                     parameters,
                     body,
                     decorator_list,
@@ -3615,7 +3623,7 @@ impl<'warnings> Compiler<'warnings> {
                 arguments,
                 ..
             }) => self.compile_class_def(
-                name.as_str(),
+                name.id(),
                 body,
                 decorator_list,
                 type_params.as_deref(),
@@ -3812,7 +3820,7 @@ impl<'warnings> Compiler<'warnings> {
                         "type alias expect name".to_owned(),
                     )));
                 };
-                let name_string = name.id.to_string();
+                let name_string = name.id();
 
                 if let Some(type_params) = type_params {
                     self.set_source_range(*range);
@@ -3832,10 +3840,10 @@ impl<'warnings> Compiler<'warnings> {
 
                     self.set_source_range(*range);
                     self.emit_load_const(ConstantData::Str {
-                        value: name_string.clone().into(),
+                        value: name_string.as_str().into(),
                     });
                     self.compile_type_params(type_params)?;
-                    self.compile_typealias_value_closure(&name_string, value, *range)?;
+                    self.compile_typealias_value_closure(name_string, value, *range)?;
                     self.set_source_range(*range);
                     emit!(self, Instruction::BuildTuple { count: 3 });
                     emit!(
@@ -3856,10 +3864,10 @@ impl<'warnings> Compiler<'warnings> {
                 } else {
                     self.set_source_range(*range);
                     self.emit_load_const(ConstantData::Str {
-                        value: name_string.clone().into(),
+                        value: name_string.as_str().into(),
                     });
                     self.emit_load_const(ConstantData::None);
-                    self.compile_typealias_value_closure(&name_string, value, *range)?;
+                    self.compile_typealias_value_closure(name_string, value, *range)?;
                     self.set_source_range(*range);
                     emit!(self, Instruction::BuildTuple { count: 3 });
                     emit!(
@@ -3871,7 +3879,7 @@ impl<'warnings> Compiler<'warnings> {
                 }
 
                 self.set_source_range(*range);
-                self.store_name(&name_string)?;
+                self.store_name(name_string)?;
             }
             ast::Stmt::IpyEscapeCommand(stmt) => {
                 return Err(self.error_ranged(
@@ -3889,7 +3897,7 @@ impl<'warnings> Compiler<'warnings> {
         let result = (|| -> CompileResult<()> {
             match &expression {
                 ast::Expr::Name(ast::ExprName { id, .. }) => {
-                    self.compile_name(id.as_str(), NameUsage::Delete)?
+                    self.compile_name(id, NameUsage::Delete)?
                 }
                 ast::Expr::Attribute(ast::ExprAttribute { value, attr, .. }) => {
                     self.compile_expression(value)?;
@@ -4138,7 +4146,7 @@ impl<'warnings> Compiler<'warnings> {
 
                     self.set_source_range(*range);
                     emit!(self, Instruction::Copy { i: 1 });
-                    self.store_name(name.as_ref())?;
+                    self.store_name(name.id())?;
                 }
                 ast::TypeParam::ParamSpec(ast::TypeParamParamSpec {
                     name,
@@ -4182,7 +4190,7 @@ impl<'warnings> Compiler<'warnings> {
 
                     self.set_source_range(*range);
                     emit!(self, Instruction::Copy { i: 1 });
-                    self.store_name(name.as_ref())?;
+                    self.store_name(name.id())?;
                 }
                 ast::TypeParam::TypeVarTuple(ast::TypeParamTypeVarTuple {
                     name,
@@ -4227,7 +4235,7 @@ impl<'warnings> Compiler<'warnings> {
 
                     self.set_source_range(*range);
                     emit!(self, Instruction::Copy { i: 1 });
-                    self.store_name(name.as_ref())?;
+                    self.store_name(name.id())?;
                 }
             };
         }
@@ -4423,7 +4431,7 @@ impl<'warnings> Compiler<'warnings> {
                 let cleanup_end = self.new_block();
                 let cleanup_body = self.new_block();
 
-                self.store_name(alias.as_str())?;
+                self.store_name(alias.id())?;
 
                 emit!(self, PseudoInstruction::SetupCleanup { delta: cleanup_end });
                 self.use_cpython_label_block(cleanup_body);
@@ -4445,7 +4453,7 @@ impl<'warnings> Compiler<'warnings> {
                 emit!(self, Instruction::PopExcept);
                 self.set_no_location();
 
-                self.emit_no_location_exception_name_cleanup(alias.as_str())?;
+                self.emit_no_location_exception_name_cleanup(alias.id())?;
 
                 emit!(
                     self,
@@ -4454,7 +4462,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.set_no_location();
 
                 self.use_cpython_label_block(cleanup_end);
-                self.emit_no_location_exception_name_cleanup(alias.as_str())?;
+                self.emit_no_location_exception_name_cleanup(alias.id())?;
                 emit!(self, Instruction::Reraise { depth: 1 });
                 self.set_no_location();
             } else {
@@ -4714,7 +4722,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // Store match to name or pop
             if let Some(alias) = name {
-                self.store_name(alias.as_str())?;
+                self.store_name(alias.id())?;
             } else {
                 emit!(self, Instruction::PopTop); // pop match
             }
@@ -4750,7 +4758,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // Cleanup name binding
             if let Some(alias) = name {
-                self.emit_no_location_exception_name_cleanup(alias.as_str())?;
+                self.emit_no_location_exception_name_cleanup(alias.id())?;
             }
 
             emit!(
@@ -4768,7 +4776,7 @@ impl<'warnings> Compiler<'warnings> {
 
             // Cleanup name binding
             if let Some(alias) = name {
-                self.emit_no_location_exception_name_cleanup(alias.as_str())?;
+                self.emit_no_location_exception_name_cleanup(alias.id())?;
             }
 
             // LIST_APPEND(3) - append raised_exc to list
@@ -4959,7 +4967,7 @@ impl<'warnings> Compiler<'warnings> {
             for (arg, default) in &kw_with_defaults {
                 self.set_source_range(loc);
                 self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(arg.name.as_str()).into_owned().into(),
+                    value: self.mangle(arg.name().id()).as_str().into(),
                 });
                 self.compile_expression(default)?;
             }
@@ -5134,7 +5142,7 @@ impl<'warnings> Compiler<'warnings> {
             if let Some(annotation) = &param.annotation {
                 self.set_source_range(func_range);
                 self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(param.name.as_str()).into_owned().into(),
+                    value: self.mangle(param.name.id()).as_str().into(),
                 });
                 self.compile_annotation(annotation)?;
             }
@@ -5318,7 +5326,7 @@ impl<'warnings> Compiler<'warnings> {
             } = stmt;
             let simple_name = if *simple {
                 match target.as_ref() {
-                    ast::Expr::Name(ast::ExprName { id, .. }) => Some(id.as_str()),
+                    ast::Expr::Name(ast::ExprName { id, .. }) => Some(id),
                     _ => None,
                 }
             } else {
@@ -5368,7 +5376,7 @@ impl<'warnings> Compiler<'warnings> {
             self.set_source_range(*range);
             emit!(self, Instruction::Copy { i: 2 });
             self.emit_load_const(ConstantData::Str {
-                value: self.mangle(name).into_owned().into(),
+                value: self.mangle(name).as_str().into(),
             });
             self.set_source_range(loc);
             emit!(self, Instruction::StoreSubscr);
@@ -5413,9 +5421,10 @@ impl<'warnings> Compiler<'warnings> {
             "__annotate_func__"
         } else {
             "__annotate__"
-        };
+        }
+        .into();
         self.set_source_range(loc);
-        self.store_name(name)?;
+        self.store_name(&name)?;
 
         Ok(true)
     }
@@ -5424,7 +5433,7 @@ impl<'warnings> Compiler<'warnings> {
     #[expect(clippy::too_many_arguments, reason = "ignore warning for now")]
     fn compile_function_def(
         &mut self,
-        name: &str,
+        name: &Name,
         parameters: &ast::Parameters,
         body: &[ast::Stmt],
         decorator_list: &[ast::Decorator],
@@ -5617,7 +5626,7 @@ impl<'warnings> Compiler<'warnings> {
 
     /// Determines if a variable should be CELL or FREE type
     // = get_ref_type
-    fn get_ref_type(&self, name: &str) -> Result<SymbolScope, CodegenErrorType> {
+    fn get_ref_type(&self, name: &Name) -> Result<SymbolScope, CodegenErrorType> {
         let table = self.symbol_table_stack.last().unwrap();
 
         // Special handling for __class__, __classdict__, and __conditional_annotations__ in class scope
@@ -5665,7 +5674,9 @@ impl<'warnings> Compiler<'warnings> {
                 // well as by the normal name lookup logic.
 
                 // Get reference type using our get_ref_type function
-                let ref_type = self.get_ref_type(var).map_err(|e| self.error(e))?;
+                let ref_type = self
+                    .get_ref_type(&var.as_str().into())
+                    .map_err(|e| self.error(e))?;
 
                 // Get parent code info
                 let parent_code = self.code_stack.last().unwrap();
@@ -5828,26 +5839,26 @@ impl<'warnings> Compiler<'warnings> {
         self.set_source_range(class_body_prefix_range);
 
         // Load __name__ and store as __module__
-        self.load_name("__name__")?;
-        self.store_name("__module__")?;
+        self.load_name(&"__name__".into())?;
+        self.store_name(&"__module__".into())?;
 
         // Store __qualname__
         self.emit_load_const(ConstantData::Str {
             value: qualname.into(),
         });
-        self.store_name("__qualname__")?;
+        self.store_name(&"__qualname__".into())?;
 
         // Store __firstlineno__ before __doc__
         self.emit_load_const(ConstantData::Integer {
             value: BigInt::from(firstlineno),
         });
-        self.store_name("__firstlineno__")?;
+        self.store_name(&"__firstlineno__".into())?;
 
         // Set __type_params__ from the enclosing type-params closure when
         // compiling a generic class body.
         if type_params.is_some() {
-            self.load_name(".type_params")?;
-            self.store_name("__type_params__")?;
+            self.load_name(&".type_params".into())?;
+            self.store_name(&"__type_params__".into())?;
         }
 
         // PEP 649: Initialize __classdict__ after synthetic generic-class
@@ -5862,7 +5873,7 @@ impl<'warnings> Compiler<'warnings> {
         let annotations_used = self.current_symbol_table().annotations_used;
         if Self::scope_needs_conditional_annotations_cell(self.current_symbol_table()) {
             emit!(self, Instruction::BuildSet { count: 0 });
-            self.store_name("__conditional_annotations__")?;
+            self.store_name(&"__conditional_annotations__".into())?;
         }
 
         if self.future_annotations && annotations_used {
@@ -5874,7 +5885,7 @@ impl<'warnings> Compiler<'warnings> {
             let saved_range = self.current_source_range;
             self.set_source_range(range);
             self.emit_load_const(ConstantData::Str { value: doc.into() });
-            self.store_name("__doc__")?;
+            self.store_name(&"__doc__".into())?;
             self.set_no_location();
             self.set_source_range(saved_range);
         }
@@ -5914,7 +5925,7 @@ impl<'warnings> Compiler<'warnings> {
                     .collect(),
             });
             self.set_no_location();
-            self.store_name("__static_attributes__")?;
+            self.store_name(&"__static_attributes__".into())?;
             self.set_no_location();
         }
 
@@ -5923,7 +5934,7 @@ impl<'warnings> Compiler<'warnings> {
             let classdict_idx = u32::from(self.get_cell_var_index("__classdict__"));
             emit!(self, PseudoInstruction::LoadClosure { i: classdict_idx });
             self.set_no_location();
-            self.store_name("__classdictcell__")?;
+            self.store_name(&"__classdictcell__".into())?;
             self.set_no_location();
         }
 
@@ -5937,7 +5948,7 @@ impl<'warnings> Compiler<'warnings> {
             self.set_no_location();
             emit!(self, Instruction::Copy { i: 1 });
             self.set_no_location();
-            self.store_name("__classcell__")?;
+            self.store_name(&"__classcell__".into())?;
             self.set_no_location();
         } else {
             self.emit_load_const(ConstantData::None);
@@ -5955,7 +5966,7 @@ impl<'warnings> Compiler<'warnings> {
 
     fn compile_class_def(
         &mut self,
-        name: &str,
+        name: &Name,
         body: &[ast::Stmt],
         decorator_list: &[ast::Decorator],
         type_params: Option<&ast::TypeParams>,
@@ -6001,7 +6012,7 @@ impl<'warnings> Compiler<'warnings> {
             )?;
 
             // Set private name for name mangling
-            self.code_stack.last_mut().unwrap().private = Some(name.to_owned());
+            self.code_stack.last_mut().unwrap().private = Some(name.as_str().to_owned());
 
             // TypeParams scope is function-like
             self.ctx = CompileContext {
@@ -6014,7 +6025,7 @@ impl<'warnings> Compiler<'warnings> {
             // generic class bodies close over.
             self.compile_type_params(type_params.unwrap())?;
             self.set_source_range(class_source_range);
-            self.store_name(".type_params")?;
+            self.store_name(&".type_params".into())?;
         }
 
         // Step 2: Compile class body (always done, whether generic or not)
@@ -6040,12 +6051,14 @@ impl<'warnings> Compiler<'warnings> {
             // Create the class body function with the .type_params closure
             // captured through the class code object's freevars.
             self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
-            self.emit_load_const(ConstantData::Str { value: name.into() });
+            self.emit_load_const(ConstantData::Str {
+                value: name.as_str().into(),
+            });
 
             // Create .generic_base after the class function and name are on the
             // stack so the remaining call shape matches CPython's ordering.
             self.set_source_range(class_source_range);
-            self.load_name(".type_params")?;
+            self.load_name(&".type_params".into())?;
             emit!(
                 self,
                 Instruction::CallIntrinsic1 {
@@ -6053,7 +6066,7 @@ impl<'warnings> Compiler<'warnings> {
                 }
             );
             self.set_source_range(class_source_range);
-            self.store_name(".generic_base")?;
+            self.store_name(&".generic_base".into())?;
 
             let (bases, keywords) = arguments.map_or((&[][..], &[][..]), |args| {
                 (&args.args[..], &args.keywords[..])
@@ -6064,7 +6077,7 @@ impl<'warnings> Compiler<'warnings> {
                 keywords,
                 class_source_range,
                 None,
-                Some(".generic_base"),
+                Some(&".generic_base".into()),
             )?;
 
             // Return the created class
@@ -6089,7 +6102,9 @@ impl<'warnings> Compiler<'warnings> {
 
             // Create class function with closure
             self.make_closure(class_code, bytecode::MakeFunctionFlags::new())?;
-            self.emit_load_const(ConstantData::Str { value: name.into() });
+            self.emit_load_const(ConstantData::Str {
+                value: name.as_str().into(),
+            });
 
             if let Some(arguments) = arguments {
                 self.codegen_call_helper(2, arguments, class_source_range, None)?;
@@ -6656,7 +6671,7 @@ impl<'warnings> Compiler<'warnings> {
             Some(name) => {
                 // Ensure we don't store the same name twice.
                 // TODO: maybe pc.stores should be a set?
-                if pc.stores.contains(&name.to_string()) {
+                if pc.stores.contains(name.id()) {
                     return Err(self.error_ranged(
                         CodegenErrorType::DuplicateStore(name.as_str().to_string()),
                         loc,
@@ -6668,7 +6683,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.pattern_helper_rotate(loc, rotations);
 
                 // Append the name to the captured stores.
-                pc.stores.push(name.to_string());
+                pc.stores.push(name.id().clone());
                 Ok(())
             }
         }
@@ -7430,7 +7445,7 @@ impl<'warnings> Compiler<'warnings> {
         let old_pc = pc.clone();
         // Simulate Py_INCREF on pc.stores by cloning it.
         pc.stores = pc.stores.clone();
-        let mut control: Option<Vec<String>> = None; // Will hold the capture list of the first alternative.
+        let mut control: Option<Vec<Name>> = None; // Will hold the capture list of the first alternative.
 
         // Process each alternative.
         for (i, alt) in p.patterns.iter().enumerate() {
@@ -8132,7 +8147,7 @@ impl<'warnings> Compiler<'warnings> {
                 // Load the variable name
                 self.set_source_range(loc);
                 self.emit_load_const(ConstantData::Str {
-                    value: self.mangle(id.as_str()).into_owned().into(),
+                    value: self.mangle(id).as_str().into(),
                 });
                 // Store: __annotations__[name] = annotation
                 self.set_source_range(loc);
@@ -8189,7 +8204,7 @@ impl<'warnings> Compiler<'warnings> {
         self.set_source_range(target.range());
         let result = (|| -> CompileResult<()> {
             match &target {
-                ast::Expr::Name(ast::ExprName { id, .. }) => self.store_name(id.as_str())?,
+                ast::Expr::Name(ast::ExprName { id, .. }) => self.store_name(id)?,
                 ast::Expr::Subscript(ast::ExprSubscript {
                     value, slice, ctx, ..
                 }) => {
@@ -8279,7 +8294,7 @@ impl<'warnings> Compiler<'warnings> {
         let target_range = target.range();
         enum AugAssignKind<'a> {
             Name {
-                id: &'a str,
+                id: &'a Name,
             },
             Subscript {
                 use_slice_opt: bool,
@@ -8292,7 +8307,6 @@ impl<'warnings> Compiler<'warnings> {
 
         let kind = match &target {
             ast::Expr::Name(ast::ExprName { id, .. }) => {
-                let id = id.as_str();
                 self.set_source_range(target_range);
                 self.compile_name(id, NameUsage::Load)?;
                 AugAssignKind::Name { id }
@@ -8917,7 +8931,7 @@ impl<'warnings> Compiler<'warnings> {
                 self.emit_load_const(ConstantData::None);
                 let _ = self.compile_yield_from_sequence(false);
             }
-            ast::Expr::Name(ast::ExprName { id, .. }) => self.load_name(id.as_str())?,
+            ast::Expr::Name(ast::ExprName { id, .. }) => self.load_name(id)?,
             ast::Expr::Lambda(ast::ExprLambda {
                 parameters,
                 body,
@@ -8962,7 +8976,7 @@ impl<'warnings> Compiler<'warnings> {
                     for (arg, default) in &kw_with_defaults {
                         self.set_source_range(*range);
                         self.emit_load_const(ConstantData::Str {
-                            value: self.mangle(arg.name.as_str()).into_owned().into(),
+                            value: self.mangle(arg.name().id()).as_str().into(),
                         });
                         self.compile_expression(default)?;
                     }
@@ -9179,10 +9193,12 @@ impl<'warnings> Compiler<'warnings> {
                 if self.current_code_info().in_inlined_comp
                     && let ast::Expr::Name(ast::ExprName { id, .. }) = target.as_ref()
                 {
-                    let name = self.mangle(id.as_str());
+                    let name = self.mangle(id);
                     let info = self.code_stack.last_mut().unwrap();
                     info.metadata.fast_hidden.insert(name.to_string(), false);
-                    info.metadata.fast_hidden_final.swap_remove(name.as_ref());
+                    info.metadata
+                        .fast_hidden_final
+                        .swap_remove(name.into_owned().as_str());
                 }
                 self.compile_expression(value)?;
                 self.set_source_range(*range);
@@ -9695,7 +9711,7 @@ impl<'warnings> Compiler<'warnings> {
         keywords: &[ast::Keyword],
         call_range: TextRange,
         kw_names_range: Option<TextRange>,
-        injected_arg: Option<&str>,
+        injected_arg: Option<&Name>,
     ) -> CompileResult<()> {
         self.validate_keywords(keywords)?;
 
@@ -10891,7 +10907,7 @@ impl<'warnings> Compiler<'warnings> {
         };
         self.current_code_info().in_inlined_comp = true;
 
-        let mut temp_symbols: IndexMap<String, Symbol> = IndexMap::default();
+        let mut temp_symbols: IndexMap<Name, Symbol> = IndexMap::default();
         let mut changed_fast_hidden = Vec::new();
 
         let result = (|| {
@@ -10911,8 +10927,8 @@ impl<'warnings> Compiler<'warnings> {
                     current_table.sub_tables.insert(insert_pos + i, st.clone());
                 }
             }
-            let mut pushed_locals: Vec<String> = Vec::new();
-            let mut fast_hidden_locals: Vec<String> = Vec::new();
+            let mut pushed_locals: Vec<Name> = Vec::new();
+            let mut fast_hidden_locals: Vec<Name> = Vec::new();
             for (name, sym) in &comp_table.symbols {
                 if sym.flags.contains(SymbolFlags::DEF_PARAM) {
                     continue; // skip .0
@@ -10964,11 +10980,11 @@ impl<'warnings> Compiler<'warnings> {
                         self.current_code_info()
                             .metadata
                             .fast_hidden
-                            .insert(name.clone(), true);
+                            .insert(name.clone().into(), true);
                         self.current_code_info()
                             .metadata
                             .fast_hidden_final
-                            .insert(name.clone());
+                            .insert(name.clone().into());
                         changed_fast_hidden.push(name.clone());
                     }
                 }
@@ -11241,7 +11257,7 @@ impl<'warnings> Compiler<'warnings> {
             self.current_code_info()
                 .metadata
                 .fast_hidden
-                .insert(name, false);
+                .insert(name.into(), false);
         }
         self.current_code_info().in_inlined_comp = was_in_inlined_comp;
 
@@ -14181,7 +14197,7 @@ mod tests {
         .unwrap();
 
         assert!(
-            table.lookup("frozenset").is_none(),
+            table.lookup(&"frozenset".into()).is_none(),
             "CPython symtable Constant_kind does not visit the lowered frozenset() expression"
         );
     }
@@ -33382,7 +33398,7 @@ deoptmap = {
 
         for name in ["base", "family", "specialized"] {
             let symbol = symbol_table
-                .lookup(name)
+                .lookup(&name.into())
                 .unwrap_or_else(|| panic!("missing module symbol {name}"));
             assert_eq!(
                 symbol.scope,
@@ -33398,7 +33414,7 @@ deoptmap = {
         assert!(comp.comp_inlined, "expected comprehension to be inlined");
         for name in ["base", "family", "specialized"] {
             let symbol = comp
-                .lookup(name)
+                .lookup(&name.into())
                 .unwrap_or_else(|| panic!("missing comprehension symbol {name}"));
             assert_eq!(
                 symbol.scope,

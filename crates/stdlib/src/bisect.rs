@@ -106,15 +106,15 @@ mod _bisect {
 
     #[pyfunction]
     fn insort_left(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
-        let x = if let Some(ref key) = key {
-            key.call((x,), vm)?
-        } else {
-            x
+        // The search runs on the key, the insert has to put back the item itself.
+        let needle = match key {
+            Some(ref key) => key.call((x.clone(),), vm)?,
+            None => x.clone(),
         };
         let index = bisect_left(
             BisectArgs {
                 a: a.clone(),
-                x: x.clone(),
+                x: needle,
                 lo,
                 hi,
                 key,
@@ -126,15 +126,15 @@ mod _bisect {
 
     #[pyfunction]
     fn insort_right(BisectArgs { a, x, lo, hi, key }: BisectArgs, vm: &VirtualMachine) -> PyResult {
-        let x = if let Some(ref key) = key {
-            key.call((x,), vm)?
-        } else {
-            x
+        // The search runs on the key, the insert has to put back the item itself.
+        let needle = match key {
+            Some(ref key) => key.call((x.clone(),), vm)?,
+            None => x.clone(),
         };
         let index = bisect_right(
             BisectArgs {
                 a: a.clone(),
-                x: x.clone(),
+                x: needle,
                 lo,
                 hi,
                 key,
