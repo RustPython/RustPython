@@ -241,6 +241,7 @@ xz = "0.4.6-rc.0"
 xz-sys = "0.4.6-rc.0"
 libsqlite3-sys = "0.38"
 libz-rs-sys = "0.6"
+libzstd-rs-sys = { git = "https://github.com/trifectatechfoundation/libzstd-rs-sys", rev = "99fb4c096a21a9b37feebe180333a2ff8645e23b" }
 lock_api = "0.4"
 log = "0.4.30"
 lz4_flex = "0.13"
