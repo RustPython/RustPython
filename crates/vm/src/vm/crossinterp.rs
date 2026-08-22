@@ -7,10 +7,13 @@ use crate::{
     AsObject, Py, PyObject, PyObjectRef, PyPayload, PyRef, PyResult, TryFromBorrowedObject,
     VirtualMachine,
     builtins::{
-        PyBaseExceptionRef, PyBytes, PyCode, PyFloat, PyFunction, PyInt, PyMemoryView, PyStr,
-        PyTuple,
+        PyBaseExceptionRef, PyBytes, PyCode, PyDict, PyFloat, PyFunction, PyInt, PyMemoryView,
+        PyStr, PyStrInterned, PyTuple,
     },
-    bytecode::{BorrowedConstant, Constant, Instruction, oparg::OpArgState},
+    bytecode::{
+        BorrowedConstant, CodeFlags, Constant, Instruction,
+        oparg::{OpArg, OpArgState},
+    },
     protocol::PyBuffer,
 };
 use malachite_bigint::BigInt;
@@ -26,7 +29,7 @@ pub const UNBOUND_REPLACE: i32 = 3;
 pub enum Fallback {
     /// `_PyXIDATA_XIDATA_ONLY`: raise `NotShareableError`.
     XidataOnly = 0,
-    /// `_PyXIDATA_FULL_FALLBACK`: try stateless functions, then pickle.
+    /// `_PyXIDATA_FULL_FALLBACK`: fall back to stateless functions, then pickle.
     Full = 1,
 }
 
@@ -155,10 +158,24 @@ impl SharedValue {
                 format!("expected a function, got {}", render_repr(obj, vm)),
             )
         })?;
-        verify_stateless_function(func, vm)
-            .map_err(|_| not_shareable_error(vm, "only stateless functions are shareable"))?;
+        verify_stateless_function(func, vm).map_err(|cause| {
+            not_shareable_error_from(vm, "only stateless functions are shareable", cause)
+        })?;
         let code = (*func.code).to_owned();
         Ok(Self::Function(marshal_dumps(code.as_object(), vm)?))
+    }
+
+    /// `_interp_call_pack`'s handling of the callable: a stateless function
+    /// travels as its code, anything else is pickled.
+    pub fn from_callable(obj: &PyObject, vm: &VirtualMachine) -> PyResult<Self> {
+        match Self::from_function(obj, vm) {
+            Ok(v) => Ok(v),
+            Err(exc) => match pickle_dumps(obj, vm) {
+                Ok(data) => Ok(Self::Pickled(data)),
+                // Raise the exception from the stateless check.
+                Err(_) => Err(exc),
+            },
+        }
     }
 
     /// `_PyCode_GetXIData`.
@@ -248,11 +265,22 @@ fn pickle_loads(data: &[u8], vm: &VirtualMachine) -> PyResult {
     let loads = vm.import("pickle", 0)?.get_attr("loads", vm)?;
     loads
         .call((vm.ctx.new_bytes(data.to_vec()),), vm)
-        .map_err(|_| not_shareable_error(vm, "object could not be unpickled"))
+        .map_err(|cause| not_shareable_error_from(vm, "object could not be unpickled", cause))
 }
 
 fn not_shareable_error(vm: &VirtualMachine, msg: impl Into<String>) -> PyBaseExceptionRef {
     crate::stdlib::_interpreters::not_shareable_error(vm, msg)
+}
+
+/// `set_notshareableerror`: the failure that led here becomes the cause.
+fn not_shareable_error_from(
+    vm: &VirtualMachine,
+    msg: impl Into<String>,
+    cause: PyBaseExceptionRef,
+) -> PyBaseExceptionRef {
+    let exc = not_shareable_error(vm, msg);
+    exc.set___cause__(Some(cause));
+    exc
 }
 
 fn not_shareable(vm: &VirtualMachine, obj: &PyObject) -> PyBaseExceptionRef {
@@ -337,6 +365,20 @@ fn format_traceback_exception(exc: &PyBaseExceptionRef, vm: &VirtualMachine) -> 
     Ok(formatted)
 }
 
+/// `_PyXI_excinfo_format`, with `_excinfo_normalize_type` folded in: the
+/// `builtins` and `__main__` modules are left out of the name.
+fn format_exc_snapshot(module: &str, qualname: &str, msg: Option<&str>) -> String {
+    let name = if module == "builtins" || module == "__main__" {
+        qualname.to_owned()
+    } else {
+        format!("{module}.{qualname}")
+    };
+    match msg {
+        Some(msg) => format!("{name}: {msg}"),
+        None => name,
+    }
+}
+
 /// Snapshot of an exception that can be rebuilt in another interpreter.
 pub struct ExcInfo {
     pub type_name: String,
@@ -364,11 +406,7 @@ impl ExcInfo {
             .and_then(|o| o.str(vm).ok())
             .map_or_else(|| "builtins".to_owned(), |s| s.to_string());
         let msg = exc.as_object().str(vm).ok().map(|s| s.to_string());
-        let msg = msg.filter(|m| !m.is_empty());
-        let formatted = match &msg {
-            Some(m) => format!("{type_name}: {m}"),
-            None => type_name.clone(),
-        };
+        let formatted = format_exc_snapshot(&type_module, &type_qualname, msg.as_deref());
         let errdisplay = format_traceback_exception(exc, vm).unwrap_or_else(|_| {
             let mut buf = String::new();
             let _ = vm.write_exception(&mut buf, exc);
@@ -382,6 +420,22 @@ impl ExcInfo {
             formatted,
             errdisplay,
         }
+    }
+
+    /// `_PyXI_ApplyError` for `_PyXI_ERR_NOT_SHAREABLE`: the snapshot is
+    /// re-raised as a plain `Exception` and becomes the cause.
+    pub fn into_not_shareable(
+        self,
+        msg: Option<String>,
+        vm: &VirtualMachine,
+    ) -> PyBaseExceptionRef {
+        let cause = vm.new_exception_msg(
+            vm.ctx.exceptions.exception_type.to_owned(),
+            self.errdisplay.into(),
+        );
+        let msg =
+            msg.unwrap_or_else(|| "object does not support cross-interpreter data".to_owned());
+        not_shareable_error_from(vm, msg, cause)
     }
 
     pub fn into_namespace(self, vm: &VirtualMachine) -> PyObjectRef {
@@ -404,29 +458,89 @@ impl ExcInfo {
     }
 }
 
-/// `_PyCode_VerifyStateless` for the non-pure case: reject closures.
-fn verify_stateless(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
+/// `_PyCode_VerifyStateless`. `namespaces` holds the globals and the builtins
+/// the code's `LOAD_GLOBAL` names are resolved against; without them every such
+/// name stays unknown, which `_PyCode_CheckNoExternalState` lets through.
+fn verify_stateless(
+    code: &PyCode,
+    namespaces: Option<(&Py<PyDict>, &Py<PyDict>)>,
+    vm: &VirtualMachine,
+) -> PyResult<()> {
     if !code.freevars.is_empty() {
         return Err(vm.new_value_error("closures not supported"));
+    }
+    let Some((globals, builtins)) = namespaces else {
+        return Ok(());
+    };
+    // Having builtins to resolve against bumps numbuiltin by one, so a name
+    // that is neither a global nor a builtin is rejected along with the ones
+    // the globals do hold.
+    for name in global_names(code) {
+        if globals.contains_key(name, vm) || !builtins.contains_key(name, vm) {
+            return Err(vm.new_value_error("globals not supported"));
+        }
     }
     Ok(())
 }
 
+/// The `co_names` entries `identify_unbound_names` reaches through `LOAD_GLOBAL`.
+fn global_names(code: &PyCode) -> impl Iterator<Item = &'static PyStrInterned> + '_ {
+    walk_instructions(code).filter_map(|(_, instr, arg)| match instr {
+        Instruction::LoadGlobal { namei } => Some(code.names[(namei.get(arg) >> 1) as usize]),
+        _ => None,
+    })
+}
+
+/// The instruction stream with its inline caches skipped and its specialized
+/// and instrumented opcodes mapped back, yielding `(offset, instruction, arg)`.
+fn walk_instructions(code: &PyCode) -> impl Iterator<Item = (usize, Instruction, OpArg)> + '_ {
+    let units = &code.instructions;
+    let mut arg_state = OpArgState::default();
+    let mut offset = 0;
+    core::iter::from_fn(move || {
+        if offset >= units.len() {
+            return None;
+        }
+        let at = offset;
+        let op = units.read_op(at);
+        let arg = arg_state.extend(units.read_arg(at));
+        if !matches!(op, Instruction::ExtendedArg) {
+            arg_state.reset();
+        }
+        offset = at + 1 + op.cache_entries();
+        Some((at, op.deoptimize(), arg))
+    })
+}
+
+/// `_PyFunction_VerifyStateless`.
 fn verify_stateless_function(func: &PyFunction, vm: &VirtualMachine) -> PyResult<()> {
-    if func.closure.is_some() {
+    // `__globals__` is a dict by construction, so only the builtins are checked.
+    let builtins = func.builtins.downcast_ref::<PyDict>().ok_or_else(|| {
+        vm.new_type_error(format!(
+            "unsupported builtins {}",
+            render_repr(&func.builtins, vm)
+        ))
+    })?;
+    if func.__defaults__().is_some_and(|d| !d.is_empty()) {
+        return Err(vm.new_value_error("defaults not supported"));
+    }
+    if func.__kwdefaults__().is_some_and(|d| !d.is_empty()) {
+        return Err(vm.new_value_error("keyword defaults not supported"));
+    }
+    if func.closure.as_ref().is_some_and(|c| !c.is_empty()) {
         return Err(vm.new_value_error("closures not supported"));
     }
-    verify_stateless(&func.code, vm)
+    verify_stateless(&func.code, Some((&func.globals, builtins)), vm)
 }
 
 /// `verify_script`: a script takes no arguments and returns only None.
 pub fn verify_script(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
-    verify_stateless(code, vm)?;
+    verify_stateless(code, None, vm)?;
     if code.arg_count > 0
         || code.posonlyarg_count > 0
         || code.kwonlyarg_count > 0
-        || code.flags.contains(crate::bytecode::CodeFlags::VARARGS)
-        || code.flags.contains(crate::bytecode::CodeFlags::VARKEYWORDS)
+        || code.flags.contains(CodeFlags::VARARGS)
+        || code.flags.contains(CodeFlags::VARKEYWORDS)
     {
         return Err(vm.new_value_error("code with args not supported"));
     }
@@ -436,27 +550,64 @@ pub fn verify_script(code: &PyCode, vm: &VirtualMachine) -> PyResult<()> {
     Ok(())
 }
 
+/// `_PyCode_CheckPureFunction`.
+fn is_pure_function(code: &PyCode) -> bool {
+    !code.flags.intersects(
+        CodeFlags::GENERATOR
+            | CodeFlags::COROUTINE
+            | CodeFlags::ITERABLE_COROUTINE
+            | CodeFlags::ASYNC_GENERATOR,
+    )
+}
+
+/// `_PyCode_ReturnsOnlyNone`. Here "value" means a non-None value, since a bare
+/// return is identical to returning None explicitly, as is a missing return
+/// statement at the end of the function.
 fn code_returns_only_none(code: &PyCode) -> bool {
-    let mut arg_state = OpArgState::default();
-    let mut prev_none = false;
-    for unit in code.instructions.iter().copied() {
-        let (op, arg) = arg_state.get(unit);
-        match op {
-            Instruction::LoadConst { consti } => {
-                let cidx = consti.get(arg);
-                prev_none = matches!(
-                    code.constants[cidx].borrow_constant(),
-                    BorrowedConstant::None
-                );
-            }
-            Instruction::ReturnValue | Instruction::InstrumentedReturnValue => {
-                if !prev_none {
-                    return false;
-                }
-            }
-            Instruction::ExtendedArg => {}
-            _ => prev_none = false,
+    if !is_pure_function(code) {
+        return false;
+    }
+    let units = &code.instructions;
+    let Some(last) = units.len().checked_sub(1) else {
+        return true;
+    };
+    // The last instruction either returns or raises. We can take advantage
+    // of that for a quick exit.
+    let final_op = units.read_op(last).deoptimize();
+
+    // Look up None in co_consts.
+    let Some(none_index) = code
+        .constants
+        .iter()
+        .position(|c| matches!(c.borrow_constant(), BorrowedConstant::None))
+    else {
+        // None wasn't there, which means there was no implicit return,
+        // "return", or "return None".
+
+        // That means there must be an explicit return (non-None), or it only
+        // raises.
+        if matches!(final_op, Instruction::ReturnValue) {
+            // It was an explicit return (non-None).
+            return false;
         }
+        // It must end with a raise then. We still have to walk the bytecode
+        // to see if there's any explicit return (non-None).
+        return !walk_instructions(code).any(|(_, op, _)| matches!(op, Instruction::ReturnValue));
+    };
+    // Walk the bytecode, looking for RETURN_VALUE.
+    for (at, op, _) in walk_instructions(code) {
+        if !matches!(op, Instruction::ReturnValue) {
+            continue;
+        }
+        // Ignore it if it returns None.
+        if let Some(prev) = at.checked_sub(1)
+            && matches!(units.read_op(prev).deoptimize(), Instruction::LoadConst { .. })
+            // We don't worry about EXTENDED_ARG for now.
+            && usize::from(u8::from(units.read_arg(prev))) == none_index
+        {
+            continue;
+        }
+        return false;
     }
     true
 }

@@ -13,12 +13,9 @@ pub(crate) mod _interpchannels {
         AsObject, Py, PyObject, PyObjectRef, PyPayload, PyResult, VirtualMachine,
         builtins::{PyBaseExceptionRef, PyInt, PyType},
         convert::ToPyObject,
-        function::{ArgSpec, FuncArgs},
+        function::{ArgSpec, Either, FuncArgs, PyComparisonValue},
         protocol::{PyNumber, PyNumberMethods},
-        types::{
-            AsNumber, Comparable, Constructor, Hashable, PyComparisonOp, PyStructSequence,
-            Representable,
-        },
+        types::{AsNumber, Constructor, Hashable, PyComparisonOp, PyStructSequence, Representable},
         vm::crossinterp::{self, Fallback, SharedValue, UNBOUND_REPLACE},
     };
     use alloc::collections::BTreeMap;
@@ -618,39 +615,6 @@ pub(crate) mod _interpchannels {
         }
     }
 
-    impl Comparable for ChannelID {
-        fn cmp(
-            zelf: &Py<Self>,
-            other: &PyObject,
-            op: PyComparisonOp,
-            vm: &VirtualMachine,
-        ) -> PyResult<crate::function::PyComparisonValue> {
-            use crate::function::PyComparisonValue;
-            if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
-                return Ok(PyComparisonValue::NotImplemented);
-            }
-            let equal = if let Some(o) = other.downcast_ref::<Self>() {
-                zelf.end == o.end && zelf.cid == o.cid
-            } else if let Some(n) = other.downcast_ref::<PyInt>() {
-                n.try_to_primitive::<i64>(vm)
-                    .is_ok_and(|v| v >= 0 && v == zelf.cid)
-            } else if PyNumber::check(other) {
-                let id_obj = vm.ctx.new_int(zelf.cid);
-                let res = id_obj.as_object().rich_compare_bool(other, op, vm)?;
-                return Ok(PyComparisonValue::Implemented(res));
-            } else {
-                return Ok(PyComparisonValue::NotImplemented);
-            };
-            Ok(PyComparisonValue::Implemented(
-                if op == PyComparisonOp::Eq {
-                    equal
-                } else {
-                    !equal
-                },
-            ))
-        }
-    }
-
     impl AsNumber for ChannelID {
         fn as_number() -> &'static PyNumberMethods {
             static METHODS: PyNumberMethods = PyNumberMethods {
@@ -669,10 +633,41 @@ pub(crate) mod _interpchannels {
     }
 
     #[pyclass(
-        with(Representable, Hashable, Comparable, AsNumber),
+        with(Representable, Hashable, AsNumber),
         flags(BASETYPE, IMMUTABLETYPE, DISALLOW_INSTANTIATION)
     )]
     impl ChannelID {
+        /// `channelid_richcompare`.
+        #[pyslot]
+        fn slot_richcompare(
+            zelf: &PyObject,
+            other: &PyObject,
+            op: PyComparisonOp,
+            vm: &VirtualMachine,
+        ) -> PyResult<Either<PyObjectRef, PyComparisonValue>> {
+            if !matches!(op, PyComparisonOp::Eq | PyComparisonOp::Ne) {
+                return Ok(Either::B(PyComparisonValue::NotImplemented));
+            }
+            let Some(zelf) = zelf.downcast_ref::<Self>() else {
+                return Ok(Either::B(PyComparisonValue::NotImplemented));
+            };
+            let equal = if let Some(o) = other.downcast_ref::<Self>() {
+                zelf.end == o.end && zelf.cid == o.cid
+            } else if let Some(n) = other.downcast_ref::<PyInt>() {
+                // Fast path
+                n.try_to_primitive::<i64>(vm)
+                    .is_ok_and(|v| v >= 0 && v == zelf.cid)
+            } else if PyNumber::check(other) {
+                let id_obj: PyObjectRef = vm.ctx.new_int(zelf.cid).into();
+                return id_obj.rich_compare(other.to_owned(), op, vm).map(Either::A);
+            } else {
+                return Ok(Either::B(PyComparisonValue::NotImplemented));
+            };
+            Ok(Either::B(PyComparisonValue::Implemented(
+                (op == PyComparisonOp::Eq) == equal,
+            )))
+        }
+
         #[pygetset]
         fn end(&self) -> String {
             match self.end {
@@ -888,8 +883,19 @@ pub(crate) mod _interpchannels {
         Ok(vm.ctx.new_list(out).into())
     }
 
-    /// `channel_send` plus, when `waiting` is set, `channel_send_wait`.
+    /// `channel_send` up to its `closing` check, which precedes converting the
+    /// object to cross-interpreter data.
+    fn send_begin(cid: i64, vm: &VirtualMachine) -> PyResult<Arc<Channel>> {
+        let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
+        if chan.state.lock().closing {
+            return Err(ChanErr::Closed.into_py(cid, vm));
+        }
+        Ok(chan)
+    }
+
+    /// `_channel_add` plus, when `waiting` is set, `channel_send_wait`.
     fn do_send(
+        chan: &Channel,
         cid: i64,
         value: SharedValue,
         unboundop: i32,
@@ -897,13 +903,9 @@ pub(crate) mod _interpchannels {
         timeout: Option<Duration>,
         vm: &VirtualMachine,
     ) -> PyResult<()> {
-        let chan = channels_lookup(cid).map_err(|e| e.into_py(cid, vm))?;
         let waiting = blocking.then(Waiting::new);
         {
             let mut state = chan.state.lock();
-            if state.closing {
-                return Err(ChanErr::Closed.into_py(cid, vm));
-            }
             if !state.open {
                 return Err(ChanErr::Closed.into_py(cid, vm));
             }
@@ -1012,16 +1014,19 @@ pub(crate) mod _interpchannels {
     fn send(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let (cid, obj, unboundop, fallback, blocking, timeout) =
             send_args(&args, "channel_send", vm)?;
+        let chan = send_begin(cid, vm)?;
         let value = SharedValue::from_object(&obj, fallback, vm)?;
-        do_send(cid, value, unboundop, blocking, timeout, vm)
+        do_send(&chan, cid, value, unboundop, blocking, timeout, vm)
     }
 
     #[pyfunction]
     fn send_buffer(args: FuncArgs, vm: &VirtualMachine) -> PyResult<()> {
         let (cid, obj, unboundop, _fallback, blocking, timeout) =
             send_args(&args, "channel_send_buffer", vm)?;
+        // The memoryview is built before the channel is looked up.
         let value = SharedValue::from_buffer_object(&obj, vm)?;
-        do_send(cid, value, unboundop, blocking, timeout, vm)
+        let chan = send_begin(cid, vm)?;
+        do_send(&chan, cid, value, unboundop, blocking, timeout, vm)
     }
 
     /// `PyThread_ParseTimeoutArg`.

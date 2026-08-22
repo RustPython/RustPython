@@ -740,7 +740,7 @@ pub(crate) mod _interpreters {
             let repr = callable.repr(vm)?;
             return Err(vm.new_type_error(format!("expected a callable, got {repr}")));
         }
-        let func = SharedValue::from_object(callable, Fallback::Full, vm)?;
+        let func = SharedValue::from_callable(callable, vm)?;
         let packed_args = match parsed[2].as_deref() {
             Some(o)
                 if !o
@@ -762,6 +762,19 @@ pub(crate) mod _interpreters {
         call_in(id, func, packed_args, packed_kwargs, vm)
     }
 
+    /// What running the callable in the target interpreter produced.
+    #[cfg(feature = "threading")]
+    enum CallOutcome {
+        Returned(SharedValue),
+        Raised(ExcInfo),
+        /// An argument could not be unpacked or the result has no
+        /// cross-interpreter data; `msg` is what `wrap_notshareable` labelled it.
+        NotShareable {
+            info: ExcInfo,
+            msg: Option<String>,
+        },
+    }
+
     #[cfg(feature = "threading")]
     fn call_in(
         id: i64,
@@ -772,14 +785,17 @@ pub(crate) mod _interpreters {
     ) -> PyResult {
         {
             let outcome = crossinterp::with_interpreter(id, vm, |target| {
-                let run = || -> PyResult {
-                    let func = func.clone().into_object(target)?;
+                // _interp_call_unpack, whose failures are labelled by the part
+                // that could not be rebuilt.
+                let unpack = || -> Result<_, (PyBaseExceptionRef, &'static str)> {
+                    let func = func.clone().into_object(target).map_err(|e| (e, "func"))?;
                     let call_args = match &packed_args {
                         Some(v) => v
                             .clone()
-                            .into_object(target)?
+                            .into_object(target)
+                            .map_err(|e| (e, "args"))?
                             .downcast::<crate::builtins::PyTuple>()
-                            .map_err(|_| target.new_type_error("expected tuple"))?
+                            .map_err(|_| (target.new_type_error("expected tuple"), "args"))?
                             .as_slice()
                             .to_vec(),
                         None => Vec::new(),
@@ -788,24 +804,45 @@ pub(crate) mod _interpreters {
                     if let Some(v) = &packed_kwargs {
                         let dict = v
                             .clone()
-                            .into_object(target)?
+                            .into_object(target)
+                            .map_err(|e| (e, "kwargs"))?
                             .downcast::<PyDict>()
-                            .map_err(|_| target.new_type_error("expected dict"))?;
+                            .map_err(|_| (target.new_type_error("expected dict"), "kwargs"))?;
                         for (key, value) in &*dict {
-                            let name = crossinterp::utf8_key(&key, target)?.to_owned();
+                            let name = crossinterp::utf8_key(&key, target)
+                                .map_err(|e| (e, "kwargs"))?
+                                .to_owned();
                             func_args.kwargs.insert(name.into(), value);
                         }
                     }
-                    func.call(func_args, target)
+                    Ok((func, func_args))
                 };
-                match run() {
-                    Ok(res) => Ok(Ok(SharedValue::from_object(&res, Fallback::Full, target)?)),
-                    Err(exc) => Ok(Err(ExcInfo::capture(&exc, target))),
-                }
+                let (func, func_args) = match unpack() {
+                    Ok(unpacked) => unpacked,
+                    Err((exc, label)) => {
+                        return Ok(CallOutcome::NotShareable {
+                            info: ExcInfo::capture(&exc, target),
+                            msg: Some(format!("{label} not shareable")),
+                        });
+                    }
+                };
+                Ok(match func.call(func_args, target) {
+                    Ok(res) => match SharedValue::from_object(&res, Fallback::Full, target) {
+                        Ok(v) => CallOutcome::Returned(v),
+                        Err(exc) => CallOutcome::NotShareable {
+                            info: ExcInfo::capture(&exc, target),
+                            msg: None,
+                        },
+                    },
+                    Err(exc) => CallOutcome::Raised(ExcInfo::capture(&exc, target)),
+                })
             })?;
             let (res, excinfo) = match outcome {
-                Ok(v) => (v.into_object(vm)?, vm.ctx.none()),
-                Err(info) => (vm.ctx.none(), info.into_namespace(vm)),
+                CallOutcome::Returned(v) => (v.into_object(vm)?, vm.ctx.none()),
+                CallOutcome::Raised(info) => (vm.ctx.none(), info.into_namespace(vm)),
+                CallOutcome::NotShareable { info, msg } => {
+                    return Err(info.into_not_shareable(msg, vm));
+                }
             };
             Ok(vm.ctx.new_tuple(vec![res, excinfo]).into())
         }
@@ -953,10 +990,9 @@ pub(crate) mod _interpreters {
                         .map_or_else(|_| e.class().name().to_string(), |s| s.to_string());
                     vm.new_type_error(format!("expected exception, got {repr}"))
                 })?,
-            None => match vm.current_exception() {
-                Some(e) => e,
-                None => return Ok(vm.ctx.none()),
-            },
+            // `PyErr_GetRaisedException`: an exception is in flight only while
+            // no Python code is running, so there is never one to capture here.
+            None => return Ok(vm.ctx.none()),
         };
         Ok(ExcInfo::capture(&exc, vm).into_namespace(vm))
     }
