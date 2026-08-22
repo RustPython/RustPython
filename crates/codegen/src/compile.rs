@@ -2994,6 +2994,9 @@ impl<'warnings> Compiler<'warnings> {
 
         self.compile_expression(&expression.body)?;
         self.emit_return_value();
+        // The return belongs to no expression, so the exit block can take its
+        // location from whichever path reaches it.
+        self.set_no_location();
         Ok(())
     }
 
@@ -3491,9 +3494,13 @@ impl<'warnings> Compiler<'warnings> {
                 if !dominated_by_interactive && value.is_constant() {
                     emit!(self, Instruction::Nop);
                 } else {
+                    let statement_range = self.current_source_range;
                     self.compile_expression(value)?;
 
                     if dominated_by_interactive {
+                        // The printing belongs to the statement, not to whatever
+                        // the expression left behind.
+                        self.set_source_range(statement_range);
                         emit!(
                             self,
                             Instruction::CallIntrinsic1 {
