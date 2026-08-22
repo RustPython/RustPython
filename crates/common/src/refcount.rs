@@ -1,8 +1,13 @@
 use crate::atomic::{Ordering, PyAtomic, Radium};
 
 // State layout (usize):
-//   [1 bit: destructed] [1 bit: published] [1 bit: leaked] [N bits: weak_count] [M bits: strong_count]
-// 64-bit: N=30, M=31.  32-bit: N=14, M=15.
+//   [1 bit: destructed] [1 bit: published] [1 bit: leaked] [M bits: strong_count]
+// 64-bit: M=61.  32-bit: M=29.
+//
+// Weak references live in the object's `WeakRefList`, not in this word, so the
+// strong count takes every bit the flags leave. A 32-bit target reaches its
+// ceiling at 536 870 911 references rather than the 32 767 that half the word
+// would allow — a number two ordinary module imports pass on `wasm32`.
 const FLAG_BITS: u32 = 3;
 const DESTRUCTED: usize = 1 << (usize::BITS - 1);
 /// Object was published to a lock-free cache; memory reclamation is
@@ -10,12 +15,9 @@ const DESTRUCTED: usize = 1 << (usize::BITS - 1);
 /// freed memory. Sticky once set.
 const PUBLISHED: usize = 1 << (usize::BITS - 2);
 const LEAKED: usize = 1 << (usize::BITS - 3);
-const TOTAL_COUNT_WIDTH: u32 = usize::BITS - FLAG_BITS;
-const WEAK_WIDTH: u32 = TOTAL_COUNT_WIDTH / 2;
-const STRONG_WIDTH: u32 = TOTAL_COUNT_WIDTH - WEAK_WIDTH;
+const STRONG_WIDTH: u32 = usize::BITS - FLAG_BITS;
 const STRONG: usize = (1 << STRONG_WIDTH) - 1;
 const COUNT: usize = 1;
-const WEAK_COUNT: usize = 1 << STRONG_WIDTH;
 
 #[inline(never)]
 #[cold]
@@ -48,8 +50,8 @@ impl State {
     }
 
     #[inline]
-    fn strong(self) -> u32 {
-        ((self.inner & STRONG) / COUNT) as u32
+    fn strong(self) -> usize {
+        (self.inner & STRONG) / COUNT
     }
 
     #[inline]
@@ -76,8 +78,8 @@ impl State {
 /// Reference count using state layout with LEAKED support.
 ///
 /// State layout (usize):
-/// 64-bit: [1 bit: destructed] [1 bit: published] [1 bit: leaked] [30 bits: weak_count] [31 bits: strong_count]
-/// 32-bit: [1 bit: destructed] [1 bit: published] [1 bit: leaked] [14 bits: weak_count] [15 bits: strong_count]
+/// 64-bit: [1 bit: destructed] [1 bit: published] [1 bit: leaked] [61 bits: strong_count]
+/// 32-bit: [1 bit: destructed] [1 bit: published] [1 bit: leaked] [29 bits: strong_count]
 pub struct RefCount {
     state: PyAtomic<usize>,
 }
@@ -92,23 +94,22 @@ impl RefCount {
     /// Create a new RefCount with strong count = 1
     #[must_use]
     pub fn new() -> Self {
-        // Initial state: strong=1, weak=1 (implicit weak for strong refs)
         Self {
-            state: Radium::new(COUNT + WEAK_COUNT),
+            state: Radium::new(COUNT),
         }
     }
 
     /// Get current strong count
     #[inline]
     pub fn get(&self) -> usize {
-        State::from_raw(self.state.load(Ordering::Relaxed)).strong() as usize
+        State::from_raw(self.state.load(Ordering::Relaxed)).strong()
     }
 
     /// Increment strong count
     #[inline]
     pub fn inc(&self) {
         let val = State::from_raw(self.state.fetch_add(COUNT, Ordering::Relaxed));
-        if val.destructed() || (val.strong() as usize) > STRONG - 1 {
+        if val.destructed() || val.strong() > STRONG - 1 {
             refcount_overflow();
         }
         if val.strong() == 0 {
@@ -121,7 +122,7 @@ impl RefCount {
     pub fn inc_by(&self, n: usize) {
         debug_assert!(n <= STRONG);
         let val = State::from_raw(self.state.fetch_add(n * COUNT, Ordering::Relaxed));
-        if val.destructed() || (val.strong() as usize) > STRONG - n {
+        if val.destructed() || val.strong() > STRONG - n {
             refcount_overflow();
         }
     }
@@ -135,7 +136,7 @@ impl RefCount {
             if old.destructed() || old.strong() == 0 {
                 return false;
             }
-            if (old.strong() as usize) >= STRONG {
+            if old.strong() >= STRONG {
                 refcount_overflow();
             }
             let new_state = old.add_strong(1);
@@ -298,6 +299,57 @@ pub fn flush_deferred_drops() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The strong count reaches far past a 16-bit ceiling on every target.
+    ///
+    /// The count shares its word with the flag bits, so its width follows the
+    /// pointer width. A 32-bit target is the one this guards: a second counter
+    /// packed beside the strong count once left it 15 bits, and `wasm32`
+    /// aborted at 32 767 references — a total two ordinary module imports
+    /// pass. The check is a no-op on a 64-bit host, where 31 bits already
+    /// covered this; run the crate's tests against a 32-bit target to exercise
+    /// it.
+    #[test]
+    fn strong_count_reaches_past_a_16_bit_ceiling() {
+        const REFERENCES: usize = 1 << 20;
+
+        let rc = RefCount::new();
+        rc.inc_by(REFERENCES);
+        assert_eq!(rc.get(), REFERENCES + 1);
+    }
+
+    /// `inc` and `dec` reach the same ceiling as `inc_by`.
+    ///
+    /// The aborts reported against this layout came one reference at a time
+    /// through `inc`, whose overflow check is written separately from
+    /// `inc_by`'s, and the count has to come back down through `dec` without
+    /// reporting the object collectable before the last reference goes.
+    #[test]
+    fn inc_and_dec_reach_past_a_16_bit_ceiling() {
+        const REFERENCES: usize = 1 << 20;
+
+        let rc = RefCount::new(); // strong = 1
+        for _ in 1..REFERENCES {
+            rc.inc();
+        }
+        assert_eq!(rc.get(), REFERENCES);
+        for _ in 1..REFERENCES {
+            assert!(!rc.dec());
+        }
+        assert_eq!(rc.get(), 1);
+        assert!(rc.dec());
+    }
+
+    /// A fresh count holds exactly one strong reference and no stray bits.
+    ///
+    /// `get` masks the flags away, so a spare field left in the word would not
+    /// show up there. Reading the raw state keeps the layout honest.
+    #[test]
+    fn a_new_refcount_holds_one_strong_reference_and_nothing_else() {
+        let rc = RefCount::new();
+        assert_eq!(rc.get(), 1);
+        assert_eq!(rc.state.load(Ordering::Relaxed), COUNT);
+    }
 
     #[test]
     fn published_bit_survives_refcount_traffic() {
