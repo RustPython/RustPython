@@ -1301,7 +1301,6 @@ class StringLikeTest(BaseTest):
         self.checkequal(False, 'asd', '__contains__', 'asdf')
         self.checkequal(False, '', '__contains__', 'asdf')
 
-    @unittest.expectedFailure  # TODO: RUSTPYTHON
     def test_subscript(self):
         self.checkequal('a', 'abc', '__getitem__', 0)
         self.checkequal('c', 'abc', '__getitem__', -1)
