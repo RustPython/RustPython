@@ -3548,6 +3548,7 @@ dependencies = [
  "optional",
  "rustpython-unicode",
  "rustpython-wtf8",
+ "unic-ucd-category",
 ]
 
 [[package]]
